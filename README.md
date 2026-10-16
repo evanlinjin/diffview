@@ -1,6 +1,6 @@
 # dv
 
-A terminal diff viewer for reading and reviewing pull requests, with Helix keys,
+A Terminal Diff Viewer for reading and reviewing pull requests, with Helix keys,
 rust-analyzer, and GitHub review comments.
 
 - **Diff**: unified or side-by-side (`Ctrl-w v`), with review comments in the right margin on

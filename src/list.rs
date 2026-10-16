@@ -624,6 +624,8 @@ fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathBuf, Option<
 
 /// `s` cut to `n` chars, ending in `…` if it was longer.
 fn cut(s: &str, n: usize) -> String {
+    // FIX: handle zero
+    if n == 0 { return "".to_string(); }
     match s.chars().count() > n {
         true => format!("{}…", s.chars().take(n.saturating_sub(1)).collect::<String>()),
         false => s.to_owned(),
