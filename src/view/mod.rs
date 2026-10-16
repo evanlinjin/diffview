@@ -22,6 +22,7 @@ use std::time::Duration;
 
 mod agent;
 mod keys;
+mod mouse;
 mod motion;
 mod ra;
 mod render;
@@ -103,6 +104,7 @@ GENERAL
   ?                    this help (/ to search it)
   R                    refresh (git diff + GitHub)
   Space u              update the checkout: to the PR's head (fast-forward only), or git pull
+  mouse                wheel scrolls, click moves (or folds, on an arrow), drag selects
   q, Ctrl-c            quit
 ";
 
@@ -324,6 +326,8 @@ pub struct App {
     margin_w: usize,
     /// In margin mode: each thread's code line (the one it's about), as laid out.
     margin_anchor: HashMap<usize, usize>,
+    /// Where things were drawn last, for mouse clicks.
+    geom: mouse::Geom,
     /// Screen rows, and the screen row of each row (`top` and scrolling count screen rows).
     drows: Vec<DRow>,
     d_of: Vec<usize>,
@@ -441,6 +445,7 @@ impl App {
             margin_active: false,
             margin_w: MARGIN_MIN,
             margin_anchor: HashMap::new(),
+            geom: Default::default(),
             drows: vec![],
             d_of: vec![],
             emph: HashMap::new(),
@@ -489,11 +494,13 @@ impl App {
                 continue;
             }
             // ponytail: 100ms poll so LSP replies show up without a keypress; a waker channel if it matters.
-            if event::poll(Duration::from_millis(100))?
-                && let Event::Key(k) = event::read()?
-                    && k.kind == KeyEventKind::Press {
-                        self.key(k);
-                    }
+            if event::poll(Duration::from_millis(100))? {
+                match event::read()? {
+                    Event::Key(k) if k.kind == KeyEventKind::Press => self.key(k),
+                    Event::Mouse(m) => self.mouse(m),
+                    _ => {}
+                }
+            }
             self.lsp_poll();
             self.watch_hx();
             self.watch_claude();
@@ -502,14 +509,14 @@ impl App {
                 // In zellij the editor gets a pane on the right and dv stays on screen beside it.
                 let in_pane = in_zellij();
                 if !in_pane {
-                    ratatui::restore();
+                    restore_terminal();
                 }
                 // Anything to post is queued as a job (it runs after a "posting…" frame, then
                 // refetches); here only the diff reloads, as hx may have changed files.
                 let res = self.perform(a);
                 self.hl_cache.retain(|k, _| !k.1); // working-tree files may have changed; the base can't
                 if !in_pane {
-                    *term = ratatui::init();
+                    *term = init_terminal();
                 }
                 if let Err(e) = self.reload(false) {
                     self.msg = e.to_string();
@@ -1319,6 +1326,27 @@ fn pane_alive(id: &str) -> bool {
     let Ok(out) = std::process::Command::new("zellij").args(["action", "list-panes", "-j", "-s"]).stdin(std::process::Stdio::null()).output() else { return false };
     let panes: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
     panes.as_array().is_some_and(|ps| ps.iter().any(|p| p["id"].as_u64() == Some(n) && p["is_plugin"] != true && p["exited"] != true))
+}
+
+/// Mouse support (wheel, click, drag); `--no-mouse` turns it off, leaving the terminal's own
+/// selection as it is.
+pub static MOUSE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Take over the terminal (ratatui), with mouse capture unless `--no-mouse`.
+pub fn init_terminal() -> DefaultTerminal {
+    let term = ratatui::init();
+    if MOUSE.load(std::sync::atomic::Ordering::Relaxed) {
+        _ = ratatui::crossterm::execute!(std::io::stdout(), ratatui::crossterm::event::EnableMouseCapture);
+    }
+    term
+}
+
+/// Give the terminal back (mouse capture off first, so an editor or the shell gets it clean).
+pub fn restore_terminal() {
+    if MOUSE.load(std::sync::atomic::Ordering::Relaxed) {
+        _ = ratatui::crossterm::execute!(std::io::stdout(), ratatui::crossterm::event::DisableMouseCapture);
+    }
+    ratatui::restore();
 }
 
 fn in_zellij() -> bool {

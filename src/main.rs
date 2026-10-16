@@ -28,6 +28,7 @@ const USAGE: &str = "usage: dv [base | PR | list] [-p N] [-f] [-w [-b]]
                    push to the PR); git won't if that branch is checked out elsewhere
   --rm             remove the PR's worktree (dv 123 --rm); -f if it has local changes.
                    A -b branch is kept, in case it has unpushed commits
+  --no-mouse       leave the mouse to the terminal (dv: wheel scrolls, click moves, drag selects)
   short flags combine: dv 123 -wb   (worktree on the PR's branch)";
 
 /// What dv is doing before its screen is up, on one line that each step overwrites (only on
@@ -50,6 +51,7 @@ struct Opts {
     worktree: bool,
     branch: bool,
     rm: bool,
+    no_mouse: bool,
     list: bool,
     /// review-info / review-check / install-skill
     cmd: Option<&'static str>,
@@ -88,6 +90,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Opts> {
             "-w" | "--worktree" => o.worktree = true,
             "-b" | "--branch" => o.branch = true,
             "--rm" | "--remove" => o.rm = true,
+            "--no-mouse" => o.no_mouse = true,
             "list" => o.list = true,
             "review-info" => o.cmd = Some("review-info"),
             "review-check" => o.cmd = Some("review-check"),
@@ -108,6 +111,7 @@ fn main() -> anyhow::Result<()> {
 
 fn run() -> anyhow::Result<()> {
     let o = parse_args(std::env::args().skip(1))?;
+    view::MOUSE.store(!o.no_mouse, std::sync::atomic::Ordering::Relaxed);
     if o.help {
         println!("{USAGE}");
         return Ok(());
@@ -152,9 +156,9 @@ fn run() -> anyhow::Result<()> {
 fn pick_and_review(o: &Opts, root: &Path) -> anyhow::Result<()> {
     let mut list = list::List::new(o.flags());
     loop {
-        let mut term = ratatui::init();
+        let mut term = view::init_terminal();
         let picked = list.run(&mut term);
-        ratatui::restore();
+        view::restore_terminal();
         let Some(pick) = picked? else { return Ok(()) };
         let n = pick.number;
         // A PR from the worktrees tab opens in its worktree, as it was made (on its branch or not).
@@ -211,9 +215,9 @@ fn review(o: &Opts, pr_num: Option<u64>) -> anyhow::Result<(Option<PathBuf>, any
     if let Some(n) = note {
         app.notice(n);
     }
-    let mut term = ratatui::init();
+    let mut term = view::init_terminal();
     let res = app.run(&mut term);
-    ratatui::restore();
+    view::restore_terminal();
     Ok((wt, res))
 }
 

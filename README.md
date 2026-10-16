@@ -45,7 +45,8 @@ dv list -w        # pick from the open PRs; Enter reviews one (here: in a worktr
 
 On a branch with an open PR, plain `dv` loads it too.
 
-Press `?` in dv for every key (`/` searches the list). [SPEC.md](SPEC.md) has the full key
+The mouse works too: scroll, click to move, drag to select (`dv --no-mouse` leaves it to your
+terminal; most select text with Shift held either way). Press `?` in dv for every key (`/` searches the list). [SPEC.md](SPEC.md) has the full key
 table and design notes.
 
 ## Reviewing a PR

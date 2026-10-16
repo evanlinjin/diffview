@@ -104,10 +104,15 @@ impl List {
             if !event::poll(Duration::from_millis(100))? {
                 continue;
             }
-            let Event::Key(k) = event::read()? else { continue };
-            if k.kind != KeyEventKind::Press {
-                continue;
-            }
+            let k = match event::read()? {
+                Event::Key(k) if k.kind == KeyEventKind::Press => k,
+                Event::Mouse(m) => match self.mouse(m) {
+                    // A click on the selected card opens it, as Enter.
+                    true => KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+                    false => continue,
+                },
+                _ => continue,
+            };
             match self.key(k) {
                 Some(Do::Quit) => return Ok(None),
                 Some(Do::Open(n)) => {
@@ -216,6 +221,28 @@ impl List {
             _ => {}
         }
         None
+    }
+
+    /// The wheel moves the selection; a click selects a card, and on the selected one opens it
+    /// (`true`: open).
+    fn mouse(&mut self, m: event::MouseEvent) -> bool {
+        use event::{MouseButton, MouseEventKind};
+        let n = self.shown().len();
+        match m.kind {
+            MouseEventKind::ScrollDown => self.sel = (self.sel + 1).min(n.saturating_sub(1)),
+            MouseEventKind::ScrollUp => self.sel = self.sel.saturating_sub(1),
+            MouseEventKind::Down(MouseButton::Left) if !self.help && m.row >= 1 => {
+                let i = self.top + (m.row as usize - 1) / 2; // cards start under the header, 2 rows each
+                if i < n {
+                    if i == self.sel {
+                        return true;
+                    }
+                    self.sel = i;
+                }
+            }
+            _ => {}
+        }
+        false
     }
 
     /// Cards on screen (2 rows each, between the header and the status bar).

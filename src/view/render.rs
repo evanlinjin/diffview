@@ -198,6 +198,7 @@ impl App {
             let keep = self.cursor_key();
             self.rebuild(keep);
         }
+        self.geom = mouse::Geom { relw, gw, ghw, half, ctw, picker: None };
         if self.head.col < self.left {
             self.left = self.head.col;
         }
@@ -391,6 +392,7 @@ impl App {
             // Items start below the query line.
             let list = Rect { y: inner.y + 1, height: inner.height.saturating_sub(1), ..inner };
             self.scrollbar(f, list, m.len(), vis, off);
+            self.geom.picker = Some(mouse::PickerGeom { list, item_h, off });
         }
 
         // Bottom right, like Helix's which-key: what can follow a pending prefix key, else what the

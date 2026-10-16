@@ -156,6 +156,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `R` | refresh: re-run `git diff`, re-fetch threads + PR info |
 | `Space u` | update the checkout: to the PR's head as `gh pr checkout` does (fast-forward only; local commits are kept), or `git pull --ff-only` without a PR; then refresh |
 | `?` | key help overlay (two columns when the window fits them); `/` inside it filters entries (smart case), Enter keeps, Esc clears |
+| mouse | wheel scrolls (view, popup, picker); click moves the cursor (or folds, on a fold arrow; picks in a picker, opens on a second click); drag selects. `--no-mouse` leaves it to the terminal |
 | `q` | quit |
 
 `dv list` (the 200 most recently updated open PRs; `Tab` switches to the PRs with a local

@@ -809,3 +809,32 @@ fn what_claude_was_refused() {
     assert_eq!(refusal(&v(serde_json::json!([bash, grep]))).unwrap(), "Bash cat <<EOF > x (and 1 more)");
     assert_eq!(refusal(&v(serde_json::json!([grep]))).unwrap(), "Grep /r/src"); // its path, not a bare name
 }
+
+#[test]
+fn mouse() {
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    app.build();
+    app.height = 20;
+    app.geom = mouse::Geom { relw: 0, gw: 10, ghw: 6, half: 40, ctw: 0, picker: None };
+    let at = |kind, x: u16, y: u16| MouseEvent { kind, column: x, row: y, modifiers: KeyModifiers::NONE };
+    // rows: 0 file header, 1 hunk, 2 `fn main() {`, 3 `-    old();`, 4 `+    new_call(x);`
+    app.mouse(at(MouseEventKind::Down(MouseButton::Left), 10 + 4, 4)); // text column 4 of row 4
+    assert_eq!(app.head, Pos { row: 4, col: 4 });
+    // A drag selects from there.
+    app.mouse(at(MouseEventKind::Drag(MouseButton::Left), 10 + 11, 4));
+    assert_eq!(app.selection_text(false), "new_call");
+    // A click on the file header's fold arrow folds the file.
+    app.mouse(at(MouseEventKind::Down(MouseButton::Left), 1, 0));
+    assert!(app.collapsed.contains("src/a.rs"));
+    // The wheel scrolls a picker's selection; a click picks, again opens.
+    app.key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
+    app.mouse(at(MouseEventKind::ScrollDown, 30, 5));
+    assert_eq!(app.picker.as_ref().unwrap().sel, 1);
+    app.geom.picker = Some(mouse::PickerGeom { list: Rect { x: 10, y: 4, width: 60, height: 5 }, item_h: 1, off: 0 });
+    app.mouse(at(MouseEventKind::Down(MouseButton::Left), 20, 6)); // the third file
+    assert_eq!(app.picker.as_ref().unwrap().sel, 2);
+    app.mouse(at(MouseEventKind::Down(MouseButton::Left), 20, 6)); // again: opens it
+    assert!(app.picker.is_none() && app.rows[app.head.row].line.text.starts_with("img.png"));
+}

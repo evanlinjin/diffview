@@ -6,6 +6,10 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Added
+- Mouse support: the wheel scrolls (the view, a popup, a picker's selection), a click moves
+  the cursor there (code, comment margin, either split side) or folds on a fold arrow, a drag
+  selects; in pickers and `dv list` a click picks and a second click opens. `--no-mouse` leaves
+  the mouse to the terminal (most terminals select text with Shift held either way).
 - `Space u` updates the checkout: to the PR's head (fast-forward only, keeping local commits),
   or `git pull --ff-only` without a PR, then refreshes.
 - Comments in the right margin: in single-pane view on a wide window (room for 80 columns of
