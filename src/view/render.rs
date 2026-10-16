@@ -115,25 +115,45 @@ impl App {
             .collect()
     }
 
-    /// What the overloaded keys do where the cursor is, for the status bar: on a selection, a
-    /// review thread, Claude's comment, or PR text. Nothing elsewhere, to keep it quiet.
-    pub(super) fn context_hint(&self) -> Option<&'static str> {
+    /// What the overloaded keys do where the cursor is, for the bottom-right key popup: on a
+    /// selection, a review thread, Claude's comment, the PR header or PR text. Nothing elsewhere,
+    /// to keep it quiet.
+    pub(super) fn context_keys(&self) -> Option<(&'static str, &'static [(&'static str, &'static str)])> {
         let row = &self.rows[self.head.row];
         if self.select || self.anchor.row != self.head.row {
-            return Some("c comment · s suggest · C comment now · y copy · Space c copy ref");
+            return Some(("selection", &[
+                ("c", "comment (review)"),
+                ("C", "comment now"),
+                ("s", "suggest a change"),
+                ("y", "copy"),
+                ("Space c", "copy file:line ref"),
+            ]));
         }
         if let Some(t) = row.thread {
             let t = &self.threads[t];
             return Some(match (t.claude.is_some(), t.outdated) {
-                (true, true) => "outdated · r reply to Claude · Space d dismiss · Tab fold",
-                (true, false) => "r reply to Claude · c copy to your review · C post now · Space r resolve · Space d dismiss",
-                (false, _) => "r reply (review) · C reply now · Space r resolve · Space e edit · Space c copy link",
+                (true, true) => ("Claude's comment (outdated)", &[("r", "reply to Claude"), ("Space d", "dismiss"), ("Tab", "fold")]),
+                (true, false) => ("Claude's comment", &[
+                    ("r", "reply to Claude"),
+                    ("c", "copy to your review"),
+                    ("C", "post it now"),
+                    ("Space r", "resolve"),
+                    ("Space d", "dismiss"),
+                ]),
+                (false, _) => ("review thread", &[
+                    ("r", "reply (review)"),
+                    ("C", "reply now"),
+                    ("Space r", "resolve"),
+                    ("Space e", "edit your comment"),
+                    ("Space c", "copy link"),
+                ]),
             });
         }
         if row.file == INFO && row.line.kind == Kind::File && !row.links.is_empty() {
-            return Some("gf open the PR on GitHub · Tab fold");
+            return Some(("PR", &[("gf", "open on GitHub"), ("Tab", "fold")]));
         }
-        (row.file == INFO && row.info.is_some()).then_some("C quote in a new conversation comment · Space c copy link")
+        (row.file == INFO && row.info.is_some())
+            .then_some(("PR text", &[("C", "quote in a new conversation comment"), ("Space c", "copy link")]))
     }
 
     pub(super) fn draw(&mut self, f: &mut Frame) {
@@ -255,11 +275,7 @@ impl App {
                     _ => String::new(),
                 };
                 let (mode, mst) = if self.select { (" SEL ", self.ui.mode_select) } else { (" NOR ", self.ui.mode_normal) };
-                let mut spans = vec![Span::styled(mode, mst), Span::raw(format!("  {}  {pos}  {}", self.file_path().unwrap_or(""), self.msg))];
-                if let Some(hint) = self.context_hint().filter(|_| self.msg.is_empty()) {
-                    spans.push(Span::styled(hint, self.ui.stale));
-                }
-                Line::from(spans)
+                Line::from(vec![Span::styled(mode, mst), Span::raw(format!("  {}  {pos}  {}", self.file_path().unwrap_or(""), self.msg))])
             }
         };
         let pend = match self.pending {
@@ -348,8 +364,14 @@ impl App {
             self.scrollbar(f, list, m.len(), vis, off);
         }
 
-        // Which-key: what can follow a pending prefix key, bottom right, like Helix.
-        if let Some((title, keys)) = self.pending.and_then(App::which) {
+        // Bottom right, like Helix's which-key: what can follow a pending prefix key, else what the
+        // keys do where the cursor is (when no other popup is up).
+        let keys = match self.pending {
+            Some(p) => App::which(p),
+            None if self.picker.is_none() && self.popup.is_none() && self.prompt.is_none() => self.context_keys(),
+            None => None,
+        };
+        if let Some((title, keys)) = keys {
             let kw = keys.iter().map(|k| k.0.len()).max().unwrap_or(1);
             let lines: Vec<Line> = keys
                 .iter()

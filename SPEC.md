@@ -155,8 +155,9 @@ refreshes, `q` quits. Quitting the review returns to the list; if opening a PR f
 error shows in the list's status bar.
 
 Discoverability: after a prefix key (`Space`, `g`, `z`, `]`, `[`, `Ctrl-w`, `m`) a which-key
-popup lists what can follow, as in Helix. On a selection, a review thread, Claude's comment or
-PR text, the status bar says what `c` / `C` / `r` / `s` (etc.) do there. The status bar's left
+popup lists what can follow, as in Helix. The same bottom-right popup otherwise says what the
+keys do where the cursor is: on a selection, a review thread, Claude's comment, the PR header
+or PR text (nothing on plain code). The status bar's left
 side (what you're on, messages, hints) wins over its right: when both don't fit, the right
 keeps only the essentials.
 

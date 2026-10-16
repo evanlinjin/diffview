@@ -503,14 +503,18 @@ fn copy_refs() {
     let second = app.rows.iter().enumerate().filter(|(_, r)| r.thread == Some(0) && r.line.text == "hi").nth(1).unwrap().0;
     app.goto(second, 0);
     assert_eq!(app.cursor_ref().unwrap(), "https://github.com/o/r/pull/1#discussion_r12"); // the reply under the cursor
+    assert_eq!(app.context_keys().unwrap().0, "review thread"); // the bottom-right key popup
+    assert_eq!(app.context_keys().unwrap().1[0], ("r", "reply (review)"));
     app.threads[0].claude = Some("c1".into());
     app.threads[0].start_line = Some(1);
     app.build();
     app.goto(app.rows.iter().position(|r| r.thread == Some(0)).unwrap(), 0);
     assert_eq!(app.cursor_ref().unwrap(), "src/a.rs:1-2"); // Claude's: where it is
+    assert_eq!(app.context_keys().unwrap().0, "Claude's comment");
     let code = app.rows.iter().position(|r| r.line.kind == Kind::Add).unwrap();
     app.goto(code, 0);
     assert_eq!(app.cursor_ref().unwrap(), "src/a.rs:2");
+    assert!(app.context_keys().is_none()); // plain code: no popup
 }
 
 #[test]
