@@ -2,7 +2,7 @@
 name = "dv-review"
 version = "0.3.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.89"
 description = "A terminal diff viewer for reviewing GitHub PRs: Helix keys, rust-analyzer, inline review comments, and Claude Code reviews"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/evanlinjin/diffview"

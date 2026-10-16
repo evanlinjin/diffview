@@ -19,6 +19,7 @@ on GitHub are its section here.
   summary, and only the code it commented on (a few lines around each comment).
 
 ### Changed
+- Minimum Rust version 1.89 (was 1.88), for current dependencies (uuid 1.28).
 - `dv list`: Claude's part of a card (`claude ✓`, `claude: reviewing…`) sits at the right end
   of its second line, under the age; a long line is cut to keep it in view.
 - The PR's state (DRAFT, OPEN, MERGED, CLOSED) sits at the right end of the PR's header line,
