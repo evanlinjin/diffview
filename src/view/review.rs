@@ -496,7 +496,9 @@ impl App {
         match (row.file == INFO, row.thread) {
             (true, _) if review => self.msg = "select code lines to comment on".into(),
             (true, _) => self.start_conversation_comment(),
-            (false, Some(_)) => self.start_reply(review),
+            // `r` replies (in the review); `C` here replies right away, as `C` posts what `c` queues.
+            (false, Some(_)) if review => self.msg = "r replies to this thread (c comments on selected code lines)".into(),
+            (false, Some(_)) => self.start_reply(false),
             (false, None) => self.start_comment(review),
         }
     }

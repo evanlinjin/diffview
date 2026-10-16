@@ -44,10 +44,10 @@ table and design notes.
 ## Reviewing a PR
 
 1. `dv 2258` (or `dv 2258 -w` to keep your checkout as it is).
-2. Read: `n`/`N` hop between hunks, `]f`/`[f` between files, `Space f` picks a file,
+2. Read: `]g`/`[g` hop between hunks, `]f`/`[f` between files, `Space f` picks a file,
    `Space t` lists the threads. `Space v` marks a file viewed and moves on.
 3. Comment: select lines (`x`, `v`), then `c` to comment or `s` to suggest a change. On a
-   thread, `c` replies (quoting the comment under the cursor). These go into your pending
+   thread, `r` replies (quoting the comment under the cursor). These go into your pending
    review; `Space p` lists them.
 4. Submit: `S`, then Comment / Approve / Request changes.
 

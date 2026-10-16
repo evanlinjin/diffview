@@ -148,12 +148,7 @@ impl App {
             return;
         }
         if k.modifiers.contains(KeyModifiers::ALT) {
-            match c {
-                'n' => self.find(true),
-                'N' => self.find(false),
-                _ => {}
-            }
-            return;
+            return; // no Alt bindings (n / N repeat the search, as in Helix)
         }
         if let Some(p) = self.pending.take() {
             return self.pending_key(p, c);
@@ -175,8 +170,8 @@ impl App {
             'y' => self.yank(false),
             'Y' => self.yank(true),
             '/' => self.prompt = Some(String::new()),
-            'n' => (0..n).for_each(|_| self.next_kind(true, change_start)),
-            'N' => (0..n).for_each(|_| self.next_kind(false, change_start)),
+            'n' => (0..n).for_each(|_| self.find(true)),
+            'N' => (0..n).for_each(|_| self.find(false)),
             '*' => {
                 self.search = self.selection_text(false).trim_end_matches('\n').to_owned();
                 self.msg = format!("search: {}", self.search);
@@ -237,7 +232,7 @@ impl App {
             'z' => ("view", &[("z", "cursor line to center"), ("t", "… to top"), ("b", "… to bottom")]),
             ']' => ("next", &[("g", "change (hunk)"), ("f", "file"), ("c", "comment thread"), ("a", "Claude's comment")]),
             '[' => ("previous", &[("g", "change (hunk)"), ("f", "file"), ("c", "comment thread"), ("a", "Claude's comment")]),
-            CTRL_W => ("window", &[("v", "toggle split view")]),
+            CTRL_W => ("window", &[("v", "toggle split view"), ("h", "old side (split)"), ("l", "new side (split)")]),
             'm' => ("match", &[("m", "matching bracket")]),
             _ => return None,
         })
@@ -280,6 +275,8 @@ impl App {
             ('z', 't') => self.top = self.hd().saturating_sub(so),
             ('z', 'b') => self.top = (self.hd() + so + 1).saturating_sub(self.height),
             (CTRL_W, 'v') => self.toggle_split(),
+            (CTRL_W, 'h') => self.side(false),
+            (CTRL_W, 'l') => self.side(true),
             (']', 'f') => self.next_kind(true, file),
             ('[', 'f') => self.next_kind(false, file),
             (' ', 'f') => {

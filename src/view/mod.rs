@@ -45,11 +45,11 @@ MOVE
   Ctrl-o               jump back
 
 DIFF
-  n N, ]g [g           next / prev hunk
+  ]g [g                next / prev hunk (change)
   ]f [f, Space f       next / prev file, file picker
   ]c [c                next / prev comment thread
   ]a [a                next / prev Claude comment (wraps around)
-  /  Alt-n Alt-N  *    search, next / prev match, search selection
+  /  n N  *            search, next / prev match, search selection
 
 SELECT & COPY
   x                    select line (repeat to extend)
@@ -64,7 +64,7 @@ VIEW
   Tab                  fold file / PR info / thread
   Shift-Tab            fold / unfold all files
   Ctrl-w v             toggle split (side-by-side) view
-  Ctrl-h Ctrl-l        split view: go to the old / new side
+  Ctrl-w h  Ctrl-w l   split view: go to the old / new side (or Ctrl-h Ctrl-l)
   Enter                open hx at cursor (on a link: open it)
   gf                   open the link under the cursor in the browser
 
@@ -77,7 +77,7 @@ ON SELECTED LINES
   s                    suggest a change, in your pending review
 
 ON A REVIEW THREAD
-  c  r                 reply, in your pending review (C: post it now)
+  r                    reply, in your pending review (C: post it now)
   Space r              resolve / unresolve
   Space e  Space d     edit / delete your comment (delete asks first)
 

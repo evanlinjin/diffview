@@ -127,7 +127,7 @@ impl App {
             return Some(match (t.claude.is_some(), t.outdated) {
                 (true, true) => "outdated · r reply to Claude · Space d dismiss · Tab fold",
                 (true, false) => "r reply to Claude · c copy to your review · C post now · Space r resolve · Space d dismiss",
-                (false, _) => "c reply (review) · C reply now · Space r resolve · Space e edit · Space c copy link",
+                (false, _) => "r reply (review) · C reply now · Space r resolve · Space e edit · Space c copy link",
             });
         }
         if row.file == INFO && row.line.kind == Kind::File && !row.links.is_empty() {

@@ -106,23 +106,24 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `zz zt zb` | put the cursor line at center / top / bottom |
 | `x` | select line (repeat to extend) |
 | `v`, `;`, `Esc` | select mode / collapse selection / exit select mode |
-| `n N`, `]g [g` | next/prev change (hunk) |
+| `]g [g` | next/prev change (hunk) |
 | `]f [f`, `Space f` | next/prev file, file picker |
-| `/`, `Alt-n Alt-N`, `*` | search (smart case), next/prev match, search for the selection |
+| `/`, `n N`, `*` | search (smart case), next/prev match (as in Helix), search for the selection |
 | `y` / `Space y`, `Y` | copy text, copy as patch (via OSC 52) |
 | `Space c` | copy a ref to paste to Claude: `path:line` / `path:start-end` for the selection; on a GitHub comment its link (`…#discussion_r…`, `…#issuecomment-…`), on the PR header / description the PR's, on a Claude comment its lines |
 | `+`/`=`, `-`, `Z` | context ±10 lines around the hunk under the cursor (hunks merge as they meet), whole file |
 | `Tab` | collapse/expand file; on a comment, fold/unfold its thread |
 | `Shift-Tab` | fold all files, or unfold all if all are folded |
 | `Ctrl-w v` | toggle split view: old ‖ new side by side (removed runs pair with the added lines after them) |
-| `Ctrl-h Ctrl-l` | split view: move to the old / new side |
+| `Ctrl-w h` `Ctrl-w l` (or `Ctrl-h` `Ctrl-l`) | split view: move to the old / new side |
 | `Enter` | open `hx file:line:col` (in a floating pane inside zellij), reload diff afterwards; on a link, open the link |
 | `gf` | open the link under the cursor in the browser (`xdg-open` / `open`); a tooltip shows the URL while the cursor is on a link |
 | `gd gr gy gi`, `Space k` | definition / references / type / impl, hover |
 | `Space k` on an issue/PR link | preview it in a popup: state, author, age, comments, labels, body (the link tooltip says so) |
 | `Ctrl-o` | jump back |
-| `c` | comment on the selection, or reply on a thread, in your pending review (`r` = reply) |
-| `C` | same, but post immediately as a single comment; in the PR description/conversation: a new conversation comment quoting the comment under the cursor |
+| `c` | comment on the selection, in your pending review |
+| `r` | reply on a thread, in your pending review (on a Claude comment: reply to Claude) |
+| `C` | `c` / `r`, but post immediately; in the PR description/conversation: a new conversation comment quoting the comment under the cursor |
 | `s` | suggest a change: `$EDITOR` opens with a ```suggestion block of the selected new-side lines (pending review) |
 | `S` | submit the pending review (comment / approve / request changes) or discard it |
 | `Space r` | resolve / unresolve the thread under the cursor |

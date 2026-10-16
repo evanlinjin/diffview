@@ -4,7 +4,7 @@ use super::*;
 fn keys_and_yank() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
     let press = |app: &mut App, s: &str| s.chars().for_each(|c| app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)));
-    press(&mut app, "n"); // first change: the deleted line
+    press(&mut app, "]g"); // first change: the deleted line
     assert_eq!(app.rows[app.head.row].line.kind, Kind::Del);
     press(&mut app, "jww");
     assert_eq!(app.selection_text(false), "new_call");
@@ -16,6 +16,8 @@ fn keys_and_yank() {
     press(&mut app, "/call");
     app.key(enter);
     assert_eq!((app.anchor, app.head), (Pos { row: 4, col: 8 }, Pos { row: 4, col: 11 }));
+    press(&mut app, "N"); // n / N repeat the search, as in Helix (one match: stays)
+    assert_eq!(app.head, Pos { row: 4, col: 11 });
     press(&mut app, "/CALL");
     app.key(enter);
     assert!(app.msg.starts_with("no match")); // smart case: uppercase query is case-sensitive
@@ -163,6 +165,14 @@ fn split_view() {
     assert_eq!(app.head.row, 4); // nothing on the right there; side switches for the next move
     app.vmove(1);
     assert_eq!(app.head.row, 6);
+    // Ctrl-w h / Ctrl-w l do the same, as Helix moves between splits.
+    app.goto(5, 0); // new1
+    app.key(ctrl('w'));
+    app.key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE));
+    assert_eq!(app.head.row, 3); // old1, beside it
+    app.key(ctrl('w'));
+    app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
+    assert_eq!(app.head.row, 5);
 }
 
 #[test]
@@ -223,12 +233,16 @@ fn comments_placed_and_anchored() {
     let tr = app.rows.iter().position(|r| r.thread == Some(0)).unwrap();
     app.goto(tr, 0);
     let press = |app: &mut App, c| app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
-    press(&mut app, 'c');
+    press(&mut app, 'c'); // c comments on code; on a thread it points to r
+    assert!(app.action.is_none() && app.msg.starts_with("r replies"));
+    press(&mut app, 'r');
     assert!(matches!(app.action.take(), Some(Action::Reply { review: true, ref thread, .. }) if thread == "TSome(2)"));
+    press(&mut app, 'C'); // and C replies right away
+    assert!(matches!(app.action.take(), Some(Action::Reply { review: false, .. })));
     // On the second comment ("unused"), the reply quotes that comment, not the first.
     let second = app.rows.iter().position(|r| r.line.text == "unused").unwrap();
     app.goto(second, 0);
-    press(&mut app, 'c');
+    press(&mut app, 'r');
     assert!(matches!(app.action.take(), Some(Action::Reply { ref quote, .. }) if quote == "> unused\n\n"));
     // Space e edits the comment under the cursor, if you're allowed to.
     press(&mut app, ' ');
