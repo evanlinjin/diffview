@@ -85,7 +85,15 @@ fn gh_input(args: &[&str], input: Option<&str>) -> Result<String> {
     }
     let out = child.wait_with_output()?;
     if !out.status.success() {
-        bail!("gh {}: {}", args.first().unwrap_or(&""), String::from_utf8_lossy(&out.stderr).trim());
+        // A REST error's reasons are in the body; stderr only has its title ("Validation Failed").
+        let body: Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
+        let err = String::from_utf8_lossy(&out.stderr);
+        let why = body["errors"].as_array().into_iter().flatten().filter_map(|e| e["message"].as_str());
+        let why: Vec<&str> = why.filter(|w| !err.contains(w)).collect(); // GraphQL's are on stderr already
+        match why.is_empty() {
+            true => bail!("gh {}: {}", args.first().unwrap_or(&""), err.trim()),
+            false => bail!("gh {}: {}: {}", args.first().unwrap_or(&""), err.trim(), why.join("; ")),
+        }
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
@@ -313,6 +321,17 @@ pub fn start_review(pr_id: &str, commit: &str) -> Result<String> {
         json!({ "pr": pr_id, "commit": commit }),
     )?;
     d["addPullRequestReview"]["pullRequestReview"]["id"].as_str().map(str::to_owned).context("no review id")
+}
+
+/// A review with no comments, created and submitted at once (so a refusal leaves nothing behind).
+pub fn review_now(pr_id: &str, commit: &str, event: &str, body: &str) -> Result<()> {
+    mutate(
+        "mutation($pr: ID!, $commit: GitObjectID!, $event: PullRequestReviewEvent!, $body: String) {
+          addPullRequestReview(input: { pullRequestId: $pr, commitOID: $commit, event: $event, body: $body }) {
+            pullRequestReview { id } } }",
+        json!({ "pr": pr_id, "commit": commit, "event": event, "body": body }),
+    )
+    .map(drop)
 }
 
 pub fn add_thread(review: &str, a: &Anchor, body: &str) -> Result<()> {

@@ -165,27 +165,29 @@ pub fn new_session_id() -> String {
     format!("{}-{}-{}-{}-{}", &h[..8], &h[8..12], &h[12..16], &h[16..20], &h[20..])
 }
 
-/// The review at `path`, first giving any comment without an id one (so dv's folding and
-/// cursor, keyed by ids, don't jump when it gets one later); `None` if there is no file.
+/// The review at `path`, giving any comment without an id the one it'll get when it's next
+/// written (so dv's folding and cursor, keyed by ids, don't jump then); `None` if there is no
+/// file. Only in memory: writing here would race Claude, who is likely mid-edit right then.
 pub fn load_with_ids(path: &std::path::Path) -> Result<Option<Review>> {
-    let r = load(path)?;
-    if r.as_ref().is_some_and(|r| r.threads.iter().any(|t| t.claude.as_deref().is_some_and(|k| k.starts_with('#')))) {
-        let mut v: Value = serde_json::from_str(&std::fs::read_to_string(path)?)?;
-        if v["comments"].as_array_mut().is_some_and(|c| assign_ids(c)) {
-            write(path, &v)?;
-        }
-        return load(path);
+    let Some(text) = read(path)? else { return Ok(None) };
+    let mut v: Value = serde_json::from_str(&text).with_context(|| format!("in {}", path.display()))?;
+    if v["comments"].as_array_mut().is_some_and(|c| assign_ids(c)) {
+        return parse(&v.to_string()).map(Some).with_context(|| format!("in {}", path.display()));
     }
-    Ok(r)
+    parse(&text).map(Some).with_context(|| format!("in {}", path.display()))
+}
+
+fn read(path: &std::path::Path) -> Result<Option<String>> {
+    match std::fs::read_to_string(path) {
+        Ok(t) => Ok(Some(t)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e).context(format!("reading {}", path.display())),
+    }
 }
 
 /// The review at `path`; `None` if there is no file.
 pub fn load(path: &std::path::Path) -> Result<Option<Review>> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(t) => t,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(e).context(format!("reading {}", path.display())),
-    };
+    let Some(text) = read(path)? else { return Ok(None) };
     parse(&text).map(Some).with_context(|| format!("in {}", path.display()))
 }
 
@@ -283,7 +285,12 @@ fn update(path: &std::path::Path, key: &str, f: impl FnOnce(&mut Vec<Value>, usi
     let i = match key.strip_prefix('#') {
         // A position, from before the comment had an id: still that comment only if it has none.
         Some(n) => n.parse::<usize>().ok().filter(|&i| comments.get(i).is_some_and(|c| !c["id"].is_string())),
-        None => comments.iter().position(|c| c["id"] == key),
+        // An id dv gave it in memory (`load_with_ids`), if the file has none yet.
+        None => {
+            let mut ids = comments.clone();
+            assign_ids(&mut ids);
+            ids.iter().position(|c| c["id"] == key)
+        }
     };
     let i = i.context("that comment is no longer in the file (Claude may have just changed it): try again")?;
     assign_ids(comments);
@@ -359,7 +366,7 @@ pub fn set_resolved(path: &std::path::Path, key: &str, on: bool) -> Result<()> {
 }
 
 /// The time now as ISO 8601 (UTC), e.g. 2026-10-16T12:00:00Z.
-fn now() -> String {
+pub fn now() -> String {
     let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
     let (days, secs) = (t.div_euclid(86400), t.rem_euclid(86400));
     // Civil date from days since 1970 (Howard Hinnant's algorithm).
@@ -548,6 +555,20 @@ fn comments_for_claude() {
     assert_eq!((t.claude.as_deref(), t.start_line, t.line), (Some(id.as_str()), Some(2), Some(3)));
     assert_eq!((t.comments[0].author.as_str(), t.comments[0].body.as_str()), ("you", "why?"));
     assert_eq!(t.hunk, ["+x", "+y"]); // its code, so it follows it as the code changes
+}
+
+#[test]
+fn ids_given_on_load_stay_in_memory() {
+    let p = std::env::temp_dir().join(format!("dv-claude-ids-{}.json", std::process::id()));
+    let text = r#"{"comments": [{"path": "a", "line": 1, "body": "x", "id": "c4"}, {"path": "a", "line": 2, "body": "y"}]}"#;
+    std::fs::write(&p, text).unwrap();
+    let r = load_with_ids(&p).unwrap().unwrap();
+    assert_eq!(r.threads[1].claude.as_deref(), Some("c5"));
+    assert_eq!(std::fs::read_to_string(&p).unwrap(), text); // not written: Claude may be mid-edit
+    reply(&p, "c5", "ok").unwrap(); // that id finds it, and is written with dv's change
+    let r = load(&p).unwrap().unwrap();
+    _ = std::fs::remove_file(&p);
+    assert_eq!((r.threads[1].claude.as_deref(), r.threads[1].comments.len()), (Some("c5"), 2));
 }
 
 #[test]

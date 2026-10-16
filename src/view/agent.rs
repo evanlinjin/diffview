@@ -158,6 +158,8 @@ impl App {
                  replying on each with what you changed and resolving the ones you addressed."
             ),
         };
+        // Claude Code knows the date but not the time, and makes one up for `created`.
+        let prompt = format!("{prompt} (It's {} now.)", crate::claude::now());
         match extra.trim() {
             "" => prompt,
             e => format!("{prompt}\n\nThe user adds:\n{e}"),
@@ -247,13 +249,17 @@ impl App {
             self.msg = msg;
             return asked;
         }
+        let mut path_env = std::ffi::OsString::from("PATH=");
+        path_env.push(path_for_claude());
         let (msg, asked) = match in_zellij() {
             // A real session in a pane (the PR's, as the background runs use): watch it, approve
             // what it asks, talk to it.
             true => match std::process::Command::new("zellij")
                 .args(["run", "--direction", "right", "--name", &format!("claude: {label}"), "--cwd"])
                 .arg(&self.root)
-                .args(["--", "claude", &prompt])
+                .args(["--", "env"])
+                .arg(path_env) // the pane gets zellij's environment, not dv's
+                .args(["claude", &prompt])
                 .args(self.session_args())
                 .args(self.claude_dirs())
                 .stdin(std::process::Stdio::null())
@@ -356,6 +362,7 @@ impl App {
         let log = std::env::temp_dir().join(format!("dv-claude-{}-{}.log", std::process::id(), self.claude_runs));
         let err = log.with_extension("err");
         let mut cmd = std::process::Command::new("claude");
+        cmd.env("PATH", path_for_claude());
         cmd.args(["-p", prompt, "--output-format", "json", "--permission-mode", "acceptEdits"]);
         cmd.args(self.session_args());
         if forked {
@@ -445,4 +452,13 @@ fn offer_to_pane(pane: u64, prompt: &str) -> Result<bool> {
     zellij(&["action", "paste", "-p", &id, prompt])?;
     zellij(&["action", "focus-pane-id", &id])?;
     Ok(true)
+}
+
+/// PATH for Claude, with this dv's directory first: the skill runs `dv review-*`, which must
+/// be found (dv may have been started by its full path, or from a shell whose PATH a zellij
+/// pane doesn't get) and be this version.
+fn path_for_claude() -> std::ffi::OsString {
+    let own = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf));
+    let rest = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect::<Vec<_>>()).unwrap_or_default();
+    std::env::join_paths(own.into_iter().chain(rest)).unwrap_or_default()
 }

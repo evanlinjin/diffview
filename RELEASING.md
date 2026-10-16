@@ -18,6 +18,8 @@ GitHub release with prebuilt binaries.
 6. **crates.io**: `cargo publish` (from a clean checkout of the tag; needs `cargo login`).
    A published version can't be replaced, only yanked (`cargo yank --version X.Y.Z`), so
    publish once the GitHub release has built.
+   Then `cargo clean -p dv-review`: publishing's verify build leaves `target/debug/dv`
+   tracking the packaged sources, so later `cargo build`s don't rebuild it.
 
 If the release workflow fails, fix it on `master`, then move the tag:
 `git tag -f vX.Y.Z && git push -f origin vX.Y.Z` (only before `cargo publish`).

@@ -302,6 +302,9 @@ fn comments_placed_and_anchored() {
     app.review = Some("R".into());
     press(&mut app, 'S');
     assert_eq!(app.picker.as_ref().unwrap().items[3].label, "Discard pending review (1 comment(s))");
+    app.picker = None;
+    press(&mut app, 'C'); // GitHub refuses a single comment beside a pending review
+    assert!(app.action.is_none() && app.msg.starts_with("you have a pending review (1)"));
     assert_eq!((a.line, a.left, a.start), (2, false, Some((2, true))));
     assert_eq!(wrap("aaa bbb ccc", 7), ["aaa bbb", "ccc"]);
 }
@@ -356,7 +359,7 @@ fn claude_review() {
         { "path": "src/a.rs", "line": 2, "body": "**nit:** name" },
         { "path": "src/a.rs", "line": 2, "side": "old", "body": "why remove?" } ] }"#).unwrap();
     app.claude_path = Some(p.clone());
-    app.load_threads();
+    app.load_claude(); // not load_threads: that asks GitHub about PR 1 of this repo
     app.build();
     let texts: Vec<&str> = app.rows.iter().map(|r| r.line.text.as_str()).collect();
     assert_eq!(&texts[..3], ["Claude's review", "claude's review", "Looks fine."]); // summary up top, no PR needed
@@ -400,7 +403,7 @@ fn claude_outdated() {
         { "path": "src/a.rs", "line": 1, "body": "moved", "code": ["    new_call(x);"] },
         { "path": "src/a.rs", "line": 2, "body": "gone", "code": ["    other();"] } ] }"#).unwrap();
     app.claude_path = Some(p.clone());
-    app.load_threads();
+    app.load_claude(); // not load_threads: that asks GitHub about PR 1 of this repo
     app.build();
     _ = std::fs::remove_file(&p);
     let (moved, gone) = (&app.threads[0], &app.threads[1]);
@@ -425,7 +428,7 @@ fn claude_menu() {
         { "path": "src/a.rs", "line": 2, "body": "b", "resolved": true, "replies": [ { "author": "user", "body": "ok" } ] },
         { "path": "src/a.rs", "line": 2, "body": "**nit:** use `x` ([docs](https://x.y))", "replies": [ { "author": "claude", "body": "done" } ] } ] }"#).unwrap();
     app.claude_path = Some(p.clone());
-    app.load_threads();
+    app.load_claude(); // not load_threads: that asks GitHub about PR 1 of this repo
     _ = std::fs::remove_file(&p);
     assert_eq!(app.waiting_replies(), 1); // resolved and answered ones don't count
     app.key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
@@ -541,7 +544,7 @@ fn cycle_claude_comments() {
         { "path": "src/a.rs", "line": 3, "body": "second" },
         { "path": "src/a.rs", "line": 1, "body": "first" } ] }"#).unwrap();
     app.claude_path = Some(p.clone());
-    app.load_threads();
+    app.load_claude(); // not load_threads: that asks GitHub about PR 1 of this repo
     _ = std::fs::remove_file(&p);
     app.collapsed.insert("src/a.rs".into()); // folded: ]a opens it
     app.build();
@@ -658,7 +661,7 @@ fn your_comments_for_claude_stay_private() {
     crate::claude::add_comment(&p, &a, vec!["    new_call(x);".into()], "is this right?").unwrap();
     app.claude_path = Some(p);
     app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new() });
-    app.load_threads();
+    app.load_claude(); // not load_threads: that asks GitHub about PR 1 of this repo
     app.build();
     _ = std::fs::remove_dir_all(&dir);
     // Not Claude's: no copying it to GitHub, and it doesn't count as Claude's anywhere.
@@ -691,7 +694,7 @@ fn dismiss_outdated_claude_comments() {
         { "id": "c3", "path": "src/a.rs", "line": 1, "body": "gone 2", "code": ["fn nope() {"] },
         { "id": "c4", "path": "src/a.rs", "line": 1, "author": "user", "body": "mine", "code": ["fn other() {"] } ] }"#).unwrap();
     app.claude_path = Some(p.clone());
-    app.load_threads();
+    app.load_claude(); // not load_threads: that asks GitHub about PR 1 of this repo
     app.build();
     assert_eq!(app.outdated_claude_comments(), ["c1", "c3"]);
     app.dismiss_outdated(false);

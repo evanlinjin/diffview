@@ -111,7 +111,10 @@ impl App {
             }
             Post::Edit { comment, body } => keep_on_error(gh::edit_comment(&comment, &body), &body).map(|_| "comment updated"),
             Post::Submit(event, body) => {
-                let res = self.ensure_review().and_then(|r| gh::submit_review(&r, event, &body));
+                let res = match &self.review {
+                    Some(r) => gh::submit_review(r, event, &body),
+                    None => gh::review_now(&pr.node_id, &pr.head_oid, event, &body),
+                };
                 keep_on_error(res, &body)?;
                 self.review = None;
                 Ok("review submitted")
@@ -540,6 +543,12 @@ impl App {
     /// `c`/`C`: reply when on a thread, else comment on the selected lines. In the PR section
     /// `C` quotes into a new conversation comment; `c` has nothing to queue there (yet).
     pub(super) fn comment_or_reply(&mut self, review: bool) {
+        // GitHub allows one pending review per PR and refuses single line comments beside it.
+        let row = &self.rows[self.head.row];
+        if !review && self.review.is_some() && row.file != INFO {
+            let n = self.pending_count();
+            return self.msg = format!("you have a pending review ({n}): c adds to it, S submits it, then C posts");
+        }
         if let Some((t, k)) = self.claude_at_cursor() {
             return self.start_promote(t, k, review);
         }

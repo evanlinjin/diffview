@@ -5,7 +5,7 @@ use crate::gh::{self, Anchor, Pr, Thread};
 use crate::highlight::{Colors, Highlighter};
 use crate::theme::{Settings, Theme, Ui};
 use crate::lsp::{self, Loc, Lsp};
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use ratatui::{
     crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     layout::{Alignment, Rect},
@@ -1434,7 +1434,8 @@ fn keep_on_error(res: Result<()>, body: &str) -> Result<()> {
     res.map_err(|e| {
         let saved = std::env::temp_dir().join(format!("dv-unsent-{}.md", std::process::id()));
         match std::fs::write(&saved, body) {
-            Ok(()) if !body.is_empty() => e.context(format!("text saved to {}", saved.display())),
+            // The reason first: a narrow status bar cuts the end off.
+            Ok(()) if !body.is_empty() => anyhow!("{e:#} (text saved to {})", saved.display()),
             _ => e,
         }
     })
