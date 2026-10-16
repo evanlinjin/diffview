@@ -397,7 +397,8 @@ impl App {
         }
 
         // Bottom right, like Helix's which-key: what can follow a pending prefix key, else what the
-        // keys do where the cursor is (when no other popup is up).
+        // keys do where the cursor is (when no other popup is up). Bottom left while the cursor is
+        // in the comment margin, so it doesn't cover the comments there.
         let keys = match self.pending {
             Some(p) => App::which(p),
             None if self.picker.is_none() && self.popup.is_none() && self.prompt.is_none() => self.context_keys(),
@@ -411,7 +412,8 @@ impl App {
                 .collect();
             let w = (lines.iter().map(Line::width).max().unwrap_or(10) as u16 + 4).max(title.len() as u16 + 4).min(area.width);
             let ph = (lines.len() as u16 + 2).min(h as u16);
-            let r = Rect { x: area.width - w, y: (h as u16).saturating_sub(ph), width: w, height: ph };
+            let x = if self.margin_side() { 0 } else { area.width - w };
+            let r = Rect { x, y: (h as u16).saturating_sub(ph), width: w, height: ph };
             let inner = self.popup_frame(f, r, title, "");
             f.render_widget(Paragraph::new(lines), inner);
         }

@@ -43,6 +43,11 @@ on GitHub are its section here.
   if it isn't listed.
 
 ### Fixed
+- With dv in a floating zellij pane, the editor (and hx, and Claude's pane) opened nowhere:
+  zellij can't split a floating pane, and said nothing. dv then took the comment as cancelled.
+  They now open where zellij puts them.
+- The key popup moves to the bottom left while the cursor is in the comment margin, so it no
+  longer covers the comments there.
 - On someone else's PR, Claude's answers to your replies suggest the changes you ask for
   instead of making them, as "suggest the changes" does.
 - dv doesn't paste a request into a Claude pane that's asking whether you trust the folder

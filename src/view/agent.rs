@@ -315,7 +315,8 @@ impl App {
             // A real session in a pane (the PR's, as the background runs use): watch it, approve
             // what it asks, talk to it.
             true => match std::process::Command::new("zellij")
-                .args(["run", "--direction", "right", "--name", &format!("claude: {label}"), "--cwd"])
+                .args(zellij_run())
+                .args(["--name", &format!("claude: {label}"), "--cwd"])
                 .arg(&self.root)
                 .args(["--", "env"])
                 .arg(path_env) // the pane gets zellij's environment, not dv's

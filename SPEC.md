@@ -183,7 +183,8 @@ error shows in the list's status bar.
 Discoverability: after a prefix key (`Space`, `g`, `z`, `]`, `[`, `Ctrl-w`, `m`) a which-key
 popup lists what can follow, as in Helix. The same bottom-right popup otherwise says what the
 keys do where the cursor is: on a selection, a review thread, Claude's comment, the PR header
-or PR text (nothing on plain code). The status bar's left
+or PR text (nothing on plain code). With the cursor in the comment margin it sits bottom
+left instead, off the comments. The status bar's left
 side (what you're on, messages, hints) wins over its right: when both don't fit, the right
 keeps only the essentials.
 

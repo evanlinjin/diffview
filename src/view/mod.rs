@@ -712,7 +712,7 @@ impl App {
             return Ok("opened in hx (its pane on the right); dv reloads as you save".into());
         }
         let root = self.root.display().to_string();
-        let id = zellij(&["run", "--direction", "right", "--close-on-exit", "--name", "hx", "--cwd", &root, "--", "hx", target])?;
+        let id = zellij(&[zellij_run().as_slice(), &["--close-on-exit", "--name", "hx", "--cwd", &root, "--", "hx", target]].concat())?;
         self.hx = Some(HxPane { pane: id });
         Ok("hx is open on the right; dv reloads as you save, and Enter opens the next file there".into())
     }
@@ -1467,6 +1467,21 @@ fn in_zellij() -> bool {
     std::env::var_os("ZELLIJ").is_some()
 }
 
+/// `zellij run`, opening the pane to the right of dv's. Not when dv's own pane is floating:
+/// zellij then quietly opens nothing (and doesn't block), so it goes where zellij puts it.
+fn zellij_run() -> Vec<&'static str> {
+    let floating = || {
+        let me = std::env::var("ZELLIJ_PANE_ID").ok()?.parse::<u64>().ok()?;
+        let out = std::process::Command::new("zellij").args(["action", "list-panes", "-j"]).stdin(std::process::Stdio::null()).output().ok()?;
+        let panes: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
+        panes.as_array()?.iter().find(|p| p["id"].as_u64() == Some(me) && p["is_plugin"] != true)?["is_floating"].as_bool()
+    };
+    match floating() {
+        Some(true) => vec!["run"],
+        _ => vec!["run", "--direction", "right"],
+    }
+}
+
 /// Run an interactive program and wait for it: in a pane to the right inside zellij (its exit
 /// status comes through), otherwise in this terminal (the caller suspends the TUI).
 fn interactive(prog: &str, args: &[String], name: &str) -> std::io::Result<std::process::ExitStatus> {
@@ -1475,7 +1490,8 @@ fn interactive(prog: &str, args: &[String], name: &str) -> std::io::Result<std::
     }
     let cwd = std::env::current_dir()?;
     std::process::Command::new("zellij")
-        .args(["run", "--direction", "right", "--close-on-exit", "--block-until-exit", "--name", name])
+        .args(zellij_run())
+        .args(["--close-on-exit", "--block-until-exit", "--name", name])
         // `zellij run` doesn't need dv's terminal; sharing it, it would take dv's keystrokes
         // while it waits (and freeze dv when hx runs beside it).
         .stdin(std::process::Stdio::null())
