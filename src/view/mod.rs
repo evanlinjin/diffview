@@ -65,7 +65,8 @@ VIEW
   Tab                  fold file / PR info / thread
   Shift-Tab            fold / unfold all files
   Ctrl-w v             toggle split (side-by-side) view
-  Ctrl-w h  Ctrl-w l   split view: go to the old / new side (or Ctrl-h Ctrl-l)
+  Ctrl-w h  Ctrl-w l   split view: old / new side; margin: code / comments (or Ctrl-h Ctrl-l)
+  Ctrl-w c             comments in the right margin (wide windows) / inline
   Enter                open hx at cursor (on a link: open it)
   gf                   open the link under the cursor in the browser
 
@@ -165,12 +166,21 @@ pub(super) enum BoxPart {
     Bottom,
 }
 
-/// A screen row: full width, or a side-by-side pair (old line, new line) in split view.
+/// A screen row: full width, a side-by-side pair (old line, new line) in split view, or code
+/// with a comment row beside it in the right margin.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum DRow {
     Full(usize),
     Pair(Option<usize>, Option<usize>),
+    /// (code row, comment row in the margin); a code-less one is a spacer, where a file's
+    /// comments need more room than its code has.
+    Margin(Option<usize>, Option<usize>),
 }
+
+/// The comment margin's width, and the least code text width beside it (narrower windows
+/// show comments inline).
+const MARGIN_W: usize = 60;
+const MARGIN_CODE_MIN: usize = 80;
 
 /// Work that needs the terminal back (an editor), run between frames.
 enum Action {
@@ -297,6 +307,14 @@ pub struct App {
     /// Side-by-side view; `right` is which side the cursor prefers on lines shown on both.
     split: bool,
     right: bool,
+    /// Comments in the right margin when the window is wide enough (`Ctrl-w c` toggles).
+    margin_pref: bool,
+    /// The layout has them there now (set by `draw` from the width).
+    margin_active: bool,
+    /// The cursor is in the margin (on a comment), not the code.
+    margin_side: bool,
+    /// In margin mode: each thread's code line (the one it's about), as laid out.
+    margin_anchor: HashMap<usize, usize>,
     /// Screen rows, and the screen row of each row (`top` and scrolling count screen rows).
     drows: Vec<DRow>,
     d_of: Vec<usize>,
@@ -407,6 +425,10 @@ impl App {
             viewed: HashMap::new(),
             split: false,
             right: true,
+            margin_pref: true,
+            margin_active: false,
+            margin_side: false,
+            margin_anchor: HashMap::new(),
             drows: vec![],
             d_of: vec![],
             emph: HashMap::new(),
@@ -747,6 +769,9 @@ impl App {
     /// Map rows to screen rows. In split view, each run of removed lines pairs with the added
     /// lines that follow it; unchanged lines show on both sides; everything else is full width.
     fn layout(&mut self) {
+        if self.margin_active && !self.split {
+            return self.layout_margin();
+        }
         let n = self.rows.len();
         let kind = |i: usize| self.rows[i].line.kind;
         let mut d = vec![];
@@ -768,14 +793,94 @@ impl App {
             }
             i += 1;
         }
-        let mut d_of = vec![0; n];
+        self.set_drows(d);
+    }
+
+    fn set_drows(&mut self, d: Vec<DRow>) {
+        let mut d_of = vec![0; self.rows.len()];
         for (di, dr) in d.iter().enumerate() {
             match *dr {
                 DRow::Full(r) => d_of[r] = di,
-                DRow::Pair(l, r) => l.into_iter().chain(r).for_each(|x| d_of[x] = di),
+                DRow::Pair(l, r) | DRow::Margin(l, r) => l.into_iter().chain(r).for_each(|x| d_of[x] = di),
             }
         }
         (self.drows, self.d_of) = (d, d_of);
+    }
+
+    /// A review thread's row in a file (not the PR section's comments): in margin mode, it goes
+    /// in the margin.
+    pub(super) fn margin_row(&self, r: usize) -> bool {
+        self.margin_active && self.rows[r].thread.is_some() && self.rows[r].file != INFO
+    }
+
+    /// Comments in the right margin: each thread's box starts beside its line, or just below
+    /// the box before it if that's still running there; code only gets spacer rows when a
+    /// file's comments need more room than its code (they never spill into the next file).
+    fn layout_margin(&mut self) {
+        let n = self.rows.len();
+        let mut d: Vec<DRow> = vec![];
+        let mut pending: std::collections::VecDeque<usize> = Default::default();
+        let mut free = 0; // the first screen row whose margin is free
+        let mut anchors = HashMap::new();
+        let mut last_code = None;
+        let flush = |d: &mut Vec<DRow>, pending: &mut std::collections::VecDeque<usize>| {
+            d.extend(pending.drain(..).map(|c| DRow::Margin(None, Some(c))));
+        };
+        for i in 0..n {
+            let row = &self.rows[i];
+            if self.margin_row(i) {
+                let first = i == 0 || self.rows[i - 1].thread != row.thread;
+                if let (true, Some(t), Some(c)) = (first, row.thread, last_code) {
+                    anchors.insert(t, c);
+                }
+                // A box starts beside its line (the code row just before it) when that's free.
+                let at = if first { d.len().saturating_sub(1).max(free) } else { free };
+                if pending.is_empty() && matches!(d.get(at), Some(DRow::Margin(Some(_), None))) {
+                    if let DRow::Margin(code, _) = d[at] {
+                        d[at] = DRow::Margin(code, Some(i));
+                    }
+                    free = at + 1;
+                } else {
+                    pending.push_back(i);
+                }
+                continue;
+            }
+            let code = matches!(row.line.kind, Kind::Ctx | Kind::Add | Kind::Del | Kind::Hunk) && row.file != INFO;
+            if code {
+                last_code = Some(i);
+                let c = pending.pop_front();
+                d.push(DRow::Margin(Some(i), c));
+                if c.is_some() {
+                    free = d.len();
+                }
+            } else {
+                // File headers and the PR section are full width: comments still waiting get
+                // spacer rows first, so they stay with their file.
+                flush(&mut d, &mut pending);
+                d.push(DRow::Full(i));
+                free = d.len();
+            }
+        }
+        flush(&mut d, &mut pending);
+        self.margin_anchor = anchors;
+        self.set_drows(d);
+    }
+
+    /// In margin mode, the thread whose box is "lit": the one the cursor is in, or one about
+    /// the code line it's on. So you can tell which line a box (pushed down) is about.
+    pub(super) fn lit_thread(&self) -> Option<usize> {
+        if !self.margin_active || self.split {
+            return None;
+        }
+        match self.margin_side {
+            true => self.rows[self.head.row].thread,
+            false => self.margin_anchor.iter().find(|&(_, &c)| c == self.head.row).map(|(&t, _)| t),
+        }
+    }
+
+    /// With the cursor in a margin comment: the code line it's about (tinted like the cursor's).
+    pub(super) fn lit_code(&self) -> Option<usize> {
+        self.margin_side.then(|| self.margin_anchor.get(&self.rows[self.head.row].thread?).copied()).flatten()
     }
 
     /// The row to put the cursor on for screen row `d`, preferring the current side.
@@ -783,6 +888,7 @@ impl App {
         match self.drows[d] {
             DRow::Full(r) => r,
             DRow::Pair(l, r) => if self.right { r.or(l) } else { l.or(r) }.unwrap_or(0),
+            DRow::Margin(l, r) => if self.margin_side { r.or(l) } else { l.or(r) }.unwrap_or(0),
         }
     }
 
@@ -799,12 +905,16 @@ impl App {
 
     /// Wrap markdown into comment rows, highlighted.
     fn md_rows(&self, text: &str, mk: impl Fn(Kind, String) -> Row) -> Vec<Row> {
-        let key = format!("{}\0{text}", self.wrap_w);
+        self.md_rows_at(text, self.wrap_w, mk)
+    }
+
+    fn md_rows_at(&self, text: &str, width: usize, mk: impl Fn(Kind, String) -> Row) -> Vec<Row> {
+        let key = format!("{width}\0{text}");
         let lines = self
             .md_cache
             .borrow_mut()
             .entry(key)
-            .or_insert_with(|| crate::md::render(text, self.wrap_w, &self.ui.md, &self.hl, self.repo_url()))
+            .or_insert_with(|| crate::md::render(text, width, &self.ui.md, &self.hl, self.repo_url()))
             .clone();
         lines.into_iter().map(|l| Row { syn: l.styles, links: l.links, ..mk(Kind::Comment, l.text) }).collect()
     }
@@ -913,7 +1023,9 @@ impl App {
                 let syn = [vec![Some(self.ui.pending); tag.chars().count()], author_syn(c)].concat();
                 out.push(Row { syn, ..mk(Kind::Thread, format!("{tag}{}{}", c.author, when(c))) });
             }
-            let rows = self.md_rows(&c.body, mk);
+            // In the margin, comments wrap to its width (less the gutter mark and box sides).
+            let w = if self.margin_active { MARGIN_W - 3 - 2 } else { self.wrap_w };
+            let rows = self.md_rows_at(&c.body, w, mk);
             match t.stale() {
                 // Resolved/outdated: rendered the same, but dimmed throughout (links still open).
                 true => out.extend(rows.into_iter().map(|mut r| {
@@ -1073,7 +1185,7 @@ impl App {
         for d in &self.drows[self.top.min(self.drows.len())..(self.top + self.height).min(self.drows.len())] {
             match *d {
                 DRow::Full(r) => out.push(r),
-                DRow::Pair(l, r) => out.extend(l.into_iter().chain(r.filter(|&r| Some(r) != l))),
+                DRow::Pair(l, r) | DRow::Margin(l, r) => out.extend(l.into_iter().chain(r.filter(|&r| Some(r) != l))),
             }
         }
         out

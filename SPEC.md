@@ -124,6 +124,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `+`/`=`, `-`, `Z` | context ±10 lines around the hunk under the cursor (hunks merge as they meet), whole file |
 | `Tab` | collapse/expand file; on a comment, fold/unfold its thread |
 | `Shift-Tab` | fold all files, or unfold all if all are folded |
+| `Ctrl-w c` | comments in the right margin (default when the window fits 80 code columns + a 60-column margin; single-pane view) / inline |
 | `Ctrl-w v` | toggle split view: old ‖ new side by side (removed runs pair with the added lines after them) |
 | `Ctrl-w h` `Ctrl-w l` (or `Ctrl-h` `Ctrl-l`) | split view: move to the old / new side |
 | `Enter` | open `hx file:line:col` (inside zellij: in a pane on the right, dv still usable meanwhile), reload the diff when hx exits; on a link, open the link |

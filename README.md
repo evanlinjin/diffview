@@ -3,7 +3,8 @@
 A terminal diff viewer for reading and reviewing pull requests, with Helix keys,
 rust-analyzer, and GitHub review comments.
 
-- **Diff**: unified or side-by-side (`Ctrl-w v`), syntax highlighted, changed words
+- **Diff**: unified or side-by-side (`Ctrl-w v`), with review comments in the right margin on
+  wide windows (`Ctrl-w c` puts them inline), syntax highlighted, changed words
   emphasised, context expandable per hunk (`+`/`-`, `Z` for the whole file).
 - **Helix-style**: the cursor/selection model, motions (`w b e`, `f t`, `gw`, `mm`, …), and
   your Helix theme, `cursorline`, `line-number`, and `jump-label-alphabet`.

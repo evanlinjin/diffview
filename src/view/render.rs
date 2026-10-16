@@ -185,9 +185,12 @@ impl App {
         let half = width.saturating_sub(1) / 2;
         let ghw = lw + 3;
         let (htw_l, htw_r) = (half.saturating_sub(ghw).max(1), width.saturating_sub(1 + half).saturating_sub(ghw).max(1));
+        // Comments in the right margin when there's room for it beside enough code.
+        let margin = self.margin_pref && !self.split && width >= gw + MARGIN_CODE_MIN + 1 + MARGIN_W;
+        let (ctw, mtw) = (width.saturating_sub(gw + 1 + MARGIN_W).max(1), MARGIN_W - 3);
         let ww = tw.saturating_sub(1).clamp(40, 100);
-        if ww != self.wrap_w {
-            self.wrap_w = ww;
+        if ww != self.wrap_w || margin != self.margin_active {
+            (self.wrap_w, self.margin_active) = (ww, margin);
             let keep = self.cursor_key();
             self.rebuild(keep);
         }
@@ -196,6 +199,8 @@ impl App {
         }
         let cur_w = match self.drows[self.hd()] {
             DRow::Pair(..) => htw_l.min(htw_r),
+            DRow::Margin(..) if self.margin_side => mtw,
+            DRow::Margin(..) => ctw,
             DRow::Full(_) => tw,
         };
         if self.head.col >= self.left + cur_w {
@@ -225,6 +230,7 @@ impl App {
         }
         let divider = Span::styled("│", self.ui.linenr);
         let hd = self.hd();
+        let lit_code = self.lit_code();
         let lines: Vec<Line> = (self.top..(self.top + h).min(self.drows.len()))
             .map(|d| {
                 let cur = d == hd;
@@ -246,6 +252,18 @@ impl App {
                         spans.push(divider.clone());
                         spans.extend(half(rr, true, htw_r));
                     }
+                    DRow::Margin(code, comment) => {
+                        // Code on the left (blank on a spacer row), a gap, then the comment column.
+                        match code {
+                            Some(r) => spans.extend(self.render_row(r, s, e, (lw, gw, ctw), None, cur || lit_code == Some(r), &overlay)),
+                            None => spans.push(Span::raw(" ".repeat(gw + ctw))),
+                        }
+                        spans.push(Span::raw(" "));
+                        match comment {
+                            Some(r) => spans.extend(self.render_row(r, s, e, (lw, 3, mtw), None, cur, &overlay)),
+                            None => spans.push(Span::raw(" ".repeat(MARGIN_W))),
+                        }
+                    }
                 }
                 Line::from(spans)
             })
@@ -258,7 +276,9 @@ impl App {
         let header = self.rows[self.head.row].line.kind == Kind::File;
         if let (Some(url), None, None, false) = (self.link_at_cursor(), &self.picker, &self.popup, header) {
             let y = (hd - self.top) as u16;
-            let x = ((relw + gw + self.head.col.saturating_sub(self.left)) as u16).min(area.width.saturating_sub(20));
+            // In the margin, the text starts after the code column, the gap and its own gutter.
+            let start = if self.margin_side && matches!(self.drows[hd], DRow::Margin(..)) { relw + gw + ctw + 1 + 3 } else { relw + gw };
+            let x = ((start + self.head.col.saturating_sub(self.left)) as u16).min(area.width.saturating_sub(20));
             let preview = if gh::issue_ref(url).is_some() { "Space k preview · " } else { "" };
             let text = format!(" ↗ {url}  {preview}gf open ");
             let w = (text.chars().count() as u16).min(area.width - x);
@@ -524,7 +544,11 @@ impl App {
                     None => " ┃ ",
                 };
                 // No fill: the box's border sets comments apart. The gutter keeps the page background
-                // (so the cursor line's tint stays in the text column, inside the box).
+                // (so the cursor line's tint stays in the text column, inside the box). A lit box
+                // (margin mode: the one about the cursor's line) has its border in the accent.
+                if part.is_some() && row.thread.is_some() && row.thread == self.lit_thread() {
+                    gstyle = ui.key;
+                }
                 gstyle = gstyle.bg(ui.base.bg.unwrap_or(Color::Reset));
                 (format!("{:>gw$}", mark), st)
             }
@@ -615,13 +639,14 @@ impl App {
             };
             let lead = if used == 0 { "" } else { lead };
             let n = bw.saturating_sub(used + lead.len() + 1);
-            spans.push(Span::styled(format!("{lead}{}", fill.to_string().repeat(n)), style.patch(ui.linenr)));
+            let edge = if row.thread.is_some() && row.thread == self.lit_thread() { ui.key } else { ui.linenr };
+            spans.push(Span::styled(format!("{lead}{}", fill.to_string().repeat(n)), style.patch(edge)));
             if let Some(bg) = line_bg {
                 for sp in &mut spans {
                     sp.style = Style::new().bg(bg).patch(sp.style);
                 }
             }
-            let border = ui.linenr.bg(ui.base.bg.unwrap_or(Color::Reset));
+            let border = edge.bg(ui.base.bg.unwrap_or(Color::Reset));
             spans.push(Span::styled(corner.to_string(), border));
             let used: usize = spans[1..].iter().map(|s| s.width()).sum();
             spans.push(Span::raw(" ".repeat(tw.saturating_sub(used))));

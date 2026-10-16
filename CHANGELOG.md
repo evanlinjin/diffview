@@ -6,6 +6,12 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Added
+- Comments in the right margin: in single-pane view on a wide window (room for 80 columns of
+  code beside a 60-column margin), review threads sit beside their lines instead of between
+  them. A box that would overlap the one before goes just below it; code only gets blank
+  rows where a file's comments need more room than its code. `Ctrl-w l` / `Ctrl-w h` move
+  between code and comments; the box about the cursor's line (or the line a box is about) is
+  lit. `Ctrl-w c` switches to inline comments and back.
 - One Claude Code session per PR, kept next to its review file: every run (background or in a
   pane, from any dv and any worktree) continues the same conversation about that PR.
 - Claude's notes on the repo (`.git/dv/notes.md`, shared by worktrees): the skill reads them

@@ -2,8 +2,24 @@
 use super::*;
 
 impl App {
-    /// Ctrl-h / Ctrl-l: move to the old / new side of the current split row.
+    /// Ctrl-h / Ctrl-l: move to the old / new side of the current split row; with comments in
+    /// the margin, from the code into the margin (the comment beside it, else the nearest one)
+    /// and back (the code line beside it, else the nearest above).
     pub(super) fn side(&mut self, right: bool) {
+        if self.margin_active && !self.split {
+            let hd = self.hd();
+            let at = |d: usize| match self.drows[d] {
+                DRow::Margin(code, comment) => if right { comment } else { code },
+                _ => None,
+            };
+            let near = at(hd)
+                .or_else(|| (hd..self.drows.len()).find_map(|d| right.then(|| at(d)).flatten()))
+                .or_else(|| (0..hd).rev().find_map(at));
+            return match near {
+                Some(r) => self.goto(r, 0),
+                None => self.msg = if right { "no comments here" } else { "no code here" }.into(),
+            };
+        }
         self.right = right;
         if let DRow::Pair(l, r) = self.drows[self.d_of[self.head.row]]
             && let Some(row) = if right { r } else { l } {
@@ -20,6 +36,7 @@ impl App {
             Kind::Add => self.right = true,
             _ => {}
         }
+        self.margin_side = self.margin_row(row);
         self.head = Pos { row, col: col.min(self.len(row).saturating_sub(1)) };
         if !self.select {
             self.anchor = self.head;
@@ -39,7 +56,21 @@ impl App {
     pub(super) fn vmove(&mut self, d: isize) {
         let last = self.drows.len() as isize - 1;
         let w = self.want_col;
-        let target = (self.hd() as isize + d).clamp(0, last) as usize;
+        let mut target = (self.hd() as isize + d).clamp(0, last) as usize;
+        // On the code side, step over spacer rows (margin only, no code); in the margin, over
+        // rows with no comment beside the code.
+        let skip = |t: usize| match self.drows[t] {
+            DRow::Margin(None, _) => !self.margin_side,
+            DRow::Margin(_, None) => self.margin_side,
+            _ => false,
+        };
+        let step = if d < 0 { -1 } else { 1 };
+        while skip(target) && (0..=last).contains(&(target as isize + step)) {
+            target = (target as isize + step) as usize;
+        }
+        if skip(target) {
+            return;
+        }
         self.goto(self.pick(target), w);
         self.want_col = w;
     }

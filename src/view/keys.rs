@@ -233,7 +233,12 @@ impl App {
             'z' => ("view", &[("z", "cursor line to center"), ("t", "… to top"), ("b", "… to bottom")]),
             ']' => ("next", &[("g", "change (hunk)"), ("f", "file"), ("c", "comment thread"), ("a", "Claude's comment"), ("p", "pending comment")]),
             '[' => ("previous", &[("g", "change (hunk)"), ("f", "file"), ("c", "comment thread"), ("a", "Claude's comment"), ("p", "pending comment")]),
-            CTRL_W => ("window", &[("v", "toggle split view"), ("h", "old side (split)"), ("l", "new side (split)")]),
+            CTRL_W => ("window", &[
+                ("v", "toggle split view"),
+                ("c", "comments in the margin / inline"),
+                ("h", "old side / back to the code"),
+                ("l", "new side / into the comments"),
+            ]),
             'm' => ("match", &[("m", "matching bracket")]),
             _ => return None,
         })
@@ -278,6 +283,14 @@ impl App {
             ('z', 't') => self.top = self.hd().saturating_sub(so),
             ('z', 'b') => self.top = (self.hd() + so + 1).saturating_sub(self.height),
             (CTRL_W, 'v') => self.toggle_split(),
+            (CTRL_W, 'c') => {
+                self.margin_pref = !self.margin_pref;
+                self.msg = match self.margin_pref {
+                    true => "comments in the right margin (when the window is wide enough)",
+                    false => "comments inline",
+                }
+                .into();
+            }
             (CTRL_W, 'h') => self.side(false),
             (CTRL_W, 'l') => self.side(true),
             (']', 'f') => self.next_kind(true, file),

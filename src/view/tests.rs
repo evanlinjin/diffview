@@ -694,3 +694,46 @@ fn dismiss_outdated_claude_comments() {
     _ = std::fs::remove_dir_all(&dir);
     assert_eq!(left, ["c2", "c4"]); // the current one and yours stay
 }
+
+#[test]
+fn comments_in_the_margin() {
+    // Four lines of code, comments on lines 1 and 2: the second box is pushed below the first.
+    let sample = "diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1,4 +1,4 @@\n one\n two\n three\n-four\n+four!\n";
+    let mut app = App::with("base".into(), diff::parse(sample));
+    let c = |id, body: &str| gh::Comment { id, node_id: String::new(), can_edit: false, can_delete: false, author: "amy".into(), body: body.into(), created: String::new(), pending: false };
+    let t = |line, comments| gh::Thread {
+        id: String::new(), path: "a.rs".into(), left: false, line: Some(line), start_line: None, original_line: Some(line),
+        resolved: false, outdated: false, hunk: vec![], comments, claude: None,
+    };
+    app.threads = vec![t(1, vec![c(1, "first")]), t(2, vec![c(2, "second")])];
+    app.margin_active = true;
+    app.build();
+    // rows: 0 file, 1 hunk, 2 one, 3-5 thread 0 (top, body, bottom), 6 two, 7-9 thread 1, 10 three,
+    // 11 -four, 12 +four!
+    let code = |d: usize| match app.drows[d] { DRow::Margin(c, _) => c, _ => None };
+    let note = |d: usize| match app.drows[d] { DRow::Margin(_, n) => n, _ => None };
+    assert_eq!(app.drows[0], DRow::Full(0)); // the file header stays full width
+    // The code runs on, uninterrupted: hunk, one, two, three, -four, +four!, then spacers.
+    assert_eq!((1..7).map(code).collect::<Vec<_>>(), [Some(1), Some(2), Some(6), Some(10), Some(11), Some(12)]);
+    // Thread 0 starts beside its line ("one"); thread 1 right after it, not beside "two".
+    assert_eq!((2..5).map(note).collect::<Vec<_>>(), [Some(3), Some(4), Some(5)]);
+    assert_eq!((5..7).map(note).collect::<Vec<_>>(), [Some(7), Some(8)]);
+    // It needs more room than the code has: a spacer row (no code) after the last line.
+    assert_eq!(app.drows.len(), 8);
+    assert_eq!((code(7), note(7)), (None, Some(9)));
+    // Moving: Ctrl-w l into the comment beside the line, Ctrl-w h back; j on code skips spacers.
+    app.goto(2, 0); // "one"
+    let ctrl_w = |app: &mut App, c| {
+        app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
+        app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+    };
+    ctrl_w(&mut app, 'l');
+    assert_eq!(app.head.row, 3); // thread 0's top
+    assert_eq!(app.lit_code(), Some(2)); // and its line lit
+    ctrl_w(&mut app, 'h');
+    assert_eq!(app.head.row, 2);
+    assert_eq!(app.lit_thread(), Some(0)); // its box lit from the code
+    app.goto(12, 0); // the last line
+    app.vmove(1); // only a spacer below: stays
+    assert_eq!(app.head.row, 12);
+}
