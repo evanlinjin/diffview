@@ -327,7 +327,7 @@ fn quote_into_conversation() {
         app.goto(row, 0);
         app.key(KeyEvent::new(KeyCode::Char('C'), KeyModifiers::NONE));
         match app.action.take() {
-            Some(Action::Converse { quote }) => quote,
+            Some(Action::Converse { quote, .. }) => quote,
             _ => panic!("no conversation comment started"),
         }
     };
@@ -501,6 +501,11 @@ fn help_two_columns() {
     assert!(two.len() <= one.len() / 2 + 4, "{} vs {}", two.len(), one.len()); // about half as tall (sections stay whole)
     let text: String = two[0].spans.iter().map(|s| s.content.as_ref()).collect();
     assert!(text.starts_with(" MOVE") && text.trim_end().ends_with(text.split_whitespace().last().unwrap())); // a heading on each side
+    // Both headings in the heading style, and nothing else on the line in it.
+    let heading = app.ui.heading.add_modifier(ratatui::style::Modifier::BOLD);
+    assert_eq!(two[0].style, Style::default());
+    let styled: Vec<&str> = two[0].spans.iter().filter(|s| s.style == heading).map(|s| s.content.as_ref()).collect();
+    assert_eq!(styled.len(), 2, "{:?}", two[0]);
     assert!(two.iter().all(|l| l.width() <= 197));
 }
 
@@ -1102,4 +1107,22 @@ fn claude_view() {
     // Going to a thread that isn't Claude's leaves the Claude view.
     app.goto_comment(2, 0);
     assert!(!app.claude_view && app.rows[app.head.row].thread == Some(2));
+}
+
+#[test]
+fn claude_review_is_not_pr_text() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new() });
+    app.claude_summary = "Looks fine.".into();
+    app.build();
+    let row = app.rows.iter().position(|r| r.line.text == "Looks fine.").unwrap();
+    app.goto(row, 0);
+    assert_eq!(app.context_keys().unwrap().0, "Claude's review");
+    // C posts it as your own comment: not quoted, and posted even if left as it is.
+    app.key(KeyEvent::new(KeyCode::Char('C'), KeyModifiers::NONE));
+    assert!(matches!(app.action.take(), Some(Action::Converse { ref quote, as_is: true }) if quote == "Looks fine.\n"));
+    // c puts it in your review summary, for S.
+    app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+    assert!(app.action.is_none());
+    assert_eq!(app.summary_draft, "Looks fine.");
 }

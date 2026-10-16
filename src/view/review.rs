@@ -609,6 +609,9 @@ impl App {
     pub(super) fn comment_or_reply(&mut self, review: bool) {
         // GitHub allows one pending review per PR and refuses single line comments beside it.
         let row = &self.rows[self.head.row];
+        if row.info == Some(SUMMARY) {
+            return self.promote_summary(review);
+        }
         // PR text (not a thread there: those are on files no longer in the diff).
         let pr_text = row.file == INFO && row.thread.is_none();
         if !review && self.review.is_some() && !pr_text {
@@ -694,12 +697,26 @@ impl App {
             return self.msg = "no PR for this branch".into();
         }
         let row = &self.rows[self.head.row];
-        let text = match row.info {
-            Some(SUMMARY) => Some(self.claude_summary.as_str()),
-            i => i.and_then(|i| self.info.get(i)).map(|l| l.text.as_str()),
-        };
+        let text = row.info.and_then(|i| self.info.get(i)).map(|l| l.text.as_str());
         let quote = text.map_or(String::new(), quote);
-        self.action = Some(Action::Converse { quote });
+        self.action = Some(Action::Converse { quote, as_is: false });
+    }
+
+    /// `c` / `C` on Claude's review (its summary), as on its comments: yours to use, not to
+    /// quote. `c` puts it in your review summary (`S` starts from it); `C` posts it as your PR
+    /// comment, after the editor.
+    fn promote_summary(&mut self, review: bool) {
+        if self.pr.is_none() {
+            return self.msg = "no PR for this branch".into();
+        }
+        let text = self.claude_summary.trim().to_owned();
+        match review {
+            true => {
+                self.summary_draft = text;
+                self.msg = "Claude's review is in your review summary: S submits it (edit it there)".into();
+            }
+            false => self.action = Some(Action::Converse { quote: format!("{text}\n"), as_is: true }),
+        }
     }
 
     pub(super) fn start_reply(&mut self, review: bool) {

@@ -106,6 +106,9 @@ file that dv reloads whenever it changes, so you can keep dv open while Claude w
    | `Space r` | resolve it, so Claude leaves it alone |
    | `Space d` | dismiss it |
 
+   On Claude's summary, `c` puts it in your review summary (`S` starts from it), and `C`
+   posts it as your own PR comment (after the editor).
+
    To ask Claude something yourself, select lines and press `a`: your comment goes into the
    review file and Claude answers it like a reply.
 

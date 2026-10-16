@@ -96,6 +96,10 @@ ON CLAUDE'S COMMENT
 ON PR TEXT
   C                    quote it in a new conversation comment
 
+ON CLAUDE'S REVIEW (its summary)
+  c                    copy it into your review summary (S starts from it)
+  C                    post it now, as your PR comment
+
 REVIEW
   S                    submit (comment / approve / request changes), or discard
   Space g              git: show only what isn't committed (Claude's changes), commit, push
@@ -214,8 +218,9 @@ enum Action {
     AskClaude { anchor: Anchor, code: Vec<String> },
     /// Run Claude (review, or make the changes) after your own instructions for it.
     ClaudeWith(agent::Ask),
-    /// A new PR conversation comment, starting with `quote` (may be empty).
-    Converse { quote: String },
+    /// A new PR conversation comment, starting with `quote` (may be empty); `as_is`: posted
+    /// even if left untouched (Claude's review, yours to post).
+    Converse { quote: String, as_is: bool },
     /// Rewrite one of your comments (node id, current body).
     Edit { comment: String, body: String, author: String },
     /// Submit the pending review: COMMENT, APPROVE or REQUEST_CHANGES.
@@ -378,6 +383,8 @@ pub struct App {
     claude_view: bool,
     /// The PR's state and its color (DRAFT, OPEN, …), at the right end of its header line.
     pr_state: Option<gh::State>,
+    /// What your review summary starts from (`c` on Claude's review copies it here), for `S`.
+    summary_draft: String,
     /// Your GitHub login: your comments are never new to you.
     me: String,
     /// The comments you've seen (`comment_key`), kept in `seen_path`; and those of the thread
@@ -543,6 +550,7 @@ impl App {
             theirs: false,
             claude_view: false,
             pr_state: None,
+            summary_draft: String::new(),
             me: String::new(),
             seen: HashSet::new(),
             seen_path: None,
@@ -690,9 +698,9 @@ impl App {
                 let why = std::mem::take(&mut self.msg);
                 Ok(keep_on_error(Err(anyhow::anyhow!(why)), &extra).err().map_or(String::new(), |e| format!("{e:#}")))
             }
-            Action::Converse { quote } => {
+            Action::Converse { quote, as_is } => {
                 self.pr.as_ref().context("no PR")?;
-                let Some(body) = compose_with("comment on the PR conversation", false, &quote, false)? else {
+                let Some(body) = compose_with("comment on the PR conversation", false, &quote, as_is)? else {
                     return Ok("comment cancelled".into());
                 };
                 self.post_later(Post::Converse(body))
@@ -710,6 +718,9 @@ impl App {
                 let what = format!("review summary ({})", event.to_lowercase().replace('_', " "));
                 let head = diff::git(&["rev-parse", "HEAD"]).unwrap_or_default();
                 let mut prefill = ack(event, self.pr.as_ref(), head.trim());
+                if !self.summary_draft.is_empty() {
+                    prefill = format!("{}\n\n{prefill}", self.summary_draft.trim_end());
+                }
                 if event == "APPROVE" {
                     // (A checkout that isn't the PR's head: the ACK's own hint says so.)
                     let notes = self.submit_notes().into_iter().filter(|n| !n.starts_with("your checkout"));
@@ -719,6 +730,7 @@ impl App {
                 let Some(body) = compose_with(&what, true, &prefill, true)? else {
                     return Ok("review not submitted".into());
                 };
+                self.summary_draft.clear();
                 self.post_later(Post::Submit(event, body))
             }
             Action::Commit(draft) => self.commit(&draft),

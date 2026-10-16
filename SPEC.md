@@ -81,7 +81,8 @@ disk: rust-analyzer can index it and `hx` can open it.
    without a PR too), and reloads when the file changes. `r` stages a reply to Claude in the
    file (the skill answers replies, changing code if asked), `c`/`C` copy Claude's comment into
    your pending review / post it (editable in `$EDITOR`; posting as is is fine), then dismiss it
-   from the file; `Space r` resolves it in the file, `Space d` dismisses it. `Space a` runs
+   from the file; on Claude's summary, `c` copies it into your review summary (what `S` starts
+   from) and `C` posts it as your PR comment, as your words (not a quote); `Space r` resolves it in the file, `Space d` dismisses it. `Space a` runs
    Claude Code from dv (review / update the review, answer your waiting replies, or make the
    changes its open comments ask for, after optional instructions of yours in `$EDITOR`): in a
    zellij pane on the right as an interactive session, else `claude -p` in the background

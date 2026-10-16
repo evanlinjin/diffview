@@ -51,7 +51,8 @@ impl App {
         let width = if two { natural } else { width.min(97) };
         let mut blocks: Vec<Vec<Line<'static>>> = vec![];
         for (heading, entries) in sections {
-            let mut out = vec![Line::styled(format!(" {heading}"), ui.heading.add_modifier(ratatui::style::Modifier::BOLD))];
+            // Styled as a span, not a line: in two columns lines are joined span by span.
+            let mut out = vec![Line::from(Span::styled(format!(" {heading}"), ui.heading.add_modifier(ratatui::style::Modifier::BOLD)))];
             for l in entries {
                 let (key, desc) = l.split_at(KEY_COL.min(l.len()));
                 let mut spans: Vec<Span> = vec![Span::raw("  ")];
@@ -155,6 +156,9 @@ impl App {
         }
         if row.file == INFO && row.line.kind == Kind::File && !row.links.is_empty() {
             return Some(("PR", &[("gf", "open on GitHub"), ("Tab", "fold")]));
+        }
+        if row.info == Some(SUMMARY) {
+            return Some(("Claude's review", &[("c", "copy to your review summary"), ("C", "post it as your PR comment")]));
         }
         (row.file == INFO && row.info.is_some())
             .then_some(("PR text", &[("C", "quote in a new conversation comment"), ("Space c", "copy link")]))
