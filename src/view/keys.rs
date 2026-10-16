@@ -222,7 +222,13 @@ impl App {
             ('g', 'i') => self.lsp_request("textDocument/implementation", Req::Goto),
             ('g', 'r') => self.lsp_request("textDocument/references", Req::Goto),
             ('g', 'w') => self.show_labels(),
-            (' ', 'k') => self.lsp_request("textDocument/hover", Req::Hover),
+            (' ', 'k') => match self.link_at_cursor().filter(|u| gh::issue_ref(u).is_some()).map(str::to_owned) {
+                Some(url) => {
+                    self.msg = format!("loading {url}…");
+                    self.job = Some(Job::Preview(url));
+                }
+                None => self.lsp_request("textDocument/hover", Req::Hover),
+            },
             (']', 'g') => self.next_kind(true, change_start),
             ('[', 'g') => self.next_kind(false, change_start),
             (']', 'c') => self.next_kind(true, thread),

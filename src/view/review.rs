@@ -15,6 +15,14 @@ impl App {
     }
 
     pub(super) fn run_job(&mut self, job: Job) {
+        // Read-only: no reload after.
+        if let Job::Preview(url) = job {
+            match gh::issue_preview(&url) {
+                Ok((title, md)) => (self.msg.clear(), self.popup = Some((title, self.hover_lines(&md), 0))).1,
+                Err(e) => self.msg = format!("{e:#}"),
+            }
+            return;
+        }
         let mut viewed = None;
         let res = match job {
             Job::Refresh => Ok("refreshed"),
@@ -24,6 +32,7 @@ impl App {
                 "pending review discarded"
             }),
             Job::DeleteComment(c) => gh::delete_comment(&c).map(|_| "comment deleted"),
+            Job::Preview(_) => unreachable!("handled above"),
             Job::Viewed(path, on) => {
                 let pr_id = self.pr.as_ref().map(|p| p.node_id.clone()).unwrap_or_default();
                 let res = gh::set_viewed(&pr_id, &path, on);

@@ -119,6 +119,46 @@ pub fn pr(n: Option<u64>) -> Result<Pr> {
     })
 }
 
+/// (owner, repo, number) of a github.com issue or PR link, e.g. .../o/r/issues/12#issuecomment-1.
+pub fn issue_ref(url: &str) -> Option<(&str, &str, u64)> {
+    let rest = url.strip_prefix("https://github.com/")?;
+    let mut parts = rest.split(['/', '#', '?']);
+    let (owner, repo, kind, n) = (parts.next()?, parts.next()?, parts.next()?, parts.next()?);
+    matches!(kind, "issues" | "pull").then_some(())?;
+    Some((owner, repo, n.parse().ok()?))
+}
+
+/// An issue or PR as (popup title, markdown): its state, author, age, labels, then its body.
+pub fn issue_preview(url: &str) -> Result<(String, String)> {
+    let (owner, repo, n) = issue_ref(url).context("not a GitHub issue or PR link")?;
+    let v: Value = serde_json::from_str(&gh(&["api", &format!("repos/{owner}/{repo}/issues/{n}")])?)?;
+    let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
+    let pr = v["pull_request"].is_object();
+    let state = match (s(&v["state"]).as_str(), pr) {
+        (_, true) if v["pull_request"]["merged_at"].is_string() => "Merged",
+        ("open", true) if v["draft"] == true => "Draft",
+        ("open", _) => "Open",
+        _ if s(&v["state_reason"]) == "not_planned" => "Closed (not planned)",
+        _ => "Closed",
+    };
+    let kind = if pr { "Pull request" } else { "Issue" };
+    let comments = match v["comments"].as_u64().unwrap_or(0) {
+        1 => " · 1 comment".into(),
+        c => format!(" · {c} comments"),
+    };
+    let labels: Vec<String> = v["labels"].as_array().into_iter().flatten().map(|l| format!("`{}`", s(&l["name"]))).collect();
+    let body = s(&v["body"]).replace("\r\n", "\n");
+    let body = if body.trim().is_empty() { "_(no description)_".into() } else { body };
+    let md = format!(
+        "**{kind} · {state}** · @{} · opened {}{comments}\n{}\n\n{body}",
+        s(&v["user"]["login"]),
+        ago(&s(&v["created_at"])),
+        labels.join(" "),
+    );
+    let title = format!(" {owner}/{repo}#{n} · {}  j/k scroll ", s(&v["title"]));
+    Ok((title, md))
+}
+
 /// An open PR, for `dv list`.
 pub struct Listed {
     pub number: u64,
@@ -623,6 +663,15 @@ fn epoch_secs(iso: &str) -> Option<i64> {
     let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + d - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     Some((era * 146097 + doe - 719468) * 86400 + h * 3600 + mi * 60 + s)
+}
+
+#[test]
+fn issue_links() {
+    assert_eq!(issue_ref("https://github.com/o/r/issues/12"), Some(("o", "r", 12)));
+    assert_eq!(issue_ref("https://github.com/o/r/pull/7#discussion_r1"), Some(("o", "r", 7)));
+    assert_eq!(issue_ref("https://github.com/o/r/pull/7/files?w=1"), Some(("o", "r", 7)));
+    assert_eq!(issue_ref("https://github.com/amy"), None);
+    assert_eq!(issue_ref("https://github.com/o/r/blob/main/x.rs"), None);
 }
 
 #[test]

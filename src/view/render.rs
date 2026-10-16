@@ -191,7 +191,8 @@ impl App {
         if let (Some(url), None, None) = (self.link_at_cursor(), &self.picker, &self.popup) {
             let y = (hd - self.top) as u16;
             let x = ((relw + gw + self.head.col.saturating_sub(self.left)) as u16).min(area.width.saturating_sub(20));
-            let text = format!(" ↗ {url}  gf open ");
+            let preview = if gh::issue_ref(url).is_some() { "Space k preview · " } else { "" };
+            let text = format!(" ↗ {url}  {preview}gf open ");
             let w = (text.chars().count() as u16).min(area.width - x);
             let ty = if y + 1 < h as u16 { y + 1 } else { y.saturating_sub(1) };
             let r = Rect { x: area.x + x, y: area.y + ty, width: w, height: 1 };
@@ -324,7 +325,14 @@ impl App {
         f.render_widget(Block::new().style(self.ui.base.patch(self.ui.popup)), r);
         let head = Rect { height: 1.min(r.height), ..r };
         let head_style = self.ui.base.patch(self.ui.header);
-        f.render_widget(Paragraph::new(format!(" {}", title.trim())).style(head_style), head);
+        // A long title gives way to the position on the right.
+        let room = (r.width as usize).saturating_sub(pos.chars().count() + 3);
+        let title = title.trim();
+        let title = match title.chars().count() > room {
+            true => format!("{}…", title.chars().take(room.saturating_sub(1)).collect::<String>()),
+            false => title.to_owned(),
+        };
+        f.render_widget(Paragraph::new(format!(" {title}")).style(head_style), head);
         // Where you are in the content, on the right of the header.
         f.render_widget(Paragraph::new(format!("{pos} ")).alignment(Alignment::Right).style(head_style), head);
         Rect { x: r.x + 1, y: r.y + 1, width: r.width.saturating_sub(2), height: r.height.saturating_sub(2) }

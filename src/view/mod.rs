@@ -69,7 +69,7 @@ VIEW
 
 RUST-ANALYZER
   gd gr gy gi          definition / references / type / impl
-  Space k              hover
+  Space k              hover; on an issue/PR link: preview it
 
 PR
   c                    comment on selection / reply on a thread (pending review)
@@ -180,6 +180,8 @@ enum Job {
     Viewed(String, bool),
     Discard(String),
     DeleteComment(String),
+    /// Fetch an issue/PR link's preview into a popup.
+    Preview(String),
 }
 
 enum Target {

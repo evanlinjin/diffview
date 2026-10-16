@@ -116,6 +116,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `Enter` | open `hx file:line:col` (in a floating pane inside zellij), reload diff afterwards; on a link, open the link |
 | `gf` | open the link under the cursor in the browser (`xdg-open` / `open`); a tooltip shows the URL while the cursor is on a link |
 | `gd gr gy gi`, `Space k` | definition / references / type / impl, hover |
+| `Space k` on an issue/PR link | preview it in a popup: state, author, age, comments, labels, body (the link tooltip says so) |
 | `Ctrl-o` | jump back |
 | `c` | comment on the selection, or reply on a thread, in your pending review (`r` = reply) |
 | `C` | same, but post immediately as a single comment; in the PR description/conversation: a new conversation comment quoting the comment under the cursor |
