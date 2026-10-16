@@ -740,6 +740,13 @@ impl App {
         }
     }
 
+    /// A comment's first real line as it reads rendered (no `**`, backticks or link URLs), for
+    /// picker labels.
+    fn gist(&self, body: &str) -> String {
+        let lines = crate::md::render(gist_line(body), usize::MAX / 2, &self.ui.md, &self.hl, None);
+        lines.into_iter().next().map_or(String::new(), |l| l.text.trim().to_owned())
+    }
+
     /// https://github.com/owner/repo, for `#123` links.
     fn repo_url(&self) -> Option<&str> {
         self.pr.as_ref().and_then(|p| p.url.rsplit_once("/pull/")).map(|(r, _)| r)
@@ -1069,7 +1076,7 @@ fn quote(text: &str) -> String {
 }
 
 /// The first line of a comment that isn't a quote or a fence: what was actually written.
-fn gist(body: &str) -> &str {
+fn gist_line(body: &str) -> &str {
     body.lines().map(str::trim).find(|l| !l.is_empty() && !l.starts_with('>') && !l.starts_with("```")).unwrap_or("")
 }
 

@@ -371,12 +371,13 @@ impl App {
                 .iter()
                 .filter_map(|&(on, s)| on.then_some(s))
                 .collect();
+                // Before the text, so a long first line can't push it out of sight.
                 let replies = match t.comments.len() - 1 {
                     0 => String::new(),
-                    1 => "  · 1 reply".into(),
-                    n => format!("  · {n} replies"),
+                    1 => "1 reply · ".into(),
+                    n => format!("{n} replies · "),
                 };
-                let label = format!("{}{line}  {tags}@{}: {}{replies}", t.path, c.author, gist(&c.body));
+                let label = format!("{}{line}  {replies}{tags}@{}: {}", t.path, c.author, self.gist(&c.body));
                 Some(Item { label, target: Target::Comment(ti, 0) })
             })
             .collect();
@@ -396,7 +397,7 @@ impl App {
                     (0, _) => "comment",
                     _ => "reply",
                 };
-                items.push(Item { label: format!("{}{line}  {kind}: {}", t.path, gist(&c.body)), target: Target::Comment(ti, ci) });
+                items.push(Item { label: format!("{}{line}  {kind}: {}", t.path, self.gist(&c.body)), target: Target::Comment(ti, ci) });
             }
         }
         match items.is_empty() {

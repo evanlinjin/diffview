@@ -253,7 +253,7 @@ fn comments_placed_and_anchored() {
     press(&mut app, ' ');
     press(&mut app, 't');
     let labels: Vec<String> = app.picker.take().unwrap().items.into_iter().map(|i| i.label).collect();
-    assert_eq!(labels[0], "src/a.rs:2  [pending] @amy: why remove?  · 1 reply");
+    assert_eq!(labels[0], "src/a.rs:2  1 reply · [pending] @amy: why remove?");
     assert!(labels[1].contains("[resolved] [outdated] @amy: old note"));
     // Space d asks first, defaulting to "No".
     press(&mut app, ' ');
@@ -397,7 +397,7 @@ fn claude_menu() {
     std::fs::write(&p, r#"{ "comments": [
         { "path": "src/a.rs", "line": 2, "body": "a", "replies": [ { "author": "user", "body": "why?" } ] },
         { "path": "src/a.rs", "line": 2, "body": "b", "resolved": true, "replies": [ { "author": "user", "body": "ok" } ] },
-        { "path": "src/a.rs", "line": 2, "body": "c", "replies": [ { "author": "claude", "body": "done" } ] } ] }"#).unwrap();
+        { "path": "src/a.rs", "line": 2, "body": "**nit:** use `x` ([docs](https://x.y))", "replies": [ { "author": "claude", "body": "done" } ] } ] }"#).unwrap();
     app.claude_path = Some(p.clone());
     app.load_threads();
     _ = std::fs::remove_file(&p);
@@ -414,6 +414,8 @@ fn claude_menu() {
     let labels: Vec<&str> = app.picker.as_ref().unwrap().items.iter().map(|i| i.label.as_str()).collect();
     assert_eq!(labels.len(), 3);
     assert!(labels[0].contains("[waiting]") && !labels[1].contains("[waiting]") && !labels[2].contains("[waiting]"));
+    assert!(labels[0].starts_with("src/a.rs:2  1 reply · [waiting] @claude: a"), "{}", labels[0]);
+    assert!(labels[2].ends_with("@claude: nit: use x (docs)"), "{}", labels[2]); // markdown stripped
     app.picker = None;
     app.threads.clear();
     app.run_claude(agent::Ask::Answer);
