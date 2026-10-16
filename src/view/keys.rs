@@ -250,6 +250,7 @@ impl App {
             (' ', 'd') => self.start_delete(),
             (' ', 'p') => self.pending_picker(),
             (' ', 't') => self.threads_picker(),
+            (' ', 'a') => self.claude_menu(),
             (' ', 'v') => self.toggle_viewed(),
             ('f' | 't' | 'F' | 'T', c) => self.find_char(p, c),
             _ => {}
@@ -300,6 +301,7 @@ impl App {
                             self.msg = "deleting…".into();
                             self.job = Some(Job::DeleteComment(id));
                         }
+                        Target::Claude(ask) => self.run_claude(ask),
                         Target::Nothing => {}
                     }
                 }

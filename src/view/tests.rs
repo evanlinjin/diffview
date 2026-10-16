@@ -389,3 +389,26 @@ fn claude_outdated() {
     app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
     assert!(app.action.is_none() && app.msg.contains("outdated"));
 }
+
+#[test]
+fn claude_menu() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let p = std::env::temp_dir().join(format!("dv-claude-menu-{}.json", std::process::id()));
+    std::fs::write(&p, r#"{ "comments": [
+        { "path": "src/a.rs", "line": 2, "body": "a", "replies": [ { "author": "user", "body": "why?" } ] },
+        { "path": "src/a.rs", "line": 2, "body": "b", "resolved": true, "replies": [ { "author": "user", "body": "ok" } ] },
+        { "path": "src/a.rs", "line": 2, "body": "c", "replies": [ { "author": "claude", "body": "done" } ] } ] }"#).unwrap();
+    app.claude_path = Some(p.clone());
+    app.load_threads();
+    _ = std::fs::remove_file(&p);
+    assert_eq!(app.waiting_replies(), 1); // resolved and answered ones don't count
+    app.key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+    let p = app.picker.as_ref().unwrap();
+    assert!(p.items[0].label.starts_with("Update Claude's review"));
+    assert!(p.items[1].label.contains("(1 waiting)") && p.sel == 1); // answering preselected
+    app.picker = None;
+    app.threads.clear();
+    app.run_claude(agent::Ask::Answer);
+    assert!(app.msg.contains("no replies waiting") && app.claude_job.is_none());
+}

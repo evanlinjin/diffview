@@ -76,7 +76,12 @@ disk: rust-analyzer can index it and `hx` can open it.
    without a PR too), and reloads when the file changes. `r` stages a reply to Claude in the
    file (the skill answers replies, changing code if asked), `c`/`C` copy Claude's comment into
    your pending review / post it (editable in `$EDITOR`; posting as is is fine), then dismiss it
-   from the file; `Space r` resolves it in the file, `Space d` dismisses it.
+   from the file; `Space r` resolves it in the file, `Space d` dismisses it. `Space a` runs
+   Claude Code from dv (review / update the review, or answer your waiting replies): in a
+   zellij floating pane as an interactive session, else `claude -p` in the background
+   (`acceptEdits`, Bash limited to `dv review-*` and read-only git), with "Claude working…"
+   in the status bar and its log path if it fails. Comments get stable `id`s (assigned by dv on
+   load and by review-check); both write the file atomically and re-read it before a change.
 4. **Later**:
    - **`c` in the PR section → review summary.** `c` on a conversation comment (or the
      description) appends it as a `> ` quote to the pending review's summary (body), saved on
@@ -120,6 +125,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `Space e` | edit your comment under the cursor (opens its text in `$EDITOR`) |
 | `Space d` | delete the comment under the cursor (confirmation picker, "No" preselected) |
 | `Space p` | picker of your pending review's comments; jumps there (unfolding as needed) |
+| `Space a` | run Claude Code: review (or update the review), or answer your replies |
 | `Space t` | picker of all review threads (state tags, author, gist, reply count); type to filter, e.g. `resolved` |
 | `Space v` | mark / unmark the file as viewed on GitHub (folds it and moves to the next file); viewed files start folded, headers show `✓ Viewed` / `↻ changed since viewed` at the right edge |
 | `]c [c` | next/prev comment thread |

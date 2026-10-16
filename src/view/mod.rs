@@ -20,6 +20,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+mod agent;
 mod keys;
 mod motion;
 mod ra;
@@ -83,6 +84,7 @@ PR
   Space v              mark / unmark the file as viewed (folds it, moves on)
 
 CLAUDE REVIEW
+  Space a              ask Claude Code to review, or to answer your replies
   r                    reply to Claude (saved in the file; ask Claude Code to answer)
   c / C                copy Claude's comment into your pending review / post it now
   Space r              resolve / unresolve (Claude skips resolved comments)
@@ -190,6 +192,7 @@ enum Target {
     DeleteComment(String),
     /// A comment: (thread index, comment index within it).
     Comment(usize, usize),
+    Claude(agent::Ask),
     Nothing,
 }
 
@@ -271,6 +274,8 @@ pub struct App {
     claude_path: Option<PathBuf>,
     claude_mtime: Option<std::time::SystemTime>,
     claude_summary: String,
+    /// A background `claude -p` run: (process, log file, what it's doing).
+    claude_job: Option<(std::process::Child, PathBuf, &'static str)>,
     root: PathBuf,
     lsp: Option<Lsp>,
     lsp_ready: bool,
@@ -354,6 +359,7 @@ impl App {
             claude_path: None,
             claude_mtime: None,
             claude_summary: String::new(),
+            claude_job: None,
             root: std::env::current_dir().unwrap_or_default(),
             lsp: None,
             lsp_ready: false,
@@ -386,6 +392,7 @@ impl App {
                     }
             self.lsp_poll();
             self.watch_claude();
+            self.poll_claude();
             if let Some(a) = self.action.take() {
                 // In zellij the editor gets a floating pane and dv stays on screen underneath.
                 let floating = in_zellij();

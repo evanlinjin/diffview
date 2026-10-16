@@ -65,7 +65,11 @@ file that dv reloads whenever it changes, so you can keep dv open while Claude w
 `~/.claude/skills/dv-review/`. Restart any running Claude Code session so it picks it up.
 
 1. **Get the PR**: `dv 2258 -w` (or `dv list -w`, then Enter).
-2. **Ask for a review**: in that checkout, ask Claude Code to "review this PR for dv". It runs
+2. **Ask for a review**: press `Space a` in dv and pick "Ask Claude to review this" (or, in
+   Claude Code in that checkout, ask it to "review this PR for dv"). Inside zellij, Claude
+   Code opens in a floating pane, where you can watch it and approve what it asks to do;
+   elsewhere it runs in the background, allowed to edit files and run only the `dv review-*`
+   and read-only `git` commands it needs, and the status bar says when it's done. It runs
    `dv review-info` (the review file's path, and the base commit: `git diff <base>` is the
    diff dv shows), writes its review, and runs `dv review-check`, which checks every line
    reference against the diff and records the commented code.
@@ -82,7 +86,8 @@ file that dv reloads whenever it changes, so you can keep dv open while Claude w
    | `Space d` | dismiss it |
 
    A comment copied to GitHub is removed from the review file, so it doesn't show twice.
-5. **Let Claude answer**: ask Claude Code to "answer my dv replies". For each unresolved
+5. **Let Claude answer**: `Space a`, "Ask Claude to answer your replies" (or ask Claude Code
+   to "answer my dv replies"). For each unresolved
    comment where you spoke last, it replies, or makes the change you asked for and says what it
    changed. Its answers appear in dv as it writes them. Repeat 4–5 as needed.
 6. **Submit**: `S` submits your pending review, holding whatever you queued with `c`. Claude

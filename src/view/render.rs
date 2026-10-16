@@ -238,7 +238,8 @@ impl App {
             .as_ref()
             .map(|p| format!("PR #{} · {} threads · {seen}/{} viewed{pending}  ", p.number, self.threads.len() - claude, self.files.len()))
             .unwrap_or_default();
-        let pr = format!("{claude_s}{pr}");
+        let working = if self.claude_working() { "Claude working… · " } else { "" };
+        let pr = format!("{working}{claude_s}{pr}");
         let view = if self.split { "split  " } else { "" };
         let right = format!("{ra}{pr}{view}{count}{pend}  {}/{} ", self.head.row + 1, self.rows.len());
         let bar = self.ui.base.patch(self.ui.status);
