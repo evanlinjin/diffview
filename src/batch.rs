@@ -26,18 +26,18 @@ impl Status {
 }
 
 /// Review `prs` (PR number, and whether its worktree is on the PR's branch) from the repo at
-/// `root`; progress comes back on the receiver.
-pub fn start(prs: Vec<(u64, bool)>, root: PathBuf) -> Receiver<(u64, Status)> {
+/// `root`, with the user's `extra` instructions (if any); progress comes back on the receiver.
+pub fn start(prs: Vec<(u64, bool)>, root: PathBuf, extra: String) -> Receiver<(u64, Status)> {
     let (tx, rx) = mpsc::channel();
     for &(n, _) in &prs {
         _ = tx.send((n, Status::Queued));
     }
     let queue = Arc::new(Mutex::new(VecDeque::from(prs)));
     for _ in 0..AT_ONCE {
-        let (queue, tx, root) = (queue.clone(), tx.clone(), root.clone());
+        let (queue, tx, root, extra) = (queue.clone(), tx.clone(), root.clone(), extra.clone());
         std::thread::spawn(move || {
             while let Some((n, branch)) = queue.lock().ok().and_then(|mut q| q.pop_front()) {
-                let status = review(n, branch, &root, &tx).unwrap_or_else(|e| Status::Failed(format!("{e:#}")));
+                let status = review(n, branch, &root, &extra, &tx).unwrap_or_else(|e| Status::Failed(format!("{e:#}")));
                 _ = tx.send((n, status));
             }
         });
@@ -45,7 +45,7 @@ pub fn start(prs: Vec<(u64, bool)>, root: PathBuf) -> Receiver<(u64, Status)> {
     rx
 }
 
-fn review(n: u64, branch: bool, root: &Path, tx: &Sender<(u64, Status)>) -> anyhow::Result<Status> {
+fn review(n: u64, branch: bool, root: &Path, extra: &str, tx: &Sender<(u64, Status)>) -> anyhow::Result<Status> {
     use anyhow::Context;
     _ = tx.send((n, Status::Preparing));
     // The worktree, checked out at the PR (by a dv of its own: that changes directory).
@@ -73,6 +73,7 @@ fn review(n: u64, branch: bool, root: &Path, tx: &Sender<(u64, Status)>) -> anyh
     };
     _ = tx.send((n, Status::Reviewing));
     let prompt = format!("{} (It's {} now.)", crate::view::review_prompt(&format!("PR #{n}")), crate::claude::now());
+    let prompt = crate::view::with_instructions(&prompt, extra);
     let log = std::env::temp_dir().join(format!("dv-claude-batch-{}-{n}.log", std::process::id()));
     let st = crate::view::claude_command(&prompt, &dir, &session)
         .stdin(std::process::Stdio::null())

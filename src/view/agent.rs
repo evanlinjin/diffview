@@ -237,11 +237,7 @@ impl App {
             ),
         };
         // Claude Code knows the date but not the time, and makes one up for `created`.
-        let prompt = format!("{prompt} (It's {} now.)", crate::claude::now());
-        match extra.trim() {
-            "" => prompt,
-            e => format!("{prompt}\n\nThe user adds:\n{e}"),
-        }
+        with_instructions(&format!("{prompt} (It's {} now.)", crate::claude::now()), extra)
     }
 
     /// Open Claude's notes on the repo in hx (they're plain markdown; you can write them too).
@@ -529,6 +525,14 @@ fn offer_to_pane(pane: u64, prompt: &str) -> Result<bool> {
 /// (in a folder it hasn't seen) whether you trust it. Typing in then would answer it.
 pub(super) fn asking(screen: &str) -> bool {
     ["Do you want", "Would you like", "❯ 1.", "trust this folder"].iter().any(|p| screen.contains(p))
+}
+
+/// `prompt`, with the user's own instructions (if any) after it.
+pub(crate) fn with_instructions(prompt: &str, extra: &str) -> String {
+    match extra.trim() {
+        "" => prompt.to_owned(),
+        e => format!("{prompt}\n\nThe user adds:\n{e}"),
+    }
 }
 
 /// `--add-dir` for dv's directory (the review files and notes): it's outside the checkout

@@ -148,11 +148,34 @@ impl List {
                 }
                 Some(Do::Refresh) => self.refresh(term)?,
                 Some(Do::Review(prs)) => {
+                    // Instructions for every one of these reviews, if you have any. In zellij the
+                    // editor gets a pane beside the list; elsewhere it takes the terminal.
+                    let which = prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(" ");
+                    let in_pane = crate::view::in_zellij();
+                    if !in_pane {
+                        crate::view::restore_terminal();
+                    }
+                    let extra = crate::view::compose(&format!("instructions for Claude's reviews of {which} (optional)"), true);
+                    if !in_pane {
+                        *term = crate::view::init_terminal();
+                    }
+                    let extra = match extra {
+                        Ok(Some(e)) => e,
+                        Ok(None) => {
+                            self.msg = "batch review cancelled".into();
+                            continue;
+                        }
+                        Err(e) => {
+                            self.msg = format!("{e:#}");
+                            continue;
+                        }
+                    };
                     let on_branch = |n| self.local.get(&n).is_some_and(|w| w.1.is_some());
                     let prs: Vec<(u64, bool)> = prs.into_iter().map(|n| (n, on_branch(n))).collect();
-                    self.msg = format!("Claude is reviewing {} PR(s), {} at a time", prs.len(), batch::AT_ONCE);
+                    let with = if extra.is_empty() { "" } else { ", with your instructions" };
+                    self.msg = format!("Claude is reviewing {} PR(s){with}, {} at a time", prs.len(), batch::AT_ONCE);
                     self.marked.clear();
-                    self.batch_rx = Some(batch::start(prs, self.root.clone()));
+                    self.batch_rx = Some(batch::start(prs, self.root.clone(), extra));
                 }
                 Some(Do::Remove(n)) => {
                     self.msg = match crate::remove_worktree(n, false) {
@@ -316,7 +339,7 @@ impl List {
                     return Some(Do::Review(prs));
                 }
                 let which = prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(" ");
-                self.msg = format!("a again: Claude reviews {which} in the background, each in its worktree (<repo>-N)");
+                self.msg = format!("a again: Claude reviews {which} in the background, each in its worktree (<repo>-N); your editor opens first, for any instructions");
                 self.confirm = Some(('a', 0));
             }
             KeyCode::Char('?') => self.help = true,

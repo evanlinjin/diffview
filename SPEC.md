@@ -180,7 +180,8 @@ all match, GitHub-search style, `-` negating one: `author:` `label:` `base:` `br
 anything else is text in the number, title, author, branch or labels (smart case). E.g.
 `ci:fail -is:draft -author:dependabot`. `Enter` reviews the PR as `dv <N> <flags>` would, `R`
 refreshes, `q` quits. `m` marks PRs and `a a` has Claude review them (or the selected one) in
-the background, two at a time, each in its `<repo>-N` worktree (made if need be; one on the
+the background (after your editor, for optional instructions to every one of those reviews;
+`:cq` cancels), two at a time, each in its `<repo>-N` worktree (made if need be; one on the
 PR's branch stays on it) and its own session; cards show `claude: reviewing…` and then
 `claude ✓`. `D D` in the worktrees tab removes the worktree (not with local changes; the branch
 stays). Quitting the review returns to the list; if opening a PR fails, the

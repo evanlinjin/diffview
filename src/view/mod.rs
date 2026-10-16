@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 mod agent;
-pub(crate) use agent::{claude_command, review_prompt};
+pub(crate) use agent::{claude_command, review_prompt, with_instructions};
 mod git;
 mod keys;
 mod mouse;
@@ -1489,7 +1489,7 @@ impl App {
 
 /// Write a template, open $VISUAL/$EDITOR (default hx), and return the body file, or None if left empty.
 /// `None` if cancelled: the editor failed (e.g. `:cq`), or the text is empty and `allow_empty` isn't set.
-fn compose(what: &str, allow_empty: bool) -> Result<Option<String>> {
+pub(crate) fn compose(what: &str, allow_empty: bool) -> Result<Option<String>> {
     compose_with(what, allow_empty, "", false)
 }
 
@@ -1528,7 +1528,7 @@ pub fn restore_terminal() {
     ratatui::restore();
 }
 
-fn in_zellij() -> bool {
+pub(crate) fn in_zellij() -> bool {
     std::env::var_os("ZELLIJ").is_some()
 }
 

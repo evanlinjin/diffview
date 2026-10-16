@@ -6,6 +6,8 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Added
+- `dv list`: `a a` opens your editor first, for instructions to Claude for every marked PR's
+  review (leave it empty for a plain review; `:cq` cancels).
 - `Ctrl-w a`: the Claude view, just Claude's review: the PR's one-line summary, Claude's
   summary, and only the code it commented on (a few lines around each comment).
 
