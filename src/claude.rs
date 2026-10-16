@@ -102,6 +102,25 @@ pub fn notes_path() -> Result<PathBuf> {
     Ok(dv_dir()?.join("notes.md"))
 }
 
+/// Your last instructions for Claude's reviews in this repo, to start from next time (empty if
+/// none): `review-instructions.md` in dv's directory.
+pub fn instructions() -> String {
+    dv_dir().and_then(|d| Ok(std::fs::read_to_string(d.join("review-instructions.md"))?)).unwrap_or_default()
+}
+
+/// Remember `text` as those instructions (empty forgets them).
+pub fn save_instructions(text: &str) -> Result<()> {
+    let p = dv_dir()?.join("review-instructions.md");
+    match text.trim() {
+        "" => _ = std::fs::remove_file(&p),
+        t => {
+            std::fs::create_dir_all(p.parent().unwrap_or(&p))?;
+            std::fs::write(&p, format!("{t}\n"))?;
+        }
+    }
+    Ok(())
+}
+
 /// Where the Claude Code sessions for a review are kept: next to its file (`pr-N.session`),
 /// one line per checkout directory (`<dir>\t<id>`), since Claude Code keeps sessions per
 /// directory: each checkout of the PR continues its own conversation about it.

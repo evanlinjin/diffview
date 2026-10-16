@@ -155,12 +155,18 @@ impl List {
                     if !in_pane {
                         crate::view::restore_terminal();
                     }
-                    let extra = crate::view::compose(&format!("instructions for Claude's reviews of {which} (optional)"), true);
+                    // Starting from your last review instructions (kept if left as they are).
+                    let last = crate::claude::instructions();
+                    let what = format!("instructions for Claude's reviews of {which} (optional)");
+                    let extra = crate::view::compose_with(&what, true, last.trim(), true);
                     if !in_pane {
                         *term = crate::view::init_terminal();
                     }
                     let extra = match extra {
-                        Ok(Some(e)) => e,
+                        Ok(Some(e)) => {
+                            _ = crate::claude::save_instructions(&e);
+                            e
+                        }
                         Ok(None) => {
                             self.msg = "batch review cancelled".into();
                             continue;

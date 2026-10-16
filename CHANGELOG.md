@@ -6,6 +6,8 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Added
+- Your last instructions for Claude's reviews (`Space a` → review, `a a` in `dv list`) are
+  remembered per repo and fill the editor next time; clear them to forget them.
 - `dv list`: `a a` opens your editor first, for instructions to Claude for every marked PR's
   review (leave it empty for a plain review; `:cq` cancels).
 - `Ctrl-w a`: the Claude view, just Claude's review: the PR's one-line summary, Claude's

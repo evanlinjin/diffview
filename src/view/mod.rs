@@ -676,7 +676,13 @@ impl App {
                     (_, true) => "what Claude should change (there are no open comments to act on)",
                     _ => "instructions for Claude, on top of the open comments (optional)",
                 };
-                let Some(extra) = compose(what, !alone)? else { return Ok("Claude not asked".into()) };
+                // Review instructions start from the last ones (kept if left as they are).
+                let review = matches!(ask, agent::Ask::Review);
+                let last = if review { crate::claude::instructions() } else { String::new() };
+                let Some(extra) = compose_with(what, !alone, last.trim(), review)? else { return Ok("Claude not asked".into()) };
+                if review {
+                    _ = crate::claude::save_instructions(&extra);
+                }
                 if self.run_claude(ask, &extra) || extra.trim().is_empty() {
                     return Ok(std::mem::take(&mut self.msg));
                 }
@@ -1489,7 +1495,7 @@ impl App {
 
 /// Write a template, open $VISUAL/$EDITOR (default hx), and return the body file, or None if left empty.
 /// `None` if cancelled: the editor failed (e.g. `:cq`), or the text is empty and `allow_empty` isn't set.
-pub(crate) fn compose(what: &str, allow_empty: bool) -> Result<Option<String>> {
+fn compose(what: &str, allow_empty: bool) -> Result<Option<String>> {
     compose_with(what, allow_empty, "", false)
 }
 
@@ -1572,7 +1578,7 @@ fn interactive(prog: &str, args: &[String], name: &str) -> std::io::Result<std::
 
 /// Like `compose`, with `prefill` above the cursor (e.g. a quote). Leaving only the prefill
 /// counts as empty, unless `untouched_ok` (the prefill is a draft to post as is).
-fn compose_with(what: &str, allow_empty: bool, prefill: &str, untouched_ok: bool) -> Result<Option<String>> {
+pub(crate) fn compose_with(what: &str, allow_empty: bool, prefill: &str, untouched_ok: bool) -> Result<Option<String>> {
     const MARK: &str = HINT;
     let path = std::env::temp_dir().join(format!("dv-comment-{}.md", std::process::id()));
     let hint = if allow_empty { "leave empty for none; :cq to cancel" } else { "leave empty to cancel" };

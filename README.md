@@ -42,7 +42,8 @@ dv 2258 --rm      # remove that worktree (-f to discard local changes)
 dv list -w        # pick from the open PRs; Enter reviews one (here: in a worktree), q comes back;
                   # Tab lists the PRs you have worktrees for (D D removes one);
                   # m marks PRs and a a has Claude review them in the background
-                  # (your editor opens first, for instructions to all of them);
+                  # (your editor opens first, for instructions to all of them; your last
+                  # review instructions are there to start from);
                   # filter by #N to open a PR that isn't listed
 ```
 
