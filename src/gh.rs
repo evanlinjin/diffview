@@ -11,6 +11,8 @@ pub struct Pr {
     pub title: String,
     pub base: String,
     pub head_oid: String,
+    /// e.g. https://github.com/o/r/pull/1; filled in by `info`.
+    pub url: String,
 }
 
 /// Review threads plus the viewer's pending review on the PR, if any.
@@ -18,6 +20,8 @@ pub struct Review {
     pub pr_id: String,
     pub pending: Option<String>,
     pub threads: Vec<Thread>,
+    /// Your "Viewed" marks: path → VIEWED, or DISMISSED (the file changed after you marked it).
+    pub viewed: std::collections::HashMap<String, String>,
 }
 
 pub struct Thread {
@@ -45,6 +49,7 @@ pub struct Comment {
     pub can_delete: bool,
     pub author: String,
     pub body: String,
+    /// ISO 8601 timestamp, e.g. 2026-10-01T12:00:00Z.
     pub created: String,
     /// Part of the viewer's unsubmitted review.
     pub pending: bool,
@@ -103,6 +108,7 @@ pub fn pr(n: Option<u64>) -> Result<Pr> {
         title: v["title"].as_str().unwrap_or("").to_owned(),
         base: v["baseRefName"].as_str().unwrap_or("main").to_owned(),
         head_oid: v["headRefOid"].as_str().unwrap_or("").to_owned(),
+        url: String::new(),
     })
 }
 
@@ -111,6 +117,7 @@ const THREADS: &str = "query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) { pullRequest(number: $number) {
     id
     reviews(states: PENDING, first: 10) { nodes { id viewerDidAuthor } }
+    files(first: 100) { nodes { path viewerViewedState } }
     reviewThreads(first: 100) { nodes {
       id path line startLine originalLine diffSide isResolved isOutdated
       comments(first: 100) { nodes { id databaseId author { login } body createdAt diffHunk state viewerCanUpdate viewerCanDelete } }
@@ -136,6 +143,11 @@ fn parse_review(pr: &Value) -> Review {
             .find(|r| r["viewerDidAuthor"] == true)
             .and_then(|r| r["id"].as_str().map(str::to_owned)),
         threads: nodes(&pr["reviewThreads"]).iter().map(parse_thread).collect(),
+        viewed: nodes(&pr["files"])
+            .iter()
+            .filter(|f| f["viewerViewedState"] != "UNVIEWED")
+            .filter_map(|f| Some((f["path"].as_str()?.to_owned(), f["viewerViewedState"].as_str()?.to_owned())))
+            .collect(),
     }
 }
 
@@ -224,6 +236,15 @@ pub fn edit_comment(comment: &str, body: &str) -> Result<()> {
     .map(drop)
 }
 
+/// Toggle the "Viewed" checkbox for a file, as on github.com's Files tab.
+pub fn set_viewed(pr_id: &str, path: &str, viewed: bool) -> Result<()> {
+    let q = match viewed {
+        true => "mutation($pr: ID!, $path: String!) { markFileAsViewed(input: { pullRequestId: $pr, path: $path }) { clientMutationId } }",
+        false => "mutation($pr: ID!, $path: String!) { unmarkFileAsViewed(input: { pullRequestId: $pr, path: $path }) { clientMutationId } }",
+    };
+    mutate(q, json!({ "pr": pr_id, "path": path })).map(drop)
+}
+
 pub fn set_resolved(thread: &str, resolved: bool) -> Result<()> {
     let q = match resolved {
         true => "mutation($t: ID!) { resolveReviewThread(input: { threadId: $t }) { thread { isResolved } } }",
@@ -268,7 +289,7 @@ fn parse_thread(t: &Value) -> Thread {
                 can_delete: c["viewerCanDelete"] == true,
                 author: c["author"]["login"].as_str().unwrap_or("ghost").to_owned(),
                 body: c["body"].as_str().unwrap_or("").replace("\r\n", "\n"),
-                created: c["createdAt"].as_str().unwrap_or("").get(..10).unwrap_or("").to_owned(),
+                created: c["createdAt"].as_str().unwrap_or("").to_owned(),
                 pending: c["state"] == "PENDING",
             })
             .collect(),
@@ -291,38 +312,93 @@ pub fn reply(pr: &Pr, comment_id: u64, body: &str) -> Result<()> {
     gh_input(&["api", "-X", "POST", &ep, "--input", "-"], Some(&json!({ "body": body }).to_string())).map(drop)
 }
 
-/// A line of the PR info section; headings render bold.
+/// How to color part of a PR info line.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Mark {
+    /// A badge with this background (hex, no '#'), e.g. a label or the PR state.
+    Chip(String),
+    Pass,
+    Fail,
+    Pending,
+    Dim,
+    Link(String),
+}
+
+/// A line of the PR info section. `md` lines (description, comments) are rendered as markdown;
+/// the rest are colored by `marks` (char ranges).
 pub struct InfoLine {
     pub heading: bool,
+    pub md: bool,
     pub text: String,
+    pub marks: Vec<(usize, usize, Mark)>,
+}
+
+impl InfoLine {
+    fn new(heading: bool, md: bool) -> Self {
+        InfoLine { heading, md, text: String::new(), marks: vec![] }
+    }
+
+    fn put(&mut self, s: &str, mark: Option<Mark>) -> &mut Self {
+        let a = self.text.chars().count();
+        self.text.push_str(s);
+        if let Some(m) = mark {
+            self.marks.push((a, a + s.chars().count(), m));
+        }
+        self
+    }
 }
 
 const INFO_FIELDS: &str = "headRefOid,title,author,state,isDraft,url,baseRefName,headRefName,additions,deletions,\
 changedFiles,labels,reviewDecision,reviewRequests,latestReviews,statusCheckRollup,body,comments";
 
-/// PR info lines, plus the current (title, head commit) so a refresh picks up new pushes.
-pub fn info(n: u64) -> Result<(Vec<InfoLine>, String, String)> {
+/// PR info lines, plus the current (title, head commit, url) so a refresh picks up new pushes.
+pub fn info(n: u64) -> Result<(Vec<InfoLine>, String, String, String)> {
     let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", INFO_FIELDS])?)?;
     let s = |k: &str| v[k].as_str().unwrap_or("").to_owned();
-    Ok((info_lines(&v), s("title"), s("headRefOid")))
+    Ok((info_lines(&v), s("title"), s("headRefOid"), s("url")))
 }
 
 fn info_lines(v: &Value) -> Vec<InfoLine> {
     let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
     let list = |v: &Value| v.as_array().map(Vec::as_slice).unwrap_or(&[]).to_vec();
     let mut out = vec![];
-    let mut line = |heading, text: String| out.push(InfoLine { heading, text });
+    let plain = |text: String| {
+        let mut l = InfoLine::new(false, false);
+        l.put(&text, None);
+        l
+    };
 
-    let state = if v["isDraft"] == true { "draft".into() } else { s(&v["state"]).to_lowercase() };
-    line(false, format!(
-        "@{} · {state} · {} ← {} · +{} −{} in {} files",
-        s(&v["author"]["login"]), s(&v["baseRefName"]), s(&v["headRefName"]),
-        v["additions"], v["deletions"], v["changedFiles"],
-    ));
-    line(false, s(&v["url"]));
-    let labels: Vec<String> = list(&v["labels"]).iter().map(|l| s(&l["name"])).collect();
+    // State badge in GitHub's colors, then author, branches, size.
+    let (state, color) = match (v["isDraft"] == true, s(&v["state"]).as_str()) {
+        (true, _) => ("DRAFT", "6e7681"),
+        (_, "MERGED") => ("MERGED", "8957e5"),
+        (_, "CLOSED") => ("CLOSED", "da3633"),
+        _ => ("OPEN", "238636"),
+    };
+    let author = s(&v["author"]["login"]);
+    let mut l = InfoLine::new(false, false);
+    l.put(&format!(" {state} "), Some(Mark::Chip(color.into())))
+        .put(" ", None)
+        .put(&format!("@{author}"), Some(Mark::Link(format!("https://github.com/{author}"))))
+        .put(&format!(" · {} ← {} · ", s(&v["baseRefName"]), s(&v["headRefName"])), None)
+        .put(&format!("+{}", v["additions"]), Some(Mark::Pass))
+        .put(" ", None)
+        .put(&format!("−{}", v["deletions"]), Some(Mark::Fail))
+        .put(&format!(" in {} files", v["changedFiles"]), None);
+    out.push(l);
+    let url = s(&v["url"]);
+    let mut l = InfoLine::new(false, false);
+    l.put(&url, Some(Mark::Link(url.clone())));
+    out.push(l);
+
+    let labels = list(&v["labels"]);
     if !labels.is_empty() {
-        line(false, format!("labels: {}", labels.join(", ")));
+        let mut l = InfoLine::new(false, false);
+        l.put("labels", Some(Mark::Dim));
+        for lb in &labels {
+            l.put(" ", None).put(&format!(" {} ", s(&lb["name"])), Some(Mark::Chip(s(&lb["color"]))));
+        }
+        out.push(l);
     }
 
     let decision = s(&v["reviewDecision"]).to_lowercase().replace('_', " ");
@@ -335,14 +411,21 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         .iter()
         .map(|r| format!("@{}", r["login"].as_str().or(r["name"].as_str()).unwrap_or("?")))
         .collect();
-    let mut review = format!("review: {}", if decision.is_empty() { "none" } else { &decision });
+    let mark = match decision.as_str() {
+        "approved" => Some(Mark::Pass),
+        "changes requested" => Some(Mark::Fail),
+        "review required" => Some(Mark::Pending),
+        _ => None,
+    };
+    let mut l = InfoLine::new(false, false);
+    l.put("review: ", None).put(if decision.is_empty() { "none" } else { &decision }, mark);
     if !reviews.is_empty() {
-        review += &format!(" · {}", reviews.join(", "));
+        l.put(&format!(" · {}", reviews.join(", ")), None);
     }
     if !requested.is_empty() {
-        review += &format!(" · requested {}", requested.join(", "));
+        l.put(&format!(" · requested {}", requested.join(", ")), None);
     }
-    line(false, review);
+    out.push(l);
 
     // CheckRun has status/conclusion; StatusContext has state.
     let checks = list(&v["statusCheckRollup"]);
@@ -353,25 +436,47 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         _ => '✗',
     };
     if checks.is_empty() {
-        line(false, "checks: none".into());
+        out.push(plain("checks: none".into()));
     } else {
         let count = |m| checks.iter().filter(|c| verdict(c) == m).count();
-        line(false, format!("checks: ✓ {} passed · ✗ {} failed · ● {} pending", count('✓'), count('✗'), count('●')));
+        let (pass, fail, pending) = (count('✓'), count('✗'), count('●'));
+        let or_dim = |n: usize, m: Mark| Some(if n > 0 { m } else { Mark::Dim });
+        let mut l = InfoLine::new(false, false);
+        l.put("checks: ", None)
+            .put(&format!("✓ {pass} passed"), or_dim(pass, Mark::Pass))
+            .put(" · ", None)
+            .put(&format!("✗ {fail} failed"), or_dim(fail, Mark::Fail))
+            .put(" · ", None)
+            .put(&format!("● {pending} pending"), or_dim(pending, Mark::Pending));
+        out.push(l);
         for c in checks.iter().filter(|c| verdict(c) != '✓') {
             let name = c["name"].as_str().or(c["context"].as_str()).unwrap_or("?");
-            line(false, format!("{} {name}", verdict(c)));
+            let m = if verdict(c) == '✗' { Mark::Fail } else { Mark::Pending };
+            let mut l = InfoLine::new(false, false);
+            l.put(&format!("{} {name}", verdict(c)), Some(m));
+            out.push(l);
         }
     }
 
-    line(true, "description".into());
+    let heading = |t: String| {
+        let mut l = InfoLine::new(true, false);
+        l.put(&t, None);
+        l
+    };
+    let markdown = |t: String| {
+        let mut l = InfoLine::new(false, true);
+        l.put(&t, None);
+        l
+    };
+    out.push(heading("description".into()));
     let body = s(&v["body"]).replace("\r\n", "\n");
-    line(false, if body.trim().is_empty() { "(no description)".into() } else { body });
+    out.push(markdown(if body.trim().is_empty() { "_(no description)_".into() } else { body }));
 
     let comments = list(&v["comments"]);
-    line(true, format!("conversation ({})", comments.len()));
+    out.push(heading(format!("conversation ({})", comments.len())));
     for c in &comments {
-        line(true, format!("@{} · {}", s(&c["author"]["login"]), s(&c["createdAt"]).get(..10).unwrap_or("")));
-        line(false, s(&c["body"]).replace("\r\n", "\n"));
+        out.push(heading(format!("@{} · {}", s(&c["author"]["login"]), ago(&s(&c["createdAt"])))));
+        out.push(markdown(s(&c["body"]).replace("\r\n", "\n")));
     }
     out
 }
@@ -381,7 +486,7 @@ fn info_summarises_checks() {
     let v = serde_json::json!({
         "title": "t", "author": { "login": "amy" }, "state": "OPEN", "isDraft": true,
         "baseRefName": "main", "headRefName": "feat", "additions": 3, "deletions": 1, "changedFiles": 2,
-        "labels": [{ "name": "bug" }], "reviewDecision": "CHANGES_REQUESTED",
+        "labels": [{ "name": "bug", "color": "d73a4a" }], "reviewDecision": "CHANGES_REQUESTED",
         "latestReviews": [{ "author": { "login": "bo" }, "state": "CHANGES_REQUESTED" }], "reviewRequests": [],
         "statusCheckRollup": [
             { "name": "build", "status": "COMPLETED", "conclusion": "SUCCESS" },
@@ -390,10 +495,58 @@ fn info_summarises_checks() {
         ],
         "body": "", "comments": [],
     });
-    let t: Vec<String> = info_lines(&v).into_iter().map(|l| l.text).collect();
-    assert_eq!(t[0], "@amy · draft · main ← feat · +3 −1 in 2 files");
+    let lines = info_lines(&v);
+    assert_eq!(lines[0].marks[0], (0, 7, Mark::Chip("6e7681".into()))); // " DRAFT " badge
+    assert_eq!(lines[2].marks[1], (7, 12, Mark::Chip("d73a4a".into()))); // " bug " in its label color
+    let t: Vec<String> = lines.into_iter().map(|l| l.text).collect();
+    assert_eq!(t[0], " DRAFT  @amy · main ← feat · +3 −1 in 2 files");
     assert_eq!(t[3], "review: changes requested · @bo changes requested");
     assert_eq!(&t[4..7], ["checks: ✓ 1 passed · ✗ 1 failed · ● 1 pending", "✗ test", "● ci/legacy"]);
+}
+
+/// "3h ago", "2d ago", "5mo ago", like GitHub. Falls back to the date if it can't be parsed.
+pub fn ago(iso: &str) -> String {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
+    ago_at(iso, now)
+}
+
+fn ago_at(iso: &str, now: i64) -> String {
+    let Some(t) = epoch_secs(iso) else { return iso.get(..10).unwrap_or(iso).to_owned() };
+    let d = (now - t).max(0);
+    match d {
+        0..60 => "just now".into(),
+        60..3600 => format!("{}m ago", d / 60),
+        3600..86400 => format!("{}h ago", d / 3600),
+        86400..2592000 => format!("{}d ago", d / 86400),
+        2592000..31536000 => format!("{}mo ago", d / 2592000),
+        _ => format!("{}y ago", d / 31536000),
+    }
+}
+
+/// Seconds since 1970 for "YYYY-MM-DD[THH:MM:SS…]" (UTC).
+fn epoch_secs(iso: &str) -> Option<i64> {
+    let n = |r: std::ops::Range<usize>| iso.get(r)?.parse::<i64>().ok();
+    let (y, m, d) = (n(0..4)?, n(5..7)?, n(8..10)?);
+    let (h, mi, s) = (n(11..13).unwrap_or(0), n(14..16).unwrap_or(0), n(17..19).unwrap_or(0));
+    // Days from civil date (Howard Hinnant's algorithm).
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    Some((era * 146097 + doe - 719468) * 86400 + h * 3600 + mi * 60 + s)
+}
+
+#[test]
+fn relative_time() {
+    assert_eq!(epoch_secs("1970-01-02T00:00:00Z"), Some(86400));
+    assert_eq!(epoch_secs("2000-03-01"), Some(951868800));
+    let now = epoch_secs("2026-10-16T12:00:00Z").unwrap();
+    assert_eq!(ago_at("2026-10-16T11:59:30Z", now), "just now");
+    assert_eq!(ago_at("2026-10-16T09:00:00Z", now), "3h ago");
+    assert_eq!(ago_at("2026-10-14T12:00:00Z", now), "2d ago");
+    assert_eq!(ago_at("2026-08-14T12:00:00Z", now), "2mo ago");
+    assert_eq!(ago_at("garbage", now), "garbage");
 }
 
 #[test]
@@ -401,9 +554,12 @@ fn parses_review() {
     let r = parse_review(&json!({
         "id": "PR_1",
         "reviews": { "nodes": [{ "id": "R_other", "viewerDidAuthor": false }, { "id": "R_mine", "viewerDidAuthor": true }] },
+        "files": { "nodes": [{ "path": "a.rs", "viewerViewedState": "VIEWED" }, { "path": "b.rs", "viewerViewedState": "UNVIEWED" }] },
         "reviewThreads": { "nodes": [{ "id": "T_1", "path": "a.rs", "comments": { "nodes": [{ "id": "C_1", "databaseId": 1, "state": "PENDING", "viewerCanUpdate": true }] } }] },
     }));
     assert_eq!((r.pr_id.as_str(), r.pending.as_deref()), ("PR_1", Some("R_mine")));
+    assert_eq!(r.viewed.len(), 1);
+    assert_eq!(r.viewed["a.rs"], "VIEWED");
     assert_eq!((r.threads[0].id.as_str(), r.threads[0].comments[0].pending), ("T_1", true));
     assert_eq!((r.threads[0].comments[0].node_id.as_str(), r.threads[0].comments[0].can_edit), ("C_1", true));
 }
@@ -418,5 +574,5 @@ fn parses_thread() {
     }));
     assert_eq!((t.left, t.line, t.start_line), (false, Some(12), Some(10)));
     assert_eq!(t.hunk, [" fn a() {", "+    let x = 1;"]);
-    assert_eq!((t.comments[0].id, t.comments[0].body.as_str(), t.comments[0].created.as_str()), (7, "a\nb", "2026-10-01"));
+    assert_eq!((t.comments[0].id, t.comments[0].body.as_str(), t.comments[0].created.as_str()), (7, "a\nb", "2026-10-01T00:00:00Z"));
 }

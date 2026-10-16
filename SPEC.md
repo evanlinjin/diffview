@@ -46,6 +46,14 @@ disk: rust-analyzer can index it and `hx` can open it.
    from `$EDITOR` (`:cq` cancels), discard asks for confirmation. Pending comments are
    tagged `[pending]` and counted in the status bar. If posting fails, the text is saved
    to a temp file and the error says where.
+   **PR text renders like github.com** (pulldown-cmark, GFM): link text without URLs (bare
+   URLs, `#123`, `@user` become links), tables as grids sized to fit (display width, so emoji
+   align), headings/emphasis without markers, `•`/`1.`/`☐☑` lists, `▎` quotes, fenced code
+   highlighted in its language, `<details><summary>` as `▸ …`, common `:emoji:`, and line
+   breaks kept as GitHub does in comments. PR info: state badge and label chips in GitHub's
+   colors, colored review decision and check counts. Comment times are relative ("2d ago").
+   File headers: dir dimmed, +/− colored. Split view hatches the empty side; pickers
+   highlight matched letters.
 4. **Later**: multiple cursors.
 
 ## Keys
@@ -71,7 +79,8 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `Shift-Tab` | fold all files, or unfold all if all are folded |
 | `Ctrl-w v` | toggle split view: old ‖ new side by side (removed runs pair with the added lines after them) |
 | `Ctrl-h Ctrl-l` | split view: move to the old / new side |
-| `Enter` | open `hx file:line:col` (in a floating pane inside zellij), reload diff afterwards |
+| `Enter` | open `hx file:line:col` (in a floating pane inside zellij), reload diff afterwards; on a link, open the link |
+| `gf` | open the link under the cursor in the browser (`xdg-open` / `open`); a tooltip shows the URL while the cursor is on a link |
 | `gd gr gy gi`, `Space k` | definition / references / type / impl, hover |
 | `Ctrl-o` | jump back |
 | `c` | comment on the selection, or reply on a thread, in your pending review (`r` = reply) |
@@ -82,6 +91,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `Space e` | edit your comment under the cursor (opens its text in `$EDITOR`) |
 | `Space d` | delete the comment under the cursor (confirmation picker, "No" preselected) |
 | `Space p` | picker of your pending review's comments; jumps there (unfolding as needed) |
+| `Space v` | mark / unmark the file as viewed on GitHub (folds it and moves to the next file); viewed files start folded, headers show `✓ Viewed` / `↻ changed since viewed` |
 | `]c [c` | next/prev comment thread |
 | `R` | refresh: re-run `git diff`, re-fetch threads + PR info |
 | `?` | key help overlay; `/` inside it filters entries (smart case), Enter keeps, Esc clears |

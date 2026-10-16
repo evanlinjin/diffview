@@ -2,7 +2,7 @@
 use crate::theme::Theme;
 use ratatui::style::Style;
 #[cfg(test)]
-use ratatui::style::{Color, Modifier};
+use ratatui::style::Color;
 use syntect::parsing::{ParseState, Scope, ScopeStack, SyntaxDefinition, SyntaxSet};
 use syntect::util::LinesWithEndings;
 
@@ -117,29 +117,6 @@ impl Highlighter {
         Highlighter { ss: SyntaxSet::load_defaults_newlines(), toml: b.build(), rules }
     }
 
-    /// Markdown, with fenced code highlighted in its language (syntect's Markdown grammar only
-    /// marks fences as raw text).
-    pub fn markdown(&self, text: &str) -> Colors {
-        let lines: Vec<&str> = text.lines().collect();
-        let mut out = self.file("x.md", text);
-        out.resize(lines.len(), vec![]);
-        let mut i = 0;
-        while i < lines.len() {
-            let Some(lang) = lines[i].trim_start().strip_prefix("```") else {
-                i += 1;
-                continue;
-            };
-            let end = (i + 1..lines.len()).find(|&j| lines[j].trim_start().starts_with("```")).unwrap_or(lines.len());
-            let lang = lang.trim().split([' ', ',']).next().unwrap_or("");
-            let code = lines[i + 1..end].join("\n");
-            for (k, c) in self.lang(lang, &code).into_iter().enumerate() {
-                out[i + 1 + k] = c;
-            }
-            i = end + 1;
-        }
-        out
-    }
-
     /// Highlight a whole file; empty if the language isn't known.
     pub fn file(&self, path: &str, text: &str) -> Colors {
         let ext = path.rsplit('.').next().unwrap_or("");
@@ -152,7 +129,7 @@ impl Highlighter {
     }
 
     /// Highlight by a fence's language token ("rust", "rs", "toml", "sh", ...).
-    fn lang(&self, token: &str, text: &str) -> Colors {
+    pub fn lang(&self, token: &str, text: &str) -> Colors {
         [&self.toml, &self.ss]
             .into_iter()
             .find_map(|ss| Some((ss, ss.find_syntax_by_token(token).filter(|_| !token.is_empty())?)))
@@ -207,11 +184,4 @@ fn highlights() {
     assert_eq!(fg(&t[1][44]), Some(Color::Magenta)); // false
     assert_eq!(fg(t[1].last().unwrap()), Some(Color::DarkGray)); // comment
 
-    let md = h.markdown("# Title\nsee `code` and **bold** [link](http://x)\n");
-    assert_eq!(fg(&md[0][2]), Some(Color::Yellow));
-    assert_eq!(fg(&md[1][5]), Some(Color::Cyan)); // code
-    assert!(md[1][17].unwrap().add_modifier.contains(Modifier::BOLD)); // "bold" (the ** are punctuation)
-    let fenced = h.markdown("```rust\nfn x() {}\n```\n```toml\na = 1\n```");
-    assert_eq!(fg(&fenced[1][0]), Some(Color::Red)); // fn
-    assert_eq!(fg(&fenced[4][0]), Some(Color::Blue)); // toml key
 }

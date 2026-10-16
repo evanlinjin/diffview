@@ -49,6 +49,7 @@ pub struct Ui {
     pub linenr_selected: Style,
     /// Keys in the help overlay.
     pub key: Style,
+    pub md: crate::md::Styles,
 }
 
 /// Helix `[editor]` settings dv mirrors.
@@ -209,6 +210,15 @@ impl Theme {
             emph_del: minus.fg.zip(bg).and_then(|(c, b)| blend(c, b, 0.42)).unwrap_or(Color::Rgb(0x6b, 0x2c, 0x2c)),
             cursorline,
             key: self.find("ui.text.focus").unwrap_or(self.get("function")).add_modifier(Modifier::BOLD),
+            md: crate::md::Styles {
+                heading: self.get("markup.heading"),
+                link: self.get("markup.link.text").add_modifier(Modifier::UNDERLINED),
+                raw: self.get("markup.raw"),
+                quote: self.get("markup.quote"),
+                list: self.get("markup.list"),
+                dim: Style { fg: comment.fg, ..Style::new() },
+                code_bg: self.find("ui.popup").and_then(|s| s.bg),
+            },
             linenr_selected: self.find("ui.linenr.selected").unwrap_or(self.get("ui.linenr").add_modifier(Modifier::BOLD)),
         }
     }

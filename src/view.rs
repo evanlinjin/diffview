@@ -53,7 +53,8 @@ VIEW
   Shift-Tab            fold / unfold all files
   Ctrl-w v             toggle split (side-by-side) view
   Ctrl-h Ctrl-l        split view: go to the old / new side
-  Enter                open hx at cursor
+  Enter                open hx at cursor (on a link: open it)
+  gf                   open the link under the cursor in the browser
 
 RUST-ANALYZER
   gd gr gy gi          definition / references / type / impl
@@ -68,6 +69,7 @@ PR
   Space e              edit your comment under the cursor
   Space d              delete the comment under the cursor (asks first)
   Space p              pick from your pending comments
+  Space v              mark / unmark the file as viewed (folds it, moves on)
 
 GENERAL
   ?                    this help (/ to search it)
@@ -97,6 +99,8 @@ struct Row {
     thread: Option<usize>,
     /// Per-char styles for markdown rows; code rows use `hl_cache` instead.
     syn: Vec<Option<Style>>,
+    /// Links in rendered markdown: (start, end, url) char ranges.
+    links: Vec<(usize, usize, String)>,
 }
 
 type CursorKey = (Option<(String, Option<u32>, Option<u32>)>, Option<u64>);
@@ -126,6 +130,8 @@ enum Action {
 enum Job {
     Refresh,
     Resolve(String, bool),
+    /// Mark (true) or unmark a file as viewed.
+    Viewed(String, bool),
     Discard(String),
     DeleteComment(String),
 }
@@ -190,6 +196,8 @@ pub struct App {
     job: Option<Job>,
     /// The viewer's pending review on the PR, if any.
     review: Option<String>,
+    /// Your "Viewed" marks from GitHub: path → VIEWED / DISMISSED.
+    viewed: HashMap<String, String>,
     /// Side-by-side view; `right` is which side the cursor prefers on lines shown on both.
     split: bool,
     right: bool,
@@ -210,7 +218,7 @@ pub struct App {
     /// Highlighted files by (path, new side?), filled lazily as rows are drawn.
     hl_cache: HashMap<(String, bool), Colors>,
     /// Highlighted markdown by wrapped text (filled while building rows, hence the RefCell).
-    md_cache: std::cell::RefCell<HashMap<String, Colors>>,
+    md_cache: std::cell::RefCell<HashMap<String, Vec<crate::md::MdLine>>>,
     /// Width comment/info text is wrapped to; follows the terminal.
     wrap_w: usize,
     /// Root comment ids of threads folded/unfolded against the default (resolved = folded).
@@ -276,6 +284,7 @@ impl App {
             action: None,
             job: None,
             review: None,
+            viewed: HashMap::new(),
             split: false,
             right: true,
             drows: vec![],
@@ -422,6 +431,32 @@ impl App {
                 "pending review discarded"
             }),
             Job::DeleteComment(c) => gh::delete_comment(&c).map(|_| "comment deleted"),
+            Job::Viewed(path, on) => {
+                let pr_id = self.pr.as_ref().map(|p| p.node_id.clone()).unwrap_or_default();
+                let res = gh::set_viewed(&pr_id, &path, on);
+                if res.is_ok() && !on {
+                    self.collapsed.remove(&path);
+                }
+                let res = res.map(|_| if on { "marked as viewed" } else { "unmarked as viewed" });
+                self.hl_cache.retain(|k, _| !k.1);
+                let reload = self.reload(true);
+                // Marked: on to the next file, like ticking "Viewed" on GitHub.
+                let fi = self.files.iter().position(|f| f.path == path);
+                let next = fi.and_then(|fi| {
+                    let own = self.rows.iter().position(|r| r.file == fi && r.line.kind == Kind::File)?;
+                    let later = self.rows[own + 1..].iter().position(|r| r.line.kind == Kind::File).map(|i| own + 1 + i);
+                    Some(if on { later.unwrap_or(own) } else { own })
+                });
+                if let Some(r) = next {
+                    self.select = false;
+                    self.goto(r, 0);
+                }
+                self.msg = match (res, reload) {
+                    (Err(e), _) | (_, Err(e)) => format!("{e:#}"),
+                    (Ok(m), Ok(())) => m.into(),
+                };
+                return;
+            }
         };
         self.hl_cache.retain(|k, _| !k.1);
         let reload = self.reload(true);
@@ -429,6 +464,30 @@ impl App {
             (Err(e), _) | (_, Err(e)) => format!("{e:#}"),
             (Ok(m), Ok(())) => m.into(),
         };
+    }
+
+    /// Viewed files fold, like on GitHub: on first load, and when newly marked. Files you
+    /// unfold yourself stay unfolded across refreshes.
+    fn apply_viewed(&mut self, viewed: HashMap<String, String>) {
+        for (path, state) in &viewed {
+            if state == "VIEWED" && self.viewed.get(path).is_none_or(|old| old != "VIEWED") {
+                self.collapsed.insert(path.clone());
+            }
+        }
+        self.viewed = viewed;
+    }
+
+    /// `Space v`: toggle GitHub's "Viewed" mark for the file under the cursor.
+    fn toggle_viewed(&mut self) {
+        let Some(path) = self.file_path().map(str::to_owned) else {
+            return self.msg = "not in a file".into();
+        };
+        if self.pr.is_none() {
+            return self.msg = "no PR for this branch".into();
+        }
+        let on = self.viewed.get(&path).is_none_or(|s| s != "VIEWED");
+        self.msg = if on { "marking as viewed…" } else { "unmarking…" }.into();
+        self.job = Some(Job::Viewed(path, on));
     }
 
     fn pending_count(&self) -> usize {
@@ -504,6 +563,7 @@ impl App {
         });
         match threads {
             Ok(r) => {
+                self.apply_viewed(r.viewed);
                 (self.threads, self.review) = (r.threads, r.pending);
                 if let Some(pr) = &mut self.pr {
                     pr.node_id = r.pr_id;
@@ -512,10 +572,10 @@ impl App {
             Err(e) => self.msg = format!("loading comments: {e:#}"),
         }
         match info {
-            Ok(Ok((lines, title, head))) => {
+            Ok(Ok((lines, title, head, url))) => {
                 self.info = lines;
                 if let Some(pr) = &mut self.pr {
-                    (pr.title, pr.head_oid) = (title, head);
+                    (pr.title, pr.head_oid, pr.url) = (title, head, url);
                 }
             }
             Ok(Err(e)) => self.msg = format!("loading PR info: {e:#}"),
@@ -569,22 +629,42 @@ impl App {
         self.jumps.clear();
         let mut rows = vec![];
         if let Some(pr) = &self.pr {
-            let mk = |kind, text| Row { file: INFO, line: DLine { kind, old: None, new: None, text }, thread: None, syn: vec![] };
+            let mk = |kind, text| Row { file: INFO, line: DLine { kind, old: None, new: None, text }, thread: None, syn: vec![], links: vec![] };
             rows.push(mk(Kind::File, format!("PR #{} · {}", pr.number, pr.title)));
             if !self.info_collapsed {
                 for l in &self.info {
-                    match l.heading {
-                        true => rows.push(mk(Kind::Thread, l.text.clone())),
-                        false => rows.extend(self.md_rows(&l.text, mk)),
+                    match (l.heading, l.md) {
+                        (true, _) => rows.push(mk(Kind::Thread, l.text.clone())),
+                        (false, true) => rows.extend(self.md_rows(&l.text, mk)),
+                        (false, false) => rows.push(self.info_row(l, mk(Kind::Comment, l.text.clone()))),
                     }
                 }
             }
         }
         for (i, f) in self.files.iter().enumerate() {
             let count = |k| f.lines.iter().filter(|l| l.kind == k).count();
+            // "dir/" dimmed, the file name in the header color, "(new)" etc. dimmed, +/- colored.
+            let (dir, name) = f.path.rsplit_once('/').map_or(("", f.path.as_str()), |(d, n)| (d, n));
+            let dir = if dir.is_empty() { String::new() } else { format!("{dir}/") };
             let meta = if f.meta.is_empty() { String::new() } else { format!(" ({})", f.meta) };
-            let text = format!("{}{meta}  +{} −{}", f.path, count(Kind::Add), count(Kind::Del));
-            rows.push(Row { file: i, line: DLine { kind: Kind::File, old: None, new: None, text }, thread: None, syn: vec![] });
+            let dim = Some(self.ui.stale);
+            let parts = [
+                (dir, dim),
+                (name.to_owned(), None),
+                (meta, dim),
+                ("  ".into(), None),
+                (format!("+{}", count(Kind::Add)), Some(self.ui.plus)),
+                (" ".into(), None),
+                (format!("−{}", count(Kind::Del)), Some(self.ui.minus)),
+                match self.viewed.get(&f.path).map(String::as_str) {
+                    Some("VIEWED") => ("  ✓ Viewed".into(), Some(self.ui.plus)),
+                    Some(_) => ("  ↻ changed since viewed".into(), Some(self.ui.warning)),
+                    None => (String::new(), None),
+                },
+            ];
+            let text: String = parts.iter().map(|p| p.0.as_str()).collect();
+            let syn = parts.iter().flat_map(|(t, st)| t.chars().map(move |_| *st)).collect();
+            rows.push(Row { file: i, line: DLine { kind: Kind::File, old: None, new: None, text }, thread: None, syn, links: vec![] });
             if self.collapsed.contains(&f.path) {
                 continue;
             }
@@ -597,7 +677,7 @@ impl App {
                 rows.extend(self.thread_rows(t, i));
             }
             for (li, l) in f.lines.iter().enumerate() {
-                rows.push(Row { file: i, line: l.clone(), thread: None, syn: vec![] });
+                rows.push(Row { file: i, line: l.clone(), thread: None, syn: vec![], links: vec![] });
                 for &(t, _) in placed.iter().filter(|p| p.1 == Some(li)) {
                     rows.extend(self.thread_rows(t, i));
                 }
@@ -605,7 +685,7 @@ impl App {
         }
         if rows.is_empty() {
             let text = "(no changes)".into();
-            rows.push(Row { file: usize::MAX, line: DLine { kind: Kind::Hunk, old: None, new: None, text }, thread: None, syn: vec![] });
+            rows.push(Row { file: usize::MAX, line: DLine { kind: Kind::Hunk, old: None, new: None, text }, thread: None, syn: vec![], links: vec![] });
         }
         self.rows = rows;
         self.emph = self.word_spans();
@@ -703,14 +783,65 @@ impl App {
 
     /// Wrap markdown into comment rows, highlighted.
     fn md_rows(&self, text: &str, mk: impl Fn(Kind, String) -> Row) -> Vec<Row> {
-        let lines = wrap(text, self.wrap_w);
-        let joined = lines.join("\n");
-        let colors = self.md_cache.borrow_mut().entry(joined).or_insert_with_key(|t| self.hl.markdown(t)).clone();
-        let mut rows: Vec<Row> = lines.into_iter().map(|l| mk(Kind::Comment, l)).collect();
-        for (row, c) in rows.iter_mut().zip(colors) {
-            row.syn = c;
+        let key = format!("{}\0{text}", self.wrap_w);
+        let lines = self
+            .md_cache
+            .borrow_mut()
+            .entry(key)
+            .or_insert_with(|| crate::md::render(text, self.wrap_w, &self.ui.md, &self.hl, self.repo_url()))
+            .clone();
+        lines.into_iter().map(|l| Row { syn: l.styles, links: l.links, ..mk(Kind::Comment, l.text) }).collect()
+    }
+
+    /// Color a PR info line by its marks: badges, pass/fail colors, links.
+    fn info_row(&self, l: &gh::InfoLine, mut row: Row) -> Row {
+        let ui = &self.ui;
+        row.syn = vec![None; l.text.chars().count()];
+        for (a, b, m) in &l.marks {
+            let st = match m {
+                gh::Mark::Chip(hex) => chip(hex),
+                gh::Mark::Pass => ui.plus,
+                gh::Mark::Fail => ui.error,
+                gh::Mark::Pending => ui.warning,
+                gh::Mark::Dim => ui.stale,
+                gh::Mark::Link(url) => {
+                    row.links.push((*a, *b, url.clone()));
+                    ui.md.link
+                }
+            };
+            for s in row.syn.iter_mut().take(*b).skip(*a) {
+                *s = Some(st);
+            }
         }
-        rows
+        row
+    }
+
+    /// https://github.com/owner/repo, for `#123` links.
+    fn repo_url(&self) -> Option<&str> {
+        self.pr.as_ref().and_then(|p| p.url.rsplit_once("/pull/")).map(|(r, _)| r)
+    }
+
+    /// The link under the cursor, if any.
+    fn link_at_cursor(&self) -> Option<&str> {
+        let col = self.head.col;
+        self.rows[self.head.row].links.iter().find(|(a, b, _)| *a <= col && col < *b).map(|l| l.2.as_str())
+    }
+
+    fn open_link(&mut self) {
+        let Some(url) = self.link_at_cursor().map(str::to_owned) else {
+            return self.msg = "no link under the cursor".into();
+        };
+        let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+        let spawned = std::process::Command::new(opener)
+            .arg(&url)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+        self.msg = match spawned {
+            Ok(_) => format!("opened {url}"),
+            Err(e) => format!("{opener}: {e}"),
+        };
     }
 
     fn root_id(&self, t: usize) -> Option<u64> {
@@ -739,11 +870,11 @@ impl App {
         let tag_text: String = tags.iter().map(|t| t.0).collect();
         let tag_syn: Vec<Option<Style>> =
             tags.iter().flat_map(|&(s, st)| s.chars().map(move |_| Some(st))).collect();
-        let mk = |kind, text| Row { file, line: DLine { kind, old: None, new: None, text }, thread: Some(ti), syn: vec![] };
+        let mk = |kind, text| Row { file, line: DLine { kind, old: None, new: None, text }, thread: Some(ti), syn: vec![], links: vec![] };
         let mut out = vec![];
         for (k, c) in t.comments.iter().enumerate() {
             if k == 0 {
-                let mut head = format!("{tag_text}{} · {}{range}", c.author, c.created);
+                let mut head = format!("{tag_text}{} · {}{range}", c.author, gh::ago(&c.created));
                 if !open {
                     head += &format!(" · {} comment(s), Tab to expand", t.comments.len());
                 }
@@ -759,11 +890,16 @@ impl App {
             } else {
                 let tag = if c.pending { "[pending] " } else { "" };
                 let syn = vec![Some(self.ui.pending); tag.chars().count()];
-                out.push(Row { syn, ..mk(Kind::Thread, format!("{tag}{} · {}", c.author, c.created)) });
+                out.push(Row { syn, ..mk(Kind::Thread, format!("{tag}{} · {}", c.author, gh::ago(&c.created))) });
             }
+            let rows = self.md_rows(&c.body, mk);
             match t.stale() {
-                true => out.extend(wrap(&c.body, self.wrap_w).into_iter().map(|l| mk(Kind::Comment, l))),
-                false => out.extend(self.md_rows(&c.body, mk)),
+                // Resolved/outdated: rendered the same, but dimmed throughout (links still open).
+                true => out.extend(rows.into_iter().map(|mut r| {
+                    r.syn = vec![Some(self.ui.stale); r.line.text.chars().count()];
+                    r
+                })),
+                false => out.extend(rows),
             }
         }
         out
@@ -1614,13 +1750,16 @@ impl App {
 
     /// Hover markdown, highlighted (code fences in their language), with the fence lines dropped.
     fn hover_lines(&self, md: &str) -> Vec<Line<'static>> {
-        let colors = self.hl.markdown(md);
-        md.lines()
-            .zip(colors.into_iter().chain(std::iter::repeat(vec![])))
-            .filter(|(l, _)| !l.trim_start().starts_with("```"))
-            .map(|(l, c)| {
-                let spans: Vec<Span> =
-                    l.chars().zip(c.into_iter().chain(std::iter::repeat(None))).map(|(ch, st)| Span::styled(ch.to_string(), st.unwrap_or_default())).collect();
+        let cw = (self.width.saturating_sub(4).min(100) as usize).saturating_sub(3);
+        crate::md::render(md, cw, &self.ui.md, &self.hl, None)
+            .into_iter()
+            .map(|l| {
+                let spans: Vec<Span> = l
+                    .text
+                    .chars()
+                    .zip(l.styles.into_iter().chain(std::iter::repeat(None)))
+                    .map(|(ch, st)| Span::styled(ch.to_string(), st.unwrap_or_default()))
+                    .collect();
                 Line::from(spans)
             })
             .collect()
@@ -1737,7 +1876,10 @@ impl App {
                 return;
             }
             KeyCode::Enter => {
-                self.action = self.open_target().map(Action::Open);
+                match self.link_at_cursor() {
+                    Some(_) => self.open_link(),
+                    None => self.action = self.open_target().map(Action::Open),
+                }
                 return;
             }
             // Many terminals send Ctrl-h as Backspace.
@@ -1844,6 +1986,7 @@ impl App {
             ('g', 'h') => self.goto(self.head.row, 0),
             ('g', 'l') => self.goto(self.head.row, usize::MAX),
             ('m', 'm') => self.match_bracket(),
+            ('g', 'f') => self.open_link(),
             ('g', 's') => {
                 let col = self.chars(self.head.row).iter().position(|c| !c.is_whitespace()).unwrap_or(0);
                 self.goto(self.head.row, col);
@@ -1880,6 +2023,7 @@ impl App {
             (' ', 'e') => self.start_edit(),
             (' ', 'd') => self.start_delete(),
             (' ', 'p') => self.pending_picker(),
+            (' ', 'v') => self.toggle_viewed(),
             ('f' | 't' | 'F' | 'T', c) => self.find_char(p, c),
             _ => {}
         }
@@ -2030,7 +2174,8 @@ impl App {
                     DRow::Pair(l, rr) => {
                         let half = |row: Option<usize>, right: bool, w: usize| match row {
                             Some(row) => self.render_row(row, s, e, (lw, ghw, w), Some(right), cur, &overlay),
-                            None => vec![Span::raw(" ".repeat(ghw + w))],
+                            // Like delta: a quiet hatch where the other side has no line.
+                            None => vec![Span::styled("╱".repeat(ghw + w), self.ui.linenr)],
                         };
                         spans.extend(half(l, false, htw_l));
                         spans.push(divider.clone());
@@ -2042,6 +2187,18 @@ impl App {
             .collect();
         f.render_widget(Block::new().style(self.ui.base), area);
         f.render_widget(Paragraph::new(lines), Rect { height: h as u16, ..area });
+
+        // Link tooltip: while the cursor is on a link, show its URL just under (or over) it.
+        if let (Some(url), None, None) = (self.link_at_cursor(), &self.picker, &self.popup) {
+            let y = (hd - self.top) as u16;
+            let x = ((relw + gw + self.head.col.saturating_sub(self.left)) as u16).min(area.width.saturating_sub(20));
+            let text = format!(" ↗ {url}  gf open ");
+            let w = (text.chars().count() as u16).min(area.width - x);
+            let ty = if y + 1 < h as u16 { y + 1 } else { y.saturating_sub(1) };
+            let r = Rect { x: area.x + x, y: area.y + ty, width: w, height: 1 };
+            f.render_widget(Clear, r);
+            f.render_widget(Paragraph::new(text).style(self.ui.base.patch(self.ui.popup)), r);
+        }
 
         let status = Rect { y: area.y + h as u16, height: 1, ..area };
         let left = match &self.prompt {
@@ -2074,7 +2231,12 @@ impl App {
             0 if self.review.is_none() => String::new(),
             n => format!(" · {n} pending, S to submit"),
         };
-        let pr = self.pr.as_ref().map(|p| format!("PR #{} · {} threads{pending}  ", p.number, self.threads.len())).unwrap_or_default();
+        let seen = self.files.iter().filter(|f| self.viewed.get(&f.path).is_some_and(|s| s == "VIEWED")).count();
+        let pr = self
+            .pr
+            .as_ref()
+            .map(|p| format!("PR #{} · {} threads · {seen}/{} viewed{pending}  ", p.number, self.threads.len(), self.files.len()))
+            .unwrap_or_default();
         let view = if self.split { "split  " } else { "" };
         let right = format!("{ra}{pr}{view}{count}{pend}  {}/{} ", self.head.row + 1, self.rows.len());
         let bar = self.ui.base.patch(self.ui.status);
@@ -2090,9 +2252,21 @@ impl App {
             let vis = (ph as usize).saturating_sub(3);
             let off = sel.saturating_sub(vis.saturating_sub(1));
             let mut lines = vec![Line::from(format!("> {}", p.query))];
+            let q: Vec<char> = p.query.to_lowercase().chars().collect();
             lines.extend(m.iter().enumerate().skip(off).take(vis).map(|(i, &it)| {
                 let st = if i == sel { self.ui.menu_selected } else { Style::new() };
-                Line::styled(p.items[it].label.clone(), st)
+                // Highlight the letters the filter matched (first fit, as `matches` checks).
+                let mut j = 0;
+                let spans: Vec<Span> = p.items[it]
+                    .label
+                    .chars()
+                    .map(|c| {
+                        let hit = j < q.len() && c.to_lowercase().eq(std::iter::once(q[j]));
+                        j += hit as usize;
+                        Span::styled(c.to_string(), if hit { st.patch(self.ui.key) } else { st })
+                    })
+                    .collect();
+                Line::from(spans)
             }));
             let pos = if m.is_empty() { "0 / 0".into() } else { format!("{} / {}", sel + 1, m.len()) };
             let inner = self.popup_frame(f, r, p.title, &pos);
@@ -2219,13 +2393,10 @@ impl App {
             }
             Kind::Thread | Kind::Comment => {
                 let resolved = row.thread.is_some_and(|t| self.threads[t].stale());
-                let check = l.text.chars().next().filter(|_| row.file == INFO);
-                let st = match (l.kind, resolved, check) {
-                    (_, _, Some('✗')) => ui.error,
-                    (_, _, Some('●')) => ui.warning,
-                    (_, true, _) => ui.stale,
-                    (Kind::Thread, _, _) if row.file == INFO => ui.heading,
-                    (Kind::Thread, _, _) => ui.thread,
+                let st = match (l.kind, resolved) {
+                    (_, true) => ui.stale,
+                    (Kind::Thread, _) if row.file == INFO => ui.heading,
+                    (Kind::Thread, _) => ui.thread,
                     _ => Style::new(),
                 };
                 let first = row.thread.is_some() && (r == 0 || self.rows[r - 1].thread != row.thread);
@@ -2315,7 +2486,7 @@ impl App {
         }
         // Pad to the full width (so split halves line up), and tint the whole row, so
         // added/removed lines read as bands. Spans with their own bg (the cursor) keep it.
-        let used: usize = spans[1..].iter().map(|s| s.content.chars().count()).sum();
+        let used: usize = spans[1..].iter().map(|s| s.width()).sum();
         spans.push(Span::raw(" ".repeat(tw.saturating_sub(used))));
         if let Some(bg) = line_bg {
             for sp in &mut spans {
@@ -2425,6 +2596,15 @@ fn wrap(text: &str, w: usize) -> Vec<String> {
     out
 }
 
+/// A GitHub-style badge: the given background (hex, no '#'), black or white text for contrast.
+fn chip(hex: &str) -> Style {
+    let n = u32::from_str_radix(hex.trim_start_matches('#'), 16).unwrap_or(0x6e7681);
+    let (r, g, b) = ((n >> 16) as u8, (n >> 8) as u8, n as u8);
+    let light = 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32 > 150.0;
+    let fg = if light { Color::Black } else { Color::White };
+    Style::new().bg(Color::Rgb(r, g, b)).fg(fg).add_modifier(ratatui::style::Modifier::BOLD)
+}
+
 /// `editor.jump-label-alphabet` from the Helix config, else Helix's default.
 fn jump_alphabet() -> Vec<char> {
     let cfg = std::env::var("XDG_CONFIG_HOME")
@@ -2520,7 +2700,7 @@ fn keys_and_yank() {
     assert_eq!(base64(b"hello"), "aGVsbG8=");
     let h = app.hover_lines("```rust\nfn x()\n```\n\ndocs");
     assert_eq!(h.len(), 3); // fences dropped
-    assert_eq!(h[0].spans[0].style.fg, Some(Color::Red)); // `fn` highlighted as Rust
+    assert_eq!(h[0].spans[1].style.fg, Some(Color::Red)); // `fn` highlighted as Rust (after the block's 1-col padding)
     let back = KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT);
     app.key(back);
     assert_eq!(app.rows.len(), 3); // only the three file headers
@@ -2553,6 +2733,29 @@ fn suggestion_block() {
     app.select = false;
     app.goto(4, 0);
     assert!(app.suggestion().unwrap().1.contains("````suggestion\n"));
+}
+
+#[test]
+fn viewed_files() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new() });
+    let viewed = |p: &str, s: &str| HashMap::from([(p.to_owned(), s.to_owned())]);
+    app.apply_viewed(viewed("src/a.rs", "VIEWED"));
+    app.build();
+    let header = |app: &App| app.rows.iter().find(|r| r.line.kind == Kind::File && r.file == 0).unwrap().line.text.clone();
+    assert!(header(&app).ends_with("✓ Viewed"));
+    assert!(app.collapsed.contains("src/a.rs")); // viewed → folded
+    app.collapsed.clear(); // you unfold it…
+    app.apply_viewed(viewed("src/a.rs", "VIEWED"));
+    assert!(app.collapsed.is_empty()); // …and a refresh leaves it unfolded
+    app.apply_viewed(viewed("src/a.rs", "DISMISSED"));
+    app.build();
+    assert!(header(&app).ends_with("↻ changed since viewed"));
+    let h = app.rows.iter().position(|r| r.line.kind == Kind::File && r.file == 0).unwrap();
+    app.goto(h, 0);
+    app.key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE));
+    assert!(matches!(app.job, Some(Job::Viewed(ref p, true)) if p == "src/a.rs")); // dismissed → mark again
 }
 
 #[test]
@@ -2689,7 +2892,7 @@ fn comments_placed_and_anchored() {
     app.threads[0].comments[1].pending = true;
     app.build();
     assert!(app.rows.iter().any(|r| r.line.text.starts_with("[pending] amy")));
-    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into() });
+    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: "https://github.com/o/r/pull/1".into() });
     let tr = app.rows.iter().position(|r| r.thread == Some(0)).unwrap();
     app.goto(tr, 0);
     let press = |app: &mut App, c| app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
