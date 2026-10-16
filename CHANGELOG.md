@@ -6,6 +6,9 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Added
+- dv reloads the diff when the working tree changes under it (Claude making changes, a save in
+  hx, anything else), about once a second, keeping the cursor where it is; and right after a
+  background Claude run.
 - Mouse support: the wheel scrolls (the view, a popup, a picker's selection), a click moves
   the cursor there (code, comment margin, either split side) or folds on a fold arrow, a drag
   selects; in pickers and `dv list` a click picks and a second click opens. `--no-mouse` leaves

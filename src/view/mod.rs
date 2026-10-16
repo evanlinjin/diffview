@@ -354,9 +354,11 @@ pub struct App {
     claude_path: Option<PathBuf>,
     claude_mtime: Option<std::time::SystemTime>,
     claude_summary: String,
-    /// The `hx` pane dv opened (inside zellij), reused for the next file; and when dv last
-    /// looked at it and at the diff's files (to reload when you save in it).
+    /// The `hx` pane dv opened (inside zellij), reused for the next file.
     hx: Option<HxPane>,
+    /// When dv last looked at the working tree, and what it saw (`watch_tree`).
+    tree_checked: std::time::Instant,
+    tree_seen: Option<(Option<std::time::SystemTime>, u64)>,
     /// A background `claude -p` run: (process, log file, what it's doing).
     claude_job: Option<agent::ClaudeJob>,
     /// The Claude Code session of the last background run, resumed by the next.
@@ -466,6 +468,8 @@ impl App {
             claude_summary: String::new(),
             claude_job: None,
             hx: None,
+            tree_checked: std::time::Instant::now(),
+            tree_seen: None,
             claude_session: None,
             claude_again: false,
             claude_runs: 0,
@@ -502,7 +506,7 @@ impl App {
                 }
             }
             self.lsp_poll();
-            self.watch_hx();
+            self.watch_tree();
             self.watch_claude();
             self.poll_claude();
             if let Some(a) = self.action.take() {
@@ -632,36 +636,46 @@ impl App {
         }
         let root = self.root.display().to_string();
         let id = zellij(&["run", "--direction", "right", "--close-on-exit", "--name", "hx", "--cwd", &root, "--", "hx", target])?;
-        self.hx = Some(HxPane { pane: id, checked: std::time::Instant::now(), stamp: self.files_stamp() });
+        self.hx = Some(HxPane { pane: id });
         Ok("hx is open on the right; dv reloads as you save, and Enter opens the next file there".into())
     }
 
-    /// The latest change time of the diff's files in the working tree.
-    fn files_stamp(&self) -> Option<std::time::SystemTime> {
-        self.files.iter().filter_map(|f| std::fs::metadata(self.root.join(&f.path)).and_then(|m| m.modified()).ok()).max()
+    /// What the working tree looks like, cheaply: the latest change time of the diff's files,
+    /// and `git status` of tracked files (so a file Claude starts changing counts too).
+    fn tree_stamp(&self) -> (Option<std::time::SystemTime>, u64) {
+        use std::hash::{Hash, Hasher};
+        let newest = self.files.iter().filter_map(|f| std::fs::metadata(self.root.join(&f.path)).and_then(|m| m.modified()).ok()).max();
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        diff::git(&["status", "--porcelain", "--untracked-files=no"]).unwrap_or_default().hash(&mut h);
+        (newest, h.finish())
     }
 
-    /// About once a second while dv's hx pane is open: reload when a file in the diff changed
-    /// (you saved in hx), and once more when the pane closes.
-    fn watch_hx(&mut self) {
-        let Some(hx) = &mut self.hx else { return };
-        if hx.checked.elapsed() < std::time::Duration::from_secs(1) {
+    /// About once a second: reload the diff when the working tree changed (Claude's edits, a
+    /// save in hx, anything else), keeping the cursor where it is; and notice dv's hx pane
+    /// closing.
+    // ponytail: polls git status each second; a file watcher if that's ever slow on a big repo.
+    fn watch_tree(&mut self) {
+        if self.tree_checked.elapsed() < std::time::Duration::from_secs(1) {
             return;
         }
-        hx.checked = std::time::Instant::now();
-        let (alive, before) = (pane_alive(&hx.pane), hx.stamp);
-        let now = self.files_stamp();
-        if alive && now == before {
+        self.tree_checked = std::time::Instant::now();
+        if self.hx.as_ref().is_some_and(|h| !pane_alive(&h.pane)) {
+            self.hx = None;
+        }
+        let now = self.tree_stamp();
+        if self.tree_seen.replace(now).is_none_or(|before| before == now) {
             return;
         }
-        match (alive, &mut self.hx) {
-            (true, Some(h)) => h.stamp = now,
-            _ => self.hx = None, // closed: this reload is the last
-        }
+        self.reload_tree();
+    }
+
+    /// Reload the diff after the working tree changed under dv.
+    pub(super) fn reload_tree(&mut self) {
         self.hl_cache.retain(|k, _| !k.1); // working-tree files may have changed; the base can't
         if let Err(e) = self.reload(false) {
             self.msg = format!("{e:#}");
         }
+        self.tree_seen = Some(self.tree_stamp());
     }
 
     fn reload(&mut self, threads: bool) -> Result<()> {
@@ -1316,8 +1330,6 @@ fn compose(what: &str, allow_empty: bool) -> Result<Option<String>> {
 struct HxPane {
     /// e.g. `terminal_12`, as `zellij run` prints it.
     pane: String,
-    checked: std::time::Instant,
-    stamp: Option<std::time::SystemTime>,
 }
 
 /// Whether zellij pane `id` (e.g. `terminal_12`) is still there and running.

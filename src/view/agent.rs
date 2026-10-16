@@ -341,6 +341,7 @@ impl App {
         let Some(job) = &mut self.claude_job else { return };
         let Ok(Some(st)) = job.child.try_wait() else { return };
         let Some(ClaudeJob { log, label, forked, .. }) = self.claude_job.take() else { return };
+        self.reload_tree(); // it may have changed code (making changes, or answering a request)
         let out: Option<serde_json::Value> = std::fs::read_to_string(&log).ok().and_then(|t| serde_json::from_str(&t).ok());
         let failed = !st.success() || out.as_ref().is_none_or(|v| v["is_error"] == true);
         // A fork's id isn't the PR's session (that one's open in a pane): keep the PR's.
