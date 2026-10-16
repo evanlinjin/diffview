@@ -475,7 +475,16 @@ impl App {
         // Pad to the full width (so split halves line up), and tint the whole row, so
         // added/removed lines read as bands. Spans with their own bg (the cursor) keep it.
         let used: usize = spans[1..].iter().map(|s| s.width()).sum();
-        spans.push(Span::raw(" ".repeat(tw.saturating_sub(used))));
+        let tag = if l.kind == Kind::File { self.viewed_tag(row.file) } else { None };
+        match tag {
+            // Right-aligned when it fits after the name; it isn't part of the row's text.
+            Some((t, st)) if used + 1 + t.chars().count() <= tw => {
+                let n = t.chars().count();
+                spans.push(Span::raw(" ".repeat(tw - used - n)));
+                spans.push(Span::styled(t, style.patch(st)));
+            }
+            _ => spans.push(Span::raw(" ".repeat(tw.saturating_sub(used)))),
+        }
         if let Some(bg) = line_bg {
             for sp in &mut spans {
                 sp.style = Style::new().bg(bg).patch(sp.style);

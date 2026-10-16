@@ -534,11 +534,6 @@ impl App {
                 (format!("+{}", count(Kind::Add)), Some(self.ui.plus)),
                 (" ".into(), None),
                 (format!("−{}", count(Kind::Del)), Some(self.ui.minus)),
-                match self.viewed.get(&f.path).map(String::as_str) {
-                    Some("VIEWED") => ("  ✓ Viewed".into(), Some(self.ui.plus)),
-                    Some(_) => ("  ↻ changed since viewed".into(), Some(self.ui.warning)),
-                    None => (String::new(), None),
-                },
             ];
             let text: String = parts.iter().map(|p| p.0.as_str()).collect();
             let syn = parts.iter().flat_map(|(t, st)| t.chars().map(move |_| *st)).collect();
@@ -680,6 +675,14 @@ impl App {
             }
         }
         row
+    }
+
+    /// The file's GitHub "Viewed" state, drawn at the right end of its header.
+    fn viewed_tag(&self, file: usize) -> Option<(&'static str, Style)> {
+        match self.viewed.get(&self.files.get(file)?.path)?.as_str() {
+            "VIEWED" => Some(("✓ Viewed ", self.ui.plus)),
+            _ => Some(("↻ changed since viewed ", self.ui.warning)),
+        }
     }
 
     /// https://github.com/owner/repo, for `#123` links.
