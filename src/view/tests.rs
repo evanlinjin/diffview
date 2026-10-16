@@ -545,3 +545,16 @@ fn cycle_claude_comments() {
     press(&mut app, "]a");
     assert_eq!(on(&app).as_deref(), Some("second"));
 }
+
+#[test]
+fn replies_while_claude_works_wait_for_it() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    // Claude busy with a run: a new reply waits for one more run instead of starting a second.
+    let child = std::process::Command::new("sleep").arg("5").spawn().unwrap();
+    app.claude_job = Some((child, std::env::temp_dir().join("dv-test-none.log"), "answering"));
+    let msg = app.answer_now();
+    assert!(app.claude_again && msg.contains("when it's done"));
+    if let Some((mut c, ..)) = app.claude_job.take() {
+        _ = c.kill();
+    }
+}

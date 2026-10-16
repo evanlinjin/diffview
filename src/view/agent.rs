@@ -92,31 +92,66 @@ impl App {
         };
     }
 
-    /// `claude -p` in the background, its output in a log file.
+    /// After `r` on Claude's comment: have Claude answer right away, in the background (also in
+    /// zellij: a pane per reply would get in the way). Replies made while it's working are
+    /// picked up by one more run when it finishes. Returns what to tell the user.
+    pub(super) fn answer_now(&mut self) -> String {
+        if self.claude_job.is_some() {
+            self.claude_again = true;
+            return "reply saved; Claude answers it when it's done with what it's doing".into();
+        }
+        let prompt = self.claude_prompt(Ask::Answer);
+        match self.spawn_claude(&prompt) {
+            Ok((child, log)) => {
+                self.claude_job = Some((child, log, "answering"));
+                "reply sent; Claude is answering…".into()
+            }
+            Err(e) => format!("reply saved, but starting claude failed: {e:#} (Space a to retry)"),
+        }
+    }
+
+    /// `claude -p` in the background: its result (JSON) in a log file, its errors next to it.
+    /// Resumes the session of the last run, so Claude keeps the review's context across replies.
     fn spawn_claude(&self, prompt: &str) -> Result<(std::process::Child, PathBuf)> {
         let log = std::env::temp_dir().join(format!("dv-claude-{}.log", std::process::id()));
-        let out = std::fs::File::create(&log)?;
-        let child = std::process::Command::new("claude")
-            .args(["-p", prompt, "--permission-mode", "acceptEdits", "--allowedTools"])
+        let err = log.with_extension("err");
+        let mut cmd = std::process::Command::new("claude");
+        cmd.args(["-p", prompt, "--output-format", "json", "--permission-mode", "acceptEdits"]);
+        if let Some(id) = &self.claude_session {
+            cmd.args(["--resume", id]);
+        }
+        let child = cmd
+            .arg("--allowedTools")
             .args(ALLOWED)
             .current_dir(&self.root)
             .stdin(std::process::Stdio::null())
-            .stdout(out.try_clone()?)
-            .stderr(out)
+            .stdout(std::fs::File::create(&log)?)
+            .stderr(std::fs::File::create(&err)?)
             .spawn()
             .context("is Claude Code (`claude`) installed?")?;
         Ok((child, log))
     }
 
-    /// Say when a background run ends (its writes have already shown up via `watch_claude`).
+    /// When a background run ends: keep its session for the next one, say how it went (its
+    /// writes have already shown up via `watch_claude`), and answer replies made meanwhile.
     pub(super) fn poll_claude(&mut self) {
         let Some((child, log, label)) = &mut self.claude_job else { return };
         let Ok(Some(st)) = child.try_wait() else { return };
-        self.msg = match st.success() {
-            true => format!("Claude is done {label}"),
-            false => format!("Claude stopped ({st}) while {label}: see {}", log.display()),
-        };
+        let (log, label) = (log.clone(), *label);
         self.claude_job = None;
+        let out: Option<serde_json::Value> = std::fs::read_to_string(&log).ok().and_then(|t| serde_json::from_str(&t).ok());
+        let failed = !st.success() || out.as_ref().is_none_or(|v| v["is_error"] == true);
+        match out.as_ref().and_then(|v| v["session_id"].as_str()) {
+            Some(id) if !failed => self.claude_session = Some(id.to_owned()),
+            _ => self.claude_session = None, // start afresh next time
+        }
+        self.msg = match failed {
+            false => format!("Claude is done {label}"),
+            true => format!("Claude stopped ({st}) while {label}: see {} (and .err)", log.display()),
+        };
+        if std::mem::take(&mut self.claude_again) && !failed && self.waiting_replies() > 0 {
+            self.msg = self.answer_now();
+        }
     }
 
     /// For the status bar.

@@ -82,7 +82,7 @@ ON A REVIEW THREAD
   Space e  Space d     edit / delete your comment (delete asks first)
 
 ON CLAUDE'S COMMENT
-  r                    reply to Claude (saved for Claude Code to answer)
+  r                    reply to Claude (Claude answers right away, in the background)
   c                    copy it into your pending review (C: post it now)
   Space r  Space d     resolve (Claude skips it) / dismiss
 
@@ -316,6 +316,10 @@ pub struct App {
     claude_summary: String,
     /// A background `claude -p` run: (process, log file, what it's doing).
     claude_job: Option<(std::process::Child, PathBuf, &'static str)>,
+    /// The Claude Code session of the last background run, resumed by the next.
+    claude_session: Option<String>,
+    /// A reply came in while Claude was busy: answer again when it's done.
+    claude_again: bool,
     root: PathBuf,
     lsp: Option<Lsp>,
     lsp_ready: bool,
@@ -404,6 +408,8 @@ impl App {
             claude_mtime: None,
             claude_summary: String::new(),
             claude_job: None,
+            claude_session: None,
+            claude_again: false,
             root: std::env::current_dir().unwrap_or_default(),
             lsp: None,
             lsp_ready: false,
@@ -494,7 +500,7 @@ impl App {
                 let p = self.claude_path.clone().context("no review file")?;
                 let Some(body) = compose_with("reply to Claude", false, "", false)? else { return Ok("reply cancelled".into()) };
                 keep_on_error(crate::claude::reply(&p, &k, &body), &body)?;
-                Ok("reply saved for Claude: ask Claude Code to answer your dv replies".into())
+                Ok(self.answer_now())
             }
             Action::Converse { quote } => {
                 self.pr.as_ref().context("no PR")?;

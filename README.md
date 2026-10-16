@@ -81,13 +81,16 @@ file that dv reloads whenever it changes, so you can keep dv open while Claude w
    |---|---|
    | `c` | copy it into your pending GitHub review (edit it in `$EDITOR`, or keep it as is) |
    | `C` | same, but post it now |
-   | `r` | reply to Claude (saved in the review file, not sent anywhere) |
+   | `r` | reply to Claude: it answers right away, in the background (nothing goes to GitHub) |
    | `Space r` | resolve it, so Claude leaves it alone |
    | `Space d` | dismiss it |
 
    A comment copied to GitHub is removed from the review file, so it doesn't show twice.
-5. **Let Claude answer**: `Space a`, "Ask Claude to answer your replies" (or ask Claude Code
-   to "answer my dv replies"). For each unresolved
+5. **Claude answers**: as soon as you reply, Claude Code answers in the background, resuming
+   the same session each time so it keeps the review in mind; its answer shows up under your
+   reply ("Claude is answering…" meanwhile). Replies you write while it's busy are answered
+   in one more run. (`Space a` → "answer your replies", or asking Claude Code to "answer my dv
+   replies", does the same by hand.) For each unresolved
    comment where you spoke last, it replies, or makes the change you asked for and says what it
    changed. Its answers appear in dv as it writes them. Repeat 4–5 as needed.
 6. **Submit**: `S` submits your pending review, holding whatever you queued with `c`. Claude

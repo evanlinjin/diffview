@@ -136,7 +136,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `Space v` | mark / unmark the file as viewed on GitHub (folds it and moves to the next file); viewed files start folded, headers show `✓ Viewed` / `↻ changed since viewed` at the right edge |
 | `]c [c` | next/prev comment thread |
 | `]a [a` | next/prev Claude comment, wrapping around; folded files and threads are opened on the way |
-| `r` on a Claude comment | reply to Claude (saved in the review file for Claude to answer) |
+| `r` on a Claude comment | reply to Claude: saved in the review file, then Claude answers right away in the background (`claude -p`, resuming the last run's session; replies made meanwhile get one more run) |
 | `c` / `C` on a Claude comment | copy it into your pending review / post it now; dismissed from the file once posted |
 | `R` | refresh: re-run `git diff`, re-fetch threads + PR info |
 | `?` | key help overlay (two columns when the window fits them); `/` inside it filters entries (smart case), Enter keeps, Esc clears |
