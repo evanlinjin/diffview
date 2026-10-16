@@ -191,7 +191,30 @@ impl App {
             let n = self.pending_count();
             items.push(item(&format!("Discard pending review ({n} comment(s))"), Target::Discard));
         }
+        // What's still open, to see before you say you're done (approving most of all).
+        items.extend(self.submit_notes().iter().map(|n| item(&format!("  ! {n}"), Target::Nothing)));
         self.picker = Some(Picker { title: " submit review ", items, query: String::new(), sel: 0 });
+    }
+
+    /// What's still open in the review: threads waiting on someone, pending comments whose
+    /// code has changed, and a checkout that isn't the PR's head.
+    pub(super) fn submit_notes(&self) -> Vec<String> {
+        let count = |f: &dyn Fn(&Thread) -> bool| self.threads.iter().filter(|t| f(t)).count();
+        let open = count(&|t| t.claude.is_some() && !t.resolved && !t.outdated);
+        let answered = count(&|t| agent::turn(t) == Some("[answered] "));
+        let github = count(&|t| t.claude.is_none() && !t.resolved && !t.outdated && !t.comments.iter().all(|c| c.pending));
+        let stale = count(&|t| t.outdated && t.comments.iter().any(|c| c.pending));
+        let head = diff::git(&["rev-parse", "HEAD"]).unwrap_or_default();
+        let behind = self.pr.as_ref().is_some_and(|p| !p.head_oid.is_empty() && p.head_oid != head.trim());
+        [
+            (open > 0, format!("{open} open comment(s) in Claude's review ({answered} answered, your turn)")),
+            (github > 0, format!("{github} unresolved thread(s) on GitHub")),
+            (stale > 0, format!("{stale} of your pending comments are on code that has changed since")),
+            (behind, "your checkout isn't the PR's head: what you reviewed isn't what you'd approve".into()),
+        ]
+        .into_iter()
+        .filter_map(|(on, s)| on.then_some(s))
+        .collect()
     }
 
     /// `Space d`: delete the comment under the cursor, after a confirmation picker.

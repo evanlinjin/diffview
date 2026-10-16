@@ -637,7 +637,11 @@ impl App {
                 // Approving starts from "ACK <the PR's head commit>", posted as is if kept.
                 let what = format!("review summary ({})", event.to_lowercase().replace('_', " "));
                 let head = diff::git(&["rev-parse", "HEAD"]).unwrap_or_default();
-                let prefill = ack(event, self.pr.as_ref(), head.trim());
+                let mut prefill = ack(event, self.pr.as_ref(), head.trim());
+                if event == "APPROVE" {
+                    let notes: String = self.submit_notes().iter().map(|n| format!("{HINT} still open: {n} -->\n")).collect();
+                    prefill = notes + &prefill;
+                }
                 let Some(body) = compose_with(&what, true, &prefill, true)? else {
                     return Ok("review not submitted".into());
                 };

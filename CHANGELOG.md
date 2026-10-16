@@ -12,6 +12,10 @@ on GitHub are its section here.
 - dv keeps an installed dv-review skill up to date with itself, and a PR's Claude session
   that started with another version of the skill isn't resumed (Claude Code reads a skill
   once per session). `Space a` can start a fresh session for the PR.
+- `S` lists what's still open under its choices: Claude's open comments (and how many it
+  answered, waiting for you), unresolved GitHub threads, pending comments on code that has
+  changed since, a checkout that isn't the PR's head. Approving puts them in the editor too, as
+  hint lines (not posted).
 - Claude's comments show whose turn it is: `[waiting]` (you spoke last) and `[answered]`
   (Claude answered you); typing either in `Space A` lists just those.
 - A `severity` for Claude's comments (`bug`, `nit`, `question`, …), shown as a tag and put

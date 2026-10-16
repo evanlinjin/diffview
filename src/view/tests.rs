@@ -298,7 +298,11 @@ fn comments_placed_and_anchored() {
     press(&mut app, 'C');
     assert!(matches!(app.action.take(), Some(Action::Reply { review: false, .. })));
     press(&mut app, 'S');
-    assert_eq!(app.picker.take().unwrap().items.len(), 3); // no pending review → no discard option
+    let labels: Vec<String> = app.picker.take().unwrap().items.into_iter().map(|i| i.label).collect();
+    assert_eq!(labels[..3], ["Comment", "Approve", "Request changes"]); // no pending review → no discard option
+    // Then what's still open: the thread here is unresolved (and the test's PR head isn't HEAD).
+    assert_eq!(labels[3], "  ! 1 unresolved thread(s) on GitHub");
+    assert!(labels[4].starts_with("  ! your checkout isn't the PR's head") && labels.len() == 5);
     app.review = Some("R".into());
     press(&mut app, 'S');
     assert_eq!(app.picker.as_ref().unwrap().items[3].label, "Discard pending review (1 comment(s))");
@@ -888,6 +892,8 @@ fn whose_turn_and_severity() {
     app.key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
     app.key(KeyEvent::new(KeyCode::Char('A'), KeyModifiers::NONE));
     assert_eq!(app.picker.as_ref().unwrap().items[0].label, "src/a.rs:2  2 replies · [bug] [answered] @claude");
+    // Before submitting, what's still open in Claude's review shows.
+    assert_eq!(app.submit_notes()[0], "3 open comment(s) in Claude's review (1 answered, your turn)");
     // On someone else's PR, Claude suggests the changes instead of making them.
     app.picker = None;
     app.theirs = true;
