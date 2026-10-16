@@ -159,7 +159,8 @@ pub fn issue_preview(url: &str) -> Result<(String, String)> {
     Ok((title, md))
 }
 
-/// An open PR, for `dv list`.
+/// A PR for `dv list`.
+#[derive(Default)]
 pub struct Listed {
     pub number: u64,
     pub title: String,
@@ -167,6 +168,8 @@ pub struct Listed {
     pub base: String,
     pub branch: String,
     pub draft: bool,
+    /// OPEN, CLOSED or MERGED.
+    pub state: String,
     pub created: String,
     pub updated: String,
     pub additions: u64,
@@ -180,34 +183,40 @@ pub struct Listed {
     pub checks: Option<(usize, usize, usize)>,
 }
 
-// ponytail: the 200 most recently updated open PRs; a search box if a repo has more worth scanning.
-pub fn list() -> Result<Vec<Listed>> {
-    const FIELDS: &str = "number,title,author,baseRefName,headRefName,isDraft,createdAt,updatedAt,additions,deletions,changedFiles,reviewDecision,labels";
-    let v: Value = serde_json::from_str(&gh(&["pr", "list", "--limit", "200", "--json", FIELDS])?)?;
+const LISTED: &str = "number,title,author,baseRefName,headRefName,isDraft,state,createdAt,updatedAt,additions,deletions,changedFiles,reviewDecision,labels";
+
+fn listed(p: &Value) -> Listed {
     let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
     let n = |v: &Value| v.as_u64().unwrap_or(0);
-    let prs = v
-        .as_array()
-        .context("gh pr list")?
-        .iter()
-        .map(|p| Listed {
-            number: n(&p["number"]),
-            title: s(&p["title"]),
-            author: s(&p["author"]["login"]),
-            base: s(&p["baseRefName"]),
-            branch: s(&p["headRefName"]),
-            draft: p["isDraft"] == true,
-            created: s(&p["createdAt"]),
-            updated: s(&p["updatedAt"]),
-            additions: n(&p["additions"]),
-            deletions: n(&p["deletions"]),
-            files: n(&p["changedFiles"]),
-            decision: s(&p["reviewDecision"]),
-            labels: p["labels"].as_array().into_iter().flatten().map(|l| (s(&l["name"]), s(&l["color"]))).collect(),
-            checks: None,
-        })
-        .collect();
-    Ok(prs)
+    Listed {
+        number: n(&p["number"]),
+        title: s(&p["title"]),
+        author: s(&p["author"]["login"]),
+        base: s(&p["baseRefName"]),
+        branch: s(&p["headRefName"]),
+        draft: p["isDraft"] == true,
+        state: s(&p["state"]),
+        created: s(&p["createdAt"]),
+        updated: s(&p["updatedAt"]),
+        additions: n(&p["additions"]),
+        deletions: n(&p["deletions"]),
+        files: n(&p["changedFiles"]),
+        decision: s(&p["reviewDecision"]),
+        labels: p["labels"].as_array().into_iter().flatten().map(|l| (s(&l["name"]), s(&l["color"]))).collect(),
+        checks: None,
+    }
+}
+
+// ponytail: the 200 most recently updated open PRs; a search box if a repo has more worth scanning.
+pub fn list() -> Result<Vec<Listed>> {
+    let v: Value = serde_json::from_str(&gh(&["pr", "list", "--limit", "200", "--json", LISTED])?)?;
+    Ok(v.as_array().context("gh pr list")?.iter().map(listed).collect())
+}
+
+/// One PR, open or not (for a worktree whose PR has since closed or merged).
+pub fn listed_one(n: u64) -> Result<Listed> {
+    let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", LISTED])?)?;
+    Ok(listed(&v))
 }
 
 /// CI check counts for the PRs `list` returns: number → (passed, failed, pending).

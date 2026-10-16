@@ -1,4 +1,5 @@
-//! `dv list`: the repo's open PRs; `Enter` reviews one, and quitting that review comes back here.
+//! `dv list`: the repo's open PRs, and (`Tab`) the ones with a local worktree; `Enter` reviews
+//! one, and quitting that review comes back here.
 use crate::gh::{self, Listed};
 use crate::theme::{Theme, Ui};
 use anyhow::Result;
@@ -8,6 +9,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::{DefaultTerminal, Frame};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
@@ -17,7 +19,9 @@ const HELP: &str = "\
   j k, Up Down         move
   gg ge                first / last PR
   Ctrl-d Ctrl-u        half a page down / up
-  Enter                review the PR (with dv list's flags); q there comes back here
+  Tab                  open PRs / PRs with a local worktree (<repo>-N, as dv N -w makes)
+  Enter                review the PR (with dv list's flags; from the worktrees tab, in its
+                       worktree as it was made); q there comes back here
   /                    filter (Enter keeps it, Esc clears it); terms must all match:
                          text            number, title, author, branch, labels
                          author: label: base: branch:   part of that field
@@ -46,18 +50,45 @@ pub struct List {
     rev: bool,
     /// CI check counts, still on their way (they take a few seconds for a busy repo).
     checks: Option<Receiver<Checks>>,
+    /// PR worktrees: number → (dir, branch or `None` when detached).
+    local: HashMap<u64, (PathBuf, Option<String>)>,
+    /// Showing the worktrees tab.
+    worktrees: bool,
     pub msg: String,
+}
+
+/// What was picked: the PR, and for one from the worktrees tab, whether its worktree is on
+/// its branch (it opens there, as `dv N -w` / `-wb`).
+pub struct Pick {
+    pub number: u64,
+    pub worktree: Option<bool>,
 }
 
 impl List {
     pub fn new(flags: String) -> List {
         let ui = Theme::load().ui();
         let (query, msg) = (String::new(), String::new());
-        List { prs: vec![], ui, flags, sel: 0, top: 0, query, filtering: false, pending_g: false, help: false, order: Order::Updated, rev: false, checks: None, msg }
+        List {
+            prs: vec![],
+            ui,
+            flags,
+            sel: 0,
+            top: 0,
+            query,
+            filtering: false,
+            pending_g: false,
+            help: false,
+            order: Order::Updated,
+            rev: false,
+            checks: None,
+            local: HashMap::new(),
+            worktrees: false,
+            msg,
+        }
     }
 
     /// Show the list until a PR is picked (`Some`) or the user quits (`None`).
-    pub fn run(&mut self, term: &mut DefaultTerminal) -> Result<Option<u64>> {
+    pub fn run(&mut self, term: &mut DefaultTerminal) -> Result<Option<Pick>> {
         if self.prs.is_empty() {
             self.refresh(term)?;
         }
@@ -79,7 +110,10 @@ impl List {
             }
             match self.key(k) {
                 Some(Do::Quit) => return Ok(None),
-                Some(Do::Open(n)) => return Ok(Some(n)),
+                Some(Do::Open(n)) => {
+                    let worktree = self.worktrees.then(|| self.local.get(&n).is_some_and(|w| w.1.is_some()));
+                    return Ok(Some(Pick { number: n, worktree }));
+                }
                 Some(Do::Refresh) => self.refresh(term)?,
                 None => {}
             }
@@ -90,12 +124,20 @@ impl List {
         self.msg = "loading PRs…".into();
         term.draw(|f| self.draw(f))?;
         let keep = self.shown().get(self.sel).map(|p| p.number);
+        self.local = crate::pr_worktrees().into_iter().map(|(n, dir, b)| (n, (dir, b))).collect();
         match gh::list() {
-            Ok(prs) => {
+            Ok(mut prs) => {
                 let (tx, rx) = mpsc::channel();
                 std::thread::spawn(move || tx.send(gh::list_checks()));
                 self.checks = Some(rx);
                 self.msg = if prs.is_empty() { "no open PRs".into() } else { String::new() };
+                // Worktrees of PRs that aren't open any more (or beyond the list): fetch those few.
+                let mut gone: Vec<u64> = self.local.keys().filter(|n| !prs.iter().any(|p| p.number == **n)).copied().collect();
+                gone.sort();
+                for n in gone {
+                    let title = "(couldn't load this PR)".into();
+                    prs.push(gh::listed_one(n).unwrap_or(Listed { number: n, title, ..Listed::default() }));
+                }
                 self.prs = prs;
                 self.sel = keep.and_then(|n| self.shown().iter().position(|p| p.number == n)).unwrap_or(0);
             }
@@ -104,9 +146,14 @@ impl List {
         Ok(())
     }
 
-    /// PRs matching every filter term, in the chosen order.
+    /// The tab's PRs matching every filter term, in the chosen order.
     fn shown(&self) -> Vec<&Listed> {
-        let mut prs: Vec<&Listed> = self.prs.iter().filter(|p| self.query.split_whitespace().all(|t| term(p, t))).collect();
+        let in_tab = |p: &&Listed| match self.worktrees {
+            true => self.local.contains_key(&p.number),
+            false => p.state == "OPEN" || p.state.is_empty(),
+        };
+        let mut prs: Vec<&Listed> =
+            self.prs.iter().filter(in_tab).filter(|p| self.query.split_whitespace().all(|t| term(p, t))).collect();
         prs.sort_by(|a, b| {
             let o = match self.order {
                 Order::Updated => b.updated.cmp(&a.updated), // ISO times sort as text
@@ -155,6 +202,7 @@ impl List {
             KeyCode::Char('q') | KeyCode::Esc => return Some(Do::Quit),
             KeyCode::Char('R') => return Some(Do::Refresh),
             KeyCode::Char('?') => self.help = true,
+            KeyCode::Tab | KeyCode::BackTab => (self.worktrees, self.sel, self.top) = (!self.worktrees, 0, 0),
             KeyCode::Char('/') => self.filtering = true, // edits the current filter
             KeyCode::Char('o') => self.sort(self.order.next(), self.rev),
             KeyCode::Char('O') => self.sort(self.order, !self.rev),
@@ -187,7 +235,17 @@ impl List {
         let head = Rect { height: 1.min(area.height), ..area };
         let hs = ui.base.patch(ui.header);
         let arrow = if self.rev { '↑' } else { '↓' };
-        f.render_widget(Paragraph::new(format!(" open pull requests · by {} {arrow}", self.order.name())).style(hs), head);
+        // Tabs: the current one bold, with counts.
+        let open = self.prs.iter().filter(|p| p.state == "OPEN" || p.state.is_empty()).count();
+        let tab = |name: String, on: bool| Span::styled(name, if on { hs.add_modifier(ratatui::style::Modifier::BOLD | ratatui::style::Modifier::UNDERLINED) } else { hs.patch(ui.stale) });
+        let tabs = Line::from(vec![
+            Span::styled(" ", hs),
+            tab(format!("open {open}"), !self.worktrees),
+            Span::styled("  ", hs),
+            tab(format!("worktrees {}", self.local.len()), self.worktrees),
+            Span::styled(format!("   by {} {arrow}  (Tab switches)", self.order.name()), hs.patch(ui.stale)),
+        ]);
+        f.render_widget(Paragraph::new(tabs).style(hs), head);
         let pos = if shown.is_empty() { "0 / 0 ".into() } else { format!("{} / {} ", sel + 1, shown.len()) };
         f.render_widget(Paragraph::new(pos).alignment(Alignment::Right).style(hs), head);
 
@@ -195,15 +253,24 @@ impl List {
         let mut bases: HashMap<&str, usize> = HashMap::new();
         self.prs.iter().for_each(|p| *bases.entry(p.base.as_str()).or_default() += 1);
         let usual = bases.into_iter().max_by_key(|b| b.1).map(|b| b.0.to_owned()).unwrap_or_default();
-        let num_w = shown.iter().map(|p| p.number.to_string().len()).max().unwrap_or(1) + 1;
-        let width = area.width as usize;
+        let cx = Cards {
+            ui,
+            num_w: shown.iter().map(|p| p.number.to_string().len()).max().unwrap_or(1) + 1,
+            width: area.width as usize,
+            checks_loading: self.checks.is_some(),
+            usual: &usual,
+        };
         let lines: Vec<Line> = shown
             .iter()
             .enumerate()
             .skip(self.top)
             .take(h)
-            .flat_map(|(i, p)| card(p, ui, i == sel, num_w, width, self.checks.is_some(), &usual))
+            .flat_map(|(i, p)| card(p, &cx, i == sel, self.local.get(&p.number)))
             .collect();
+        if shown.is_empty() && self.worktrees && self.query.is_empty() {
+            let none = " no PR worktrees here yet: `dv N -w` (or dv list -w, then Enter) makes one";
+            f.render_widget(Paragraph::new(none).style(ui.base.patch(ui.stale)), Rect { y: area.y + 2, height: 1, ..area });
+        }
         f.render_widget(Paragraph::new(lines), Rect { y: area.y + 1, height: (h * 2) as u16, ..area });
 
         let status = Rect { y: area.bottom().saturating_sub(1), height: 1.min(area.height), ..area };
@@ -212,11 +279,32 @@ impl List {
             (true, _, _) => format!(" /{}▏  author: label: base: branch: is:draft review: ci:  -x negates", self.query),
             (_, _, false) => format!(" {}", self.msg),
             (_, false, _) => format!(" filter: {}  (Esc clears)", self.query),
-            _ => " Enter review · / filter · o O order · R refresh · ? help · q quit".into(),
+            _ => String::new(), // the keys are in the bottom-right popup
         };
         let flags = if self.flags.is_empty() { String::new() } else { format!("opens with {}  ", self.flags) };
         f.render_widget(Paragraph::new(left).style(bar), status);
         f.render_widget(Paragraph::new(flags).alignment(Alignment::Right).style(bar), status);
+        if !self.help && !self.filtering {
+            // The keys for this tab, bottom right, as dv's diff view shows them.
+            let enter = match self.worktrees {
+                true => "review, in its worktree".to_owned(),
+                false if self.flags.is_empty() => "review".to_owned(),
+                false => format!("review (dv N {})", self.flags),
+            };
+            let tab = if self.worktrees { "open PRs" } else { "PRs with a worktree" };
+            let keys = [("Enter", enter.as_str()), ("Tab", tab), ("/", "filter"), ("o O", "sort / reverse"), ("R", "refresh"), ("?", "all keys"), ("q", "quit")];
+            let lines: Vec<Line> = keys
+                .iter()
+                .map(|(k, d)| Line::from(vec![Span::styled(format!("{k:<6}"), ui.key), Span::raw(d.to_string())]))
+                .collect();
+            let w = (lines.iter().map(Line::width).max().unwrap_or(10) as u16 + 4).min(area.width);
+            let h = (lines.len() as u16 + 2).min(area.height.saturating_sub(1));
+            let r = Rect { x: area.width - w, y: area.height.saturating_sub(1 + h), width: w, height: h };
+            f.render_widget(Clear, r);
+            f.render_widget(Block::new().style(ui.base.patch(ui.popup)), r);
+            f.render_widget(Paragraph::new(" keys").style(ui.base.patch(ui.header)), Rect { height: 1, ..r });
+            f.render_widget(Paragraph::new(lines), Rect { x: r.x + 1, y: r.y + 1, width: w.saturating_sub(2), height: h.saturating_sub(1) });
+        }
         if self.help {
             // Like dv's popups: no border, the popup background, a header row.
             let lines: Vec<&str> = HELP.lines().collect();
@@ -246,21 +334,38 @@ enum Do {
     Refresh,
 }
 
-/// A PR as two lines: number, title, draft badge and age; then who, CI, review, size, labels
-/// and branches, most useful first so a narrow screen cuts the least useful.
-fn card(p: &Listed, ui: &Ui, selected: bool, num_w: usize, width: usize, checks_loading: bool, usual: &str) -> [Line<'static>; 2] {
+/// What every card on screen shares.
+struct Cards<'a> {
+    ui: &'a Ui,
+    num_w: usize,
+    width: usize,
+    checks_loading: bool,
+    /// The base most PRs target, left unsaid.
+    usual: &'a str,
+}
+
+/// A PR as two lines: number, title, state / draft badge and age; then who, CI, review, size,
+/// labels, branches and its worktree, most useful first so a narrow screen cuts the least useful.
+fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathBuf, Option<String>)>) -> [Line<'static>; 2] {
+    let (ui, num_w, width, usual) = (cx.ui, cx.num_w, cx.width, cx.usual);
     let row = if selected { ui.base.patch(ui.menu_selected) } else { ui.base };
     let dim = row.patch(ui.stale);
     let sp = |t: String, st| Span::styled(t, st);
     let age = format!("{} ", gh::ago(&p.updated));
-    let draft = if p.draft { "  DRAFT " } else { "" };
-    let room = width.saturating_sub(num_w + 3 + draft.len() + age.len()).max(10);
+    // Closed / merged (only in the worktrees tab), else draft, as GitHub colors them.
+    let badge = match (p.state.as_str(), p.draft) {
+        ("MERGED", _) => Some(("MERGED", "8957e5")),
+        ("CLOSED", _) => Some(("CLOSED", "da3633")),
+        (_, true) => Some(("DRAFT", "6e7681")),
+        _ => None,
+    };
+    let room = width.saturating_sub(num_w + 3 + badge.map_or(0, |b| b.0.len() + 4) + age.len()).max(10);
     let mut top = vec![
         sp(format!(" {:>num_w$} ", format!("#{}", p.number)), row.patch(ui.key)),
         sp(cut(&p.title, room), row),
     ];
-    if p.draft {
-        top.extend([sp("  ".into(), row), sp(" DRAFT ".into(), crate::view::chip("6e7681"))]);
+    if let Some((text, color)) = badge {
+        top.extend([sp("  ".into(), row), sp(format!(" {text} "), crate::view::chip(color))]);
     }
     let used: usize = top.iter().map(Span::width).sum();
     top.push(sp(format!("{age:>w$}", w = width.saturating_sub(used)), dim));
@@ -275,7 +380,7 @@ fn card(p: &Listed, ui: &Ui, selected: bool, num_w: usize, width: usize, checks_
                 bottom.extend([sp(if k == 0 { " · " } else { " " }.into(), dim), sp(format!("{mark}{n}"), row.patch(st))]);
             }
         }
-        None if checks_loading => bottom.extend([sep(), sp("checks…".into(), dim)]),
+        None if cx.checks_loading => bottom.extend([sep(), sp("checks…".into(), dim)]),
         None => {}
     }
     match p.decision.as_str() {
@@ -298,6 +403,11 @@ fn card(p: &Listed, ui: &Ui, selected: bool, num_w: usize, width: usize, checks_
         false => format!("{} ← {}", p.base, cut(&p.branch, 32)),
     };
     bottom.extend([sep(), sp(branch, dim)]);
+    if let Some((dir, branch)) = local {
+        let name = dir.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned());
+        let on = branch.as_deref().map_or("detached".to_owned(), |b| format!("on {}", cut(b, 24)));
+        bottom.extend([sep(), sp(format!("⌂ {name} ({on})"), row.patch(ui.key))]);
+    }
     [Line::from(top).style(row), Line::from(bottom).style(row)]
 }
 
@@ -382,15 +492,11 @@ fn filter_and_keys() {
         author: author.into(),
         base: "master".into(),
         branch: "b".into(),
-        draft: false,
-        created: String::new(),
+        state: "OPEN".into(),
         updated: updated.into(),
         additions: number,
-        deletions: 0,
         files: 1,
-        decision: String::new(),
-        labels: vec![],
-        checks: None,
+        ..Listed::default()
     };
     let mut l = List::new("-wb".into());
     l.prs = vec![pr(1, "Fix CI", "ann", "2026-03"), pr(22, "Add docs", "bo", "2026-01"), pr(333, "fix fees", "cy", "2026-02")];
@@ -430,5 +536,14 @@ fn filter_and_keys() {
     k(&mut l, KeyCode::Char('?'));
     assert!(l.help);
     assert!(k(&mut l, KeyCode::Char('q')).is_none() && !l.help);
+    // Tab: the PRs with a worktree, including one that's merged (not in the open tab).
+    l.prs.push(Listed { number: 9, state: "MERGED".into(), ..pr(9, "old", "dee", "2025-01") });
+    l.local.insert(9, ("/x/r-9".into(), None));
+    l.local.insert(22, ("/x/r-22".into(), Some("feat".into())));
+    assert_eq!(shown(&l), [1, 22, 333]); // open tab: not the merged one
+    k(&mut l, KeyCode::Tab);
+    assert_eq!(shown(&l), [9, 22]); // (still by number, ascending)
+    k(&mut l, KeyCode::Char('j'));
+    assert!(matches!(k(&mut l, KeyCode::Enter), Some(Do::Open(22))));
     assert!(matches!(k(&mut l, KeyCode::Char('q')), Some(Do::Quit)));
 }

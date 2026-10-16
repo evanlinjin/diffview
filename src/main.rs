@@ -155,8 +155,18 @@ fn pick_and_review(o: &Opts, root: &Path) -> anyhow::Result<()> {
         let mut term = ratatui::init();
         let picked = list.run(&mut term);
         ratatui::restore();
-        let Some(n) = picked? else { return Ok(()) };
-        let res = review(o, Some(n)).and_then(|(_, res)| res);
+        let Some(pick) = picked? else { return Ok(()) };
+        let n = pick.number;
+        // A PR from the worktrees tab opens in its worktree, as it was made (on its branch or not).
+        let wt;
+        let opts = match pick.worktree {
+            Some(branch) => {
+                wt = Opts { worktree: true, branch, force: false, base: o.base.clone(), ..Opts::default() };
+                &wt
+            }
+            None => o,
+        };
+        let res = review(opts, Some(n)).and_then(|(_, res)| res);
         progress(None);
         std::env::set_current_dir(root)?; // a worktree review leaves us in the worktree
         if let Err(e) = res {
@@ -280,6 +290,25 @@ fn worktree_dir(n: u64) -> anyhow::Result<(PathBuf, PathBuf)> {
     let name = main.file_name().context("repo has no dir name")?.to_string_lossy().into_owned();
     let dir = main.parent().context("repo has no parent dir")?.join(format!("{name}-{n}"));
     Ok((main, dir))
+}
+
+/// PR worktrees of this repo (`<repo>-<n>` next to it, as `-w` makes them): (PR, dir, branch,
+/// or `None` when detached).
+pub(crate) fn pr_worktrees() -> Vec<(u64, PathBuf, Option<String>)> {
+    let Ok((main, _)) = worktree_dir(0) else { return vec![] };
+    let (Some(parent), Some(name)) = (main.parent(), main.file_name().map(|n| n.to_string_lossy().into_owned())) else { return vec![] };
+    let list = diff::git(&["worktree", "list", "--porcelain"]).unwrap_or_default();
+    let mut out = vec![];
+    // Blocks of "worktree <path>", "HEAD <sha>", then "branch refs/heads/<b>" or "detached".
+    for block in list.split("\n\n") {
+        let field = |k: &str| block.lines().find_map(|l| l.strip_prefix(k));
+        let Some(path) = field("worktree ").map(PathBuf::from) else { continue };
+        let n = path.file_name().and_then(|f| f.to_str()?.strip_prefix(&format!("{name}-"))?.parse().ok());
+        if let (Some(n), true) = (n, path.parent() == Some(parent)) {
+            out.push((n, path, field("branch refs/heads/").map(str::to_owned)));
+        }
+    }
+    out
 }
 
 fn common_dir(d: &Path) -> anyhow::Result<String> {

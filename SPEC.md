@@ -142,7 +142,9 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `?` | key help overlay (two columns when the window fits them); `/` inside it filters entries (smart case), Enter keeps, Esc clears |
 | `q` | quit |
 
-`dv list` (the 200 most recently updated open PRs) shows each PR as a two-line card: number,
+`dv list` (the 200 most recently updated open PRs; `Tab` switches to the PRs with a local
+`<repo>-N` worktree, open or not, which `Enter` opens in that worktree as it was made:
+detached or on its branch) shows each PR as a two-line card: number,
 title, draft badge, age; then author, CI (✓/✗/● counts, fetched in the background since they're
 slow), review decision, size, labels, base ← branch. `j k`, `gg ge`, `Ctrl-d Ctrl-u` move;
 `o` cycles the order (updated / created / number / size, newest or biggest first), `O`

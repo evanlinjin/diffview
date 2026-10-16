@@ -33,7 +33,8 @@ dv 2258 -f        # same, resetting your local copy of the PR branch to the PR h
 dv 2258 -w        # review it in a worktree next to the repo: ../<repo>-2258 (no branch)
 dv 2258 -wb       # same, on the PR's branch, so you can push to the PR
 dv 2258 --rm      # remove that worktree (-f to discard local changes)
-dv list -w        # pick from the open PRs; Enter reviews one (here: in a worktree), q comes back
+dv list -w        # pick from the open PRs; Enter reviews one (here: in a worktree), q comes back;
+                  # Tab lists the PRs you have worktrees for
 ```
 
 On a branch with an open PR, plain `dv` loads it too.
