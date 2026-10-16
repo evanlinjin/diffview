@@ -491,6 +491,11 @@ pub fn conversation_comment(pr: &Pr, body: &str) -> Result<()> {
     post(&ep, &json!({ "body": body }))
 }
 
+/// Close the PR (it can be reopened on GitHub).
+pub fn close(pr: &Pr) -> Result<()> {
+    gh(&["pr", "close", &pr.number.to_string()]).map(drop)
+}
+
 /// A single reply, posted immediately.
 pub fn reply(pr: &Pr, comment_id: u64, body: &str) -> Result<()> {
     let ep = format!("repos/{{owner}}/{{repo}}/pulls/{}/comments/{comment_id}/replies", pr.number);
@@ -549,10 +554,11 @@ pub fn info(n: u64) -> Result<(Vec<InfoLine>, String, String, String, State)> {
 pub type State = (&'static str, &'static str);
 
 pub fn state(v: &Value) -> State {
-    match (v["isDraft"] == true, v["state"].as_str().unwrap_or("")) {
-        (true, _) => ("DRAFT", "6e7681"),
-        (_, "MERGED") => ("MERGED", "8957e5"),
-        (_, "CLOSED") => ("CLOSED", "da3633"),
+    // A closed draft is closed.
+    match (v["state"].as_str().unwrap_or(""), v["isDraft"] == true) {
+        ("MERGED", _) => ("MERGED", "8957e5"),
+        ("CLOSED", _) => ("CLOSED", "da3633"),
+        (_, true) => ("DRAFT", "6e7681"),
         _ => ("OPEN", "238636"),
     }
 }
@@ -684,6 +690,7 @@ fn info_summarises_checks() {
     });
     let lines = info_lines(&v);
     assert_eq!(state(&v), ("DRAFT", "6e7681")); // on the header line, in GitHub's color
+    assert_eq!(state(&serde_json::json!({ "state": "CLOSED", "isDraft": true })).0, "CLOSED");
     assert_eq!(lines[1].marks[1], (7, 12, Mark::Chip("d73a4a".into()))); // " bug " in its label color
     let t: Vec<String> = lines.into_iter().map(|l| l.text).collect();
     assert_eq!(t[0], "@amy · main ← feat · +3 −1 in 2 files");

@@ -120,13 +120,22 @@ impl App {
             }
             Post::Edit { comment, body } => keep_on_error(gh::edit_comment(&comment, &body), &body).map(|_| "comment updated"),
             Post::Submit(event, body) => {
-                let res = match &self.review {
-                    Some(r) => gh::submit_review(r, event, &body),
-                    None => gh::review_now(&pr.node_id, &pr.head_oid, event, &body),
-                };
-                keep_on_error(res, &body)?;
-                self.review = None;
-                Ok("review submitted")
+                // Closing comments; with nothing to say (and no pending comments) it only closes.
+                let close = event == CLOSE;
+                let event = if close { "COMMENT" } else { event };
+                if !close || self.review.is_some() || !body.trim().is_empty() {
+                    let res = match &self.review {
+                        Some(r) => gh::submit_review(r, event, &body),
+                        None => gh::review_now(&pr.node_id, &pr.head_oid, event, &body),
+                    };
+                    keep_on_error(res, &body)?;
+                    self.review = None;
+                }
+                if !close {
+                    return Ok("review submitted");
+                }
+                gh::close(&pr).context("the review went in, but closing the PR failed")?;
+                Ok("PR closed")
             }
         }
     }
@@ -189,6 +198,7 @@ impl App {
             item("Comment", Target::Submit("COMMENT")),
             item("Approve", Target::Submit("APPROVE")),
             item("Request changes", Target::Submit("REQUEST_CHANGES")),
+            item("Comment and close the PR", Target::Submit(CLOSE)),
         ];
         if self.review.is_some() {
             let n = self.pending_count();
@@ -811,3 +821,6 @@ impl App {
         }
     }
 }
+
+/// `S` → "Comment and close the PR": a comment review (if there's anything to say), then closing.
+pub(super) const CLOSE: &str = "CLOSE";

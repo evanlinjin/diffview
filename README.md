@@ -62,7 +62,7 @@ table and design notes.
 3. Comment: select lines (`x`, `v`), then `c` to comment or `s` to suggest a change. On a
    thread, `r` replies (quoting the comment under the cursor). These go into your pending
    review; `Space p` lists them.
-4. Submit: `S`, then Comment / Approve / Request changes.
+4. Submit: `S`, then Comment / Approve / Request changes, or Comment and close the PR.
 
 `C` posts a comment immediately instead of adding it to the review. `Space e` / `Space d`
 edit / delete a comment, `Space r` resolves a thread, `gf` opens a link, `R` refreshes.

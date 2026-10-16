@@ -6,6 +6,8 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Added
+- `S` → "Comment and close the PR": your comment as a review (pending comments too), then the
+  PR closed; with nothing to say, it only closes.
 - `dv list`: `[new]` on PRs with something you haven't seen: GitHub activity or a change to
   Claude's review since you last left the PR in dv (and, of PRs you've never opened, those
   Claude has reviewed).
@@ -25,6 +27,7 @@ on GitHub are its section here.
   leaves.
 
 ### Fixed
+- A closed (or merged) draft PR shows as CLOSED (MERGED), not DRAFT.
 - Claude's summary is Claude's, not PR text: `c` copies it into your review summary (`S`
   starts from it), `C` posts it as your own PR comment (not quoted), and its key popup says so.
 - `?`: every section heading in the heading color (in two columns, the right column's had none

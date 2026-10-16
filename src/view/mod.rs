@@ -718,7 +718,10 @@ impl App {
             Action::Submit(event) => {
                 // An empty summary is fine; quitting the editor with an error (`:cq`) cancels.
                 // Approving starts from "ACK <the PR's head commit>", posted as is if kept.
-                let what = format!("review summary ({})", event.to_lowercase().replace('_', " "));
+                let what = match event {
+                    review::CLOSE => "closing comment (empty: just close the PR)".to_owned(),
+                    e => format!("review summary ({})", e.to_lowercase().replace('_', " ")),
+                };
                 let head = diff::git(&["rev-parse", "HEAD"]).unwrap_or_default();
                 let mut prefill = ack(event, self.pr.as_ref(), head.trim());
                 if !self.summary_draft.is_empty() {

@@ -302,13 +302,13 @@ fn comments_placed_and_anchored() {
     assert!(matches!(app.action.take(), Some(Action::Reply { review: false, .. })));
     press(&mut app, 'S');
     let labels: Vec<String> = app.picker.take().unwrap().items.into_iter().map(|i| i.label).collect();
-    assert_eq!(labels[..3], ["Comment", "Approve", "Request changes"]); // no pending review → no discard option
+    assert_eq!(labels[..4], ["Comment", "Approve", "Request changes", "Comment and close the PR"]); // no pending review → no discard option
     // Then what's still open: the thread here is unresolved (and the test's PR head isn't HEAD).
-    assert_eq!(labels[3], "  ! 1 unresolved thread(s) on GitHub");
-    assert!(labels[4].starts_with("  ! your checkout isn't the PR's head") && labels.len() == 5);
+    assert_eq!(labels[4], "  ! 1 unresolved thread(s) on GitHub");
+    assert!(labels[5].starts_with("  ! your checkout isn't the PR's head") && labels.len() == 6);
     app.review = Some("R".into());
     press(&mut app, 'S');
-    assert_eq!(app.picker.as_ref().unwrap().items[3].label, "Discard pending review (1 comment(s))");
+    assert_eq!(app.picker.as_ref().unwrap().items[4].label, "Discard pending review (1 comment(s))");
     app.picker = None;
     press(&mut app, 'C'); // GitHub refuses a single comment beside a pending review
     assert!(app.action.is_none() && app.msg.starts_with("you have a pending review (1)"));

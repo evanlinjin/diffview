@@ -48,7 +48,7 @@ disk: rust-analyzer can index it and `hx` can open it.
    none). File headers are a full-width bar with +/− line counts.
    **Reviews** use GitHub's own pending review (GraphQL): `c` adds to it (starting one on
    the PR head if needed, or continuing one started on the web), `S` submits with a summary
-   from `$EDITOR` (`:cq` cancels), discard asks for confirmation. Pending comments are
+   from `$EDITOR` (`:cq` cancels), or comments and closes the PR (an empty comment only closes), discard asks for confirmation. Pending comments are
    tagged `[pending]` and counted in the status bar. If posting fails, the text is saved
    to a temp file and the error says where.
    **PR text renders like github.com** (pulldown-cmark, GFM): link text without URLs (bare
