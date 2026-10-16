@@ -280,9 +280,9 @@ fn checkout_or_keep(n: u64, force: bool, detach: bool) -> anyhow::Result<Option<
     let msg = format!("{e:#}");
     let diverged = ["Not possible to fast-forward", "Diverging branches"].iter().any(|p| msg.contains(p));
     let here = diff::git(&["branch", "--show-current"]).unwrap_or_default().trim().to_owned();
-    let theirs = gh::head_branch(n).unwrap_or_default();
-    // gh names a fork's branch `<owner>-<branch>` when the plain name is taken.
-    let on_it = !here.is_empty() && !theirs.is_empty() && (here == theirs || here.ends_with(&format!("-{theirs}")));
+    let (theirs, owner) = gh::head_branch(n).unwrap_or_default();
+    // gh names the local branch as the PR's, or `<owner>-<branch>` when that name is taken.
+    let on_it = !theirs.is_empty() && (here == theirs || here == format!("{owner}-{theirs}"));
     match (diverged && !force && !detach, on_it) {
         (true, true) => Ok(Some(format!(
             "{here} has commits that aren't on PR #{n}: showing it as is (push to update the PR; -f resets to the PR)"

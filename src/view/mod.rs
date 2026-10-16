@@ -232,6 +232,8 @@ enum Target {
     Comment(usize, usize),
     Claude(agent::Ask),
     ClaudeNotes,
+    /// Dismiss all of Claude's outdated comments (`true`: confirmed).
+    ClaudeDismissOutdated(bool),
     Nothing,
 }
 
@@ -324,7 +326,7 @@ pub struct App {
     /// An `hx` pane (inside zellij) that dv isn't waiting on: it says when hx exits.
     hx: Option<std::sync::mpsc::Receiver<std::io::Result<std::process::ExitStatus>>>,
     /// A background `claude -p` run: (process, log file, what it's doing).
-    claude_job: Option<(std::process::Child, PathBuf, &'static str)>,
+    claude_job: Option<agent::ClaudeJob>,
     /// The Claude Code session of the last background run, resumed by the next.
     claude_session: Option<String>,
     /// A reply came in while Claude was busy: answer again when it's done.
@@ -355,8 +357,7 @@ impl App {
         app.settings = crate::theme::settings();
         app.claude_path = crate::claude::path(pr.as_ref().map(|p| p.number)).ok();
         // The PR's Claude Code session, if an earlier run (any dv, any worktree) started one.
-        app.claude_session = app.claude_path.as_ref().and_then(|p| std::fs::read_to_string(crate::claude::session_path(p)).ok());
-        app.claude_session = app.claude_session.take().map(|s| s.trim().to_owned()).filter(|s| !s.is_empty());
+        app.claude_session = app.claude_path.as_ref().and_then(|p| crate::claude::load_session(p, &app.root));
         if pr.is_some() {
             crate::progress(Some("loading comments and PR info"));
         }
@@ -565,7 +566,8 @@ impl App {
                 // An empty summary is fine; quitting the editor with an error (`:cq`) cancels.
                 // Approving starts from "ACK <the PR's head commit>", posted as is if kept.
                 let what = format!("review summary ({})", event.to_lowercase().replace('_', " "));
-                let prefill = ack(event, self.pr.as_ref());
+                let head = diff::git(&["rev-parse", "HEAD"]).unwrap_or_default();
+                let prefill = ack(event, self.pr.as_ref(), head.trim());
                 let Some(body) = compose_with(&what, true, &prefill, true)? else {
                     return Ok("review not submitted".into());
                 };
@@ -1166,10 +1168,12 @@ fn keep_on_error(res: Result<()>, body: &str) -> Result<()> {
 }
 
 /// The summary an approval starts from: `ACK <head commit>`, as Bitcoin-style projects write
-/// it, naming exactly what was reviewed. Other reviews start empty.
-fn ack(event: &str, pr: Option<&Pr>) -> String {
+/// it, naming exactly what was reviewed. Only when what you reviewed (`local`, your HEAD) is
+/// the PR's head; otherwise (your branch has diverged from it) the ACK would name a commit you
+/// didn't look at, so it starts empty, as other reviews do.
+fn ack(event: &str, pr: Option<&Pr>, local: &str) -> String {
     match pr {
-        Some(p) if event == "APPROVE" && !p.head_oid.is_empty() => format!("ACK {}", p.head_oid),
+        Some(p) if event == "APPROVE" && !p.head_oid.is_empty() && p.head_oid == local => format!("ACK {}", p.head_oid),
         _ => String::new(),
     }
 }

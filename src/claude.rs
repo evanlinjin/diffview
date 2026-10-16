@@ -63,10 +63,53 @@ pub fn notes_path() -> Result<PathBuf> {
     Ok(PathBuf::from(common.trim()).join("dv").join("notes.md"))
 }
 
-/// Where the Claude Code session for a review lives: next to its file (`pr-N.session`), so
-/// every dv run, from any worktree, continues the same conversation about that PR.
+/// Where the Claude Code sessions for a review are kept: next to its file (`pr-N.session`),
+/// one line per checkout directory (`<dir>\t<id>`), since Claude Code keeps sessions per
+/// directory: each checkout of the PR continues its own conversation about it.
 pub fn session_path(review: &std::path::Path) -> PathBuf {
     review.with_extension("session")
+}
+
+/// The session for `review` in checkout `dir`, if Claude Code still has it.
+pub fn load_session(review: &std::path::Path, dir: &std::path::Path) -> Option<String> {
+    let text = std::fs::read_to_string(session_path(review)).ok()?;
+    let key = dir.to_string_lossy();
+    let id = text.lines().find_map(|l| l.split_once('\t').filter(|(d, _)| *d == key).map(|(_, id)| id.trim().to_owned()))?;
+    session_exists(&id).then_some(id)
+}
+
+/// Remember (`Some`) or forget the session for `review` in checkout `dir`.
+pub fn save_session(review: &std::path::Path, dir: &std::path::Path, id: Option<&str>) -> Result<()> {
+    let p = session_path(review);
+    let key = dir.to_string_lossy();
+    let text = std::fs::read_to_string(&p).unwrap_or_default();
+    let mut lines: Vec<String> = text.lines().filter(|l| l.split_once('\t').is_none_or(|(d, _)| d != key)).map(str::to_owned).collect();
+    lines.extend(id.map(|id| format!("{key}\t{id}")));
+    if let Some(d) = p.parent() {
+        std::fs::create_dir_all(d)?;
+    }
+    match lines.is_empty() {
+        true => _ = std::fs::remove_file(&p),
+        false => std::fs::write(&p, lines.join("\n") + "\n")?,
+    }
+    Ok(())
+}
+
+/// Whether Claude Code has session `id` (it keeps each as `projects/<dir>/<id>.jsonl` under its
+/// config dir), so dv doesn't try to resume one that never started or was cleaned up.
+pub fn session_exists(id: &str) -> bool {
+    let config = std::env::var_os("CLAUDE_CONFIG_DIR")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".claude")));
+    let Some(Ok(dirs)) = config.map(|c| std::fs::read_dir(c.join("projects"))) else { return false };
+    dirs.flatten().any(|d| d.path().join(format!("{id}.jsonl")).exists())
+}
+
+/// The text of lines `first..=last` on one side of `f`, or `None` if any of them doesn't exist
+/// there. What a comment's `code` records, so it can follow those lines.
+pub fn code_at(f: &FileDiff, left: bool, first: u32, last: u32) -> Option<Vec<String>> {
+    let lines = side_lines(f, left);
+    (first..=last).map(|n| lines.iter().find(|l| l.0 == n).map(|l| l.1.to_owned())).collect()
 }
 
 /// A fresh session id (a random UUID v4), for `claude --session-id`.
@@ -248,6 +291,17 @@ pub fn dismiss(path: &std::path::Path, key: &str) -> Result<()> {
     update(path, key, |c, i| _ = c.remove(i))
 }
 
+/// Remove the comments with these ids (in one write). How many went.
+pub fn dismiss_all(path: &std::path::Path, keys: &[String]) -> Result<usize> {
+    let mut v: Value = serde_json::from_str(&std::fs::read_to_string(path)?)?;
+    let comments = v["comments"].as_array_mut().context("no comments")?;
+    let before = comments.len();
+    comments.retain(|c| !c["id"].as_str().is_some_and(|id| keys.iter().any(|k| k == id)));
+    let gone = before - comments.len();
+    write(path, &v)?;
+    Ok(gone)
+}
+
 /// Add the user's reply to comment `key`, for Claude to answer.
 pub fn reply(path: &std::path::Path, key: &str, body: &str) -> Result<()> {
     update(path, key, |c, i| {
@@ -295,7 +349,7 @@ pub enum Found {
 }
 
 /// The file's lines on one side: (line number, text).
-pub fn side_lines(f: &FileDiff, left: bool) -> Vec<(u32, &str)> {
+fn side_lines(f: &FileDiff, left: bool) -> Vec<(u32, &str)> {
     f.full
         .iter()
         .filter_map(|l| match (left, l.kind) {
@@ -387,10 +441,7 @@ pub fn check(path: &std::path::Path, files: &[FileDiff]) -> Result<Report> {
                 continue;
             }
             Found::Unknown => {
-                let lines = side_lines(f, t.left);
-                let code: Option<Vec<&str>> =
-                    (start.unwrap_or(line)..=line).map(|n| lines.iter().find(|l| l.0 == n).map(|l| l.1)).collect();
-                match code {
+                match code_at(f, t.left, start.unwrap_or(line), line) {
                     Some(code) => {
                         c["code"] = serde_json::json!(code);
                         changed = true;
@@ -467,6 +518,17 @@ fn session_ids() {
     assert_eq!(a.len(), 36);
     assert_eq!(&a[14..15], "4"); // version 4
     assert_eq!(session_path(std::path::Path::new("/r/.git/dv/reviews/pr-7.json")), std::path::Path::new("/r/.git/dv/reviews/pr-7.session"));
+    // One per checkout dir; one Claude Code doesn't have isn't resumed.
+    let home = std::env::temp_dir().join(format!("dv-sessions-{}", std::process::id()));
+    let review = home.join("pr-7.json");
+    save_session(&review, std::path::Path::new("/a"), Some("id-a")).unwrap();
+    save_session(&review, std::path::Path::new("/b"), Some("id-b")).unwrap();
+    let text = std::fs::read_to_string(session_path(&review)).unwrap();
+    assert_eq!(text, "/a\tid-a\n/b\tid-b\n");
+    assert_eq!(load_session(&review, std::path::Path::new("/a")), None); // not in Claude Code's store
+    save_session(&review, std::path::Path::new("/a"), None).unwrap();
+    assert_eq!(std::fs::read_to_string(session_path(&review)).unwrap(), "/b\tid-b\n");
+    _ = std::fs::remove_dir_all(&home);
 }
 
 #[test]

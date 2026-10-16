@@ -86,8 +86,13 @@ disk: rust-analyzer can index it and `hx` can open it.
    (`acceptEdits`, Bash limited to `dv review-*` and read-only git), with "Claude working…"
    in the status bar and its log path if it fails. Comments get stable `id`s (assigned by dv on
    load and by review-check); both write the file atomically and re-read it before a change.
-   Each PR has one Claude Code session (`pr-N.session` next to its review file, a UUID dv picks
-   with `--session-id` and then `--resume`s), so every run continues one conversation. Repo-wide
+   Each PR has one Claude Code session per checkout (`pr-N.session` next to its review file,
+   `<dir>\t<uuid>` lines, as Claude Code keeps sessions per directory; dv picks the UUID with
+   `--session-id`, then `--resume`s it while Claude Code has it), so every run continues one
+   conversation. When that session is open in a zellij pane, `Space a` pastes its request into
+   the pane (you press Enter; not while the pane is asking you something), and replies run on a
+   `--fork-session` in the background. Your own comments for Claude (`a`) stay private: `c`/`C`
+   refuse them, and they don't count as Claude's. Repo-wide
    notes for Claude live in `<git common dir>/dv/notes.md` (`dv review-info` prints the path; the
    skill reads them first and keeps them current; `Space a` opens them).
 4. **Later**:

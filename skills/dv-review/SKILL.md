@@ -68,7 +68,8 @@ its code is gone. Fix each `error:` (the comment can't be placed: wrong path or 
 consider each `warning:`. Run it again until it says `ok`.
 
 Writing the file replaces any review that was there. If one exists, keep its comments that
-still apply rather than dropping the user's replies.
+still apply rather than dropping the user's replies, and always keep the user's own comments
+(`"author": "user"`) as they are, `author` included: they're the user's, not yours.
 
 ## 3. Answer the user's replies
 

@@ -214,9 +214,11 @@ pub fn list() -> Result<Vec<Listed>> {
     Ok(v.as_array().context("gh pr list")?.iter().map(listed).collect())
 }
 
-/// The PR's head branch name, e.g. `add_persist_test_utils`.
-pub fn head_branch(n: u64) -> Result<String> {
-    Ok(gh(&["pr", "view", &n.to_string(), "--json", "headRefName", "-q", ".headRefName"])?.trim().to_owned())
+/// The PR's head branch and the login of the repo it's in, e.g. (`add_persist_test_utils`,
+/// `110CodingP`).
+pub fn head_branch(n: u64) -> Result<(String, String)> {
+    let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", "headRefName,headRepositoryOwner"])?)?;
+    Ok((v["headRefName"].as_str().unwrap_or("").to_owned(), v["headRepositoryOwner"]["login"].as_str().unwrap_or("").to_owned()))
 }
 
 /// One PR, open or not (for a worktree whose PR has since closed or merged).

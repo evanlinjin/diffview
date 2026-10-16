@@ -22,6 +22,23 @@ const ALLOWED: &[&str] = &[
     "Bash(git rev-parse:*)",
 ];
 
+/// A background `claude -p` run.
+pub(super) struct ClaudeJob {
+    pub(super) child: std::process::Child,
+    /// Its result (JSON); errors go next to it (`.err`).
+    pub(super) log: PathBuf,
+    /// What it's doing, for the status bar.
+    pub(super) label: &'static str,
+    /// It ran on a fork of the PR's session (the session itself is open in a pane), so its
+    /// session id isn't the one to keep.
+    pub(super) forked: bool,
+}
+
+/// Whether thread `t` is Claude's own comment (from its review file), not one you left for it.
+pub(super) fn claude_wrote(t: &Thread) -> bool {
+    t.claude.is_some() && t.comments.first().is_some_and(|c| c.author == crate::claude::AUTHOR)
+}
+
 impl App {
     /// Replies of yours that Claude hasn't answered yet.
     pub(super) fn waiting_replies(&self) -> usize {
@@ -32,14 +49,14 @@ impl App {
     /// Claude's comments still to act on: not dismissed (still in the file), not resolved, and
     /// not outdated (their code has already changed).
     pub(super) fn open_claude_comments(&self) -> usize {
-        self.threads.iter().filter(|t| t.claude.is_some() && !t.resolved && !t.outdated).count()
+        self.threads.iter().filter(|t| claude_wrote(t) && !t.resolved && !t.outdated).count()
     }
 
     pub(super) fn claude_menu(&mut self) {
         if self.claude_path.is_none() {
             return self.msg = "no review file here (not in a git repo?)".into();
         }
-        let has_review = self.threads.iter().any(|t| t.claude.is_some()) || !self.claude_summary.is_empty();
+        let has_review = self.threads.iter().any(claude_wrote) || !self.claude_summary.is_empty();
         let review = match has_review {
             true => "Update Claude's review (keeps comments that still apply, and your replies)",
             false => "Ask Claude to review this",
@@ -50,13 +67,47 @@ impl App {
             true => "Edit Claude's notes on this repo (it reads them before each task)",
             false => "Write notes for Claude on this repo (it reads them before each task)",
         };
-        let items = vec![
+        let mut items = vec![
             Item::new(review, Target::Claude(Ask::Review)),
             Item::new(format!("Ask Claude to answer your replies ({n} waiting)"), Target::Claude(Ask::Answer)),
             Item::new(format!("Ask Claude to make the changes ({open} open comments)"), Target::Claude(Ask::Fix)),
             Item::new(notes, Target::ClaudeNotes),
         ];
+        let outdated = self.outdated_claude_comments().len();
+        if outdated > 0 {
+            items.push(Item::new(format!("Dismiss Claude's outdated comments ({outdated})"), Target::ClaudeDismissOutdated(false)));
+        }
         self.picker = Some(Picker { title: " claude ", items, query: String::new(), sel: if n > 0 { 1 } else { 0 } });
+    }
+
+    /// The ids of Claude's own comments whose code has changed (not your comments for it).
+    pub(super) fn outdated_claude_comments(&self) -> Vec<String> {
+        self.threads.iter().filter(|t| claude_wrote(t) && t.outdated).filter_map(|t| t.claude.clone()).collect()
+    }
+
+    /// From the `Space a` menu: dismiss every outdated comment of Claude's, after a confirmation
+    /// (`sure`: the "Yes" in it).
+    pub(super) fn dismiss_outdated(&mut self, sure: bool) {
+        let keys = self.outdated_claude_comments();
+        if keys.is_empty() {
+            return self.msg = "no outdated comments from Claude".into();
+        }
+        if !sure {
+            let items = vec![
+                Item::new("No, keep them", Target::Nothing),
+                Item::new(format!("Yes, dismiss Claude's {} outdated comment(s)", keys.len()), Target::ClaudeDismissOutdated(true)),
+            ];
+            return self.picker = Some(Picker { title: " dismiss outdated? ", items, query: String::new(), sel: 0 });
+        }
+        let Some(p) = self.claude_path.clone() else { return };
+        let keep = self.cursor_key();
+        let res = crate::claude::dismiss_all(&p, &keys);
+        self.load_claude();
+        self.rebuild(keep);
+        self.msg = match res {
+            Ok(n) => format!("dismissed {n} outdated comment(s) from Claude"),
+            Err(e) => format!("{e:#}"),
+        };
     }
 
     /// `extra`: the user's own instructions for this run (may be empty).
@@ -102,13 +153,17 @@ impl App {
             Ok(a) => a,
             Err(_) => return self.msg = "a on code lines leaves Claude a comment there".into(),
         };
+        // Line numbers are per side; a range across removed and added lines has no one side.
+        if anchor.start.is_some_and(|(_, left)| left != anchor.left) {
+            return self.msg = "select lines on one side (removed, or added/unchanged) to leave Claude a comment".into();
+        }
         // Their text, so the comment follows its code (as review-check records for Claude's).
-        let code = self.files.iter().find(|f| f.path == anchor.path).map_or(vec![], |f| {
-            let lines = crate::claude::side_lines(f, anchor.left);
-            let first = anchor.start.map_or(anchor.line, |s| s.0);
-            lines.iter().filter(|l| (first..=anchor.line).contains(&l.0)).map(|l| l.1.to_owned()).collect()
-        });
-        self.action = Some(Action::AskClaude { anchor, code });
+        let first = anchor.start.map_or(anchor.line, |s| s.0);
+        let code = self.files.iter().find(|f| f.path == anchor.path).and_then(|f| crate::claude::code_at(f, anchor.left, first, anchor.line));
+        match code {
+            Some(code) => self.action = Some(Action::AskClaude { anchor, code }),
+            None => self.msg = "those lines aren't in this diff".into(),
+        }
     }
 
     /// From the `Space a` menu. Reviewing and making the changes first ask for your own
@@ -128,8 +183,8 @@ impl App {
         if matches!(ask, Ask::Fix) && self.open_claude_comments() == 0 {
             return self.msg = "no open Claude comments to act on (resolved, outdated and dismissed ones are skipped)".into();
         }
-        if let Some((child, ..)) = &mut self.claude_job
-            && child.try_wait().ok().flatten().is_none()
+        if let Some(job) = &mut self.claude_job
+            && job.child.try_wait().ok().flatten().is_none()
         {
             return self.msg = "Claude is still working on the last request".into();
         }
@@ -139,11 +194,14 @@ impl App {
             Ask::Answer => "answering your replies",
             Ask::Fix => "making the changes",
         };
-        // Claude already open on this PR in a pane: ask there, rather than open another.
+        // Claude already open on this PR in a pane: put the request there, rather than open
+        // another. Pasted, not sent: what the pane is showing (a permission prompt, your own
+        // half-typed text) isn't dv's to answer, so you press Enter there.
         if let Some(pane) = self.claude_pane() {
-            return self.msg = match send_to_pane(pane, &prompt) {
-                Ok(()) => format!("asked Claude in its pane (it's on this PR): {label}"),
-                Err(e) => format!("typing into Claude's pane: {e:#}"),
+            return self.msg = match offer_to_pane(pane, &prompt) {
+                Ok(true) => format!("{label}: the request is in Claude's pane, press Enter there to send it"),
+                Ok(false) => "Claude's pane is waiting for you to answer it; ask again after".into(),
+                Err(e) => format!("Claude's pane: {e:#}"),
             };
         }
         self.msg = match in_zellij() {
@@ -163,9 +221,9 @@ impl App {
                 Ok(s) => format!("zellij run failed ({s})"),
                 Err(e) => format!("running zellij: {e}"),
             },
-            false => match self.spawn_claude(&prompt) {
+            false => match self.spawn_claude(&prompt, label, false) {
                 Ok(job) => {
-                    self.claude_job = Some((job.0, job.1, label));
+                    self.claude_job = Some(job);
                     format!("Claude is {label} in the background…")
                 }
                 Err(e) => format!("starting claude: {e:#}"),
@@ -173,26 +231,21 @@ impl App {
         };
     }
 
-    /// After `r` on Claude's comment: have Claude answer right away, in the background (also in
-    /// zellij: a pane per reply would get in the way). Replies made while it's working are
-    /// picked up by one more run when it finishes. Returns what to tell the user.
+    /// After `r` on Claude's comment (or `a`): have Claude answer right away, in the
+    /// background (also in zellij: a pane per reply would get in the way). If the PR's session
+    /// is open in a pane, this runs on a fork of it: the same conversation so far, without two
+    /// processes on one session. Replies made while it's working get one more run when it
+    /// finishes. Returns what to tell the user.
     pub(super) fn answer_now(&mut self) -> String {
-        // The PR's session is open in a pane: answer there (two processes on one session would
-        // trip over each other).
-        if let Some(pane) = self.claude_pane() {
-            return match send_to_pane(pane, &self.claude_prompt(Ask::Answer, "")) {
-                Ok(()) => "reply sent to Claude's pane; it answers there".into(),
-                Err(e) => format!("reply saved, but typing into Claude's pane failed: {e:#}"),
-            };
-        }
         if self.claude_job.is_some() {
             self.claude_again = true;
             return "reply saved; Claude answers it when it's done with what it's doing".into();
         }
         let prompt = self.claude_prompt(Ask::Answer, "");
-        match self.spawn_claude(&prompt) {
-            Ok((child, log)) => {
-                self.claude_job = Some((child, log, "answering"));
+        let forked = self.claude_pane().is_some();
+        match self.spawn_claude(&prompt, "answering", forked) {
+            Ok(job) => {
+                self.claude_job = Some(job);
                 "reply sent; Claude is answering…".into()
             }
             Err(e) => format!("reply saved, but starting claude failed: {e:#} (Space a to retry)"),
@@ -211,11 +264,12 @@ impl App {
         })
     }
 
-    /// The PR's Claude Code session: resume it, or start it under a new id. Either way the id
-    /// is saved next to the review file, so the next run (from any dv, any worktree) continues
-    /// the same conversation about this PR.
+    /// The PR's Claude Code session in this checkout: resume it if Claude Code has it, else
+    /// start it under a new id. The id is saved next to the review file (per checkout, as Claude
+    /// Code keeps sessions per directory), so the next run continues the same conversation. One
+    /// that never started (a pane that failed) isn't resumed: Claude Code doesn't have it.
     fn session_args(&mut self) -> [String; 2] {
-        match self.claude_session.clone() {
+        match self.claude_session.clone().filter(|id| crate::claude::session_exists(id)) {
             Some(id) => ["--resume".into(), id],
             None => {
                 let id = crate::claude::new_session_id();
@@ -225,25 +279,26 @@ impl App {
         }
     }
 
-    /// Remember (or, with `None`, forget) the PR's session, on disk too.
+    /// Remember (or, with `None`, forget) the PR's session in this checkout, on disk too.
     pub(super) fn set_session(&mut self, id: Option<String>) {
-        if let Some(p) = self.claude_path.as_ref().map(|p| crate::claude::session_path(p)) {
-            _ = match &id {
-                Some(id) => std::fs::create_dir_all(p.parent().unwrap_or(&p)).and_then(|_| std::fs::write(&p, id)),
-                None => std::fs::remove_file(&p),
-            };
+        if let Some(p) = &self.claude_path {
+            _ = crate::claude::save_session(p, &self.root, id.as_deref());
         }
         self.claude_session = id;
     }
 
     /// `claude -p` in the background: its result (JSON) in a log file, its errors next to it.
-    /// It runs in the PR's session, so Claude keeps the review's context across runs.
-    fn spawn_claude(&mut self, prompt: &str) -> Result<(std::process::Child, PathBuf)> {
+    /// It runs in the PR's session (or, `forked`, a fork of it), so Claude keeps the review's
+    /// context across runs.
+    fn spawn_claude(&mut self, prompt: &str, label: &'static str, forked: bool) -> Result<ClaudeJob> {
         let log = std::env::temp_dir().join(format!("dv-claude-{}.log", std::process::id()));
         let err = log.with_extension("err");
         let mut cmd = std::process::Command::new("claude");
         cmd.args(["-p", prompt, "--output-format", "json", "--permission-mode", "acceptEdits"]);
         cmd.args(self.session_args());
+        if forked {
+            cmd.arg("--fork-session");
+        }
         let child = cmd
             .arg("--allowedTools")
             .args(ALLOWED)
@@ -253,19 +308,20 @@ impl App {
             .stderr(std::fs::File::create(&err)?)
             .spawn()
             .context("is Claude Code (`claude`) installed?")?;
-        Ok((child, log))
+        Ok(ClaudeJob { child, log, label, forked })
     }
 
     /// When a background run ends: keep its session for the next one, say how it went (its
     /// writes have already shown up via `watch_claude`), and answer replies made meanwhile.
     pub(super) fn poll_claude(&mut self) {
-        let Some((child, log, label)) = &mut self.claude_job else { return };
-        let Ok(Some(st)) = child.try_wait() else { return };
-        let (log, label) = (log.clone(), *label);
-        self.claude_job = None;
+        let Some(job) = &mut self.claude_job else { return };
+        let Ok(Some(st)) = job.child.try_wait() else { return };
+        let Some(ClaudeJob { log, label, forked, .. }) = self.claude_job.take() else { return };
         let out: Option<serde_json::Value> = std::fs::read_to_string(&log).ok().and_then(|t| serde_json::from_str(&t).ok());
         let failed = !st.success() || out.as_ref().is_none_or(|v| v["is_error"] == true);
+        // A fork's id isn't the PR's session (that one's open in a pane): keep the PR's.
         match out.as_ref().and_then(|v| v["session_id"].as_str()) {
+            _ if forked => {}
             Some(id) if !failed => self.set_session(Some(id.to_owned())),
             _ => self.set_session(None), // e.g. the session is gone: start afresh next time
         }
@@ -284,18 +340,21 @@ impl App {
     }
 }
 
-/// Type `prompt` into a Claude Code pane and send it: as a paste (so a multi-line prompt
-/// arrives whole), then Enter. If Claude is busy, it queues it.
-fn send_to_pane(pane: u64, prompt: &str) -> Result<()> {
+/// Put `prompt` in a Claude Code pane's input, as a paste (so a multi-line prompt arrives
+/// whole), and focus the pane; you press Enter there. Not if the pane is asking you something
+/// (a permission prompt): `Ok(false)`, and nothing is typed.
+fn offer_to_pane(pane: u64, prompt: &str) -> Result<bool> {
     let id = format!("terminal_{pane}");
-    for chars in [format!("\x1b[200~{prompt}\x1b[201~"), "\r".into()] {
-        let st = std::process::Command::new("zellij")
-            .args(["action", "write-chars", "-p", &id, &chars])
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()?;
-        anyhow::ensure!(st.success(), "zellij action write-chars failed ({st})");
+    let zellij = |args: &[&str]| -> Result<std::process::Output> {
+        let out = std::process::Command::new("zellij").args(args).stdin(std::process::Stdio::null()).output()?;
+        anyhow::ensure!(out.status.success(), "zellij {} failed ({})", args[1], out.status);
+        Ok(out)
+    };
+    let screen = String::from_utf8_lossy(&zellij(&["action", "dump-screen", "-p", &id])?.stdout).into_owned();
+    if ["Do you want", "Would you like", "❯ 1."].iter().any(|p| screen.contains(p)) {
+        return Ok(false);
     }
-    Ok(())
+    zellij(&["action", "paste", "-p", &id, prompt])?;
+    zellij(&["action", "focus-pane-id", &id])?;
+    Ok(true)
 }

@@ -257,7 +257,7 @@ impl App {
             self.load_claude();
             self.rebuild(keep);
             if self.msg.is_empty() {
-                let n = self.threads.iter().filter(|t| t.claude.is_some()).count();
+                let n = self.threads.iter().filter(|t| agent::claude_wrote(t)).count();
                 self.msg = format!("Claude's review updated: {n} comment(s)");
             }
         }
@@ -285,6 +285,9 @@ impl App {
     /// post it now. Claude's copy is dismissed once it's on GitHub.
     pub(super) fn start_promote(&mut self, t: usize, key: String, review: bool) {
         let th = &self.threads[t];
+        if !agent::claude_wrote(th) {
+            return self.msg = "this is your comment for Claude (private): r replies, Space d removes it".into();
+        }
         if th.outdated {
             return self.msg = "this comment is outdated (its code changed): ask Claude to update it, or Space d".into();
         }
@@ -418,7 +421,7 @@ impl App {
 
     /// `]a` / `[a`: the next / previous Claude comment.
     pub(super) fn next_claude(&mut self, fwd: bool) {
-        let items = (0..self.threads.len()).filter(|&t| self.threads[t].claude.is_some()).map(|t| (t, 0)).collect();
+        let items = (0..self.threads.len()).filter(|&t| agent::claude_wrote(&self.threads[t])).map(|t| (t, 0)).collect();
         self.next_comment(fwd, items, "no comments from Claude (Space a asks for a review)");
     }
 

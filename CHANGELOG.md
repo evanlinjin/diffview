@@ -14,14 +14,19 @@ on GitHub are its section here.
 - Approving a PR (`S`, Approve) starts the summary as `ACK <the PR's head commit>`.
 - `a` on code lines leaves Claude a comment there (a question or a request), in the review file;
   Claude answers right away, and `r` continues the thread. Nothing goes to GitHub.
+- `Space a` → "Dismiss Claude's outdated comments": all of Claude's comments whose code has
+  changed, after a confirmation (your own comments for Claude stay).
 - `]p` / `[p` step through your pending review's comments (replies too), wrapping around.
 - `Ctrl-d` in the pending comments picker (`Space p`) deletes the selected comment (after a
   confirmation); the review thread key popup lists `Space d`.
 
 ### Changed
-- Inside zellij, a PR's Claude Code pane is reused: when it's open, dv types new requests and
-  replies into it instead of opening another pane or starting a background run on the same
-  session.
+- Inside zellij, a PR's Claude Code pane is reused: when it's open, `Space a` puts the request
+  in its input (pasted, focused; you press Enter) instead of opening another pane, and leaves
+  it alone while it's asking you something. Replies are answered in the background on a fork
+  of its session, so nothing is typed into a pane behind your back.
+- Claude Code sessions are kept per checkout directory (as Claude Code stores them), and one it
+  doesn't have isn't resumed.
 
 ### Changed
 - Inside zellij, hx, the comment editor and Claude Code open in a pane to the right instead of

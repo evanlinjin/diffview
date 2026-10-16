@@ -521,6 +521,7 @@ fn copy_refs() {
     assert_eq!(app.context_keys().unwrap().0, "review thread"); // the bottom-right key popup
     assert_eq!(app.context_keys().unwrap().1[0], ("r", "reply (review)"));
     app.threads[0].claude = Some("c1".into());
+    app.threads[0].comments[0].author = crate::claude::AUTHOR.into();
     app.threads[0].start_line = Some(1);
     app.build();
     app.goto(app.rows.iter().position(|r| r.thread == Some(0)).unwrap(), 0);
@@ -566,11 +567,12 @@ fn replies_while_claude_works_wait_for_it() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
     // Claude busy with a run: a new reply waits for one more run instead of starting a second.
     let child = std::process::Command::new("sleep").arg("5").spawn().unwrap();
-    app.claude_job = Some((child, std::env::temp_dir().join("dv-test-none.log"), "answering"));
+    let log = std::env::temp_dir().join("dv-test-none.log");
+    app.claude_job = Some(agent::ClaudeJob { child, log, label: "answering", forked: false });
     let msg = app.answer_now();
     assert!(app.claude_again && msg.contains("when it's done"));
-    if let Some((mut c, ..)) = app.claude_job.take() {
-        _ = c.kill();
+    if let Some(mut job) = app.claude_job.take() {
+        _ = job.child.kill();
     }
 }
 
@@ -580,10 +582,11 @@ fn claude_session_per_pr() {
     let dir = std::env::temp_dir().join(format!("dv-session-{}", std::process::id()));
     let review = dir.join("pr-7.json");
     app.claude_path = Some(review.clone());
-    // The first run starts the PR's session under a new id, saved next to the review file…
+    // The first run starts the PR's session under a new id, saved next to the review file
+    // for this checkout (Claude Code keeps sessions per directory)…
     app.set_session(Some("11111111-2222-4333-8444-555555555555".into()));
     let saved = std::fs::read_to_string(crate::claude::session_path(&review)).unwrap();
-    assert_eq!(saved, "11111111-2222-4333-8444-555555555555");
+    assert_eq!(saved, format!("{}\t11111111-2222-4333-8444-555555555555\n", app.root.display()));
     // …and forgetting it (a failed run) removes it, so the next run starts afresh.
     app.set_session(None);
     assert!(!crate::claude::session_path(&review).exists());
@@ -593,9 +596,10 @@ fn claude_session_per_pr() {
 #[test]
 fn approve_says_ack() {
     let pr = gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "cb1cec09".into(), url: String::new() };
-    assert_eq!(ack("APPROVE", Some(&pr)), "ACK cb1cec09");
-    assert_eq!(ack("COMMENT", Some(&pr)), "");
-    assert_eq!(ack("APPROVE", None), "");
+    assert_eq!(ack("APPROVE", Some(&pr), "cb1cec09"), "ACK cb1cec09");
+    assert_eq!(ack("APPROVE", Some(&pr), "698eec92"), ""); // you reviewed another commit
+    assert_eq!(ack("COMMENT", Some(&pr), "cb1cec09"), "");
+    assert_eq!(ack("APPROVE", None, "cb1cec09"), "");
 }
 
 #[test]
@@ -637,4 +641,56 @@ fn cycle_pending_comments() {
     assert_eq!(on(&app), "c3"); // wraps
     press(&mut app, "[p");
     assert_eq!(on(&app), "c2");
+}
+
+#[test]
+fn your_comments_for_claude_stay_private() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let dir = std::env::temp_dir().join(format!("dv-private-{}", std::process::id()));
+    let p = dir.join("pr-1.json");
+    let a = gh::Anchor { path: "src/a.rs".into(), line: 2, left: false, start: None };
+    crate::claude::add_comment(&p, &a, vec!["    new_call(x);".into()], "is this right?").unwrap();
+    app.claude_path = Some(p);
+    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new() });
+    app.load_threads();
+    app.build();
+    _ = std::fs::remove_dir_all(&dir);
+    // Not Claude's: no copying it to GitHub, and it doesn't count as Claude's anywhere.
+    app.goto(app.rows.iter().position(|r| r.thread == Some(0)).unwrap(), 0);
+    assert_eq!(app.context_keys().unwrap().0, "your comment for Claude");
+    app.key(KeyEvent::new(KeyCode::Char('C'), KeyModifiers::NONE));
+    assert!(app.action.is_none() && app.msg.contains("private"));
+    assert_eq!(app.open_claude_comments(), 0);
+    // `a` across removed and added lines is refused: line numbers are per side.
+    let del = app.rows.iter().position(|r| r.line.kind == Kind::Del).unwrap();
+    let add = app.rows.iter().position(|r| r.line.kind == Kind::Add).unwrap();
+    app.goto(del, 0);
+    app.select = true;
+    app.goto(add, 0);
+    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+    assert!(app.action.is_none() && app.msg.contains("one side"));
+}
+
+#[test]
+fn dismiss_outdated_claude_comments() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let dir = std::env::temp_dir().join(format!("dv-outdated-{}", std::process::id()));
+    let p = dir.join("pr-1.json");
+    std::fs::create_dir_all(&dir).unwrap();
+    // Two of Claude's whose code is gone, one still current, and one of yours that's outdated.
+    std::fs::write(&p, r#"{ "comments": [
+        { "id": "c1", "path": "src/a.rs", "line": 2, "body": "gone 1", "code": ["    nope();"] },
+        { "id": "c2", "path": "src/a.rs", "line": 2, "body": "current", "code": ["    new_call(x);"] },
+        { "id": "c3", "path": "src/a.rs", "line": 1, "body": "gone 2", "code": ["fn nope() {"] },
+        { "id": "c4", "path": "src/a.rs", "line": 1, "author": "user", "body": "mine", "code": ["fn other() {"] } ] }"#).unwrap();
+    app.claude_path = Some(p.clone());
+    app.load_threads();
+    app.build();
+    assert_eq!(app.outdated_claude_comments(), ["c1", "c3"]);
+    app.dismiss_outdated(false);
+    assert_eq!(app.picker.take().unwrap().sel, 0); // asks first, "No" selected
+    app.dismiss_outdated(true);
+    let left: Vec<_> = app.threads.iter().filter_map(|t| t.claude.clone()).collect();
+    _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(left, ["c2", "c4"]); // the current one and yours stay
 }

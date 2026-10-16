@@ -132,16 +132,18 @@ impl App {
         }
         if let Some(t) = row.thread {
             let t = &self.threads[t];
-            return Some(match (t.claude.is_some(), t.outdated) {
-                (true, true) => ("Claude's comment (outdated)", &[("r", "reply to Claude"), ("Space d", "dismiss"), ("Tab", "fold")]),
-                (true, false) => ("Claude's comment", &[
+            return Some(match (t.claude.is_some(), agent::claude_wrote(t), t.outdated) {
+                // Yours for Claude: private, so nothing here goes to GitHub.
+                (true, false, _) => ("your comment for Claude", &[("r", "reply"), ("Space r", "resolve"), ("Space d", "remove"), ("Tab", "fold")]),
+                (true, true, true) => ("Claude's comment (outdated)", &[("r", "reply to Claude"), ("Space d", "dismiss"), ("Tab", "fold")]),
+                (true, true, false) => ("Claude's comment", &[
                     ("r", "reply to Claude"),
                     ("c", "copy to your review"),
                     ("C", "post it now"),
                     ("Space r", "resolve"),
                     ("Space d", "dismiss"),
                 ]),
-                (false, _) => ("review thread", &[
+                (false, ..) => ("review thread", &[
                     ("r", "reply (review)"),
                     ("C", "reply now"),
                     ("Space r", "resolve"),
@@ -294,9 +296,10 @@ impl App {
             0 if self.review.is_none() => String::new(),
             n => format!(" · {n} pending (S submits)"),
         };
-        let claude = self.threads.iter().filter(|t| t.claude.is_some()).count();
+        let claude = self.threads.iter().filter(|t| agent::claude_wrote(t)).count();
+        let review_file = self.threads.iter().filter(|t| t.claude.is_some()).count();
         let seen = self.files.iter().filter(|f| self.viewed.get(&f.path).is_some_and(|s| s == "VIEWED")).count();
-        let threads = match (self.threads.len() - claude, claude) {
+        let threads = match (self.threads.len() - review_file, claude) {
             (n, 0) => format!("{n} threads"),
             (n, c) => format!("{n} threads + {c} Claude"),
         };
