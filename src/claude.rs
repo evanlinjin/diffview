@@ -158,10 +158,29 @@ pub fn skill_path() -> Result<PathBuf> {
     Ok(PathBuf::from(home).join(".claude/skills/dv-review/SKILL.md"))
 }
 
+/// The skill as dv installs it: marked with the dv that did, so an older dv leaves it alone.
+pub fn skill_file() -> String {
+    format!("{SKILL}\n<!-- installed by dv {} -->\n", env!("CARGO_PKG_VERSION"))
+}
+
 /// Bring an installed skill up to this dv's (not installing one that isn't); whether it did.
+/// Not one a newer dv installed: with two dvs about (an installed one and a build), they'd
+/// take turns.
 pub fn update_skill() -> bool {
     let Ok(p) = skill_path() else { return false };
-    std::fs::read_to_string(&p).is_ok_and(|old| old != SKILL) && std::fs::write(&p, SKILL).is_ok()
+    let Ok(old) = std::fs::read_to_string(&p) else { return false };
+    old != skill_file() && !newer(installed_by(&old), env!("CARGO_PKG_VERSION")) && std::fs::write(&p, skill_file()).is_ok()
+}
+
+/// The version of dv that installed a skill (`0.0.0` if it doesn't say: older than any).
+fn installed_by(skill: &str) -> &str {
+    skill.lines().rev().find_map(|l| l.strip_prefix("<!-- installed by dv ")?.strip_suffix(" -->")).unwrap_or("0.0.0")
+}
+
+/// Whether version `a` is newer than `b` (x.y.z).
+fn newer(a: &str, b: &str) -> bool {
+    let v = |s: &str| s.split('.').map(|n| n.parse::<u64>().unwrap_or(0)).collect::<Vec<_>>();
+    v(a) > v(b)
 }
 
 /// Which skill a session started with: Claude Code reads a skill once per session, so one
@@ -698,4 +717,11 @@ fn anchoring() {
     assert_eq!(rep.notes.len(), 1);
     assert_eq!(load(&p).unwrap().unwrap().threads[0].line, Some(2));
     _ = std::fs::remove_file(&p);
+}
+
+#[test]
+fn skill_updates_only_forward() {
+    assert_eq!(installed_by(&skill_file()), env!("CARGO_PKG_VERSION"));
+    assert_eq!(installed_by("---\nname: dv-review\n---\n"), "0.0.0"); // from before the mark
+    assert!(newer("0.10.0", "0.9.9") && newer("1.0.0", "0.99.0") && !newer("0.3.0", "0.3.0") && !newer("0.2.9", "0.3.0"));
 }

@@ -331,7 +331,7 @@ fn review_file(cmd: &str, o: &Opts) -> anyhow::Result<()> {
 fn install_skill() -> anyhow::Result<()> {
     let p = claude::skill_path()?;
     std::fs::create_dir_all(p.parent().context("skill path")?)?;
-    std::fs::write(&p, claude::SKILL)?;
+    std::fs::write(&p, claude::skill_file())?;
     println!("installed {} (dv keeps it up to date from now on)", p.display());
     Ok(())
 }

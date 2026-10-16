@@ -35,6 +35,8 @@ on GitHub are its section here.
   leaves.
 
 ### Fixed
+- dv no longer replaces an installed skill that a newer dv installed (with an older dv
+  installed and a newer one built, they took turns). The skill notes the dv that installed it.
 - A closed (or merged) draft PR shows as CLOSED (MERGED), not DRAFT.
 - Claude's summary is Claude's, not PR text: `c` copies it into your review summary (`S`
   starts from it), `C` posts it as your own PR comment (not quoted), and its key popup says so.
