@@ -56,7 +56,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `gh gl gs` | line start / end / first non-blank |
 | `f t F T <c>` | find char |
 | `gw` | jump labels on visible words (uses your `jump-label-alphabet`) |
-| `mm` | matching bracket (counted through one version of the file; stops at hunk gaps) |
+| `mm` | matching bracket (counted through one version of the whole file; grows the hunk if the match is hidden) |
 | `gg ge`, `Ctrl-d Ctrl-u`, `Ctrl-e Ctrl-y` | top / end, half page, scroll 5 lines |
 | `zz zt zb` | put the cursor line at center / top / bottom |
 | `x` | select line (repeat to extend) |
@@ -80,9 +80,10 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `S` | submit the pending review (comment / approve / request changes) or discard it |
 | `Space r` | resolve / unresolve the thread under the cursor |
 | `Space e` | edit your comment under the cursor (opens its text in `$EDITOR`) |
+| `Space d` | delete the comment under the cursor (confirmation picker, "No" preselected) |
 | `]c [c` | next/prev comment thread |
 | `R` | refresh: re-run `git diff`, re-fetch threads + PR info |
-| `?` | key help overlay |
+| `?` | key help overlay; `/` inside it filters entries (smart case), Enter keeps, Esc clears |
 | `q` | quit |
 
 ## Design

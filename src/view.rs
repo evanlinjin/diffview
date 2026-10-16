@@ -66,9 +66,10 @@ PR
   S                    submit review: comment / approve / request changes, or discard
   Space r              resolve / unresolve thread
   Space e              edit your comment under the cursor
+  Space d              delete the comment under the cursor (asks first)
 
 GENERAL
-  ?                    this help
+  ?                    this help (/ to search it)
   R                    refresh (git diff + GitHub)
   q, Ctrl-c            quit
 ";
@@ -125,6 +126,7 @@ enum Job {
     Refresh,
     Resolve(String, bool),
     Discard(String),
+    DeleteComment(String),
 }
 
 enum Target {
@@ -134,6 +136,7 @@ enum Target {
     /// Asks for confirmation first; `DiscardYes` does it.
     Discard,
     DiscardYes,
+    DeleteComment(String),
     Nothing,
 }
 
@@ -215,7 +218,9 @@ pub struct App {
     inflight: HashMap<u64, Req>,
     progress: HashMap<String, (String, String)>,
     /// Scrollable overlay: (title, text, scroll).
-    popup: Option<(&'static str, Vec<Line<'static>>, u16)>,
+    popup: Option<(String, Vec<Line<'static>>, u16)>,
+    /// Help overlay search: (query, typing it).
+    help: Option<(String, bool)>,
     jumps: Vec<Pos>,
     alphabet: Vec<char>,
     /// `gw` jump labels: (word start, word end, label), plus the first label char typed.
@@ -291,6 +296,7 @@ impl App {
             inflight: HashMap::new(),
             progress: HashMap::new(),
             popup: None,
+            help: None,
             jumps: vec![],
             alphabet: jump_alphabet(),
             labels: vec![],
@@ -412,6 +418,7 @@ impl App {
                 self.review = None;
                 "pending review discarded"
             }),
+            Job::DeleteComment(c) => gh::delete_comment(&c).map(|_| "comment deleted"),
         };
         self.hl_cache.retain(|k, _| !k.1);
         let reload = self.reload(true);
@@ -441,6 +448,24 @@ impl App {
             items.push(item(&format!("Discard pending review ({n} comment(s))"), Target::Discard));
         }
         self.picker = Some(Picker { title: " submit review ", items, query: String::new(), sel: 0 });
+    }
+
+    /// `Space d`: delete the comment under the cursor, after a confirmation picker.
+    fn start_delete(&mut self) {
+        let Some(c) = self.rows[self.head.row].thread.and_then(|t| self.comment_under_cursor(t)) else {
+            self.msg = "move onto a comment to delete it".into();
+            return;
+        };
+        if !c.can_delete {
+            self.msg = format!("you can't delete @{}'s comment", c.author);
+            return;
+        }
+        let preview: String = c.body.lines().next().unwrap_or("").chars().take(40).collect();
+        let items = vec![
+            Item { label: "No, keep it".into(), target: Target::Nothing },
+            Item { label: format!("Yes, delete @{}'s comment: \"{preview}\"", c.author), target: Target::DeleteComment(c.node_id.clone()) },
+        ];
+        self.picker = Some(Picker { title: " delete comment? ", items, query: String::new(), sel: 0 });
     }
 
     fn start_edit(&mut self) {
@@ -981,14 +1006,24 @@ impl App {
         self.sel(Pos { row, col: start }, Pos { row, col: j });
     }
 
-    /// `mm`: jump to the bracket matching the one under the cursor, counting brackets through
-    /// one version of the file: new-side lines from an added/unchanged line, old-side from a
-    /// removed one. Stops at a hunk gap, since the lines in between aren't loaded.
+    /// `mm`: jump to the bracket matching the one under the cursor. Brackets are counted
+    /// through one version of the whole file (new side from an added/unchanged line, old side
+    /// from a removed one); if the match is hidden between hunks, the hunk grows to show it.
     fn match_bracket(&mut self) {
         let Pos { row, col } = self.head;
-        let (file, kind) = (self.rows[row].file, self.rows[row].line.kind);
-        let old = kind == Kind::Del;
-        let pair = match self.chars(row).get(col) {
+        let (fi, l) = (self.rows[row].file, self.rows[row].line.clone());
+        let Some(f) = self.files.get(fi).filter(|_| matches!(l.kind, Kind::Ctx | Kind::Add | Kind::Del)) else {
+            return self.msg = "not on a bracket".into();
+        };
+        let Some(start) = f.full.iter().position(|x| x.old == l.old && x.new == l.new) else { return };
+        let old = l.kind == Kind::Del;
+        let side = |x: &DLine| match x.kind {
+            Kind::Ctx => true,
+            Kind::Add => !old,
+            Kind::Del => old,
+            _ => false,
+        };
+        let (open, close, fwd) = match l.text.chars().nth(col) {
             Some('(') => ('(', ')', true),
             Some('[') => ('[', ']', true),
             Some('{') => ('{', '}', true),
@@ -997,49 +1032,53 @@ impl App {
             Some('}') => ('{', '}', false),
             _ => return self.msg = "not on a bracket".into(),
         };
-        let (open, close, fwd) = pair;
+        let lines: Vec<usize> = match fwd {
+            true => (start..f.full.len()).filter(|&j| side(&f.full[j])).collect(),
+            false => (0..=start).rev().filter(|&j| side(&f.full[j])).collect(),
+        };
         let mut depth = 0;
-        let mut r = row;
-        loop {
-            let text = self.chars(r);
-            let cols: Vec<usize> = match (r == row, fwd) {
+        let mut found = None;
+        'scan: for j in lines {
+            let text: Vec<char> = f.full[j].text.chars().collect();
+            let cols: Vec<usize> = match (j == start, fwd) {
                 (true, true) => (col..text.len()).collect(),
-                (true, false) => (0..=col).rev().collect(),
+                (true, false) => (0..=col.min(text.len().saturating_sub(1))).rev().collect(),
                 (false, true) => (0..text.len()).collect(),
                 (false, false) => (0..text.len()).rev().collect(),
             };
             for i in cols {
-                let c = text[i];
-                depth += match (c == open, c == close, fwd) {
+                depth += match (text[i] == open, text[i] == close, fwd) {
                     (true, _, true) | (_, true, false) => 1,
                     (true, _, false) | (_, true, true) => -1,
                     _ => 0,
                 };
                 if depth == 0 {
-                    return self.goto(r, i);
+                    found = Some((j, i));
+                    break 'scan;
                 }
             }
-            // Next row on the same side of the same file; a header or another file ends the search.
-            loop {
-                r = match fwd {
-                    true if r + 1 < self.rows.len() => r + 1,
-                    false if r > 0 => r - 1,
-                    _ => return self.msg = "no matching bracket in view".into(),
-                };
-                let x = &self.rows[r];
-                if x.file != file || matches!(x.line.kind, Kind::Hunk | Kind::File) {
-                    return self.msg = "no matching bracket in view (+ shows more context)".into();
+        }
+        let Some((j, i)) = found else { return self.msg = "no matching bracket".into() };
+        let (path, target) = (f.path.clone(), (f.full[j].old, f.full[j].new));
+        let find = |app: &App| {
+            app.rows.iter().position(|r| r.file == fi && r.thread.is_none() && (r.line.old, r.line.new) == target)
+        };
+        if find(self).is_none() {
+            // Hidden in a gap: grow the cursor's hunk until it reaches the match.
+            let e = |a| *self.extra.get(&(path.clone(), a)).unwrap_or(&0);
+            let f = &self.files[fi];
+            let ws = diff::windows(&f.full, DEFAULT_CONTEXT as usize, e, self.whole.contains(&path));
+            if let Some((lo, hi, hunks)) = ws.into_iter().find(|w| w.0 <= start && start <= w.1) {
+                let grow = if j > hi { j - hi } else { lo.saturating_sub(j) } as i64;
+                for a in hunks {
+                    *self.extra.entry((path.clone(), a)).or_insert(0) += grow;
                 }
-                let on_side = match x.line.kind {
-                    Kind::Ctx => true,
-                    Kind::Add => !old,
-                    Kind::Del => old,
-                    _ => false, // comment rows
-                };
-                if on_side && x.thread.is_none() {
-                    break;
-                }
+                self.reshape();
+                self.msg = "expanded the hunk to reach the match".into();
             }
+        }
+        if let Some(r) = find(self) {
+            self.goto(r, i);
         }
     }
 
@@ -1427,7 +1466,7 @@ impl App {
                     }
                     Req::Hover => match lsp::hover_text(res).trim().to_owned() {
                         t if t.is_empty() => self.msg = "no hover info".into(),
-                        t => self.popup = Some((" hover  j/k scroll ", self.hover_lines(&t), 0)),
+                        t => self.popup = Some((" hover  j/k scroll ".into(), self.hover_lines(&t), 0)),
                     },
                     Req::Goto => self.show_locations(lsp::locations(res)),
                 }
@@ -1438,40 +1477,90 @@ impl App {
 
     /// The help text, styled: section headings, keys (separators dimmed), descriptions wrapped
     /// with a hanging indent under the description column, `(notes)` dimmed.
-    fn help_lines(&self, width: usize) -> Vec<Line<'static>> {
+    /// Rebuild the help overlay for its current search.
+    fn refresh_help(&mut self) {
+        let Some((q, typing)) = self.help.clone() else { return };
+        // Popup text width: popup is min(width - 4, 100) wide, minus padding and scrollbar.
+        let cw = (self.width.saturating_sub(4).min(100) as usize).saturating_sub(3);
+        let title = match (typing, q.is_empty()) {
+            (true, _) => format!(" keys /{q}▏ Enter keep · Esc clear "),
+            (false, false) => format!(" keys /{q} · / edit · j/k scroll · other keys close "),
+            (false, true) => " keys · / search · j/k scroll · other keys close ".into(),
+        };
+        self.popup = Some((title, self.help_lines(cw, &q), 0));
+    }
+
+    /// The help text, styled: section headings, keys (separators dimmed), descriptions wrapped
+    /// with a hanging indent under the description column, `(notes)` dimmed. With a `query`
+    /// (smart case), only matching entries and their headings are kept, matches highlighted.
+    fn help_lines(&self, width: usize, query: &str) -> Vec<Line<'static>> {
         const KEY_COL: usize = 23; // entries are "  <key, padded to col 23><description>"
         let ui = &self.ui;
         let dim = Style { fg: ui.stale.fg, ..Style::new() };
-        let mut out = vec![];
+        let smart = !query.chars().any(char::is_uppercase);
+        let fold = |s: &str| if smart { s.to_lowercase() } else { s.to_owned() };
+        let q = fold(query);
+        // Char positions in `s` covered by a match of the query.
+        let hits = |s: &str| -> Vec<bool> {
+            let (chars, lower): (Vec<char>, Vec<char>) = (s.chars().collect(), fold(s).chars().collect());
+            let qc: Vec<char> = q.chars().collect();
+            let mut on = vec![false; chars.len()];
+            if !qc.is_empty() && lower.len() == chars.len() {
+                for i in 0..=lower.len().saturating_sub(qc.len()) {
+                    if lower[i..].starts_with(&qc) {
+                        on[i..i + qc.len()].iter_mut().for_each(|x| *x = true);
+                    }
+                }
+            }
+            on
+        };
+        // Sections: heading + entries, keeping only matching entries.
+        let mut sections: Vec<(&str, Vec<&str>)> = vec![];
         for l in HELP.trim_matches('\n').lines() {
-            if l.is_empty() {
+            match l {
+                "" => {}
+                h if !h.starts_with(' ') => sections.push((h, vec![])),
+                e if q.is_empty() || fold(e).contains(&q) => {
+                    if let Some(s) = sections.last_mut() {
+                        s.1.push(e);
+                    }
+                }
+                _ => {}
+            }
+        }
+        sections.retain(|s| !s.1.is_empty());
+        if sections.is_empty() {
+            return vec![Line::styled(format!(" no keys match \"{query}\""), dim)];
+        }
+        let mut out = vec![];
+        for (n, (heading, entries)) in sections.into_iter().enumerate() {
+            if n > 0 {
                 out.push(Line::default());
-                continue;
             }
-            if !l.starts_with(' ') {
-                out.push(Line::styled(format!(" {l}"), ui.heading.add_modifier(ratatui::style::Modifier::BOLD)));
-                continue;
-            }
-            let (key, desc) = l.split_at(KEY_COL.min(l.len()));
-            let mut spans: Vec<Span> = vec![Span::raw("  ")];
-            for c in key[2..].chars() {
-                let st = if c == ',' { dim } else { ui.key }; // `/` is a key itself (search)
-                spans.push(Span::styled(c.to_string(), st));
-            }
-            let mut depth = 0; // inside "(...)", which may wrap
-            for (i, line) in wrap(desc, width.saturating_sub(KEY_COL).max(10)).into_iter().enumerate() {
-                if i > 0 {
-                    out.push(Line::from(std::mem::take(&mut spans)));
-                    spans.push(Span::raw(" ".repeat(KEY_COL)));
+            out.push(Line::styled(format!(" {heading}"), ui.heading.add_modifier(ratatui::style::Modifier::BOLD)));
+            for l in entries {
+                let (key, desc) = l.split_at(KEY_COL.min(l.len()));
+                let mut spans: Vec<Span> = vec![Span::raw("  ")];
+                for (c, hit) in key[2..].chars().zip(hits(&key[2..])) {
+                    let st = if c == ',' { dim } else { ui.key }; // `/` is a key itself (search)
+                    spans.push(Span::styled(c.to_string(), if hit { st.patch(ui.selection) } else { st }));
                 }
-                // Dim parenthesised notes, e.g. "(pending review)".
-                for c in line.chars() {
-                    depth += (c == '(') as i32;
-                    spans.push(Span::styled(c.to_string(), if depth > 0 { dim } else { Style::new() }));
-                    depth -= (c == ')') as i32;
+                let mut depth = 0; // inside "(...)", which may wrap
+                for (i, line) in wrap(desc, width.saturating_sub(KEY_COL).max(10)).into_iter().enumerate() {
+                    if i > 0 {
+                        out.push(Line::from(std::mem::take(&mut spans)));
+                        spans.push(Span::raw(" ".repeat(KEY_COL)));
+                    }
+                    // Dim parenthesised notes, e.g. "(pending review)".
+                    for (c, hit) in line.chars().zip(hits(&line)) {
+                        depth += (c == '(') as i32;
+                        let st = if depth > 0 { dim } else { Style::new() };
+                        spans.push(Span::styled(c.to_string(), if hit { st.patch(ui.selection) } else { st }));
+                        depth -= (c == ')') as i32;
+                    }
                 }
+                out.push(Line::from(spans));
             }
-            out.push(Line::from(spans));
         }
         out
     }
@@ -1535,11 +1624,41 @@ impl App {
 
     fn key(&mut self, k: KeyEvent) {
         self.msg.clear();
+        if let Some((q, typing)) = &mut self.help {
+            let handled = match (*typing, k.code) {
+                (true, KeyCode::Char(c)) => {
+                    q.push(c);
+                    true
+                }
+                (true, KeyCode::Backspace) => {
+                    q.pop();
+                    true
+                }
+                (true, KeyCode::Enter) => {
+                    *typing = false;
+                    true
+                }
+                (true, KeyCode::Esc) => {
+                    q.clear();
+                    *typing = false;
+                    true
+                }
+                (true, _) => true,
+                (false, KeyCode::Char('/')) => {
+                    *typing = true;
+                    true
+                }
+                _ => false, // j/k scroll, anything else closes: the popup keys below
+            };
+            if handled {
+                return self.refresh_help();
+            }
+        }
         if let Some((_, _, scroll)) = &mut self.popup {
             match k.code {
                 KeyCode::Char('j') | KeyCode::Down => *scroll += 1,
                 KeyCode::Char('k') | KeyCode::Up => *scroll = scroll.saturating_sub(1),
-                _ => self.popup = None,
+                _ => (self.popup, self.help) = (None, None),
             }
             return;
         }
@@ -1650,9 +1769,8 @@ impl App {
             '-' => self.expand(-10),
             'Z' => self.toggle_whole(),
             '?' => {
-                // Popup text width: popup is min(width - 4, 100) wide, minus padding and scrollbar.
-                let cw = (self.width.saturating_sub(4).min(100) as usize).saturating_sub(3);
-                self.popup = Some((" keys · j/k scroll · any other key closes ", self.help_lines(cw), 0));
+                self.help = Some((String::new(), false));
+                self.refresh_help();
             }
             'c' => self.comment_or_reply(true),
             's' => self.start_suggest(),
@@ -1713,6 +1831,7 @@ impl App {
             (' ', 'c') => self.copy_ref(),
             (' ', 'r') => self.toggle_resolved(),
             (' ', 'e') => self.start_edit(),
+            (' ', 'd') => self.start_delete(),
             ('f' | 't' | 'F' | 'T', c) => self.find_char(p, c),
             _ => {}
         }
@@ -1756,6 +1875,10 @@ impl App {
                                 self.msg = "discarding…".into();
                                 self.job = Some(Job::Discard(r));
                             }
+                        }
+                        Target::DeleteComment(id) => {
+                            self.msg = "deleting…".into();
+                            self.job = Some(Job::DeleteComment(id));
                         }
                         Target::Nothing => {}
                     }
@@ -1945,7 +2068,7 @@ impl App {
             }
             let first = scroll as usize + 1;
             let pos = if total > vis { format!("{first}–{} / {total}", (first + vis - 1).min(total)) } else { String::new() };
-            let inner = self.popup_frame(f, r, title, &pos);
+            let inner = self.popup_frame(f, r, &title, &pos);
             let text_area = Rect { width: inner.width.saturating_sub(1), ..inner }; // room for the scrollbar
             f.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }).scroll((scroll, 0)), text_area);
             self.scrollbar(f, inner, total, vis, scroll as usize);
@@ -2384,6 +2507,32 @@ fn suggestion_block() {
 }
 
 #[test]
+fn help_search() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let k = |app: &mut App, code| app.key(KeyEvent::new(code, KeyModifiers::NONE));
+    let text = |app: &App| -> Vec<String> {
+        app.popup.as_ref().unwrap().1.iter().map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect()).collect()
+    };
+    k(&mut app, KeyCode::Char('?'));
+    let all = text(&app).len();
+    k(&mut app, KeyCode::Char('/'));
+    "bracket".chars().for_each(|c| k(&mut app, KeyCode::Char(c)));
+    assert_eq!(text(&app), [" MOVE", "  mm                   matching bracket"]);
+    k(&mut app, KeyCode::Enter); // keep the filter; j/k scroll again, popup stays
+    k(&mut app, KeyCode::Char('j'));
+    assert!(app.popup.is_some() && text(&app).len() == 2);
+    k(&mut app, KeyCode::Char('/'));
+    k(&mut app, KeyCode::Esc); // clear
+    assert_eq!(text(&app).len(), all);
+    k(&mut app, KeyCode::Char('/'));
+    "zzzz".chars().for_each(|c| k(&mut app, KeyCode::Char(c)));
+    assert!(text(&app)[0].contains("no keys match"));
+    k(&mut app, KeyCode::Enter);
+    k(&mut app, KeyCode::Char('x')); // any other key closes
+    assert!(app.popup.is_none() && app.help.is_none());
+}
+
+#[test]
 fn matching_bracket() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
     // rows: 2 "fn main() {", 3 del "    old();", 4 add "    new_call(x);", 5 "}"
@@ -2402,6 +2551,17 @@ fn matching_bracket() {
     app.goto(2, 0);
     mm(&mut app);
     assert!(app.msg.contains("not on a bracket"));
+
+    // The match is hidden between hunks: the hunk grows to show it.
+    let body: String = (2..=19).map(|i| if i == 3 { "+    changed();\n".to_string() } else { format!("     line{i}();\n") }).collect();
+    let text = format!("diff --git a/b.rs b/b.rs\n--- a/b.rs\n+++ b/b.rs\n@@ -1,19 +1,20 @@\n fn f() {{\n{body} }}\n");
+    let mut app = App::with("base".into(), diff::parse(&text));
+    assert!(!app.rows.iter().any(|r| r.line.text == "}")); // hidden past the context
+    let open = app.rows.iter().position(|r| r.line.text == "fn f() {").unwrap();
+    app.goto(open, 7);
+    mm(&mut app);
+    assert_eq!(app.rows[app.head.row].line.text, "}");
+    assert!(app.msg.contains("expanded"));
 }
 
 #[test]
@@ -2434,7 +2594,7 @@ fn split_view() {
 fn comments_placed_and_anchored() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
     let c = |id, body: &str| gh::Comment {
-        id, node_id: format!("C{id}"), can_edit: id == 2, author: "amy".into(), body: body.into(), created: "2026-10-01".into(), pending: false,
+        id, node_id: format!("C{id}"), can_edit: id == 2, can_delete: id == 2, author: "amy".into(), body: body.into(), created: "2026-10-01".into(), pending: false,
     };
     let t = |left, line, resolved, comments| Thread {
         id: format!("T{line:?}"),
@@ -2500,6 +2660,17 @@ fn comments_placed_and_anchored() {
     press(&mut app, ' ');
     press(&mut app, 'e');
     assert!(app.action.is_none() && app.msg.contains("can't edit"));
+    // Space d asks first, defaulting to "No".
+    press(&mut app, ' ');
+    press(&mut app, 'd');
+    assert!(app.msg.contains("can't delete"));
+    let second = app.rows.iter().position(|r| r.line.text == "unused").unwrap();
+    app.goto(second, 0);
+    press(&mut app, ' ');
+    press(&mut app, 'd');
+    let p = app.picker.as_ref().unwrap();
+    assert!(matches!(p.items[0].target, Target::Nothing) && matches!(p.items[1].target, Target::DeleteComment(ref id) if id == "C2"));
+    app.picker = None;
     assert_eq!(clean_body("> unused\n\n<!-- dv: x -->\n", "<!-- dv:", "> unused\n\n"), ""); // untouched → cancel
     assert_eq!(clean_body("> unused\n\nagreed\n<!-- dv: x -->", "<!-- dv:", "> unused\n\n"), "> unused\n\nagreed");
     app.goto(tr, 0);

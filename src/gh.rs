@@ -42,6 +42,7 @@ pub struct Comment {
     /// GraphQL node id (for editing).
     pub node_id: String,
     pub can_edit: bool,
+    pub can_delete: bool,
     pub author: String,
     pub body: String,
     pub created: String,
@@ -112,7 +113,7 @@ const THREADS: &str = "query($owner: String!, $name: String!, $number: Int!) {
     reviews(states: PENDING, first: 10) { nodes { id viewerDidAuthor } }
     reviewThreads(first: 100) { nodes {
       id path line startLine originalLine diffSide isResolved isOutdated
-      comments(first: 100) { nodes { id databaseId author { login } body createdAt diffHunk state viewerCanUpdate } }
+      comments(first: 100) { nodes { id databaseId author { login } body createdAt diffHunk state viewerCanUpdate viewerCanDelete } }
     } }
   } }
 }";
@@ -205,6 +206,14 @@ pub fn delete_review(review: &str) -> Result<()> {
     .map(drop)
 }
 
+pub fn delete_comment(comment: &str) -> Result<()> {
+    mutate(
+        "mutation($c: ID!) { deletePullRequestReviewComment(input: { id: $c }) { clientMutationId } }",
+        json!({ "c": comment }),
+    )
+    .map(drop)
+}
+
 pub fn edit_comment(comment: &str, body: &str) -> Result<()> {
     mutate(
         "mutation($c: ID!, $body: String!) {
@@ -256,6 +265,7 @@ fn parse_thread(t: &Value) -> Thread {
                 id: c["databaseId"].as_u64().unwrap_or(0),
                 node_id: c["id"].as_str().unwrap_or("").to_owned(),
                 can_edit: c["viewerCanUpdate"] == true,
+                can_delete: c["viewerCanDelete"] == true,
                 author: c["author"]["login"].as_str().unwrap_or("ghost").to_owned(),
                 body: c["body"].as_str().unwrap_or("").replace("\r\n", "\n"),
                 created: c["createdAt"].as_str().unwrap_or("").get(..10).unwrap_or("").to_owned(),
