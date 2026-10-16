@@ -341,7 +341,7 @@ fn resolves_inherits_and_palette() {
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("base.toml"), "keyword = \"red1\"\n\"ui.text\" = { fg = \"fg\", modifiers = [\"bold\"] }\n[palette]\nred1 = \"#fb4934\"\nfg = \"#ebdbb2\"\n").unwrap();
     std::fs::write(dir.join("child.toml"), "inherits = \"base\"\n\"keyword.control\" = { fg = \"light-blue\" }\n[palette]\nfg = \"#000000\"\n").unwrap();
-    let t = load_table("child", &[dir.clone()], 0).unwrap();
+    let t = load_table("child", std::slice::from_ref(&dir), 0).unwrap();
     let pal = t["palette"].as_table().unwrap().clone();
     let th = Theme { styles: t.iter().filter(|(k, _)| *k != "palette").map(|(k, v)| (k.clone(), style(v, &pal))).collect() };
     assert_eq!(th.get("keyword.function").fg, Some(Color::Rgb(0xfb, 0x49, 0x34))); // parent scope, parent palette

@@ -50,9 +50,12 @@ pub fn hunk_label(h: &str) -> Option<(u32, u32, String)> {
     Some((start.parse().ok()?, count.parse().ok()?, h.splitn(3, "@@").nth(2).unwrap_or("").trim().to_owned()))
 }
 
+/// Char ranges within a line.
+pub type Spans = Vec<(usize, usize)>;
+
 /// Changed spans between a removed line and the added line it pairs with, as char ranges in
 /// each. `None` when they're too different for word-level highlighting to help.
-pub fn word_diff(a: &str, b: &str) -> Option<(Vec<(usize, usize)>, Vec<(usize, usize)>)> {
+pub fn word_diff(a: &str, b: &str) -> Option<(Spans, Spans)> {
     let (ac, bc): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
     let (at, bt) = (tokens(&ac), tokens(&bc));
     if at.len() * bt.len() > 250_000 {

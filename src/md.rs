@@ -356,7 +356,7 @@ impl R<'_> {
             }
             let line = lines.last_mut().unwrap();
             if !line.is_empty() {
-                let sep = line.last().map(|c| (c.st, c.link)).filter(|_| word.first().is_some());
+                let sep = line.last().map(|c| (c.st, c.link)).filter(|_| !word.is_empty());
                 let (st, link) = sep.unwrap_or((None, None));
                 line.push(Cell { ch: ' ', st, link: link.filter(|l| word.first().is_some_and(|w| w.link == Some(*l))) });
             }
