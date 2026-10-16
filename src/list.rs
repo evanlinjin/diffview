@@ -72,6 +72,8 @@ pub struct List {
     batch_rx: Option<Receiver<(u64, batch::Status)>>,
     /// PRs Claude has a review of.
     reviewed: HashSet<u64>,
+    /// PRs with something you haven't seen (`fresh`).
+    new: HashSet<u64>,
     /// The repo, for the reviews' worktrees.
     root: PathBuf,
     pub msg: String,
@@ -108,6 +110,7 @@ impl List {
             batch: HashMap::new(),
             batch_rx: None,
             reviewed: HashSet::new(),
+            new: HashSet::new(),
             root: std::env::current_dir().unwrap_or_default(),
             msg,
         }
@@ -118,6 +121,7 @@ impl List {
         if self.prs.is_empty() {
             self.refresh(term)?;
         }
+        self.find_new(); // back from a PR: that one's seen now
         loop {
             term.draw(|f| self.draw(f))?;
             self.batch_news();
@@ -209,6 +213,7 @@ impl List {
             match &s {
                 batch::Status::Done(took) => {
                     self.reviewed.insert(n);
+                    self.new.insert(n);
                     self.msg = format!("Claude reviewed #{n} ({took}): Enter opens it, in its worktree from the worktrees tab");
                 }
                 batch::Status::Failed(e) => self.msg = format!("Claude's review of #{n}: {e}"),
@@ -220,6 +225,24 @@ impl List {
         if worktrees {
             self.local = crate::pr_worktrees().into_iter().map(|(n, dir, b)| (n, (dir, b))).collect();
         }
+    }
+
+    /// The PRs with something you haven't seen: anything on GitHub (its update time) or in
+    /// Claude's review since you last left it in dv. Of those you've never opened, only the ones
+    /// Claude has reviewed (else every PR would be new).
+    fn find_new(&mut self) {
+        self.new = self
+            .prs
+            .iter()
+            .filter(|p| {
+                let claude = crate::claude::review_changed(p.number);
+                match crate::claude::looked(p.number) {
+                    Some(t) => gh::epoch_secs(&p.updated).is_some_and(|u| u > t) || claude.is_some_and(|c| c > t),
+                    None => claude.is_some(),
+                }
+            })
+            .map(|p| p.number)
+            .collect();
     }
 
     fn refresh(&mut self, term: &mut DefaultTerminal) -> Result<()> {
@@ -242,6 +265,7 @@ impl List {
                     prs.push(gh::listed_one(n).unwrap_or(Listed { number: n, title, ..Listed::default() }));
                 }
                 self.prs = prs;
+                self.find_new();
                 self.sel = keep.and_then(|n| self.shown().iter().position(|p| p.number == n)).unwrap_or(0);
             }
             Err(e) => self.msg = format!("{e:#}"),
@@ -435,7 +459,7 @@ impl List {
             .skip(self.top)
             .take(h)
             .flat_map(|(i, p)| {
-                let mark = Mark { marked: self.marked.contains(&p.number), claude: self.claude_state(p.number) };
+                let mark = Mark { marked: self.marked.contains(&p.number), claude: self.claude_state(p.number), new: self.new.contains(&p.number) };
                 card(p, &cx, i == sel, self.local.get(&p.number), mark)
             })
             .collect();
@@ -518,6 +542,8 @@ enum Do {
 
 /// A card's own marks: picked for review (`m`), and how Claude's review of it stands.
 struct Mark {
+    /// Something on it you haven't seen.
+    new: bool,
     marked: bool,
     claude: Option<(String, bool)>,
 }
@@ -564,7 +590,8 @@ fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathBuf, Option<
         (_, true) => Some(("DRAFT", "6e7681")),
         _ => None,
     };
-    let room = width.saturating_sub(num_w + 3 + badge.map_or(0, |b| b.0.len() + 4) + age.len()).max(10);
+    let new = if mark.new { "[new] " } else { "" };
+    let room = width.saturating_sub(num_w + 3 + badge.map_or(0, |b| b.0.len() + 4) + new.len() + age.len()).max(10);
     let mut top = vec![
         sp(format!("{}{:>num_w$} ", if mark.marked { "●" } else { " " }, format!("#{}", p.number)), tint(ui.key)),
         sp(cut(&p.title, room), row),
@@ -572,8 +599,10 @@ fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathBuf, Option<
     if let Some((text, color)) = badge {
         top.extend([sp("  ".into(), row), sp(format!(" {text} "), crate::view::chip(color))]);
     }
+    // At the right end, before the age.
     let used: usize = top.iter().map(Span::width).sum();
-    top.push(sp(format!("{age:>w$}", w = width.saturating_sub(used)), dim));
+    top.push(sp(" ".repeat(width.saturating_sub(used + new.len() + age.len())), row));
+    top.extend([sp(new.into(), tint(ui.key).add_modifier(ratatui::style::Modifier::BOLD)), sp(age, dim)]);
 
     let sep = || sp(" · ".into(), dim);
     let mut bottom = vec![sp(" ".repeat(num_w + 2), row), sp(format!("@{}", p.author), dim)];
@@ -794,7 +823,7 @@ fn selected_card_readable() {
     (ui.menu_selected, ui.stale) = (Style::new().fg(Color::Black).bg(Color::Cyan), Style::new().fg(Color::Gray));
     let cx = Cards { ui: &ui, num_w: 5, width: 120, checks_loading: false, usual: "main" };
     let p = Listed { number: 1, title: "t".into(), author: "amy".into(), labels: vec![("bug".into(), "d73a4a".into())], ..Listed::default() };
-    let mark = || Mark { marked: false, claude: Some(("claude ✓".into(), true)) };
+    let mark = || Mark { marked: false, claude: Some(("claude ✓".into(), true)), new: true };
     let [top, bottom] = card(&p, &cx, true, None, mark());
     for line in [&top, &bottom] {
         assert_eq!(line.width(), 120); // the highlight runs to the edge
@@ -803,6 +832,12 @@ fn selected_card_readable() {
     }
     let [_, bottom] = card(&p, &cx, false, None, mark());
     assert!(bottom.spans.iter().any(|s| s.style.fg == Some(Color::Gray))); // unselected: its colors
+    // [new] at the right end of the top line, before the age.
+    let [top, _] = card(&p, &cx, false, None, mark());
+    assert_eq!(top.width(), 120);
+    assert_eq!(top.spans[top.spans.len() - 2].content, "[new] ");
+    let [top, _] = card(&p, &cx, false, None, Mark { new: false, ..mark() });
+    assert!(!top.spans.iter().any(|s| s.content.contains("[new]")));
     // Claude's part at the right end, even when the rest has to be cut for it.
     assert_eq!(bottom.spans.last().unwrap().content, "claude ✓ ");
     let narrow = Cards { width: 30, ..cx };

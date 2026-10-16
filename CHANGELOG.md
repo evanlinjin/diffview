@@ -6,6 +6,9 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Added
+- `dv list`: `[new]` on PRs with something you haven't seen: GitHub activity or a change to
+  Claude's review since you last left the PR in dv (and, of PRs you've never opened, those
+  Claude has reviewed).
 - Your last instructions for Claude's reviews (`Space a` → review, `a a` in `dv list`) are
   remembered per repo and fill the editor next time; clear them to forget them.
 - `dv list`: `a a` opens your editor first, for instructions to Claude for every marked PR's

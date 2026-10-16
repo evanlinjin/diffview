@@ -184,7 +184,9 @@ refreshes, `q` quits. `m` marks PRs and `a a` has Claude review them (or the sel
 the background (after your editor, for optional instructions to every one of those reviews, starting
 from your last review instructions in this repo, as `Space a` → review does; `:cq` cancels), two at a time, each in its `<repo>-N` worktree (made if need be; one on the
 PR's branch stays on it) and its own session; cards show `claude: reviewing…` and then
-`claude ✓`. `D D` in the worktrees tab removes the worktree (not with local changes; the branch
+`claude ✓`. `[new]` (before the age) marks a PR with something you haven't seen: GitHub updated
+it, or Claude's review changed, since you last left it in dv (`seen/pr-N.looked`); of PRs
+you've never opened, only those Claude has reviewed. `D D` in the worktrees tab removes the worktree (not with local changes; the branch
 stays). Quitting the review returns to the list; if opening a PR fails, the
 error shows in the list's status bar.
 

@@ -102,6 +102,26 @@ pub fn notes_path() -> Result<PathBuf> {
     Ok(dv_dir()?.join("notes.md"))
 }
 
+/// When you last left PR `n` in dv (seconds since the epoch), for `dv list`'s `[new]`:
+/// `seen/pr-N.looked` in dv's directory.
+pub fn looked(n: u64) -> Option<i64> {
+    std::fs::read_to_string(dv_dir().ok()?.join(format!("seen/pr-{n}.looked"))).ok()?.trim().parse().ok()
+}
+
+/// You're leaving PR `n`: what's on it now has been seen.
+pub fn set_looked(n: u64) -> Result<()> {
+    let p = dv_dir()?.join(format!("seen/pr-{n}.looked"));
+    std::fs::create_dir_all(p.parent().unwrap_or(&p))?;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    Ok(std::fs::write(p, now.to_string())?)
+}
+
+/// When Claude's review of PR `n` last changed (seconds since the epoch), if it has one.
+pub fn review_changed(n: u64) -> Option<i64> {
+    let t = std::fs::metadata(path(Some(n)).ok()?).ok()?.modified().ok()?;
+    Some(t.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs() as i64)
+}
+
 /// Your last instructions for Claude's reviews in this repo, to start from next time (empty if
 /// none): `review-instructions.md` in dv's directory.
 pub fn instructions() -> String {

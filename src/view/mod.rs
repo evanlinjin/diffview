@@ -628,6 +628,9 @@ impl App {
         }
         self.seeing.push(String::new()); // what the cursor is on now counts as seen too
         self.watch_seen();
+        if let Some(pr) = &self.pr {
+            _ = crate::claude::set_looked(pr.number); // for `dv list`'s [new]
+        }
         Ok(())
     }
 

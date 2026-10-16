@@ -44,6 +44,7 @@ dv list -w        # pick from the open PRs; Enter reviews one (here: in a worktr
                   # m marks PRs and a a has Claude review them in the background
                   # (your editor opens first, for instructions to all of them; your last
                   # review instructions are there to start from);
+                  # [new]: something on GitHub or from Claude since you last left it;
                   # filter by #N to open a PR that isn't listed
 ```
 
