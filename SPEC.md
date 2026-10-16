@@ -81,6 +81,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `Space r` | resolve / unresolve the thread under the cursor |
 | `Space e` | edit your comment under the cursor (opens its text in `$EDITOR`) |
 | `Space d` | delete the comment under the cursor (confirmation picker, "No" preselected) |
+| `Space p` | picker of your pending review's comments; jumps there (unfolding as needed) |
 | `]c [c` | next/prev comment thread |
 | `R` | refresh: re-run `git diff`, re-fetch threads + PR info |
 | `?` | key help overlay; `/` inside it filters entries (smart case), Enter keeps, Esc clears |

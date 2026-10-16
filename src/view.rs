@@ -67,6 +67,7 @@ PR
   Space r              resolve / unresolve thread
   Space e              edit your comment under the cursor
   Space d              delete the comment under the cursor (asks first)
+  Space p              pick from your pending comments
 
 GENERAL
   ?                    this help (/ to search it)
@@ -137,6 +138,8 @@ enum Target {
     Discard,
     DiscardYes,
     DeleteComment(String),
+    /// A comment: (thread index, comment index within it).
+    Comment(usize, usize),
     Nothing,
 }
 
@@ -764,6 +767,50 @@ impl App {
             }
         }
         out
+    }
+
+    /// `Space p`: a picker of the comments in your pending review.
+    fn pending_picker(&mut self) {
+        let mut items = vec![];
+        for (ti, t) in self.threads.iter().enumerate() {
+            for (ci, c) in t.comments.iter().enumerate().filter(|(_, c)| c.pending) {
+                let line = t.line.or(t.original_line).map_or(String::new(), |n| format!(":{n}"));
+                let kind = match (ci, c.body.contains("```suggestion")) {
+                    (_, true) => "suggestion",
+                    (0, _) => "comment",
+                    _ => "reply",
+                };
+                // The first line that isn't a quote or a fence: what was actually written.
+                let gist = c.body.lines().find(|l| !l.is_empty() && !l.starts_with('>') && !l.starts_with("```")).unwrap_or("");
+                items.push(Item { label: format!("{}{line}  {kind}: {gist}", t.path), target: Target::Comment(ti, ci) });
+            }
+        }
+        match items.is_empty() {
+            true => self.msg = "no pending comments".into(),
+            false => self.picker = Some(Picker { title: " pending comments ", items, query: String::new(), sel: 0 }),
+        }
+    }
+
+    /// Jump to comment `ci` of thread `ti`, unfolding its file and thread if needed.
+    fn goto_comment(&mut self, ti: usize, ci: usize) {
+        let Some(t) = self.threads.get(ti) else { return };
+        if !self.files.iter().any(|f| f.path == t.path) {
+            return self.msg = format!("{} isn't in this diff", t.path);
+        }
+        self.collapsed.remove(&t.path.clone());
+        if !self.thread_open(ti) {
+            if let Some(id) = self.root_id(ti) {
+                if !self.toggled.remove(&id) {
+                    self.toggled.insert(id);
+                }
+            }
+        }
+        self.build();
+        // Each comment starts with an author row; outdated threads' code rows aren't author rows.
+        let row = self.rows.iter().enumerate().filter(|(_, r)| r.thread == Some(ti) && r.line.kind == Kind::Thread).nth(ci);
+        if let Some((r, _)) = row {
+            self.jump(r, 0);
+        }
     }
 
     /// Stale threads start folded; `Tab` flips a thread from its default.
@@ -1832,6 +1879,7 @@ impl App {
             (' ', 'r') => self.toggle_resolved(),
             (' ', 'e') => self.start_edit(),
             (' ', 'd') => self.start_delete(),
+            (' ', 'p') => self.pending_picker(),
             ('f' | 't' | 'F' | 'T', c) => self.find_char(p, c),
             _ => {}
         }
@@ -1876,6 +1924,7 @@ impl App {
                                 self.job = Some(Job::Discard(r));
                             }
                         }
+                        Target::Comment(ti, ci) => self.goto_comment(ti, ci),
                         Target::DeleteComment(id) => {
                             self.msg = "deleting…".into();
                             self.job = Some(Job::DeleteComment(id));
@@ -2660,6 +2709,20 @@ fn comments_placed_and_anchored() {
     press(&mut app, ' ');
     press(&mut app, 'e');
     assert!(app.action.is_none() && app.msg.contains("can't edit"));
+    // Space p lists pending comments and jumps to the chosen one.
+    app.threads[0].comments[1].body = "> why remove?\n\nunused".into();
+    app.build();
+    press(&mut app, ' ');
+    press(&mut app, 'p');
+    let p = app.picker.take().unwrap();
+    assert_eq!(p.items.len(), 1);
+    assert_eq!(p.items[0].label, "src/a.rs:2  reply: unused"); // quote skipped
+    let Target::Comment(ti, ci) = p.items[0].target else { panic!() };
+    app.goto_comment(ti, ci);
+    assert!(app.rows[app.head.row].line.text.starts_with("[pending] amy"));
+    app.threads[0].comments[1].body = "unused".into();
+    app.build();
+    app.goto(first, 0);
     // Space d asks first, defaulting to "No".
     press(&mut app, ' ');
     press(&mut app, 'd');
@@ -2673,6 +2736,7 @@ fn comments_placed_and_anchored() {
     app.picker = None;
     assert_eq!(clean_body("> unused\n\n<!-- dv: x -->\n", "<!-- dv:", "> unused\n\n"), ""); // untouched → cancel
     assert_eq!(clean_body("> unused\n\nagreed\n<!-- dv: x -->", "<!-- dv:", "> unused\n\n"), "> unused\n\nagreed");
+    let tr = app.rows.iter().position(|r| r.thread == Some(0)).unwrap(); // rebuilt rows include the PR header now
     app.goto(tr, 0);
     press(&mut app, 'C');
     assert!(matches!(app.action.take(), Some(Action::Reply { review: false, .. })));
