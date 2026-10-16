@@ -10,6 +10,8 @@ on GitHub are its section here.
   summary, and only the code it commented on (a few lines around each comment).
 
 ### Changed
+- The PR's state (DRAFT, OPEN, MERGED, CLOSED) sits at the right end of the PR's header line,
+  where it stands out; a long title is cut to keep it in view.
 - `[new]` also goes once the cursor has stayed on the thread for 3 seconds, not only once it
   leaves.
 

@@ -539,10 +539,22 @@ const INFO_FIELDS: &str = "headRefOid,title,author,state,isDraft,url,baseRefName
 changedFiles,labels,reviewDecision,reviewRequests,latestReviews,statusCheckRollup,body,comments";
 
 /// PR info lines, plus the current (title, head commit, url) so a refresh picks up new pushes.
-pub fn info(n: u64) -> Result<(Vec<InfoLine>, String, String, String)> {
+pub fn info(n: u64) -> Result<(Vec<InfoLine>, String, String, String, State)> {
     let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", INFO_FIELDS])?)?;
     let s = |k: &str| v[k].as_str().unwrap_or("").to_owned();
-    Ok((info_lines(&v), s("title"), s("headRefOid"), s("url")))
+    Ok((info_lines(&v), s("title"), s("headRefOid"), s("url"), state(&v)))
+}
+
+/// A PR's state as GitHub shows it, with its color: DRAFT, OPEN, MERGED or CLOSED.
+pub type State = (&'static str, &'static str);
+
+pub fn state(v: &Value) -> State {
+    match (v["isDraft"] == true, v["state"].as_str().unwrap_or("")) {
+        (true, _) => ("DRAFT", "6e7681"),
+        (_, "MERGED") => ("MERGED", "8957e5"),
+        (_, "CLOSED") => ("CLOSED", "da3633"),
+        _ => ("OPEN", "238636"),
+    }
 }
 
 fn info_lines(v: &Value) -> Vec<InfoLine> {
@@ -555,18 +567,10 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         l
     };
 
-    // State badge in GitHub's colors, then author, branches, size.
-    let (state, color) = match (v["isDraft"] == true, s(&v["state"]).as_str()) {
-        (true, _) => ("DRAFT", "6e7681"),
-        (_, "MERGED") => ("MERGED", "8957e5"),
-        (_, "CLOSED") => ("CLOSED", "da3633"),
-        _ => ("OPEN", "238636"),
-    };
+    // Author, branches, size (the state is on the PR's header line).
     let author = s(&v["author"]["login"]);
     let mut l = InfoLine::new(false, false);
-    l.put(&format!(" {state} "), Some(Mark::Chip(color.into())))
-        .put(" ", None)
-        .put(&format!("@{author}"), Some(Mark::Link(format!("https://github.com/{author}"))))
+    l.put(&format!("@{author}"), Some(Mark::Link(format!("https://github.com/{author}"))))
         .put(&format!(" · {} ← {} · ", s(&v["baseRefName"]), s(&v["headRefName"])), None)
         .put(&format!("+{}", v["additions"]), Some(Mark::Pass))
         .put(" ", None)
@@ -679,10 +683,10 @@ fn info_summarises_checks() {
         "body": "", "comments": [],
     });
     let lines = info_lines(&v);
-    assert_eq!(lines[0].marks[0], (0, 7, Mark::Chip("6e7681".into()))); // " DRAFT " badge
+    assert_eq!(state(&v), ("DRAFT", "6e7681")); // on the header line, in GitHub's color
     assert_eq!(lines[1].marks[1], (7, 12, Mark::Chip("d73a4a".into()))); // " bug " in its label color
     let t: Vec<String> = lines.into_iter().map(|l| l.text).collect();
-    assert_eq!(t[0], " DRAFT  @amy · main ← feat · +3 −1 in 2 files");
+    assert_eq!(t[0], "@amy · main ← feat · +3 −1 in 2 files");
     assert_eq!(t[2], "review: ✗ changes requested by @bo");
     assert_eq!(&t[3..6], ["checks: ✓ 1 passed · ✗ 1 failed · ● 1 pending", "✗ test", "● ci/legacy"]);
     let v = serde_json::json!({ "statusCheckRollup": [{ "name": "build", "status": "COMPLETED", "conclusion": "SUCCESS" }] });

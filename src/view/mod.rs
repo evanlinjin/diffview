@@ -376,6 +376,8 @@ pub struct App {
     /// The Claude view (`Ctrl-w a`): only Claude's review: the PR's one-line summary, Claude's
     /// summary, and its comments with a few lines of code around each.
     claude_view: bool,
+    /// The PR's state and its color (DRAFT, OPEN, …), at the right end of its header line.
+    pr_state: Option<gh::State>,
     /// Your GitHub login: your comments are never new to you.
     me: String,
     /// The comments you've seen (`comment_key`), kept in `seen_path`; and those of the thread
@@ -540,6 +542,7 @@ impl App {
             claude_head: String::new(),
             theirs: false,
             claude_view: false,
+            pr_state: None,
             me: String::new(),
             seen: HashSet::new(),
             seen_path: None,
@@ -1198,12 +1201,17 @@ impl App {
         row
     }
 
-    /// The file's GitHub "Viewed" state, drawn at the right end of its header.
-    fn viewed_tag(&self, file: usize) -> Option<(&'static str, Style)> {
-        match self.viewed.get(&self.files.get(file)?.path)?.as_str() {
-            "VIEWED" => Some(("✓ Viewed ", self.ui.plus)),
-            _ => Some(("↻ changed since viewed ", self.ui.warning)),
+    /// Drawn at the right end of a header line: the PR's state on the PR's, the file's GitHub
+    /// "Viewed" state on a file's.
+    fn header_tag(&self, file: usize) -> Option<(String, Style)> {
+        if file == INFO {
+            return self.pr_state.map(|(s, color)| (format!(" {s} "), chip(color)));
         }
+        let (t, st) = match self.viewed.get(&self.files.get(file)?.path)?.as_str() {
+            "VIEWED" => ("✓ Viewed ", self.ui.plus),
+            _ => ("↻ changed since viewed ", self.ui.warning),
+        };
+        Some((t.into(), st))
     }
 
     /// A comment's first `n` lines as they read rendered (quotes skipped), for picker cards.

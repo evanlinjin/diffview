@@ -391,8 +391,8 @@ impl App {
             Err(e) => self.msg = format!("loading comments: {e:#}"),
         }
         match info {
-            Ok(Ok((lines, title, head, url))) => {
-                self.info = lines;
+            Ok(Ok((lines, title, head, url, state))) => {
+                (self.info, self.pr_state) = (lines, Some(state));
                 if let Some(pr) = &mut self.pr {
                     (pr.title, pr.head_oid, pr.url) = (title, head, url);
                 }

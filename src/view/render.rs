@@ -666,7 +666,16 @@ impl App {
             spans.push(Span::raw(" ".repeat(tw.saturating_sub(used))));
             return spans;
         }
-        let tag = if l.kind == Kind::File { self.viewed_tag(row.file) } else { None };
+        let tag = if l.kind == Kind::File { self.header_tag(row.file) } else { None };
+        // The PR's state always shows: a long title is cut to make room.
+        let mut used = used;
+        if let Some((t, _)) = &tag
+            && row.file == INFO
+        {
+            while used + 1 + t.chars().count() > tw && spans.len() > 1 {
+                used -= spans.pop().map_or(0, |s| s.width());
+            }
+        }
         match tag {
             // Right-aligned when it fits after the name; it isn't part of the row's text.
             Some((t, st)) if used + 1 + t.chars().count() <= tw => {

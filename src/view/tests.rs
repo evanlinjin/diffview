@@ -66,7 +66,10 @@ fn viewed_files() {
     let viewed = |p: &str, s: &str| HashMap::from([(p.to_owned(), s.to_owned())]);
     app.apply_viewed(viewed("src/a.rs", "VIEWED"));
     app.build();
-    assert_eq!(app.viewed_tag(0).unwrap().0, "✓ Viewed ");
+    assert_eq!(app.header_tag(0).unwrap().0, "✓ Viewed ");
+    assert!(app.header_tag(INFO).is_none()); // the PR's state, once it's known
+    app.pr_state = Some(("DRAFT", "6e7681"));
+    assert_eq!(app.header_tag(INFO).unwrap().0, " DRAFT ");
     let header = app.rows.iter().find(|r| r.line.kind == Kind::File && r.file == 0).unwrap();
     assert!(!header.line.text.contains("Viewed")); // drawn at the right edge, not part of the text
     assert!(app.collapsed.contains("src/a.rs")); // viewed → folded
@@ -75,7 +78,7 @@ fn viewed_files() {
     assert!(app.collapsed.is_empty()); // …and a refresh leaves it unfolded
     app.apply_viewed(viewed("src/a.rs", "DISMISSED"));
     app.build();
-    assert_eq!(app.viewed_tag(0).unwrap().0, "↻ changed since viewed ");
+    assert_eq!(app.header_tag(0).unwrap().0, "↻ changed since viewed ");
     let h = app.rows.iter().position(|r| r.line.kind == Kind::File && r.file == 0).unwrap();
     app.goto(h, 0);
     app.key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
