@@ -653,7 +653,7 @@ impl App {
         use std::hash::{Hash, Hasher};
         let newest = self.files.iter().filter_map(|f| std::fs::metadata(self.root.join(&f.path)).and_then(|m| m.modified()).ok()).max();
         let mut h = std::collections::hash_map::DefaultHasher::new();
-        diff::git(&["status", "--porcelain", "--untracked-files=no"]).unwrap_or_default().hash(&mut h);
+        diff::git(&["status", "--porcelain"]).unwrap_or_default().hash(&mut h);
         (newest, h.finish())
     }
 

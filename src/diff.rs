@@ -235,7 +235,21 @@ pub fn diff(base: &str, context: u32, paths: &[&str]) -> Result<Vec<FileDiff>> {
         "--src-prefix=a/", "--dst-prefix=b/", &u, base, "--",
     ];
     args.extend(specs.iter().map(String::as_str));
-    Ok(parse(&git(&args)?))
+    let mut files = parse(&git(&args)?);
+    // Untracked files too, as new ones (git diff leaves them out): a file Claude, or you, just
+    // created is part of what's being reviewed.
+    let mut ls = vec!["ls-files", "--others", "--exclude-standard", "-z", "--"];
+    ls.extend(specs.iter().map(String::as_str));
+    // ponytail: one git per untracked file, capped; batch them if a repo has many.
+    for p in git(&ls)?.split('\0').filter(|p| !p.is_empty()).take(100) {
+        let out = Command::new("git")
+            .args(["-c", "core.quotepath=off", "diff", "--no-index", "--no-color", "--no-ext-diff"])
+            .args(["--src-prefix=a/", "--dst-prefix=b/", &u, "--", "/dev/null", p])
+            .output()
+            .context("running git")?; // exits 1: there are differences
+        files.extend(parse(&String::from_utf8_lossy(&out.stdout)).into_iter().map(|f| FileDiff { meta: "untracked".into(), ..f }));
+    }
+    Ok(files)
 }
 
 pub fn parse(s: &str) -> Vec<FileDiff> {
