@@ -25,7 +25,8 @@ Or download a binary for Linux or macOS from the
 Needs `git`. For PRs: [`gh`](https://cli.github.com), logged in (`gh auth login`).
 Optional: `rust-analyzer` (go to definition, references, hover), `hx` (opening files and
 writing comments; `$VISUAL`/`$EDITOR` is used for comments if set), `xdg-open`/`open`
-(opening links). Inside [zellij](https://zellij.dev), editors open in floating panes.
+(opening links). Inside [zellij](https://zellij.dev), hx, editors and Claude Code open in a pane to
+the right, and dv keeps working while hx is open.
 
 ## Usage
 
@@ -73,7 +74,7 @@ file that dv reloads whenever it changes, so you can keep dv open while Claude w
 2. **Ask for a review**: press `Space a` in dv and pick "Ask Claude to review this". `$EDITOR`
    opens for anything it should focus on; leave it empty to just go. (Or, in Claude Code in
    that checkout, ask it to "review this PR for dv".) Inside zellij, Claude
-   Code opens in a floating pane, where you can watch it and approve what it asks to do;
+   Code opens in a pane on the right, where you can watch it and approve what it asks to do;
    elsewhere it runs in the background, allowed to edit files and run only the `dv review-*`
    and read-only `git` commands it needs, and the status bar says when it's done. It runs
    `dv review-info` (the review file's path, and the base commit: `git diff <base>` is the

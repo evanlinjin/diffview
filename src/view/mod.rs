@@ -316,6 +316,8 @@ pub struct App {
     claude_path: Option<PathBuf>,
     claude_mtime: Option<std::time::SystemTime>,
     claude_summary: String,
+    /// An `hx` pane (inside zellij) that dv isn't waiting on: it says when hx exits.
+    hx: Option<std::sync::mpsc::Receiver<std::io::Result<std::process::ExitStatus>>>,
     /// A background `claude -p` run: (process, log file, what it's doing).
     claude_job: Option<(std::process::Child, PathBuf, &'static str)>,
     /// The Claude Code session of the last background run, resumed by the next.
@@ -410,6 +412,7 @@ impl App {
             claude_mtime: None,
             claude_summary: String::new(),
             claude_job: None,
+            hx: None,
             claude_session: None,
             claude_again: false,
             root: std::env::current_dir().unwrap_or_default(),
@@ -443,19 +446,20 @@ impl App {
                         self.key(k);
                     }
             self.lsp_poll();
+            self.watch_hx();
             self.watch_claude();
             self.poll_claude();
             if let Some(a) = self.action.take() {
-                // In zellij the editor gets a floating pane and dv stays on screen underneath.
-                let floating = in_zellij();
-                if !floating {
+                // In zellij the editor gets a pane on the right and dv stays on screen beside it.
+                let in_pane = in_zellij();
+                if !in_pane {
                     ratatui::restore();
                 }
                 // Anything to post is queued as a job (it runs after a "posting…" frame, then
                 // refetches); here only the diff reloads, as hx may have changed files.
                 let res = self.perform(a);
                 self.hl_cache.retain(|k, _| !k.1); // working-tree files may have changed; the base can't
-                if !floating {
+                if !in_pane {
                     *term = ratatui::init();
                 }
                 if let Err(e) = self.reload(false) {
@@ -472,6 +476,13 @@ impl App {
 
     fn perform(&mut self, a: Action) -> Result<String> {
         match a {
+            Action::Open(target) if in_zellij() => {
+                // hx gets a pane of its own and dv keeps working; when hx exits, dv reloads.
+                let (tx, rx) = std::sync::mpsc::channel();
+                std::thread::spawn(move || tx.send(interactive("hx", std::slice::from_ref(&target), &format!("hx {target}"))));
+                self.hx = Some(rx);
+                Ok("hx is open on the right; dv reloads when you quit it".into())
+            }
             Action::Open(target) => {
                 interactive("hx", std::slice::from_ref(&target), &format!("hx {target}")).context("running hx")?;
                 Ok(String::new())
@@ -537,6 +548,18 @@ impl App {
                 self.post_later(Post::Submit(event, body))
             }
         }
+    }
+
+    /// When an `hx` pane dv didn't wait for exits: reload, as files may have changed.
+    fn watch_hx(&mut self) {
+        let Some(Ok(res)) = self.hx.as_ref().map(|rx| rx.try_recv()) else { return };
+        self.hx = None;
+        self.hl_cache.retain(|k, _| !k.1); // working-tree files may have changed; the base can't
+        self.msg = match (res, self.reload(false)) {
+            (Err(e), _) => format!("running hx: {e}"),
+            (_, Err(e)) => format!("{e:#}"),
+            (Ok(_), Ok(())) => String::new(),
+        };
     }
 
     fn reload(&mut self, threads: bool) -> Result<()> {
@@ -1053,7 +1076,7 @@ fn in_zellij() -> bool {
     std::env::var_os("ZELLIJ").is_some()
 }
 
-/// Run an interactive program and wait for it: in a floating pane inside zellij (its exit
+/// Run an interactive program and wait for it: in a pane to the right inside zellij (its exit
 /// status comes through), otherwise in this terminal (the caller suspends the TUI).
 fn interactive(prog: &str, args: &[String], name: &str) -> std::io::Result<std::process::ExitStatus> {
     if !in_zellij() {
@@ -1061,8 +1084,12 @@ fn interactive(prog: &str, args: &[String], name: &str) -> std::io::Result<std::
     }
     let cwd = std::env::current_dir()?;
     std::process::Command::new("zellij")
-        .args(["run", "--floating", "--close-on-exit", "--block-until-exit", "--name", name])
-        .args(["--width", "90%", "--height", "90%", "-x", "5%", "-y", "5%"])
+        .args(["run", "--direction", "right", "--close-on-exit", "--block-until-exit", "--name", name])
+        // `zellij run` doesn't need dv's terminal; sharing it, it would take dv's keystrokes
+        // while it waits (and freeze dv when hx runs beside it).
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .arg("--cwd")
         .arg(cwd)
         .arg("--")

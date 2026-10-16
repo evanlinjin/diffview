@@ -3,6 +3,16 @@
 All notable changes to dv. Versions follow [semver](https://semver.org); a release's notes
 on GitHub are its section here.
 
+## [Unreleased]
+
+### Changed
+- Inside zellij, hx, the comment editor and Claude Code open in a pane to the right instead of
+  a floating one.
+
+### Fixed
+- dv no longer freezes while hx is open beside it: hx runs in its own pane and dv reloads when
+  it exits.
+
 ## [0.1.0] - 2026-10-16
 
 The first release.

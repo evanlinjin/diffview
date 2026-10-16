@@ -82,7 +82,7 @@ disk: rust-analyzer can index it and `hx` can open it.
    from the file; `Space r` resolves it in the file, `Space d` dismisses it. `Space a` runs
    Claude Code from dv (review / update the review, answer your waiting replies, or make the
    changes its open comments ask for, after optional instructions of yours in `$EDITOR`): in a
-   zellij floating pane as an interactive session, else `claude -p` in the background
+   zellij pane on the right as an interactive session, else `claude -p` in the background
    (`acceptEdits`, Bash limited to `dv review-*` and read-only git), with "Claude working…"
    in the status bar and its log path if it fails. Comments get stable `id`s (assigned by dv on
    load and by review-check); both write the file atomically and re-read it before a change.
@@ -117,7 +117,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `Shift-Tab` | fold all files, or unfold all if all are folded |
 | `Ctrl-w v` | toggle split view: old ‖ new side by side (removed runs pair with the added lines after them) |
 | `Ctrl-w h` `Ctrl-w l` (or `Ctrl-h` `Ctrl-l`) | split view: move to the old / new side |
-| `Enter` | open `hx file:line:col` (in a floating pane inside zellij), reload diff afterwards; on a link, open the link |
+| `Enter` | open `hx file:line:col` (inside zellij: in a pane on the right, dv still usable meanwhile), reload the diff when hx exits; on a link, open the link |
 | `gf` | open the link under the cursor in the browser (`xdg-open` / `open`); a tooltip shows the URL while the cursor is on a link |
 | `gd gr gy gi`, `Space k` | definition / references / type / impl, hover |
 | `Space k` on an issue/PR link | preview it in a popup: state, author, age, comments, labels, body (the link tooltip says so) |

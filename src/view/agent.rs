@@ -1,5 +1,5 @@
 //! `Space a`: run Claude Code on this review (the dv-review skill), without leaving dv. Inside
-//! zellij it gets a floating pane (an interactive session to watch and steer); elsewhere it runs
+//! zellij it gets a pane on the right (an interactive session to watch and steer); elsewhere it runs
 //! in the background. Either way its review shows up as it writes the file.
 use super::*;
 
@@ -105,13 +105,12 @@ impl App {
         self.msg = match in_zellij() {
             // A real session in a pane: watch it, approve what it asks, talk to it.
             true => match std::process::Command::new("zellij")
-                .args(["run", "--floating", "--name", &format!("claude: {label}")])
-                .args(["--width", "90%", "--height", "90%", "-x", "5%", "-y", "5%", "--cwd"])
+                .args(["run", "--direction", "right", "--name", &format!("claude: {label}"), "--cwd"])
                 .arg(&self.root)
                 .args(["--", "claude", &prompt])
                 .status()
             {
-                Ok(s) if s.success() => format!("Claude is {label} in a floating pane; its comments show up here as it writes them"),
+                Ok(s) if s.success() => format!("Claude is {label} in the pane on the right; its comments show up here as it writes them"),
                 Ok(s) => format!("zellij run failed ({s})"),
                 Err(e) => format!("running zellij: {e}"),
             },
