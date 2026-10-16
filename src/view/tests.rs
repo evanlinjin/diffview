@@ -986,3 +986,17 @@ fn untracked_files_stay_off_github() {
     app.toggle_viewed();
     assert!(app.msg.contains("untracked") && app.job.is_none());
 }
+
+#[test]
+fn claude_runs_say_what_they_cost() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let log = std::env::temp_dir().join(format!("dv-claude-cost-{}.log", std::process::id()));
+    std::fs::write(&log, r#"{"is_error": false, "num_turns": 5, "total_cost_usd": 0.2231, "session_id": "s"}"#).unwrap();
+    let mut child = std::process::Command::new("true").spawn().unwrap();
+    _ = child.wait();
+    app.claude_job = Some(agent::ClaudeJob { child, log: log.clone(), label: "answering", forked: true });
+    app.poll_claude();
+    _ = std::fs::remove_file(&log);
+    assert_eq!(app.msg, "Claude is done answering (5 turns, $0.22)");
+    assert!((app.claude_spent - 0.2231).abs() < 1e-9);
+}

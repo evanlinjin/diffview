@@ -385,6 +385,8 @@ pub struct App {
     claude_runs: u32,
     /// The last background Claude run's log (its result, as JSON).
     claude_log: Option<PathBuf>,
+    /// What background Claude runs have cost so far (as Claude Code reports it, in USD).
+    claude_spent: f64,
     /// Messages shown in the status bar, with when (`Space m` lists them in full).
     msgs: Vec<(String, String)>,
     root: PathBuf,
@@ -457,6 +459,7 @@ impl App {
         }
         if let Some(log) = &self.claude_log {
             md += &format!("\nThe last background Claude run's log: `{}` (its errors: `.err`)\n", log.display());
+            md += &format!("\nBackground Claude runs so far: {}, ${:.2} (runs in a pane aren't counted)\n", self.claude_runs, self.claude_spent);
         }
         self.popup = Some((" messages (UTC) · j/k scroll ".into(), self.hover_lines(&md), 0));
     }
@@ -528,6 +531,7 @@ impl App {
             claude_again: false,
             claude_runs: 0,
             claude_log: None,
+            claude_spent: 0.0,
             msgs: vec![],
             root: std::env::current_dir().unwrap_or_default(),
             lsp: None,

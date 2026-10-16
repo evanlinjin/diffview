@@ -454,8 +454,14 @@ impl App {
         }
         // A run can end "successfully" having been refused what it needed: say what.
         let refused = out.as_ref().and_then(refusal);
+        let cost = out.as_ref().and_then(|v| v["total_cost_usd"].as_f64());
+        self.claude_spent += cost.unwrap_or(0.0);
+        let took = match (out.as_ref().and_then(|v| v["num_turns"].as_u64()), cost) {
+            (Some(n), Some(c)) => format!(" ({n} turns, ${c:.2})"),
+            _ => String::new(),
+        };
         self.msg = match (failed, &refused) {
-            (false, None) => format!("Claude is done {label}"),
+            (false, None) => format!("Claude is done {label}{took}"),
             (false, Some(r)) => format!("Claude finished {label}, but was refused {r}: see {}", log.display()),
             (true, Some(r)) => format!("Claude stopped while {label}, refused {r}: see {}", log.display()),
             (true, None) => format!("Claude stopped ({st}) while {label}: see {} (and .err)", log.display()),

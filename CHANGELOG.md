@@ -23,6 +23,8 @@ on GitHub are its section here.
   the pickers get there.
 - `c` / `C` / `s` / `Space v` on an untracked file say why they can't (GitHub hasn't got it)
   instead of failing there, and "viewed" counts only the PR's files.
+- A background Claude run says what it took when it's done ("5 turns, $0.22"); `Space m`
+  has the total so far.
 - Claude's comments show whose turn it is: `[waiting]` (you spoke last) and `[answered]`
   (Claude answered you); typing either in `Space A` lists just those.
 - A `severity` for Claude's comments (`bug`, `nit`, `question`, …), shown as a tag and put
