@@ -213,6 +213,7 @@ impl App {
                 ("v", "mark file viewed"),
                 ("u", "update checkout (git pull)"),
                 ("g", "git: uncommitted only / commit / push"),
+                ("m", "messages, in full"),
                 ("r", "resolve thread"),
                 ("e", "edit your comment"),
                 ("d", "delete / dismiss comment"),
@@ -318,6 +319,7 @@ impl App {
             (' ', 'A') => self.claude_picker(),
             (' ', 'v') => self.toggle_viewed(),
             (' ', 'g') => self.git_menu(),
+            (' ', 'm') => self.messages(),
             (' ', 'u') => {
                 self.msg = "updating the checkout…".into();
                 self.job = Some(Job::Pull);

@@ -106,6 +106,7 @@ GENERAL
   ?                    this help (/ to search it)
   R                    refresh (git diff + GitHub)
   Space u              update the checkout: to the PR's head (fast-forward only), or git pull
+  Space m              messages so far, in full (the status bar cuts long ones)
   mouse                wheel scrolls, click moves (or folds, on an arrow), drag selects
   q, Ctrl-c            quit
 ";
@@ -382,6 +383,10 @@ pub struct App {
     claude_again: bool,
     /// Background runs so far (each gets its own log).
     claude_runs: u32,
+    /// The last background Claude run's log (its result, as JSON).
+    claude_log: Option<PathBuf>,
+    /// Messages shown in the status bar, with when (`Space m` lists them in full).
+    msgs: Vec<(String, String)>,
     root: PathBuf,
     lsp: Option<Lsp>,
     lsp_ready: bool,
@@ -428,6 +433,32 @@ impl App {
             Err(e) => app.msg = format!("{e:#}"),
         }
         Ok(app)
+    }
+
+    /// Keep each new status-bar message, so a long one cut off there can be read in full.
+    fn log_msg(&mut self) {
+        let m = self.msg.trim();
+        if m.is_empty() || m.ends_with('…') || self.msgs.last().is_some_and(|l| l.1 == m) {
+            return; // "posting…" and such: the outcome that follows is the news
+        }
+        let at = crate::claude::now().get(11..19).unwrap_or("").to_owned();
+        self.msgs.push((at, m.to_owned()));
+        if self.msgs.len() > 100 {
+            self.msgs.remove(0);
+        }
+    }
+
+    /// `Space m`: the messages so far, newest first, in full.
+    fn messages(&mut self) {
+        self.log_msg();
+        let mut md: String = self.msgs.iter().rev().map(|(at, m)| format!("- `{at}` {m}\n")).collect();
+        if md.is_empty() {
+            md = "_no messages yet_\n".into();
+        }
+        if let Some(log) = &self.claude_log {
+            md += &format!("\nThe last background Claude run's log: `{}` (its errors: `.err`)\n", log.display());
+        }
+        self.popup = Some((" messages (UTC) · j/k scroll ".into(), self.hover_lines(&md), 0));
     }
 
     /// A message to show when dv opens (e.g. how the checkout went).
@@ -496,6 +527,8 @@ impl App {
             claude_session: None,
             claude_again: false,
             claude_runs: 0,
+            claude_log: None,
+            msgs: vec![],
             root: std::env::current_dir().unwrap_or_default(),
             lsp: None,
             lsp_ready: false,
@@ -515,6 +548,7 @@ impl App {
 
     pub fn run(&mut self, term: &mut DefaultTerminal) -> Result<()> {
         while !self.quit {
+            self.log_msg();
             term.draw(|f| self.draw(f))?;
             if let Some(job) = self.job.take() {
                 self.run_job(job);

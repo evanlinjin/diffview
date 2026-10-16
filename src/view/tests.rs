@@ -921,3 +921,22 @@ fn commit_draft_from_claudes_changes() {
     assert_eq!(clean_body(&d, HINT, ""), "Address review comments\n\n- renamed `x` to `count`."); // hints aren't committed
     assert!(git::draft(&app.threads, i64::MAX, "").trim().is_empty()); // nothing new from Claude: you write it
 }
+
+#[test]
+fn messages_kept_in_full() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    app.msg = "posting…".into(); // on its way: not news yet
+    app.log_msg();
+    app.msg = "gh api: Validation Failed: user_id can only have one pending review per pull request".into();
+    app.log_msg();
+    app.log_msg(); // still showing: once
+    app.msg.clear();
+    app.key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE));
+    assert_eq!(app.msgs.len(), 1);
+    let (title, lines, _) = app.popup.take().unwrap();
+    assert!(title.starts_with(" messages"));
+    let text: Vec<String> = lines.iter().map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>()).collect();
+    let text = text.join(" ").split_whitespace().collect::<Vec<_>>().join(" "); // across wrapped lines
+    assert!(text.contains("one pending review per pull request"), "{text}");
+}

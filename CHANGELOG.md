@@ -16,6 +16,8 @@ on GitHub are its section here.
   answered, waiting for you), unresolved GitHub threads, pending comments on code that has
   changed since, a checkout that isn't the PR's head. Approving puts them in the editor too, as
   hint lines (not posted).
+- `Space m` lists the messages so far, in full (the status bar cuts long ones), and where the
+  last background Claude run's log is.
 - Claude's comments show whose turn it is: `[waiting]` (you spoke last) and `[answered]`
   (Claude answered you); typing either in `Space A` lists just those.
 - A `severity` for Claude's comments (`bug`, `nit`, `question`, …), shown as a tag and put

@@ -433,6 +433,7 @@ impl App {
             .stderr(std::fs::File::create(&err)?)
             .spawn()
             .context("is Claude Code (`claude`) installed?")?;
+        self.claude_log = Some(log.clone());
         Ok(ClaudeJob { child, log, label, forked })
     }
 
