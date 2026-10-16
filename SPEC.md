@@ -56,6 +56,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `gh gl gs` | line start / end / first non-blank |
 | `f t F T <c>` | find char |
 | `gw` | jump labels on visible words (uses your `jump-label-alphabet`) |
+| `mm` | matching bracket (counted through one version of the file; stops at hunk gaps) |
 | `gg ge`, `Ctrl-d Ctrl-u`, `Ctrl-e Ctrl-y` | top / end, half page, scroll 5 lines |
 | `zz zt zb` | put the cursor line at center / top / bottom |
 | `x` | select line (repeat to extend) |

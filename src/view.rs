@@ -26,6 +26,7 @@ MOVE
   gh gl gs             line start / end / first non-blank
   f t F T <c>          find char
   gw                   jump labels
+  mm                   matching bracket
   gg ge                top / end
   Ctrl-d Ctrl-u        half page down / up
   Ctrl-e Ctrl-y        scroll 5 lines
@@ -980,6 +981,68 @@ impl App {
         self.sel(Pos { row, col: start }, Pos { row, col: j });
     }
 
+    /// `mm`: jump to the bracket matching the one under the cursor, counting brackets through
+    /// one version of the file: new-side lines from an added/unchanged line, old-side from a
+    /// removed one. Stops at a hunk gap, since the lines in between aren't loaded.
+    fn match_bracket(&mut self) {
+        let Pos { row, col } = self.head;
+        let (file, kind) = (self.rows[row].file, self.rows[row].line.kind);
+        let old = kind == Kind::Del;
+        let pair = match self.chars(row).get(col) {
+            Some('(') => ('(', ')', true),
+            Some('[') => ('[', ']', true),
+            Some('{') => ('{', '}', true),
+            Some(')') => ('(', ')', false),
+            Some(']') => ('[', ']', false),
+            Some('}') => ('{', '}', false),
+            _ => return self.msg = "not on a bracket".into(),
+        };
+        let (open, close, fwd) = pair;
+        let mut depth = 0;
+        let mut r = row;
+        loop {
+            let text = self.chars(r);
+            let cols: Vec<usize> = match (r == row, fwd) {
+                (true, true) => (col..text.len()).collect(),
+                (true, false) => (0..=col).rev().collect(),
+                (false, true) => (0..text.len()).collect(),
+                (false, false) => (0..text.len()).rev().collect(),
+            };
+            for i in cols {
+                let c = text[i];
+                depth += match (c == open, c == close, fwd) {
+                    (true, _, true) | (_, true, false) => 1,
+                    (true, _, false) | (_, true, true) => -1,
+                    _ => 0,
+                };
+                if depth == 0 {
+                    return self.goto(r, i);
+                }
+            }
+            // Next row on the same side of the same file; a header or another file ends the search.
+            loop {
+                r = match fwd {
+                    true if r + 1 < self.rows.len() => r + 1,
+                    false if r > 0 => r - 1,
+                    _ => return self.msg = "no matching bracket in view".into(),
+                };
+                let x = &self.rows[r];
+                if x.file != file || matches!(x.line.kind, Kind::Hunk | Kind::File) {
+                    return self.msg = "no matching bracket in view (+ shows more context)".into();
+                }
+                let on_side = match x.line.kind {
+                    Kind::Ctx => true,
+                    Kind::Add => !old,
+                    Kind::Del => old,
+                    _ => false, // comment rows
+                };
+                if on_side && x.thread.is_none() {
+                    break;
+                }
+            }
+        }
+    }
+
     fn find_char(&mut self, p: char, ch: char) {
         let chars = self.chars(self.head.row);
         let (i, n) = (self.head.col, chars.len());
@@ -1601,7 +1664,7 @@ impl App {
                 self.msg = "refreshing…".into();
             }
             'q' => self.quit = true,
-            'g' | ']' | '[' | ' ' | 'f' | 't' | 'F' | 'T' | 'z' => self.pending = Some(c),
+            'g' | ']' | '[' | ' ' | 'f' | 't' | 'F' | 'T' | 'z' | 'm' => self.pending = Some(c),
             _ => {}
         }
     }
@@ -1615,6 +1678,7 @@ impl App {
             ('g', 'e') => self.goto(self.rows.len() - 1, 0),
             ('g', 'h') => self.goto(self.head.row, 0),
             ('g', 'l') => self.goto(self.head.row, usize::MAX),
+            ('m', 'm') => self.match_bracket(),
             ('g', 's') => {
                 let col = self.chars(self.head.row).iter().position(|c| !c.is_whitespace()).unwrap_or(0);
                 self.goto(self.head.row, col);
@@ -2317,6 +2381,27 @@ fn suggestion_block() {
     app.select = false;
     app.goto(4, 0);
     assert!(app.suggestion().unwrap().1.contains("````suggestion\n"));
+}
+
+#[test]
+fn matching_bracket() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    // rows: 2 "fn main() {", 3 del "    old();", 4 add "    new_call(x);", 5 "}"
+    let mm = |app: &mut App| {
+        app.key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE));
+        app.key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE));
+    };
+    app.goto(2, 10); // {
+    mm(&mut app);
+    assert_eq!(app.head, Pos { row: 5, col: 0 }); // } on the new side, skipping the removed line
+    mm(&mut app);
+    assert_eq!(app.head, Pos { row: 2, col: 10 });
+    app.goto(4, 12); // ( in new_call(x)
+    mm(&mut app);
+    assert_eq!(app.head, Pos { row: 4, col: 14 });
+    app.goto(2, 0);
+    mm(&mut app);
+    assert!(app.msg.contains("not on a bracket"));
 }
 
 #[test]
