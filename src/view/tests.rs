@@ -900,6 +900,7 @@ fn whose_turn_and_severity() {
     app.claude_menu();
     assert_eq!(app.picker.take().unwrap().items[2].label, "Ask Claude to suggest the changes (3 open comments; their PR: no edits)");
     assert!(app.claude_prompt(agent::Ask::Fix, "").contains("don't edit the code"));
+    assert!(app.claude_prompt(agent::Ask::Answer, "").contains("don't edit the code")); // replies asking for one too
 }
 
 #[test]
@@ -999,4 +1000,12 @@ fn claude_runs_say_what_they_cost() {
     _ = std::fs::remove_file(&log);
     assert_eq!(app.msg, "Claude is done answering (5 turns, $0.22)");
     assert!((app.claude_spent - 0.2231).abs() < 1e-9);
+}
+
+#[test]
+fn claude_pane_asking() {
+    // Claude Code's prompts, as dump-screen shows them: dv mustn't type into these.
+    assert!(agent::asking(" Do you want to make this edit to ensure.rs?\n ❯ 1. Yes\n   2. No"));
+    assert!(agent::asking(" Is this a project you created or one you trust?\n ❯ No, exit\n   Yes, I trust this folder"));
+    assert!(!agent::asking("● Done.\n───\n❯ \n───\n  ⏵⏵ auto mode on"));
 }

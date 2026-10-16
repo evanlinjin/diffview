@@ -191,6 +191,11 @@ impl App {
                 ),
                 None => review_prompt(&what),
             },
+            Ask::Answer if self.theirs => format!(
+                "Use the dv-review skill to answer my replies (and the comments I left for you) in the dv review of {what}. \
+                 It's someone else's PR, so don't edit the code: where I ask for a change, suggest it instead (see \
+                 \"Suggest the changes\")."
+            ),
             Ask::Answer => format!(
                 "Use the dv-review skill to answer my replies (and the comments I left for you) in the dv review of {what}."
             ),
@@ -492,12 +497,18 @@ fn offer_to_pane(pane: u64, prompt: &str) -> Result<bool> {
         Ok(out)
     };
     let screen = String::from_utf8_lossy(&zellij(&["action", "dump-screen", "-p", &id])?.stdout).into_owned();
-    if ["Do you want", "Would you like", "❯ 1."].iter().any(|p| screen.contains(p)) {
+    if asking(&screen) {
         return Ok(false);
     }
     zellij(&["action", "paste", "-p", &id, prompt])?;
     zellij(&["action", "focus-pane-id", &id])?;
     Ok(true)
+}
+
+/// Whether a Claude Code pane's screen shows it asking you something: a permission prompt, or
+/// (in a folder it hasn't seen) whether you trust it. Typing in then would answer it.
+pub(super) fn asking(screen: &str) -> bool {
+    ["Do you want", "Would you like", "❯ 1.", "trust this folder"].iter().any(|p| screen.contains(p))
 }
 
 /// `--add-dir` for dv's directory (the review files and notes): it's outside the checkout

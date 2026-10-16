@@ -96,7 +96,8 @@ reply, or the comment itself if it has none) is from `"user"` and isn't `"resolv
 
 - answer by appending `{ "author": "claude", "body": "…", "created": "<now>" }` to its
   `replies`;
-- if the user asks for a change, make it in the code, then reply saying what you changed;
+- if the user asks for a change, make it in the code, then reply saying what you changed (on
+  someone else's PR, when you're told not to edit the code, suggest it instead: see 5);
 - if the user convinced you the comment is wrong, say so in the reply (don't delete it).
 
 Once a thread is settled, resolve it: set `"resolved": true` on the comment after your reply.

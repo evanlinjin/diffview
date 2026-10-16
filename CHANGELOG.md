@@ -43,6 +43,10 @@ on GitHub are its section here.
   if it isn't listed.
 
 ### Fixed
+- On someone else's PR, Claude's answers to your replies suggest the changes you ask for
+  instead of making them, as "suggest the changes" does.
+- dv doesn't paste a request into a Claude pane that's asking whether you trust the folder
+  (the first time Claude Code runs in one), as it already didn't for permission prompts.
 - `C` beside a pending review says so up front: GitHub refuses single comments then.
 - A refused review submission (e.g. approving your own PR) no longer leaves an empty pending
   review behind.
