@@ -587,6 +587,10 @@ fn claude_session_per_pr() {
     app.set_session(Some("11111111-2222-4333-8444-555555555555".into()));
     let saved = std::fs::read_to_string(crate::claude::session_path(&review)).unwrap();
     assert_eq!(saved, format!("{}\t11111111-2222-4333-8444-555555555555\n", app.root.display()));
+    // Claude may touch dv's directory in the main checkout's .git, even from a worktree.
+    // (review files are <git common dir>/dv/reviews/pr-N.json: two levels up is dv's directory)
+    let dv = review.parent().unwrap().parent().unwrap();
+    assert_eq!(app.claude_dirs(), ["--add-dir".to_owned(), dv.display().to_string()]);
     // …and forgetting it (a failed run) removes it, so the next run starts afresh.
     app.set_session(None);
     assert!(!crate::claude::session_path(&review).exists());

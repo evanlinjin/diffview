@@ -213,6 +213,7 @@ impl App {
                 .arg(&self.root)
                 .args(["--", "claude", &prompt])
                 .args(self.session_args())
+                .args(self.claude_dirs())
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
@@ -265,6 +266,15 @@ impl App {
         })
     }
 
+    /// `--add-dir` for dv's directory in the main checkout's `.git` (the review files and notes):
+    /// from a worktree it's outside where Claude runs, and Claude Code would refuse to touch it.
+    pub(super) fn claude_dirs(&self) -> Vec<String> {
+        match self.claude_path.as_ref().and_then(|p| p.parent()?.parent()) {
+            Some(dv) => vec!["--add-dir".into(), dv.display().to_string()],
+            None => vec![],
+        }
+    }
+
     /// The PR's Claude Code session in this checkout: resume it if Claude Code has it, else
     /// start it under a new id. The id is saved next to the review file (per checkout, as Claude
     /// Code keeps sessions per directory), so the next run continues the same conversation. One
@@ -301,6 +311,7 @@ impl App {
             cmd.arg("--fork-session");
         }
         let child = cmd
+            .args(self.claude_dirs())
             .arg("--allowedTools")
             .args(ALLOWED)
             .current_dir(&self.root)
@@ -326,9 +337,16 @@ impl App {
             Some(id) if !failed => self.set_session(Some(id.to_owned())),
             _ => self.set_session(None), // e.g. the session is gone: start afresh next time
         }
-        self.msg = match failed {
-            false => format!("Claude is done {label}"),
-            true => format!("Claude stopped ({st}) while {label}: see {} (and .err)", log.display()),
+        // A run can end "successfully" having been refused what it needed: say what.
+        let denied: Vec<String> = out.as_ref().and_then(|v| v["permission_denials"].as_array()).into_iter().flatten().map(|d| {
+            let input = &d["tool_input"];
+            let what = input["file_path"].as_str().or(input["command"].as_str()).unwrap_or("");
+            format!("{} {what}", d["tool_name"].as_str().unwrap_or("a tool"))
+        }).collect();
+        self.msg = match (failed, denied.first()) {
+            (false, None) => format!("Claude is done {label}"),
+            (false, Some(d)) => format!("Claude finished {label}, but was refused {d}{}: see {}", if denied.len() > 1 { " (and more)" } else { "" }, log.display()),
+            (true, _) => format!("Claude stopped ({st}) while {label}: see {} (and .err)", log.display()),
         };
         if std::mem::take(&mut self.claude_again) && !failed && self.waiting_replies() > 0 {
             self.msg = self.answer_now();
