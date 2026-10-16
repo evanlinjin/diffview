@@ -202,7 +202,11 @@ impl List {
         let half = (self.height() / 2).max(1);
         let g = std::mem::take(&mut self.pending_g);
         match k.code {
-            KeyCode::Enter => return self.shown().get(self.sel).map(|p| Do::Open(p.number)),
+            // A filter that's just a number opens that PR, listed or not (older, or closed).
+            KeyCode::Enter => {
+                let typed = self.query.trim().trim_start_matches('#').parse().ok();
+                return self.shown().get(self.sel).map(|p| p.number).or(typed).map(Do::Open);
+            }
             KeyCode::Esc if !self.query.is_empty() => (self.query.clear(), self.sel = 0).1,
             KeyCode::Char('q') | KeyCode::Esc => return Some(Do::Quit),
             KeyCode::Char('R') => return Some(Do::Refresh),
@@ -267,7 +271,7 @@ impl List {
         let tab = |name: String, on: bool| Span::styled(name, if on { hs.add_modifier(ratatui::style::Modifier::BOLD | ratatui::style::Modifier::UNDERLINED) } else { hs.patch(ui.stale) });
         let tabs = Line::from(vec![
             Span::styled(" ", hs),
-            tab(format!("open {open}"), !self.worktrees),
+            tab(format!("open {open}{}", if self.prs.len() >= gh::LIST_MAX { "+" } else { "" }), !self.worktrees),
             Span::styled("  ", hs),
             tab(format!("worktrees {}", self.local.len()), self.worktrees),
             Span::styled(format!("   by {} {arrow}  (Tab switches)", self.order.name()), hs.patch(ui.stale)),
@@ -294,8 +298,13 @@ impl List {
             .take(h)
             .flat_map(|(i, p)| card(p, &cx, i == sel, self.local.get(&p.number)))
             .collect();
-        if shown.is_empty() && self.worktrees && self.query.is_empty() {
-            let none = " no PR worktrees here yet: `dv N -w` (or dv list -w, then Enter) makes one";
+        let typed = self.query.trim().trim_start_matches('#').parse::<u64>().ok();
+        let none = match (self.worktrees, self.query.is_empty(), typed) {
+            (true, true, _) => " no PR worktrees here yet: `dv N -w` (or dv list -w, then Enter) makes one".into(),
+            (_, _, Some(n)) => format!(" #{n} isn't listed: Enter opens it anyway"),
+            _ => String::new(),
+        };
+        if shown.is_empty() {
             f.render_widget(Paragraph::new(none).style(ui.base.patch(ui.stale)), Rect { y: area.y + 2, height: 1, ..area });
         }
         f.render_widget(Paragraph::new(lines), Rect { y: area.y + 1, height: (h * 2) as u16, ..area });
@@ -551,6 +560,9 @@ fn filter_and_keys() {
     assert!(matches!(k(&mut l, KeyCode::Enter), Some(Do::Open(333))));
     k(&mut l, KeyCode::Esc); // clears the filter, doesn't quit
     assert_eq!(shown(&l), [1, 333, 22]);
+    assert_eq!(filter(&mut l, "#4567"), [] as [u64; 0]); // not listed (older, or closed): Enter opens it anyway
+    assert!(matches!(k(&mut l, KeyCode::Enter), Some(Do::Open(4567))));
+    l.query.clear();
     // Ordering keeps the selected PR selected.
     k(&mut l, KeyCode::Char('j')); // on 333
     k(&mut l, KeyCode::Char('o')); // created: all equal, so stable

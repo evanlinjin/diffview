@@ -216,9 +216,11 @@ fn listed(p: &Value) -> Listed {
     }
 }
 
-// ponytail: the 200 most recently updated open PRs; a search box if a repo has more worth scanning.
+/// How many open PRs `dv list` fetches (the most recently updated); `#N` opens any other.
+pub const LIST_MAX: usize = 1000;
+
 pub fn list() -> Result<Vec<Listed>> {
-    let v: Value = serde_json::from_str(&gh(&["pr", "list", "--limit", "200", "--json", LISTED])?)?;
+    let v: Value = serde_json::from_str(&gh(&["pr", "list", "--limit", &LIST_MAX.to_string(), "--json", LISTED])?)?;
     Ok(v.as_array().context("gh pr list")?.iter().map(listed).collect())
 }
 
@@ -237,7 +239,7 @@ pub fn listed_one(n: u64) -> Result<Listed> {
 
 /// CI check counts for the PRs `list` returns: number → (passed, failed, pending).
 pub fn list_checks() -> Result<std::collections::HashMap<u64, (usize, usize, usize)>> {
-    let v: Value = serde_json::from_str(&gh(&["pr", "list", "--limit", "200", "--json", "number,statusCheckRollup"])?)?;
+    let v: Value = serde_json::from_str(&gh(&["pr", "list", "--limit", &LIST_MAX.to_string(), "--json", "number,statusCheckRollup"])?)?;
     let prs = v.as_array().context("gh pr list")?;
     Ok(prs
         .iter()
