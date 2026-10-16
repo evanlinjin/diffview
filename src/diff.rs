@@ -27,7 +27,94 @@ pub struct FileDiff {
     pub path: String,
     pub old_path: String,
     pub meta: String,
+    /// What's shown: hunk headers and lines (`shown` over `full`).
     pub lines: Vec<Line>,
+    /// Every line of the file's diff (whole-file context), without hunk headers.
+    pub full: Vec<Line>,
+    /// Git's hunk headers at default context: (new start, function-context suffix).
+    pub headers: Vec<(u32, String)>,
+}
+
+impl FileDiff {
+    /// Split parsed output into `full` lines and `headers`.
+    pub fn prepare(&mut self) {
+        self.headers = self.lines.iter().filter(|l| l.kind == Kind::Hunk).filter_map(|l| header(&l.text)).collect();
+        self.full = self.lines.iter().filter(|l| l.kind != Kind::Hunk).cloned().collect();
+    }
+}
+
+fn header(h: &str) -> Option<(u32, String)> {
+    let new = h.split_whitespace().nth(2)?.get(1..)?.split(',').next()?.parse().ok()?;
+    Some((new, h.splitn(3, "@@").nth(2).unwrap_or("").to_owned()))
+}
+
+/// Load the diff with whole-file context (so any hunk can be expanded without asking git
+/// again), plus git's function-context hunk headers from a normal `ctx`-line diff.
+pub fn load(base: &str, ctx: u32) -> Result<Vec<FileDiff>> {
+    let mut files = diff(base, 1_000_000, &[])?;
+    let mut normal = diff(base, ctx, &[])?;
+    for f in &mut files {
+        f.prepare();
+        if let Some(g) = normal.iter_mut().find(|g| g.path == f.path) {
+            g.prepare();
+            f.headers = std::mem::take(&mut g.headers);
+        }
+    }
+    Ok(files)
+}
+
+/// Hunks over `full`: (first, last) changed-line index, grouped like git (changes at most
+/// 2·ctx lines apart share a hunk). A hunk is identified by its first index.
+pub fn hunks(full: &[Line], ctx: usize) -> Vec<(usize, usize)> {
+    let mut out: Vec<(usize, usize)> = vec![];
+    for i in (0..full.len()).filter(|&i| matches!(full[i].kind, Kind::Add | Kind::Del)) {
+        match out.last_mut() {
+            Some((_, last)) if i - *last - 1 <= 2 * ctx => *last = i,
+            _ => out.push((i, i)),
+        }
+    }
+    out
+}
+
+/// Shown ranges of `full`: each hunk ± (ctx + its extra), merged where they meet, each with
+/// the hunks it covers. `whole` shows the entire file.
+pub fn windows(full: &[Line], ctx: usize, extra: impl Fn(usize) -> i64, whole: bool) -> Vec<(usize, usize, Vec<usize>)> {
+    let hs = hunks(full, ctx);
+    if full.is_empty() {
+        return vec![];
+    }
+    if whole {
+        return vec![(0, full.len() - 1, hs.iter().map(|h| h.0).collect())];
+    }
+    let mut out: Vec<(usize, usize, Vec<usize>)> = vec![];
+    for (a, b) in hs {
+        let x = (ctx as i64 + extra(a)).max(0) as usize;
+        let (lo, hi) = (a.saturating_sub(x), (b + x).min(full.len() - 1));
+        match out.last_mut() {
+            Some(w) if lo <= w.1 + 1 => {
+                w.1 = w.1.max(hi);
+                w.2.push(a);
+            }
+            _ => out.push((lo, hi, vec![a])),
+        }
+    }
+    out
+}
+
+/// The lines to show for `windows`, each range under a `@@` header (with git's function context).
+pub fn shown(full: &[Line], windows: &[(usize, usize, Vec<usize>)], headers: &[(u32, String)]) -> Vec<Line> {
+    let mut out = vec![];
+    for (lo, hi, _) in windows {
+        let part = &full[*lo..=*hi];
+        let start = |f: fn(&Line) -> Option<u32>| part.iter().find_map(f).unwrap_or(0);
+        let count = |f: fn(&Line) -> Option<u32>| part.iter().filter(|l| f(l).is_some()).count() as u32;
+        let (os, oc, ns, nc) = (start(|l| l.old), count(|l| l.old), start(|l| l.new), count(|l| l.new));
+        let suffix = headers.iter().find(|(n, _)| (ns..=ns + nc).contains(n)).map_or("", |h| h.1.as_str());
+        let text = format!("@@ -{os},{oc} +{ns},{nc} @@{suffix}");
+        out.push(Line { kind: Kind::Hunk, old: None, new: None, text });
+        out.extend(part.iter().cloned());
+    }
+    out
 }
 
 pub fn git(args: &[&str]) -> Result<String> {
@@ -69,7 +156,7 @@ pub fn parse(s: &str) -> Vec<FileDiff> {
     for l in s.lines() {
         if let Some(rest) = l.strip_prefix("diff --git ") {
             let p = rest.rsplit_once(" b/").map_or(rest, |(_, b)| b).to_owned();
-            files.push(FileDiff { path: p.clone(), old_path: p, meta: String::new(), lines: vec![] });
+            files.push(FileDiff { path: p.clone(), old_path: p, meta: String::new(), lines: vec![], full: vec![], headers: vec![] });
             in_hunk = false;
             continue;
         }
@@ -155,4 +242,22 @@ fn parses() {
     assert_eq!(f[0].lines[3].text, "    new_call(x);");
     assert_eq!((f[1].old_path.as_str(), f[1].path.as_str()), ("old.rs", "new.rs"));
     assert_eq!(f[2].meta, "binary");
+}
+
+#[test]
+fn hunk_windows() {
+    // 30 lines, changes at 10 and 25: two hunks at 3 lines of context.
+    let full: Vec<Line> = (0..30u32)
+        .map(|i| {
+            let kind = if i == 10 || i == 25 { Kind::Add } else { Kind::Ctx };
+            Line { kind, old: (kind == Kind::Ctx).then_some(i + 1), new: Some(i + 1), text: String::new() }
+        })
+        .collect();
+    assert_eq!(hunks(&full, 3), [(10, 10), (25, 25)]);
+    assert_eq!(windows(&full, 3, |_| 0, false), [(7, 13, vec![10]), (22, 28, vec![25])]);
+    // Expanding the first hunk by 10 reaches the second: they merge.
+    assert_eq!(windows(&full, 3, |a| if a == 10 { 10 } else { 0 }, false), [(0, 28, vec![10, 25])]);
+    let lines = shown(&full, &windows(&full, 3, |_| 0, false), &[(8, " fn x".into())]);
+    assert_eq!(lines[0].text, "@@ -8,6 +8,7 @@ fn x");
+    assert_eq!(lines.len(), 2 + 7 + 7);
 }

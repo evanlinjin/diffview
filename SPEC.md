@@ -60,7 +60,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `/`, `Alt-n Alt-N`, `*` | search (smart case), next/prev match, search for the selection |
 | `y` / `Space y`, `Y` | copy text, copy as patch (via OSC 52) |
 | `Space c` | copy a `path:line` / `path:start-end` ref for the selection |
-| `+`/`=`, `-`, `Z` | file context ±10 lines, whole file |
+| `+`/`=`, `-`, `Z` | context ±10 lines around the hunk under the cursor (hunks merge as they meet), whole file |
 | `Tab` | collapse/expand file; on a comment, fold/unfold its thread |
 | `Shift-Tab` | fold all files, or unfold all if all are folded |
 | `Ctrl-w v` | toggle split view: old ‖ new side by side (removed runs pair with the added lines after them) |

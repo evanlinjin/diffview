@@ -46,7 +46,7 @@ SELECT & COPY
   Space c              copy file:line ref (e.g. src/a.rs:12-15)
 
 VIEW
-  + =  -               file context +10 / -10 lines
+  + =  -               hunk context +10 / -10 lines
   Z                    whole file
   Tab                  fold file / PR info / thread
   Shift-Tab            fold / unfold all files
@@ -75,7 +75,6 @@ const DEFAULT_CONTEXT: u32 = 3;
 const CTRL_W: char = '\u{17}';
 /// Files bigger than this aren't highlighted.
 const HL_MAX_BYTES: usize = 1 << 20;
-const FULL: u32 = 1_000_000;
 /// `Row::file` for the PR info section at the top.
 const INFO: usize = usize::MAX - 1;
 
@@ -156,7 +155,10 @@ enum Req {
 pub struct App {
     base: String,
     files: Vec<FileDiff>,
-    context: HashMap<String, u32>,
+    /// Extra context lines per hunk: (path, hunk's first full index) → lines (can be negative).
+    extra: HashMap<(String, usize), i64>,
+    /// Files shown whole (`Z`).
+    whole: HashSet<String>,
     collapsed: HashSet<String>,
     rows: Vec<Row>,
     anchor: Pos,
@@ -214,7 +216,7 @@ pub struct App {
 
 impl App {
     pub fn new(base: String, pr: Option<Pr>) -> Result<Self> {
-        let files = diff::diff(&base, DEFAULT_CONTEXT, &[])?;
+        let files = diff::load(&base, DEFAULT_CONTEXT)?;
         let mut app = Self::with(base, files);
         let theme = Theme::load();
         (app.hl, app.ui) = (Highlighter::new(&theme), theme.ui());
@@ -235,7 +237,8 @@ impl App {
         let mut app = App {
             base,
             files,
-            context: HashMap::new(),
+            extra: HashMap::new(),
+            whole: HashSet::new(),
             collapsed: HashSet::new(),
             rows: vec![],
             anchor: Pos::default(),
@@ -280,6 +283,7 @@ impl App {
             labels: vec![],
             label_first: None,
         };
+        app.shape();
         app.build();
         app
     }
@@ -482,17 +486,23 @@ impl App {
         if threads {
             self.load_threads();
         }
-        let mut files = diff::diff(&self.base, DEFAULT_CONTEXT, &[])?;
-        for f in &mut files {
-            if let Some(&n) = self.context.get(&f.path) {
-                if let Some(g) = diff::diff(&self.base, n, &[&f.old_path, &f.path])?.pop() {
-                    *f = g;
-                }
-            }
-        }
-        self.files = files;
+        self.files = diff::load(&self.base, DEFAULT_CONTEXT)?;
+        self.shape();
         self.rebuild(keep);
         Ok(())
+    }
+
+    /// Recompute each file's shown lines from its full diff and the per-hunk context.
+    fn shape(&mut self) {
+        let (extra, whole) = (&self.extra, &self.whole);
+        for f in &mut self.files {
+            if f.full.is_empty() {
+                f.prepare(); // parsed directly (tests)
+            }
+            let e = |a| *extra.get(&(f.path.clone(), a)).unwrap_or(&0);
+            let w = diff::windows(&f.full, DEFAULT_CONTEXT as usize, e, whole.contains(&f.path));
+            f.lines = diff::shown(&f.full, &w, &f.headers);
+        }
     }
 
     /// What the cursor is on, independent of row indices: (file, old, new) and thread root id.
@@ -1043,13 +1053,43 @@ impl App {
         self.msg = format!("no match: {}", self.search);
     }
 
-    fn set_context(&mut self, f: impl Fn(u32) -> u32) {
-        let Some(p) = self.file_path().map(str::to_owned) else { return };
-        let cur = *self.context.get(&p).unwrap_or(&DEFAULT_CONTEXT);
-        self.context.insert(p, f(cur));
-        if let Err(e) = self.reload(false) {
-            self.msg = e.to_string();
+    /// `+`/`-`: more or less context around the hunk under the cursor (on a header: the next one).
+    fn expand(&mut self, d: i64) {
+        let row = &self.rows[self.head.row];
+        let Some(f) = self.files.get(row.file) else { return };
+        let path = f.path.clone();
+        if d < 0 && self.whole.remove(&path) {
+            return self.reshape();
         }
+        let code = self.rows[self.head.row..]
+            .iter()
+            .take_while(|r| r.file == row.file)
+            .find(|r| matches!(r.line.kind, Kind::Ctx | Kind::Add | Kind::Del));
+        let Some(idx) = code.and_then(|c| f.full.iter().position(|x| x.old == c.line.old && x.new == c.line.new)) else {
+            return;
+        };
+        let e = |a| *self.extra.get(&(path.clone(), a)).unwrap_or(&0);
+        let ws = diff::windows(&f.full, DEFAULT_CONTEXT as usize, e, self.whole.contains(&path));
+        let Some((_, _, hunks)) = ws.into_iter().find(|w| w.0 <= idx && idx <= w.1) else { return };
+        for a in hunks {
+            let x = self.extra.entry((path.clone(), a)).or_insert(0);
+            *x = (*x + d).max(-(DEFAULT_CONTEXT as i64));
+        }
+        self.reshape();
+    }
+
+    fn toggle_whole(&mut self) {
+        let Some(p) = self.file_path().map(str::to_owned) else { return };
+        if !self.whole.remove(&p) {
+            self.whole.insert(p);
+        }
+        self.reshape();
+    }
+
+    fn reshape(&mut self) {
+        let keep = self.cursor_key();
+        self.shape();
+        self.rebuild(keep);
     }
 
     fn toggle_collapse(&mut self) {
@@ -1431,9 +1471,9 @@ impl App {
                 self.search = self.selection_text(false).trim_end_matches('\n').to_owned();
                 self.msg = format!("search: {}", self.search);
             }
-            '+' | '=' => self.set_context(|c| c.saturating_add(10)),
-            '-' => self.set_context(|c| if c >= FULL { DEFAULT_CONTEXT } else { c.saturating_sub(10) }),
-            'Z' => self.set_context(|c| if c >= FULL { DEFAULT_CONTEXT } else { FULL }),
+            '+' | '=' => self.expand(10),
+            '-' => self.expand(-10),
+            'Z' => self.toggle_whole(),
             '?' => {
                 let lines = HELP.trim_matches('\n').lines().map(|l| Line::from(l.to_owned())).collect();
                 self.popup = Some((" keys  j/k scroll · any other key closes ", lines, 0));
