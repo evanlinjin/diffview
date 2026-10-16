@@ -301,6 +301,20 @@ fn quote_into_conversation() {
     assert_eq!(quoted(&mut app, author), "> Looks good\n> but fix CI\n\n"); // the author line quotes its comment
     let heading = app.rows.iter().position(|r| r.line.text == "conversation (1)").unwrap();
     assert_eq!(quoted(&mut app, heading), ""); // other PR lines: an empty conversation comment
+    // `c` has nothing to queue in the PR section, and says so without checking git state.
+    app.goto(body, 0);
+    app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+    assert!(app.action.is_none());
+    assert_eq!(app.msg, "select code lines to comment on");
+    // A rebuild (as after posting) keeps the cursor on the same PR row.
+    let keep = app.cursor_key();
+    app.rebuild(keep);
+    assert_eq!(app.head.row, body);
+    // An empty description shows GitHub's placeholder, which isn't quoted.
+    app.info = vec![line(true, false, "description"), line(false, true, "")];
+    app.build();
+    let ph = app.rows.iter().position(|r| r.line.text == "(no description)").unwrap();
+    assert_eq!(quoted(&mut app, ph), "");
     // Outside the PR section, `C` still posts a line comment.
     let code = app.rows.iter().position(|r| r.line.kind == Kind::Add).unwrap();
     app.goto(code, 0);

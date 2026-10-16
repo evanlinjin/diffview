@@ -4,6 +4,7 @@ use serde_json::{json, Value};
 use std::io::Write;
 use std::process::{Command, Stdio};
 
+#[derive(Clone)]
 pub struct Pr {
     pub number: u64,
     /// GraphQL node id; filled in by `threads`.
@@ -300,6 +301,11 @@ fn parse_thread(t: &Value) -> Thread {
     }
 }
 
+/// POST `body` to a REST endpoint.
+fn post(ep: &str, body: &Value) -> Result<()> {
+    gh_input(&["api", "-X", "POST", ep, "--input", "-"], Some(&body.to_string())).map(drop)
+}
+
 /// A single comment, posted immediately (outside any review).
 pub fn comment(pr: &Pr, a: &Anchor, body: &str) -> Result<()> {
     let ep = format!("repos/{{owner}}/{{repo}}/pulls/{}/comments", pr.number);
@@ -307,19 +313,19 @@ pub fn comment(pr: &Pr, a: &Anchor, body: &str) -> Result<()> {
     if let Some((l, left)) = a.start {
         (v["start_line"], v["start_side"]) = (json!(l), json!(side(left)));
     }
-    gh_input(&["api", "-X", "POST", &ep, "--input", "-"], Some(&v.to_string())).map(drop)
+    post(&ep, &v)
 }
 
 /// A comment on the PR conversation (not tied to a line or a review).
 pub fn conversation_comment(pr: &Pr, body: &str) -> Result<()> {
     let ep = format!("repos/{{owner}}/{{repo}}/issues/{}/comments", pr.number);
-    gh_input(&["api", "-X", "POST", &ep, "--input", "-"], Some(&json!({ "body": body }).to_string())).map(drop)
+    post(&ep, &json!({ "body": body }))
 }
 
 /// A single reply, posted immediately.
 pub fn reply(pr: &Pr, comment_id: u64, body: &str) -> Result<()> {
     let ep = format!("repos/{{owner}}/{{repo}}/pulls/{}/comments/{comment_id}/replies", pr.number);
-    gh_input(&["api", "-X", "POST", &ep, "--input", "-"], Some(&json!({ "body": body }).to_string())).map(drop)
+    post(&ep, &json!({ "body": body }))
 }
 
 /// How to color part of a PR info line.
@@ -480,7 +486,7 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
     };
     out.push(heading("description".into()));
     let body = s(&v["body"]).replace("\r\n", "\n");
-    out.push(markdown(if body.trim().is_empty() { "_(no description)_".into() } else { body }));
+    out.push(markdown(body)); // empty: the view shows a placeholder
 
     let comments = list(&v["comments"]);
     out.push(heading(format!("conversation ({})", comments.len())));

@@ -72,8 +72,7 @@ RUST-ANALYZER
 
 PR
   c                    comment on selection / reply on a thread (pending review)
-  C                    same, but post immediately; in the PR description/conversation: a new
-                       conversation comment quoting the comment under the cursor
+  C                    same, but post now; on PR text: quote it in a new conversation comment
   s                    suggest a change to the selected lines (pending review)
   S                    submit review: comment / approve / request changes, or discard
   Space r              resolve / unresolve thread
@@ -117,7 +116,26 @@ struct Row {
     info: Option<usize>,
 }
 
-type CursorKey = (Option<(String, Option<u32>, Option<u32>)>, Option<u64>);
+impl Row {
+    fn new(file: usize, line: DLine) -> Row {
+        Row { file, line, thread: None, syn: vec![], links: vec![], info: None }
+    }
+
+    /// A row of plain text (headers, comments, PR info).
+    fn text(file: usize, kind: Kind, text: String) -> Row {
+        Row::new(file, DLine { kind, old: None, new: None, text })
+    }
+}
+
+/// What the cursor is on, independent of row indices.
+struct CursorKey {
+    /// (file, old, new) for a diff row.
+    line: Option<(String, Option<u32>, Option<u32>)>,
+    /// Root comment id for a thread row.
+    thread: Option<u64>,
+    /// Row index for a PR info row (the section is at the top and only grows at its end).
+    info: Option<usize>,
+}
 
 /// A screen row: full width, or a side-by-side pair (old line, new line) in split view.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -387,26 +405,29 @@ impl App {
                 };
                 let kind = if prefill.is_empty() { "comment" } else { "suggestion" };
                 let what = format!("{kind} on {}:{range}", anchor.path);
+                let pr = self.pr.clone().context("no PR")?; // before the editor, so nothing written is lost
                 let Some(body) = compose_with(&what, false, &prefill)? else { return Ok(format!("{kind} cancelled")) };
                 let res = match review {
                     true => self.ensure_review().and_then(|r| gh::add_thread(&r, &anchor, &body)),
-                    false => gh::comment(self.pr.as_ref().context("no PR")?, &anchor, &body),
+                    false => gh::comment(&pr, &anchor, &body),
                 };
                 keep_on_error(res, &body).map(|_| posted_msg(review))
             }
             Action::Reply { thread, comment, review, quote } => {
+                let pr = self.pr.clone().context("no PR")?;
                 let Some(body) = compose_with("reply", false, &quote)? else { return Ok("reply cancelled".into()) };
                 let res = match review {
                     true => self.ensure_review().and_then(|r| gh::add_reply(&r, &thread, &body)),
-                    false => gh::reply(self.pr.as_ref().context("no PR")?, comment, &body),
+                    false => gh::reply(&pr, comment, &body),
                 };
                 keep_on_error(res, &body).map(|_| posted_msg(review))
             }
             Action::Converse { quote } => {
+                let pr = self.pr.clone().context("no PR")?;
                 let Some(body) = compose_with("comment on the PR conversation", false, &quote)? else {
                     return Ok("comment cancelled".into());
                 };
-                keep_on_error(gh::conversation_comment(self.pr.as_ref().context("no PR")?, &body), &body)
+                keep_on_error(gh::conversation_comment(&pr, &body), &body)
                     .map(|_| "comment posted to the conversation".into())
             }
             Action::Edit { comment, body: old, author } => {
@@ -454,19 +475,23 @@ impl App {
         }
     }
 
-    /// What the cursor is on, independent of row indices: (file, old, new) and thread root id.
     fn cursor_key(&self) -> CursorKey {
         let r = &self.rows[self.head.row];
-        let line = self.files.get(r.file).map(|f| (f.path.clone(), r.line.old, r.line.new));
-        (line, r.thread.and_then(|t| self.root_id(t)))
+        CursorKey {
+            line: self.files.get(r.file).map(|f| (f.path.clone(), r.line.old, r.line.new)),
+            thread: r.thread.and_then(|t| self.root_id(t)),
+            info: (r.file == INFO).then_some(self.head.row),
+        }
     }
 
-    /// Rebuild rows, keeping the cursor on the same code line or thread.
-    fn rebuild(&mut self, (keep, keep_thread): CursorKey) {
+    /// Rebuild rows, keeping the cursor on the same code line, thread or PR info row.
+    fn rebuild(&mut self, keep: CursorKey) {
         self.build();
-        let row = keep_thread
+        let row = keep
+            .thread
             .and_then(|id| self.rows.iter().position(|r| r.thread.and_then(|t| self.root_id(t)) == Some(id)))
-            .or_else(|| keep.map(|(p, old, new)| self.locate(&p, old, new)))
+            .or_else(|| keep.line.map(|(p, old, new)| self.locate(&p, old, new)))
+            .or(keep.info.filter(|&r| self.rows.get(r).is_some_and(|r| r.file == INFO)))
             .unwrap_or(0);
         self.select = false;
         self.goto(row, self.head.col);
@@ -476,7 +501,7 @@ impl App {
         self.jumps.clear();
         let mut rows = vec![];
         if let Some(pr) = &self.pr {
-            let mk = |kind, text| Row { file: INFO, line: DLine { kind, old: None, new: None, text }, thread: None, syn: vec![], links: vec![], info: None };
+            let mk = |kind, text| Row::text(INFO, kind, text);
             rows.push(mk(Kind::File, format!("PR #{} · {}", pr.number, pr.title)));
             if !self.info_collapsed {
                 for (ii, l) in self.info.iter().enumerate() {
@@ -486,6 +511,8 @@ impl App {
                             let body = self.info.get(ii + 1).filter(|n| n.md).map(|_| ii + 1);
                             rows.push(Row { info: body, ..mk(Kind::Thread, l.text.clone()) });
                         }
+                        // GitHub shows a placeholder for an empty description; there's nothing to quote.
+                        (false, true) if l.text.trim().is_empty() => rows.extend(self.md_rows("_(no description)_", mk)),
                         (false, true) => rows.extend(self.md_rows(&l.text, mk).into_iter().map(|r| Row { info: Some(ii), ..r })),
                         (false, false) => rows.push(self.info_row(l, mk(Kind::Comment, l.text.clone()))),
                     }
@@ -515,7 +542,7 @@ impl App {
             ];
             let text: String = parts.iter().map(|p| p.0.as_str()).collect();
             let syn = parts.iter().flat_map(|(t, st)| t.chars().map(move |_| *st)).collect();
-            rows.push(Row { file: i, line: DLine { kind: Kind::File, old: None, new: None, text }, thread: None, syn, links: vec![], info: None });
+            rows.push(Row { syn, ..Row::text(i, Kind::File, text) });
             if self.collapsed.contains(&f.path) {
                 continue;
             }
@@ -528,15 +555,14 @@ impl App {
                 rows.extend(self.thread_rows(t, i));
             }
             for (li, l) in f.lines.iter().enumerate() {
-                rows.push(Row { file: i, line: l.clone(), thread: None, syn: vec![], links: vec![], info: None });
+                rows.push(Row::new(i, l.clone()));
                 for &(t, _) in placed.iter().filter(|p| p.1 == Some(li)) {
                     rows.extend(self.thread_rows(t, i));
                 }
             }
         }
         if rows.is_empty() {
-            let text = "(no changes)".into();
-            rows.push(Row { file: usize::MAX, line: DLine { kind: Kind::Hunk, old: None, new: None, text }, thread: None, syn: vec![], links: vec![], info: None });
+            rows.push(Row::text(usize::MAX, Kind::Hunk, "(no changes)".into()));
         }
         self.rows = rows;
         self.emph = self.word_spans();
@@ -687,7 +713,7 @@ impl App {
         let tag_text: String = tags.iter().map(|t| t.0).collect();
         let tag_syn: Vec<Option<Style>> =
             tags.iter().flat_map(|&(s, st)| s.chars().map(move |_| Some(st))).collect();
-        let mk = |kind, text| Row { file, line: DLine { kind, old: None, new: None, text }, thread: Some(ti), syn: vec![], links: vec![], info: None };
+        let mk = |kind, text| Row { thread: Some(ti), ..Row::text(file, kind, text) };
         let mut out = vec![];
         for (k, c) in t.comments.iter().enumerate() {
             if k == 0 {
@@ -730,12 +756,15 @@ impl App {
     fn toggle_thread(&mut self) {
         let Some(ti) = self.rows[self.head.row].thread else { return };
         let Some(id) = self.root_id(ti) else { return };
-        if !self.toggled.remove(&id) {
-            self.toggled.insert(id);
-        }
+        flip(&mut self.toggled, id);
+        self.rebuild_at(|r| r.thread == Some(ti));
+    }
+
+    /// Rebuild rows and put the cursor on the first row matching `at` (else the top).
+    fn rebuild_at(&mut self, at: impl Fn(&Row) -> bool) {
         self.build();
         self.select = false;
-        let r = self.rows.iter().position(|r| r.thread == Some(ti)).unwrap_or(0);
+        let r = self.rows.iter().position(at).unwrap_or(0);
         self.goto(r, 0);
     }
 
@@ -790,9 +819,7 @@ impl App {
 
     fn toggle_whole(&mut self) {
         let Some(p) = self.file_path().map(str::to_owned) else { return };
-        if !self.whole.remove(&p) {
-            self.whole.insert(p);
-        }
+        flip(&mut self.whole, p);
         self.reshape();
     }
 
@@ -806,18 +833,11 @@ impl App {
         let fi = self.rows[self.head.row].file;
         if fi == INFO {
             self.info_collapsed = !self.info_collapsed;
-            self.build();
-            self.select = false;
-            return self.goto(0, 0);
+            return self.rebuild_at(|_| true);
         }
         let Some(p) = self.files.get(fi).map(|f| f.path.clone()) else { return };
-        if !self.collapsed.remove(&p) {
-            self.collapsed.insert(p);
-        }
-        self.build();
-        self.select = false;
-        let r = self.rows.iter().position(|r| r.file == fi).unwrap_or(0);
-        self.goto(r, 0);
+        flip(&mut self.collapsed, p);
+        self.rebuild_at(|r| r.file == fi);
     }
 
     /// Fold every file if any is unfolded, else unfold them all. The cursor goes to its file's header.
@@ -828,10 +848,7 @@ impl App {
         } else {
             self.collapsed.clear();
         }
-        self.build();
-        self.select = false;
-        let r = self.rows.iter().position(|r| r.file == fi).unwrap_or(0);
-        self.goto(r, 0);
+        self.rebuild_at(|r| r.file == fi);
     }
 
     fn open_target(&self) -> Option<String> {
@@ -972,6 +989,13 @@ fn wrap(text: &str, w: usize) -> Vec<String> {
 }
 
 /// `text` as a markdown quote (`> ` lines), followed by a blank line to write under.
+/// Add `x` to `s`, or remove it if it's there.
+fn flip<T: std::hash::Hash + Eq>(s: &mut HashSet<T>, x: T) {
+    if !s.remove(&x) {
+        s.insert(x);
+    }
+}
+
 fn quote(text: &str) -> String {
     let q: Vec<String> = text.lines().map(|l| format!("> {l}").trim_end().to_owned()).collect();
     format!("{}\n\n", q.join("\n"))

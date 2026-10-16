@@ -15,6 +15,7 @@ impl App {
     }
 
     pub(super) fn run_job(&mut self, job: Job) {
+        let mut viewed = None;
         let res = match job {
             Job::Refresh => Ok("refreshed"),
             Job::Resolve(t, on) => gh::set_resolved(&t, on).map(|_| if on { "thread resolved" } else { "thread unresolved" }),
@@ -29,29 +30,21 @@ impl App {
                 if res.is_ok() && !on {
                     self.collapsed.remove(&path);
                 }
-                let res = res.map(|_| if on { "marked as viewed" } else { "unmarked as viewed" });
-                self.hl_cache.retain(|k, _| !k.1);
-                let reload = self.reload(true);
-                // Marked: on to the next file, like ticking "Viewed" on GitHub.
-                let fi = self.files.iter().position(|f| f.path == path);
-                let next = fi.and_then(|fi| {
-                    let own = self.rows.iter().position(|r| r.file == fi && r.line.kind == Kind::File)?;
-                    let later = self.rows[own + 1..].iter().position(|r| r.line.kind == Kind::File).map(|i| own + 1 + i);
-                    Some(if on { later.unwrap_or(own) } else { own })
-                });
-                if let Some(r) = next {
-                    self.select = false;
-                    self.goto(r, 0);
-                }
-                self.msg = match (res, reload) {
-                    (Err(e), _) | (_, Err(e)) => format!("{e:#}"),
-                    (Ok(m), Ok(())) => m.into(),
-                };
-                return;
+                viewed = Some((path, on));
+                res.map(|_| if on { "marked as viewed" } else { "unmarked as viewed" })
             }
         };
         self.hl_cache.retain(|k, _| !k.1);
         let reload = self.reload(true);
+        // Viewed: to the file's header, or when marked, on to the next file (like on GitHub).
+        if let Some((path, on)) = viewed
+            && let Some(fi) = self.files.iter().position(|f| f.path == path)
+            && let Some(own) = self.rows.iter().position(|r| r.file == fi && r.line.kind == Kind::File)
+        {
+            let later = self.rows[own + 1..].iter().position(|r| r.line.kind == Kind::File).map(|i| own + 1 + i);
+            self.select = false;
+            self.goto(if on { later.unwrap_or(own) } else { own }, 0);
+        }
         self.msg = match (res, reload) {
             (Err(e), _) | (_, Err(e)) => format!("{e:#}"),
             (Ok(m), Ok(())) => m.into(),
@@ -259,9 +252,9 @@ impl App {
         self.collapsed.remove(&t.path.clone());
         if !self.thread_open(ti)
             && let Some(id) = self.root_id(ti)
-                && !self.toggled.remove(&id) {
-                    self.toggled.insert(id);
-                }
+        {
+            flip(&mut self.toggled, id);
+        }
         self.build();
         // Each comment starts with an author row; outdated threads' code rows aren't author rows.
         let row = self.rows.iter().enumerate().filter(|(_, r)| r.thread == Some(ti) && r.line.kind == Kind::Thread).nth(ci);
@@ -293,11 +286,15 @@ impl App {
         })
     }
 
-    /// `c`/`C`: reply when on a thread, else comment on the selected lines.
+    /// `c`/`C`: reply when on a thread, else comment on the selected lines. In the PR section
+    /// `C` quotes into a new conversation comment; `c` has nothing to queue there (yet).
     pub(super) fn comment_or_reply(&mut self, review: bool) {
-        match self.rows[self.head.row].thread {
-            Some(_) => self.start_reply(review),
-            None => self.start_comment(review),
+        let row = &self.rows[self.head.row];
+        match (row.file == INFO, row.thread) {
+            (true, _) if review => self.msg = "select code lines to comment on".into(),
+            (true, _) => self.start_conversation_comment(),
+            (false, Some(_)) => self.start_reply(review),
+            (false, None) => self.start_comment(review),
         }
     }
 
@@ -359,12 +356,8 @@ impl App {
             return self.msg = "no PR for this branch".into();
         }
         let row = &self.rows[self.head.row];
-        let body = match (row.thread, row.info) {
-            (Some(t), _) => self.comment_under_cursor(t).map(|c| c.body.clone()),
-            (None, Some(i)) => self.info.get(i).map(|l| l.text.clone()).filter(|t| !t.starts_with("_(no description)")),
-            _ => None,
-        };
-        self.action = Some(Action::Converse { quote: body.map_or(String::new(), |b| quote(&b)) });
+        let quote = row.info.and_then(|i| self.info.get(i)).map_or(String::new(), |l| quote(&l.text));
+        self.action = Some(Action::Converse { quote });
     }
 
     pub(super) fn start_reply(&mut self, review: bool) {

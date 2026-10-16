@@ -189,8 +189,6 @@ impl App {
             }
             'c' => self.comment_or_reply(true),
             's' => self.start_suggest(),
-            // In the PR description/conversation: a new conversation comment quoting it.
-            'C' if self.rows[self.head.row].file == INFO => self.start_conversation_comment(),
             'C' => self.comment_or_reply(false),
             'r' => self.start_reply(true),
             'S' => self.review_menu(),
