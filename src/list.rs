@@ -191,6 +191,10 @@ impl List {
         let pos = if shown.is_empty() { "0 / 0 ".into() } else { format!("{} / {} ", sel + 1, shown.len()) };
         f.render_widget(Paragraph::new(pos).alignment(Alignment::Right).style(hs), head);
 
+        // The base most PRs target goes without saying; others show as "base ← branch".
+        let mut bases: HashMap<&str, usize> = HashMap::new();
+        self.prs.iter().for_each(|p| *bases.entry(p.base.as_str()).or_default() += 1);
+        let usual = bases.into_iter().max_by_key(|b| b.1).map(|b| b.0.to_owned()).unwrap_or_default();
         let num_w = shown.iter().map(|p| p.number.to_string().len()).max().unwrap_or(1) + 1;
         let width = area.width as usize;
         let lines: Vec<Line> = shown
@@ -198,7 +202,7 @@ impl List {
             .enumerate()
             .skip(self.top)
             .take(h)
-            .flat_map(|(i, p)| card(p, ui, i == sel, num_w, width, self.checks.is_some()))
+            .flat_map(|(i, p)| card(p, ui, i == sel, num_w, width, self.checks.is_some(), &usual))
             .collect();
         f.render_widget(Paragraph::new(lines), Rect { y: area.y + 1, height: (h * 2) as u16, ..area });
 
@@ -244,7 +248,7 @@ enum Do {
 
 /// A PR as two lines: number, title, draft badge and age; then who, CI, review, size, labels
 /// and branches, most useful first so a narrow screen cuts the least useful.
-fn card(p: &Listed, ui: &Ui, selected: bool, num_w: usize, width: usize, checks_loading: bool) -> [Line<'static>; 2] {
+fn card(p: &Listed, ui: &Ui, selected: bool, num_w: usize, width: usize, checks_loading: bool, usual: &str) -> [Line<'static>; 2] {
     let row = if selected { ui.base.patch(ui.menu_selected) } else { ui.base };
     let dim = row.patch(ui.stale);
     let sp = |t: String, st| Span::styled(t, st);
@@ -289,7 +293,11 @@ fn card(p: &Listed, ui: &Ui, selected: bool, num_w: usize, width: usize, checks_
     for (name, color) in &p.labels {
         bottom.extend([sp(" ".into(), row), sp(format!(" {name} "), crate::view::chip(color))]);
     }
-    bottom.extend([sep(), sp(format!("{} ← {}", p.base, cut(&p.branch, 32)), dim)]);
+    let branch = match p.base == usual {
+        true => cut(&p.branch, 32),
+        false => format!("{} ← {}", p.base, cut(&p.branch, 32)),
+    };
+    bottom.extend([sep(), sp(branch, dim)]);
     [Line::from(top).style(row), Line::from(bottom).style(row)]
 }
 

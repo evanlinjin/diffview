@@ -130,6 +130,9 @@ impl App {
                 (false, _) => "c reply (review) · C reply now · Space r resolve · Space e edit · Tab fold",
             });
         }
+        if row.file == INFO && row.line.kind == Kind::File && !row.links.is_empty() {
+            return Some("gf open the PR on GitHub · Tab fold");
+        }
         (row.file == INFO && row.info.is_some()).then_some("C quote in a new conversation comment · Tab fold")
     }
 
@@ -227,7 +230,9 @@ impl App {
         f.render_widget(Paragraph::new(lines), Rect { height: h as u16, ..area });
 
         // Link tooltip: while the cursor is on a link, show its URL just under (or over) it.
-        if let (Some(url), None, None) = (self.link_at_cursor(), &self.picker, &self.popup) {
+        // Not on the PR header (where dv starts): the status hint says it links there.
+        let header = self.rows[self.head.row].line.kind == Kind::File;
+        if let (Some(url), None, None, false) = (self.link_at_cursor(), &self.picker, &self.popup, header) {
             let y = (hd - self.top) as u16;
             let x = ((relw + gw + self.head.col.saturating_sub(self.left)) as u16).min(area.width.saturating_sub(20));
             let preview = if gh::issue_ref(url).is_some() { "Space k preview · " } else { "" };
@@ -476,6 +481,7 @@ impl App {
                     Some(BoxPart::Body) => "│  ",
                     Some(BoxPart::Bottom) => "╰──",
                     None if first => " ▸ ",
+                    None if row.file == INFO => "   ", // PR facts: the boxes below set them apart
                     None => " ┃ ",
                 };
                 // No fill: the box's border sets comments apart. The gutter keeps the page background

@@ -569,7 +569,10 @@ impl App {
         };
         if let Some(title) = title {
             let mk = |kind, text| Row::text(INFO, kind, text);
-            rows.push(mk(Kind::File, title));
+            // The header links to the PR (gf / Enter), instead of a URL line of its own.
+            let url = self.pr.as_ref().map(|p| p.url.clone()).filter(|u| !u.is_empty());
+            let links = url.map(|u| vec![(0, title.chars().count(), u)]).unwrap_or_default();
+            rows.push(Row { links, ..mk(Kind::File, title) });
             if !self.info_collapsed {
                 for (ii, l) in self.info.iter().enumerate() {
                     match (l.heading, l.md) {
@@ -812,7 +815,10 @@ impl App {
             if k == 0 {
                 let mut head = format!("{tag_text}{}{}{range}", c.author, when(c));
                 if !open {
-                    head += &format!(" · {} comment(s), Tab to expand", t.comments.len());
+                    head += &match t.comments.len() {
+                        1 => " · 1 comment".to_owned(),
+                        n => format!(" · {n} comments"),
+                    };
                 }
                 let syn = [tag_syn.clone(), author_syn(c)].concat();
                 out.push(Row { syn, ..mk(Kind::Thread, head) });

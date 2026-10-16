@@ -521,10 +521,6 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         .put(&format!("−{}", v["deletions"]), Some(Mark::Fail))
         .put(&format!(" in {} files", v["changedFiles"]), None);
     out.push(l);
-    let url = s(&v["url"]);
-    let mut l = InfoLine::new(false, false);
-    l.put(&url, Some(Mark::Link(url.clone())));
-    out.push(l);
 
     let labels = list(&v["labels"]);
     if !labels.is_empty() {
@@ -536,29 +532,33 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         out.push(l);
     }
 
-    let decision = s(&v["reviewDecision"]).to_lowercase().replace('_', " ");
-    let reviews: Vec<String> = list(&v["latestReviews"])
-        .iter()
-        .filter(|r| r["state"] == "APPROVED" || r["state"] == "CHANGES_REQUESTED")
-        .map(|r| format!("@{} {}", s(&r["author"]["login"]), s(&r["state"]).to_lowercase().replace('_', " ")))
-        .collect();
+    // Who did what, once: "✗ changes requested by @bo · ✓ approved by @amy · waiting on @cy".
+    let by = |state: &str| -> Vec<String> {
+        let reviews = list(&v["latestReviews"]);
+        reviews.iter().filter(|r| r["state"] == state).map(|r| format!("@{}", s(&r["author"]["login"]))).collect()
+    };
     let requested: Vec<String> = list(&v["reviewRequests"])
         .iter()
         .map(|r| format!("@{}", r["login"].as_str().or(r["name"].as_str()).unwrap_or("?")))
         .collect();
-    let mark = match decision.as_str() {
-        "approved" => Some(Mark::Pass),
-        "changes requested" => Some(Mark::Fail),
-        "review required" => Some(Mark::Pending),
-        _ => None,
-    };
+    let groups = [
+        ("✗ changes requested by ", by("CHANGES_REQUESTED"), Some(Mark::Fail)),
+        ("✓ approved by ", by("APPROVED"), Some(Mark::Pass)),
+        ("waiting on ", requested, Some(Mark::Pending)),
+    ];
     let mut l = InfoLine::new(false, false);
-    l.put("review: ", None).put(if decision.is_empty() { "none" } else { &decision }, mark);
-    if !reviews.is_empty() {
-        l.put(&format!(" · {}", reviews.join(", ")), None);
+    l.put("review: ", None);
+    let mut any = false;
+    for (what, who, mark) in groups.into_iter().filter(|g| !g.1.is_empty()) {
+        if any {
+            l.put(" · ", None);
+        }
+        l.put(&format!("{what}{}", who.join(", ")), mark);
+        any = true;
     }
-    if !requested.is_empty() {
-        l.put(&format!(" · requested {}", requested.join(", ")), None);
+    if !any {
+        let decision = s(&v["reviewDecision"]).to_lowercase().replace('_', " ");
+        l.put(if decision.is_empty() { "none yet" } else { &decision }, Some(Mark::Dim));
     }
     out.push(l);
 
@@ -568,14 +568,16 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
     } else {
         let count = |m| checks.iter().filter(|c| verdict(c) == m).count();
         let (pass, fail, pending) = (count('✓'), count('✗'), count('●'));
-        let or_dim = |n: usize, m: Mark| Some(if n > 0 { m } else { Mark::Dim });
         let mut l = InfoLine::new(false, false);
-        l.put("checks: ", None)
-            .put(&format!("✓ {pass} passed"), or_dim(pass, Mark::Pass))
-            .put(" · ", None)
-            .put(&format!("✗ {fail} failed"), or_dim(fail, Mark::Fail))
-            .put(" · ", None)
-            .put(&format!("● {pending} pending"), or_dim(pending, Mark::Pending));
+        l.put("checks: ", None);
+        // Only the counts that aren't zero.
+        let parts = [(pass, "✓", "passed", Mark::Pass), (fail, "✗", "failed", Mark::Fail), (pending, "●", "pending", Mark::Pending)];
+        for (k, (n, sym, what, m)) in parts.into_iter().filter(|p| p.0 > 0).enumerate() {
+            if k > 0 {
+                l.put(" · ", None);
+            }
+            l.put(&format!("{sym} {n} {what}"), Some(m));
+        }
         out.push(l);
         for c in checks.iter().filter(|c| verdict(c) != '✓') {
             let name = c["name"].as_str().or(c["context"].as_str()).unwrap_or("?");
@@ -625,11 +627,15 @@ fn info_summarises_checks() {
     });
     let lines = info_lines(&v);
     assert_eq!(lines[0].marks[0], (0, 7, Mark::Chip("6e7681".into()))); // " DRAFT " badge
-    assert_eq!(lines[2].marks[1], (7, 12, Mark::Chip("d73a4a".into()))); // " bug " in its label color
+    assert_eq!(lines[1].marks[1], (7, 12, Mark::Chip("d73a4a".into()))); // " bug " in its label color
     let t: Vec<String> = lines.into_iter().map(|l| l.text).collect();
     assert_eq!(t[0], " DRAFT  @amy · main ← feat · +3 −1 in 2 files");
-    assert_eq!(t[3], "review: changes requested · @bo changes requested");
-    assert_eq!(&t[4..7], ["checks: ✓ 1 passed · ✗ 1 failed · ● 1 pending", "✗ test", "● ci/legacy"]);
+    assert_eq!(t[2], "review: ✗ changes requested by @bo");
+    assert_eq!(&t[3..6], ["checks: ✓ 1 passed · ✗ 1 failed · ● 1 pending", "✗ test", "● ci/legacy"]);
+    let v = serde_json::json!({ "statusCheckRollup": [{ "name": "build", "status": "COMPLETED", "conclusion": "SUCCESS" }] });
+    let t: Vec<String> = info_lines(&v).into_iter().map(|l| l.text).collect();
+    assert!(t.contains(&"checks: ✓ 1 passed".to_owned())); // no "✗ 0 failed · ● 0 pending"
+    assert!(t.contains(&"review: none yet".to_owned()));
 }
 
 /// "3h ago", "2d ago", "5mo ago", like GitHub. Falls back to the date if it can't be parsed.
