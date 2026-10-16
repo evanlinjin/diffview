@@ -74,7 +74,7 @@ file that dv reloads whenever it changes, so you can keep dv open while Claude w
    diff dv shows), writes its review, and runs `dv review-check`, which checks every line
    reference against the diff and records the commented code.
 3. **Read it in dv**: Claude's summary sits in the top section; its comments are threads by
-   **claude** under their lines (`]c` / `[c` to step through them, `Space t` lists them).
+   **claude** under their lines (`]c` / `[c` to step through them, `Space A` lists them).
 4. **Act on each comment**:
 
    | Key | |

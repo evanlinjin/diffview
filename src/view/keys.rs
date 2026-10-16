@@ -257,6 +257,7 @@ impl App {
             (' ', 'p') => self.pending_picker(),
             (' ', 't') => self.threads_picker(),
             (' ', 'a') => self.claude_menu(),
+            (' ', 'A') => self.claude_picker(),
             (' ', 'v') => self.toggle_viewed(),
             ('f' | 't' | 'F' | 'T', c) => self.find_char(p, c),
             _ => {}

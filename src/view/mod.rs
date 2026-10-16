@@ -85,6 +85,7 @@ PR
 
 CLAUDE REVIEW
   Space a              ask Claude Code to review, or to answer your replies
+  Space A              pick from Claude's comments ([waiting]: your reply is unanswered)
   r                    reply to Claude (saved in the file; ask Claude Code to answer)
   c / C                copy Claude's comment into your pending review / post it now
   Space r              resolve / unresolve (Claude skips resolved comments)

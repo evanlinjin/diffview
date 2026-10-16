@@ -345,10 +345,20 @@ impl App {
     /// `Space p`: a picker of the comments in your pending review.
     /// `Space t`: a picker of every review thread, with its state, author, gist and replies.
     pub(super) fn threads_picker(&mut self) {
+        self.threads_picker_of(" threads ", |_| true, "no review threads");
+    }
+
+    /// `Space A`: Claude's comments, `[waiting]` where your reply hasn't been answered.
+    pub(super) fn claude_picker(&mut self) {
+        self.threads_picker_of(" Claude's comments ", |t| t.claude.is_some(), "no comments from Claude (Space a asks for a review)");
+    }
+
+    fn threads_picker_of(&mut self, title: &'static str, keep: fn(&Thread) -> bool, none: &str) {
         let items: Vec<Item> = self
             .threads
             .iter()
             .enumerate()
+            .filter(|(_, t)| keep(t))
             .filter_map(|(ti, t)| {
                 let c = t.comments.first()?;
                 let line = t.line.or(t.original_line).map_or(String::new(), |n| format!(":{n}"));
@@ -356,6 +366,7 @@ impl App {
                     (t.comments.iter().any(|c| c.pending), "[pending] "),
                     (t.resolved, "[resolved] "),
                     (t.outdated, "[outdated] "),
+                    (t.claude.is_some() && !t.resolved && t.comments.last().is_some_and(|c| c.author == "you"), "[waiting] "),
                 ]
                 .iter()
                 .filter_map(|&(on, s)| on.then_some(s))
@@ -370,8 +381,8 @@ impl App {
             })
             .collect();
         match items.is_empty() {
-            true => self.msg = "no review threads".into(),
-            false => self.picker = Some(Picker { title: " threads ", items, query: String::new(), sel: 0 }),
+            true => self.msg = none.into(),
+            false => self.picker = Some(Picker { title, items, query: String::new(), sel: 0 }),
         }
     }
 

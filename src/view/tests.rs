@@ -408,6 +408,13 @@ fn claude_menu() {
     assert!(p.items[0].label.starts_with("Update Claude's review"));
     assert!(p.items[1].label.contains("(1 waiting)") && p.sel == 1); // answering preselected
     app.picker = None;
+    // Space A lists Claude's comments, the unanswered one tagged.
+    app.key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('A'), KeyModifiers::NONE));
+    let labels: Vec<&str> = app.picker.as_ref().unwrap().items.iter().map(|i| i.label.as_str()).collect();
+    assert_eq!(labels.len(), 3);
+    assert!(labels[0].contains("[waiting]") && !labels[1].contains("[waiting]") && !labels[2].contains("[waiting]"));
+    app.picker = None;
     app.threads.clear();
     app.run_claude(agent::Ask::Answer);
     assert!(app.msg.contains("no replies waiting") && app.claude_job.is_none());
