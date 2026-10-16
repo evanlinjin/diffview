@@ -579,15 +579,21 @@ impl App {
                 Ok(self.answer_now())
             }
             Action::ClaudeWith(ask) => {
-                // Optional: empty goes ahead; quitting the editor with an error (`:cq`) cancels.
-                let what = match ask {
-                    agent::Ask::Review => "anything for Claude to look at or keep in mind in its review (optional)",
-                    _ if self.open_claude_comments() == 0 => "what Claude should change (there are no open comments to act on)",
-                    _ => "instructions for Claude, on top of its comments (optional)",
+                // Optional (empty goes ahead) unless they're the whole request: a change with no
+                // open comments. Quitting the editor with an error (`:cq`) cancels.
+                let alone = matches!(ask, agent::Ask::Fix) && self.change_requests() == 0;
+                let what = match (ask, alone) {
+                    (agent::Ask::Review, _) => "anything for Claude to look at or keep in mind in its review (optional)",
+                    (_, true) => "what Claude should change (there are no open comments to act on)",
+                    _ => "instructions for Claude, on top of the open comments (optional)",
                 };
-                let Some(extra) = compose(what, true)? else { return Ok("Claude not asked".into()) };
-                self.run_claude(ask, &extra);
-                Ok(std::mem::take(&mut self.msg))
+                let Some(extra) = compose(what, !alone)? else { return Ok("Claude not asked".into()) };
+                if self.run_claude(ask, &extra) || extra.trim().is_empty() {
+                    return Ok(std::mem::take(&mut self.msg));
+                }
+                // It couldn't be asked after all: keep what you wrote.
+                let why = std::mem::take(&mut self.msg);
+                Ok(keep_on_error(Err(anyhow::anyhow!(why)), &extra).err().map_or(String::new(), |e| format!("{e:#}")))
             }
             Action::Converse { quote } => {
                 self.pr.as_ref().context("no PR")?;

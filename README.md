@@ -108,8 +108,10 @@ file that dv reloads whenever it changes, so you can keep dv open while Claude w
    changed and resolves the thread. Its answers appear in dv as it writes them. Repeat 4–5 as
    needed.
 6. **Have Claude make the changes** (optional): `Space a`, "Ask Claude to make the changes". You
-   can add your own instructions in `$EDITOR` first (leave it empty to just go). Claude makes
-   the change each open comment asks for (not the resolved, dismissed or outdated ones),
+   can add your own instructions in `$EDITOR` first (leave it empty to just go; with no open
+   comments, they're the request: "Ask Claude to make a change"). Claude makes the change each
+   open comment asks for, its own and the ones you left it (not the resolved, dismissed or
+   outdated ones),
    replying on each with what it changed and resolving it. Resolved threads fold: unfold one
    (`Tab`) to check the change, and `Space r` reopens it if it isn't right.
 7. **Submit**: `S` submits your pending review, holding whatever you queued with `c`. Claude

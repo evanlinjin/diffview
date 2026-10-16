@@ -34,8 +34,12 @@ on GitHub are its section here.
 - Approving a PR (`S`, Approve) starts the summary as `ACK <the PR's head commit>`.
 - `a` on code lines leaves Claude a comment there (a question or a request), in the review file;
   Claude answers right away, and `r` continues the thread. Nothing goes to GitHub.
-- "Ask Claude to make the changes" works without open comments too: the instructions you
-  write are then the request (it only declines with no comments and no instructions).
+- "Ask Claude to make the changes" acts on the review's open comments, Claude's and the ones
+  you left it, and works with none too: then what you write is the request ("Ask Claude to
+  make a change"). It's checked whether Claude can take it before the editor opens, and if
+  it still can't, what you wrote is saved to a file.
+- Background Claude runs may run `cargo check`, `cargo build`, `cargo test` and `cargo clippy`,
+  to check a change they made.
 - `Space a` → "Dismiss Claude's outdated comments": all of Claude's comments whose code has
   changed, after a confirmation (your own comments for Claude stay).
 - `]p` / `[p` step through your pending review's comments (replies too), wrapping around.

@@ -111,9 +111,10 @@ addressed it, leave it outdated, say so in your reply, and resolve it.
 
 ## 4. Make the changes
 
-When asked to make the changes your comments ask for: read the file, and for every comment
-that isn't `"resolved": true` and that `dv review-check` doesn't report as outdated (the user
-dismisses comments they don't want by deleting them, so all that are left are wanted):
+When asked to make the changes the review's comments ask for: read the file, and for every
+comment that isn't `"resolved": true` and that `dv review-check` doesn't report as outdated
+(yours, and the user's own, `"author": "user"`, which are their requests; the user dismisses
+comments they don't want by deleting them, so all that are left are wanted):
 
 - make the change in the code (for a `suggestion` block, apply it; otherwise do what the
   comment says, keeping the change as small as the comment implies);

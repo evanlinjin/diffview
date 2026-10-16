@@ -143,7 +143,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `Space e` | edit your comment under the cursor (opens its text in `$EDITOR`) |
 | `Space d` | delete the comment under the cursor (confirmation picker, "No" preselected) |
 | `Space p` | picker of your pending review's comments; jumps there (unfolding as needed); `Ctrl-d` deletes the selected one (asks first) |
-| `Space a` | run Claude Code: review (or update the review), answer your replies, or make the changes its open comments ask for (with your own instructions, optional) |
+| `Space a` | run Claude Code: review (or update the review), answer your replies, or make the changes the open comments ask for (Claude's and yours; your instructions optional, or the whole request when there are none). Background runs may also run `cargo check/build/test/clippy` |
 | `Space A` | picker of Claude's comments (`[waiting]` = your reply is unanswered); jumps there |
 | `Space t` | picker of all review threads (state tags, author, gist, reply count); type to filter, e.g. `resolved` |
 | `Space v` | mark / unmark the file as viewed on GitHub (folds it and moves to the next file); viewed files start folded, headers show `✓ Viewed` / `↻ changed since viewed` at the right edge |

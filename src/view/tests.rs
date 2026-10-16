@@ -666,7 +666,8 @@ fn your_comments_for_claude_stay_private() {
     assert_eq!(app.context_keys().unwrap().0, "your comment for Claude");
     app.key(KeyEvent::new(KeyCode::Char('C'), KeyModifiers::NONE));
     assert!(app.action.is_none() && app.msg.contains("private"));
-    assert_eq!(app.open_claude_comments(), 0);
+    assert!(!agent::claude_wrote(&app.threads[0]));
+    assert_eq!(app.change_requests(), 1); // but it's a request "make the changes" acts on
     // `a` across removed and added lines is refused: line numbers are per side.
     let del = app.rows.iter().position(|r| r.line.kind == Kind::Del).unwrap();
     let add = app.rows.iter().position(|r| r.line.kind == Kind::Add).unwrap();
@@ -846,8 +847,16 @@ fn make_changes_without_comments() {
     // No open comments: still asks for instructions; with none written, nothing to do.
     app.pick_claude(agent::Ask::Fix);
     assert!(matches!(app.action.take(), Some(Action::ClaudeWith(agent::Ask::Fix))));
-    app.run_claude(agent::Ask::Fix, "  ");
+    assert!(!app.run_claude(agent::Ask::Fix, "  "));
     assert!(app.msg.starts_with("nothing to change") && app.claude_job.is_none());
+    // While Claude is busy, it says so before the editor opens (so nothing written is lost).
+    let child = std::process::Command::new("sleep").arg("5").spawn().unwrap();
+    app.claude_job = Some(agent::ClaudeJob { child, log: std::env::temp_dir().join("dv-test-busy.log"), label: "reviewing", forked: false });
+    app.pick_claude(agent::Ask::Fix);
+    assert!(app.action.is_none() && app.msg.contains("still working"));
+    if let Some(mut job) = app.claude_job.take() {
+        _ = job.child.kill();
+    }
     // With instructions, those are the request.
     let prompt = app.claude_prompt(agent::Ask::Fix, "rename x to y");
     assert!(prompt.starts_with("Make the change the user asks for below") && prompt.ends_with("rename x to y"));

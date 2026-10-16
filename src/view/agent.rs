@@ -7,7 +7,8 @@ use super::*;
 pub(super) enum Ask {
     Review,
     Answer,
-    /// Make the changes Claude's open comments ask for.
+    /// Make the changes the review's open comments ask for (Claude's and yours), and/or what
+    /// your instructions say.
     Fix,
 }
 
@@ -20,6 +21,11 @@ const ALLOWED: &[&str] = &[
     "Bash(git show:*)",
     "Bash(git log:*)",
     "Bash(git rev-parse:*)",
+    // To check a change it made still builds and passes.
+    "Bash(cargo check:*)",
+    "Bash(cargo build:*)",
+    "Bash(cargo test:*)",
+    "Bash(cargo clippy:*)",
 ];
 
 /// A background `claude -p` run.
@@ -46,10 +52,25 @@ impl App {
         self.threads.iter().filter(|t| t.claude.is_some() && !t.resolved && yours(t)).count()
     }
 
-    /// Claude's comments still to act on: not dismissed (still in the file), not resolved, and
-    /// not outdated (their code has already changed).
-    pub(super) fn open_claude_comments(&self) -> usize {
-        self.threads.iter().filter(|t| claude_wrote(t) && !t.resolved && !t.outdated).count()
+    /// What "make the changes" acts on: the review file's open comments, Claude's and the ones
+    /// you left it (`a`), not resolved or outdated. The one place that's decided.
+    pub(super) fn change_requests(&self) -> usize {
+        self.threads.iter().filter(|t| t.claude.is_some() && !t.resolved && !t.outdated).count()
+    }
+
+    /// Why Claude can't take a request right now (checked before asking you for instructions,
+    /// so nothing you write is lost to it): still busy, or the PR's pane is from an older dv
+    /// that can't reach the review files (when the request needs them).
+    fn claude_blocked(&self, needs_files: bool) -> Option<String> {
+        let busy = self.claude_job.is_some();
+        if busy {
+            return Some("Claude is still working on the last request".into());
+        }
+        let (_, cmd) = self.claude_pane_cmd()?;
+        let dv = crate::claude::dv_dir().map(|d| d.display().to_string()).unwrap_or_default();
+        (needs_files && !dv.is_empty() && !cmd.contains(&dv)).then(|| {
+            "Claude's pane for this PR can't reach dv's review files (it's from an older dv): close it, and Space a starts a new one".into()
+        })
     }
 
     pub(super) fn claude_menu(&mut self) {
@@ -62,7 +83,7 @@ impl App {
             false => "Ask Claude to review this",
         };
         let n = self.waiting_replies();
-        let open = self.open_claude_comments();
+        let open = self.change_requests();
         let notes = match crate::claude::notes_path().is_ok_and(|p| p.exists()) {
             true => "Edit Claude's notes on this repo (it reads them before each task)",
             false => "Write notes for Claude on this repo (it reads them before each task)",
@@ -70,7 +91,13 @@ impl App {
         let mut items = vec![
             Item::new(review, Target::Claude(Ask::Review)),
             Item::new(format!("Ask Claude to answer your replies ({n} waiting)"), Target::Claude(Ask::Answer)),
-            Item::new(format!("Ask Claude to make the changes ({open} open comments)"), Target::Claude(Ask::Fix)),
+            Item::new(
+                match open {
+                    0 => "Ask Claude to make a change (no open comments: you say what)".to_owned(),
+                    n => format!("Ask Claude to make the changes ({n} open comments)"),
+                },
+                Target::Claude(Ask::Fix),
+            ),
             Item::new(notes, Target::ClaudeNotes),
         ];
         let outdated = self.outdated_claude_comments().len();
@@ -121,14 +148,14 @@ impl App {
             Ask::Answer => format!(
                 "Use the dv-review skill to answer my replies (and the comments I left for you) in the dv review of {what}."
             ),
-            Ask::Fix if self.open_claude_comments() == 0 => format!(
-                "Make the change the user asks for below, in {what} (there are no open dv review comments to act on). \
-                 Use the dv-review skill's notes on the repo, if it has any."
+            Ask::Fix if self.change_requests() == 0 => format!(
+                "Make the change the user asks for below, in {what}. First run `dv review-info`: if the notes it lists \
+                 exist, read them and follow them (they're the dv-review skill's notes on this repo)."
             ),
             Ask::Fix => format!(
-                "Use the dv-review skill to make the changes your open comments ask for in the dv review of {what} \
-                 (every comment that isn't resolved or outdated), replying on each with what you changed and resolving \
-                 the ones you addressed."
+                "Use the dv-review skill to make the changes the open comments in the dv review of {what} ask for \
+                 (your own, and the user's: those with \"author\": \"user\"; every one that isn't resolved or outdated), \
+                 replying on each with what you changed and resolving the ones you addressed."
             ),
         };
         match extra.trim() {
@@ -172,27 +199,35 @@ impl App {
     }
 
     /// From the `Space a` menu. Reviewing and making the changes first ask for your own
-    /// instructions (an editor; empty is fine); answering replies just goes.
+    /// instructions (an editor; optional, except for a change with no open comments to act on,
+    /// where they're the request); answering replies just goes. Anything that would stop Claude
+    /// taking it is checked first, so what you write isn't lost.
     pub(super) fn pick_claude(&mut self, ask: Ask) {
+        let needs_files = !matches!(ask, Ask::Fix) || self.change_requests() > 0;
+        if let Some(why) = self.claude_blocked(needs_files) {
+            return self.msg = why;
+        }
         match ask {
-            Ask::Review => self.action = Some(Action::ClaudeWith(Ask::Review)),
-            // Always to the editor: instructions alone are enough, even without open comments.
-            Ask::Fix => self.action = Some(Action::ClaudeWith(Ask::Fix)),
-            ask => self.run_claude(ask, ""),
+            Ask::Review | Ask::Fix => self.action = Some(Action::ClaudeWith(ask)),
+            ask => _ = self.run_claude(ask, ""),
         }
     }
 
-    pub(super) fn run_claude(&mut self, ask: Ask, extra: &str) {
+    /// Ask Claude (`extra`: your instructions, may be empty). Whether it was asked: if not,
+    /// `msg` says why.
+    pub(super) fn run_claude(&mut self, ask: Ask, extra: &str) -> bool {
         if matches!(ask, Ask::Answer) && self.waiting_replies() == 0 {
-            return self.msg = "no replies waiting for Claude (r on a Claude comment replies)".into();
+            self.msg = "no replies waiting for Claude (r on a Claude comment replies)".into();
+            return false;
         }
-        if matches!(ask, Ask::Fix) && self.open_claude_comments() == 0 && extra.trim().is_empty() {
-            return self.msg = "nothing to change: no open Claude comments, and no instructions written".into();
+        let requests = self.change_requests();
+        if matches!(ask, Ask::Fix) && requests == 0 && extra.trim().is_empty() {
+            self.msg = "nothing to change: no open comments, and no instructions written".into();
+            return false;
         }
-        if let Some(job) = &mut self.claude_job
-            && job.child.try_wait().ok().flatten().is_none()
-        {
-            return self.msg = "Claude is still working on the last request".into();
+        if let Some(why) = self.claude_blocked(!matches!(ask, Ask::Fix) || requests > 0) {
+            self.msg = why;
+            return false;
         }
         let prompt = self.claude_prompt(ask, extra);
         let label = match ask {
@@ -203,19 +238,16 @@ impl App {
         // Claude already open on this PR in a pane: put the request there, rather than open
         // another. Pasted, not sent: what the pane is showing (a permission prompt, your own
         // half-typed text) isn't dv's to answer, so you press Enter there.
-        if let Some((pane, cmd)) = self.claude_pane_cmd() {
-            // A pane from before dv gave Claude its directory can't write the review there.
-            let dv = crate::claude::dv_dir().map(|d| d.display().to_string()).unwrap_or_default();
-            if !dv.is_empty() && !cmd.contains(&dv) {
-                return self.msg = "Claude's pane for this PR can't reach dv's review files (it's from an older dv): close it, and Space a starts a new one".into();
-            }
-            return self.msg = match offer_to_pane(pane, &prompt) {
-                Ok(true) => format!("{label}: the request is in Claude's pane, press Enter there to send it"),
-                Ok(false) => "Claude's pane is waiting for you to answer it; ask again after".into(),
-                Err(e) => format!("Claude's pane: {e:#}"),
+        if let Some(pane) = self.claude_pane() {
+            let (msg, asked) = match offer_to_pane(pane, &prompt) {
+                Ok(true) => (format!("{label}: the request is in Claude's pane, press Enter there to send it"), true),
+                Ok(false) => ("Claude's pane is waiting for you to answer it; ask again after".into(), false),
+                Err(e) => (format!("Claude's pane: {e:#}"), false),
             };
+            self.msg = msg;
+            return asked;
         }
-        self.msg = match in_zellij() {
+        let (msg, asked) = match in_zellij() {
             // A real session in a pane (the PR's, as the background runs use): watch it, approve
             // what it asks, talk to it.
             true => match std::process::Command::new("zellij")
@@ -229,18 +261,20 @@ impl App {
                 .stderr(std::process::Stdio::null())
                 .status()
             {
-                Ok(s) if s.success() => format!("Claude is {label} in the pane on the right; its comments show up here as it writes them"),
-                Ok(s) => format!("zellij run failed ({s})"),
-                Err(e) => format!("running zellij: {e}"),
+                Ok(s) if s.success() => (format!("Claude is {label} in the pane on the right; its comments show up here as it writes them"), true),
+                Ok(s) => (format!("zellij run failed ({s})"), false),
+                Err(e) => (format!("running zellij: {e}"), false),
             },
             false => match self.spawn_claude(&prompt, label, false) {
                 Ok(job) => {
                     self.claude_job = Some(job);
-                    format!("Claude is {label} in the background…")
+                    (format!("Claude is {label} in the background…"), true)
                 }
-                Err(e) => format!("starting claude: {e:#}"),
+                Err(e) => (format!("starting claude: {e:#}"), false),
             },
         };
+        self.msg = msg;
+        asked
     }
 
     /// After `r` on Claude's comment (or `a`): have Claude answer right away, in the
