@@ -33,6 +33,7 @@ dv 2258 -f        # same, resetting your local copy of the PR branch to the PR h
 dv 2258 -w        # review it in a worktree next to the repo: ../<repo>-2258 (no branch)
 dv 2258 -wb       # same, on the PR's branch, so you can push to the PR
 dv 2258 --rm      # remove that worktree (-f to discard local changes)
+dv list -w        # pick from the open PRs; Enter reviews one (here: in a worktree), q comes back
 ```
 
 On a branch with an open PR, plain `dv` loads it too.
@@ -59,6 +60,7 @@ edit / delete a comment, `Space r` resolves a thread, `gf` opens a link, `R` ref
 |---|---|
 | `src/main.rs` | arguments, PR checkout, worktrees |
 | `src/diff.rs` | `git diff` parsing, hunks, word diffs |
+| `src/list.rs` | `dv list`: the open-PR picker |
 | `src/gh.rs` | GitHub via `gh`: PR info, threads, review mutations |
 | `src/lsp.rs` | a minimal rust-analyzer client |
 | `src/highlight.rs` | syntect highlighting mapped to Helix scopes |

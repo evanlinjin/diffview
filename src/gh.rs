@@ -117,6 +117,38 @@ pub fn pr(n: Option<u64>) -> Result<Pr> {
     })
 }
 
+/// An open PR, for `dv list`.
+pub struct Listed {
+    pub number: u64,
+    pub title: String,
+    pub author: String,
+    pub branch: String,
+    pub draft: bool,
+    pub updated: String,
+}
+
+// ponytail: the 200 most recently updated open PRs; a search box if a repo has more worth scanning.
+pub fn list() -> Result<Vec<Listed>> {
+    let out = gh(&["pr", "list", "--limit", "200", "--json", "number,title,author,headRefName,isDraft,updatedAt"])?;
+    let v: Value = serde_json::from_str(&out)?;
+    let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
+    let mut prs: Vec<Listed> = v
+        .as_array()
+        .context("gh pr list")?
+        .iter()
+        .map(|p| Listed {
+            number: p["number"].as_u64().unwrap_or(0),
+            title: s(&p["title"]),
+            author: s(&p["author"]["login"]),
+            branch: s(&p["headRefName"]),
+            draft: p["isDraft"].as_bool().unwrap_or(false),
+            updated: s(&p["updatedAt"]),
+        })
+        .collect();
+    prs.sort_by(|a, b| b.updated.cmp(&a.updated)); // ISO times sort as text
+    Ok(prs)
+}
+
 // ponytail: first 100 threads × 100 comments; paginate if a PR ever outgrows that.
 const THREADS: &str = "query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) { pullRequest(number: $number) {

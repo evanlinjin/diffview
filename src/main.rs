@@ -1,6 +1,7 @@
 mod diff;
 mod gh;
 mod highlight;
+mod list;
 mod lsp;
 mod md;
 mod theme;
@@ -9,10 +10,12 @@ mod view;
 use anyhow::Context;
 use std::path::{Path, PathBuf};
 
-const USAGE: &str = "usage: dv [base | PR] [-p N] [-f] [-w [-b]]
+const USAGE: &str = "usage: dv [base | PR | list] [-p N] [-f] [-w [-b]]
   dv               diff working tree vs merge-base of the PR's base (or origin/HEAD)
   dv main          ... vs merge-base of main
   dv 123           review PR 123 (gh pr checkout 123 first); same as -p 123 / --pr 123
+  dv list          pick from the open PRs; Enter reviews one with the flags given here
+                   (dv list -wb: each in a worktree on its branch), q goes back to the list
   -f, --force      with a PR: reset the local PR branch to the PR head (drops its local commits)
   -w, --worktree   with a PR: check it out in a worktree next to the repo, <repo>-123
                    (created or updated, detached at the PR head), and review it there
@@ -30,7 +33,16 @@ struct Opts {
     worktree: bool,
     branch: bool,
     rm: bool,
+    list: bool,
     help: bool,
+}
+
+impl Opts {
+    /// The flags a PR from `dv list` opens with, as typed: "-wbf".
+    fn flags(&self) -> String {
+        let on: String = [(self.worktree, 'w'), (self.branch, 'b'), (self.force, 'f')].iter().filter(|f| f.0).map(|f| f.1).collect();
+        if on.is_empty() { on } else { format!("-{on}") }
+    }
 }
 
 /// Parse args: `-wbf` bundles short flags, `--pr=N` works like `--pr N`, and a bare number is a
@@ -57,6 +69,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Opts> {
             "-w" | "--worktree" => o.worktree = true,
             "-b" | "--branch" => o.branch = true,
             "--rm" | "--remove" => o.rm = true,
+            "list" => o.list = true,
             _ if a.starts_with('-') => anyhow::bail!("unknown flag {a}\n{USAGE}"),
             _ if !a.is_empty() && a.bytes().all(|b| b.is_ascii_digit()) => o.pr = Some(num(Some(a))?),
             _ => o.base = Some(a),
@@ -66,29 +79,67 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Opts> {
 }
 
 fn main() -> anyhow::Result<()> {
-    let Opts { mut base, pr: pr_num, force, worktree, branch, rm, help } = parse_args(std::env::args().skip(1))?;
-    if help {
+    let o = parse_args(std::env::args().skip(1))?;
+    if o.help {
         println!("{USAGE}");
         return Ok(());
     }
-    if rm {
-        let n = pr_num.context("--rm needs a PR, e.g. `dv 123 --rm`")?;
-        return remove_worktree(n, force);
+    if o.list && (o.pr.is_some() || o.rm) {
+        anyhow::bail!("dv list picks the PR itself\n{USAGE}");
     }
-    let root = diff::git(&["rev-parse", "--show-toplevel"])?;
-    std::env::set_current_dir(root.trim())?;
-    if branch && !worktree {
+    if o.rm {
+        let n = o.pr.context("--rm needs a PR, e.g. `dv 123 --rm`")?;
+        return remove_worktree(n, o.force);
+    }
+    let root = PathBuf::from(diff::git(&["rev-parse", "--show-toplevel"])?.trim());
+    std::env::set_current_dir(&root)?;
+    if o.branch && !o.worktree {
         anyhow::bail!("--branch goes with --worktree (plain --pr already checks out a branch)\n{USAGE}");
     }
-    let wt = match (pr_num, worktree) {
-        (None, true) => anyhow::bail!("--worktree needs a PR, e.g. `dv 123 -w`\n{USAGE}"),
-        (Some(n), true) => Some(enter_worktree(n, branch, force)?),
+    if o.list {
+        return pick_and_review(&o, &root);
+    }
+    if o.worktree && o.pr.is_none() {
+        anyhow::bail!("--worktree needs a PR, e.g. `dv 123 -w`\n{USAGE}");
+    }
+    let (wt, res) = review(&o, o.pr)?;
+    if let Some(dir) = wt {
+        match diff::git(&["branch", "--show-current"]).map(|b| b.trim().to_owned()) {
+            Ok(b) if !b.is_empty() => eprintln!("PR checked out in {} on branch {b}", dir.display()),
+            _ => eprintln!("PR checked out in {}", dir.display()),
+        }
+    }
+    res
+}
+
+/// `dv list`: review the picked PR with `o`'s flags, then back to the list, until `q` there.
+fn pick_and_review(o: &Opts, root: &Path) -> anyhow::Result<()> {
+    let mut list = list::List::new(o.flags());
+    loop {
+        let mut term = ratatui::init();
+        let picked = list.run(&mut term);
+        ratatui::restore();
+        let Some(n) = picked? else { return Ok(()) };
+        let res = review(o, Some(n)).and_then(|(_, res)| res);
+        std::env::set_current_dir(root)?; // a worktree review leaves us in the worktree
+        if let Err(e) = res {
+            list.msg = format!("PR #{n}: {e:#}");
+        }
+    }
+}
+
+/// Check PR `n` out as `o` says and review it. The outer error is setup (checkout, diff); the
+/// inner one is from the TUI, which the worktree note is printed after.
+fn review(o: &Opts, pr_num: Option<u64>) -> anyhow::Result<(Option<PathBuf>, anyhow::Result<()>)> {
+    let wt = match (pr_num, o.worktree) {
+        (Some(n), true) => Some(enter_worktree(n, o.branch, o.force)?),
         (Some(n), false) => {
-            gh::checkout(n, force, false)?;
+            gh::checkout(n, o.force, false)?;
             None
         }
-        (None, false) => None,
+        (None, _) => None,
     };
+    let mut base = o.base.clone();
     // Comments only load when the branch has a PR; plain local diffs still work without one.
     let pr = gh::pr(pr_num).ok();
     if let (Some(p), None) = (&pr, &base) {
@@ -100,13 +151,7 @@ fn main() -> anyhow::Result<()> {
     let mut term = ratatui::init();
     let res = app.run(&mut term);
     ratatui::restore();
-    if let Some(dir) = wt {
-        match diff::git(&["branch", "--show-current"]).map(|b| b.trim().to_owned()) {
-            Ok(b) if !b.is_empty() => eprintln!("PR checked out in {} on branch {b}", dir.display()),
-            _ => eprintln!("PR checked out in {}", dir.display()),
-        }
-    }
-    res
+    Ok((wt, res))
 }
 
 /// Check PR `n` out in `<repo>-<n>` next to the repo (creating the worktree if needed) and make
@@ -197,4 +242,8 @@ fn args() {
     assert_eq!(p("main").unwrap(), Opts { base: Some("main".into()), ..Opts::default() });
     assert!(p("-wx").is_err());
     assert_eq!(p("2258 --rm -f").unwrap(), Opts { pr: Some(2258), rm: true, force: true, ..Opts::default() });
+    let l = p("list -wbf").unwrap();
+    assert!(l.list && l.pr.is_none());
+    assert_eq!(l.flags(), "-wbf");
+    assert_eq!(p("list").unwrap().flags(), "");
 }

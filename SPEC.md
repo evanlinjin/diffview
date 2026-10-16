@@ -8,6 +8,7 @@ dv --pr 123 -w  # check it out in a worktree next to the repo (<repo>-123), deta
 dv --pr 123 -w -b  # same, on the PR's branch (tracking it, for pushing)
 dv 123 -wb         # shorthand: a bare number is a PR; short flags combine (-p N = --pr N)
 dv 123 --rm        # remove that worktree (-f if it has local changes; a -b branch is kept)
+dv list -wb        # pick from the open PRs; Enter reviews one with these flags, q comes back
 # If the branch has a PR, dv uses its base and loads its review threads.
 ```
 
@@ -65,9 +66,6 @@ disk: rust-analyzer can index it and `hx` can open it.
      body if there is none); `S` then opens the summary editor pre-filled with that draft.
      Keeps `c` = queue / `C` = post now (`C` there already quotes into a new conversation
      comment). Until then `c` in the PR section only says "select code lines".
-   - **`dv list`**: a picker of the repo's open PRs (`gh pr list`); `Enter` opens the chosen
-     one as `dv <N>` would, with `dv list`'s own flags: `dv list -wbf` enters each PR in a
-     worktree, on its branch, force-reset to the PR head.
 
 ## Keys
 | Key | Action |
@@ -110,6 +108,11 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `R` | refresh: re-run `git diff`, re-fetch threads + PR info |
 | `?` | key help overlay; `/` inside it filters entries (smart case), Enter keeps, Esc clears |
 | `q` | quit |
+
+`dv list` (the 200 most recently updated open PRs): `j k`, `gg ge`, `Ctrl-d Ctrl-u` move,
+`/` filters on number/title/author/branch (smart case; Enter keeps, Esc clears), `Enter`
+reviews the PR as `dv <N> <flags>` would, `R` refreshes, `q` quits. Quitting the review
+returns to the list; if opening a PR fails, the error shows in the list's status bar.
 
 ## Design
 One crate: `main.rs` (args), `diff.rs` (git + parser), `view.rs` (state, keys,
