@@ -1,16 +1,28 @@
 //! GitHub via the `gh` CLI: PR lookup, review threads, posting comments.
 use anyhow::{bail, Context, Result};
-use serde_json::Value;
-use std::process::Command;
+use serde_json::{json, Value};
+use std::io::Write;
+use std::process::{Command, Stdio};
 
 pub struct Pr {
     pub number: u64,
+    /// GraphQL node id; filled in by `threads`.
+    pub node_id: String,
     pub title: String,
     pub base: String,
     pub head_oid: String,
 }
 
+/// Review threads plus the viewer's pending review on the PR, if any.
+pub struct Review {
+    pub pr_id: String,
+    pub pending: Option<String>,
+    pub threads: Vec<Thread>,
+}
+
 pub struct Thread {
+    /// GraphQL node id (for replies and resolving).
+    pub id: String,
     pub path: String,
     pub left: bool,
     /// Current line in the PR diff; `None` when outdated.
@@ -30,6 +42,8 @@ pub struct Comment {
     pub author: String,
     pub body: String,
     pub created: String,
+    /// Part of the viewer's unsubmitted review.
+    pub pending: bool,
 }
 
 /// Where a new comment goes. Lines are file line numbers on the given side.
@@ -41,7 +55,22 @@ pub struct Anchor {
 }
 
 fn gh(args: &[&str]) -> Result<String> {
-    let out = Command::new("gh").args(args).output().context("running gh")?;
+    gh_input(args, None)
+}
+
+/// Run gh, optionally feeding `input` on stdin (for `--input -` JSON bodies).
+fn gh_input(args: &[&str], input: Option<&str>) -> Result<String> {
+    let mut child = Command::new("gh")
+        .args(args)
+        .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("running gh")?;
+    if let (Some(i), Some(mut stdin)) = (input, child.stdin.take()) {
+        stdin.write_all(i.as_bytes())?;
+    }
+    let out = child.wait_with_output()?;
     if !out.status.success() {
         bail!("gh {}: {}", args.first().unwrap_or(&""), String::from_utf8_lossy(&out.stderr).trim());
     }
@@ -66,6 +95,7 @@ pub fn pr(n: Option<u64>) -> Result<Pr> {
     let v: Value = serde_json::from_str(&gh(&args)?)?;
     Ok(Pr {
         number: v["number"].as_u64().context("pr number")?,
+        node_id: String::new(),
         title: v["title"].as_str().unwrap_or("").to_owned(),
         base: v["baseRefName"].as_str().unwrap_or("main").to_owned(),
         head_oid: v["headRefOid"].as_str().unwrap_or("").to_owned(),
@@ -75,21 +105,109 @@ pub fn pr(n: Option<u64>) -> Result<Pr> {
 // ponytail: first 100 threads × 100 comments; paginate if a PR ever outgrows that.
 const THREADS: &str = "query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) { pullRequest(number: $number) {
+    id
+    reviews(states: PENDING, first: 10) { nodes { id viewerDidAuthor } }
     reviewThreads(first: 100) { nodes {
-      path line startLine originalLine diffSide isResolved isOutdated
-      comments(first: 100) { nodes { databaseId author { login } body createdAt diffHunk } }
+      id path line startLine originalLine diffSide isResolved isOutdated
+      comments(first: 100) { nodes { databaseId author { login } body createdAt diffHunk state } }
     } }
   } }
 }";
 
-pub fn threads(n: u64) -> Result<Vec<Thread>> {
+pub fn threads(n: u64) -> Result<Review> {
     let num = format!("number={n}");
     let q = format!("query={THREADS}");
     let v: Value = serde_json::from_str(&gh(&[
         "api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-F", &num, "-f", &q,
     ])?)?;
-    let nodes = v["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"].as_array().cloned();
-    Ok(nodes.unwrap_or_default().iter().map(parse_thread).collect())
+    Ok(parse_review(&v["data"]["repository"]["pullRequest"]))
+}
+
+fn parse_review(pr: &Value) -> Review {
+    let nodes = |v: &Value| v["nodes"].as_array().cloned().unwrap_or_default();
+    Review {
+        pr_id: pr["id"].as_str().unwrap_or("").to_owned(),
+        pending: nodes(&pr["reviews"])
+            .iter()
+            .find(|r| r["viewerDidAuthor"] == true)
+            .and_then(|r| r["id"].as_str().map(str::to_owned)),
+        threads: nodes(&pr["reviewThreads"]).iter().map(parse_thread).collect(),
+    }
+}
+
+/// Run a GraphQL mutation; variables go in a JSON body so strings need no escaping.
+fn mutate(query: &str, vars: Value) -> Result<Value> {
+    let body = json!({ "query": query, "variables": vars }).to_string();
+    let v: Value = serde_json::from_str(&gh_input(&["api", "graphql", "--input", "-"], Some(&body))?)?;
+    if let Some(e) = v["errors"].get(0) {
+        bail!("GitHub: {}", e["message"].as_str().unwrap_or("GraphQL error"));
+    }
+    Ok(v["data"].clone())
+}
+
+fn side(left: bool) -> &'static str {
+    if left { "LEFT" } else { "RIGHT" }
+}
+
+/// Start a pending review on `commit`; returns its id.
+pub fn start_review(pr_id: &str, commit: &str) -> Result<String> {
+    let d = mutate(
+        "mutation($pr: ID!, $commit: GitObjectID!) {
+          addPullRequestReview(input: { pullRequestId: $pr, commitOID: $commit }) { pullRequestReview { id } } }",
+        json!({ "pr": pr_id, "commit": commit }),
+    )?;
+    d["addPullRequestReview"]["pullRequestReview"]["id"].as_str().map(str::to_owned).context("no review id")
+}
+
+pub fn add_thread(review: &str, a: &Anchor, body: &str) -> Result<()> {
+    let (start_line, start_side) = a.start.map_or((None, None), |(l, left)| (Some(l), Some(side(left))));
+    mutate(
+        "mutation($review: ID!, $path: String!, $body: String!, $line: Int!, $side: DiffSide!,
+                  $startLine: Int, $startSide: DiffSide) {
+          addPullRequestReviewThread(input: { pullRequestReviewId: $review, path: $path, body: $body,
+            line: $line, side: $side, startLine: $startLine, startSide: $startSide }) { thread { id } } }",
+        json!({ "review": review, "path": a.path, "body": body, "line": a.line, "side": side(a.left),
+                "startLine": start_line, "startSide": start_side }),
+    )
+    .map(drop)
+}
+
+pub fn add_reply(review: &str, thread: &str, body: &str) -> Result<()> {
+    mutate(
+        "mutation($review: ID!, $thread: ID!, $body: String!) {
+          addPullRequestReviewThreadReply(input: { pullRequestReviewId: $review,
+            pullRequestReviewThreadId: $thread, body: $body }) { comment { id } } }",
+        json!({ "review": review, "thread": thread, "body": body }),
+    )
+    .map(drop)
+}
+
+/// `event`: COMMENT, APPROVE or REQUEST_CHANGES.
+pub fn submit_review(review: &str, event: &str, body: &str) -> Result<()> {
+    mutate(
+        "mutation($review: ID!, $event: PullRequestReviewEvent!, $body: String) {
+          submitPullRequestReview(input: { pullRequestReviewId: $review, event: $event, body: $body }) {
+            pullRequestReview { id } } }",
+        json!({ "review": review, "event": event, "body": body }),
+    )
+    .map(drop)
+}
+
+pub fn delete_review(review: &str) -> Result<()> {
+    mutate(
+        "mutation($review: ID!) { deletePullRequestReview(input: { pullRequestReviewId: $review }) {
+          pullRequestReview { id } } }",
+        json!({ "review": review }),
+    )
+    .map(drop)
+}
+
+pub fn set_resolved(thread: &str, resolved: bool) -> Result<()> {
+    let q = match resolved {
+        true => "mutation($t: ID!) { resolveReviewThread(input: { threadId: $t }) { thread { isResolved } } }",
+        false => "mutation($t: ID!) { unresolveReviewThread(input: { threadId: $t }) { thread { isResolved } } }",
+    };
+    mutate(q, json!({ "t": thread })).map(drop)
 }
 
 impl Thread {
@@ -103,6 +221,7 @@ fn parse_thread(t: &Value) -> Thread {
     let line = |k: &str| t[k].as_u64().map(|n| n as u32);
     let comments = t["comments"]["nodes"].as_array().map(Vec::as_slice).unwrap_or(&[]);
     Thread {
+        id: t["id"].as_str().unwrap_or("").to_owned(),
         path: t["path"].as_str().unwrap_or("").to_owned(),
         left: t["diffSide"] == "LEFT",
         line: line("line"),
@@ -125,37 +244,26 @@ fn parse_thread(t: &Value) -> Thread {
                 author: c["author"]["login"].as_str().unwrap_or("ghost").to_owned(),
                 body: c["body"].as_str().unwrap_or("").replace("\r\n", "\n"),
                 created: c["createdAt"].as_str().unwrap_or("").get(..10).unwrap_or("").to_owned(),
+                pending: c["state"] == "PENDING",
             })
             .collect(),
     }
 }
 
-pub fn comment(pr: &Pr, a: &Anchor, body_file: &str) -> Result<()> {
-    let side = |left: bool| if left { "LEFT" } else { "RIGHT" };
+/// A single comment, posted immediately (outside any review).
+pub fn comment(pr: &Pr, a: &Anchor, body: &str) -> Result<()> {
     let ep = format!("repos/{{owner}}/{{repo}}/pulls/{}/comments", pr.number);
-    let mut f = vec![
-        format!("body=@{body_file}"),
-        format!("commit_id={}", pr.head_oid),
-        format!("path={}", a.path),
-        format!("line={}", a.line),
-        format!("side={}", side(a.left)),
-    ];
+    let mut v = json!({ "body": body, "commit_id": pr.head_oid, "path": a.path, "line": a.line, "side": side(a.left) });
     if let Some((l, left)) = a.start {
-        f.push(format!("start_line={l}"));
-        f.push(format!("start_side={}", side(left)));
+        (v["start_line"], v["start_side"]) = (json!(l), json!(side(left)));
     }
-    let mut args = vec!["api", "-X", "POST", ep.as_str()];
-    for x in &f {
-        // -F reads @file and sends numbers as numbers; -f keeps strings verbatim.
-        let flag = if x.starts_with("body=") || x.starts_with("line=") || x.starts_with("start_line=") { "-F" } else { "-f" };
-        args.extend([flag, x.as_str()]);
-    }
-    gh(&args).map(drop)
+    gh_input(&["api", "-X", "POST", &ep, "--input", "-"], Some(&v.to_string())).map(drop)
 }
 
-pub fn reply(pr: &Pr, comment_id: u64, body_file: &str) -> Result<()> {
+/// A single reply, posted immediately.
+pub fn reply(pr: &Pr, comment_id: u64, body: &str) -> Result<()> {
     let ep = format!("repos/{{owner}}/{{repo}}/pulls/{}/comments/{comment_id}/replies", pr.number);
-    gh(&["api", "-X", "POST", &ep, "-F", &format!("body=@{body_file}")]).map(drop)
+    gh_input(&["api", "-X", "POST", &ep, "--input", "-"], Some(&json!({ "body": body }).to_string())).map(drop)
 }
 
 /// A line of the PR info section; headings render bold.
@@ -164,12 +272,14 @@ pub struct InfoLine {
     pub text: String,
 }
 
-const INFO_FIELDS: &str = "title,author,state,isDraft,url,baseRefName,headRefName,additions,deletions,\
+const INFO_FIELDS: &str = "headRefOid,title,author,state,isDraft,url,baseRefName,headRefName,additions,deletions,\
 changedFiles,labels,reviewDecision,reviewRequests,latestReviews,statusCheckRollup,body,comments";
 
-pub fn info(n: u64) -> Result<Vec<InfoLine>> {
+/// PR info lines, plus the current (title, head commit) so a refresh picks up new pushes.
+pub fn info(n: u64) -> Result<(Vec<InfoLine>, String, String)> {
     let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", INFO_FIELDS])?)?;
-    Ok(info_lines(&v))
+    let s = |k: &str| v[k].as_str().unwrap_or("").to_owned();
+    Ok((info_lines(&v), s("title"), s("headRefOid")))
 }
 
 fn info_lines(v: &Value) -> Vec<InfoLine> {
@@ -259,6 +369,17 @@ fn info_summarises_checks() {
     assert_eq!(t[0], "@amy · draft · main ← feat · +3 −1 in 2 files");
     assert_eq!(t[3], "review: changes requested · @bo changes requested");
     assert_eq!(&t[4..7], ["checks: ✓ 1 passed · ✗ 1 failed · ● 1 pending", "✗ test", "● ci/legacy"]);
+}
+
+#[test]
+fn parses_review() {
+    let r = parse_review(&json!({
+        "id": "PR_1",
+        "reviews": { "nodes": [{ "id": "R_other", "viewerDidAuthor": false }, { "id": "R_mine", "viewerDidAuthor": true }] },
+        "reviewThreads": { "nodes": [{ "id": "T_1", "path": "a.rs", "comments": { "nodes": [{ "databaseId": 1, "state": "PENDING" }] } }] },
+    }));
+    assert_eq!((r.pr_id.as_str(), r.pending.as_deref()), ("PR_1", Some("R_mine")));
+    assert_eq!((r.threads[0].id.as_str(), r.threads[0].comments[0].pending), ("T_1", true));
 }
 
 #[test]

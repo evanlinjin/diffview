@@ -57,10 +57,13 @@ RUST-ANALYZER
   Space k              hover
 
 PR
-  c                    comment on selected lines
-  r                    reply to thread
+  c                    comment on selection / reply on a thread (pending review)
+  C                    same, but post immediately
+  S                    submit review: comment / approve / request changes, or discard
+  Space r              resolve / unresolve thread
 
   ?                    this help
+  R                    refresh (git diff + GitHub)
   q, Ctrl-c            quit
 ";
 
@@ -92,13 +95,29 @@ type CursorKey = (Option<(String, Option<u32>, Option<u32>)>, Option<u64>);
 /// Work that needs the terminal back (an editor), run between frames.
 enum Action {
     Open(String),
-    Comment(Anchor),
-    Reply(u64),
+    /// `review`: add to the pending review instead of posting immediately.
+    Comment { anchor: Anchor, review: bool },
+    /// `quote`: the comment under the cursor as a `> ` quote, pre-filled in the editor.
+    Reply { thread: String, comment: u64, review: bool, quote: String },
+    /// Submit the pending review: COMMENT, APPROVE or REQUEST_CHANGES.
+    Submit(&'static str),
+}
+
+/// Network work that doesn't need the terminal; run after a frame shows its "…" message.
+enum Job {
+    Refresh,
+    Resolve(String, bool),
+    Discard(String),
 }
 
 enum Target {
     Row(usize),
     Loc(Loc),
+    Submit(&'static str),
+    /// Asks for confirmation first; `DiscardYes` does it.
+    Discard,
+    DiscardYes,
+    Nothing,
 }
 
 struct Item {
@@ -140,6 +159,10 @@ pub struct App {
     left: usize,
     height: usize,
     action: Option<Action>,
+    /// Done on the next loop, so its "…" message is drawn first.
+    job: Option<Job>,
+    /// The viewer's pending review on the PR, if any.
+    review: Option<String>,
     quit: bool,
     pr: Option<Pr>,
     threads: Vec<Thread>,
@@ -209,6 +232,8 @@ impl App {
             left: 0,
             height: 1,
             action: None,
+            job: None,
+            review: None,
             quit: false,
             pr: None,
             threads: vec![],
@@ -238,6 +263,10 @@ impl App {
     pub fn run(&mut self, term: &mut DefaultTerminal) -> Result<()> {
         while !self.quit {
             term.draw(|f| self.draw(f))?;
+            if let Some(job) = self.job.take() {
+                self.run_job(job);
+                continue;
+            }
             // ponytail: 100ms poll so LSP replies show up without a keypress; a waker channel if it matters.
             if event::poll(Duration::from_millis(100))? {
                 if let Event::Key(k) = event::read()? {
@@ -248,12 +277,18 @@ impl App {
             }
             self.lsp_poll();
             if let Some(a) = self.action.take() {
-                ratatui::restore();
+                // In zellij the editor gets a floating pane and dv stays on screen underneath.
+                let floating = in_zellij();
+                if !floating {
+                    ratatui::restore();
+                }
                 // Only posting changes GitHub state; skip the network round-trips after plain hx.
                 let posted = !matches!(a, Action::Open(_));
                 let res = self.perform(a);
                 self.hl_cache.retain(|k, _| !k.1); // working-tree files may have changed; the base can't
-                *term = ratatui::init();
+                if !floating {
+                    *term = ratatui::init();
+                }
                 if let Err(e) = self.reload(posted) {
                     self.msg = e.to_string();
                 }
@@ -271,41 +306,129 @@ impl App {
     fn perform(&mut self, a: Action) -> Result<String> {
         match a {
             Action::Open(target) => {
-                std::process::Command::new("hx").arg(&target).status().context("running hx")?;
+                interactive("hx", &[target.clone()], &format!("hx {target}")).context("running hx")?;
                 Ok(String::new())
             }
-            Action::Comment(anchor) => {
+            Action::Comment { anchor, review } => {
                 let range = match anchor.start {
                     Some((s, _)) => format!("{s}-{}", anchor.line),
                     None => anchor.line.to_string(),
                 };
-                let Some(body) = compose(&format!("comment on {}:{range}", anchor.path))? else {
-                    return Ok("comment cancelled".into());
+                let what = format!("comment on {}:{range}", anchor.path);
+                let Some(body) = compose(&what, false)? else { return Ok("comment cancelled".into()) };
+                let res = match review {
+                    true => self.ensure_review().and_then(|r| gh::add_thread(&r, &anchor, &body)),
+                    false => gh::comment(self.pr.as_ref().context("no PR")?, &anchor, &body),
                 };
-                let pr = self.pr.as_ref().context("no PR")?;
-                let res = gh::comment(pr, &anchor, &body);
-                _ = std::fs::remove_file(&body);
-                res.map(|_| "comment posted".into())
+                keep_on_error(res, &body).map(|_| posted_msg(review))
             }
-            Action::Reply(id) => {
-                let Some(body) = compose("reply")? else { return Ok("reply cancelled".into()) };
-                let pr = self.pr.as_ref().context("no PR")?;
-                let res = gh::reply(pr, id, &body);
-                _ = std::fs::remove_file(&body);
-                res.map(|_| "reply posted".into())
+            Action::Reply { thread, comment, review, quote } => {
+                let Some(body) = compose_with("reply", false, &quote)? else { return Ok("reply cancelled".into()) };
+                let res = match review {
+                    true => self.ensure_review().and_then(|r| gh::add_reply(&r, &thread, &body)),
+                    false => gh::reply(self.pr.as_ref().context("no PR")?, comment, &body),
+                };
+                keep_on_error(res, &body).map(|_| posted_msg(review))
+            }
+            Action::Submit(event) => {
+                // An empty summary is fine; quitting the editor with an error (`:cq`) cancels.
+                let Some(body) = compose(&format!("review summary ({})", event.to_lowercase().replace('_', " ")), true)?
+                else {
+                    return Ok("review not submitted".into());
+                };
+                let res = self.ensure_review().and_then(|r| gh::submit_review(&r, event, &body));
+                keep_on_error(res, &body)?;
+                self.review = None;
+                Ok("review submitted".into())
             }
         }
     }
 
+    /// The pending review to add to, starting one on the PR head if there isn't one yet.
+    fn ensure_review(&mut self) -> Result<String> {
+        if let Some(r) = &self.review {
+            return Ok(r.clone());
+        }
+        let pr = self.pr.as_ref().context("no PR")?;
+        let id = gh::start_review(&pr.node_id, &pr.head_oid)?;
+        self.review = Some(id.clone());
+        Ok(id)
+    }
+
+    fn run_job(&mut self, job: Job) {
+        let res = match job {
+            Job::Refresh => Ok("refreshed"),
+            Job::Resolve(t, on) => gh::set_resolved(&t, on).map(|_| if on { "thread resolved" } else { "thread unresolved" }),
+            Job::Discard(r) => gh::delete_review(&r).map(|_| {
+                self.review = None;
+                "pending review discarded"
+            }),
+        };
+        self.hl_cache.retain(|k, _| !k.1);
+        let reload = self.reload(true);
+        self.msg = match (res, reload) {
+            (Err(e), _) | (_, Err(e)) => format!("{e:#}"),
+            (Ok(m), Ok(())) => m.into(),
+        };
+    }
+
+    fn pending_count(&self) -> usize {
+        self.threads.iter().flat_map(|t| &t.comments).filter(|c| c.pending).count()
+    }
+
+    fn review_menu(&mut self) {
+        if self.pr.is_none() {
+            self.msg = "no PR for this branch".into();
+            return;
+        }
+        let item = |label: &str, target| Item { label: label.into(), target };
+        let mut items = vec![
+            item("Comment", Target::Submit("COMMENT")),
+            item("Approve", Target::Submit("APPROVE")),
+            item("Request changes", Target::Submit("REQUEST_CHANGES")),
+        ];
+        if self.review.is_some() {
+            let n = self.pending_count();
+            items.push(item(&format!("Discard pending review ({n} comment(s))"), Target::Discard));
+        }
+        self.picker = Some(Picker { title: " submit review ", items, query: String::new(), sel: 0 });
+    }
+
+    fn toggle_resolved(&mut self) {
+        match self.rows[self.head.row].thread.map(|t| &self.threads[t]) {
+            Some(t) => {
+                self.msg = if t.resolved { "unresolving…" } else { "resolving…" }.into();
+                self.job = Some(Job::Resolve(t.id.clone(), !t.resolved));
+            }
+            None => self.msg = "move onto a comment thread".into(),
+        }
+    }
+
+    /// Fetch review threads and PR info (in parallel: each is a ~1s GitHub round-trip).
     fn load_threads(&mut self) {
-        let Some(pr) = &self.pr else { return };
-        match gh::threads(pr.number) {
-            Ok(t) => self.threads = t,
+        let Some(n) = self.pr.as_ref().map(|p| p.number) else { return };
+        let (threads, info) = std::thread::scope(|s| {
+            let info = s.spawn(|| gh::info(n));
+            (gh::threads(n), info.join())
+        });
+        match threads {
+            Ok(r) => {
+                (self.threads, self.review) = (r.threads, r.pending);
+                if let Some(pr) = &mut self.pr {
+                    pr.node_id = r.pr_id;
+                }
+            }
             Err(e) => self.msg = format!("loading comments: {e:#}"),
         }
-        match gh::info(pr.number) {
-            Ok(i) => self.info = i,
-            Err(e) => self.msg = format!("loading PR info: {e:#}"),
+        match info {
+            Ok(Ok((lines, title, head))) => {
+                self.info = lines;
+                if let Some(pr) = &mut self.pr {
+                    (pr.title, pr.head_oid) = (title, head);
+                }
+            }
+            Ok(Err(e)) => self.msg = format!("loading PR info: {e:#}"),
+            Err(_) => self.msg = "loading PR info panicked".into(),
         }
     }
 
@@ -416,7 +539,12 @@ impl App {
             _ => String::new(),
         };
         // Tags lead the header so stale threads are easy to spot when scanning.
-        let tags: Vec<(&str, Style)> = [(t.outdated, "[outdated] ", self.ui.warning), (t.resolved, "[resolved] ", self.ui.resolved)]
+        let first_pending = t.comments.first().is_some_and(|c| c.pending);
+        let tags: Vec<(&str, Style)> = [
+            (first_pending, "[pending] ", self.ui.pending),
+            (t.outdated, "[outdated] ", self.ui.warning),
+            (t.resolved, "[resolved] ", self.ui.resolved),
+        ]
             .into_iter()
             .filter_map(|(on, s, c)| on.then_some((s, c)))
             .collect();
@@ -441,7 +569,9 @@ impl App {
                     out.extend(t.hunk.iter().map(|h| Row { syn: vec![dim; h.chars().count()], ..mk(Kind::Comment, h.clone()) }));
                 }
             } else {
-                out.push(mk(Kind::Thread, format!("{} · {}", c.author, c.created)));
+                let tag = if c.pending { "[pending] " } else { "" };
+                let syn = vec![Some(self.ui.pending); tag.chars().count()];
+                out.push(Row { syn, ..mk(Kind::Thread, format!("{tag}{} · {}", c.author, c.created)) });
             }
             match t.stale() {
                 true => out.extend(wrap(&c.body, self.wrap_w).into_iter().map(|l| mk(Kind::Comment, l))),
@@ -491,7 +621,15 @@ impl App {
         })
     }
 
-    fn start_comment(&mut self) {
+    /// `c`/`C`: reply when on a thread, else comment on the selected lines.
+    fn comment_or_reply(&mut self, review: bool) {
+        match self.rows[self.head.row].thread {
+            Some(_) => self.start_reply(review),
+            None => self.start_comment(review),
+        }
+    }
+
+    fn start_comment(&mut self, review: bool) {
         let res = (|| {
             let pr = self.pr.as_ref().context("no PR for this branch")?;
             // Lines are posted against the PR head; local edits would shift them.
@@ -504,16 +642,31 @@ impl App {
             self.selection_anchor()
         })();
         match res {
-            Ok(a) => self.action = Some(Action::Comment(a)),
+            Ok(anchor) => self.action = Some(Action::Comment { anchor, review }),
             Err(e) => self.msg = format!("{e:#}"),
         }
     }
 
-    fn start_reply(&mut self) {
-        match self.rows[self.head.row].thread.and_then(|t| self.root_id(t)) {
-            Some(id) if self.pr.is_some() => self.action = Some(Action::Reply(id)),
+    fn start_reply(&mut self, review: bool) {
+        let t = self.rows[self.head.row].thread;
+        match (t, t.and_then(|t| self.root_id(t))) {
+            (Some(t), Some(comment)) if self.pr.is_some() => {
+                let thread = self.threads[t].id.clone();
+                let quote = self.comment_under_cursor(t).map_or(String::new(), |c| {
+                    let q: Vec<String> = c.body.lines().map(|l| format!("> {l}").trim_end().to_owned()).collect();
+                    format!("{}\n\n", q.join("\n"))
+                });
+                self.action = Some(Action::Reply { thread, comment, review, quote });
+            }
             _ => self.msg = "move onto a comment thread to reply".into(),
         }
+    }
+
+    /// Which comment of thread `t` the cursor is in: each comment starts with an author row.
+    fn comment_under_cursor(&self, t: usize) -> Option<&gh::Comment> {
+        let start = self.rows[..=self.head.row].iter().rposition(|r| r.thread != Some(t)).map_or(0, |i| i + 1);
+        let heads = self.rows[start..=self.head.row].iter().filter(|r| r.line.kind == Kind::Thread).count();
+        self.threads[t].comments.get(heads.saturating_sub(1))
     }
 
     /// Row in file `path` at (or just after) the given line, else the file header.
@@ -1151,8 +1304,14 @@ impl App {
                 let lines = HELP.trim_matches('\n').lines().map(|l| Line::from(l.to_owned())).collect();
                 self.popup = Some((" keys  j/k scroll · any other key closes ", lines, 0));
             }
-            'c' => self.start_comment(),
-            'r' => self.start_reply(),
+            'c' => self.comment_or_reply(true),
+            'C' => self.comment_or_reply(false),
+            'r' => self.start_reply(true),
+            'S' => self.review_menu(),
+            'R' => {
+                self.job = Some(Job::Refresh);
+                self.msg = "refreshing…".into();
+            }
             'q' => self.quit = true,
             'g' | ']' | '[' | ' ' | 'f' | 't' | 'F' | 'T' | 'z' => self.pending = Some(c),
             _ => {}
@@ -1199,6 +1358,7 @@ impl App {
             }
             (' ', 'y') => self.yank(false),
             (' ', 'c') => self.copy_ref(),
+            (' ', 'r') => self.toggle_resolved(),
             ('f' | 't' | 'F' | 'T', c) => self.find_char(p, c),
             _ => {}
         }
@@ -1228,6 +1388,22 @@ impl App {
                     match p.items.swap_remove(i).target {
                         Target::Row(r) => self.jump(r, 0),
                         Target::Loc(l) => self.jump_loc(&l),
+                        Target::Submit(ev) => self.action = Some(Action::Submit(ev)),
+                        Target::Discard => {
+                            let n = self.pending_count();
+                            let items = vec![
+                                Item { label: "No, keep it".into(), target: Target::Nothing },
+                                Item { label: format!("Yes, discard {n} pending comment(s)"), target: Target::DiscardYes },
+                            ];
+                            self.picker = Some(Picker { title: " discard pending review? ", items, query: String::new(), sel: 0 });
+                        }
+                        Target::DiscardYes => {
+                            if let Some(r) = self.review.clone() {
+                                self.msg = "discarding…".into();
+                                self.job = Some(Job::Discard(r));
+                            }
+                        }
+                        Target::Nothing => {}
                     }
                 }
             }
@@ -1329,7 +1505,11 @@ impl App {
             None if self.lsp.is_some() && !self.lsp_ready => "ra: starting  ".into(),
             None => String::new(),
         };
-        let pr = self.pr.as_ref().map(|p| format!("PR #{} · {} threads  ", p.number, self.threads.len())).unwrap_or_default();
+        let pending = match self.pending_count() {
+            0 if self.review.is_none() => String::new(),
+            n => format!(" · {n} pending, S to submit"),
+        };
+        let pr = self.pr.as_ref().map(|p| format!("PR #{} · {} threads{pending}  ", p.number, self.threads.len())).unwrap_or_default();
         let right = format!("{ra}{pr}{count}{pend}  {}/{} ", self.head.row + 1, self.rows.len());
         let bar = self.ui.base.patch(self.ui.status);
         f.render_widget(Paragraph::new(left).style(bar), status);
@@ -1476,22 +1656,75 @@ impl App {
 }
 
 /// Write a template, open $VISUAL/$EDITOR (default hx), and return the body file, or None if left empty.
-fn compose(what: &str) -> Result<Option<String>> {
+/// `None` if cancelled: the editor failed (e.g. `:cq`), or the text is empty and `allow_empty` isn't set.
+fn compose(what: &str, allow_empty: bool) -> Result<Option<String>> {
+    compose_with(what, allow_empty, "")
+}
+
+fn in_zellij() -> bool {
+    std::env::var_os("ZELLIJ").is_some()
+}
+
+/// Run an interactive program and wait for it: in a floating pane inside zellij (its exit
+/// status comes through), otherwise in this terminal (the caller suspends the TUI).
+fn interactive(prog: &str, args: &[String], name: &str) -> std::io::Result<std::process::ExitStatus> {
+    if !in_zellij() {
+        return std::process::Command::new(prog).args(args).status();
+    }
+    let cwd = std::env::current_dir()?;
+    std::process::Command::new("zellij")
+        .args(["run", "--floating", "--close-on-exit", "--block-until-exit", "--name", name])
+        .args(["--width", "90%", "--height", "90%", "-x", "5%", "-y", "5%"])
+        .arg("--cwd")
+        .arg(cwd)
+        .arg("--")
+        .arg(prog)
+        .args(args)
+        .status()
+}
+
+/// Like `compose`, with `prefill` above the cursor (e.g. a quote). Leaving only the prefill counts as empty.
+fn compose_with(what: &str, allow_empty: bool, prefill: &str) -> Result<Option<String>> {
     const MARK: &str = "<!-- dv:";
     let path = std::env::temp_dir().join(format!("dv-comment-{}.md", std::process::id()));
-    std::fs::write(&path, format!("\n{MARK} {what}. Save and quit to post; leave empty to cancel. -->\n"))?;
+    let hint = if allow_empty { "leave empty for none; :cq to cancel" } else { "leave empty to cancel" };
+    std::fs::write(&path, format!("{prefill}\n{MARK} {what}. Save and quit to post; {hint}. -->\n"))?;
     let editor = std::env::var("VISUAL").or_else(|_| std::env::var("EDITOR")).unwrap_or_else(|_| "hx".into());
     let mut parts = editor.split_whitespace();
-    let st = std::process::Command::new(parts.next().unwrap_or("hx")).args(parts).arg(&path).status()?;
+    let prog = parts.next().unwrap_or("hx");
+    // hx takes `file:line`: start on the empty line after the quote.
+    let arg = match Path::new(prog).file_name().is_some_and(|n| n == "hx") {
+        true => format!("{}:{}", path.display(), prefill.lines().count() + 1),
+        false => path.display().to_string(),
+    };
+    let args: Vec<String> = parts.map(str::to_owned).chain([arg]).collect();
+    let st = interactive(prog, &args, &format!("dv: {what}"))?;
     let text = std::fs::read_to_string(&path).unwrap_or_default();
-    let body: Vec<&str> = text.lines().filter(|l| !l.starts_with(MARK)).collect();
+    _ = std::fs::remove_file(&path);
+    let body = clean_body(&text, MARK, prefill);
+    Ok((st.success() && (allow_empty || !body.is_empty())).then_some(body))
+}
+
+/// Drop dv's hint line and trim; untouched prefill alone counts as nothing written.
+fn clean_body(text: &str, mark: &str, prefill: &str) -> String {
+    let body: Vec<&str> = text.lines().filter(|l| !l.starts_with(mark)).collect();
     let body = body.join("\n").trim().to_owned();
-    if !st.success() || body.is_empty() {
-        _ = std::fs::remove_file(&path);
-        return Ok(None);
-    }
-    std::fs::write(&path, &body)?;
-    Ok(Some(path.to_string_lossy().into_owned()))
+    if !prefill.is_empty() && body == prefill.trim() { String::new() } else { body }
+}
+
+/// If posting failed, save what was written so it isn't lost, and say where.
+fn keep_on_error(res: Result<()>, body: &str) -> Result<()> {
+    res.map_err(|e| {
+        let saved = std::env::temp_dir().join(format!("dv-unsent-{}.md", std::process::id()));
+        match std::fs::write(&saved, body) {
+            Ok(()) if !body.is_empty() => e.context(format!("text saved to {}", saved.display())),
+            _ => e,
+        }
+    })
+}
+
+fn posted_msg(review: bool) -> String {
+    if review { "added to pending review (S to submit)" } else { "posted" }.into()
 }
 
 /// Word-wrap long lines at `w` chars; short lines (and their indentation) are kept as-is.
@@ -1632,8 +1865,9 @@ fn keys_and_yank() {
 #[test]
 fn comments_placed_and_anchored() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
-    let c = |id, body: &str| gh::Comment { id, author: "amy".into(), body: body.into(), created: "2026-10-01".into() };
+    let c = |id, body: &str| gh::Comment { id, author: "amy".into(), body: body.into(), created: "2026-10-01".into(), pending: false };
     let t = |left, line, resolved, comments| Thread {
+        id: format!("T{line:?}"),
         path: "src/a.rs".into(), left, line, start_line: None, original_line: Some(1), resolved, outdated: line.is_none(),
         hunk: vec![], comments,
     };
@@ -1671,6 +1905,32 @@ fn comments_placed_and_anchored() {
     assert_eq!(anchor_line(&brace, lines).map(|i| lines[i].new), Some(Some(3)));
     let far = Thread { original_line: Some(500), ..brace };
     assert_eq!(anchor_line(&far, lines), None); // nothing within 10 lines → under the file header
+
+    // Pending replies are tagged; `c` on a thread queues a reply in the review, `C` posts it now.
+    app.threads[0].comments[1].pending = true;
+    app.build();
+    assert!(app.rows.iter().any(|r| r.line.text.starts_with("[pending] amy")));
+    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into() });
+    let tr = app.rows.iter().position(|r| r.thread == Some(0)).unwrap();
+    app.goto(tr, 0);
+    let press = |app: &mut App, c| app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+    press(&mut app, 'c');
+    assert!(matches!(app.action.take(), Some(Action::Reply { review: true, ref thread, .. }) if thread == "TSome(2)"));
+    // On the second comment ("unused"), the reply quotes that comment, not the first.
+    let second = app.rows.iter().position(|r| r.line.text == "unused").unwrap();
+    app.goto(second, 0);
+    press(&mut app, 'c');
+    assert!(matches!(app.action.take(), Some(Action::Reply { ref quote, .. }) if quote == "> unused\n\n"));
+    assert_eq!(clean_body("> unused\n\n<!-- dv: x -->\n", "<!-- dv:", "> unused\n\n"), ""); // untouched → cancel
+    assert_eq!(clean_body("> unused\n\nagreed\n<!-- dv: x -->", "<!-- dv:", "> unused\n\n"), "> unused\n\nagreed");
+    app.goto(tr, 0);
+    press(&mut app, 'C');
+    assert!(matches!(app.action.take(), Some(Action::Reply { review: false, .. })));
+    press(&mut app, 'S');
+    assert_eq!(app.picker.take().unwrap().items.len(), 3); // no pending review → no discard option
+    app.review = Some("R".into());
+    press(&mut app, 'S');
+    assert_eq!(app.picker.as_ref().unwrap().items[3].label, "Discard pending review (1 comment(s))");
     assert_eq!((a.line, a.left, a.start), (2, false, Some((2, true))));
     assert_eq!(wrap("aaa bbb ccc", 7), ["aaa bbb", "ccc"]);
 }

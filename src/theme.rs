@@ -36,6 +36,7 @@ pub struct Ui {
     pub error: Style,
     pub warning: Style,
     pub resolved: Style,
+    pub pending: Style,
 }
 
 impl Theme {
@@ -89,6 +90,7 @@ impl Theme {
             ("error", fg(Color::Red)),
             ("warning", fg(Color::Yellow)),
             ("info", fg(Color::LightBlue)),
+            ("hint", fg(Color::LightCyan)),
             ("ui.linenr", fg(Color::DarkGray)),
             ("ui.selection", bg(Color::Rgb(0x3b, 0x42, 0x52))),
             ("ui.statusline", bg(Color::Rgb(0x2a, 0x2e, 0x38))),
@@ -159,6 +161,7 @@ impl Theme {
             error: self.get("error"),
             warning: self.get("warning"),
             resolved: self.get("diff.plus"),
+            pending: self.find("hint").unwrap_or(self.get("info")),
         }
     }
 }
