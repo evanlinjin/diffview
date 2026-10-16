@@ -125,6 +125,7 @@ pub struct Listed {
     pub base: String,
     pub branch: String,
     pub draft: bool,
+    pub created: String,
     pub updated: String,
     pub additions: u64,
     pub deletions: u64,
@@ -139,11 +140,11 @@ pub struct Listed {
 
 // ponytail: the 200 most recently updated open PRs; a search box if a repo has more worth scanning.
 pub fn list() -> Result<Vec<Listed>> {
-    const FIELDS: &str = "number,title,author,baseRefName,headRefName,isDraft,updatedAt,additions,deletions,changedFiles,reviewDecision,labels";
+    const FIELDS: &str = "number,title,author,baseRefName,headRefName,isDraft,createdAt,updatedAt,additions,deletions,changedFiles,reviewDecision,labels";
     let v: Value = serde_json::from_str(&gh(&["pr", "list", "--limit", "200", "--json", FIELDS])?)?;
     let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
     let n = |v: &Value| v.as_u64().unwrap_or(0);
-    let mut prs: Vec<Listed> = v
+    let prs = v
         .as_array()
         .context("gh pr list")?
         .iter()
@@ -154,6 +155,7 @@ pub fn list() -> Result<Vec<Listed>> {
             base: s(&p["baseRefName"]),
             branch: s(&p["headRefName"]),
             draft: p["isDraft"] == true,
+            created: s(&p["createdAt"]),
             updated: s(&p["updatedAt"]),
             additions: n(&p["additions"]),
             deletions: n(&p["deletions"]),
@@ -163,7 +165,6 @@ pub fn list() -> Result<Vec<Listed>> {
             checks: None,
         })
         .collect();
-    prs.sort_by(|a, b| b.updated.cmp(&a.updated)); // ISO times sort as text
     Ok(prs)
 }
 

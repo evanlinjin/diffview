@@ -111,10 +111,15 @@ disk: rust-analyzer can index it and `hx` can open it.
 
 `dv list` (the 200 most recently updated open PRs) shows each PR as a two-line card: number,
 title, draft badge, age; then author, CI (✓/✗/● counts, fetched in the background since they're
-slow), review decision, size, labels, base ← branch. `j k`, `gg ge`, `Ctrl-d Ctrl-u` move,
-`/` filters on number/title/author/branch (smart case; Enter keeps, Esc clears), `Enter`
-reviews the PR as `dv <N> <flags>` would, `R` refreshes, `q` quits. Quitting the review
-returns to the list; if opening a PR fails, the error shows in the list's status bar.
+slow), review decision, size, labels, base ← branch. `j k`, `gg ge`, `Ctrl-d Ctrl-u` move;
+`o` cycles the order (updated / created / number / size, newest or biggest first), `O`
+reverses it. `/` edits the filter (Enter keeps, Esc clears): space-separated terms that must
+all match, GitHub-search style, `-` negating one: `author:` `label:` `base:` `branch:`
+(substring), `is:draft`, `review:approved|changes|required|none`, `ci:pass|fail|pending|none`,
+anything else is text in the number, title, author, branch or labels (smart case). E.g.
+`ci:fail -is:draft -author:dependabot`. `Enter` reviews the PR as `dv <N> <flags>` would, `R`
+refreshes, `q` quits. Quitting the review returns to the list; if opening a PR fails, the
+error shows in the list's status bar.
 
 ## Design
 One crate: `main.rs` (args), `diff.rs` (git + parser), `view.rs` (state, keys,

@@ -24,6 +24,9 @@ pub struct List {
     /// Typing a `/` filter (Enter keeps it, Esc clears it).
     filtering: bool,
     pending_g: bool,
+    order: Order,
+    /// Oldest / smallest / lowest first instead.
+    rev: bool,
     /// CI check counts, still on their way (they take a few seconds for a busy repo).
     checks: Option<Receiver<Checks>>,
     pub msg: String,
@@ -33,7 +36,7 @@ impl List {
     pub fn new(flags: String) -> List {
         let ui = Theme::load().ui();
         let (query, msg) = (String::new(), String::new());
-        List { prs: vec![], ui, flags, sel: 0, top: 0, query, filtering: false, pending_g: false, checks: None, msg }
+        List { prs: vec![], ui, flags, sel: 0, top: 0, query, filtering: false, pending_g: false, order: Order::Updated, rev: false, checks: None, msg }
     }
 
     /// Show the list until a PR is picked (`Some`) or the user quits (`None`).
@@ -84,12 +87,26 @@ impl List {
         Ok(())
     }
 
-    /// PRs matching the filter (smart case) over number, title, author and branch.
+    /// PRs matching every filter term, in the chosen order.
     fn shown(&self) -> Vec<&Listed> {
-        let smart = !self.query.chars().any(char::is_uppercase);
-        let fold = |s: String| if smart { s.to_lowercase() } else { s };
-        let q = fold(self.query.clone());
-        self.prs.iter().filter(|p| fold(label(p)).contains(&q)).collect()
+        let mut prs: Vec<&Listed> = self.prs.iter().filter(|p| self.query.split_whitespace().all(|t| term(p, t))).collect();
+        prs.sort_by(|a, b| {
+            let o = match self.order {
+                Order::Updated => b.updated.cmp(&a.updated), // ISO times sort as text
+                Order::Created => b.created.cmp(&a.created),
+                Order::Number => b.number.cmp(&a.number),
+                Order::Size => (b.additions + b.deletions).cmp(&(a.additions + a.deletions)),
+            };
+            if self.rev { o.reverse() } else { o }
+        });
+        prs
+    }
+
+    /// Change the order, keeping the selected PR selected.
+    fn sort(&mut self, order: Order, rev: bool) {
+        let keep = self.shown().get(self.sel).map(|p| p.number);
+        (self.order, self.rev) = (order, rev);
+        self.sel = keep.and_then(|n| self.shown().iter().position(|p| p.number == n)).unwrap_or(0);
     }
 
     fn key(&mut self, k: KeyEvent) -> Option<Do> {
@@ -117,7 +134,9 @@ impl List {
             KeyCode::Esc if !self.query.is_empty() => (self.query.clear(), self.sel = 0).1,
             KeyCode::Char('q') | KeyCode::Esc => return Some(Do::Quit),
             KeyCode::Char('R') => return Some(Do::Refresh),
-            KeyCode::Char('/') => (self.query.clear(), self.filtering = true).1,
+            KeyCode::Char('/') => self.filtering = true, // edits the current filter
+            KeyCode::Char('o') => self.sort(self.order.next(), self.rev),
+            KeyCode::Char('O') => self.sort(self.order, !self.rev),
             KeyCode::Char('d') if ctrl => self.sel = (self.sel + half).min(n.saturating_sub(1)),
             KeyCode::Char('u') if ctrl => self.sel = self.sel.saturating_sub(half),
             KeyCode::Char('j') | KeyCode::Down => self.sel = (self.sel + 1).min(n.saturating_sub(1)),
@@ -146,7 +165,8 @@ impl List {
 
         let head = Rect { height: 1.min(area.height), ..area };
         let hs = ui.base.patch(ui.header);
-        f.render_widget(Paragraph::new(" open pull requests").style(hs), head);
+        let arrow = if self.rev { '↑' } else { '↓' };
+        f.render_widget(Paragraph::new(format!(" open pull requests · by {} {arrow}", self.order.name())).style(hs), head);
         let pos = if shown.is_empty() { "0 / 0 ".into() } else { format!("{} / {} ", sel + 1, shown.len()) };
         f.render_widget(Paragraph::new(pos).alignment(Alignment::Right).style(hs), head);
 
@@ -164,10 +184,10 @@ impl List {
         let status = Rect { y: area.bottom().saturating_sub(1), height: 1.min(area.height), ..area };
         let bar = ui.base.patch(ui.status);
         let left = match (self.filtering, self.query.is_empty(), self.msg.is_empty()) {
-            (true, _, _) => format!(" /{}", self.query),
+            (true, _, _) => format!(" /{}▏  author: label: base: branch: is:draft review: ci:  -x negates", self.query),
             (_, _, false) => format!(" {}", self.msg),
             (_, false, _) => format!(" filter: {}  (Esc clears)", self.query),
-            _ => " Enter review · / filter · R refresh · q quit".into(),
+            _ => " Enter review · / filter · o O order · R refresh · q quit".into(),
         };
         let flags = if self.flags.is_empty() { String::new() } else { format!("opens with {}  ", self.flags) };
         f.render_widget(Paragraph::new(left).style(bar), status);
@@ -240,37 +260,122 @@ fn cut(s: &str, n: usize) -> String {
     }
 }
 
-fn label(p: &Listed) -> String {
-    format!("#{} {} @{} {}", p.number, p.title, p.author, p.branch)
+#[derive(Clone, Copy)]
+enum Order {
+    Updated,
+    Created,
+    Number,
+    Size,
+}
+
+impl Order {
+    fn next(self) -> Order {
+        match self {
+            Order::Updated => Order::Created,
+            Order::Created => Order::Number,
+            Order::Number => Order::Size,
+            Order::Size => Order::Updated,
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Order::Updated => "updated",
+            Order::Created => "created",
+            Order::Number => "number",
+            Order::Size => "size",
+        }
+    }
+}
+
+/// One filter term, GitHub-search style: `author:` `label:` `base:` `branch:` (substring),
+/// `is:draft`, `review:approved|changes|required|none`, `ci:pass|fail|pending|none`, else text
+/// in the number, title, author, branch or labels. `-` negates. Smart case.
+fn term(p: &Listed, t: &str) -> bool {
+    let (neg, t) = match t.strip_prefix('-') {
+        Some(rest) if !rest.is_empty() => (true, rest),
+        _ => (false, t),
+    };
+    let fold = |s: &str| if t.chars().any(char::is_uppercase) { s.to_owned() } else { s.to_lowercase() };
+    let has = |field: &str, v: &str| fold(field).contains(v);
+    let labels = || p.labels.iter().map(|l| l.0.as_str()).collect::<Vec<_>>().join(" ");
+    let hit = match t.split_once(':') {
+        Some(("author", v)) => has(&p.author, v),
+        Some(("label", v)) => p.labels.iter().any(|l| has(&l.0, v)),
+        Some(("base", v)) => has(&p.base, v),
+        Some(("branch", v)) => has(&p.branch, v),
+        Some(("is", "draft")) => p.draft,
+        Some(("review", v)) => match p.decision.as_str() {
+            "APPROVED" => "approved".starts_with(v),
+            "CHANGES_REQUESTED" => "changes".starts_with(v),
+            "REVIEW_REQUIRED" => "required".starts_with(v),
+            _ => v == "none",
+        },
+        // Unknown until the checks arrive; then a PR can match several (fail and pending).
+        Some(("ci", v)) => match p.checks {
+            Some((0, 0, 0)) | None => v == "none",
+            Some((pass, fail, pending)) => {
+                ("pass".starts_with(v) && pass > 0 && fail == 0 && pending == 0)
+                    || ("fail".starts_with(v) && fail > 0)
+                    || ("pending".starts_with(v) && pending > 0)
+            }
+        },
+        _ => has(&format!("#{} {} @{} {} {}", p.number, p.title, p.author, p.branch, labels()), t),
+    };
+    hit != neg
 }
 
 #[test]
 fn filter_and_keys() {
-    let pr = |number, title: &str, author: &str| Listed {
+    let pr = |number, title: &str, author: &str, updated: &str| Listed {
         number,
         title: title.into(),
         author: author.into(),
         base: "master".into(),
         branch: "b".into(),
         draft: false,
-        updated: String::new(),
-        additions: 1,
-        deletions: 2,
+        created: String::new(),
+        updated: updated.into(),
+        additions: number,
+        deletions: 0,
         files: 1,
         decision: String::new(),
         labels: vec![],
         checks: None,
     };
     let mut l = List::new("-wb".into());
-    l.prs = vec![pr(1, "Fix CI", "ann"), pr(22, "Add docs", "bo"), pr(333, "fix fees", "cy")];
+    l.prs = vec![pr(1, "Fix CI", "ann", "2026-03"), pr(22, "Add docs", "bo", "2026-01"), pr(333, "fix fees", "cy", "2026-02")];
+    (l.prs[1].draft, l.prs[1].decision, l.prs[1].labels) = (true, "APPROVED".into(), vec![("docs".into(), "0075ca".into())]);
+    l.prs[2].checks = Some((3, 1, 0));
     let k = |l: &mut List, c| l.key(KeyEvent::new(c, KeyModifiers::NONE));
+    let shown = |l: &List| l.shown().iter().map(|p| p.number).collect::<Vec<_>>();
+    let filter = |l: &mut List, q: &str| (l.query = q.into(), shown(l)).1;
+    assert_eq!(shown(&l), [1, 333, 22]); // most recently updated first
+    assert_eq!(filter(&mut l, "fix"), [1, 333]); // smart case
+    assert_eq!(filter(&mut l, "Fix"), [1]);
+    assert_eq!(filter(&mut l, "is:draft"), [22]);
+    assert_eq!(filter(&mut l, "-is:draft review:none"), [1, 333]);
+    assert_eq!(filter(&mut l, "review:appr label:doc"), [22]);
+    assert_eq!(filter(&mut l, "ci:fail"), [333]);
+    assert_eq!(filter(&mut l, "ci:none -author:an"), [22]);
+    assert_eq!(filter(&mut l, "docs"), [22]); // labels count as text too
+    l.query.clear();
+    // `/` types a filter; Enter keeps it, Esc (out of filter mode) clears it.
     k(&mut l, KeyCode::Char('/'));
     "fix".chars().for_each(|c| _ = k(&mut l, KeyCode::Char(c)));
-    k(&mut l, KeyCode::Enter); // keeps the filter
-    assert_eq!(l.shown().iter().map(|p| p.number).collect::<Vec<_>>(), [1, 333]); // smart case
+    k(&mut l, KeyCode::Enter);
+    assert_eq!(shown(&l), [1, 333]);
     k(&mut l, KeyCode::Char('j'));
     assert!(matches!(k(&mut l, KeyCode::Enter), Some(Do::Open(333))));
     k(&mut l, KeyCode::Esc); // clears the filter, doesn't quit
-    assert_eq!(l.shown().len(), 3);
+    assert_eq!(shown(&l), [1, 333, 22]);
+    // Ordering keeps the selected PR selected.
+    k(&mut l, KeyCode::Char('j')); // on 333
+    k(&mut l, KeyCode::Char('o')); // created: all equal, so stable
+    k(&mut l, KeyCode::Char('o')); // number
+    assert_eq!(shown(&l), [333, 22, 1]);
+    k(&mut l, KeyCode::Char('O'));
+    assert_eq!(shown(&l), [1, 22, 333]);
+    assert_eq!(l.shown()[l.sel].number, 333);
     assert!(matches!(k(&mut l, KeyCode::Char('q')), Some(Do::Quit)));
 }
