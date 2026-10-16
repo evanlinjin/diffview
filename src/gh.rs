@@ -87,11 +87,15 @@ fn gh_input(args: &[&str], input: Option<&str>) -> Result<String> {
 }
 
 /// `force` resets an existing local branch for the PR to the PR head, dropping its local commits.
-pub fn checkout(n: u64, force: bool) -> Result<()> {
+/// `detach` checks out the PR head without a local branch (for worktrees: no branch clashes).
+pub fn checkout(n: u64, force: bool, detach: bool) -> Result<()> {
     let n = n.to_string();
     let mut args = vec!["pr", "checkout", &n];
     if force {
         args.push("--force");
+    }
+    if detach {
+        args.push("--detach");
     }
     gh(&args).map(drop)
 }
