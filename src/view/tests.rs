@@ -174,7 +174,7 @@ fn comments_placed_and_anchored() {
     let t = |left, line, resolved, comments| Thread {
         id: format!("T{line:?}"),
         path: "src/a.rs".into(), left, line, start_line: None, original_line: Some(1), resolved, outdated: line.is_none(),
-        hunk: vec![], comments,
+        hunk: vec![], comments, claude: None,
     };
     app.threads = vec![
         t(true, Some(2), false, vec![c(1, "why remove?"), c(2, "unused")]), // on the deleted line
@@ -321,4 +321,46 @@ fn quote_into_conversation() {
     app.goto(code, 0);
     app.key(KeyEvent::new(KeyCode::Char('C'), KeyModifiers::NONE));
     assert!(!matches!(app.action, Some(Action::Converse { .. })));
+}
+
+#[test]
+fn claude_review() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let p = std::env::temp_dir().join(format!("dv-claude-view-{}.json", std::process::id()));
+    std::fs::write(&p, r#"{ "summary": "Looks fine.", "comments": [
+        { "path": "src/a.rs", "line": 2, "body": "**nit:** name" },
+        { "path": "src/a.rs", "line": 2, "side": "old", "body": "why remove?" } ] }"#).unwrap();
+    app.claude_path = Some(p.clone());
+    app.load_threads();
+    app.build();
+    let texts: Vec<&str> = app.rows.iter().map(|r| r.line.text.as_str()).collect();
+    assert_eq!(&texts[..3], ["Claude's review", "claude's review", "Looks fine."]); // summary up top, no PR needed
+    let row = |app: &App, side_left: bool| {
+        app.rows.iter().position(|r| r.line.kind == Kind::Thread && r.thread.is_some_and(|t| app.threads[t].left == side_left)).unwrap()
+    };
+    // Each sits under its line: the old-side one under the deleted line, the new-side one under the added line.
+    assert_eq!(app.rows[row(&app, true) - 1].line.kind, Kind::Del);
+    assert_eq!(app.rows[row(&app, false) - 1].line.kind, Kind::Add);
+    let press = |app: &mut App, s: &str| s.chars().for_each(|c| app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)));
+    // `r` replies to Claude (saved to the file, not GitHub).
+    app.goto(row(&app, false), 0);
+    press(&mut app, "r");
+    assert!(matches!(app.action.take(), Some(Action::ClaudeReply(0))));
+    // Space r resolves it in the file: it folds, and the cursor stays on it.
+    press(&mut app, " r");
+    assert!(std::fs::read_to_string(&p).unwrap().contains("\"resolved\": true"));
+    let t = app.rows[app.head.row].thread.unwrap();
+    assert!(app.threads[t].resolved && !app.thread_open(t));
+    // Space d dismisses one; Space e explains instead of editing.
+    app.goto(row(&app, true), 0);
+    press(&mut app, " e");
+    assert!(app.action.is_none() && app.msg.contains("r replies to Claude"));
+    press(&mut app, " d");
+    assert_eq!(app.threads.iter().filter(|t| t.claude.is_some()).count(), 1);
+    // Claude writing the file shows up without a refresh.
+    std::fs::write(&p, r#"{ "comments": [] }"#).unwrap();
+    app.claude_mtime = None;
+    app.watch_claude();
+    assert!(app.threads.is_empty() && app.msg.contains("0 comment(s)"));
+    _ = std::fs::remove_file(&p);
 }

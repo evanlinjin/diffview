@@ -51,7 +51,19 @@ table and design notes.
    review; `Space p` lists them.
 4. Submit: `S`, then Comment / Approve / Request changes.
 
-`C` posts a comment immediately instead of adding it to the review. `Space e` / `Space d`
+`C` posts a comment immediately instead of adding it to the review.
+
+## Claude Code reviews
+
+`dv install-skill` installs the `dv-review` skill for [Claude Code](https://claude.com/claude-code).
+Then ask Claude Code, in the repo, to "review this PR for dv". It writes its review to a file
+in `.git` (`dv review-info` says where; `dv review-check` validates the line references), and dv
+shows the comments inline next to their lines, with the summary at the top. dv reloads it as
+it changes, so you can keep dv open while Claude works.
+
+On a Claude comment: `r` replies (saved in the file; then ask Claude Code to "answer my dv
+replies", and it answers or makes the change), `c` copies it into your pending GitHub review
+(edit it first, or keep it as is), `Space r` resolves it, `Space d` dismisses it. `Space e` / `Space d`
 edit / delete a comment, `Space r` resolves a thread, `gf` opens a link, `R` refreshes.
 
 ## Layout
@@ -61,6 +73,8 @@ edit / delete a comment, `Space r` resolves a thread, `gf` opens a link, `R` ref
 | `src/main.rs` | arguments, PR checkout, worktrees |
 | `src/diff.rs` | `git diff` parsing, hunks, word diffs |
 | `src/list.rs` | `dv list`: the open-PR picker |
+| `src/claude.rs` | Claude review files: format, checks, replies |
+| `skills/dv-review/` | the Claude Code skill (`dv install-skill`) |
 | `src/gh.rs` | GitHub via `gh`: PR info, threads, review mutations |
 | `src/lsp.rs` | a minimal rust-analyzer client |
 | `src/highlight.rs` | syntect highlighting mapped to Helix scopes |

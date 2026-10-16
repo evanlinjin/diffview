@@ -1,3 +1,4 @@
+mod claude;
 mod diff;
 mod gh;
 mod highlight;
@@ -16,6 +17,10 @@ const USAGE: &str = "usage: dv [base | PR | list] [-p N] [-f] [-w [-b]]
   dv 123           review PR 123 (gh pr checkout 123 first); same as -p 123 / --pr 123
   dv list          pick from the open PRs; Enter reviews one with the flags given here
                    (dv list -wb: each in a worktree on its branch), q goes back to the list
+  dv review-info   for Claude Code (or any tool) writing a review dv shows: the review
+                   file's path, and the base and head of the diff dv shows (of PR N with -p N)
+  dv review-check  check that file's comments against the diff (exit 1 on errors)
+  dv install-skill install the dv-review skill for Claude Code (~/.claude/skills/dv-review)
   -f, --force      with a PR: reset the local PR branch to the PR head (drops its local commits)
   -w, --worktree   with a PR: check it out in a worktree next to the repo, <repo>-123
                    (created or updated, detached at the PR head), and review it there
@@ -34,6 +39,8 @@ struct Opts {
     branch: bool,
     rm: bool,
     list: bool,
+    /// review-info / review-check / install-skill
+    cmd: Option<&'static str>,
     help: bool,
 }
 
@@ -70,6 +77,9 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Opts> {
             "-b" | "--branch" => o.branch = true,
             "--rm" | "--remove" => o.rm = true,
             "list" => o.list = true,
+            "review-info" => o.cmd = Some("review-info"),
+            "review-check" => o.cmd = Some("review-check"),
+            "install-skill" => o.cmd = Some("install-skill"),
             _ if a.starts_with('-') => anyhow::bail!("unknown flag {a}\n{USAGE}"),
             _ if !a.is_empty() && a.bytes().all(|b| b.is_ascii_digit()) => o.pr = Some(num(Some(a))?),
             _ => o.base = Some(a),
@@ -84,7 +94,10 @@ fn main() -> anyhow::Result<()> {
         println!("{USAGE}");
         return Ok(());
     }
-    if o.list && (o.pr.is_some() || o.rm) {
+    if (o.list || o.cmd.is_some()) && o.rm {
+        anyhow::bail!("--rm goes with a PR number, e.g. `dv 123 --rm`\n{USAGE}");
+    }
+    if o.list && o.pr.is_some() {
         anyhow::bail!("dv list picks the PR itself\n{USAGE}");
     }
     if o.rm {
@@ -93,6 +106,11 @@ fn main() -> anyhow::Result<()> {
     }
     let root = PathBuf::from(diff::git(&["rev-parse", "--show-toplevel"])?.trim());
     std::env::set_current_dir(&root)?;
+    match o.cmd {
+        Some("install-skill") => return install_skill(),
+        Some(cmd) => return review_file(cmd, &o),
+        None => {}
+    }
     if o.branch && !o.worktree {
         anyhow::bail!("--branch goes with --worktree (plain --pr already checks out a branch)\n{USAGE}");
     }
@@ -139,19 +157,71 @@ fn review(o: &Opts, pr_num: Option<u64>) -> anyhow::Result<(Option<PathBuf>, any
         }
         (None, _) => None,
     };
-    let mut base = o.base.clone();
     // Comments only load when the branch has a PR; plain local diffs still work without one.
     let pr = gh::pr(pr_num).ok();
-    if let (Some(p), None) = (&pr, &base) {
-        _ = diff::git(&["fetch", "-q", "origin", &p.base]);
-        base = Some(format!("origin/{}", p.base));
-    }
-    let base = diff::merge_base(base.as_deref())?;
+    let base = diff_base(o, pr.as_ref())?;
     let mut app = view::App::new(base, pr)?;
     let mut term = ratatui::init();
     let res = app.run(&mut term);
     ratatui::restore();
     Ok((wt, res))
+}
+
+/// The commit the diff starts from: the merge-base with the given base, else the PR's base
+/// (fetched first), else origin/HEAD.
+fn diff_base(o: &Opts, pr: Option<&gh::Pr>) -> anyhow::Result<String> {
+    let mut base = o.base.clone();
+    if let (Some(p), None) = (pr, &base) {
+        _ = diff::git(&["fetch", "-q", "origin", &p.base]);
+        base = Some(format!("origin/{}", p.base));
+    }
+    diff::merge_base(base.as_deref())
+}
+
+/// `dv review-info` / `dv review-check`, for the current checkout (or PR `-p N`), no checkout.
+fn review_file(cmd: &str, o: &Opts) -> anyhow::Result<()> {
+    let pr = gh::pr(o.pr).ok();
+    let path = claude::path(pr.as_ref().map(|p| p.number))?;
+    let base = diff_base(o, pr.as_ref())?;
+    if cmd == "review-info" {
+        let head = diff::git(&["rev-parse", "HEAD"])?;
+        println!("file: {}", path.display());
+        println!("base: {base}    (`git diff {base}` is the diff dv shows: base → working tree)");
+        println!("head: {}", head.trim());
+        match &pr {
+            Some(p) => println!("pr:   #{} {}", p.number, p.title),
+            None => println!("pr:   none (a local review of this branch)"),
+        }
+        println!("exists: {}", path.exists());
+        return Ok(());
+    }
+    let review = claude::load(&path)?.with_context(|| format!("no review at {}", path.display()))?;
+    let files = diff::load(&base, 3)?;
+    let (errors, warnings) = claude::check(&review, &files);
+    for w in &warnings {
+        println!("warning: {w}");
+    }
+    for e in &errors {
+        println!("error: {e}");
+    }
+    let n = review.threads.len();
+    if !errors.is_empty() {
+        anyhow::bail!("{} of {n} comment(s) can't be placed", errors.len());
+    }
+    println!("ok: {n} comment(s), {} warning(s)", warnings.len());
+    Ok(())
+}
+
+const SKILL: &str = include_str!("../skills/dv-review/SKILL.md");
+
+/// Write the dv-review skill where Claude Code finds personal skills.
+fn install_skill() -> anyhow::Result<()> {
+    let home = std::env::var_os("HOME").context("no $HOME")?;
+    let dir = PathBuf::from(home).join(".claude/skills/dv-review");
+    std::fs::create_dir_all(&dir)?;
+    std::fs::write(dir.join("SKILL.md"), SKILL)?;
+    println!("installed {}", dir.join("SKILL.md").display());
+    Ok(())
 }
 
 /// Check PR `n` out in `<repo>-<n>` next to the repo (creating the worktree if needed) and make
@@ -246,4 +316,6 @@ fn args() {
     assert!(l.list && l.pr.is_none());
     assert_eq!(l.flags(), "-wbf");
     assert_eq!(p("list").unwrap().flags(), "");
+    assert_eq!(p("review-info -p 7").unwrap(), Opts { pr: Some(7), cmd: Some("review-info"), ..Opts::default() });
+    assert_eq!(p("review-check").unwrap().cmd, Some("review-check"));
 }

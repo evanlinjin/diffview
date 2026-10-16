@@ -230,12 +230,15 @@ impl App {
             0 if self.review.is_none() => String::new(),
             n => format!(" · {n} pending, S to submit"),
         };
+        let claude = self.threads.iter().filter(|t| t.claude.is_some()).count();
+        let claude_s = if claude > 0 { format!("{claude} from Claude · ") } else { String::new() };
         let seen = self.files.iter().filter(|f| self.viewed.get(&f.path).is_some_and(|s| s == "VIEWED")).count();
         let pr = self
             .pr
             .as_ref()
-            .map(|p| format!("PR #{} · {} threads · {seen}/{} viewed{pending}  ", p.number, self.threads.len(), self.files.len()))
+            .map(|p| format!("PR #{} · {} threads · {seen}/{} viewed{pending}  ", p.number, self.threads.len() - claude, self.files.len()))
             .unwrap_or_default();
+        let pr = format!("{claude_s}{pr}");
         let view = if self.split { "split  " } else { "" };
         let right = format!("{ra}{pr}{view}{count}{pend}  {}/{} ", self.head.row + 1, self.rows.len());
         let bar = self.ui.base.patch(self.ui.status);

@@ -59,6 +59,19 @@ disk: rust-analyzer can index it and `hx` can open it.
    colors, colored review decision and check counts. Comment times are relative ("2d ago").
    File headers: dir dimmed, +/− colored. Split view hatches the empty side; pickers
    highlight matched letters.
+   **Claude reviews**: a review file at `<git common dir>/dv/reviews/pr-<N>.json` (or
+   `branch-<name>.json`): `{head, created, summary, comments: [{path, line, start_line?, side,
+   body, resolved?, replies?: [{author: user|claude, body, created}]}]}`, line numbers being file
+   lines on `side` (new = working tree, old = base). Outside the repo's history and shared by its
+   worktrees. Claude Code writes it with the `dv-review` skill (`skills/dv-review/SKILL.md`,
+   installed by `dv install-skill`): `dv review-info` gives it the file path and the base/head of
+   the diff dv shows; `dv review-check` checks every comment against the diff (errors: dv can't
+   place it; warnings: GitHub won't take it, more than 3 lines from a change). dv shows the
+   comments as threads by `claude` (accent color) and the summary in the top section (shown
+   without a PR too), and reloads when the file changes. `r` stages a reply to Claude in the
+   file (the skill answers replies, changing code if asked), `c`/`C` copy Claude's comment into
+   your pending review / post it (editable in `$EDITOR`; posting as is is fine), then dismiss it
+   from the file; `Space r` resolves it in the file, `Space d` dismisses it.
 4. **Later**:
    - **`c` in the PR section → review summary.** `c` on a conversation comment (or the
      description) appends it as a `> ` quote to the pending review's summary (body), saved on
@@ -105,6 +118,8 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `Space t` | picker of all review threads (state tags, author, gist, reply count); type to filter, e.g. `resolved` |
 | `Space v` | mark / unmark the file as viewed on GitHub (folds it and moves to the next file); viewed files start folded, headers show `✓ Viewed` / `↻ changed since viewed` at the right edge |
 | `]c [c` | next/prev comment thread |
+| `r` on a Claude comment | reply to Claude (saved in the review file for Claude to answer) |
+| `c` / `C` on a Claude comment | copy it into your pending review / post it now; dismissed from the file once posted |
 | `R` | refresh: re-run `git diff`, re-fetch threads + PR info |
 | `?` | key help overlay; `/` inside it filters entries (smart case), Enter keeps, Esc clears |
 | `q` | quit |

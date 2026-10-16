@@ -99,6 +99,9 @@ impl App {
 
     /// `Space d`: delete the comment under the cursor, after a confirmation picker.
     pub(super) fn start_delete(&mut self) {
+        if let Some((_, i)) = self.claude_at_cursor() {
+            return self.edit_claude(i, crate::claude::dismiss, "dismissed Claude's comment");
+        }
         let Some(c) = self.rows[self.head.row].thread.and_then(|t| self.comment_under_cursor(t)) else {
             self.msg = "move onto a comment to delete it".into();
             return;
@@ -116,6 +119,9 @@ impl App {
     }
 
     pub(super) fn start_edit(&mut self) {
+        if self.claude_at_cursor().is_some() {
+            return self.msg = "c copies Claude's comment into your review, to edit there; r replies to Claude".into();
+        }
         let Some(c) = self.rows[self.head.row].thread.and_then(|t| self.comment_under_cursor(t)) else {
             self.msg = "move onto a comment to edit it".into();
             return;
@@ -130,6 +136,12 @@ impl App {
     }
 
     pub(super) fn toggle_resolved(&mut self) {
+        if let Some((t, i)) = self.claude_at_cursor() {
+            return match self.threads[t].resolved {
+                true => self.edit_claude(i, |p, i| crate::claude::set_resolved(p, i, false), "unresolved (Claude's comment)"),
+                false => self.edit_claude(i, |p, i| crate::claude::set_resolved(p, i, true), "resolved (Claude's comment)"),
+            };
+        }
         match self.rows[self.head.row].thread.map(|t| &self.threads[t]) {
             Some(t) => {
                 self.msg = if t.resolved { "unresolving…" } else { "resolving…" }.into();
@@ -141,6 +153,77 @@ impl App {
 
     /// Fetch review threads and PR info (in parallel: each is a ~1s GitHub round-trip).
     pub(super) fn load_threads(&mut self) {
+        self.load_github();
+        self.load_claude();
+    }
+
+    /// Claude's review file, replacing its threads (GitHub's stay).
+    pub(super) fn load_claude(&mut self) {
+        self.threads.retain(|t| t.claude.is_none());
+        self.claude_summary.clear();
+        let Some(p) = &self.claude_path else { return };
+        self.claude_mtime = std::fs::metadata(p).and_then(|m| m.modified()).ok();
+        match crate::claude::load(p) {
+            Ok(Some(r)) => {
+                let head = diff::git(&["rev-parse", "HEAD"]).unwrap_or_default();
+                if !r.head.is_empty() && !head.trim().starts_with(&r.head) && !r.head.starts_with(head.trim()) {
+                    self.msg = format!("Claude reviewed {}, HEAD has moved since: its line numbers may be off", &r.head[..r.head.len().min(8)]);
+                }
+                self.claude_summary = r.summary;
+                self.threads.extend(r.threads);
+            }
+            Ok(None) => {}
+            Err(e) => self.msg = format!("Claude's review: {e:#}"),
+        }
+    }
+
+    /// Reload Claude's review when its file changes (Claude writing it, or answering replies).
+    pub(super) fn watch_claude(&mut self) {
+        let Some(p) = &self.claude_path else { return };
+        let mtime = std::fs::metadata(p).and_then(|m| m.modified()).ok();
+        if mtime != self.claude_mtime {
+            let keep = self.cursor_key();
+            self.msg.clear(); // a warning from loading takes its place
+            self.load_claude();
+            self.rebuild(keep);
+            if self.msg.is_empty() {
+                let n = self.threads.iter().filter(|t| t.claude.is_some()).count();
+                self.msg = format!("Claude's review updated: {n} comment(s)");
+            }
+        }
+    }
+
+    /// Run a change to Claude's review file on comment `i`, then show the result.
+    pub(super) fn edit_claude(&mut self, i: usize, f: fn(&std::path::Path, usize) -> Result<()>, done: &str) {
+        let Some(p) = self.claude_path.clone() else { return };
+        let (keep, res) = (self.cursor_key(), f(&p, i));
+        self.load_claude();
+        self.rebuild(keep);
+        self.msg = match res {
+            Ok(()) => done.into(),
+            Err(e) => format!("{e:#}"),
+        };
+    }
+
+    /// The Claude review comment index of the thread under the cursor, if it is one.
+    pub(super) fn claude_at_cursor(&self) -> Option<(usize, usize)> {
+        let t = self.rows[self.head.row].thread?;
+        Some((t, self.threads[t].claude?))
+    }
+
+    /// `c`/`C` on Claude's comment: copy it (edited in `$EDITOR`) into your pending review, or
+    /// post it now. Claude's copy is dismissed once it's on GitHub.
+    pub(super) fn start_promote(&mut self, t: usize, i: usize, review: bool) {
+        let th = &self.threads[t];
+        let anchor = Anchor { path: th.path.clone(), line: th.line.unwrap_or(0), left: th.left, start: th.start_line.map(|s| (s, th.left)) };
+        let body = self.comment_under_cursor(t).map(|c| c.body.clone()).unwrap_or_default();
+        match self.check_synced() {
+            Ok(()) => self.action = Some(Action::Comment { anchor, review, prefill: body, claude: Some(i) }),
+            Err(e) => self.msg = format!("{e:#}"),
+        }
+    }
+
+    fn load_github(&mut self) {
         let Some(n) = self.pr.as_ref().map(|p| p.number) else { return };
         let (threads, info) = std::thread::scope(|s| {
             let info = s.spawn(|| gh::info(n));
@@ -289,6 +372,9 @@ impl App {
     /// `c`/`C`: reply when on a thread, else comment on the selected lines. In the PR section
     /// `C` quotes into a new conversation comment; `c` has nothing to queue there (yet).
     pub(super) fn comment_or_reply(&mut self, review: bool) {
+        if let Some((t, i)) = self.claude_at_cursor() {
+            return self.start_promote(t, i, review);
+        }
         let row = &self.rows[self.head.row];
         match (row.file == INFO, row.thread) {
             (true, _) if review => self.msg = "select code lines to comment on".into(),
@@ -312,7 +398,7 @@ impl App {
 
     pub(super) fn start_comment(&mut self, review: bool) {
         match self.check_synced().and_then(|_| self.selection_anchor()) {
-            Ok(anchor) => self.action = Some(Action::Comment { anchor, review, prefill: String::new() }),
+            Ok(anchor) => self.action = Some(Action::Comment { anchor, review, prefill: String::new(), claude: None }),
             Err(e) => self.msg = format!("{e:#}"),
         }
     }
@@ -320,7 +406,7 @@ impl App {
     /// `s`: a GitHub suggestion for the selected new-side lines, pre-filled with their code.
     pub(super) fn start_suggest(&mut self) {
         match self.check_synced().and_then(|_| self.suggestion()) {
-            Ok((anchor, prefill)) => self.action = Some(Action::Comment { anchor, review: true, prefill }),
+            Ok((anchor, prefill)) => self.action = Some(Action::Comment { anchor, review: true, prefill, claude: None }),
             Err(e) => self.msg = format!("{e:#}"),
         }
     }
@@ -361,6 +447,9 @@ impl App {
     }
 
     pub(super) fn start_reply(&mut self, review: bool) {
+        if let Some((_, i)) = self.claude_at_cursor() {
+            return self.action = Some(Action::ClaudeReply(i));
+        }
         let t = self.rows[self.head.row].thread;
         match (t, t.and_then(|t| self.root_id(t))) {
             (Some(t), Some(comment)) if self.pr.is_some() => {

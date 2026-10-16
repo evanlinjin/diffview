@@ -82,6 +82,12 @@ PR
   Space t              pick from all review threads
   Space v              mark / unmark the file as viewed (folds it, moves on)
 
+CLAUDE REVIEW
+  r                    reply to Claude (saved in the file; ask Claude Code to answer)
+  c / C                copy Claude's comment into your pending review / post it now
+  Space r              resolve / unresolve (Claude skips resolved comments)
+  Space d              dismiss Claude's comment
+
 GENERAL
   ?                    this help (/ to search it)
   R                    refresh (git diff + GitHub)
@@ -149,9 +155,13 @@ enum Action {
     Open(String),
     /// `review`: add to the pending review instead of posting immediately.
     /// `prefill`: starting text in the editor (a ```suggestion block for `s`).
-    Comment { anchor: Anchor, review: bool, prefill: String },
+    /// `claude`: copying Claude's comment (its index in the review file) into the review; the
+    /// prefill is its text, posted as is if left unchanged, and the comment is dismissed after.
+    Comment { anchor: Anchor, review: bool, prefill: String, claude: Option<usize> },
     /// `quote`: the comment under the cursor as a `> ` quote, pre-filled in the editor.
     Reply { thread: String, comment: u64, review: bool, quote: String },
+    /// A reply to Claude on its comment `i`, saved to the review file for Claude to answer.
+    ClaudeReply(usize),
     /// A new PR conversation comment, starting with `quote` (may be empty).
     Converse { quote: String },
     /// Rewrite one of your comments (node id, current body).
@@ -257,6 +267,10 @@ pub struct App {
     wrap_w: usize,
     /// Root comment ids of threads folded/unfolded against the default (resolved = folded).
     toggled: HashSet<u64>,
+    /// Claude's review file for this PR/branch (see `claude.rs`), and when it last changed.
+    claude_path: Option<PathBuf>,
+    claude_mtime: Option<std::time::SystemTime>,
+    claude_summary: String,
     root: PathBuf,
     lsp: Option<Lsp>,
     lsp_ready: bool,
@@ -280,6 +294,7 @@ impl App {
         let theme = Theme::load();
         (app.hl, app.ui) = (Highlighter::new(&theme), theme.ui());
         app.settings = crate::theme::settings();
+        app.claude_path = crate::claude::path(pr.as_ref().map(|p| p.number)).ok();
         app.pr = pr;
         app.load_threads();
         app.build();
@@ -336,6 +351,9 @@ impl App {
             hl_cache: HashMap::new(),
             md_cache: Default::default(),
             toggled: HashSet::new(),
+            claude_path: None,
+            claude_mtime: None,
+            claude_summary: String::new(),
             root: std::env::current_dir().unwrap_or_default(),
             lsp: None,
             lsp_ready: false,
@@ -367,6 +385,7 @@ impl App {
                         self.key(k);
                     }
             self.lsp_poll();
+            self.watch_claude();
             if let Some(a) = self.action.take() {
                 // In zellij the editor gets a floating pane and dv stays on screen underneath.
                 let floating = in_zellij();
@@ -374,7 +393,7 @@ impl App {
                     ratatui::restore();
                 }
                 // Only posting changes GitHub state; skip the network round-trips after plain hx.
-                let posted = !matches!(a, Action::Open(_));
+                let posted = !matches!(a, Action::Open(_) | Action::ClaudeReply(_));
                 let res = self.perform(a);
                 self.hl_cache.retain(|k, _| !k.1); // working-tree files may have changed; the base can't
                 if !floating {
@@ -398,33 +417,50 @@ impl App {
                 interactive("hx", std::slice::from_ref(&target), &format!("hx {target}")).context("running hx")?;
                 Ok(String::new())
             }
-            Action::Comment { anchor, review, prefill } => {
+            Action::Comment { anchor, review, prefill, claude } => {
                 let range = match anchor.start {
                     Some((s, _)) => format!("{s}-{}", anchor.line),
                     None => anchor.line.to_string(),
                 };
-                let kind = if prefill.is_empty() { "comment" } else { "suggestion" };
+                let kind = match (claude, prefill.is_empty()) {
+                    (Some(_), _) => "Claude's comment",
+                    (None, true) => "comment",
+                    (None, false) => "suggestion",
+                };
                 let what = format!("{kind} on {}:{range}", anchor.path);
                 let pr = self.pr.clone().context("no PR")?; // before the editor, so nothing written is lost
-                let Some(body) = compose_with(&what, false, &prefill)? else { return Ok(format!("{kind} cancelled")) };
+                let Some(body) = compose_with(&what, false, &prefill, claude.is_some())? else {
+                    return Ok(format!("{kind} cancelled"));
+                };
                 let res = match review {
                     true => self.ensure_review().and_then(|r| gh::add_thread(&r, &anchor, &body)),
                     false => gh::comment(&pr, &anchor, &body),
                 };
-                keep_on_error(res, &body).map(|_| posted_msg(review))
+                keep_on_error(res, &body)?;
+                // It's on GitHub now; drop Claude's copy so it doesn't show twice.
+                if let (Some(i), Some(p)) = (claude, &self.claude_path) {
+                    crate::claude::dismiss(p, i)?;
+                }
+                Ok(posted_msg(review))
             }
             Action::Reply { thread, comment, review, quote } => {
                 let pr = self.pr.clone().context("no PR")?;
-                let Some(body) = compose_with("reply", false, &quote)? else { return Ok("reply cancelled".into()) };
+                let Some(body) = compose_with("reply", false, &quote, false)? else { return Ok("reply cancelled".into()) };
                 let res = match review {
                     true => self.ensure_review().and_then(|r| gh::add_reply(&r, &thread, &body)),
                     false => gh::reply(&pr, comment, &body),
                 };
                 keep_on_error(res, &body).map(|_| posted_msg(review))
             }
+            Action::ClaudeReply(i) => {
+                let p = self.claude_path.clone().context("no review file")?;
+                let Some(body) = compose_with("reply to Claude", false, "", false)? else { return Ok("reply cancelled".into()) };
+                keep_on_error(crate::claude::reply(&p, i, &body), &body)?;
+                Ok("reply saved for Claude: ask Claude Code to answer your dv replies".into())
+            }
             Action::Converse { quote } => {
                 let pr = self.pr.clone().context("no PR")?;
-                let Some(body) = compose_with("comment on the PR conversation", false, &quote)? else {
+                let Some(body) = compose_with("comment on the PR conversation", false, &quote, false)? else {
                     return Ok("comment cancelled".into());
                 };
                 keep_on_error(gh::conversation_comment(&pr, &body), &body)
@@ -434,7 +470,7 @@ impl App {
                 // Unchanged or emptied counts as cancelled; deleting a comment is a separate thing.
                 // Maintainers can edit others' comments too, so the hint names whose this is.
                 let what = format!("editing @{author}'s comment");
-                let Some(body) = compose_with(&what, false, &old)? else { return Ok("edit cancelled".into()) };
+                let Some(body) = compose_with(&what, false, &old, false)? else { return Ok("edit cancelled".into()) };
                 keep_on_error(gh::edit_comment(&comment, &body), &body).map(|_| "comment updated".into())
             }
             Action::Submit(event) => {
@@ -500,9 +536,13 @@ impl App {
     fn build(&mut self) {
         self.jumps.clear();
         let mut rows = vec![];
-        if let Some(pr) = &self.pr {
+        let title = match &self.pr {
+            Some(pr) => Some(format!("PR #{} · {}", pr.number, pr.title)),
+            None => (!self.claude_summary.is_empty()).then(|| "Claude's review".to_owned()),
+        };
+        if let Some(title) = title {
             let mk = |kind, text| Row::text(INFO, kind, text);
-            rows.push(mk(Kind::File, format!("PR #{} · {}", pr.number, pr.title)));
+            rows.push(mk(Kind::File, title));
             if !self.info_collapsed {
                 for (ii, l) in self.info.iter().enumerate() {
                     match (l.heading, l.md) {
@@ -516,6 +556,10 @@ impl App {
                         (false, true) => rows.extend(self.md_rows(&l.text, mk).into_iter().map(|r| Row { info: Some(ii), ..r })),
                         (false, false) => rows.push(self.info_row(l, mk(Kind::Comment, l.text.clone()))),
                     }
+                }
+                if !self.claude_summary.is_empty() {
+                    rows.push(mk(Kind::Thread, "claude's review".into()));
+                    rows.extend(self.md_rows(&self.claude_summary, mk));
                 }
             }
         }
@@ -717,14 +761,22 @@ impl App {
         let tag_syn: Vec<Option<Style>> =
             tags.iter().flat_map(|&(s, st)| s.chars().map(move |_| Some(st))).collect();
         let mk = |kind, text| Row { thread: Some(ti), ..Row::text(file, kind, text) };
+        // Claude's comments (from its review file) carry its name in the accent color.
+        let by_claude = |c: &gh::Comment| t.claude.is_some() && c.author == crate::claude::AUTHOR;
+        let author_syn = |c: &gh::Comment| vec![by_claude(c).then_some(self.ui.key); c.author.chars().count()];
+        let when = |c: &gh::Comment| match gh::ago(&c.created) {
+            a if a.is_empty() => String::new(),
+            a => format!(" · {a}"),
+        };
         let mut out = vec![];
         for (k, c) in t.comments.iter().enumerate() {
             if k == 0 {
-                let mut head = format!("{tag_text}{} · {}{range}", c.author, gh::ago(&c.created));
+                let mut head = format!("{tag_text}{}{}{range}", c.author, when(c));
                 if !open {
                     head += &format!(" · {} comment(s), Tab to expand", t.comments.len());
                 }
-                out.push(Row { syn: tag_syn.clone(), ..mk(Kind::Thread, head) });
+                let syn = [tag_syn.clone(), author_syn(c)].concat();
+                out.push(Row { syn, ..mk(Kind::Thread, head) });
                 if !open {
                     break;
                 }
@@ -735,8 +787,8 @@ impl App {
                 }
             } else {
                 let tag = if c.pending { "[pending] " } else { "" };
-                let syn = vec![Some(self.ui.pending); tag.chars().count()];
-                out.push(Row { syn, ..mk(Kind::Thread, format!("{tag}{} · {}", c.author, gh::ago(&c.created))) });
+                let syn = [vec![Some(self.ui.pending); tag.chars().count()], author_syn(c)].concat();
+                out.push(Row { syn, ..mk(Kind::Thread, format!("{tag}{}{}", c.author, when(c))) });
             }
             let rows = self.md_rows(&c.body, mk);
             match t.stale() {
@@ -895,7 +947,7 @@ impl App {
 /// Write a template, open $VISUAL/$EDITOR (default hx), and return the body file, or None if left empty.
 /// `None` if cancelled: the editor failed (e.g. `:cq`), or the text is empty and `allow_empty` isn't set.
 fn compose(what: &str, allow_empty: bool) -> Result<Option<String>> {
-    compose_with(what, allow_empty, "")
+    compose_with(what, allow_empty, "", false)
 }
 
 fn in_zellij() -> bool {
@@ -920,8 +972,9 @@ fn interactive(prog: &str, args: &[String], name: &str) -> std::io::Result<std::
         .status()
 }
 
-/// Like `compose`, with `prefill` above the cursor (e.g. a quote). Leaving only the prefill counts as empty.
-fn compose_with(what: &str, allow_empty: bool, prefill: &str) -> Result<Option<String>> {
+/// Like `compose`, with `prefill` above the cursor (e.g. a quote). Leaving only the prefill
+/// counts as empty, unless `untouched_ok` (the prefill is a draft to post as is).
+fn compose_with(what: &str, allow_empty: bool, prefill: &str, untouched_ok: bool) -> Result<Option<String>> {
     const MARK: &str = "<!-- dv:";
     let path = std::env::temp_dir().join(format!("dv-comment-{}.md", std::process::id()));
     let hint = if allow_empty { "leave empty for none; :cq to cancel" } else { "leave empty to cancel" };
@@ -940,7 +993,7 @@ fn compose_with(what: &str, allow_empty: bool, prefill: &str) -> Result<Option<S
     let st = interactive(prog, &args, &format!("dv: {what}"))?;
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     _ = std::fs::remove_file(&path);
-    let body = clean_body(&text, MARK, prefill);
+    let body = clean_body(&text, MARK, if untouched_ok { "" } else { prefill });
     Ok((st.success() && (allow_empty || !body.is_empty())).then_some(body))
 }
 
