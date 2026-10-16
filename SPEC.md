@@ -75,6 +75,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `Ctrl-o` | jump back |
 | `c` | comment on the selection, or reply on a thread, in your pending review (`r` = reply) |
 | `C` | same, but post immediately as a single comment |
+| `s` | suggest a change: `$EDITOR` opens with a ```suggestion block of the selected new-side lines (pending review) |
 | `S` | submit the pending review (comment / approve / request changes) or discard it |
 | `Space r` | resolve / unresolve the thread under the cursor |
 | `Space e` | edit your comment under the cursor (opens its text in `$EDITOR`) |

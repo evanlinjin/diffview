@@ -61,6 +61,7 @@ RUST-ANALYZER
 PR
   c                    comment on selection / reply on a thread (pending review)
   C                    same, but post immediately
+  s                    suggest a change to the selected lines (pending review)
   S                    submit review: comment / approve / request changes, or discard
   Space r              resolve / unresolve thread
   Space e              edit your comment under the cursor
@@ -107,7 +108,8 @@ enum DRow {
 enum Action {
     Open(String),
     /// `review`: add to the pending review instead of posting immediately.
-    Comment { anchor: Anchor, review: bool },
+    /// `prefill`: starting text in the editor (a ```suggestion block for `s`).
+    Comment { anchor: Anchor, review: bool, prefill: String },
     /// `quote`: the comment under the cursor as a `> ` quote, pre-filled in the editor.
     Reply { thread: String, comment: u64, review: bool, quote: String },
     /// Rewrite one of your comments (node id, current body).
@@ -344,13 +346,14 @@ impl App {
                 interactive("hx", &[target.clone()], &format!("hx {target}")).context("running hx")?;
                 Ok(String::new())
             }
-            Action::Comment { anchor, review } => {
+            Action::Comment { anchor, review, prefill } => {
                 let range = match anchor.start {
                     Some((s, _)) => format!("{s}-{}", anchor.line),
                     None => anchor.line.to_string(),
                 };
-                let what = format!("comment on {}:{range}", anchor.path);
-                let Some(body) = compose(&what, false)? else { return Ok("comment cancelled".into()) };
+                let kind = if prefill.is_empty() { "comment" } else { "suggestion" };
+                let what = format!("{kind} on {}:{range}", anchor.path);
+                let Some(body) = compose_with(&what, false, &prefill)? else { return Ok(format!("{kind} cancelled")) };
                 let res = match review {
                     true => self.ensure_review().and_then(|r| gh::add_thread(&r, &anchor, &body)),
                     false => gh::comment(self.pr.as_ref().context("no PR")?, &anchor, &body),
@@ -782,22 +785,55 @@ impl App {
         }
     }
 
+    /// Line comments are posted against the PR head; local edits would shift the lines.
+    fn check_synced(&self) -> Result<()> {
+        let pr = self.pr.as_ref().context("no PR for this branch")?;
+        if diff::git(&["rev-parse", "HEAD"])?.trim() != pr.head_oid {
+            bail!("HEAD isn't the PR head (pull, or `gh pr checkout {}`)", pr.number);
+        }
+        if !diff::git(&["status", "--porcelain", "--untracked-files=no"])?.trim().is_empty() {
+            bail!("working tree has local changes; stash them to comment");
+        }
+        Ok(())
+    }
+
     fn start_comment(&mut self, review: bool) {
-        let res = (|| {
-            let pr = self.pr.as_ref().context("no PR for this branch")?;
-            // Lines are posted against the PR head; local edits would shift them.
-            if diff::git(&["rev-parse", "HEAD"])?.trim() != pr.head_oid {
-                bail!("HEAD isn't the PR head (pull, or `gh pr checkout {}`)", pr.number);
-            }
-            if !diff::git(&["status", "--porcelain", "--untracked-files=no"])?.trim().is_empty() {
-                bail!("working tree has local changes; stash them to comment");
-            }
-            self.selection_anchor()
-        })();
-        match res {
-            Ok(anchor) => self.action = Some(Action::Comment { anchor, review }),
+        match self.check_synced().and_then(|_| self.selection_anchor()) {
+            Ok(anchor) => self.action = Some(Action::Comment { anchor, review, prefill: String::new() }),
             Err(e) => self.msg = format!("{e:#}"),
         }
+    }
+
+    /// `s`: a GitHub suggestion for the selected new-side lines, pre-filled with their code.
+    fn start_suggest(&mut self) {
+        match self.check_synced().and_then(|_| self.suggestion()) {
+            Ok((anchor, prefill)) => self.action = Some(Action::Comment { anchor, review: true, prefill }),
+            Err(e) => self.msg = format!("{e:#}"),
+        }
+    }
+
+    fn suggestion(&self) -> Result<(Anchor, String)> {
+        let (s, e) = self.ordered();
+        let rows: Vec<&Row> =
+            self.rows[s.row..=e.row].iter().filter(|r| matches!(r.line.kind, Kind::Ctx | Kind::Add | Kind::Del)).collect();
+        let (Some(first), Some(last)) = (rows.first(), rows.last()) else { bail!("select the lines to suggest a change for") };
+        if rows.iter().any(|r| r.line.kind == Kind::Del) {
+            bail!("suggestions replace lines in the new version; leave removed lines out of the selection");
+        }
+        if first.file != last.file {
+            bail!("a suggestion can't span files");
+        }
+        let (Some(a), Some(b)) = (first.line.new, last.line.new) else { bail!("no line number") };
+        let code: Vec<&str> = rows.iter().map(|r| r.line.text.as_str()).collect();
+        let code = code.join("\n");
+        // A fence longer than any backtick run in the code, so the block can't end early.
+        let mut fence = String::from("```");
+        while code.contains(&fence) {
+            fence.push('`');
+        }
+        let anchor =
+            Anchor { path: self.files[first.file].path.clone(), line: b, left: false, start: (a != b).then_some((a, false)) };
+        Ok((anchor, format!("\n{fence}suggestion\n{code}\n{fence}\n")))
     }
 
     fn start_reply(&mut self, review: bool) {
@@ -1512,6 +1548,7 @@ impl App {
                 self.popup = Some((" keys  j/k scroll · any other key closes ", lines, 0));
             }
             'c' => self.comment_or_reply(true),
+            's' => self.start_suggest(),
             'C' => self.comment_or_reply(false),
             'r' => self.start_reply(true),
             'S' => self.review_menu(),
@@ -2006,9 +2043,11 @@ fn compose_with(what: &str, allow_empty: bool, prefill: &str) -> Result<Option<S
     let editor = std::env::var("VISUAL").or_else(|_| std::env::var("EDITOR")).unwrap_or_else(|_| "hx".into());
     let mut parts = editor.split_whitespace();
     let prog = parts.next().unwrap_or("hx");
-    // hx takes `file:line`: start on the empty line after the quote.
+    // hx takes `file:line`: start on the prefill's first empty line (after a quote, or above a
+    // suggestion block, where the explanation goes), else after it.
+    let line = prefill.lines().position(str::is_empty).unwrap_or(prefill.lines().count()) + 1;
     let arg = match Path::new(prog).file_name().is_some_and(|n| n == "hx") {
-        true => format!("{}:{}", path.display(), prefill.lines().count() + 1),
+        true => format!("{}:{line}", path.display()),
         false => path.display().to_string(),
     };
     let args: Vec<String> = parts.map(str::to_owned).chain([arg]).collect();
@@ -2174,6 +2213,26 @@ fn keys_and_yank() {
     assert_eq!(app.labels[0].2, ['a', 'a']);
     press(&mut app, "aa");
     assert_eq!(app.selection_text(false), "new_call");
+}
+
+#[test]
+fn suggestion_block() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    // rows: 0 file, 1 hunk, 2 ctx "fn main() {", 3 del, 4 add "    new_call(x);", 5 ctx "}"
+    app.goto(4, 0);
+    app.select = true;
+    app.goto(5, 0);
+    let (a, prefill) = app.suggestion().unwrap();
+    assert_eq!((a.path.as_str(), a.line, a.left, a.start), ("src/a.rs", 3, false, Some((2, false))));
+    assert_eq!(prefill, "\n```suggestion\n    new_call(x);\n}\n```\n");
+    // Removed lines can't be part of a suggestion.
+    app.goto(3, 0);
+    assert!(app.suggestion().err().unwrap().to_string().contains("removed lines"));
+    // Code containing ``` gets a longer fence.
+    app.rows[4].line.text = "let s = \"```\";".into();
+    app.select = false;
+    app.goto(4, 0);
+    assert!(app.suggestion().unwrap().1.contains("````suggestion\n"));
 }
 
 #[test]
