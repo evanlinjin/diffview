@@ -155,13 +155,13 @@ enum Action {
     Open(String),
     /// `review`: add to the pending review instead of posting immediately.
     /// `prefill`: starting text in the editor (a ```suggestion block for `s`).
-    /// `claude`: copying Claude's comment (its index in the review file) into the review; the
+    /// `claude`: copying Claude's comment (its id in the review file) into the review; the
     /// prefill is its text, posted as is if left unchanged, and the comment is dismissed after.
-    Comment { anchor: Anchor, review: bool, prefill: String, claude: Option<usize> },
+    Comment { anchor: Anchor, review: bool, prefill: String, claude: Option<String> },
     /// `quote`: the comment under the cursor as a `> ` quote, pre-filled in the editor.
     Reply { thread: String, comment: u64, review: bool, quote: String },
-    /// A reply to Claude on its comment `i`, saved to the review file for Claude to answer.
-    ClaudeReply(usize),
+    /// A reply to Claude on its comment (by id), saved to the review file for Claude to answer.
+    ClaudeReply(String),
     /// A new PR conversation comment, starting with `quote` (may be empty).
     Converse { quote: String },
     /// Rewrite one of your comments (node id, current body).
@@ -422,7 +422,7 @@ impl App {
                     Some((s, _)) => format!("{s}-{}", anchor.line),
                     None => anchor.line.to_string(),
                 };
-                let kind = match (claude, prefill.is_empty()) {
+                let kind = match (&claude, prefill.is_empty()) {
                     (Some(_), _) => "Claude's comment",
                     (None, true) => "comment",
                     (None, false) => "suggestion",
@@ -438,8 +438,8 @@ impl App {
                 };
                 keep_on_error(res, &body)?;
                 // It's on GitHub now; drop Claude's copy so it doesn't show twice.
-                if let (Some(i), Some(p)) = (claude, &self.claude_path) {
-                    crate::claude::dismiss(p, i)?;
+                if let (Some(k), Some(p)) = (claude, &self.claude_path) {
+                    crate::claude::dismiss(p, &k)?;
                 }
                 Ok(posted_msg(review))
             }
@@ -452,10 +452,10 @@ impl App {
                 };
                 keep_on_error(res, &body).map(|_| posted_msg(review))
             }
-            Action::ClaudeReply(i) => {
+            Action::ClaudeReply(k) => {
                 let p = self.claude_path.clone().context("no review file")?;
                 let Some(body) = compose_with("reply to Claude", false, "", false)? else { return Ok("reply cancelled".into()) };
-                keep_on_error(crate::claude::reply(&p, i, &body), &body)?;
+                keep_on_error(crate::claude::reply(&p, &k, &body), &body)?;
                 Ok("reply saved for Claude: ask Claude Code to answer your dv replies".into())
             }
             Action::Converse { quote } => {

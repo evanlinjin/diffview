@@ -345,7 +345,7 @@ fn claude_review() {
     // `r` replies to Claude (saved to the file, not GitHub).
     app.goto(row(&app, false), 0);
     press(&mut app, "r");
-    assert!(matches!(app.action.take(), Some(Action::ClaudeReply(0))));
+    assert!(matches!(app.action.take(), Some(Action::ClaudeReply(k)) if k == "c1")); // ids given on load
     // Space r resolves it in the file: it folds, and the cursor stays on it.
     press(&mut app, " r");
     assert!(std::fs::read_to_string(&p).unwrap().contains("\"resolved\": true"));

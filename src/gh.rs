@@ -40,8 +40,8 @@ pub struct Thread {
     /// line. Shown for outdated threads and used to relocate them.
     pub hunk: Vec<String>,
     pub comments: Vec<Comment>,
-    /// A comment from a local review file (see `claude.rs`): its index there. Not on GitHub.
-    pub claude: Option<usize>,
+    /// A comment from a local review file (see `claude.rs`): its id there. Not on GitHub.
+    pub claude: Option<String>,
 }
 
 pub struct Comment {

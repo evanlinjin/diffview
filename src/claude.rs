@@ -19,6 +19,10 @@
 //! "old" = the base). `start_line` is optional (single-line comment). Replies are a
 //! conversation with Claude: dv appends the user's (`r`), Claude appends its answers.
 //!
+//! `id` names a comment for good (`c1`, `c2`, …), so replies and dismissals reach the right one
+//! however the list is edited; dv and `dv review-check` give one to any comment without.
+//! Both write the file whole, via a rename, so a reader never sees half of it.
+//!
 //! `code` is the text of the commented lines, recorded by `dv review-check`. It keeps comments
 //! on their code as the code changes: dv finds those lines again where they moved, and shows a
 //! comment as outdated when they're gone.
@@ -49,6 +53,20 @@ pub fn path(pr: Option<u64>) -> Result<PathBuf> {
         },
     };
     Ok(PathBuf::from(common.trim()).join("dv").join("reviews").join(format!("{name}.json")))
+}
+
+/// The review at `path`, first giving any comment without an id one (so dv's folding and
+/// cursor, keyed by ids, don't jump when it gets one later); `None` if there is no file.
+pub fn load_with_ids(path: &std::path::Path) -> Result<Option<Review>> {
+    let r = load(path)?;
+    if r.as_ref().is_some_and(|r| r.threads.iter().any(|t| t.claude.as_deref().is_some_and(|k| k.starts_with('#')))) {
+        let mut v: Value = serde_json::from_str(&std::fs::read_to_string(path)?)?;
+        if v["comments"].as_array_mut().is_some_and(|c| assign_ids(c)) {
+            write(path, &v)?;
+        }
+        return load(path);
+    }
+    Ok(r)
 }
 
 /// The review at `path`; `None` if there is no file.
@@ -90,7 +108,8 @@ fn parse(text: &str) -> Result<Review> {
                     .flatten()
                     .map(|l| format!("{}{}", if c["side"] == "old" { '-' } else { '+' }, l.as_str().unwrap_or("")))
                     .collect(),
-                claude: Some(i),
+                // Without an id yet: its position, until dv or review-check gives it one.
+                claude: Some(c["id"].as_str().map_or(format!("#{i}"), str::to_owned)),
                 comments: std::iter::once((AUTHOR.to_owned(), s(&c["body"]), created.clone()))
                     .chain(c["replies"].as_array().into_iter().flatten().map(|r| {
                         let who = s(&r["author"]);
@@ -98,8 +117,8 @@ fn parse(text: &str) -> Result<Review> {
                     }))
                     .enumerate()
                     .map(|(k, (author, body, created))| Comment {
-                        // Stable across reloads (folding state is keyed by the root's), never a GitHub id.
-                        id: u64::MAX - ((i as u64) << 16) - k as u64,
+                        // Stable across reloads (folding state is keyed by the root's).
+                        id: comment_id(c["id"].as_str().unwrap_or(&format!("#{i}")), k),
                         node_id: String::new(),
                         can_edit: false,
                         can_delete: false,
@@ -115,24 +134,60 @@ fn parse(text: &str) -> Result<Review> {
     Ok(Review { head: s(&v["head"]), summary: s(&v["summary"]), threads })
 }
 
-/// Change the file's `comments` with `f`, keeping everything else in it as written.
-fn update(path: &std::path::Path, i: usize, f: impl FnOnce(&mut Vec<Value>)) -> Result<()> {
-    let mut v: Value = serde_json::from_str(&std::fs::read_to_string(path)?)?;
-    let comments = v["comments"].as_array_mut().context("no comments")?;
-    anyhow::ensure!(i < comments.len(), "that comment is no longer in the file");
-    f(comments);
-    std::fs::write(path, serde_json::to_string_pretty(&v)? + "\n")?;
+/// A number for comment `k` of the thread `key`, as dv's folding state keys threads. The top bit
+/// keeps it clear of GitHub's ids.
+fn comment_id(key: &str, k: usize) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (key, k).hash(&mut h);
+    h.finish() | 1 << 63
+}
+
+/// Give every comment without an `id` the next free `c<n>`. Whether any changed.
+fn assign_ids(comments: &mut [Value]) -> bool {
+    let num = |c: &Value| c["id"].as_str().and_then(|s| s.strip_prefix('c')?.parse::<u64>().ok());
+    let mut next = comments.iter().filter_map(num).max().unwrap_or(0) + 1;
+    let mut changed = false;
+    for c in comments.iter_mut().filter(|c| !c["id"].is_string()) {
+        c["id"] = format!("c{next}").into();
+        (next, changed) = (next + 1, true);
+    }
+    changed
+}
+
+/// Replace the file in one step (write a temp file, rename it over), so dv and Claude never
+/// read a half-written review.
+fn write(path: &std::path::Path, v: &Value) -> Result<()> {
+    let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
+    std::fs::write(&tmp, serde_json::to_string_pretty(v)? + "\n")?;
+    std::fs::rename(&tmp, path)?;
     Ok(())
 }
 
-/// Remove comment `i`.
-pub fn dismiss(path: &std::path::Path, i: usize) -> Result<()> {
-    update(path, i, |c| _ = c.remove(i))
+/// Change comment `key` with `f` (given the comments and its index), re-reading the file
+/// first so a change Claude just made isn't lost. Everything else stays as written.
+fn update(path: &std::path::Path, key: &str, f: impl FnOnce(&mut Vec<Value>, usize)) -> Result<()> {
+    let mut v: Value = serde_json::from_str(&std::fs::read_to_string(path)?)?;
+    let comments = v["comments"].as_array_mut().context("no comments")?;
+    let i = match key.strip_prefix('#') {
+        // A position, from before the comment had an id: still that comment only if it has none.
+        Some(n) => n.parse::<usize>().ok().filter(|&i| comments.get(i).is_some_and(|c| !c["id"].is_string())),
+        None => comments.iter().position(|c| c["id"] == key),
+    };
+    let i = i.context("that comment is no longer in the file (Claude may have just changed it): try again")?;
+    assign_ids(comments);
+    f(comments, i);
+    write(path, &v)
 }
 
-/// Add the user's reply to comment `i`, for Claude to answer.
-pub fn reply(path: &std::path::Path, i: usize, body: &str) -> Result<()> {
-    update(path, i, |c| {
+/// Remove comment `key`.
+pub fn dismiss(path: &std::path::Path, key: &str) -> Result<()> {
+    update(path, key, |c, i| _ = c.remove(i))
+}
+
+/// Add the user's reply to comment `key`, for Claude to answer.
+pub fn reply(path: &std::path::Path, key: &str, body: &str) -> Result<()> {
+    update(path, key, |c, i| {
         if !c[i]["replies"].is_array() {
             c[i]["replies"] = serde_json::json!([]);
         }
@@ -143,8 +198,8 @@ pub fn reply(path: &std::path::Path, i: usize, body: &str) -> Result<()> {
     })
 }
 
-pub fn set_resolved(path: &std::path::Path, i: usize, on: bool) -> Result<()> {
-    update(path, i, |c| c[i]["resolved"] = Value::Bool(on))
+pub fn set_resolved(path: &std::path::Path, key: &str, on: bool) -> Result<()> {
+    update(path, key, |c, i| c[i]["resolved"] = Value::Bool(on))
 }
 
 /// The time now as ISO 8601 (UTC), e.g. 2026-10-16T12:00:00Z.
@@ -242,7 +297,7 @@ pub fn check(path: &std::path::Path, files: &[FileDiff]) -> Result<Report> {
     let r = load(path)?.with_context(|| format!("no review at {}", path.display()))?;
     let mut v: Value = serde_json::from_str(&std::fs::read_to_string(path)?)?;
     let mut rep = Report { errors: vec![], warnings: vec![], notes: vec![], comments: r.threads.len() };
-    let mut changed = false;
+    let mut changed = v["comments"].as_array_mut().is_some_and(|c| assign_ids(c));
     for (i, t) in r.threads.iter().enumerate() {
         let c = &mut v["comments"][i];
         let at = format!("comment {} ({}:{})", i + 1, t.path, t.line.unwrap_or(0));
@@ -296,7 +351,7 @@ pub fn check(path: &std::path::Path, files: &[FileDiff]) -> Result<Report> {
         }
     }
     if changed {
-        std::fs::write(path, serde_json::to_string_pretty(&v)? + "\n")?;
+        write(path, &v)?;
     }
     Ok(rep)
 }
@@ -313,14 +368,17 @@ fn parse_and_dismiss() {
     assert!(parse(r#"{ "comments": [ { "line": 1 } ] }"#).is_err()); // no path
     let p = std::env::temp_dir().join(format!("dv-claude-test-{}.json", std::process::id()));
     std::fs::write(&p, text).unwrap();
-    reply(&p, 1, "why?").unwrap();
-    set_resolved(&p, 1, true).unwrap();
+    reply(&p, "#1", "why?").unwrap(); // by position: it has no id yet…
+    assert!(set_resolved(&p, "#1", true).is_err()); // …and now it has one, so positions are out
+    set_resolved(&p, "c2", true).unwrap();
     let r = load(&p).unwrap().unwrap();
     let t = &r.threads[1];
     assert!(t.resolved);
     assert_eq!((t.comments[1].author.as_str(), t.comments[1].body.as_str()), ("you", "why?"));
     assert_eq!(t.comments[1].created.len(), "2026-10-16T12:00:00Z".len());
-    dismiss(&p, 0).unwrap();
+    assert_eq!(r.threads[0].claude.as_deref(), Some("c1"));
+    dismiss(&p, "c1").unwrap();
+    assert_eq!(load(&p).unwrap().unwrap().threads[0].claude.as_deref(), Some("c2")); // ids survive
     let left = std::fs::read_to_string(&p).unwrap();
     _ = std::fs::remove_file(&p);
     assert!(!left.contains("\"x\"") && left.contains("\"extra\": true"));
