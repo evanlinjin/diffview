@@ -375,6 +375,7 @@ impl App {
         let mut line_bg = None;
         let ui = &self.ui;
         let mut gstyle = ui.linenr;
+        let mut part = None;
         let (gutter, style) = match l.kind {
             Kind::File => {
                 let collapsed = match row.file {
@@ -399,16 +400,19 @@ impl App {
                     (Kind::Thread, _) => ui.thread,
                     _ => Style::new(),
                 };
+                part = self.box_part(r);
                 let first = row.thread.is_some() && (r == 0 || self.rows[r - 1].thread != row.thread);
-                let mark = match row.thread {
-                    Some(t) if first => {
-                        let folded = !self.thread_open(t);
-                        if folded { "▸ " } else { "▾ " }
-                    }
-                    _ => "┃ ",
+                // Comments sit in a box with a subtle border; a folded thread is just its ▸ line.
+                let mark = match part {
+                    Some(BoxPart::Top) => "╭─ ",
+                    Some(BoxPart::Divider) => "├─ ",
+                    Some(BoxPart::Body) => "│  ",
+                    Some(BoxPart::Bottom) => "╰──",
+                    None if first => " ▸ ",
+                    None => " ┃ ",
                 };
-                // A filled box from the text column on; the gutter keeps the page background.
-                line_bg = Some(ui.comment_bg);
+                // Filled from the text column on; the gutter keeps the page background.
+                line_bg = (part != Some(BoxPart::Bottom)).then_some(ui.comment_bg);
                 gstyle = gstyle.bg(ui.base.bg.unwrap_or(Color::Reset));
                 (format!("{:>gw$}", mark), st)
             }
@@ -487,6 +491,30 @@ impl App {
         // Pad to the full width (so split halves line up), and tint the whole row, so
         // added/removed lines read as bands. Spans with their own bg (the cursor) keep it.
         let used: usize = spans[1..].iter().map(|s| s.width()).sum();
+        if let Some(p) = part {
+            // The box's right side: header rows run a rule to the corner, body rows pad to the
+            // edge. It's as wide as the comment text wraps (+ margin), not the whole screen.
+            let bw = tw.min(self.wrap_w + 2);
+            let (fill, lead, corner) = match p {
+                BoxPart::Top => ('─', " ", '╮'),
+                BoxPart::Divider => ('─', " ", '┤'),
+                BoxPart::Body => (' ', "", '│'),
+                BoxPart::Bottom => ('─', "", '╯'),
+            };
+            let lead = if used == 0 { "" } else { lead };
+            let n = bw.saturating_sub(used + lead.len() + 1);
+            spans.push(Span::styled(format!("{lead}{}", fill.to_string().repeat(n)), style.patch(ui.linenr)));
+            if let Some(bg) = line_bg {
+                for sp in &mut spans {
+                    sp.style = Style::new().bg(bg).patch(sp.style);
+                }
+            }
+            let border = ui.linenr.bg(ui.base.bg.unwrap_or(Color::Reset));
+            spans.push(Span::styled(corner.to_string(), border));
+            let used: usize = spans[1..].iter().map(|s| s.width()).sum();
+            spans.push(Span::raw(" ".repeat(tw.saturating_sub(used))));
+            return spans;
+        }
         let tag = if l.kind == Kind::File { self.viewed_tag(row.file) } else { None };
         match tag {
             // Right-aligned when it fits after the name; it isn't part of the row's text.

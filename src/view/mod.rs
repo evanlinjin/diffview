@@ -123,11 +123,13 @@ struct Row {
     links: Vec<(usize, usize, String)>,
     /// For PR info rows: the index in `info` of the markdown body this row belongs to.
     info: Option<usize>,
+    /// The bottom edge of a comment's box (an empty row, drawn as a border).
+    edge: bool,
 }
 
 impl Row {
     fn new(file: usize, line: DLine) -> Row {
-        Row { file, line, thread: None, syn: vec![], links: vec![], info: None }
+        Row { file, line, thread: None, syn: vec![], links: vec![], info: None, edge: false }
     }
 
     /// A row of plain text (headers, comments, PR info).
@@ -144,6 +146,14 @@ struct CursorKey {
     thread: Option<u64>,
     /// Row index for a PR info row (the section is at the top and only grows at its end).
     info: Option<usize>,
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(super) enum BoxPart {
+    Top,
+    Divider,
+    Body,
+    Bottom,
 }
 
 /// A screen row: full width, or a side-by-side pair (old line, new line) in split view.
@@ -564,7 +574,10 @@ impl App {
                         }
                         // GitHub shows a placeholder for an empty description; there's nothing to quote.
                         (false, true) if l.text.trim().is_empty() => rows.extend(self.md_rows("_(no description)_", mk)),
-                        (false, true) => rows.extend(self.md_rows(&l.text, mk).into_iter().map(|r| Row { info: Some(ii), ..r })),
+                        (false, true) => {
+                            rows.extend(self.md_rows(&l.text, mk).into_iter().map(|r| Row { info: Some(ii), ..r }));
+                            rows.push(Row { info: Some(ii), edge: true, ..mk(Kind::Comment, String::new()) });
+                        }
                         (false, false) => rows.push(self.info_row(l, mk(Kind::Comment, l.text.clone()))),
                     }
                 }
@@ -818,7 +831,32 @@ impl App {
                 false => out.extend(rows),
             }
         }
+        if open {
+            out.push(Row { edge: true, ..mk(Kind::Comment, String::new()) });
+        }
         out
+    }
+
+    /// Which comment box row `r` is part of, and its place in it; `None` outside one. Boxes are
+    /// open review threads and the PR description / conversation comments.
+    pub(super) fn box_part(&self, r: usize) -> Option<BoxPart> {
+        let key = |r: &Row| match (r.thread, r.info) {
+            (Some(t), _) => Some((Some(t), None)),
+            (None, Some(i)) if r.file == INFO => Some((None, Some(i))),
+            _ => None,
+        };
+        let row = &self.rows[r];
+        let k = key(row)?;
+        if row.thread.is_some_and(|t| !self.thread_open(t)) {
+            return None; // a folded thread stays a single line
+        }
+        let first = r == 0 || key(&self.rows[r - 1]) != Some(k);
+        Some(match (row.edge, row.line.kind, first) {
+            (true, ..) => BoxPart::Bottom,
+            (_, _, true) => BoxPart::Top,
+            (_, Kind::Thread, false) => BoxPart::Divider, // the next comment's author line
+            _ => BoxPart::Body,
+        })
     }
 
     /// Stale threads start folded; `Tab` flips a thread from its default.

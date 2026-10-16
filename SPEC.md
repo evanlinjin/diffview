@@ -57,6 +57,9 @@ disk: rust-analyzer can index it and `hx` can open it.
    highlighted in its language, `<details><summary>` as `▸ …`, common `:emoji:`, and line
    breaks kept as GitHub does in comments. PR info: state badge and label chips in GitHub's
    colors, colored review decision and check counts. Comment times are relative ("2d ago").
+   Comments (open review threads, the description and conversation comments) sit in boxes with
+   a subtle border in the line-number color: `╭─ author ─╮`, a `├─` divider per reply, `╰──╯`
+   (an empty row of its own); a folded thread stays one `▸` line.
    File headers: dir dimmed, +/− colored. Split view hatches the empty side; pickers
    highlight matched letters.
    **Claude reviews**: a review file at `<git common dir>/dv/reviews/pr-<N>.json` (or

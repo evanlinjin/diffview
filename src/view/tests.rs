@@ -181,7 +181,7 @@ fn comments_placed_and_anchored() {
         t(false, None, true, vec![c(3, "old note")]),                        // outdated + resolved
     ];
     app.build();
-    let kinds: Vec<_> = app.rows.iter().take(10).map(|r| (r.line.kind, r.thread)).collect();
+    let kinds: Vec<_> = app.rows.iter().take(11).map(|r| (r.line.kind, r.thread)).collect();
     assert_eq!(kinds, [
         (Kind::File, None),
         (Kind::Hunk, None),
@@ -192,12 +192,16 @@ fn comments_placed_and_anchored() {
         (Kind::Comment, Some(0)),
         (Kind::Thread, Some(0)),
         (Kind::Comment, Some(0)),
+        (Kind::Comment, Some(0)), // the box's bottom edge
         (Kind::Add, None),
     ]);
+    assert!(app.rows[9].edge);
+    let parts: Vec<_> = (3..10).map(|r| app.box_part(r)).collect();
+    assert_eq!(parts, [None, None, Some(BoxPart::Top), Some(BoxPart::Body), Some(BoxPart::Divider), Some(BoxPart::Body), Some(BoxPart::Bottom)]);
     // Select from the deleted line down to the added line (across the thread): multi-line, mixed sides.
     app.goto(4, 0);
     app.select = true;
-    app.goto(9, 0);
+    app.goto(10, 0);
     let a = app.selection_anchor().unwrap();
     assert_eq!(app.file_ref().unwrap(), "src/a.rs:2"); // new-side lines only; the deleted one has none
 
