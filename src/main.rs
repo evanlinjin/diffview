@@ -7,6 +7,7 @@ mod theme;
 mod view;
 
 use anyhow::Context;
+use std::path::{Path, PathBuf};
 
 const USAGE: &str = "usage: dv [base | PR] [-p N] [-f] [-w [-b]]
   dv               diff working tree vs merge-base of the PR's base (or origin/HEAD)
@@ -17,6 +18,8 @@ const USAGE: &str = "usage: dv [base | PR] [-p N] [-f] [-w [-b]]
                    (created or updated, detached at the PR head), and review it there
   -b, --branch     with -w: check out the PR's branch there instead (tracking it, so you can
                    push to the PR); git won't if that branch is checked out elsewhere
+  --rm             remove the PR's worktree (dv 123 --rm); -f if it has local changes.
+                   A -b branch is kept, in case it has unpushed commits
   short flags combine: dv 123 -wb   (worktree on the PR's branch)";
 
 #[derive(Debug, Default, PartialEq)]
@@ -26,6 +29,7 @@ struct Opts {
     force: bool,
     worktree: bool,
     branch: bool,
+    rm: bool,
     help: bool,
 }
 
@@ -52,6 +56,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Opts> {
             "-f" | "--force" => o.force = true,
             "-w" | "--worktree" => o.worktree = true,
             "-b" | "--branch" => o.branch = true,
+            "--rm" | "--remove" => o.rm = true,
             _ if a.starts_with('-') => anyhow::bail!("unknown flag {a}\n{USAGE}"),
             _ if !a.is_empty() && a.bytes().all(|b| b.is_ascii_digit()) => o.pr = Some(num(Some(a))?),
             _ => o.base = Some(a),
@@ -61,10 +66,14 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Opts> {
 }
 
 fn main() -> anyhow::Result<()> {
-    let Opts { mut base, pr: pr_num, force, worktree, branch, help } = parse_args(std::env::args().skip(1))?;
+    let Opts { mut base, pr: pr_num, force, worktree, branch, rm, help } = parse_args(std::env::args().skip(1))?;
     if help {
         println!("{USAGE}");
         return Ok(());
+    }
+    if rm {
+        let n = pr_num.context("--rm needs a PR, e.g. `dv 123 --rm`")?;
+        return remove_worktree(n, force);
     }
     let root = diff::git(&["rev-parse", "--show-toplevel"])?;
     std::env::set_current_dir(root.trim())?;
@@ -105,17 +114,9 @@ fn main() -> anyhow::Result<()> {
 /// `gh pr checkout` sets it up, so pushing updates the PR). Refuses a dir that isn't a worktree
 /// of this repo; git refuses to update one with local changes.
 fn enter_worktree(n: u64, branch: bool, force: bool) -> anyhow::Result<std::path::PathBuf> {
-    let root = std::env::current_dir()?;
-    let name = root.file_name().context("repo has no dir name")?.to_string_lossy();
-    let dir = root.parent().context("repo has no parent dir")?.join(format!("{name}-{n}"));
-    let common = |d: &std::path::Path| {
-        diff::git(&["-C", &d.to_string_lossy(), "rev-parse", "--path-format=absolute", "--git-common-dir"])
-            .map(|s| s.trim().to_owned())
-    };
+    let (_, dir) = worktree_dir(n)?;
     if dir.exists() {
-        if common(&dir).ok() != Some(common(&root)?) {
-            anyhow::bail!("{} exists and isn't a worktree of this repo", dir.display());
-        }
+        ensure_ours(&dir)?;
     } else {
         diff::git(&["worktree", "add", "--detach", &dir.to_string_lossy()])?;
     }
@@ -133,6 +134,57 @@ fn enter_worktree(n: u64, branch: bool, force: bool) -> anyhow::Result<std::path
     Ok(dir)
 }
 
+/// The main checkout's root (found from inside a worktree too) and PR `n`'s worktree next to it.
+fn worktree_dir(n: u64) -> anyhow::Result<(PathBuf, PathBuf)> {
+    let common = PathBuf::from(common_dir(Path::new("."))?);
+    let main = match common.file_name().is_some_and(|f| f == ".git") {
+        true => common.parent().context("no repo dir")?.to_owned(),
+        false => PathBuf::from(diff::git(&["rev-parse", "--show-toplevel"])?.trim()),
+    };
+    let name = main.file_name().context("repo has no dir name")?.to_string_lossy().into_owned();
+    let dir = main.parent().context("repo has no parent dir")?.join(format!("{name}-{n}"));
+    Ok((main, dir))
+}
+
+fn common_dir(d: &Path) -> anyhow::Result<String> {
+    Ok(diff::git(&["-C", &d.to_string_lossy(), "rev-parse", "--path-format=absolute", "--git-common-dir"])?.trim().to_owned())
+}
+
+/// Only ever touch a dir that's a worktree of this repo.
+fn ensure_ours(dir: &Path) -> anyhow::Result<()> {
+    if common_dir(dir).ok() != Some(common_dir(Path::new("."))?) {
+        anyhow::bail!("{} exists and isn't a worktree of this repo", dir.display());
+    }
+    Ok(())
+}
+
+/// `dv 123 --rm`: remove PR 123's worktree. git refuses if it has local changes (`-f` discards
+/// them). A branch checked out there is kept, since it may have unpushed commits.
+fn remove_worktree(n: u64, force: bool) -> anyhow::Result<()> {
+    let (main, dir) = worktree_dir(n)?;
+    if !dir.exists() {
+        anyhow::bail!("no worktree at {}", dir.display());
+    }
+    ensure_ours(&dir)?;
+    let branch = diff::git(&["-C", &dir.to_string_lossy(), "branch", "--show-current"]).unwrap_or_default();
+    std::env::set_current_dir(&main)?; // not from inside the dir being removed
+    let d = dir.to_string_lossy();
+    let mut args = vec!["worktree", "remove"];
+    if force {
+        args.push("--force");
+    }
+    args.push(&d);
+    diff::git(&args).map_err(|e| match format!("{e:#}").contains("modified or untracked") {
+        true => e.context(format!("{} has local changes; `dv {n} --rm -f` discards them", dir.display())),
+        false => e,
+    })?;
+    println!("removed {}", dir.display());
+    if let Some(b) = Some(branch.trim()).filter(|b| !b.is_empty()) {
+        println!("kept branch {b} (delete it with `git branch -D {b}` if it has nothing unpushed)");
+    }
+    Ok(())
+}
+
 #[test]
 fn args() {
     let p = |s: &str| parse_args(s.split_whitespace().map(str::to_owned));
@@ -144,4 +196,5 @@ fn args() {
     assert_eq!(p("-p 7").unwrap(), pr(7, false, false, false));
     assert_eq!(p("main").unwrap(), Opts { base: Some("main".into()), ..Opts::default() });
     assert!(p("-wx").is_err());
+    assert_eq!(p("2258 --rm -f").unwrap(), Opts { pr: Some(2258), rm: true, force: true, ..Opts::default() });
 }

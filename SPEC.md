@@ -7,6 +7,7 @@ dv --pr 123     # gh pr checkout 123 first (-f: reset the local PR branch to the
 dv --pr 123 -w  # check it out in a worktree next to the repo (<repo>-123), detached; reused later
 dv --pr 123 -w -b  # same, on the PR's branch (tracking it, for pushing)
 dv 123 -wb         # shorthand: a bare number is a PR; short flags combine (-p N = --pr N)
+dv 123 --rm        # remove that worktree (-f if it has local changes; a -b branch is kept)
 # If the branch has a PR, dv uses its base and loads its review threads.
 ```
 
@@ -94,6 +95,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `Space e` | edit your comment under the cursor (opens its text in `$EDITOR`) |
 | `Space d` | delete the comment under the cursor (confirmation picker, "No" preselected) |
 | `Space p` | picker of your pending review's comments; jumps there (unfolding as needed) |
+| `Space t` | picker of all review threads (state tags, author, gist, reply count); type to filter, e.g. `resolved` |
 | `Space v` | mark / unmark the file as viewed on GitHub (folds it and moves to the next file); viewed files start folded, headers show `✓ Viewed` / `↻ changed since viewed` |
 | `]c [c` | next/prev comment thread |
 | `R` | refresh: re-run `git diff`, re-fetch threads + PR info |

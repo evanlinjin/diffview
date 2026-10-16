@@ -69,6 +69,7 @@ PR
   Space e              edit your comment under the cursor
   Space d              delete the comment under the cursor (asks first)
   Space p              pick from your pending comments
+  Space t              pick from all review threads
   Space v              mark / unmark the file as viewed (folds it, moves on)
 
 GENERAL
@@ -906,6 +907,38 @@ impl App {
     }
 
     /// `Space p`: a picker of the comments in your pending review.
+    /// `Space t`: a picker of every review thread, with its state, author, gist and replies.
+    fn threads_picker(&mut self) {
+        let items: Vec<Item> = self
+            .threads
+            .iter()
+            .enumerate()
+            .filter_map(|(ti, t)| {
+                let c = t.comments.first()?;
+                let line = t.line.or(t.original_line).map_or(String::new(), |n| format!(":{n}"));
+                let tags: String = [
+                    (t.comments.iter().any(|c| c.pending), "[pending] "),
+                    (t.resolved, "[resolved] "),
+                    (t.outdated, "[outdated] "),
+                ]
+                .iter()
+                .filter_map(|&(on, s)| on.then_some(s))
+                .collect();
+                let replies = match t.comments.len() - 1 {
+                    0 => String::new(),
+                    1 => "  · 1 reply".into(),
+                    n => format!("  · {n} replies"),
+                };
+                let label = format!("{}{line}  {tags}@{}: {}{replies}", t.path, c.author, gist(&c.body));
+                Some(Item { label, target: Target::Comment(ti, 0) })
+            })
+            .collect();
+        match items.is_empty() {
+            true => self.msg = "no review threads".into(),
+            false => self.picker = Some(Picker { title: " threads ", items, query: String::new(), sel: 0 }),
+        }
+    }
+
     fn pending_picker(&mut self) {
         let mut items = vec![];
         for (ti, t) in self.threads.iter().enumerate() {
@@ -916,9 +949,7 @@ impl App {
                     (0, _) => "comment",
                     _ => "reply",
                 };
-                // The first line that isn't a quote or a fence: what was actually written.
-                let gist = c.body.lines().find(|l| !l.is_empty() && !l.starts_with('>') && !l.starts_with("```")).unwrap_or("");
-                items.push(Item { label: format!("{}{line}  {kind}: {gist}", t.path), target: Target::Comment(ti, ci) });
+                items.push(Item { label: format!("{}{line}  {kind}: {}", t.path, gist(&c.body)), target: Target::Comment(ti, ci) });
             }
         }
         match items.is_empty() {
@@ -2023,6 +2054,7 @@ impl App {
             (' ', 'e') => self.start_edit(),
             (' ', 'd') => self.start_delete(),
             (' ', 'p') => self.pending_picker(),
+            (' ', 't') => self.threads_picker(),
             (' ', 'v') => self.toggle_viewed(),
             ('f' | 't' | 'F' | 'T', c) => self.find_char(p, c),
             _ => {}
@@ -2596,6 +2628,11 @@ fn wrap(text: &str, w: usize) -> Vec<String> {
     out
 }
 
+/// The first line of a comment that isn't a quote or a fence: what was actually written.
+fn gist(body: &str) -> &str {
+    body.lines().map(str::trim).find(|l| !l.is_empty() && !l.starts_with('>') && !l.starts_with("```")).unwrap_or("")
+}
+
 /// A GitHub-style badge: the given background (hex, no '#'), black or white text for contrast.
 fn chip(hex: &str) -> Style {
     let n = u32::from_str_radix(hex.trim_start_matches('#'), 16).unwrap_or(0x6e7681);
@@ -2926,6 +2963,12 @@ fn comments_placed_and_anchored() {
     app.threads[0].comments[1].body = "unused".into();
     app.build();
     app.goto(first, 0);
+    // Space t lists every thread with its state.
+    press(&mut app, ' ');
+    press(&mut app, 't');
+    let labels: Vec<String> = app.picker.take().unwrap().items.into_iter().map(|i| i.label).collect();
+    assert_eq!(labels[0], "src/a.rs:2  [pending] @amy: why remove?  · 1 reply");
+    assert!(labels[1].contains("[resolved] [outdated] @amy: old note"));
     // Space d asks first, defaulting to "No".
     press(&mut app, ' ');
     press(&mut app, 'd');
