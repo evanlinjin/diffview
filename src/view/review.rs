@@ -416,29 +416,42 @@ impl App {
         }
     }
 
-    /// `]a` / `[a`: the next / previous Claude comment after the cursor, by file and line,
-    /// wrapping around. Folded files and threads open on the way (`goto_comment`).
+    /// `]a` / `[a`: the next / previous Claude comment.
     pub(super) fn next_claude(&mut self, fwd: bool) {
-        let place = |fi: usize, line: Option<u32>| (fi, line.unwrap_or(0));
-        let file = |path: &str| self.files.iter().position(|f| f.path == path);
-        // (file, line, thread); a code line counts as -1, before the threads shown under it.
-        let mut order: Vec<((usize, u32), i64)> = (0..self.threads.len())
-            .filter(|&t| self.threads[t].claude.is_some())
-            .filter_map(|t| {
-                let th = &self.threads[t];
-                Some((place(file(&th.path)?, th.line.or(th.original_line)), t as i64))
-            })
+        let items = (0..self.threads.len()).filter(|&t| self.threads[t].claude.is_some()).map(|t| (t, 0)).collect();
+        self.next_comment(fwd, items, "no comments from Claude (Space a asks for a review)");
+    }
+
+    /// `]p` / `[p`: the next / previous comment of your pending review (replies too).
+    pub(super) fn next_pending(&mut self, fwd: bool) {
+        let threads = &self.threads;
+        let items = (0..threads.len())
+            .flat_map(|t| (0..threads[t].comments.len()).filter(move |&c| threads[t].comments[c].pending).map(move |c| (t, c)))
             .collect();
+        self.next_comment(fwd, items, "no pending comments");
+    }
+
+    /// Go to the next / previous of `items` (thread, comment) after the cursor, by file and
+    /// line, wrapping around; folded files and threads open on the way (`goto_comment`).
+    fn next_comment(&mut self, fwd: bool, items: Vec<(usize, usize)>, none: &str) {
+        let file = |path: &str| self.files.iter().position(|f| f.path == path);
+        // (file, line, thread, comment); a code line counts as thread -1, before the threads
+        // shown under it.
+        let key = |t: usize, c: usize| -> Option<(usize, u32, i64, usize)> {
+            let th = &self.threads[t];
+            Some((file(&th.path)?, th.line.or(th.original_line).unwrap_or(0), t as i64, c))
+        };
+        let mut order: Vec<_> = items.into_iter().filter_map(|(t, c)| key(t, c)).collect();
         if order.is_empty() {
-            return self.msg = "no comments from Claude (Space a asks for a review)".into();
+            return self.msg = none.into();
         }
         order.sort();
         // Where the cursor is, in the same terms (the PR section comes before every file).
         let row = &self.rows[self.head.row];
-        let here = match row.thread.map(|t| &self.threads[t]) {
-            Some(th) => file(&th.path).map(|fi| (place(fi, th.line.or(th.original_line)), row.thread.unwrap_or(0) as i64)),
+        let here = match row.thread {
+            Some(t) => key(t, self.comment_index_under_cursor(t)),
             None if row.file == INFO => None,
-            None => self.files.get(row.file).map(|_| (place(row.file, row.line.new.or(row.line.old)), -1)),
+            None => self.files.get(row.file).map(|_| (row.file, row.line.new.or(row.line.old).unwrap_or(0), -1, 0)),
         };
         let pick = match (fwd, here) {
             (true, Some(h)) => order.iter().find(|&&o| o > h).or(order.first()),
@@ -446,8 +459,8 @@ impl App {
             (true, None) => order.first(),
             (false, None) => order.last(),
         };
-        if let Some(&(_, t)) = pick {
-            self.goto_comment(t as usize, 0);
+        if let Some(&(_, _, t, c)) = pick {
+            self.goto_comment(t as usize, c);
         }
     }
 
@@ -594,8 +607,13 @@ impl App {
 
     /// Which comment of thread `t` the cursor is in: each comment starts with an author row.
     pub(super) fn comment_under_cursor(&self, t: usize) -> Option<&gh::Comment> {
+        self.threads[t].comments.get(self.comment_index_under_cursor(t))
+    }
+
+    /// Which comment of thread `t` the cursor is in, by index.
+    fn comment_index_under_cursor(&self, t: usize) -> usize {
         let start = self.rows[..=self.head.row].iter().rposition(|r| r.thread != Some(t)).map_or(0, |i| i + 1);
         let heads = self.rows[start..=self.head.row].iter().filter(|r| r.line.kind == Kind::Thread).count();
-        self.threads[t].comments.get(heads.saturating_sub(1))
+        heads.saturating_sub(1)
     }
 }

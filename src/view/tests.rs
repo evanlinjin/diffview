@@ -615,3 +615,26 @@ fn ask_claude_on_lines() {
     _ = std::fs::remove_dir_all(&dir);
     assert_eq!(app.waiting_replies(), 1);
 }
+
+#[test]
+fn cycle_pending_comments() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let c = |id, pending| gh::Comment { id, node_id: String::new(), can_edit: true, can_delete: true, author: "me".into(), body: format!("c{id}"), created: String::new(), pending };
+    let t = |line, comments| gh::Thread {
+        id: String::new(), path: "src/a.rs".into(), left: false, line: Some(line), start_line: None, original_line: Some(line),
+        resolved: false, outdated: false, hunk: vec![], comments, claude: None,
+    };
+    // A pending reply on line 3's thread, a pending comment on line 1, a posted one between.
+    app.threads = vec![t(3, vec![c(1, false), c(2, true)]), t(1, vec![c(3, true)]), t(2, vec![c(4, false)])];
+    app.build();
+    let press = |app: &mut App, s: &str| s.chars().for_each(|ch| app.key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)));
+    let on = |app: &App| app.rows[app.head.row + 1].line.text.clone(); // the body under the author line
+    press(&mut app, "]p");
+    assert_eq!(on(&app), "c3"); // line 1 first
+    press(&mut app, "]p");
+    assert_eq!(on(&app), "c2"); // the reply itself, not its thread's first comment
+    press(&mut app, "]p");
+    assert_eq!(on(&app), "c3"); // wraps
+    press(&mut app, "[p");
+    assert_eq!(on(&app), "c2");
+}

@@ -140,6 +140,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `Space t` | picker of all review threads (state tags, author, gist, reply count); type to filter, e.g. `resolved` |
 | `Space v` | mark / unmark the file as viewed on GitHub (folds it and moves to the next file); viewed files start folded, headers show `✓ Viewed` / `↻ changed since viewed` at the right edge |
 | `]c [c` | next/prev comment thread |
+| `]p [p` | next/prev comment of your pending review (replies too), wrapping around; opens folded files and threads |
 | `]a [a` | next/prev Claude comment, wrapping around; folded files and threads are opened on the way |
 | `a` | on code lines: a comment for Claude (in the review file, `"author": "user"`), which Claude answers right away; `r` continues the thread |
 | `r` on a Claude comment | reply to Claude: saved in the review file, then Claude answers right away in the background (`claude -p`, resuming the last run's session; replies made meanwhile get one more run) |

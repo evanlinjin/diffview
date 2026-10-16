@@ -14,6 +14,7 @@ on GitHub are its section here.
 - Approving a PR (`S`, Approve) starts the summary as `ACK <the PR's head commit>`.
 - `a` on code lines leaves Claude a comment there (a question or a request), in the review file;
   Claude answers right away, and `r` continues the thread. Nothing goes to GitHub.
+- `]p` / `[p` step through your pending review's comments (replies too), wrapping around.
 - `Ctrl-d` in the pending comments picker (`Space p`) deletes the selected comment (after a
   confirmation); the review thread key popup lists `Space d`.
 

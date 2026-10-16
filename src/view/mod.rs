@@ -49,6 +49,7 @@ DIFF
   ]f [f, Space f       next / prev file, file picker
   ]c [c                next / prev comment thread
   ]a [a                next / prev Claude comment (wraps around)
+  ]p [p                next / prev comment of your pending review (wraps around)
   /  n N  *            search, next / prev match, search selection
 
 SELECT & COPY
