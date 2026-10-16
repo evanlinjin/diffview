@@ -186,12 +186,14 @@ impl App {
         let ghw = lw + 3;
         let (htw_l, htw_r) = (half.saturating_sub(ghw).max(1), width.saturating_sub(1 + half).saturating_sub(ghw).max(1));
         // Comments in the right margin when there's room for it beside enough code.
-        let margin = self.margin_pref && !self.split && width >= gw + MARGIN_CODE_MIN + 1 + MARGIN_W;
-        let (ctw, mtw) = (width.saturating_sub(gw + 1 + MARGIN_W).max(1), MARGIN_W - 3);
+        // The margin: about a third of the window (60–80 columns), beside at least 80 of code.
+        let mw = (width / 3).clamp(MARGIN_MIN, MARGIN_MAX);
+        let margin = self.margin_pref && !self.split && width >= gw + MARGIN_CODE_MIN + 1 + mw;
+        let (ctw, mtw) = (width.saturating_sub(gw + 1 + mw).max(1), mw - 3);
         // PR text wraps to the code column's width (narrower beside the margin).
         let ww = if margin { ctw } else { tw }.saturating_sub(1).clamp(40, 100);
-        if ww != self.wrap_w || margin != self.margin_active {
-            (self.wrap_w, self.margin_active) = (ww, margin);
+        if ww != self.wrap_w || margin != self.margin_active || (margin && mw != self.margin_w) {
+            (self.wrap_w, self.margin_active, self.margin_w) = (ww, margin, mw);
             let keep = self.cursor_key();
             self.rebuild(keep);
         }
@@ -262,7 +264,7 @@ impl App {
                         spans.push(Span::raw(" "));
                         match comment {
                             Some(r) => spans.extend(self.render_row(r, s, e, (lw, 3, mtw), None, cur, &overlay)),
-                            None => spans.push(Span::raw(" ".repeat(MARGIN_W))),
+                            None => spans.push(Span::raw(" ".repeat(mw))),
                         }
                     }
                 }

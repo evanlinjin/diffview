@@ -181,9 +181,10 @@ enum DRow {
     Margin(Option<usize>, Option<usize>),
 }
 
-/// The comment margin's width, and the least code text width beside it (narrower windows
-/// show comments inline).
-const MARGIN_W: usize = 60;
+/// The comment margin's width: about a third of the window, within these bounds; and the
+/// least code text width beside it (narrower windows show comments inline).
+const MARGIN_MIN: usize = 60;
+const MARGIN_MAX: usize = 80;
 const MARGIN_CODE_MIN: usize = 80;
 
 /// Work that needs the terminal back (an editor), run between frames.
@@ -313,8 +314,9 @@ pub struct App {
     right: bool,
     /// Comments in the right margin when the window is wide enough (`Ctrl-w c` toggles).
     margin_pref: bool,
-    /// The layout has them there now (set by `draw` from the width).
+    /// The layout has them there now (set by `draw` from the width), and the margin's width.
     margin_active: bool,
+    margin_w: usize,
     /// In margin mode: each thread's code line (the one it's about), as laid out.
     margin_anchor: HashMap<usize, usize>,
     /// Screen rows, and the screen row of each row (`top` and scrolling count screen rows).
@@ -430,6 +432,7 @@ impl App {
             right: true,
             margin_pref: true,
             margin_active: false,
+            margin_w: MARGIN_MIN,
             margin_anchor: HashMap::new(),
             drows: vec![],
             d_of: vec![],
@@ -726,7 +729,7 @@ impl App {
                     }
                     let start = rows.len();
                     let mk = |kind, text| Row { lead: desc_from.is_some(), aside, ..Row::text(INFO, kind, text) };
-                    let width = if aside { MARGIN_W - 3 - 2 } else { self.wrap_w };
+                    let width = if aside { self.margin_w - 3 - 2 } else { self.wrap_w };
                     match (l.heading, l.md) {
                         // An author line belongs to the body after it, so `C` there quotes it.
                         (true, _) => {
@@ -750,7 +753,7 @@ impl App {
                         beside = Some((rows.len() - from, 0));
                     }
                     let aside = beside.is_some_and(|(cap, used)| used < cap);
-                    let width = if aside { MARGIN_W - 3 - 2 } else { self.wrap_w };
+                    let width = if aside { self.margin_w - 3 - 2 } else { self.wrap_w };
                     let summary = |r: Row| Row { info: Some(SUMMARY), aside, ..r };
                     rows.push(summary(mk(Kind::Thread, "claude's review".into())));
                     rows.extend(self.md_rows_at(&self.claude_summary, width, mk).into_iter().map(summary));
@@ -1075,15 +1078,25 @@ impl App {
         let mut out = vec![];
         for (k, c) in t.comments.iter().enumerate() {
             if k == 0 {
-                let mut head = format!("{tag_text}{}{}{range}", c.author, when(c));
+                // In the margin the tags get a line of their own, under the header, so the header
+                // keeps room for who, when and where.
+                let tags_below = self.margin_active && !tag_text.is_empty();
+                let lead = if tags_below { String::new() } else { tag_text.clone() };
+                let mut head = format!("{lead}{}{}{range}", c.author, when(c));
                 if !open {
                     head += &match t.comments.len() {
                         1 => " · 1 comment".to_owned(),
                         n => format!(" · {n} comments"),
                     };
                 }
-                let syn = [tag_syn.clone(), author_syn(c)].concat();
+                let syn = match tags_below {
+                    true => author_syn(c),
+                    false => [tag_syn.clone(), author_syn(c)].concat(),
+                };
                 out.push(Row { syn, ..mk(Kind::Thread, head) });
+                if tags_below {
+                    out.push(Row { syn: tag_syn.clone(), ..mk(Kind::Comment, tag_text.trim_end().to_owned()) });
+                }
                 if !open {
                     break;
                 }
@@ -1098,7 +1111,7 @@ impl App {
                 out.push(Row { syn, ..mk(Kind::Thread, format!("{tag}{}{}", c.author, when(c))) });
             }
             // In the margin, comments wrap to its width (less the gutter mark and box sides).
-            let w = if self.margin_active { MARGIN_W - 3 - 2 } else { self.wrap_w };
+            let w = if self.margin_active { self.margin_w - 3 - 2 } else { self.wrap_w };
             let rows = self.md_rows_at(&c.body, w, mk);
             match t.stale() {
                 // Resolved/outdated: rendered the same, but dimmed throughout (links still open).

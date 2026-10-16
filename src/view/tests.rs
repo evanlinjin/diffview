@@ -772,3 +772,20 @@ fn conversation_beside_the_description() {
     let late = by_text("late");
     assert!(!app.rows[late].aside && matches!(app.drows[app.d_of[late]], DRow::Full(_)));
 }
+
+#[test]
+fn margin_tags_on_their_own_line() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let c = gh::Comment { id: 1, node_id: String::new(), can_edit: false, can_delete: false, author: "amy".into(), body: "old".into(), created: String::new(), pending: false };
+    app.threads = vec![gh::Thread {
+        id: String::new(), path: "src/a.rs".into(), left: false, line: Some(2), start_line: None, original_line: Some(2),
+        resolved: true, outdated: false, hunk: vec![], comments: vec![c], claude: None,
+    }];
+    let rows = |app: &App| app.rows.iter().filter(|r| r.thread == Some(0)).map(|r| r.line.text.clone()).collect::<Vec<_>>();
+    app.build();
+    assert!(rows(&app)[0].starts_with("[resolved] amy")); // inline: one line
+    app.margin_active = true;
+    app.build();
+    let r = rows(&app);
+    assert!(r[0].starts_with("amy") && r[1] == "[resolved]", "{r:?}"); // margin: tags below, even folded
+}
