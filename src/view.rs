@@ -10,7 +10,7 @@ use ratatui::{
     layout::{Alignment, Rect},
     style::{Color, Style},
     text::{Line, Span},
-    widgets::{Block, Clear, Paragraph, Wrap},
+    widgets::{Block, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
     DefaultTerminal, Frame,
 };
 use std::collections::{HashMap, HashSet};
@@ -1813,26 +1813,62 @@ impl App {
                 let st = if i == sel { self.ui.menu_selected } else { Style::new() };
                 Line::styled(p.items[it].label.clone(), st)
             }));
-            let inner = self.popup_frame(f, r, p.title);
+            let pos = if m.is_empty() { "0 / 0".into() } else { format!("{} / {}", sel + 1, m.len()) };
+            let inner = self.popup_frame(f, r, p.title, &pos);
             f.render_widget(Paragraph::new(lines), inner);
+            // Items start below the query line.
+            let list = Rect { y: inner.y + 1, height: inner.height.saturating_sub(1), ..inner };
+            self.scrollbar(f, list, m.len(), vis, off);
         }
 
-        if let Some((title, text, scroll)) = &self.popup {
+        if let Some((title, text, scroll)) = self.popup.clone() {
             let w = area.width.saturating_sub(4).min(100);
-            let h = (text.len() as u16 + 2).min(area.height.saturating_sub(4)).max(3);
+            // ponytail: wrapped height estimated from line widths (char wrap, not word wrap).
+            let cw = w.saturating_sub(3).max(1) as usize;
+            let total: usize = text.iter().map(|l| l.width().div_ceil(cw).max(1)).sum();
+            let h = (total as u16 + 2).min(area.height.saturating_sub(4)).max(3);
             let r = Rect { x: (area.width - w) / 2, y: 2.min(area.height), width: w, height: h.min(area.height) };
-            let inner = self.popup_frame(f, r, title);
-            f.render_widget(Paragraph::new(text.clone()).wrap(Wrap { trim: false }).scroll((*scroll, 0)), inner);
+            let vis = h.saturating_sub(2) as usize;
+            // Don't scroll past the end.
+            let scroll = scroll.min(total.saturating_sub(vis) as u16);
+            if let Some(p) = &mut self.popup {
+                p.2 = scroll;
+            }
+            let first = scroll as usize + 1;
+            let pos = if total > vis { format!("{first}–{} / {total}", (first + vis - 1).min(total)) } else { String::new() };
+            let inner = self.popup_frame(f, r, title, &pos);
+            let text_area = Rect { width: inner.width.saturating_sub(1), ..inner }; // room for the scrollbar
+            f.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }).scroll((scroll, 0)), text_area);
+            self.scrollbar(f, inner, total, vis, scroll as usize);
         }
+    }
+
+    /// A thin scrollbar on the right edge of `area`, only when `total` items don't fit in `vis`.
+    fn scrollbar(&self, f: &mut Frame, area: Rect, total: usize, vis: usize, pos: usize) {
+        if total <= vis {
+            return;
+        }
+        let mut state = ScrollbarState::new(total.saturating_sub(vis)).viewport_content_length(vis).position(pos);
+        let bar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(None)
+            .end_symbol(None)
+            .track_symbol(Some("│"))
+            .track_style(self.ui.linenr)
+            .thumb_symbol("┃")
+            .thumb_style(self.ui.linenr_selected);
+        f.render_stateful_widget(bar, area, &mut state);
     }
 
     /// Helix-style popup: no border, the theme's popup background, the title as a header row
     /// in the header color. Returns the padded content area.
-    fn popup_frame(&self, f: &mut Frame, r: Rect, title: &str) -> Rect {
+    fn popup_frame(&self, f: &mut Frame, r: Rect, title: &str, pos: &str) -> Rect {
         f.render_widget(Clear, r);
         f.render_widget(Block::new().style(self.ui.base.patch(self.ui.popup)), r);
         let head = Rect { height: 1.min(r.height), ..r };
-        f.render_widget(Paragraph::new(format!(" {}", title.trim())).style(self.ui.base.patch(self.ui.header)), head);
+        let head_style = self.ui.base.patch(self.ui.header);
+        f.render_widget(Paragraph::new(format!(" {}", title.trim())).style(head_style), head);
+        // Where you are in the content, on the right of the header.
+        f.render_widget(Paragraph::new(format!("{pos} ")).alignment(Alignment::Right).style(head_style), head);
         Rect { x: r.x + 1, y: r.y + 1, width: r.width.saturating_sub(2), height: r.height.saturating_sub(2) }
     }
 
@@ -1947,10 +1983,13 @@ impl App {
             if matches!(l.kind, Kind::Ctx | Kind::Add | Kind::Del) {
                 gstyle = gstyle.patch(ui.linenr_selected);
             }
-            // Like Helix: the cursor's line is tinted, except where a diff tint already marks it.
-            if matches!(l.kind, Kind::Ctx | Kind::Thread | Kind::Comment) {
-                line_bg = ui.cursorline.or(line_bg);
-            }
+            // Like Helix: the cursor's line is tinted. Added/removed lines keep their color, lifted.
+            line_bg = match l.kind {
+                Kind::Add => Some(ui.add_bg_cur),
+                Kind::Del => Some(ui.del_bg_cur),
+                Kind::Ctx | Kind::Thread | Kind::Comment => ui.cursorline.or(line_bg),
+                _ => line_bg,
+            };
         }
         let emph_bg = if l.kind == Kind::Add { ui.emph_add } else { ui.emph_del };
         let emph = self.emph.get(&r);

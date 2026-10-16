@@ -19,6 +19,9 @@ pub struct Ui {
     pub minus: Style,
     pub add_bg: Color,
     pub del_bg: Color,
+    /// The same tints on the cursor's line: blended into the cursorline color instead.
+    pub add_bg_cur: Color,
+    pub del_bg_cur: Color,
     pub hunk: Style,
     pub header: Style,
     pub selection: Style,
@@ -154,10 +157,13 @@ impl Theme {
         let plus = self.get("diff.plus");
         let minus = self.get("diff.minus");
         // Line tints: the diff color faded into the background, like most diff viewers.
-        let tint = |s: Style, fallback| match (s.fg, bg) {
+        let tint_on = |s: Style, under: Option<Color>, fallback| match (s.fg, under) {
             (Some(c), Some(b)) => blend(c, b, 0.18).unwrap_or(fallback),
             _ => fallback,
         };
+        let tint = |s: Style, fallback| tint_on(s, bg, fallback);
+        let cursorline = self.find("ui.cursorline.primary").or(self.find("ui.cursorline")).and_then(|s| s.bg);
+        let (add_bg, del_bg) = (tint(plus, Color::Rgb(0x1f, 0x33, 0x22)), tint(minus, Color::Rgb(0x3a, 0x20, 0x22)));
         let or_reversed = |s: Option<Style>| match s {
             Some(s) if s.fg.is_some() || s.bg.is_some() => s,
             _ => Style::new().add_modifier(Modifier::REVERSED),
@@ -169,8 +175,10 @@ impl Theme {
             linenr: self.get("ui.linenr"),
             plus,
             minus,
-            add_bg: tint(plus, Color::Rgb(0x1f, 0x33, 0x22)),
-            del_bg: tint(minus, Color::Rgb(0x3a, 0x20, 0x22)),
+            add_bg,
+            del_bg,
+            add_bg_cur: tint_on(plus, cursorline, add_bg),
+            del_bg_cur: tint_on(minus, cursorline, del_bg),
             hunk: self.find("ui.virtual.inlay-hint").unwrap_or(comment),
             header: Style { fg: self.get("diff.delta").fg, ..self.get("ui.menu") }.add_modifier(Modifier::BOLD),
             selection: self.get("ui.selection"),
@@ -197,7 +205,7 @@ impl Theme {
                 .unwrap_or(Color::Rgb(0x26, 0x28, 0x2e)),
             emph_add: plus.fg.zip(bg).and_then(|(c, b)| blend(c, b, 0.42)).unwrap_or(Color::Rgb(0x2f, 0x5a, 0x33)),
             emph_del: minus.fg.zip(bg).and_then(|(c, b)| blend(c, b, 0.42)).unwrap_or(Color::Rgb(0x6b, 0x2c, 0x2c)),
-            cursorline: self.find("ui.cursorline.primary").or(self.find("ui.cursorline")).and_then(|s| s.bg),
+            cursorline,
             linenr_selected: self.find("ui.linenr.selected").unwrap_or(self.get("ui.linenr").add_modifier(Modifier::BOLD)),
         }
     }
