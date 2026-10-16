@@ -188,7 +188,8 @@ impl App {
         // Comments in the right margin when there's room for it beside enough code.
         let margin = self.margin_pref && !self.split && width >= gw + MARGIN_CODE_MIN + 1 + MARGIN_W;
         let (ctw, mtw) = (width.saturating_sub(gw + 1 + MARGIN_W).max(1), MARGIN_W - 3);
-        let ww = tw.saturating_sub(1).clamp(40, 100);
+        // PR text wraps to the code column's width (narrower beside the margin).
+        let ww = if margin { ctw } else { tw }.saturating_sub(1).clamp(40, 100);
         if ww != self.wrap_w || margin != self.margin_active {
             (self.wrap_w, self.margin_active) = (ww, margin);
             let keep = self.cursor_key();

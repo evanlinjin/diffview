@@ -12,6 +12,9 @@ on GitHub are its section here.
   rows where a file's comments need more room than its code. `Ctrl-w l` / `Ctrl-w h` move
   between code and comments; the box about the cursor's line (or the line a box is about) is
   lit. `Ctrl-w c` switches to inline comments and back.
+- In the same layout, the PR's conversation (and Claude's summary) sits beside the
+  description: whole comments, while there's description beside them; the rest follows full
+  width below.
 - One Claude Code session per PR, kept next to its review file: every run (background or in a
   pane, from any dv and any worktree) continues the same conversation about that PR.
 - Claude's notes on the repo (`.git/dv/notes.md`, shared by worktrees): the skill reads them

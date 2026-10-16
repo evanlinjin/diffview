@@ -745,3 +745,30 @@ fn comments_in_the_margin() {
     app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
     assert_eq!(app.head.row, 5); // its bottom edge, not the code beside it
 }
+
+#[test]
+fn conversation_beside_the_description() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new() });
+    let heading = |t: &str| gh::InfoLine { heading: true, md: false, text: t.into(), marks: vec![], url: String::new() };
+    let md = |t: &str| gh::InfoLine { heading: false, md: true, text: t.into(), marks: vec![], url: String::new() };
+    app.info = vec![
+        heading("description"), md("line 1\nline 2\nline 3\nline 4\nline 5"),
+        heading("conversation (3)"),
+        heading("@bo · 2d ago"), md("short"),
+        heading("@cy · 1d ago"), md("also short"),
+        heading("@dee · 1h ago"), md("late"),
+    ];
+    app.margin_active = true;
+    app.build();
+    let by_text = |t: &str| app.rows.iter().position(|r| r.line.text == t).unwrap();
+    // The description is the left column; the first comments sit in the margin beside it.
+    assert!(app.rows[by_text("line 3")].lead);
+    assert!(app.rows[by_text("short")].aside && app.rows[by_text("also short")].aside);
+    let d = app.d_of[by_text("conversation (3)")];
+    assert_eq!(d, app.d_of[by_text("description")]); // beside the top of the description
+    assert!(matches!(app.drows[d], DRow::Margin(Some(_), Some(_))));
+    // Once there's no description left beside it, the rest is full width, as without the margin.
+    let late = by_text("late");
+    assert!(!app.rows[late].aside && matches!(app.drows[app.d_of[late]], DRow::Full(_)));
+}

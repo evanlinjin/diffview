@@ -135,11 +135,15 @@ struct Row {
     info: Option<usize>,
     /// The bottom edge of a comment's box (an empty row, drawn as a border).
     edge: bool,
+    /// Margin mode, PR section: the description (the left column), and the conversation beside
+    /// it (in the margin).
+    lead: bool,
+    aside: bool,
 }
 
 impl Row {
     fn new(file: usize, line: DLine) -> Row {
-        Row { file, line, thread: None, syn: vec![], links: vec![], info: None, edge: false }
+        Row { file, line, thread: None, syn: vec![], links: vec![], info: None, edge: false, lead: false, aside: false }
     }
 
     /// A row of plain text (headers, comments, PR info).
@@ -704,7 +708,25 @@ impl App {
             let links = url.map(|u| vec![(0, title.chars().count(), u)]).unwrap_or_default();
             rows.push(Row { links, ..mk(Kind::File, title) });
             if !self.info_collapsed {
+                // Margin mode: the conversation (and Claude's summary) sits beside the description,
+                // whole comments while there's description beside them, wrapped to the margin;
+                // the rest follows full width, as without the margin.
+                let margin = self.margin_active && !self.split;
+                let mut desc_from = None; // where the description's rows start, while in it
+                let mut beside: Option<(usize, usize)> = None; // (description's rows, used beside it)
+                let mut aside = false;
                 for (ii, l) in self.info.iter().enumerate() {
+                    if l.heading {
+                        if margin && l.text == "description" {
+                            desc_from = Some(rows.len());
+                        } else if let Some(from) = desc_from.take() {
+                            beside = Some((rows.len() - from, 0));
+                        }
+                        aside = beside.is_some_and(|(cap, used)| used < cap);
+                    }
+                    let start = rows.len();
+                    let mk = |kind, text| Row { lead: desc_from.is_some(), aside, ..Row::text(INFO, kind, text) };
+                    let width = if aside { MARGIN_W - 3 - 2 } else { self.wrap_w };
                     match (l.heading, l.md) {
                         // An author line belongs to the body after it, so `C` there quotes it.
                         (true, _) => {
@@ -712,18 +734,26 @@ impl App {
                             rows.push(Row { info: body, ..mk(Kind::Thread, l.text.clone()) });
                         }
                         // GitHub shows a placeholder for an empty description; there's nothing to quote.
-                        (false, true) if l.text.trim().is_empty() => rows.extend(self.md_rows("_(no description)_", mk)),
+                        (false, true) if l.text.trim().is_empty() => rows.extend(self.md_rows_at("_(no description)_", width, mk)),
                         (false, true) => {
-                            rows.extend(self.md_rows(&l.text, mk).into_iter().map(|r| Row { info: Some(ii), ..r }));
+                            rows.extend(self.md_rows_at(&l.text, width, mk).into_iter().map(|r| Row { info: Some(ii), ..r }));
                             rows.push(Row { info: Some(ii), edge: true, ..mk(Kind::Comment, String::new()) });
                         }
                         (false, false) => rows.push(self.info_row(l, mk(Kind::Comment, l.text.clone()))),
                     }
+                    if let (true, Some((_, used))) = (aside, &mut beside) {
+                        *used += rows.len() - start;
+                    }
                 }
                 if !self.claude_summary.is_empty() {
-                    let summary = |r: Row| Row { info: Some(SUMMARY), ..r };
+                    if let Some(from) = desc_from.take() {
+                        beside = Some((rows.len() - from, 0));
+                    }
+                    let aside = beside.is_some_and(|(cap, used)| used < cap);
+                    let width = if aside { MARGIN_W - 3 - 2 } else { self.wrap_w };
+                    let summary = |r: Row| Row { info: Some(SUMMARY), aside, ..r };
                     rows.push(summary(mk(Kind::Thread, "claude's review".into())));
-                    rows.extend(self.md_rows(&self.claude_summary, mk).into_iter().map(summary));
+                    rows.extend(self.md_rows_at(&self.claude_summary, width, mk).into_iter().map(summary));
                     rows.push(Row { edge: true, ..summary(mk(Kind::Comment, String::new())) });
                 }
             }
@@ -848,7 +878,8 @@ impl App {
     /// A review thread's row in a file (not the PR section's comments): in margin mode, it goes
     /// in the margin.
     pub(super) fn margin_row(&self, r: usize) -> bool {
-        self.margin_active && self.rows[r].thread.is_some() && self.rows[r].file != INFO
+        let row = &self.rows[r];
+        self.margin_active && ((row.thread.is_some() && row.file != INFO) || row.aside)
     }
 
     /// Comments in the right margin: each thread's box starts beside its line, or just below
@@ -861,18 +892,24 @@ impl App {
         let mut free = 0; // the first screen row whose margin is free
         let mut anchors = HashMap::new();
         let mut last_code = None;
+        let mut desc_first = None; // the description's first screen row: the conversation's top
         let flush = |d: &mut Vec<DRow>, pending: &mut std::collections::VecDeque<usize>| {
             d.extend(pending.drain(..).map(|c| DRow::Margin(None, Some(c))));
         };
         for i in 0..n {
             let row = &self.rows[i];
             if self.margin_row(i) {
-                let first = i == 0 || self.rows[i - 1].thread != row.thread;
+                let first = i == 0 || self.rows[i - 1].thread != row.thread || (row.aside && !self.rows[i - 1].aside);
                 if let (true, Some(t), Some(c)) = (first, row.thread, last_code) {
                     anchors.insert(t, c);
                 }
-                // A box starts beside its line (the code row just before it) when that's free.
-                let at = if first { d.len().saturating_sub(1).max(free) } else { free };
+                // A box starts beside its line (the code row just before it) when that's free;
+                // the conversation, beside the top of the description.
+                let at = match (first, row.aside) {
+                    (true, true) => desc_first.unwrap_or(d.len()).max(free),
+                    (true, false) => d.len().saturating_sub(1).max(free),
+                    (false, _) => free,
+                };
                 if pending.is_empty() && matches!(d.get(at), Some(DRow::Margin(Some(_), None))) {
                     if let DRow::Margin(code, _) = d[at] {
                         d[at] = DRow::Margin(code, Some(i));
@@ -883,7 +920,10 @@ impl App {
                 }
                 continue;
             }
-            let code = matches!(row.line.kind, Kind::Ctx | Kind::Add | Kind::Del | Kind::Hunk) && row.file != INFO;
+            let code = (matches!(row.line.kind, Kind::Ctx | Kind::Add | Kind::Del | Kind::Hunk) && row.file != INFO) || row.lead;
+            if row.lead && desc_first.is_none() {
+                desc_first = Some(d.len());
+            }
             if code {
                 last_code = Some(i);
                 let c = pending.pop_front();
@@ -942,10 +982,6 @@ impl App {
     }
 
     /// Wrap markdown into comment rows, highlighted.
-    fn md_rows(&self, text: &str, mk: impl Fn(Kind, String) -> Row) -> Vec<Row> {
-        self.md_rows_at(text, self.wrap_w, mk)
-    }
-
     fn md_rows_at(&self, text: &str, width: usize, mk: impl Fn(Kind, String) -> Row) -> Vec<Row> {
         let key = format!("{width}\0{text}");
         let lines = self
