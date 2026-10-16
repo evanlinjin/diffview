@@ -730,6 +730,9 @@ impl App {
     }
 }
 
+/// How long the cursor stays on a thread before its comments count as seen.
+const SEEN_AFTER: std::time::Duration = std::time::Duration::from_secs(3);
+
 /// A comment's key in what you've seen: its GitHub id, or its place in Claude's review file.
 fn comment_key(t: &Thread, ci: usize) -> String {
     match &t.claude {
@@ -758,7 +761,8 @@ impl App {
         c.pending || c.author == "you" || (!self.me.is_empty() && c.author == self.me)
     }
 
-    /// Once the cursor leaves a thread, its comments (as they were when it got there) are seen.
+    /// A thread's comments are seen once the cursor leaves it (as they were when it got
+    /// there), or has been on it for `SEEN_AFTER`.
     pub(super) fn watch_seen(&mut self) {
         if self.select {
             return; // the rebuild would drop the selection: later
@@ -768,12 +772,16 @@ impl App {
             (0..t.comments.len()).map(|ci| comment_key(t, ci)).collect::<Vec<_>>()
         });
         let here = here.unwrap_or_default();
-        if here == self.seeing {
-            return;
-        }
-        let left = std::mem::replace(&mut self.seeing, here);
+        let seen = match here == self.seeing {
+            true if self.seeing_since.elapsed() >= SEEN_AFTER => self.seeing.clone(),
+            true => return,
+            false => {
+                self.seeing_since = std::time::Instant::now();
+                std::mem::replace(&mut self.seeing, here)
+            }
+        };
         let before = self.seen.len();
-        self.seen.extend(left.into_iter().filter(|k| !k.is_empty()));
+        self.seen.extend(seen.into_iter().filter(|k| !k.is_empty()));
         if self.seen.len() != before
             && let Some(p) = &self.seen_path
         {

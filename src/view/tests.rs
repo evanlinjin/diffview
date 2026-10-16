@@ -1042,12 +1042,23 @@ fn new_until_seen() {
     assert!(app.head.row > on);
     app.seen.clear();
     app.load_seen();
-    _ = std::fs::remove_dir_all(&dir);
     assert_eq!(new(&app), [false, true, false]);
     app.new_picker();
     let items = &app.picker.as_ref().unwrap().items;
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].label, "src/a.rs:2  1 reply · [new] [waiting] @claude");
+    app.picker = None;
+    // Or once the cursor has stayed on it a while.
+    app.watch_seen();
+    assert_eq!(new(&app), [false, true, false]);
+    app.seeing_since -= std::time::Duration::from_secs(5);
+    app.watch_seen();
+    assert_eq!(new(&app), [false, false, false]);
+    assert_eq!(app.rows[app.head.row].thread, Some(1)); // the cursor stays put
+    app.seen.clear();
+    app.load_seen();
+    _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(new(&app), [false, false, false]);
 }
 
 #[test]

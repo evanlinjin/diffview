@@ -383,6 +383,7 @@ pub struct App {
     seen: HashSet<String>,
     seen_path: Option<PathBuf>,
     seeing: Vec<String>,
+    seeing_since: std::time::Instant,
     /// The `hx` pane dv opened (inside zellij), reused for the next file.
     hx: Option<HxPane>,
     /// When dv last looked at the working tree, and what it saw (`watch_tree`).
@@ -543,6 +544,7 @@ impl App {
             seen: HashSet::new(),
             seen_path: None,
             seeing: vec![],
+            seeing_since: std::time::Instant::now(),
             claude_job: None,
             hx: None,
             tree_checked: std::time::Instant::now(),

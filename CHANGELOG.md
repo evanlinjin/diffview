@@ -9,6 +9,10 @@ on GitHub are its section here.
 - `Ctrl-w a`: the Claude view, just Claude's review: the PR's one-line summary, Claude's
   summary, and only the code it commented on (a few lines around each comment).
 
+### Changed
+- `[new]` also goes once the cursor has stayed on the thread for 3 seconds, not only once it
+  leaves.
+
 ### Fixed
 - `dv list`: the selected PR is readable (its text takes the highlight's colors), and the
   highlight runs to the edge on both of its lines.
