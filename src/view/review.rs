@@ -352,15 +352,27 @@ impl App {
         Ok((anchor, format!("\n{fence}suggestion\n{code}\n{fence}\n")))
     }
 
+    /// `C` in the PR section: a new PR conversation comment quoting the comment (or description)
+    /// under the cursor, like GitHub's "Quote reply"; on other PR info lines, an empty one.
+    pub(super) fn start_conversation_comment(&mut self) {
+        if self.pr.is_none() {
+            return self.msg = "no PR for this branch".into();
+        }
+        let row = &self.rows[self.head.row];
+        let body = match (row.thread, row.info) {
+            (Some(t), _) => self.comment_under_cursor(t).map(|c| c.body.clone()),
+            (None, Some(i)) => self.info.get(i).map(|l| l.text.clone()).filter(|t| !t.starts_with("_(no description)")),
+            _ => None,
+        };
+        self.action = Some(Action::Converse { quote: body.map_or(String::new(), |b| quote(&b)) });
+    }
+
     pub(super) fn start_reply(&mut self, review: bool) {
         let t = self.rows[self.head.row].thread;
         match (t, t.and_then(|t| self.root_id(t))) {
             (Some(t), Some(comment)) if self.pr.is_some() => {
                 let thread = self.threads[t].id.clone();
-                let quote = self.comment_under_cursor(t).map_or(String::new(), |c| {
-                    let q: Vec<String> = c.body.lines().map(|l| format!("> {l}").trim_end().to_owned()).collect();
-                    format!("{}\n\n", q.join("\n"))
-                });
+                let quote = self.comment_under_cursor(t).map_or(String::new(), |c| quote(&c.body));
                 self.action = Some(Action::Reply { thread, comment, review, quote });
             }
             _ => self.msg = "move onto a comment thread to reply".into(),

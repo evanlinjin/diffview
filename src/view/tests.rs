@@ -279,3 +279,31 @@ fn comments_placed_and_anchored() {
     assert_eq!((a.line, a.left, a.start), (2, false, Some((2, true))));
     assert_eq!(wrap("aaa bbb ccc", 7), ["aaa bbb", "ccc"]);
 }
+
+#[test]
+fn quote_into_conversation() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new() });
+    let line = |heading, md, text: &str| gh::InfoLine { heading, md, text: text.into(), marks: vec![] };
+    app.info = vec![line(true, false, "conversation (1)"), line(true, false, "@bo · 2d ago"), line(false, true, "Looks good\nbut fix CI")];
+    app.build();
+    let quoted = |app: &mut App, row: usize| {
+        app.goto(row, 0);
+        app.key(KeyEvent::new(KeyCode::Char('C'), KeyModifiers::NONE));
+        match app.action.take() {
+            Some(Action::Converse { quote }) => quote,
+            _ => panic!("no conversation comment started"),
+        }
+    };
+    let body = app.rows.iter().position(|r| r.line.text == "but fix CI").unwrap();
+    assert_eq!(quoted(&mut app, body), "> Looks good\n> but fix CI\n\n");
+    let author = app.rows.iter().position(|r| r.line.text == "@bo · 2d ago").unwrap();
+    assert_eq!(quoted(&mut app, author), "> Looks good\n> but fix CI\n\n"); // the author line quotes its comment
+    let heading = app.rows.iter().position(|r| r.line.text == "conversation (1)").unwrap();
+    assert_eq!(quoted(&mut app, heading), ""); // other PR lines: an empty conversation comment
+    // Outside the PR section, `C` still posts a line comment.
+    let code = app.rows.iter().position(|r| r.line.kind == Kind::Add).unwrap();
+    app.goto(code, 0);
+    app.key(KeyEvent::new(KeyCode::Char('C'), KeyModifiers::NONE));
+    assert!(!matches!(app.action, Some(Action::Converse { .. })));
+}

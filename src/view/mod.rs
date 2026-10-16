@@ -72,7 +72,8 @@ RUST-ANALYZER
 
 PR
   c                    comment on selection / reply on a thread (pending review)
-  C                    same, but post immediately
+  C                    same, but post immediately; in the PR description/conversation: a new
+                       conversation comment quoting the comment under the cursor
   s                    suggest a change to the selected lines (pending review)
   S                    submit review: comment / approve / request changes, or discard
   Space r              resolve / unresolve thread
@@ -112,6 +113,8 @@ struct Row {
     syn: Vec<Option<Style>>,
     /// Links in rendered markdown: (start, end, url) char ranges.
     links: Vec<(usize, usize, String)>,
+    /// For PR info rows: the index in `info` of the markdown body this row belongs to.
+    info: Option<usize>,
 }
 
 type CursorKey = (Option<(String, Option<u32>, Option<u32>)>, Option<u64>);
@@ -131,6 +134,8 @@ enum Action {
     Comment { anchor: Anchor, review: bool, prefill: String },
     /// `quote`: the comment under the cursor as a `> ` quote, pre-filled in the editor.
     Reply { thread: String, comment: u64, review: bool, quote: String },
+    /// A new PR conversation comment, starting with `quote` (may be empty).
+    Converse { quote: String },
     /// Rewrite one of your comments (node id, current body).
     Edit { comment: String, body: String, author: String },
     /// Submit the pending review: COMMENT, APPROVE or REQUEST_CHANGES.
@@ -397,6 +402,13 @@ impl App {
                 };
                 keep_on_error(res, &body).map(|_| posted_msg(review))
             }
+            Action::Converse { quote } => {
+                let Some(body) = compose_with("comment on the PR conversation", false, &quote)? else {
+                    return Ok("comment cancelled".into());
+                };
+                keep_on_error(gh::conversation_comment(self.pr.as_ref().context("no PR")?, &body), &body)
+                    .map(|_| "comment posted to the conversation".into())
+            }
             Action::Edit { comment, body: old, author } => {
                 // Unchanged or emptied counts as cancelled; deleting a comment is a separate thing.
                 // Maintainers can edit others' comments too, so the hint names whose this is.
@@ -464,13 +476,17 @@ impl App {
         self.jumps.clear();
         let mut rows = vec![];
         if let Some(pr) = &self.pr {
-            let mk = |kind, text| Row { file: INFO, line: DLine { kind, old: None, new: None, text }, thread: None, syn: vec![], links: vec![] };
+            let mk = |kind, text| Row { file: INFO, line: DLine { kind, old: None, new: None, text }, thread: None, syn: vec![], links: vec![], info: None };
             rows.push(mk(Kind::File, format!("PR #{} · {}", pr.number, pr.title)));
             if !self.info_collapsed {
-                for l in &self.info {
+                for (ii, l) in self.info.iter().enumerate() {
                     match (l.heading, l.md) {
-                        (true, _) => rows.push(mk(Kind::Thread, l.text.clone())),
-                        (false, true) => rows.extend(self.md_rows(&l.text, mk)),
+                        // An author line belongs to the body after it, so `C` there quotes it.
+                        (true, _) => {
+                            let body = self.info.get(ii + 1).filter(|n| n.md).map(|_| ii + 1);
+                            rows.push(Row { info: body, ..mk(Kind::Thread, l.text.clone()) });
+                        }
+                        (false, true) => rows.extend(self.md_rows(&l.text, mk).into_iter().map(|r| Row { info: Some(ii), ..r })),
                         (false, false) => rows.push(self.info_row(l, mk(Kind::Comment, l.text.clone()))),
                     }
                 }
@@ -499,7 +515,7 @@ impl App {
             ];
             let text: String = parts.iter().map(|p| p.0.as_str()).collect();
             let syn = parts.iter().flat_map(|(t, st)| t.chars().map(move |_| *st)).collect();
-            rows.push(Row { file: i, line: DLine { kind: Kind::File, old: None, new: None, text }, thread: None, syn, links: vec![] });
+            rows.push(Row { file: i, line: DLine { kind: Kind::File, old: None, new: None, text }, thread: None, syn, links: vec![], info: None });
             if self.collapsed.contains(&f.path) {
                 continue;
             }
@@ -512,7 +528,7 @@ impl App {
                 rows.extend(self.thread_rows(t, i));
             }
             for (li, l) in f.lines.iter().enumerate() {
-                rows.push(Row { file: i, line: l.clone(), thread: None, syn: vec![], links: vec![] });
+                rows.push(Row { file: i, line: l.clone(), thread: None, syn: vec![], links: vec![], info: None });
                 for &(t, _) in placed.iter().filter(|p| p.1 == Some(li)) {
                     rows.extend(self.thread_rows(t, i));
                 }
@@ -520,7 +536,7 @@ impl App {
         }
         if rows.is_empty() {
             let text = "(no changes)".into();
-            rows.push(Row { file: usize::MAX, line: DLine { kind: Kind::Hunk, old: None, new: None, text }, thread: None, syn: vec![], links: vec![] });
+            rows.push(Row { file: usize::MAX, line: DLine { kind: Kind::Hunk, old: None, new: None, text }, thread: None, syn: vec![], links: vec![], info: None });
         }
         self.rows = rows;
         self.emph = self.word_spans();
@@ -671,7 +687,7 @@ impl App {
         let tag_text: String = tags.iter().map(|t| t.0).collect();
         let tag_syn: Vec<Option<Style>> =
             tags.iter().flat_map(|&(s, st)| s.chars().map(move |_| Some(st))).collect();
-        let mk = |kind, text| Row { file, line: DLine { kind, old: None, new: None, text }, thread: Some(ti), syn: vec![], links: vec![] };
+        let mk = |kind, text| Row { file, line: DLine { kind, old: None, new: None, text }, thread: Some(ti), syn: vec![], links: vec![], info: None };
         let mut out = vec![];
         for (k, c) in t.comments.iter().enumerate() {
             if k == 0 {
@@ -953,6 +969,12 @@ fn wrap(text: &str, w: usize) -> Vec<String> {
         out.push(String::new());
     }
     out
+}
+
+/// `text` as a markdown quote (`> ` lines), followed by a blank line to write under.
+fn quote(text: &str) -> String {
+    let q: Vec<String> = text.lines().map(|l| format!("> {l}").trim_end().to_owned()).collect();
+    format!("{}\n\n", q.join("\n"))
 }
 
 /// The first line of a comment that isn't a quote or a fence: what was actually written.

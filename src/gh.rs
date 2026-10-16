@@ -310,6 +310,12 @@ pub fn comment(pr: &Pr, a: &Anchor, body: &str) -> Result<()> {
     gh_input(&["api", "-X", "POST", &ep, "--input", "-"], Some(&v.to_string())).map(drop)
 }
 
+/// A comment on the PR conversation (not tied to a line or a review).
+pub fn conversation_comment(pr: &Pr, body: &str) -> Result<()> {
+    let ep = format!("repos/{{owner}}/{{repo}}/issues/{}/comments", pr.number);
+    gh_input(&["api", "-X", "POST", &ep, "--input", "-"], Some(&json!({ "body": body }).to_string())).map(drop)
+}
+
 /// A single reply, posted immediately.
 pub fn reply(pr: &Pr, comment_id: u64, body: &str) -> Result<()> {
     let ep = format!("repos/{{owner}}/{{repo}}/pulls/{}/comments/{comment_id}/replies", pr.number);

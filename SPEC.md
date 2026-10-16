@@ -88,7 +88,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `gd gr gy gi`, `Space k` | definition / references / type / impl, hover |
 | `Ctrl-o` | jump back |
 | `c` | comment on the selection, or reply on a thread, in your pending review (`r` = reply) |
-| `C` | same, but post immediately as a single comment |
+| `C` | same, but post immediately as a single comment; in the PR description/conversation: a new conversation comment quoting the comment under the cursor |
 | `s` | suggest a change: `$EDITOR` opens with a ```suggestion block of the selected new-side lines (pending review) |
 | `S` | submit the pending review (comment / approve / request changes) or discard it |
 | `Space r` | resolve / unresolve the thread under the cursor |
