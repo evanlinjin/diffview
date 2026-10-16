@@ -98,7 +98,7 @@ impl App {
                         let shown = l.path.strip_prefix(&self.root).unwrap_or(&l.path).display().to_string();
                         let text = disk_line(&mut cache, &l.path, l.line);
                         let label = format!("{mark} {shown}:{}  {}", l.line + 1, text.trim());
-                        Item { label, target: Target::Loc(l) }
+                        Item::new(label, Target::Loc(l))
                     })
                     .collect();
                 self.picker = Some(Picker { title: " locations  ● = in diff ", items, query: String::new(), sel: 0 });

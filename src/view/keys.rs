@@ -288,7 +288,7 @@ impl App {
                     .iter()
                     .enumerate()
                     .filter(|(_, r)| r.line.kind == Kind::File)
-                    .map(|(i, r)| Item { label: r.line.text.clone(), target: Target::Row(i) })
+                    .map(|(i, r)| Item::new(r.line.text.clone(), Target::Row(i)))
                     .collect();
                 self.picker = Some(Picker { title: " files ", items, query: String::new(), sel: 0 });
             }
@@ -313,8 +313,10 @@ impl App {
         let q = p.query.to_lowercase();
         (0..p.items.len())
             .filter(|&i| {
-                let mut label = p.items[i].label.to_lowercase().chars().collect::<Vec<_>>().into_iter();
-                q.chars().all(|c| label.any(|x| x == c))
+                let it = &p.items[i];
+                let text = std::iter::once(&it.label).chain(&it.detail).map(|s| s.to_lowercase()).collect::<Vec<_>>().join(" ");
+                let mut chars = text.chars();
+                q.chars().all(|c| chars.any(|x| x == c))
             })
             .collect()
     }
@@ -335,8 +337,8 @@ impl App {
                         Target::Discard => {
                             let n = self.pending_count();
                             let items = vec![
-                                Item { label: "No, keep it".into(), target: Target::Nothing },
-                                Item { label: format!("Yes, discard {n} pending comment(s)"), target: Target::DiscardYes },
+                                Item::new("No, keep it", Target::Nothing),
+                                Item::new(format!("Yes, discard {n} pending comment(s)"), Target::DiscardYes),
                             ];
                             self.picker = Some(Picker { title: " discard pending review? ", items, query: String::new(), sel: 0 });
                         }

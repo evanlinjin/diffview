@@ -38,8 +38,8 @@ impl App {
         };
         let n = self.waiting_replies();
         let items = vec![
-            Item { label: review.into(), target: Target::Claude(Ask::Review) },
-            Item { label: format!("Ask Claude to answer your replies ({n} waiting)"), target: Target::Claude(Ask::Answer) },
+            Item::new(review, Target::Claude(Ask::Review)),
+            Item::new(format!("Ask Claude to answer your replies ({n} waiting)"), Target::Claude(Ask::Answer)),
         ];
         self.picker = Some(Picker { title: " claude ", items, query: String::new(), sel: if n > 0 { 1 } else { 0 } });
     }

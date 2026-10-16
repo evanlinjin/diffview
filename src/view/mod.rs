@@ -230,7 +230,15 @@ enum Target {
 
 struct Item {
     label: String,
+    /// More lines under the label (dimmed), e.g. a comment's text; matched by the filter too.
+    detail: Vec<String>,
     target: Target,
+}
+
+impl Item {
+    fn new(label: impl Into<String>, target: Target) -> Item {
+        Item { label: label.into(), detail: vec![], target }
+    }
 }
 
 struct Picker {
@@ -765,11 +773,13 @@ impl App {
         }
     }
 
-    /// A comment's first real line as it reads rendered (no `**`, backticks or link URLs), for
-    /// picker labels.
-    fn gist(&self, body: &str) -> String {
-        let lines = crate::md::render(gist_line(body), usize::MAX / 2, &self.ui.md, &self.hl, None);
-        lines.into_iter().next().map_or(String::new(), |l| l.text.trim().to_owned())
+    /// A comment's first `n` lines as they read rendered (quotes skipped), for picker cards.
+    fn snippet(&self, body: &str, n: usize) -> Vec<String> {
+        // Wrapped to the picker's text width (3/4 of the window, less padding and indent).
+        let w = (self.width as usize * 3 / 4).saturating_sub(6).max(20);
+        let lines = crate::md::render(body, w, &self.ui.md, &self.hl, None);
+        let text = lines.into_iter().map(|l| l.text.trim_end().to_owned());
+        text.skip_while(|l| l.is_empty() || l.starts_with('▎')).filter(|l| !l.is_empty()).take(n).collect()
     }
 
     /// https://github.com/owner/repo, for `#123` links.
@@ -1126,11 +1136,6 @@ fn flip<T: std::hash::Hash + Eq>(s: &mut HashSet<T>, x: T) {
 fn quote(text: &str) -> String {
     let q: Vec<String> = text.lines().map(|l| format!("> {l}").trim_end().to_owned()).collect();
     format!("{}\n\n", q.join("\n"))
-}
-
-/// The first line of a comment that isn't a quote or a fence: what was actually written.
-fn gist_line(body: &str) -> &str {
-    body.lines().map(str::trim).find(|l| !l.is_empty() && !l.starts_with('>') && !l.starts_with("```")).unwrap_or("")
 }
 
 /// A GitHub-style badge: the given background (hex, no '#'), black or white text for contrast.

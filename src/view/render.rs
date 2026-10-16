@@ -306,14 +306,18 @@ impl App {
         if let Some(p) = &self.picker {
             let m = self.matches();
             let sel = p.sel.min(m.len().saturating_sub(1));
+            // Items are cards when they have detail lines (comment pickers): all the same height.
+            let per = 1 + p.items.iter().map(|i| i.detail.len()).max().unwrap_or(0);
+            let gap = (per > 1) as usize; // a blank line between cards
+            let item_h = per + gap;
             let w = (area.width * 3 / 4).max(20).min(area.width);
-            let ph = (m.len() as u16 + 3).min(area.height.saturating_sub(4)).max(3);
+            let ph = ((m.len() * item_h) as u16 + 3).min(area.height.saturating_sub(4)).max(3);
             let r = Rect { x: (area.width - w) / 2, y: 2.min(area.height), width: w, height: ph.min(area.height) };
-            let vis = (ph as usize).saturating_sub(3);
+            let vis = ((ph as usize).saturating_sub(3) / item_h).max(1);
             let off = sel.saturating_sub(vis.saturating_sub(1));
             let mut lines = vec![Line::from(format!("> {}", p.query))];
             let q: Vec<char> = p.query.to_lowercase().chars().collect();
-            lines.extend(m.iter().enumerate().skip(off).take(vis).map(|(i, &it)| {
+            for (i, &it) in m.iter().enumerate().skip(off).take(vis) {
                 let st = if i == sel { self.ui.menu_selected } else { Style::new() };
                 // Highlight the letters the filter matched (first fit, as `matches` checks).
                 let mut j = 0;
@@ -326,8 +330,16 @@ impl App {
                         Span::styled(c.to_string(), if hit { st.patch(self.ui.key) } else { st })
                     })
                     .collect();
-                Line::from(spans)
-            }));
+                lines.push(Line::from(spans).style(st));
+                let detail = &p.items[it].detail;
+                for k in 0..per - 1 {
+                    let text = detail.get(k).map_or(String::new(), |d| format!("  {d}"));
+                    lines.push(Line::from(Span::styled(text, st.patch(self.ui.stale))).style(st));
+                }
+                if gap > 0 {
+                    lines.push(Line::default());
+                }
+            }
             let pos = if m.is_empty() { "0 / 0".into() } else { format!("{} / {}", sel + 1, m.len()) };
             let inner = self.popup_frame(f, r, p.title, &pos);
             f.render_widget(Paragraph::new(lines), inner);

@@ -246,7 +246,7 @@ fn comments_placed_and_anchored() {
     press(&mut app, 'p');
     let p = app.picker.take().unwrap();
     assert_eq!(p.items.len(), 1);
-    assert_eq!(p.items[0].label, "src/a.rs:2  reply: unused"); // quote skipped
+    assert_eq!((p.items[0].label.as_str(), p.items[0].detail.as_slice()), ("src/a.rs:2  reply", &["unused".to_owned()][..])); // quote skipped
     let Target::Comment(ti, ci) = p.items[0].target else { panic!() };
     app.goto_comment(ti, ci);
     assert!(app.rows[app.head.row].line.text.starts_with("[pending] amy"));
@@ -256,9 +256,10 @@ fn comments_placed_and_anchored() {
     // Space t lists every thread with its state.
     press(&mut app, ' ');
     press(&mut app, 't');
-    let labels: Vec<String> = app.picker.take().unwrap().items.into_iter().map(|i| i.label).collect();
-    assert_eq!(labels[0], "src/a.rs:2  1 reply · [pending] @amy: why remove?");
-    assert!(labels[1].contains("[resolved] [outdated] @amy: old note"));
+    let items = app.picker.take().unwrap().items;
+    assert_eq!(items[0].label, "src/a.rs:2  1 reply · [pending] @amy");
+    assert_eq!(items[0].detail, ["why remove?"]); // the comment's text on the card's next line
+    assert!(items[1].label.contains("[resolved] [outdated] @amy") && items[1].detail == ["old note"]);
     // Space d asks first, defaulting to "No".
     press(&mut app, ' ');
     press(&mut app, 'd');
@@ -419,8 +420,14 @@ fn claude_menu() {
     let labels: Vec<&str> = app.picker.as_ref().unwrap().items.iter().map(|i| i.label.as_str()).collect();
     assert_eq!(labels.len(), 3);
     assert!(labels[0].contains("[waiting]") && !labels[1].contains("[waiting]") && !labels[2].contains("[waiting]"));
-    assert!(labels[0].starts_with("src/a.rs:2  1 reply · [waiting] @claude: a"), "{}", labels[0]);
-    assert!(labels[2].ends_with("@claude: nit: use x (docs)"), "{}", labels[2]); // markdown stripped
+    assert_eq!(labels[0], "src/a.rs:2  1 reply · [waiting] @claude");
+    let p = app.picker.as_ref().unwrap();
+    assert_eq!(p.items[2].detail, ["nit: use x (docs)"]); // rendered: no ** or link URL
+    // The filter matches the comment's text too.
+    app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+    assert_eq!(app.matches(), [2]);
     app.picker = None;
     app.threads.clear();
     app.run_claude(agent::Ask::Answer);

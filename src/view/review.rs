@@ -142,7 +142,7 @@ impl App {
             self.msg = "no PR for this branch".into();
             return;
         }
-        let item = |label: &str, target| Item { label: label.into(), target };
+        let item = |label: &str, target| Item::new(label, target);
         let mut items = vec![
             item("Comment", Target::Submit("COMMENT")),
             item("Approve", Target::Submit("APPROVE")),
@@ -170,8 +170,8 @@ impl App {
         }
         let preview: String = c.body.lines().next().unwrap_or("").chars().take(40).collect();
         let items = vec![
-            Item { label: "No, keep it".into(), target: Target::Nothing },
-            Item { label: format!("Yes, delete @{}'s comment: \"{preview}\"", c.author), target: Target::DeleteComment(c.node_id.clone()) },
+            Item::new("No, keep it", Target::Nothing),
+            Item::new(format!("Yes, delete @{}'s comment: \"{preview}\"", c.author), Target::DeleteComment(c.node_id.clone())),
         ];
         self.picker = Some(Picker { title: " delete comment? ", items, query: String::new(), sel: 0 });
     }
@@ -377,8 +377,9 @@ impl App {
                     1 => "1 reply · ".into(),
                     n => format!("{n} replies · "),
                 };
-                let label = format!("{}{line}  {replies}{tags}@{}: {}", t.path, c.author, self.gist(&c.body));
-                Some(Item { label, target: Target::Comment(ti, 0) })
+                // A card: where, what state, who; then the start of what was said.
+                let label = format!("{}{line}  {replies}{tags}@{}", t.path, c.author);
+                Some(Item { detail: self.snippet(&c.body, 2), ..Item::new(label, Target::Comment(ti, 0)) })
             })
             .collect();
         match items.is_empty() {
@@ -397,7 +398,8 @@ impl App {
                     (0, _) => "comment",
                     _ => "reply",
                 };
-                items.push(Item { label: format!("{}{line}  {kind}: {}", t.path, self.gist(&c.body)), target: Target::Comment(ti, ci) });
+                let item = Item::new(format!("{}{line}  {kind}", t.path), Target::Comment(ti, ci));
+                items.push(Item { detail: self.snippet(&c.body, 2), ..item });
             }
         }
         match items.is_empty() {
