@@ -155,3 +155,5 @@ re-anchors outdated comments that still apply when it next runs `dv review-check
 
 MIT or Apache-2.0, at your option ([LICENSE-MIT](LICENSE-MIT), [LICENSE-APACHE](LICENSE-APACHE)).
 Releasing: [RELEASING.md](RELEASING.md); changes: [CHANGELOG.md](CHANGELOG.md).
+
+Throwaway line.
