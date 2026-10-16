@@ -68,7 +68,6 @@ disk: rust-analyzer can index it and `hx` can open it.
    - **`dv list`**: a picker of the repo's open PRs (`gh pr list`); `Enter` opens the chosen
      one as `dv <N>` would, with `dv list`'s own flags: `dv list -wbf` enters each PR in a
      worktree, on its branch, force-reset to the PR head.
-   - Multiple cursors.
 
 ## Keys
 | Key | Action |
