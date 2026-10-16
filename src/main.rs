@@ -124,7 +124,7 @@ fn run() -> anyhow::Result<()> {
     }
     if o.rm {
         let n = o.pr.context("--rm needs a PR, e.g. `dv 123 --rm`")?;
-        return remove_worktree(n, o.force);
+        return remove_worktree(n, o.force).map(|m| println!("{m}"));
     }
     let root = PathBuf::from(diff::git(&["rev-parse", "--show-toplevel"])?.trim());
     std::env::set_current_dir(&root)?;
@@ -371,7 +371,8 @@ fn ensure_ours(dir: &Path) -> anyhow::Result<()> {
 
 /// `dv 123 --rm`: remove PR 123's worktree. git refuses if it has local changes (`-f` discards
 /// them). A branch checked out there is kept, since it may have unpushed commits.
-fn remove_worktree(n: u64, force: bool) -> anyhow::Result<()> {
+/// Remove PR `n`'s worktree (`force`: with its local changes); says what was done.
+pub(crate) fn remove_worktree(n: u64, force: bool) -> anyhow::Result<String> {
     let (main, dir) = worktree_dir(n)?;
     if !dir.exists() {
         anyhow::bail!("no worktree at {}", dir.display());
@@ -389,11 +390,10 @@ fn remove_worktree(n: u64, force: bool) -> anyhow::Result<()> {
         true => e.context(format!("{} has local changes; `dv {n} --rm -f` discards them", dir.display())),
         false => e,
     })?;
-    println!("removed {}", dir.display());
-    if let Some(b) = Some(branch.trim()).filter(|b| !b.is_empty()) {
-        println!("kept branch {b} (delete it with `git branch -D {b}` if it has nothing unpushed)");
-    }
-    Ok(())
+    Ok(match Some(branch.trim()).filter(|b| !b.is_empty()) {
+        Some(b) => format!("removed {}; kept branch {b} (`git branch -D {b}` deletes it, if nothing on it is unpushed)", dir.display()),
+        None => format!("removed {}", dir.display()),
+    })
 }
 
 #[test]

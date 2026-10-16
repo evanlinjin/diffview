@@ -29,6 +29,8 @@ const HELP: &str = "\
                          ci:pass|fail|pending|none     -term excludes
   Esc                  clear the filter
   o O                  next sort order (updated, created, number, size) / reverse
+  D D                  worktrees tab: remove the PR's worktree (not with local changes in it;
+                       its branch stays)
   R                    refresh
   ?                    this help
   q, Ctrl-c            quit";
@@ -54,6 +56,8 @@ pub struct List {
     local: HashMap<u64, (PathBuf, Option<String>)>,
     /// Showing the worktrees tab.
     worktrees: bool,
+    /// `D` pressed on this PR's worktree: `D` again removes it.
+    removing: Option<u64>,
     pub msg: String,
 }
 
@@ -83,6 +87,7 @@ impl List {
             checks: None,
             local: HashMap::new(),
             worktrees: false,
+            removing: None,
             msg,
         }
     }
@@ -120,6 +125,18 @@ impl List {
                     return Ok(Some(Pick { number: n, worktree }));
                 }
                 Some(Do::Refresh) => self.refresh(term)?,
+                Some(Do::Remove(n)) => {
+                    self.msg = match crate::remove_worktree(n, false) {
+                        Ok(m) => {
+                            self.local.remove(&n);
+                            // Listed only for its worktree (closed, merged): gone with it.
+                            self.prs.retain(|p| p.number != n || p.state == "OPEN" || p.state.is_empty());
+                            self.sel = self.sel.min(self.shown().len().saturating_sub(1));
+                            m
+                        }
+                        Err(e) => format!("{e:#}"),
+                    }
+                }
                 None => {}
             }
         }
@@ -185,6 +202,7 @@ impl List {
         }
         let n = self.shown().len();
         self.msg.clear();
+        let armed = self.removing.take(); // any other key keeps the worktree
         if std::mem::take(&mut self.help) {
             return None; // any key closes the help
         }
@@ -210,6 +228,15 @@ impl List {
             KeyCode::Esc if !self.query.is_empty() => (self.query.clear(), self.sel = 0).1,
             KeyCode::Char('q') | KeyCode::Esc => return Some(Do::Quit),
             KeyCode::Char('R') => return Some(Do::Refresh),
+            KeyCode::Char('D') if self.worktrees => {
+                let p = self.shown().get(self.sel).map(|p| p.number)?;
+                let (dir, _) = self.local.get(&p)?;
+                if armed == Some(p) {
+                    return Some(Do::Remove(p));
+                }
+                self.msg = format!("D again removes {} (its branch stays); any other key keeps it", dir.display());
+                self.removing = Some(p);
+            }
             KeyCode::Char('?') => self.help = true,
             KeyCode::Tab | KeyCode::BackTab => (self.worktrees, self.sel, self.top) = (!self.worktrees, 0, 0),
             KeyCode::Char('/') => self.filtering = true, // edits the current filter
@@ -328,9 +355,10 @@ impl List {
                 false => format!("review (dv N {})", self.flags),
             };
             let tab = if self.worktrees { "open PRs" } else { "PRs with a worktree" };
-            let keys = [("Enter", enter.as_str()), ("Tab", tab), ("/", "filter"), ("o O", "sort / reverse"), ("R", "refresh"), ("?", "all keys"), ("q", "quit")];
+            let keys = [("Enter", enter.as_str()), ("Tab", tab), ("/", "filter"), ("o O", "sort / reverse"), ("R", "refresh"), ("D D", "remove worktree"), ("?", "all keys"), ("q", "quit")];
             let lines: Vec<Line> = keys
                 .iter()
+                .filter(|(k, _)| self.worktrees || *k != "D D")
                 .map(|(k, d)| Line::from(vec![Span::styled(format!("{k:<6}"), ui.key), Span::raw(d.to_string())]))
                 .collect();
             let w = (lines.iter().map(Line::width).max().unwrap_or(10) as u16 + 4).min(area.width);
@@ -368,6 +396,8 @@ enum Do {
     Quit,
     Open(u64),
     Refresh,
+    /// Remove this PR's worktree.
+    Remove(u64),
 }
 
 /// What every card on screen shares.
@@ -584,5 +614,10 @@ fn filter_and_keys() {
     assert_eq!(shown(&l), [9, 22]); // (still by number, ascending)
     k(&mut l, KeyCode::Char('j'));
     assert!(matches!(k(&mut l, KeyCode::Enter), Some(Do::Open(22))));
+    // D asks first; D again removes it; anything else in between keeps it.
+    assert!(k(&mut l, KeyCode::Char('D')).is_none() && l.msg.starts_with("D again removes /x/r-22"));
+    k(&mut l, KeyCode::Char('o'));
+    assert!(k(&mut l, KeyCode::Char('D')).is_none());
+    assert!(matches!(k(&mut l, KeyCode::Char('D')), Some(Do::Remove(22))));
     assert!(matches!(k(&mut l, KeyCode::Char('q')), Some(Do::Quit)));
 }
