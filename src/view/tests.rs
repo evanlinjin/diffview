@@ -940,3 +940,35 @@ fn messages_kept_in_full() {
     let text = text.join(" ").split_whitespace().collect::<Vec<_>>().join(" "); // across wrapped lines
     assert!(text.contains("one pending review per pull request"), "{text}");
 }
+
+#[test]
+fn threads_on_files_gone_from_the_diff() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let c = gh::Comment {
+        id: 1, node_id: "C1".into(), can_edit: false, can_delete: false, author: "amy".into(), body: "still here?".into(),
+        created: "2026-10-01".into(), pending: false,
+    };
+    app.threads = vec![gh::Thread {
+        id: "T1".into(), path: "src/reverted.rs".into(), left: false, line: Some(4), start_line: None, original_line: Some(4),
+        resolved: false, outdated: false, hunk: vec![], comments: vec![c], claude: None, severity: String::new(),
+    }];
+    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new() });
+    app.build();
+    let texts: Vec<&str> = app.rows.iter().map(|r| r.line.text.as_str()).collect();
+    let at = texts.iter().position(|t| *t == "comments on files no longer in the diff (1)").expect("listed");
+    assert_eq!(texts[at + 1], "src/reverted.rs");
+    assert!(texts[at + 2].contains("amy") && app.rows[at + 2].thread == Some(0));
+    // ]c gets there, and C on it replies (it's a thread, though in the PR section).
+    app.goto(0, 0);
+    app.key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+    assert_eq!(app.rows[app.head.row].thread, Some(0));
+    app.key(KeyEvent::new(KeyCode::Char('C'), KeyModifiers::NONE));
+    assert!(matches!(app.action.take(), Some(Action::Reply { review: false, .. })));
+    // In the comment margin they stay full width, with the PR section, every row placed once.
+    app.margin_active = true;
+    app.build();
+    let gone_rows = app.rows.iter().filter(|r| r.thread == Some(0)).count();
+    let placed = app.drows.iter().filter(|d| matches!(d, DRow::Full(r) if app.rows[*r].thread == Some(0))).count();
+    assert_eq!(placed, gone_rows);
+}

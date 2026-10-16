@@ -512,7 +512,8 @@ impl App {
     /// Go to the next / previous of `items` (thread, comment) after the cursor, by file and
     /// line, wrapping around; folded files and threads open on the way (`goto_comment`).
     fn next_comment(&mut self, fwd: bool, items: Vec<(usize, usize)>, none: &str) {
-        let file = |path: &str| self.files.iter().position(|f| f.path == path);
+        // Threads on files no longer in the diff are listed above the files, so they come first.
+        let file = |path: &str| self.files.iter().position(|f| f.path == path).map_or(Some(0), |i| Some(i + 1));
         // (file, line, thread, comment); a code line counts as thread -1, before the threads
         // shown under it.
         let key = |t: usize, c: usize| -> Option<(usize, u32, i64, usize)> {
@@ -529,7 +530,7 @@ impl App {
         let here = match row.thread {
             Some(t) => key(t, self.comment_index_under_cursor(t)),
             None if row.file == INFO => None,
-            None => self.files.get(row.file).map(|_| (row.file, row.line.new.or(row.line.old).unwrap_or(0), -1, 0)),
+            None => self.files.get(row.file).map(|_| (row.file + 1, row.line.new.or(row.line.old).unwrap_or(0), -1, 0)),
         };
         let pick = match (fwd, here) {
             (true, Some(h)) => order.iter().find(|&&o| o > h).or(order.first()),
@@ -545,9 +546,6 @@ impl App {
     /// Jump to comment `ci` of thread `ti`, unfolding its file and thread if needed.
     pub(super) fn goto_comment(&mut self, ti: usize, ci: usize) {
         let Some(t) = self.threads.get(ti) else { return };
-        if !self.files.iter().any(|f| f.path == t.path) {
-            return self.msg = format!("{} isn't in this diff", t.path);
-        }
         self.collapsed.remove(&t.path.clone());
         if !self.thread_open(ti)
             && let Some(id) = self.root_id(ti)
@@ -557,8 +555,9 @@ impl App {
         self.build();
         // Each comment starts with an author row; outdated threads' code rows aren't author rows.
         let row = self.rows.iter().enumerate().filter(|(_, r)| r.thread == Some(ti) && r.line.kind == Kind::Thread).nth(ci);
-        if let Some((r, _)) = row {
-            self.jump(r, 0);
+        match row {
+            Some((r, _)) => self.jump(r, 0),
+            None => self.msg = format!("{} isn't in this diff", self.threads[ti].path), // showing only what isn't committed
         }
     }
 
@@ -590,15 +589,16 @@ impl App {
     pub(super) fn comment_or_reply(&mut self, review: bool) {
         // GitHub allows one pending review per PR and refuses single line comments beside it.
         let row = &self.rows[self.head.row];
-        if !review && self.review.is_some() && row.file != INFO {
+        // PR text (not a thread there: those are on files no longer in the diff).
+        let pr_text = row.file == INFO && row.thread.is_none();
+        if !review && self.review.is_some() && !pr_text {
             let n = self.pending_count();
             return self.msg = format!("you have a pending review ({n}): c adds to it, S submits it, then C posts");
         }
         if let Some((t, k)) = self.claude_at_cursor() {
             return self.start_promote(t, k, review);
         }
-        let row = &self.rows[self.head.row];
-        match (row.file == INFO, row.thread) {
+        match (pr_text, self.rows[self.head.row].thread) {
             (true, _) if review => self.msg = "select code lines to comment on".into(),
             (true, _) => self.start_conversation_comment(),
             // `r` replies (in the review); `C` here replies right away, as `C` posts what `c` queues.

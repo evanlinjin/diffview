@@ -859,6 +859,27 @@ impl App {
                 }
             }
         }
+        // Threads on files that have left the diff (a change reverted, a file now matching the
+        // base) would show nowhere: list them here, by file. Not when showing only what isn't
+        // committed, where most files are out of the diff on purpose.
+        let gone: Vec<usize> = match self.uncommitted() {
+            true => vec![],
+            false => (0..self.threads.len()).filter(|&t| !self.files.iter().any(|f| f.path == self.threads[t].path)).collect(),
+        };
+        let mut gone = gone;
+        gone.sort_by(|&a, &b| self.threads[a].path.cmp(&self.threads[b].path)); // stable: in order within a file
+        if !gone.is_empty() {
+            let heading = |text: String| Row::text(INFO, Kind::Thread, text);
+            rows.push(heading(format!("comments on files no longer in the diff ({})", gone.len())));
+            let mut last = "";
+            for &t in &gone {
+                if self.threads[t].path != last {
+                    last = &self.threads[t].path;
+                    rows.push(heading(last.to_owned()));
+                }
+                rows.extend(self.thread_rows(t, INFO));
+            }
+        }
         for (i, f) in self.files.iter().enumerate() {
             let count = |k| f.lines.iter().filter(|l| l.kind == k).count();
             // "dir/" dimmed, the file name in the header color, "(new)" etc. dimmed, +/- colored.
