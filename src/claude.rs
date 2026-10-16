@@ -110,11 +110,42 @@ pub fn session_path(review: &std::path::Path) -> PathBuf {
 }
 
 /// The session for `review` in checkout `dir`, if Claude Code still has it.
-pub fn load_session(review: &std::path::Path, dir: &std::path::Path) -> Option<String> {
+/// The dv-review skill this dv was built with (`dv install-skill` installs it).
+pub const SKILL: &str = include_str!("../skills/dv-review/SKILL.md");
+
+/// Where Claude Code finds the skill.
+pub fn skill_path() -> Result<PathBuf> {
+    let home = std::env::var_os("HOME").context("no $HOME")?;
+    Ok(PathBuf::from(home).join(".claude/skills/dv-review/SKILL.md"))
+}
+
+/// Bring an installed skill up to this dv's (not installing one that isn't); whether it did.
+pub fn update_skill() -> bool {
+    let Ok(p) = skill_path() else { return false };
+    std::fs::read_to_string(&p).is_ok_and(|old| old != SKILL) && std::fs::write(&p, SKILL).is_ok()
+}
+
+/// Which skill a session started with: Claude Code reads a skill once per session, so one
+/// that started with another keeps following that.
+fn skill_tag() -> String {
+    // FNV-1a: stable across builds, unlike std's hasher.
+    let h = SKILL.bytes().fold(0xcbf29ce484222325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100000001b3));
+    format!("{h:016x}")
+}
+
+/// The session for `review` in checkout `dir`, and whether it started with this dv's skill.
+pub fn load_session(review: &std::path::Path, dir: &std::path::Path) -> Option<(String, bool)> {
     let text = std::fs::read_to_string(session_path(review)).ok()?;
-    let key = dir.to_string_lossy();
-    let id = text.lines().find_map(|l| l.split_once('\t').filter(|(d, _)| *d == key).map(|(_, id)| id.trim().to_owned()))?;
-    session_exists(&id).then_some(id)
+    let (id, same) = session_line(&text, &dir.to_string_lossy())?;
+    session_exists(&id).then_some((id, same))
+}
+
+/// `dir`'s line of a session file: "<dir>\t<id>\t<skill tag>" (dv 0.2 wrote no tag).
+fn session_line(text: &str, dir: &str) -> Option<(String, bool)> {
+    text.lines().find_map(|l| {
+        let mut f = l.split('\t');
+        (f.next()? == dir).then(|| (f.next().unwrap_or("").trim().to_owned(), f.next().is_some_and(|t| t.trim() == skill_tag())))
+    })
 }
 
 /// Remember (`Some`) or forget the session for `review` in checkout `dir`.
@@ -123,7 +154,7 @@ pub fn save_session(review: &std::path::Path, dir: &std::path::Path, id: Option<
     let key = dir.to_string_lossy();
     let text = std::fs::read_to_string(&p).unwrap_or_default();
     let mut lines: Vec<String> = text.lines().filter(|l| l.split_once('\t').is_none_or(|(d, _)| d != key)).map(str::to_owned).collect();
-    lines.extend(id.map(|id| format!("{key}\t{id}")));
+    lines.extend(id.map(|id| format!("{key}\t{id}\t{}", skill_tag())));
     if let Some(d) = p.parent() {
         std::fs::create_dir_all(d)?;
     }
@@ -586,10 +617,14 @@ fn session_ids() {
     save_session(&review, std::path::Path::new("/a"), Some("id-a")).unwrap();
     save_session(&review, std::path::Path::new("/b"), Some("id-b")).unwrap();
     let text = std::fs::read_to_string(session_path(&review)).unwrap();
-    assert_eq!(text, "/a\tid-a\n/b\tid-b\n");
+    let tag = skill_tag();
+    assert_eq!(text, format!("/a\tid-a\t{tag}\n/b\tid-b\t{tag}\n"));
     assert_eq!(load_session(&review, std::path::Path::new("/a")), None); // not in Claude Code's store
+    assert_eq!(session_line(&text, "/b"), Some(("id-b".into(), true)));
+    assert_eq!(session_line("/a\tid-a\n", "/a"), Some(("id-a".into(), false))); // dv 0.2's: another skill
+    assert_eq!(session_line("/a\tid-a\tffff\n", "/a"), Some(("id-a".into(), false)));
     save_session(&review, std::path::Path::new("/a"), None).unwrap();
-    assert_eq!(std::fs::read_to_string(session_path(&review)).unwrap(), "/b\tid-b\n");
+    assert_eq!(std::fs::read_to_string(session_path(&review)).unwrap(), format!("/b\tid-b\t{tag}\n"));
     _ = std::fs::remove_dir_all(&home);
 }
 

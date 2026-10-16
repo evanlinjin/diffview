@@ -127,7 +127,24 @@ impl App {
         if outdated > 0 {
             items.push(Item::new(format!("Dismiss Claude's outdated comments ({outdated})"), Target::ClaudeDismissOutdated(false)));
         }
+        if self.claude_session.is_some() {
+            items.push(Item::new("Start a fresh Claude session for this PR (the review stays)", Target::ClaudeFresh));
+        }
         self.picker = Some(Picker { title: " claude ", items, query: String::new(), sel: if n > 0 { 1 } else { 0 } });
+    }
+
+    /// Forget the PR's Claude session, so the next run starts a new one: when it has got
+    /// something wrong into its head, or grown long. The review file is what carries over.
+    pub(super) fn fresh_claude_session(&mut self) {
+        if self.claude_job.is_some() {
+            return self.msg = "Claude is still working on the last request; once it's done".into();
+        }
+        let pane = self.claude_pane().is_some();
+        self.set_session(None);
+        self.msg = match pane {
+            true => "the next Claude run starts a new session; close the pane on the right, which has the old one".into(),
+            false => "the next Claude run starts a new session".into(),
+        };
     }
 
     /// The ids of Claude's own comments whose code has changed (not your comments for it).

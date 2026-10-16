@@ -589,12 +589,17 @@ fn claude_session_per_pr() {
     // for this checkout (Claude Code keeps sessions per directory)…
     app.set_session(Some("11111111-2222-4333-8444-555555555555".into()));
     let saved = std::fs::read_to_string(crate::claude::session_path(&review)).unwrap();
-    assert_eq!(saved, format!("{}\t11111111-2222-4333-8444-555555555555\n", app.root.display()));
+    assert!(saved.starts_with(&format!("{}\t11111111-2222-4333-8444-555555555555\t", app.root.display()))); // + its skill
     // Claude may touch dv's directory for the repo, where the notes (and reviews) are.
     let notes = crate::claude::notes_path().unwrap();
     assert_eq!(app.claude_dirs(), [std::ffi::OsString::from("--add-dir"), notes.parent().unwrap().as_os_str().to_owned()]);
-    // …and forgetting it (a failed run) removes it, so the next run starts afresh.
-    app.set_session(None);
+    // …and forgetting it (a failed run, or Space a → fresh session) removes it, so the next
+    // run starts afresh.
+    app.claude_menu();
+    let items = app.picker.take().unwrap().items;
+    assert!(matches!(items.last().unwrap().target, Target::ClaudeFresh));
+    app.fresh_claude_session();
+    assert!(app.claude_session.is_none() && app.msg.starts_with("the next Claude run starts a new session"));
     assert!(!crate::claude::session_path(&review).exists());
     _ = std::fs::remove_dir_all(&dir);
 }

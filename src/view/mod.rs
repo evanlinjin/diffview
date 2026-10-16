@@ -254,6 +254,7 @@ enum Target {
     Comment(usize, usize),
     Claude(agent::Ask),
     ClaudeNotes,
+    ClaudeFresh,
     /// Dismiss all of Claude's outdated comments (`true`: confirmed).
     ClaudeDismissOutdated(bool),
     Nothing,
@@ -397,7 +398,12 @@ impl App {
         app.settings = crate::theme::settings();
         app.claude_path = crate::claude::path(pr.as_ref().map(|p| p.number)).ok();
         // The PR's Claude Code session, if an earlier run (any dv, any worktree) started one.
-        app.claude_session = app.claude_path.as_ref().and_then(|p| crate::claude::load_session(p, &app.root));
+        // One that started with another version of the skill would keep following that: start afresh.
+        match app.claude_path.as_ref().and_then(|p| crate::claude::load_session(p, &app.root)) {
+            Some((id, true)) => app.claude_session = Some(id),
+            Some((_, false)) => app.msg = "dv's Claude skill has changed since this PR's Claude session began: the next Claude run starts a new one".into(),
+            None => {}
+        }
         if pr.is_some() {
             crate::progress(Some("loading comments and PR info"));
         }

@@ -128,6 +128,11 @@ fn run() -> anyhow::Result<()> {
     }
     let root = PathBuf::from(diff::git(&["rev-parse", "--show-toplevel"])?.trim());
     std::env::set_current_dir(&root)?;
+    // An installed skill follows this dv (its review files, its keys): an older one would
+    // have Claude work to rules this dv doesn't follow.
+    if o.cmd != Some("install-skill") && claude::update_skill() {
+        progress(Some("updated Claude's dv-review skill to this dv's"));
+    }
     match o.cmd {
         Some("install-skill") => return install_skill(),
         Some(cmd) => return review_file(cmd, &o),
@@ -264,15 +269,12 @@ fn review_file(cmd: &str, o: &Opts) -> anyhow::Result<()> {
     Ok(())
 }
 
-const SKILL: &str = include_str!("../skills/dv-review/SKILL.md");
-
 /// Write the dv-review skill where Claude Code finds personal skills.
 fn install_skill() -> anyhow::Result<()> {
-    let home = std::env::var_os("HOME").context("no $HOME")?;
-    let dir = PathBuf::from(home).join(".claude/skills/dv-review");
-    std::fs::create_dir_all(&dir)?;
-    std::fs::write(dir.join("SKILL.md"), SKILL)?;
-    println!("installed {}", dir.join("SKILL.md").display());
+    let p = claude::skill_path()?;
+    std::fs::create_dir_all(p.parent().context("skill path")?)?;
+    std::fs::write(&p, claude::SKILL)?;
+    println!("installed {} (dv keeps it up to date from now on)", p.display());
     Ok(())
 }
 

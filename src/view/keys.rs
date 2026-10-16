@@ -382,6 +382,7 @@ impl App {
                         }
                         Target::Claude(ask) => self.pick_claude(ask),
                         Target::ClaudeNotes => self.edit_claude_notes(),
+                        Target::ClaudeFresh => self.fresh_claude_session(),
                         Target::ClaudeDismissOutdated(sure) => self.dismiss_outdated(sure),
                         Target::Nothing => {}
                     }
