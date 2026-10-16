@@ -66,6 +66,7 @@ PR
   Space r              resolve / unresolve thread
   Space e              edit your comment under the cursor
 
+GENERAL
   ?                    this help
   R                    refresh (git diff + GitHub)
   q, Ctrl-c            quit
@@ -176,6 +177,7 @@ pub struct App {
     top: usize,
     left: usize,
     height: usize,
+    width: u16,
     action: Option<Action>,
     /// Done on the next loop, so its "…" message is drawn first.
     job: Option<Job>,
@@ -261,6 +263,7 @@ impl App {
             top: 0,
             left: 0,
             height: 1,
+            width: 80,
             action: None,
             job: None,
             review: None,
@@ -1370,6 +1373,46 @@ impl App {
         }
     }
 
+    /// The help text, styled: section headings, keys (separators dimmed), descriptions wrapped
+    /// with a hanging indent under the description column, `(notes)` dimmed.
+    fn help_lines(&self, width: usize) -> Vec<Line<'static>> {
+        const KEY_COL: usize = 23; // entries are "  <key, padded to col 23><description>"
+        let ui = &self.ui;
+        let dim = Style { fg: ui.stale.fg, ..Style::new() };
+        let mut out = vec![];
+        for l in HELP.trim_matches('\n').lines() {
+            if l.is_empty() {
+                out.push(Line::default());
+                continue;
+            }
+            if !l.starts_with(' ') {
+                out.push(Line::styled(format!(" {l}"), ui.heading.add_modifier(ratatui::style::Modifier::BOLD)));
+                continue;
+            }
+            let (key, desc) = l.split_at(KEY_COL.min(l.len()));
+            let mut spans: Vec<Span> = vec![Span::raw("  ")];
+            for c in key[2..].chars() {
+                let st = if c == ',' { dim } else { ui.key }; // `/` is a key itself (search)
+                spans.push(Span::styled(c.to_string(), st));
+            }
+            let mut depth = 0; // inside "(...)", which may wrap
+            for (i, line) in wrap(desc, width.saturating_sub(KEY_COL).max(10)).into_iter().enumerate() {
+                if i > 0 {
+                    out.push(Line::from(std::mem::take(&mut spans)));
+                    spans.push(Span::raw(" ".repeat(KEY_COL)));
+                }
+                // Dim parenthesised notes, e.g. "(pending review)".
+                for c in line.chars() {
+                    depth += (c == '(') as i32;
+                    spans.push(Span::styled(c.to_string(), if depth > 0 { dim } else { Style::new() }));
+                    depth -= (c == ')') as i32;
+                }
+            }
+            out.push(Line::from(spans));
+        }
+        out
+    }
+
     /// Hover markdown, highlighted (code fences in their language), with the fence lines dropped.
     fn hover_lines(&self, md: &str) -> Vec<Line<'static>> {
         let colors = self.hl.markdown(md);
@@ -1544,8 +1587,9 @@ impl App {
             '-' => self.expand(-10),
             'Z' => self.toggle_whole(),
             '?' => {
-                let lines = HELP.trim_matches('\n').lines().map(|l| Line::from(l.to_owned())).collect();
-                self.popup = Some((" keys  j/k scroll · any other key closes ", lines, 0));
+                // Popup text width: popup is min(width - 4, 100) wide, minus padding and scrollbar.
+                let cw = (self.width.saturating_sub(4).min(100) as usize).saturating_sub(3);
+                self.popup = Some((" keys · j/k scroll · any other key closes ", self.help_lines(cw), 0));
             }
             'c' => self.comment_or_reply(true),
             's' => self.start_suggest(),
@@ -1675,6 +1719,7 @@ impl App {
         let area = f.area();
         let h = area.height.saturating_sub(1) as usize;
         self.height = h.max(1);
+        self.width = area.width;
         let so = 3.min(h / 2);
         let hd = self.hd();
         if hd < self.top + so {

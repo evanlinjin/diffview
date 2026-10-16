@@ -47,6 +47,8 @@ pub struct Ui {
     pub emph_del: Color,
     pub cursorline: Option<Color>,
     pub linenr_selected: Style,
+    /// Keys in the help overlay.
+    pub key: Style,
 }
 
 /// Helix `[editor]` settings dv mirrors.
@@ -206,6 +208,7 @@ impl Theme {
             emph_add: plus.fg.zip(bg).and_then(|(c, b)| blend(c, b, 0.42)).unwrap_or(Color::Rgb(0x2f, 0x5a, 0x33)),
             emph_del: minus.fg.zip(bg).and_then(|(c, b)| blend(c, b, 0.42)).unwrap_or(Color::Rgb(0x6b, 0x2c, 0x2c)),
             cursorline,
+            key: self.find("ui.text.focus").unwrap_or(self.get("function")).add_modifier(Modifier::BOLD),
             linenr_selected: self.find("ui.linenr.selected").unwrap_or(self.get("ui.linenr").add_modifier(Modifier::BOLD)),
         }
     }
