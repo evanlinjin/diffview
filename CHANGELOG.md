@@ -12,6 +12,10 @@ on GitHub are its section here.
 ### Fixed
 - dv no longer freezes while hx is open beside it: hx runs in its own pane and dv reloads when
   it exits.
+- `dv N` for a PR that has a `<repo>-N` worktree opens it there (its branch couldn't be checked
+  out in the main checkout too).
+- A PR branch with local commits that aren't on the PR (unpushed work, a local rebase) opens
+  as it is, with a note, instead of failing to fast-forward; `-f` still resets it to the PR.
 
 ## [0.1.0] - 2026-10-16
 

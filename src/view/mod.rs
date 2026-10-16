@@ -365,6 +365,11 @@ impl App {
         Ok(app)
     }
 
+    /// A message to show when dv opens (e.g. how the checkout went).
+    pub fn notice(&mut self, msg: String) {
+        self.msg = msg;
+    }
+
     fn with(base: String, files: Vec<FileDiff>) -> Self {
         let mut app = App {
             base,

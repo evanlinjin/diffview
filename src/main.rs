@@ -178,14 +178,28 @@ fn pick_and_review(o: &Opts, root: &Path) -> anyhow::Result<()> {
 /// Check PR `n` out as `o` says and review it. The outer error is setup (checkout, diff); the
 /// inner one is from the TUI, which the worktree note is printed after.
 fn review(o: &Opts, pr_num: Option<u64>) -> anyhow::Result<(Option<PathBuf>, anyhow::Result<()>)> {
-    let wt = match (pr_num, o.worktree) {
-        (Some(n), true) => Some(enter_worktree(n, o.branch, o.force)?),
+    // A PR with a worktree already (`<repo>-N`) opens there, as it was made: its branch can't
+    // be checked out here too, and that's where you were reviewing it.
+    let found = pr_num.filter(|_| !o.worktree).and_then(|n| pr_worktrees().into_iter().find(|w| w.0 == n));
+    let adjusted;
+    let o = match found {
+        Some((_, dir, branch)) => {
+            progress(Some(&format!("PR has a worktree at {}; opening it there", dir.display())));
+            adjusted = Opts { worktree: true, branch: branch.is_some(), base: o.base.clone(), force: o.force, ..Opts::default() };
+            &adjusted
+        }
+        None => o,
+    };
+    let (wt, note) = match (pr_num, o.worktree) {
+        (Some(n), true) => {
+            let (dir, note) = enter_worktree(n, o.branch, o.force)?;
+            (Some(dir), note)
+        }
         (Some(n), false) => {
             progress(Some(&format!("checking out PR #{n}")));
-            gh::checkout(n, o.force, false)?;
-            None
+            (None, checkout_or_keep(n, o.force, false)?)
         }
-        (None, _) => None,
+        (None, _) => (None, None),
     };
     // Comments only load when the branch has a PR; plain local diffs still work without one.
     progress(Some("looking up the PR"));
@@ -194,6 +208,9 @@ fn review(o: &Opts, pr_num: Option<u64>) -> anyhow::Result<(Option<PathBuf>, any
     let app = view::App::new(base, pr);
     progress(None);
     let mut app = app?;
+    if let Some(n) = note {
+        app.notice(n);
+    }
     let mut term = ratatui::init();
     let res = app.run(&mut term);
     ratatui::restore();
@@ -253,11 +270,34 @@ fn install_skill() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// `gh pr checkout`, except when you're already on the PR's branch and it has commits that
+/// aren't on the PR (unpushed work, or a local rebase): then it stays as it is, and the note
+/// returned says so. Never resets your branch unless `force`.
+fn checkout_or_keep(n: u64, force: bool, detach: bool) -> anyhow::Result<Option<String>> {
+    let Err(e) = gh::checkout(n, force, detach) else { return Ok(None) };
+    let msg = format!("{e:#}");
+    let diverged = ["Not possible to fast-forward", "Diverging branches"].iter().any(|p| msg.contains(p));
+    let here = diff::git(&["branch", "--show-current"]).unwrap_or_default().trim().to_owned();
+    let theirs = gh::head_branch(n).unwrap_or_default();
+    // gh names a fork's branch `<owner>-<branch>` when the plain name is taken.
+    let on_it = !here.is_empty() && !theirs.is_empty() && (here == theirs || here.ends_with(&format!("-{theirs}")));
+    match (diverged && !force && !detach, on_it) {
+        (true, true) => Ok(Some(format!(
+            "{here} has commits that aren't on PR #{n}: showing it as is (push to update the PR; -f resets to the PR)"
+        ))),
+        (true, false) => Err(e.context(format!(
+            "your local branch for PR #{n} has diverged from the PR (local commits, or the PR was force-pushed); \
+             check it out to review it as is, or `dv {n} -f` to reset it to the PR (dropping its local commits)"
+        ))),
+        _ => Err(e),
+    }
+}
+
 /// Check PR `n` out in `<repo>-<n>` next to the repo (creating the worktree if needed) and make
 /// it the current dir: detached at the PR head, or with `branch`, on the PR's branch (as
 /// `gh pr checkout` sets it up, so pushing updates the PR). Refuses a dir that isn't a worktree
 /// of this repo; git refuses to update one with local changes.
-fn enter_worktree(n: u64, branch: bool, force: bool) -> anyhow::Result<std::path::PathBuf> {
+fn enter_worktree(n: u64, branch: bool, force: bool) -> anyhow::Result<(PathBuf, Option<String>)> {
     let (_, dir) = worktree_dir(n)?;
     if dir.exists() {
         ensure_ours(&dir)?;
@@ -267,7 +307,7 @@ fn enter_worktree(n: u64, branch: bool, force: bool) -> anyhow::Result<std::path
     }
     std::env::set_current_dir(&dir)?;
     progress(Some(&format!("checking out PR #{n} in {}", dir.display())));
-    gh::checkout(n, force, !branch).map_err(|e| {
+    let note = checkout_or_keep(n, force, !branch).map_err(|e| {
         // git words this a few ways depending on the step that hits it.
         let msg = format!("{e:#}");
         let in_use = ["already checked out", "already used by worktree", "checked out at"].iter().any(|p| msg.contains(p));
@@ -277,7 +317,7 @@ fn enter_worktree(n: u64, branch: bool, force: bool) -> anyhow::Result<std::path
         };
         e.context(format!("checking out PR #{n} in {}{hint}", dir.display()))
     })?;
-    Ok(dir)
+    Ok((dir, note))
 }
 
 /// The main checkout's root (found from inside a worktree too) and PR `n`'s worktree next to it.
