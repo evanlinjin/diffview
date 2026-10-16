@@ -70,6 +70,7 @@ VIEW
   Ctrl-w v             toggle split (side-by-side) view
   Ctrl-w h  Ctrl-w l   split view: old / new side; margin: code / comments (or Ctrl-h Ctrl-l)
   Ctrl-w c             comments in the right margin (wide windows) / inline
+  Ctrl-w a             Claude view: only Claude's review and the code it's about
   Enter                open hx at cursor (on a link: open it)
   gf                   open the link under the cursor in the browser
 
@@ -372,6 +373,9 @@ pub struct App {
     claude_head: String,
     /// The PR is someone else's: Claude suggests changes there rather than making them.
     theirs: bool,
+    /// The Claude view (`Ctrl-w a`): only Claude's review: the PR's one-line summary, Claude's
+    /// summary, and its comments with a few lines of code around each.
+    claude_view: bool,
     /// Your GitHub login: your comments are never new to you.
     me: String,
     /// The comments you've seen (`comment_key`), kept in `seen_path`; and those of the thread
@@ -534,6 +538,7 @@ impl App {
             claude_summary: String::new(),
             claude_head: String::new(),
             theirs: false,
+            claude_view: false,
             me: String::new(),
             seen: HashSet::new(),
             seen_path: None,
@@ -839,7 +844,18 @@ impl App {
             let url = self.pr.as_ref().map(|p| p.url.clone()).filter(|u| !u.is_empty());
             let links = url.map(|u| vec![(0, title.chars().count(), u)]).unwrap_or_default();
             rows.push(Row { links, ..mk(Kind::File, title) });
-            if !self.info_collapsed {
+            if self.claude_view && !self.info_collapsed {
+                // The PR's state, author, branches and size; then Claude's summary.
+                if let Some(l) = self.info.first().filter(|l| !l.heading && !l.md) {
+                    rows.push(self.info_row(l, mk(Kind::Comment, l.text.clone())));
+                }
+                if !self.claude_summary.is_empty() {
+                    let summary = |r: Row| Row { info: Some(SUMMARY), ..r };
+                    rows.push(summary(mk(Kind::Thread, "claude's review".into())));
+                    rows.extend(self.md_rows_at(&self.claude_summary, self.wrap_w, mk).into_iter().map(summary));
+                    rows.push(Row { edge: true, ..summary(mk(Kind::Comment, String::new())) });
+                }
+            } else if !self.info_collapsed {
                 // Margin mode: the conversation (and Claude's summary) sits beside the description,
                 // whole comments while there's description beside them, wrapped to the margin;
                 // the rest follows full width, as without the margin.
@@ -895,7 +911,9 @@ impl App {
         // committed, where most files are out of the diff on purpose.
         let mut gone: Vec<usize> = match self.uncommitted() {
             true => vec![],
-            false => (0..self.threads.len()).filter(|&t| !self.files.iter().any(|f| f.path == self.threads[t].path)).collect(),
+            false => (0..self.threads.len())
+                .filter(|&t| self.in_view(&self.threads[t]) && !self.files.iter().any(|f| f.path == self.threads[t].path))
+                .collect(),
         };
         gone.sort_by(|&a, &b| self.threads[a].path.cmp(&self.threads[b].path)); // stable: in order within a file
         if !gone.is_empty() {
@@ -911,6 +929,16 @@ impl App {
             }
         }
         for (i, f) in self.files.iter().enumerate() {
+            // The Claude view: only files Claude commented on, and only around its comments.
+            let around;
+            let lines = match self.claude_view {
+                true if !self.threads.iter().any(|t| t.path == f.path && self.in_view(t)) => continue,
+                true => {
+                    around = claude_lines(&self.threads, f);
+                    &around
+                }
+                false => &f.lines,
+            };
             let count = |k| f.lines.iter().filter(|l| l.kind == k).count();
             // "dir/" dimmed, the file name in the header color, "(new)" etc. dimmed, +/- colored.
             let (dir, name) = f.path.rsplit_once('/').map_or(("", f.path.as_str()), |(d, n)| (d, n));
@@ -934,13 +962,13 @@ impl App {
             }
             // (thread, index into f.lines it sits under); unplaceable ones go under the file header.
             let placed: Vec<(usize, Option<usize>)> = (0..self.threads.len())
-                .filter(|&t| self.threads[t].path == f.path)
-                .map(|t| (t, anchor_line(&self.threads[t], &f.lines)))
+                .filter(|&t| self.threads[t].path == f.path && self.in_view(&self.threads[t]))
+                .map(|t| (t, anchor_line(&self.threads[t], lines)))
                 .collect();
             for &(t, _) in placed.iter().filter(|p| p.1.is_none()) {
                 rows.extend(self.thread_rows(t, i));
             }
-            for (li, l) in f.lines.iter().enumerate() {
+            for (li, l) in lines.iter().enumerate() {
                 rows.push(Row::new(i, l.clone()));
                 for &(t, _) in placed.iter().filter(|p| p.1 == Some(li)) {
                     rows.extend(self.thread_rows(t, i));
@@ -1351,6 +1379,9 @@ impl App {
 
     /// `+`/`-`: more or less context around the hunk under the cursor (on a header: the next one).
     fn expand(&mut self, d: i64) {
+        if self.claude_view {
+            return self.msg = "the Claude view shows a few lines around each comment (Ctrl-w a: the whole diff)".into();
+        }
         let row = &self.rows[self.head.row];
         let Some(f) = self.files.get(row.file) else { return };
         let path = f.path.clone();
@@ -1673,6 +1704,33 @@ const OUTDATED_SLACK: i64 = 10;
 
 /// The diff line a thread belongs under. Current threads use their line. Outdated ones are found
 /// by the commented line's text when it's distinctive, else by their original line number.
+/// The Claude view's lines of `f`: each of Claude's comments with its lines and a few around
+/// them, under `@@` headers as in the full diff.
+fn claude_lines(threads: &[Thread], f: &FileDiff) -> Vec<DLine> {
+    let ctx = DEFAULT_CONTEXT as usize;
+    let mut spans: Vec<(usize, usize)> = threads
+        .iter()
+        .filter(|t| t.path == f.path && t.claude.is_some())
+        .filter_map(|t| {
+            let at = anchor_line(t, &f.full)?;
+            let more = match (t.start_line, t.line) {
+                (Some(s), Some(e)) if e > s => (e - s) as usize,
+                _ => 0,
+            };
+            Some((at.saturating_sub(more + ctx), (at + ctx).min(f.full.len() - 1)))
+        })
+        .collect();
+    spans.sort();
+    let mut ws: Vec<(usize, usize, Vec<usize>)> = vec![];
+    for (lo, hi) in spans {
+        match ws.last_mut() {
+            Some(w) if lo <= w.1 + 1 => w.1 = w.1.max(hi),
+            _ => ws.push((lo, hi, vec![])),
+        }
+    }
+    diff::shown(&f.full, &ws, &f.headers)
+}
+
 fn anchor_line(t: &Thread, lines: &[DLine]) -> Option<usize> {
     let side = |l: &DLine| match t.left {
         true => matches!(l.kind, Kind::Ctx | Kind::Del),

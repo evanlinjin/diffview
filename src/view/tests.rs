@@ -1049,3 +1049,43 @@ fn new_until_seen() {
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].label, "src/a.rs:2  1 reply · [new] [waiting] @claude");
 }
+
+#[test]
+fn claude_view() {
+    // A 30-line new file Claude commented on at line 20, and another file it didn't touch.
+    let body: String = (1..=30).map(|n| format!("+line {n}\n")).collect();
+    let text = format!(
+        "diff --git a/big.rs b/big.rs\nnew file mode 100644\n--- /dev/null\n+++ b/big.rs\n@@ -0,0 +1,30 @@\n{body}{}",
+        diff::SAMPLE
+    );
+    let mut app = App::with("base".into(), diff::parse(&text));
+    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new() });
+    let plain = |text: &str| gh::InfoLine { heading: false, md: false, text: text.into(), marks: vec![], url: String::new() };
+    let heading = |text: &str| gh::InfoLine { heading: true, md: false, text: text.into(), marks: vec![], url: String::new() };
+    let md = |text: &str| gh::InfoLine { heading: false, md: true, text: text.into(), marks: vec![], url: String::new() };
+    app.info = vec![plain("OPEN @bo · main ← x"), plain("review: waiting on @cy"), heading("description"), md("Long story")];
+    app.claude_summary = "Looks fine.".into();
+    let c = |author: &str| gh::Comment { id: 1, node_id: String::new(), can_edit: false, can_delete: false, author: author.into(), body: "hm".into(), created: String::new(), pending: false };
+    let t = |path: &str, line, claude: Option<&str>, author| gh::Thread {
+        id: String::new(), path: path.into(), left: false, line: Some(line), start_line: None, original_line: Some(line),
+        resolved: false, outdated: false, hunk: vec![], comments: vec![c(author)], claude: claude.map(Into::into), severity: String::new(),
+    };
+    app.threads = vec![t("big.rs", 20, Some("c1"), "claude"), t("big.rs", 5, None, "amy"), t("src/a.rs", 2, None, "amy")];
+    app.build();
+    let texts = |app: &App| app.rows.iter().map(|r| r.line.text.clone()).collect::<Vec<_>>();
+    assert!(texts(&app).contains(&"Long story".to_owned()));
+    app.toggle_claude_view();
+    let v = texts(&app);
+    // The PR's first line and Claude's summary, not the rest of the PR section.
+    assert!(v.contains(&"OPEN @bo · main ← x".to_owned()) && v.contains(&"Looks fine.".to_owned()), "{v:?}");
+    assert!(!v.iter().any(|t| t == "Long story" || t.starts_with("review:")));
+    // Only the file Claude commented on, and only lines 17-23 of it.
+    let code: Vec<&str> = v.iter().filter(|t| t.starts_with("line ")).map(String::as_str).collect();
+    assert_eq!(code, (17..=23).map(|n| format!("line {n}")).collect::<Vec<_>>());
+    assert!(!v.iter().any(|t| t.contains("src/a.rs") || t.contains("new_call")));
+    assert_eq!(app.rows.iter().filter_map(|r| r.thread).collect::<HashSet<_>>(), HashSet::from([0])); // only Claude's
+    assert!(v.iter().any(|t| t.starts_with("@@ -0,0 +17,7 @@")));
+    // Going to a thread that isn't Claude's leaves the Claude view.
+    app.goto_comment(2, 0);
+    assert!(!app.claude_view && app.rows[app.head.row].thread == Some(2));
+}

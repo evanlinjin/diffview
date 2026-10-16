@@ -3,6 +3,12 @@
 All notable changes to dv. Versions follow [semver](https://semver.org); a release's notes
 on GitHub are its section here.
 
+## [Unreleased]
+
+### Added
+- `Ctrl-w a`: the Claude view, just Claude's review: the PR's one-line summary, Claude's
+  summary, and only the code it commented on (a few lines around each comment).
+
 ## [0.3.0] - 2026-10-16
 
 ### Added

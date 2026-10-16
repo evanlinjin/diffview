@@ -56,6 +56,25 @@ pub(super) fn turn(t: &Thread) -> Option<&'static str> {
 }
 
 impl App {
+    /// Whether thread `t` shows: in the Claude view, only those of Claude's review.
+    pub(super) fn in_view(&self, t: &Thread) -> bool {
+        !self.claude_view || t.claude.is_some()
+    }
+
+    /// `Ctrl-w a`: the Claude view, or back to the whole diff.
+    pub(super) fn toggle_claude_view(&mut self) {
+        self.claude_view = !self.claude_view;
+        let keep = self.cursor_key();
+        self.rebuild(keep);
+        let any = self.threads.iter().any(|t| t.claude.is_some()) || !self.claude_summary.is_empty();
+        self.msg = match (self.claude_view, any) {
+            (true, false) => "Claude view: Claude hasn't reviewed this yet (Space a asks it; Ctrl-w a: the whole diff)",
+            (true, true) => "Claude view: its summary and the code it commented on (Ctrl-w a: the whole diff)",
+            (false, _) => "the whole diff",
+        }
+        .into();
+    }
+
     /// Replies of yours that Claude hasn't answered yet.
     pub(super) fn waiting_replies(&self) -> usize {
         self.threads.iter().filter(|t| turn(t) == Some("[waiting] ")).count()

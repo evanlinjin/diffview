@@ -335,7 +335,12 @@ impl App {
             None => String::new(),
         };
         let working = if self.claude_working() { "Claude working… · " } else { "" };
-        let view = format!("{}{}", if self.uncommitted() { "uncommitted  " } else { "" }, if self.split { "split  " } else { "" });
+        let view = format!(
+            "{}{}{}",
+            if self.claude_view { "claude view  " } else { "" },
+            if self.uncommitted() { "uncommitted  " } else { "" },
+            if self.split { "split  " } else { "" }
+        );
         // The left side (what you're on, messages, hints) wins: when both don't fit, the right
         // keeps only the essentials, and the left is cut with an ellipsis.
         let essential = format!("{view}{count}{pend}  {}/{} ", self.head.row + 1, self.rows.len());

@@ -536,7 +536,7 @@ impl App {
             let th = &self.threads[t];
             Some((file(&th.path)?, th.line.or(th.original_line).unwrap_or(0), t as i64, c))
         };
-        let mut order: Vec<_> = items.into_iter().filter_map(|(t, c)| key(t, c)).collect();
+        let mut order: Vec<_> = items.into_iter().filter(|&(t, _)| self.in_view(&self.threads[t])).filter_map(|(t, c)| key(t, c)).collect();
         if order.is_empty() {
             return self.msg = none.into();
         }
@@ -562,6 +562,10 @@ impl App {
     /// Jump to comment `ci` of thread `ti`, unfolding its file and thread if needed.
     pub(super) fn goto_comment(&mut self, ti: usize, ci: usize) {
         let Some(t) = self.threads.get(ti) else { return };
+        if !self.in_view(t) {
+            self.claude_view = false; // it's not Claude's: back to the whole diff, to show it
+        }
+        let t = &self.threads[ti];
         self.collapsed.remove(&t.path.clone());
         if !self.thread_open(ti)
             && let Some(id) = self.root_id(ti)

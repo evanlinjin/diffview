@@ -91,7 +91,9 @@ file that dv reloads whenever it changes, so you can keep dv open while Claude w
    you spoke last (Claude's turn), `[answered]` one where Claude has answered you (yours);
    type either in `Space A` to list just those. `[new]` marks a thread with comments you
    haven't seen yet (Claude's or anyone's on GitHub; seen once your cursor has been on it):
-   `]n` / `[n` step through those, `Space n` lists them.
+   `]n` / `[n` step through those, `Space n` lists them. `Ctrl-w a` switches to the
+   Claude view: just the PR's one-line summary, Claude's summary, and its comments with a few
+   lines of code around each (and back).
 4. **Act on each comment**:
 
    | Key | |

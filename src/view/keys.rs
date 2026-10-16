@@ -240,6 +240,7 @@ impl App {
             CTRL_W => ("window", &[
                 ("v", "toggle split view"),
                 ("c", "comments in the margin / inline"),
+                ("a", "Claude view: just Claude's review"),
                 ("h", "old side / back to the code"),
                 ("l", "new side / into the comments"),
             ]),
@@ -289,6 +290,7 @@ impl App {
             ('z', 't') => self.top = self.hd().saturating_sub(so),
             ('z', 'b') => self.top = (self.hd() + so + 1).saturating_sub(self.height),
             (CTRL_W, 'v') => self.toggle_split(),
+            (CTRL_W, 'a') => self.toggle_claude_view(),
             (CTRL_W, 'c') => {
                 self.margin_pref = !self.margin_pref;
                 self.msg = match self.margin_pref {
