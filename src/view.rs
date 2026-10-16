@@ -8,7 +8,7 @@ use anyhow::{bail, Context, Result};
 use ratatui::{
     crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     layout::{Alignment, Rect},
-    style::Style,
+    style::{Color, Style},
     text::{Line, Span},
     widgets::{Block, Clear, Paragraph, Wrap},
     DefaultTerminal, Frame,
@@ -50,6 +50,8 @@ VIEW
   Z                    whole file
   Tab                  fold file / PR info / thread
   Shift-Tab            fold / unfold all files
+  Ctrl-w v             toggle split (side-by-side) view
+  Ctrl-h Ctrl-l        split view: go to the old / new side
   Enter                open hx at cursor
 
 RUST-ANALYZER
@@ -61,6 +63,7 @@ PR
   C                    same, but post immediately
   S                    submit review: comment / approve / request changes, or discard
   Space r              resolve / unresolve thread
+  Space e              edit your comment under the cursor
 
   ?                    this help
   R                    refresh (git diff + GitHub)
@@ -68,6 +71,8 @@ PR
 ";
 
 const DEFAULT_CONTEXT: u32 = 3;
+/// Pending-key marker for Ctrl-w (window commands).
+const CTRL_W: char = '\u{17}';
 /// Files bigger than this aren't highlighted.
 const HL_MAX_BYTES: usize = 1 << 20;
 const FULL: u32 = 1_000_000;
@@ -92,6 +97,13 @@ struct Row {
 
 type CursorKey = (Option<(String, Option<u32>, Option<u32>)>, Option<u64>);
 
+/// A screen row: full width, or a side-by-side pair (old line, new line) in split view.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum DRow {
+    Full(usize),
+    Pair(Option<usize>, Option<usize>),
+}
+
 /// Work that needs the terminal back (an editor), run between frames.
 enum Action {
     Open(String),
@@ -99,6 +111,8 @@ enum Action {
     Comment { anchor: Anchor, review: bool },
     /// `quote`: the comment under the cursor as a `> ` quote, pre-filled in the editor.
     Reply { thread: String, comment: u64, review: bool, quote: String },
+    /// Rewrite one of your comments (node id, current body).
+    Edit { comment: String, body: String, author: String },
     /// Submit the pending review: COMMENT, APPROVE or REQUEST_CHANGES.
     Submit(&'static str),
 }
@@ -163,6 +177,12 @@ pub struct App {
     job: Option<Job>,
     /// The viewer's pending review on the PR, if any.
     review: Option<String>,
+    /// Side-by-side view; `right` is which side the cursor prefers on lines shown on both.
+    split: bool,
+    right: bool,
+    /// Screen rows, and the screen row of each row (`top` and scrolling count screen rows).
+    drows: Vec<DRow>,
+    d_of: Vec<usize>,
     quit: bool,
     pr: Option<Pr>,
     threads: Vec<Thread>,
@@ -234,6 +254,10 @@ impl App {
             action: None,
             job: None,
             review: None,
+            split: false,
+            right: true,
+            drows: vec![],
+            d_of: vec![],
             quit: false,
             pr: None,
             threads: vec![],
@@ -330,6 +354,13 @@ impl App {
                 };
                 keep_on_error(res, &body).map(|_| posted_msg(review))
             }
+            Action::Edit { comment, body: old, author } => {
+                // Unchanged or emptied counts as cancelled; deleting a comment is a separate thing.
+                // Maintainers can edit others' comments too, so the hint names whose this is.
+                let what = format!("editing @{author}'s comment");
+                let Some(body) = compose_with(&what, false, &old)? else { return Ok("edit cancelled".into()) };
+                keep_on_error(gh::edit_comment(&comment, &body), &body).map(|_| "comment updated".into())
+            }
             Action::Submit(event) => {
                 // An empty summary is fine; quitting the editor with an error (`:cq`) cancels.
                 let Some(body) = compose(&format!("review summary ({})", event.to_lowercase().replace('_', " ")), true)?
@@ -392,6 +423,20 @@ impl App {
             items.push(item(&format!("Discard pending review ({n} comment(s))"), Target::Discard));
         }
         self.picker = Some(Picker { title: " submit review ", items, query: String::new(), sel: 0 });
+    }
+
+    fn start_edit(&mut self) {
+        let Some(c) = self.rows[self.head.row].thread.and_then(|t| self.comment_under_cursor(t)) else {
+            self.msg = "move onto a comment to edit it".into();
+            return;
+        };
+        match c.can_edit {
+            true => {
+                let (comment, body, author) = (c.node_id.clone(), c.body.clone(), c.author.clone());
+                self.action = Some(Action::Edit { comment, body, author });
+            }
+            false => self.msg = format!("you can't edit @{}'s comment", c.author),
+        }
     }
 
     fn toggle_resolved(&mut self) {
@@ -511,6 +556,71 @@ impl App {
             rows.push(Row { file: usize::MAX, line: DLine { kind: Kind::Hunk, old: None, new: None, text }, thread: None, syn: vec![] });
         }
         self.rows = rows;
+        self.layout();
+    }
+
+    /// Map rows to screen rows. In split view, each run of removed lines pairs with the added
+    /// lines that follow it; unchanged lines show on both sides; everything else is full width.
+    fn layout(&mut self) {
+        let n = self.rows.len();
+        let kind = |i: usize| self.rows[i].line.kind;
+        let mut d = vec![];
+        let mut i = 0;
+        while i < n {
+            match kind(i) {
+                _ if !self.split => d.push(DRow::Full(i)),
+                Kind::Ctx => d.push(DRow::Pair(Some(i), Some(i))),
+                Kind::Del | Kind::Add => {
+                    let dels = (i..n).take_while(|&j| kind(j) == Kind::Del).count();
+                    let adds = (i + dels..n).take_while(|&j| kind(j) == Kind::Add).count();
+                    for k in 0..dels.max(adds) {
+                        d.push(DRow::Pair((k < dels).then_some(i + k), (k < adds).then_some(i + dels + k)));
+                    }
+                    i += dels + adds;
+                    continue;
+                }
+                _ => d.push(DRow::Full(i)),
+            }
+            i += 1;
+        }
+        let mut d_of = vec![0; n];
+        for (di, dr) in d.iter().enumerate() {
+            match *dr {
+                DRow::Full(r) => d_of[r] = di,
+                DRow::Pair(l, r) => l.into_iter().chain(r).for_each(|x| d_of[x] = di),
+            }
+        }
+        (self.drows, self.d_of) = (d, d_of);
+    }
+
+    /// The row to put the cursor on for screen row `d`, preferring the current side.
+    fn pick(&self, d: usize) -> usize {
+        match self.drows[d] {
+            DRow::Full(r) => r,
+            DRow::Pair(l, r) => if self.right { r.or(l) } else { l.or(r) }.unwrap_or(0),
+        }
+    }
+
+    fn toggle_split(&mut self) {
+        self.split = !self.split;
+        self.layout();
+        self.msg = if self.split { "split view (Ctrl-h / Ctrl-l switch sides)" } else { "unified view" }.into();
+    }
+
+    /// Ctrl-h / Ctrl-l: move to the old / new side of the current split row.
+    fn side(&mut self, right: bool) {
+        self.right = right;
+        if let DRow::Pair(l, r) = self.drows[self.d_of[self.head.row]] {
+            if let Some(row) = if right { r } else { l } {
+                let col = self.head.col;
+                self.goto(row, col);
+            }
+        }
+    }
+
+    /// Screen row of the cursor.
+    fn hd(&self) -> usize {
+        self.d_of[self.head.row]
     }
 
     /// Wrap markdown into comment rows, highlighted.
@@ -698,6 +808,11 @@ impl App {
     /// Move the head; outside select mode the anchor follows.
     fn goto(&mut self, row: usize, col: usize) {
         let row = row.min(self.rows.len() - 1);
+        match self.rows[row].line.kind {
+            Kind::Del => self.right = false,
+            Kind::Add => self.right = true,
+            _ => {}
+        }
         self.head = Pos { row, col: col.min(self.len(row).saturating_sub(1)) };
         if !self.select {
             self.anchor = self.head;
@@ -715,9 +830,10 @@ impl App {
     }
 
     fn vmove(&mut self, d: isize) {
-        let last = self.rows.len() as isize - 1;
+        let last = self.drows.len() as isize - 1;
         let w = self.want_col;
-        self.goto((self.head.row as isize + d).clamp(0, last) as usize, w);
+        let target = (self.hd() as isize + d).clamp(0, last) as usize;
+        self.goto(self.pick(target), w);
         self.want_col = w;
     }
 
@@ -982,21 +1098,34 @@ impl App {
     }
 
     fn scroll(&mut self, d: isize) {
-        let last = self.rows.len() as isize - 1;
+        let last = self.drows.len() as isize - 1;
         self.top = (self.top as isize + d).clamp(0, last) as usize;
         let so = 3.min(self.height / 2);
         let (lo, hi) = (self.top + so, (self.top + self.height).saturating_sub(so + 1));
-        if self.head.row < lo || self.head.row > hi {
+        let hd = self.hd();
+        if hd < lo || hd > hi {
             let w = self.want_col;
-            self.goto(self.head.row.clamp(lo, hi.max(lo)), w);
+            self.goto(self.pick(hd.clamp(lo, hi.max(lo)).min(last as usize)), w);
             self.want_col = w;
         }
+    }
+
+    /// Rows on screen, each once (a context line shows on both sides but counts once).
+    fn visible_rows(&self) -> Vec<usize> {
+        let mut out = vec![];
+        for d in &self.drows[self.top.min(self.drows.len())..(self.top + self.height).min(self.drows.len())] {
+            match *d {
+                DRow::Full(r) => out.push(r),
+                DRow::Pair(l, r) => out.extend(l.into_iter().chain(r.filter(|&r| Some(r) != l))),
+            }
+        }
+        out
     }
 
     /// Label every visible word (2+ chars), nearest to the cursor first, alternating forward/back.
     fn show_labels(&mut self) {
         let mut words = vec![];
-        for row in self.top..(self.top + self.height).min(self.rows.len()) {
+        for row in self.visible_rows() {
             if matches!(self.rows[row].line.kind, Kind::File | Kind::Hunk) {
                 continue;
             }
@@ -1230,6 +1359,8 @@ impl App {
                 self.action = self.open_target().map(Action::Open);
                 return;
             }
+            // Many terminals send Ctrl-h as Backspace.
+            KeyCode::Backspace => return self.side(false),
             KeyCode::Tab if self.rows[self.head.row].thread.is_some() => return self.toggle_thread(),
             KeyCode::Tab => return self.toggle_collapse(),
             KeyCode::BackTab => return self.toggle_collapse_all(),
@@ -1243,7 +1374,7 @@ impl App {
             let half = (self.height / 2).max(1) as isize;
             match c {
                 'd' => {
-                    self.top = (self.top + half as usize).min(self.rows.len() - 1);
+                    self.top = (self.top + half as usize).min(self.drows.len() - 1);
                     self.vmove(half);
                 }
                 'u' => {
@@ -1251,6 +1382,9 @@ impl App {
                     self.vmove(-half);
                 }
                 'e' => self.scroll(5),
+                'w' => self.pending = Some(CTRL_W),
+                'h' => self.side(false),
+                'l' => self.side(true),
                 'y' => self.scroll(-5),
                 'o' => {
                     if let Some(p) = self.jumps.pop() {
@@ -1341,9 +1475,10 @@ impl App {
             ('[', 'g') => self.next_kind(false, change_start),
             (']', 'c') => self.next_kind(true, thread),
             ('[', 'c') => self.next_kind(false, thread),
-            ('z', 'z') => self.top = self.head.row.saturating_sub(self.height / 2),
-            ('z', 't') => self.top = self.head.row.saturating_sub(so),
-            ('z', 'b') => self.top = (self.head.row + so + 1).saturating_sub(self.height),
+            ('z', 'z') => self.top = self.hd().saturating_sub(self.height / 2),
+            ('z', 't') => self.top = self.hd().saturating_sub(so),
+            ('z', 'b') => self.top = (self.hd() + so + 1).saturating_sub(self.height),
+            (CTRL_W, 'v') => self.toggle_split(),
             (']', 'f') => self.next_kind(true, file),
             ('[', 'f') => self.next_kind(false, file),
             (' ', 'f') => {
@@ -1359,6 +1494,7 @@ impl App {
             (' ', 'y') => self.yank(false),
             (' ', 'c') => self.copy_ref(),
             (' ', 'r') => self.toggle_resolved(),
+            (' ', 'e') => self.start_edit(),
             ('f' | 't' | 'F' | 'T', c) => self.find_char(p, c),
             _ => {}
         }
@@ -1430,17 +1566,22 @@ impl App {
         let h = area.height.saturating_sub(1) as usize;
         self.height = h.max(1);
         let so = 3.min(h / 2);
-        if self.head.row < self.top + so {
-            self.top = self.head.row.saturating_sub(so);
+        let hd = self.hd();
+        if hd < self.top + so {
+            self.top = hd.saturating_sub(so);
         }
-        if self.head.row + so + 1 > self.top + h {
-            self.top = self.head.row + so + 1 - h;
+        if hd + so + 1 > self.top + h {
+            self.top = hd + so + 1 - h;
         }
 
         let maxno = self.rows.iter().filter_map(|r| r.line.old.max(r.line.new)).max().unwrap_or(0);
         let lw = maxno.to_string().len().max(3);
         let gw = lw * 2 + 4;
         let tw = (area.width as usize).saturating_sub(gw).max(1);
+        // Split halves: one line-number column each, a 1-col divider between.
+        let half = (area.width as usize).saturating_sub(1) / 2;
+        let ghw = lw + 3;
+        let (htw_l, htw_r) = (half.saturating_sub(ghw).max(1), (area.width as usize - 1 - half).saturating_sub(ghw).max(1));
         let ww = tw.saturating_sub(1).clamp(40, 100);
         if ww != self.wrap_w {
             self.wrap_w = ww;
@@ -1450,8 +1591,12 @@ impl App {
         if self.head.col < self.left {
             self.left = self.head.col;
         }
-        if self.head.col >= self.left + tw {
-            self.left = self.head.col + 1 - tw;
+        let cur_w = match self.drows[self.hd()] {
+            DRow::Pair(..) => htw_l.min(htw_r),
+            DRow::Full(_) => tw,
+        };
+        if self.head.col >= self.left + cur_w {
+            self.left = self.head.col + 1 - cur_w;
         }
 
         let (s, e) = self.ordered();
@@ -1464,7 +1609,7 @@ impl App {
                 Some(_) => vec![(p, b)], // after the first key, show the remaining char at the word start
             })
             .collect();
-        for r in self.top..(self.top + h).min(self.rows.len()) {
+        for r in self.visible_rows() {
             if let Some(key) = self.hl_key(r).filter(|k| !self.hl_cache.contains_key(k)) {
                 let text = match key.1 {
                     true => std::fs::read_to_string(&key.0).unwrap_or_default(),
@@ -1475,8 +1620,21 @@ impl App {
                 self.hl_cache.insert(key, colors);
             }
         }
-        let lines: Vec<Line> = (self.top..(self.top + h).min(self.rows.len()))
-            .map(|r| self.render_row(r, s, e, lw, gw, tw, &overlay))
+        let divider = Span::styled("│", self.ui.linenr);
+        let lines: Vec<Line> = (self.top..(self.top + h).min(self.drows.len()))
+            .map(|d| match self.drows[d] {
+                DRow::Full(r) => Line::from(self.render_row(r, s, e, (lw, gw, tw), None, &overlay)),
+                DRow::Pair(l, rr) => {
+                    let half = |row: Option<usize>, right: bool, w: usize| match row {
+                        Some(row) => self.render_row(row, s, e, (lw, ghw, w), Some(right), &overlay),
+                        None => vec![Span::raw(" ".repeat(ghw + w))],
+                    };
+                    let mut spans = half(l, false, htw_l);
+                    spans.push(divider.clone());
+                    spans.extend(half(rr, true, htw_r));
+                    Line::from(spans)
+                }
+            })
             .collect();
         f.render_widget(Block::new().style(self.ui.base), area);
         f.render_widget(Paragraph::new(lines), Rect { height: h as u16, ..area });
@@ -1498,7 +1656,10 @@ impl App {
                 ])
             }
         };
-        let pend = self.pending.map(String::from).unwrap_or_default();
+        let pend = match self.pending {
+            Some(CTRL_W) => "C-w".into(),
+            p => p.map(String::from).unwrap_or_default(),
+        };
         let count = if self.count > 0 { self.count.to_string() } else { String::new() };
         let ra = match self.progress.values().next() {
             Some((t, m)) => format!("ra: {t} {m}  "),
@@ -1510,7 +1671,8 @@ impl App {
             n => format!(" · {n} pending, S to submit"),
         };
         let pr = self.pr.as_ref().map(|p| format!("PR #{} · {} threads{pending}  ", p.number, self.threads.len())).unwrap_or_default();
-        let right = format!("{ra}{pr}{count}{pend}  {}/{} ", self.head.row + 1, self.rows.len());
+        let view = if self.split { "split  " } else { "" };
+        let right = format!("{ra}{pr}{view}{count}{pend}  {}/{} ", self.head.row + 1, self.rows.len());
         let bar = self.ui.base.patch(self.ui.status);
         f.render_widget(Paragraph::new(left).style(bar), status);
         f.render_widget(Paragraph::new(right).alignment(Alignment::Right).style(bar), status);
@@ -1528,20 +1690,27 @@ impl App {
                 let st = if i == sel { self.ui.menu_selected } else { Style::new() };
                 Line::styled(p.items[it].label.clone(), st)
             }));
-            f.render_widget(Clear, r);
-            let popup = self.ui.base.patch(self.ui.popup);
-            f.render_widget(Paragraph::new(lines).style(popup).block(Block::bordered().title(p.title)), r);
+            let inner = self.popup_frame(f, r, p.title);
+            f.render_widget(Paragraph::new(lines), inner);
         }
 
         if let Some((title, text, scroll)) = &self.popup {
             let w = area.width.saturating_sub(4).min(100);
             let h = (text.len() as u16 + 2).min(area.height.saturating_sub(4)).max(3);
             let r = Rect { x: (area.width - w) / 2, y: 2.min(area.height), width: w, height: h.min(area.height) };
-            f.render_widget(Clear, r);
-            let p = Paragraph::new(text.clone()).wrap(Wrap { trim: false }).scroll((*scroll, 0));
-            let popup = self.ui.base.patch(self.ui.popup);
-            f.render_widget(p.style(popup).block(Block::bordered().title(*title)), r);
+            let inner = self.popup_frame(f, r, title);
+            f.render_widget(Paragraph::new(text.clone()).wrap(Wrap { trim: false }).scroll((*scroll, 0)), inner);
         }
+    }
+
+    /// Helix-style popup: no border, the theme's popup background, the title as a header row
+    /// in the header color. Returns the padded content area.
+    fn popup_frame(&self, f: &mut Frame, r: Rect, title: &str) -> Rect {
+        f.render_widget(Clear, r);
+        f.render_widget(Block::new().style(self.ui.base.patch(self.ui.popup)), r);
+        let head = Rect { height: 1.min(r.height), ..r };
+        f.render_widget(Paragraph::new(format!(" {}", title.trim())).style(self.ui.base.patch(self.ui.header)), head);
+        Rect { x: r.x + 1, y: r.y + 1, width: r.width.saturating_sub(2), height: r.height.saturating_sub(2) }
     }
 
     /// Which highlighted file a code row's colors come from: the base for removed lines, else the working tree.
@@ -1555,10 +1724,12 @@ impl App {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
+    /// One row's spans, padded to the gutter + `tw` width. `side`: None = full width, else
+    /// Some(false/true) = the old/new half of a split row (one line number, not two).
     fn render_row(
-        &self, r: usize, s: Pos, e: Pos, lw: usize, gw: usize, tw: usize, overlay: &HashMap<Pos, char>,
-    ) -> Line<'static> {
+        &self, r: usize, s: Pos, e: Pos, (lw, gw, tw): (usize, usize, usize), side: Option<bool>,
+        overlay: &HashMap<Pos, char>,
+    ) -> Vec<Span<'static>> {
         let row = &self.rows[r];
         let l = &row.line;
         let num = |n: Option<u32>| n.map(|n| n.to_string()).unwrap_or_default();
@@ -1595,6 +1766,9 @@ impl App {
                     }
                     _ => "┃ ",
                 };
+                // A filled box from the text column on; the gutter keeps the page background.
+                line_bg = Some(ui.comment_bg);
+                gstyle = gstyle.bg(ui.base.bg.unwrap_or(Color::Reset));
                 (format!("{:>gw$}", mark), st)
             }
             k => {
@@ -1609,7 +1783,11 @@ impl App {
                     }
                     _ => ' ',
                 };
-                (format!("{:>lw$} {:>lw$} {m} ", num(l.old), num(l.new)), Style::new())
+                let gutter = match side {
+                    None => format!("{:>lw$} {:>lw$} {m} ", num(l.old), num(l.new)),
+                    Some(right) => format!("{:>lw$} {m} ", num(if right { l.new } else { l.old })),
+                };
+                (gutter, Style::new())
             }
         };
         let syn = match row.syn.is_empty() {
@@ -1621,6 +1799,8 @@ impl App {
         };
         let mut spans = vec![Span::styled(gutter, gstyle)];
         let mut n = 0;
+        // A context line shows on both sides of a split row; the cursor goes on the current side.
+        let cursor_here = self.head.row == r && (side.is_none() || l.kind != Kind::Ctx || side == Some(self.right));
         for (i, c) in l.text.chars().enumerate().skip(self.left).take(tw) {
             let p = Pos { row: r, col: i };
             let mut st = style;
@@ -1630,7 +1810,7 @@ impl App {
             if s <= p && p <= e {
                 st = st.patch(ui.selection);
             }
-            if p == self.head {
+            if p == self.head && cursor_here {
                 st = st.patch(if self.select { ui.cursor_select } else { ui.cursor });
             }
             if let Some(&lc) = overlay.get(&p) {
@@ -1642,16 +1822,19 @@ impl App {
             spans.push(Span::styled(if c == '\t' { "    ".into() } else { c.to_string() }, st));
             n = i + 1;
         }
-        if self.head.row == r && self.head.col >= n.max(self.left) {
+        if cursor_here && self.head.col >= n.max(self.left) {
             spans.push(Span::styled(" ", if self.select { ui.cursor_select } else { ui.cursor }));
         }
+        // Pad to the full width (so split halves line up), and tint the whole row, so
+        // added/removed lines read as bands. Spans with their own bg (the cursor) keep it.
+        let used: usize = spans[1..].iter().map(|s| s.content.chars().count()).sum();
+        spans.push(Span::raw(" ".repeat(tw.saturating_sub(used))));
         if let Some(bg) = line_bg {
-            // Tint the rest of the row too, so added/removed lines read as bands.
-            let used: usize = spans[1..].iter().map(|s| s.content.chars().count()).sum();
-            spans.push(Span::styled(" ".repeat(tw.saturating_sub(used)), Style::new().bg(bg)));
-            return Line::from(spans).style(Style::new().bg(bg));
+            for sp in &mut spans {
+                sp.style = Style::new().bg(bg).patch(sp.style);
+            }
         }
-        Line::from(spans)
+        spans
     }
 }
 
@@ -1847,7 +2030,7 @@ fn keys_and_yank() {
     assert_eq!(base64(b"hello"), "aGVsbG8=");
     let h = app.hover_lines("```rust\nfn x()\n```\n\ndocs");
     assert_eq!(h.len(), 3); // fences dropped
-    assert_eq!(h[0].spans[0].style.fg, Some(ratatui::style::Color::Red)); // `fn` highlighted as Rust
+    assert_eq!(h[0].spans[0].style.fg, Some(Color::Red)); // `fn` highlighted as Rust
     let back = KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT);
     app.key(back);
     assert_eq!(app.rows.len(), 3); // only the three file headers
@@ -1863,9 +2046,37 @@ fn keys_and_yank() {
 }
 
 #[test]
+fn split_view() {
+    let sample = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1,4 +1,3 @@\n ctx\n-old1\n-old2\n+new1\n end\n";
+    let mut app = App::with("base".into(), diff::parse(sample));
+    let ctrl = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL);
+    app.key(ctrl('w'));
+    app.key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE));
+    assert!(app.split);
+    // rows: 0 file, 1 hunk, 2 ctx, 3 old1, 4 old2, 5 new1, 6 end
+    assert_eq!(app.drows, [
+        DRow::Full(0), DRow::Full(1), DRow::Pair(Some(2), Some(2)),
+        DRow::Pair(Some(3), Some(5)), DRow::Pair(Some(4), None), DRow::Pair(Some(6), Some(6)),
+    ]);
+    app.goto(2, 0); // ctx, cursor prefers the right (new) side
+    app.vmove(1);
+    assert_eq!(app.head.row, 5); // new1, beside old1
+    app.key(ctrl('h'));
+    assert_eq!(app.head.row, 3); // old1
+    app.vmove(1);
+    assert_eq!(app.head.row, 4); // stays on the left: old2
+    app.key(ctrl('l'));
+    assert_eq!(app.head.row, 4); // nothing on the right there; side switches for the next move
+    app.vmove(1);
+    assert_eq!(app.head.row, 6);
+}
+
+#[test]
 fn comments_placed_and_anchored() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
-    let c = |id, body: &str| gh::Comment { id, author: "amy".into(), body: body.into(), created: "2026-10-01".into(), pending: false };
+    let c = |id, body: &str| gh::Comment {
+        id, node_id: format!("C{id}"), can_edit: id == 2, author: "amy".into(), body: body.into(), created: "2026-10-01".into(), pending: false,
+    };
     let t = |left, line, resolved, comments| Thread {
         id: format!("T{line:?}"),
         path: "src/a.rs".into(), left, line, start_line: None, original_line: Some(1), resolved, outdated: line.is_none(),
@@ -1921,6 +2132,15 @@ fn comments_placed_and_anchored() {
     app.goto(second, 0);
     press(&mut app, 'c');
     assert!(matches!(app.action.take(), Some(Action::Reply { ref quote, .. }) if quote == "> unused\n\n"));
+    // Space e edits the comment under the cursor, if you're allowed to.
+    press(&mut app, ' ');
+    press(&mut app, 'e');
+    assert!(matches!(app.action.take(), Some(Action::Edit { ref comment, ref body, .. }) if comment == "C2" && body == "unused"));
+    let first = app.rows.iter().position(|r| r.line.text == "why remove?").unwrap();
+    app.goto(first, 0);
+    press(&mut app, ' ');
+    press(&mut app, 'e');
+    assert!(app.action.is_none() && app.msg.contains("can't edit"));
     assert_eq!(clean_body("> unused\n\n<!-- dv: x -->\n", "<!-- dv:", "> unused\n\n"), ""); // untouched → cancel
     assert_eq!(clean_body("> unused\n\nagreed\n<!-- dv: x -->", "<!-- dv:", "> unused\n\n"), "> unused\n\nagreed");
     app.goto(tr, 0);

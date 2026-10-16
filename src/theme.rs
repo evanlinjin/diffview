@@ -37,6 +37,8 @@ pub struct Ui {
     pub warning: Style,
     pub resolved: Style,
     pub pending: Style,
+    /// Fill for comment threads and the PR info section: a step above the background, below popups.
+    pub comment_bg: Color,
 }
 
 impl Theme {
@@ -162,6 +164,12 @@ impl Theme {
             warning: self.get("warning"),
             resolved: self.get("diff.plus"),
             pending: self.find("hint").unwrap_or(self.get("info")),
+            comment_bg: self
+                .find("ui.cursorline")
+                .and_then(|s| s.bg)
+                .filter(|&c| Some(c) != bg && Some(c) != self.find("ui.popup").and_then(|p| p.bg))
+                .or_else(|| blend(base.fg?, bg?, 0.06))
+                .unwrap_or(Color::Rgb(0x26, 0x28, 0x2e)),
         }
     }
 }

@@ -39,6 +39,9 @@ pub struct Thread {
 
 pub struct Comment {
     pub id: u64,
+    /// GraphQL node id (for editing).
+    pub node_id: String,
+    pub can_edit: bool,
     pub author: String,
     pub body: String,
     pub created: String,
@@ -109,7 +112,7 @@ const THREADS: &str = "query($owner: String!, $name: String!, $number: Int!) {
     reviews(states: PENDING, first: 10) { nodes { id viewerDidAuthor } }
     reviewThreads(first: 100) { nodes {
       id path line startLine originalLine diffSide isResolved isOutdated
-      comments(first: 100) { nodes { databaseId author { login } body createdAt diffHunk state } }
+      comments(first: 100) { nodes { id databaseId author { login } body createdAt diffHunk state viewerCanUpdate } }
     } }
   } }
 }";
@@ -202,6 +205,16 @@ pub fn delete_review(review: &str) -> Result<()> {
     .map(drop)
 }
 
+pub fn edit_comment(comment: &str, body: &str) -> Result<()> {
+    mutate(
+        "mutation($c: ID!, $body: String!) {
+          updatePullRequestReviewComment(input: { pullRequestReviewCommentId: $c, body: $body }) {
+            pullRequestReviewComment { id } } }",
+        json!({ "c": comment, "body": body }),
+    )
+    .map(drop)
+}
+
 pub fn set_resolved(thread: &str, resolved: bool) -> Result<()> {
     let q = match resolved {
         true => "mutation($t: ID!) { resolveReviewThread(input: { threadId: $t }) { thread { isResolved } } }",
@@ -241,6 +254,8 @@ fn parse_thread(t: &Value) -> Thread {
             .iter()
             .map(|c| Comment {
                 id: c["databaseId"].as_u64().unwrap_or(0),
+                node_id: c["id"].as_str().unwrap_or("").to_owned(),
+                can_edit: c["viewerCanUpdate"] == true,
                 author: c["author"]["login"].as_str().unwrap_or("ghost").to_owned(),
                 body: c["body"].as_str().unwrap_or("").replace("\r\n", "\n"),
                 created: c["createdAt"].as_str().unwrap_or("").get(..10).unwrap_or("").to_owned(),
@@ -376,10 +391,11 @@ fn parses_review() {
     let r = parse_review(&json!({
         "id": "PR_1",
         "reviews": { "nodes": [{ "id": "R_other", "viewerDidAuthor": false }, { "id": "R_mine", "viewerDidAuthor": true }] },
-        "reviewThreads": { "nodes": [{ "id": "T_1", "path": "a.rs", "comments": { "nodes": [{ "databaseId": 1, "state": "PENDING" }] } }] },
+        "reviewThreads": { "nodes": [{ "id": "T_1", "path": "a.rs", "comments": { "nodes": [{ "id": "C_1", "databaseId": 1, "state": "PENDING", "viewerCanUpdate": true }] } }] },
     }));
     assert_eq!((r.pr_id.as_str(), r.pending.as_deref()), ("PR_1", Some("R_mine")));
     assert_eq!((r.threads[0].id.as_str(), r.threads[0].comments[0].pending), ("T_1", true));
+    assert_eq!((r.threads[0].comments[0].node_id.as_str(), r.threads[0].comments[0].can_edit), ("C_1", true));
 }
 
 #[test]

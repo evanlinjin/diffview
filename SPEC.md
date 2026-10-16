@@ -41,7 +41,7 @@ disk: rust-analyzer can index it and `hx` can open it.
    from `$EDITOR` (`:cq` cancels), discard asks for confirmation. Pending comments are
    tagged `[pending]` and counted in the status bar. If posting fails, the text is saved
    to a temp file and the error says where.
-4. **Later**: side-by-side, multiple cursors.
+4. **Later**: multiple cursors.
 
 ## Keys
 | Key | Action |
@@ -63,6 +63,8 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `+`/`=`, `-`, `Z` | file context ±10 lines, whole file |
 | `Tab` | collapse/expand file; on a comment, fold/unfold its thread |
 | `Shift-Tab` | fold all files, or unfold all if all are folded |
+| `Ctrl-w v` | toggle split view: old ‖ new side by side (removed runs pair with the added lines after them) |
+| `Ctrl-h Ctrl-l` | split view: move to the old / new side |
 | `Enter` | open `hx file:line:col` (in a floating pane inside zellij), reload diff afterwards |
 | `gd gr gy gi`, `Space k` | definition / references / type / impl, hover |
 | `Ctrl-o` | jump back |
@@ -70,6 +72,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `C` | same, but post immediately as a single comment |
 | `S` | submit the pending review (comment / approve / request changes) or discard it |
 | `Space r` | resolve / unresolve the thread under the cursor |
+| `Space e` | edit your comment under the cursor (opens its text in `$EDITOR`) |
 | `]c [c` | next/prev comment thread |
 | `R` | refresh: re-run `git diff`, re-fetch threads + PR info |
 | `?` | key help overlay |
