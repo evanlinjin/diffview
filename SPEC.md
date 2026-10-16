@@ -58,7 +58,17 @@ disk: rust-analyzer can index it and `hx` can open it.
    colors, colored review decision and check counts. Comment times are relative ("2d ago").
    File headers: dir dimmed, +/− colored. Split view hatches the empty side; pickers
    highlight matched letters.
-4. **Later**: multiple cursors.
+4. **Later**:
+   - **`c` in the PR section → review summary.** `c` on a conversation comment (or the
+     description) appends it as a `> ` quote to the pending review's summary (body), saved on
+     GitHub (`updatePullRequestReview` on the pending review, or `addPullRequestReview` with a
+     body if there is none); `S` then opens the summary editor pre-filled with that draft.
+     Keeps `c` = queue / `C` = post now (`C` there already quotes into a new conversation
+     comment). Until then `c` in the PR section only says "select code lines".
+   - **`dv list`**: a picker of the repo's open PRs (`gh pr list`); `Enter` opens the chosen
+     one as `dv <N>` would, with `dv list`'s own flags: `dv list -wbf` enters each PR in a
+     worktree, on its branch, force-reset to the PR head.
+   - Multiple cursors.
 
 ## Keys
 | Key | Action |
