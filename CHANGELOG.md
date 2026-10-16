@@ -3,6 +3,12 @@
 All notable changes to dv. Versions follow [semver](https://semver.org); a release's notes
 on GitHub are its section here.
 
+## [Unreleased]
+
+### Fixed
+- A comment on a range of lines (5-10) lights all of them beside its box in the comment
+  margin, not just its last line; the cursor on any of them lights the box.
+
 ## [0.4.0] - 2026-10-16
 
 ### Added

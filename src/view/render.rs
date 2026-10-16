@@ -264,7 +264,10 @@ impl App {
                     DRow::Margin(code, comment) => {
                         // Code on the left (blank on a spacer row), a gap, then the comment column.
                         match code {
-                            Some(r) => spans.extend(self.render_row(r, s, e, (lw, gw, ctw), None, cur || lit_code == Some(r), &overlay)),
+                            Some(r) => {
+                                let lit = lit_code.is_some_and(|(a, b)| (a..=b).contains(&r));
+                                spans.extend(self.render_row(r, s, e, (lw, gw, ctw), None, cur || lit, &overlay))
+                            }
                             None => spans.push(Span::raw(" ".repeat(gw + ctw))),
                         }
                         spans.push(Span::raw(" "));

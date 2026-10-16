@@ -756,7 +756,7 @@ fn comments_in_the_margin() {
     };
     ctrl_w(&mut app, 'l');
     assert_eq!(app.head.row, 3); // thread 0's top
-    assert_eq!(app.lit_code(), Some(2)); // and its line lit
+    assert_eq!(app.lit_code(), Some((2, 2))); // and its line lit
     ctrl_w(&mut app, 'h');
     assert_eq!(app.head.row, 2);
     assert_eq!(app.lit_thread(), Some(0)); // its box lit from the code
@@ -1169,4 +1169,31 @@ fn replacement_in_the_pr_section() {
     assert_eq!(app.header_tag(INFO).unwrap().0, " PUBLISHED ");
     let row = app.rows.iter().find(|r| r.line.text == "published as draft PR #20").unwrap();
     assert_eq!(row.links[0].2, "https://github.com/o/r/pull/20"); // the new PR, linked
+}
+
+#[test]
+fn range_comment_lights_its_lines() {
+    // A comment on lines 2-4 (new side): its box lights them all, and each lights the box.
+    let sample = "diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1,4 +1,4 @@\n one\n two\n three\n-four\n+four!\n";
+    let mut app = App::with("base".into(), diff::parse(sample));
+    let c = gh::Comment { id: 1, node_id: String::new(), can_edit: false, can_delete: false, author: "amy".into(), body: "these".into(), created: String::new(), pending: false };
+    app.threads = vec![gh::Thread {
+        id: String::new(), path: "a.rs".into(), left: false, line: Some(4), start_line: Some(2), original_line: Some(4),
+        resolved: false, outdated: false, hunk: vec![], comments: vec![c], claude: None, severity: String::new(),
+    }];
+    app.margin_active = true;
+    app.build();
+    let row = |app: &App, text: &str| app.rows.iter().position(|r| r.line.text == text && r.thread.is_none()).unwrap();
+    let (one, two, three, del, four) = (row(&app, "one"), row(&app, "two"), row(&app, "three"), row(&app, "four"), row(&app, "four!"));
+    let in_box = app.rows.iter().position(|r| r.thread == Some(0)).unwrap();
+    app.goto(in_box, 0);
+    assert!(app.margin_side());
+    assert_eq!(app.lit_code(), Some((two, four))); // two, three, (-four), four!: from its first line on
+    assert!(del > two && del < four);
+    for r in [two, three, four] {
+        app.goto(r, 0);
+        assert_eq!(app.lit_thread(), Some(0), "row {r}");
+    }
+    app.goto(one, 0);
+    assert_eq!(app.lit_thread(), None);
 }

@@ -1214,13 +1214,36 @@ impl App {
         }
         match self.margin_side() {
             true => self.rows[self.head.row].thread,
-            false => self.margin_anchor.iter().find(|&(_, &c)| c == self.head.row).map(|(&t, _)| t),
+            // On its last line first, then anywhere in its range.
+            false => self.margin_anchor.iter().find(|&(_, &c)| c == self.head.row).map(|(&t, _)| t).or_else(|| {
+                self.margin_anchor.keys().copied().find(|&t| self.code_span(t).is_some_and(|(a, b)| (a..=b).contains(&self.head.row)))
+            }),
         }
     }
 
-    /// With the cursor in a margin comment: the code line it's about (tinted like the cursor's).
-    pub(super) fn lit_code(&self) -> Option<usize> {
-        self.margin_side().then(|| self.margin_anchor.get(&self.rows[self.head.row].thread?).copied()).flatten()
+    /// With the cursor in a margin comment: the code lines it's about (tinted like the cursor's).
+    pub(super) fn lit_code(&self) -> Option<(usize, usize)> {
+        self.margin_side().then(|| self.code_span(self.rows[self.head.row].thread?)).flatten()
+    }
+
+    /// The rows of the code thread `t` is about, first to last (its anchor row): a range
+    /// comment (`start_line`) covers the lines from there, as far as they're shown.
+    fn code_span(&self, t: usize) -> Option<(usize, usize)> {
+        let last = *self.margin_anchor.get(&t)?;
+        let th = &self.threads[t];
+        let Some(start) = th.start_line.filter(|&s| th.line.is_some_and(|l| s < l)) else { return Some((last, last)) };
+        let no = |r: &Row| if th.left { r.line.old } else { r.line.new };
+        let file = self.rows[last].file;
+        let first = (0..last)
+            .rev()
+            .take_while(|&r| self.rows[r].file == file)
+            .filter(|&r| self.rows[r].thread.is_none())
+            .take_while(|&r| no(&self.rows[r]).is_none_or(|n| n >= start))
+            .last()
+            .unwrap_or(last);
+        // From its first line itself (not a removed line or a hunk header just above it).
+        let first = (first..=last).find(|&r| self.rows[r].thread.is_none() && no(&self.rows[r]).is_some()).unwrap_or(last);
+        Some((first, last))
     }
 
     /// The row to put the cursor on for screen row `d`, preferring the current side.
