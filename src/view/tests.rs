@@ -1126,3 +1126,29 @@ fn claude_review_is_not_pr_text() {
     assert!(app.action.is_none());
     assert_eq!(app.summary_draft, "Looks fine.");
 }
+
+#[test]
+fn replacement_in_the_pr_section() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let o = |number, title: &str| crate::replace::Original { number, title: title.into(), author: "bot".into(), url: format!("u{number}") };
+    app.show_replacement(crate::replace::Record {
+        id: 12,
+        replaces: vec![o(12, "fix"), o(15, "fix again")],
+        title: "Fix it properly".into(),
+        body: "Replaces #12 and #15.".into(),
+        closing_note: "Thanks! Handled in {replacement}.".into(),
+        ..Default::default()
+    });
+    app.build();
+    let texts: Vec<&str> = app.rows.iter().map(|r| r.line.text.as_str()).collect();
+    assert_eq!(texts[0], "Replacement of #12 · Fix it properly");
+    assert!(texts.contains(&"replaces #12 fix (@bot), #15 fix again (@bot)"));
+    assert!(texts.contains(&"Replaces #12 and #15.") && texts.contains(&"Thanks! Handled in {replacement}."));
+    assert_eq!(app.header_tag(INFO).unwrap().0, " UNPUBLISHED ");
+    let row = app.rows.iter().find(|r| r.line.text.starts_with("replaces")).unwrap();
+    assert_eq!(row.links.iter().map(|l| l.2.as_str()).collect::<Vec<_>>(), ["u12", "u15"]); // each original links to it
+    // Space a offers to redraft it.
+    app.claude_path = Some(std::env::temp_dir().join("dv-no-such-review.json"));
+    app.claude_menu();
+    assert!(app.picker.unwrap().items.iter().any(|i| matches!(i.target, Target::ClaudeReplace(ref p) if p == &[12, 15])));
+}

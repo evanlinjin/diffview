@@ -75,7 +75,7 @@ fn review(n: u64, branch: bool, root: &Path, extra: &str, tx: &Sender<(u64, Stat
     let prompt = format!("{} (It's {} now.)", crate::view::review_prompt(&format!("PR #{n}")), crate::claude::now());
     let prompt = crate::view::with_instructions(&prompt, extra);
     let log = std::env::temp_dir().join(format!("dv-claude-batch-{}-{n}.log", std::process::id()));
-    let st = crate::view::claude_command(&prompt, &dir, &session)
+    let st = crate::view::claude_command(&prompt, &dir, &session, &[])
         .stdin(std::process::Stdio::null())
         .stdout(std::fs::File::create(&log)?)
         .stderr(std::fs::File::create(log.with_extension("err"))?)
@@ -91,6 +91,20 @@ fn review(n: u64, branch: bool, root: &Path, extra: &str, tx: &Sender<(u64, Stat
         v["num_turns"].as_u64().unwrap_or(0),
         v["total_cost_usd"].as_f64().unwrap_or(0.0)
     )))
+}
+
+/// Claude drafts one replacement for `prs` (see `replace.rs`) in the background: its news
+/// comes back on the receiver, under the replacement's number (the first PR's).
+pub fn replace(prs: Vec<u64>, root: PathBuf, extra: String) -> Receiver<(u64, Status)> {
+    let (tx, rx) = mpsc::channel();
+    let id = prs[0];
+    _ = tx.send((id, Status::Preparing));
+    std::thread::spawn(move || {
+        let ready = tx.clone();
+        let st = crate::replace::draft(&prs, &root, &extra, move || _ = ready.send((id, Status::Reviewing)));
+        _ = tx.send((id, st.map_or_else(|e| Status::Failed(format!("{e:#}")), Status::Done)));
+    });
+    rx
 }
 
 /// The PRs that have a review from Claude (a review file in dv's directory).

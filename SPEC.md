@@ -98,6 +98,18 @@ disk: rust-analyzer can index it and `hx` can open it.
    refuse them, and they don't count as Claude's. Repo-wide
    notes for Claude live in `notes.md` in that directory (`dv review-info` prints the path; the
    skill reads them first and keeps them current; `Space a` opens them).
+   **Replacements** (`replace.rs`): for PRs not worth reviewing into shape. A replacement is
+   a branch `dv/replace-N` (N: the first PR it replaces) in a worktree `<repo>-replace-N`,
+   from the originals' base on origin, and a record `replacements/N.json` in dv's directory:
+   `replaces` (number, title, author, URL of each), `base`, Claude's drafts `title`, `body`,
+   `closing_note` (`{replacement}` where the new PR's link goes), and `session`. `dv replace
+   N [M…]` (and `A A` in `dv list`, `Space a` in dv, which run it in the background) prepares
+   them and runs Claude (`claude -p`, the skill's section 6, with `dv replace-info`; allowed
+   to read PRs and issues with `gh` and to `git add` / `git commit`, never to push). Drafting
+   again resumes the session. dv on a replacement's branch shows, in the PR section, what it
+   replaces (linked), the drafts, and `UNPUBLISHED` on the header line. Next: publish as a
+   draft PR (push, `gh pr create --draft` with the drafts), then close the originals with the
+   note.
 4. **Later**:
    - **`c` in the PR section → review summary.** `c` on a conversation comment (or the
      description) appends it as a `> ` quote to the pending review's summary (body), saved on
@@ -184,7 +196,8 @@ refreshes, `q` quits. `m` marks PRs and `a a` has Claude review them (or the sel
 the background (after your editor, for optional instructions to every one of those reviews, starting
 from your last review instructions in this repo, as `Space a` → review does; `:cq` cancels), two at a time, each in its `<repo>-N` worktree (made if need be; one on the
 PR's branch stays on it) and its own session; cards show `claude: reviewing…` and then
-`claude ✓`. `[new]` (before the age) marks a PR with something you haven't seen: GitHub updated
+`claude ✓`. `A A` has Claude draft one replacement for the marked PRs (or the selected
+one): see Replacements below. Tab cycles open / worktrees / replacements. `[new]` (before the age) marks a PR with something you haven't seen: GitHub updated
 it, or Claude's review changed, since you last left it in dv (`seen/pr-N.looked`); of PRs
 you've never opened, only those Claude has reviewed. `D D` in the worktrees tab removes the worktree (not with local changes; the branch
 stays). Quitting the review returns to the list; if opening a PR fails, the

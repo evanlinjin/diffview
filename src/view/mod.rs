@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 mod agent;
-pub(crate) use agent::{claude_command, review_prompt, with_instructions};
+pub(crate) use agent::{REPLACE_TOOLS, claude_command, review_prompt, with_instructions};
 mod git;
 mod keys;
 mod mouse;
@@ -218,6 +218,8 @@ enum Action {
     AskClaude { anchor: Anchor, code: Vec<String> },
     /// Run Claude (review, or make the changes) after your own instructions for it.
     ClaudeWith(agent::Ask),
+    /// Have Claude draft a replacement for these PRs, after your instructions for it.
+    Replace(Vec<u64>),
     /// A new PR conversation comment, starting with `quote` (may be empty); `as_is`: posted
     /// even if left untouched (Claude's review, yours to post).
     Converse { quote: String, as_is: bool },
@@ -268,6 +270,8 @@ enum Target {
     Comment(usize, usize),
     Claude(agent::Ask),
     ClaudeNotes,
+    /// Have Claude draft (or redraft) a replacement for these PRs, in the background.
+    ClaudeReplace(Vec<u64>),
     ClaudeFresh,
     GitView,
     GitCommit,
@@ -383,6 +387,8 @@ pub struct App {
     claude_view: bool,
     /// The PR's state and its color (DRAFT, OPEN, …), at the right end of its header line.
     pr_state: Option<gh::State>,
+    /// The replacement checked out here, if it is one (`replace.rs`): shown in the PR section.
+    replacement: Option<crate::replace::Record>,
     /// What your review summary starts from (`c` on Claude's review copies it here), for `S`.
     summary_draft: String,
     /// Your GitHub login: your comments are never new to you.
@@ -551,6 +557,7 @@ impl App {
             claude_view: false,
             pr_state: None,
             summary_draft: String::new(),
+            replacement: None,
             me: String::new(),
             seen: HashSet::new(),
             seen_path: None,
@@ -689,10 +696,10 @@ impl App {
                 };
                 // Review instructions start from the last ones (kept if left as they are).
                 let review = matches!(ask, agent::Ask::Review);
-                let last = if review { crate::claude::instructions() } else { String::new() };
+                let last = if review { crate::claude::instructions("review") } else { String::new() };
                 let Some(extra) = compose_with(what, !alone, last.trim(), review)? else { return Ok("Claude not asked".into()) };
                 if review {
-                    _ = crate::claude::save_instructions(&extra);
+                    _ = crate::claude::save_instructions("review", &extra);
                 }
                 if self.run_claude(ask, &extra) || extra.trim().is_empty() {
                     return Ok(std::mem::take(&mut self.msg));
@@ -700,6 +707,15 @@ impl App {
                 // It couldn't be asked after all: keep what you wrote.
                 let why = std::mem::take(&mut self.msg);
                 Ok(keep_on_error(Err(anyhow::anyhow!(why)), &extra).err().map_or(String::new(), |e| format!("{e:#}")))
+            }
+            Action::Replace(prs) => {
+                let which = prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(", ");
+                let last = crate::claude::instructions("replace");
+                let what = format!("instructions for Claude's replacement of {which} (optional)");
+                let Some(extra) = compose_with(&what, true, last.trim(), true)? else { return Ok("not asked".into()) };
+                crate::claude::save_instructions("replace", &extra)?; // `dv replace` reads them
+                agent::spawn_replace(&prs)?;
+                Ok(format!("Claude is drafting a replacement for {which} in the background: dv list's replacements tab shows it"))
             }
             Action::Converse { quote, as_is } => {
                 self.pr.as_ref().context("no PR")?;
@@ -863,9 +879,13 @@ impl App {
     fn build(&mut self) {
         self.jumps.clear();
         let mut rows = vec![];
-        let title = match &self.pr {
-            Some(pr) => Some(format!("PR #{} · {}", pr.number, pr.title)),
-            None => (!self.claude_summary.is_empty()).then(|| "Claude's review".to_owned()),
+        let title = match (&self.pr, &self.replacement) {
+            (Some(pr), _) => Some(format!("PR #{} · {}", pr.number, pr.title)),
+            (None, Some(r)) => {
+                let title = if r.title.is_empty() { "(not drafted yet)" } else { r.title.as_str() };
+                Some(format!("Replacement of #{} · {title}", r.id))
+            }
+            (None, None) => (!self.claude_summary.is_empty()).then(|| "Claude's review".to_owned()),
         };
         if let Some(title) = title {
             let mk = |kind, text| Row::text(INFO, kind, text);

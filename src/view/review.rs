@@ -383,7 +383,40 @@ impl App {
         }
     }
 
+    /// The replacement checked out here (no PR), as PR info: what it replaces, and Claude's
+    /// drafts of its description and closing note.
+    fn load_replacement(&mut self) {
+        if let Some(r) = crate::replace::current().and_then(|id| crate::replace::load(id).ok()) {
+            self.show_replacement(r);
+        }
+    }
+
+    pub(super) fn show_replacement(&mut self, r: crate::replace::Record) {
+        let line = |heading, md, text: &str| gh::InfoLine { heading, md, text: text.into(), marks: vec![], url: String::new() };
+        let mut replaces = line(false, false, "replaces ");
+        for (i, o) in r.replaces.iter().enumerate() {
+            let sep = if i == 0 { "" } else { ", " };
+            replaces.text.push_str(sep);
+            let at = replaces.text.chars().count();
+            let num = format!("#{}", o.number);
+            replaces.text.push_str(&format!("{num} {} (@{})", o.title, o.author));
+            replaces.marks.push((at, at + num.chars().count(), gh::Mark::Link(o.url.clone())));
+        }
+        self.info = vec![
+            replaces,
+            line(true, false, "description (Claude's draft)"),
+            line(false, true, &r.body),
+            line(true, false, "closing note, for the PRs it replaces (Claude's draft)"),
+            line(false, true, &r.closing_note),
+        ];
+        self.pr_state = Some(("UNPUBLISHED", "6e7681"));
+        self.replacement = Some(r);
+    }
+
     fn load_github(&mut self) {
+        if self.pr.is_none() {
+            return self.load_replacement();
+        }
         let Some(n) = self.pr.as_ref().map(|p| p.number) else { return };
         let (threads, info) = std::thread::scope(|s| {
             let info = s.spawn(|| gh::info(n));

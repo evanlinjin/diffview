@@ -1,6 +1,6 @@
 ---
 name: dv-review
-description: Review a PR or branch for the dv diff viewer, writing line-anchored comments to dv's review file, or answer the user's replies to an earlier review there. Use when the user asks for a review "in dv", a "dv review", or to answer/address their dv replies.
+description: Review a PR or branch for the dv diff viewer, writing line-anchored comments to dv's review file, answer the user's replies to an earlier review there, or draft an unpublished replacement for a PR. Use when the user asks for a review "in dv", a "dv review", to answer/address their dv replies, or to draft a replacement (`dv replace-info`).
 ---
 
 # Reviewing for dv
@@ -150,6 +150,44 @@ the user can post:
 
 Then run `dv review-check`.
 
+## 6. Draft a replacement
+
+Some PRs aren't worth reviewing into shape (low-effort ones, often AI-generated): the user has
+you write the change properly instead, as a **replacement** they review in dv before anything
+is published. You're run in its own worktree, on its own branch (`dv/replace-N`), from the
+originals' base. `dv replace-info` prints:
+
+- `record:` a JSON file for your drafts: `title`, `body` (the new PR's description) and
+  `closing_note` (posted on each PR it replaces when the user closes it); leave its other
+  fields as they are;
+- `replaces:` each PR it replaces (several, when they're attempts at the same thing);
+- `base:` what the branch starts from; `notes:` as in `review-info`.
+
+Then:
+
+1. **Read the originals**: `gh pr view N --comments` and `gh pr diff N` for each, and the issue
+   they claim to fix (`gh issue view`). Work out what problem they were after, and what they
+   got wrong or left out: a fix of the symptom rather than the cause, missing tests, unrelated
+   changes, APIs that don't exist, ignoring the repo's conventions (your notes, and the code
+   around it).
+2. **Write the change properly** on this branch: the real fix, in the repo's style, with tests
+   where the repo has them. Keep it as small as the problem allows. Build and test it. Commit
+   (`git add`, `git commit`) with a message in the repo's style; several commits if that reads
+   better. **Never push**, and don't touch other branches.
+3. **Fill in the record**:
+   - `title`: as the repo's PR titles go;
+   - `body`: what it does and why, then a line "Replaces #N" (each original), and carry over
+     any "Fixes #X" from the originals so the issue stays linked. Say briefly how it differs
+     from the originals (what they missed), factually, without disparaging anyone;
+   - `closing_note`: short and civil, for the original's author: thanks, that this is handled
+     in the replacement (write `{replacement}` where its link goes: dv fills it in), and, in a
+     sentence, the main thing the original lacked. No lecture.
+4. Finish with a summary for the user: what the originals got wrong, what you did instead,
+   and anything you weren't sure of.
+
+If the record already has drafts, you've been here before (the same session): do what the
+user's instructions ask, updating the code, commits and drafts to match.
+
 ## Your notes on the repo
 
 `notes:` from `dv review-info` is a markdown file that outlives any one review, shared by all
@@ -170,6 +208,7 @@ keep the conversation; the notes are for what should carry across PRs.
 
 ## Notes
 
-- Never post anything to GitHub yourself; the user decides what goes there from dv.
+- Never post anything to GitHub yourself, and never push; the user decides what goes there
+  from dv.
 - dv's files (the review, your notes) live in dv's data directory, outside the repo, so
   they're never committed; dv gives you access to that directory.

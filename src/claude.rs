@@ -122,15 +122,15 @@ pub fn review_changed(n: u64) -> Option<i64> {
     Some(t.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs() as i64)
 }
 
-/// Your last instructions for Claude's reviews in this repo, to start from next time (empty if
-/// none): `review-instructions.md` in dv's directory.
-pub fn instructions() -> String {
-    dv_dir().and_then(|d| Ok(std::fs::read_to_string(d.join("review-instructions.md"))?)).unwrap_or_default()
+/// Your last instructions to Claude for `kind` of task in this repo ("review", "replace"), to
+/// start from next time (empty if none): `<kind>-instructions.md` in dv's directory.
+pub fn instructions(kind: &str) -> String {
+    dv_dir().and_then(|d| Ok(std::fs::read_to_string(d.join(format!("{kind}-instructions.md")))?)).unwrap_or_default()
 }
 
 /// Remember `text` as those instructions (empty forgets them).
-pub fn save_instructions(text: &str) -> Result<()> {
-    let p = dv_dir()?.join("review-instructions.md");
+pub fn save_instructions(kind: &str, text: &str) -> Result<()> {
+    let p = dv_dir()?.join(format!("{kind}-instructions.md"));
     match text.trim() {
         "" => _ = std::fs::remove_file(&p),
         t => {

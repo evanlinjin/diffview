@@ -238,6 +238,13 @@ pub fn head_branch(n: u64) -> Result<(String, String)> {
 }
 
 /// One PR, open or not (for a worktree whose PR has since closed or merged).
+/// PR `n`'s title, author, URL and base branch.
+pub fn brief(n: u64) -> Result<(String, String, String, String)> {
+    let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", "title,author,url,baseRefName"])?)?;
+    let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
+    Ok((s(&v["title"]), s(&v["author"]["login"]), s(&v["url"]), s(&v["baseRefName"])))
+}
+
 pub fn listed_one(n: u64) -> Result<Listed> {
     let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", LISTED])?)?;
     Ok(listed(&v))

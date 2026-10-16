@@ -392,6 +392,7 @@ impl App {
                         }
                         Target::Claude(ask) => self.pick_claude(ask),
                         Target::ClaudeNotes => self.edit_claude_notes(),
+                        Target::ClaudeReplace(prs) => self.action = Some(Action::Replace(prs)),
                         Target::ClaudeFresh => self.fresh_claude_session(),
                         Target::GitView => self.toggle_uncommitted(),
                         Target::GitCommit => self.action = Some(Action::Commit(self.commit_draft())),

@@ -6,6 +6,7 @@ mod highlight;
 mod list;
 mod lsp;
 mod md;
+mod replace;
 mod theme;
 mod view;
 
@@ -21,6 +22,10 @@ const USAGE: &str = "usage: dv [base | PR | list] [-p N] [-f] [-w [-b]]
   dv review-info   for Claude Code (or any tool) writing a review dv shows: the review
                    file's path, and the base and head of the diff dv shows (of PR N with -p N)
   dv review-check  check that file's comments against the diff (exit 1 on errors)
+  dv replace 123 [124 …]   Claude drafts a replacement for those PRs, unpublished, on
+                   branch dv/replace-123 in a worktree <repo>-replace-123 (dv list's
+                   replacements tab shows it)
+  dv replace-info  for Claude: the replacement checked out here (its record, what it replaces)
   dv install-skill install the dv-review skill for Claude Code (~/.claude/skills/dv-review)
   -f, --force      with a PR: reset the local PR branch to the PR head (drops its local commits)
   -w, --worktree   with a PR: check it out in a worktree next to the repo, <repo>-123
@@ -54,8 +59,10 @@ struct Opts {
     rm: bool,
     no_mouse: bool,
     list: bool,
-    /// review-info / review-check / install-skill
+    /// review-info / review-check / install-skill / replace / replace-info
     cmd: Option<&'static str>,
+    /// More PR numbers after the first (`dv replace 12 15`).
+    more: Vec<u64>,
     help: bool,
 }
 
@@ -96,9 +103,14 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Opts> {
             "review-info" => o.cmd = Some("review-info"),
             "review-check" => o.cmd = Some("review-check"),
             "install-skill" => o.cmd = Some("install-skill"),
+            "replace" => o.cmd = Some("replace"),
+            "replace-info" => o.cmd = Some("replace-info"),
             // For `dv list`'s batch reviews: a process of its own, as it changes directory.
             "prepare-worktree" => o.cmd = Some("prepare-worktree"),
             _ if a.starts_with('-') => anyhow::bail!("unknown flag {a}\n{USAGE}"),
+            _ if !a.is_empty() && a.bytes().all(|b| b.is_ascii_digit()) && o.pr.is_some() && o.cmd == Some("replace") => {
+                o.more.push(num(Some(a))?)
+            }
             _ if !a.is_empty() && a.bytes().all(|b| b.is_ascii_digit()) => o.pr = Some(num(Some(a))?),
             _ => o.base = Some(a),
         }
@@ -144,6 +156,17 @@ fn run() -> anyhow::Result<()> {
             println!("{}", dir.display());
             return Ok(());
         }
+        Some("replace-info") => return replace::info(),
+        Some("replace") => {
+            let prs: Vec<u64> = o.pr.into_iter().chain(o.more.iter().copied()).collect();
+            anyhow::ensure!(!prs.is_empty(), "dv replace needs the PRs to replace, e.g. `dv replace 123`");
+            // Your last instructions for replacements (dv saves them as you write them).
+            let extra = claude::instructions("replace");
+            eprintln!("Claude is drafting a replacement for #{} (dv list's replacements tab shows it)…", prs[0]);
+            let took = replace::draft(&prs, &root, &extra, || {})?;
+            println!("drafted ({took}): `dv list`, replacements tab, or {}", worktree_dir_named(&root, &format!("replace-{}", prs[0]))?.display());
+            return Ok(());
+        }
         Some(cmd) => return review_file(cmd, &o),
         None => {}
     }
@@ -175,6 +198,15 @@ fn pick_and_review(o: &Opts, root: &Path) -> anyhow::Result<()> {
         view::restore_terminal();
         let Some(pick) = picked? else { return Ok(()) };
         let n = pick.number;
+        if pick.replacement {
+            let res = review_replacement(n, root);
+            progress(None);
+            std::env::set_current_dir(root)?;
+            if let Err(e) = res {
+                list.msg = format!("replacement of #{n}: {e:#}");
+            }
+            continue;
+        }
         // A PR from the worktrees tab opens in its worktree, as it was made (on its branch or not).
         let wt;
         let opts = match pick.worktree {
@@ -191,6 +223,23 @@ fn pick_and_review(o: &Opts, root: &Path) -> anyhow::Result<()> {
             list.msg = format!("PR #{n}: {e:#}");
         }
     }
+}
+
+/// Review replacement `id` in dv, in its worktree: its diff against its base, and in the top
+/// section, what it replaces and Claude's drafts.
+fn review_replacement(id: u64, root: &Path) -> anyhow::Result<()> {
+    let r = replace::load(id)?;
+    let dir = worktree_dir_named(root, &format!("replace-{id}"))?;
+    anyhow::ensure!(dir.exists(), "its worktree {} is gone (A A on the PR drafts it again)", dir.display());
+    ensure_worktree_of(&dir, root)?;
+    std::env::set_current_dir(&dir)?;
+    let base = diff::merge_base(Some(&format!("origin/{}", r.base)))?;
+    let mut app = view::App::new(base, None)?;
+    progress(None);
+    let mut term = view::init_terminal();
+    let res = app.run(&mut term);
+    view::restore_terminal();
+    res
 }
 
 /// Check PR `n` out as `o` says and review it. The outer error is setup (checkout, diff); the
@@ -339,14 +388,32 @@ fn enter_worktree(n: u64, branch: bool, force: bool) -> anyhow::Result<(PathBuf,
 
 /// The main checkout's root (found from inside a worktree too) and PR `n`'s worktree next to it.
 fn worktree_dir(n: u64) -> anyhow::Result<(PathBuf, PathBuf)> {
-    let common = PathBuf::from(common_dir(Path::new("."))?);
-    let main = match common.file_name().is_some_and(|f| f == ".git") {
+    let main = main_checkout(Path::new("."))?;
+    Ok((main, worktree_dir_named(Path::new("."), &n.to_string())?))
+}
+
+/// The main checkout of the repo `d` is in (from inside a worktree too).
+fn main_checkout(d: &Path) -> anyhow::Result<PathBuf> {
+    let common = PathBuf::from(common_dir(d)?);
+    Ok(match common.file_name().is_some_and(|f| f == ".git") {
         true => common.parent().context("no repo dir")?.to_owned(),
-        false => PathBuf::from(diff::git(&["rev-parse", "--show-toplevel"])?.trim()),
-    };
+        false => PathBuf::from(diff::git(&["-C", &d.to_string_lossy(), "rev-parse", "--show-toplevel"])?.trim()),
+    })
+}
+
+/// A worktree's dir next to the main checkout of the repo `d` is in: `<repo>-<suffix>`.
+pub(crate) fn worktree_dir_named(d: &Path, suffix: &str) -> anyhow::Result<PathBuf> {
+    let main = main_checkout(d)?;
     let name = main.file_name().context("repo has no dir name")?.to_string_lossy().into_owned();
-    let dir = main.parent().context("repo has no parent dir")?.join(format!("{name}-{n}"));
-    Ok((main, dir))
+    Ok(main.parent().context("repo has no parent dir")?.join(format!("{name}-{suffix}")))
+}
+
+/// Only ever touch a dir that's a worktree of the repo `root` is in.
+pub(crate) fn ensure_worktree_of(dir: &Path, root: &Path) -> anyhow::Result<()> {
+    if common_dir(dir).ok() != Some(common_dir(root)?) {
+        anyhow::bail!("{} exists and isn't a worktree of this repo", dir.display());
+    }
+    Ok(())
 }
 
 /// PR worktrees of this repo (`<repo>-<n>` next to it, as `-w` makes them): (PR, dir, branch,
@@ -374,10 +441,7 @@ fn common_dir(d: &Path) -> anyhow::Result<String> {
 
 /// Only ever touch a dir that's a worktree of this repo.
 fn ensure_ours(dir: &Path) -> anyhow::Result<()> {
-    if common_dir(dir).ok() != Some(common_dir(Path::new("."))?) {
-        anyhow::bail!("{} exists and isn't a worktree of this repo", dir.display());
-    }
-    Ok(())
+    ensure_worktree_of(dir, Path::new("."))
 }
 
 /// `dv 123 --rm` (and `D D` in `dv list`): remove PR 123's worktree, saying what was done. git
@@ -425,4 +489,6 @@ fn args() {
     assert_eq!(p("list").unwrap().flags(), "");
     assert_eq!(p("review-info -p 7").unwrap(), Opts { pr: Some(7), cmd: Some("review-info"), ..Opts::default() });
     assert_eq!(p("review-check").unwrap().cmd, Some("review-check"));
+    let r = p("replace 12 15").unwrap();
+    assert_eq!((r.cmd, r.pr, r.more), (Some("replace"), Some(12), vec![15]));
 }

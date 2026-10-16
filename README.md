@@ -45,7 +45,9 @@ dv list -w        # pick from the open PRs; Enter reviews one (here: in a worktr
                   # (your editor opens first, for instructions to all of them; your last
                   # review instructions are there to start from);
                   # [new]: something on GitHub or from Claude since you last left it;
-                  # filter by #N to open a PR that isn't listed
+                  # A A has Claude draft a replacement (below); filter by #N to open a PR
+                  # that isn't listed
+dv replace 2258   # Claude drafts a replacement for PR 2258, unpublished (below)
 ```
 
 On a branch with an open PR, plain `dv` loads it too.
@@ -155,6 +157,28 @@ those. New files show in the diff before they're committed (marked untracked).
 - Like dv's own comments, `c` / `C` need the checkout at the PR head with no local changes.
   While Claude's changes are uncommitted you can reply and resolve, but copy comments to
   GitHub only once they're pushed.
+
+### Replacing a PR
+
+Some PRs aren't worth reviewing into shape (low-effort, often AI-generated ones). Have Claude
+write the change properly instead, as a **replacement** you review before anything is
+published:
+
+1. In `dv list`, `A A` on the PR (or on several marked ones that try the same thing; one
+   replacement covers them all), or `Space a` → "Draft a replacement" in dv. Your editor opens
+   first for instructions (your last ones are there to start from).
+2. Claude works in the background, in a worktree of its own, `<repo>-replace-N` on branch
+   `dv/replace-N`, from the originals' base: it reads them (and the issue they claim to fix),
+   works out what they got wrong, writes the change properly with tests, and commits it
+   (never pushing). It drafts the new PR's title and description ("Replaces #N", with any
+   "Fixes #X" carried over) and a short, civil note for closing the originals.
+3. `dv list`'s **replacements** tab lists them (cards say what they replace; a replaced PR's
+   card says `replacement ✓`). Enter opens one in dv: its diff against the base, and above it
+   what it replaces and Claude's drafts. Everything else works as on a branch: comments for
+   Claude, `Space a` → "make the changes", or "Redraft this replacement" with new
+   instructions (Claude carries on in the same session). `D D` removes one (its branch stays).
+
+Publishing it as a draft PR, and closing the originals with the note, are next.
 
 ## Layout
 

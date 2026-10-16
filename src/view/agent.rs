@@ -28,6 +28,18 @@ const ALLOWED: &[&str] = &[
     "Bash(cargo clippy:*)",
 ];
 
+/// What drafting a replacement needs on top: reading the PRs it replaces, and committing (to
+/// its own local branch; dv never pushes it without you).
+pub(crate) const REPLACE_TOOLS: &[&str] = &[
+    "Bash(dv replace-info:*)",
+    "Bash(gh pr view:*)",
+    "Bash(gh pr diff:*)",
+    "Bash(gh issue view:*)",
+    "Bash(git status:*)",
+    "Bash(git add:*)",
+    "Bash(git commit:*)",
+];
+
 /// A background `claude -p` run.
 pub(super) struct ClaudeJob {
     pub(super) child: std::process::Child,
@@ -148,6 +160,18 @@ impl App {
         }
         if self.claude_session.is_some() {
             items.push(Item::new("Start a fresh Claude session for this PR (the review stays)", Target::ClaudeFresh));
+        }
+        // A replacement: Claude writes the change itself, unpublished, for you to review here.
+        match (&self.pr, &self.replacement) {
+            (Some(p), _) => items.push(Item::new(
+                format!("Draft a replacement for #{} (Claude writes it properly, unpublished, in the background)", p.number),
+                Target::ClaudeReplace(vec![p.number]),
+            )),
+            (None, Some(r)) => items.push(Item::new(
+                "Redraft this replacement (Claude carries on, with your instructions)",
+                Target::ClaudeReplace(r.replaces.iter().map(|o| o.number).collect()),
+            )),
+            _ => {}
         }
         self.picker = Some(Picker { title: " claude ", items, query: String::new(), sel: if n > 0 { 1 } else { 0 } });
     }
@@ -432,7 +456,7 @@ impl App {
         if forked {
             session.push("--fork-session".into());
         }
-        let child = claude_command(prompt, &self.root, &session)
+        let child = claude_command(prompt, &self.root, &session, &[])
             .stdin(std::process::Stdio::null())
             .stdout(std::fs::File::create(&log)?)
             .stderr(std::fs::File::create(&err)?)
@@ -527,6 +551,22 @@ pub(super) fn asking(screen: &str) -> bool {
     ["Do you want", "Would you like", "❯ 1.", "trust this folder"].iter().any(|p| screen.contains(p))
 }
 
+/// Have Claude draft a replacement for `prs` with a dv of its own (`dv replace`), in the
+/// background: it carries on if this dv quits. Its output goes to a log in the temp dir.
+pub(super) fn spawn_replace(prs: &[u64]) -> Result<()> {
+    use std::os::unix::process::CommandExt;
+    let log = std::env::temp_dir().join(format!("dv-replace-{}.log", prs[0]));
+    std::process::Command::new(std::env::current_exe()?)
+        .arg("replace")
+        .args(prs.iter().map(u64::to_string))
+        .stdin(std::process::Stdio::null())
+        .stdout(std::fs::File::create(&log)?)
+        .stderr(std::fs::File::create(log.with_extension("err"))?)
+        .process_group(0) // not this terminal's: closing it doesn't stop the draft
+        .spawn()?;
+    Ok(())
+}
+
 /// `prompt`, with the user's own instructions (if any) after it.
 pub(crate) fn with_instructions(prompt: &str, extra: &str) -> String {
     match extra.trim() {
@@ -552,14 +592,15 @@ pub(crate) fn review_prompt(what: &str) -> String {
 /// `claude -p prompt` in `dir` as dv runs it in the background: its result as JSON on stdout,
 /// edits allowed, in the session `session` names (`--resume <id>`, `--session-id <id>`, …),
 /// with dv's directory reachable, and only the commands the skill needs.
-pub(crate) fn claude_command(prompt: &str, dir: &Path, session: &[String]) -> std::process::Command {
+/// `more`: tools allowed on top of the usual ones.
+pub(crate) fn claude_command(prompt: &str, dir: &Path, session: &[String], more: &[&str]) -> std::process::Command {
     let mut cmd = std::process::Command::new("claude");
     cmd.env("PATH", path_for_claude())
         .args(["-p", prompt, "--output-format", "json", "--permission-mode", "acceptEdits"])
         .args(session);
     cmd.args(claude_dirs());
     // Last: it takes every argument after it.
-    cmd.arg("--allowedTools").args(ALLOWED).current_dir(dir);
+    cmd.arg("--allowedTools").args(ALLOWED).args(more).current_dir(dir);
     cmd
 }
 

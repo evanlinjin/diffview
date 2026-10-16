@@ -1,5 +1,6 @@
-//! `dv list`: the repo's open PRs, and (`Tab`) the ones with a local worktree; `Enter` reviews
-//! one, and quitting that review comes back here.
+//! `dv list`: the repo's open PRs, (`Tab`) the ones with a local worktree, and the replacements
+//! Claude has drafted (unpublished); `Enter` reviews one, and quitting that review comes back
+//! here.
 use crate::gh::{self, Listed};
 use crate::theme::{Theme, Ui};
 use anyhow::Result;
@@ -21,7 +22,8 @@ const HELP: &str = "\
   j k, Up Down         move
   gg ge                first / last PR
   Ctrl-d Ctrl-u        half a page down / up
-  Tab                  open PRs / PRs with a local worktree (<repo>-N, as dv N -w makes)
+  Tab                  open PRs / PRs with a local worktree (<repo>-N, as dv N -w makes) /
+                       replacements (Claude's drafts, unpublished)
   Enter                review the PR (with dv list's flags; from the worktrees tab, in its
                        worktree as it was made); q there comes back here
   /                    filter (Enter keeps it, Esc clears it); terms must all match:
@@ -35,8 +37,11 @@ const HELP: &str = "\
   a a                  Claude reviews the marked PRs (or this one) in the background, two at a
                        time, each in its worktree (<repo>-N, made if need be); cards show how
                        it's going, and claude ✓ once a PR has a review
+  A A                  Claude drafts one replacement for the marked PRs (or this one), on a
+                       branch of its own in <repo>-replace-N, unpublished, for you to review
+                       first (replacements tab); your editor opens first, for instructions
   D D                  worktrees tab: remove the PR's worktree (not with local changes in it;
-                       its branch stays)
+                       its branch stays); replacements tab: remove the replacement (the same)
   R                    refresh
   ?                    this help
   q, Ctrl-c            quit";
@@ -60,8 +65,14 @@ pub struct List {
     checks: Option<Receiver<Checks>>,
     /// PR worktrees: number → (dir, branch or `None` when detached).
     local: HashMap<u64, (PathBuf, Option<String>)>,
-    /// Showing the worktrees tab.
-    worktrees: bool,
+    /// The tab showing.
+    tab: Tab,
+    /// Replacements (`replace.rs`), as cards (`number`: the replacement's), and their records.
+    reps: Vec<Listed>,
+    rep_of: HashMap<u64, crate::replace::Record>,
+    /// Replacements Claude is drafting: how each is going, and the news on its way.
+    drafting: HashMap<u64, batch::Status>,
+    draft_rx: Vec<Receiver<(u64, batch::Status)>>,
     /// A key that asks to be pressed again (`D` on this PR's worktree, `a`, `q`): any other
     /// key calls it off.
     confirm: Option<(char, u64)>,
@@ -84,6 +95,8 @@ pub struct List {
 pub struct Pick {
     pub number: u64,
     pub worktree: Option<bool>,
+    /// It's a replacement (`number` is its own): it opens in its worktree.
+    pub replacement: bool,
 }
 
 impl List {
@@ -104,7 +117,11 @@ impl List {
             rev: false,
             checks: None,
             local: HashMap::new(),
-            worktrees: false,
+            tab: Tab::Open,
+            reps: vec![],
+            rep_of: HashMap::new(),
+            drafting: HashMap::new(),
+            draft_rx: vec![],
             confirm: None,
             marked: HashSet::new(),
             batch: HashMap::new(),
@@ -122,6 +139,7 @@ impl List {
             self.refresh(term)?;
         }
         self.find_new(); // back from a PR: that one's seen now
+        self.load_reps();
         loop {
             term.draw(|f| self.draw(f))?;
             self.batch_news();
@@ -147,45 +165,36 @@ impl List {
             match self.key(k) {
                 Some(Do::Quit) => return Ok(None),
                 Some(Do::Open(n)) => {
-                    let worktree = self.worktrees.then(|| self.local.get(&n).is_some_and(|w| w.1.is_some()));
-                    return Ok(Some(Pick { number: n, worktree }));
+                    let replacement = self.tab == Tab::Replacements;
+                    let worktree = (self.tab == Tab::Worktrees).then(|| self.local.get(&n).is_some_and(|w| w.1.is_some()));
+                    return Ok(Some(Pick { number: n, worktree, replacement }));
                 }
                 Some(Do::Refresh) => self.refresh(term)?,
                 Some(Do::Review(prs)) => {
                     // Instructions for every one of these reviews, if you have any. In zellij the
                     // editor gets a pane beside the list; elsewhere it takes the terminal.
                     let which = prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(" ");
-                    let in_pane = crate::view::in_zellij();
-                    if !in_pane {
-                        crate::view::restore_terminal();
-                    }
-                    // Starting from your last review instructions (kept if left as they are).
-                    let last = crate::claude::instructions();
                     let what = format!("instructions for Claude's reviews of {which} (optional)");
-                    let extra = crate::view::compose_with(&what, true, last.trim(), true);
-                    if !in_pane {
-                        *term = crate::view::init_terminal();
-                    }
-                    let extra = match extra {
-                        Ok(Some(e)) => {
-                            _ = crate::claude::save_instructions(&e);
-                            e
-                        }
-                        Ok(None) => {
-                            self.msg = "batch review cancelled".into();
-                            continue;
-                        }
-                        Err(e) => {
-                            self.msg = format!("{e:#}");
-                            continue;
-                        }
-                    };
+                    let Some(extra) = self.instructions(term, "review", &what) else { continue };
                     let on_branch = |n| self.local.get(&n).is_some_and(|w| w.1.is_some());
                     let prs: Vec<(u64, bool)> = prs.into_iter().map(|n| (n, on_branch(n))).collect();
                     let with = if extra.is_empty() { "" } else { ", with your instructions" };
                     self.msg = format!("Claude is reviewing {} PR(s){with}, {} at a time", prs.len(), batch::AT_ONCE);
                     self.marked.clear();
                     self.batch_rx = Some(batch::start(prs, self.root.clone(), extra));
+                }
+                Some(Do::Replace(prs)) => {
+                    let which = prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(" ");
+                    let what = format!("instructions for Claude's replacement of {which} (optional)");
+                    let Some(extra) = self.instructions(term, "replace", &what) else { continue };
+                    self.msg = format!("Claude is drafting a replacement for {which}: the replacements tab shows it");
+                    self.marked.clear();
+                    self.draft_rx.push(batch::replace(prs, self.root.clone(), extra));
+                }
+                Some(Do::RemoveReplacement(id)) => {
+                    self.msg = crate::replace::remove(id, &self.root).unwrap_or_else(|e| format!("{e:#}"));
+                    self.load_reps();
+                    self.sel = self.sel.min(self.shown().len().saturating_sub(1));
                 }
                 Some(Do::Remove(n)) => {
                     self.msg = match crate::remove_worktree(n, false) {
@@ -204,8 +213,76 @@ impl List {
         }
     }
 
+    /// Your instructions to Claude for `kind` of task, in your editor, starting from the last
+    /// ones (kept if left as they are). In zellij the editor gets a pane beside the list;
+    /// elsewhere it takes the terminal. `None`: cancelled (`:cq`), or it failed (said so).
+    fn instructions(&mut self, term: &mut DefaultTerminal, kind: &str, what: &str) -> Option<String> {
+        let in_pane = crate::view::in_zellij();
+        if !in_pane {
+            crate::view::restore_terminal();
+        }
+        let last = crate::claude::instructions(kind);
+        let extra = crate::view::compose_with(what, true, last.trim(), true);
+        if !in_pane {
+            *term = crate::view::init_terminal();
+        }
+        match extra {
+            Ok(Some(e)) => {
+                _ = crate::claude::save_instructions(kind, &e);
+                Some(e)
+            }
+            Ok(None) => {
+                self.msg = "cancelled".into();
+                None
+            }
+            Err(e) => {
+                self.msg = format!("{e:#}");
+                None
+            }
+        }
+    }
+
+    /// The replacements, as cards: what they replace, and their size against their base.
+    fn load_reps(&mut self) {
+        let records = crate::replace::all();
+        self.reps = records.iter().map(|r| rep_card(r, &self.root)).collect();
+        self.rep_of = records.into_iter().map(|r| (r.id, r)).collect();
+    }
+
+    /// How Claude's drafts of replacements are going.
+    fn draft_news(&mut self) {
+        let news: Vec<(u64, batch::Status)> = self.draft_rx.iter().flat_map(|rx| rx.try_iter()).collect();
+        for (id, s) in news {
+            match &s {
+                batch::Status::Done(took) => self.msg = format!("Claude drafted a replacement for #{id} ({took}): it's in the replacements tab"),
+                batch::Status::Failed(e) => self.msg = format!("Claude's replacement of #{id}: {e}"),
+                _ => {}
+            }
+            let done = !s.running();
+            self.drafting.insert(id, s);
+            if done || !self.rep_of.contains_key(&id) {
+                self.load_reps(); // its record exists from Preparing on; its drafts once done
+            }
+        }
+    }
+
+    /// How a replacement's draft stands, for its card, or (`of`) for those of the PRs it
+    /// replaces: "claude ✓" there reads "replacement ✓".
+    fn draft_state(&self, id: u64, of: &str) -> Option<(String, bool)> {
+        let (what, ok) = match self.drafting.get(&id) {
+            Some(batch::Status::Failed(_)) => ("draft failed", false),
+            Some(s) if s.running() => ("drafting…", true),
+            _ => match self.rep_of.get(&id)?.title.is_empty() {
+                true => ("no draft yet", false),
+                false => ("✓", true),
+            },
+        };
+        Some((format!("{of}{}{what}", if what == "✓" { " " } else { ": " }), ok))
+    }
+
     /// How Claude's reviews are going: each card shows it; one finished counts as reviewed.
     fn batch_news(&mut self) {
+        self.draft_news();
         let Some(rx) = &self.batch_rx else { return };
         let news: Vec<(u64, batch::Status)> = rx.try_iter().collect();
         let mut worktrees = false;
@@ -251,6 +328,7 @@ impl List {
         let keep = self.shown().get(self.sel).map(|p| p.number);
         self.local = crate::pr_worktrees().into_iter().map(|(n, dir, b)| (n, (dir, b))).collect();
         self.reviewed = crate::batch::reviewed();
+        self.load_reps();
         match gh::list() {
             Ok(mut prs) => {
                 let (tx, rx) = mpsc::channel();
@@ -275,12 +353,15 @@ impl List {
 
     /// The tab's PRs matching every filter term, in the chosen order.
     fn shown(&self) -> Vec<&Listed> {
-        let in_tab = |p: &&Listed| match self.worktrees {
-            true => self.local.contains_key(&p.number),
-            false => p.state == "OPEN" || p.state.is_empty(),
+        let in_tab = |p: &&Listed| match self.tab {
+            Tab::Worktrees => self.local.contains_key(&p.number),
+            _ => p.state == "OPEN" || p.state.is_empty(),
         };
-        let mut prs: Vec<&Listed> =
-            self.prs.iter().filter(in_tab).filter(|p| self.query.split_whitespace().all(|t| term(p, t))).collect();
+        let all: Vec<&Listed> = match self.tab {
+            Tab::Replacements => self.reps.iter().collect(),
+            _ => self.prs.iter().filter(in_tab).collect(),
+        };
+        let mut prs: Vec<&Listed> = all.into_iter().filter(|p| self.query.split_whitespace().all(|t| term(p, t))).collect();
         prs.sort_by(|a, b| {
             let o = match self.order {
                 Order::Updated => b.updated.cmp(&a.updated), // ISO times sort as text
@@ -338,7 +419,18 @@ impl List {
             }
             KeyCode::Char('q') | KeyCode::Esc => return Some(Do::Quit),
             KeyCode::Char('R') => return Some(Do::Refresh),
-            KeyCode::Char('D') if self.worktrees => {
+            KeyCode::Char('D') if self.tab == Tab::Replacements => {
+                let id = self.shown().get(self.sel).map(|p| p.number)?;
+                if armed == Some(('D', id)) {
+                    return Some(Do::RemoveReplacement(id));
+                }
+                self.msg = format!("D again removes the replacement of #{id} (its worktree and record; its branch stays); any other key keeps it");
+                self.confirm = Some(('D', id));
+            }
+            KeyCode::Char('m' | 'a' | 'A') if self.tab == Tab::Replacements => {
+                self.msg = "a replacement: Enter opens it in dv, D D removes it".into();
+            }
+            KeyCode::Char('D') if self.tab == Tab::Worktrees => {
                 let p = self.shown().get(self.sel).map(|p| p.number)?;
                 let (dir, _) = self.local.get(&p)?;
                 if armed == Some(('D', p)) {
@@ -372,8 +464,27 @@ impl List {
                 self.msg = format!("a again: Claude reviews {which} in the background, each in its worktree (<repo>-N); your editor opens first, for any instructions");
                 self.confirm = Some(('a', 0));
             }
+            KeyCode::Char('A') => {
+                let mut prs: Vec<u64> = match self.marked.is_empty() {
+                    true => self.shown().get(self.sel).map(|p| vec![p.number]).unwrap_or_default(),
+                    false => self.marked.iter().copied().collect(),
+                };
+                prs.sort();
+                let id = *prs.first()?;
+                if self.drafting.get(&id).is_some_and(batch::Status::running) {
+                    return (self.msg = format!("Claude is already drafting the replacement of #{id}"), None).1;
+                }
+                if armed == Some(('A', 0)) {
+                    return Some(Do::Replace(prs));
+                }
+                let which = prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(" ");
+                let again = if self.rep_of.contains_key(&id) { " (again: it has one, which Claude carries on from)" } else { "" };
+                self.msg = format!("A again: Claude drafts one replacement for {which}{again}, unpublished; your editor opens first, for instructions");
+                self.confirm = Some(('A', 0));
+            }
             KeyCode::Char('?') => self.help = true,
-            KeyCode::Tab | KeyCode::BackTab => (self.worktrees, self.sel, self.top) = (!self.worktrees, 0, 0),
+            KeyCode::Tab => (self.tab, self.sel, self.top) = (self.tab.next(), 0, 0),
+            KeyCode::BackTab => (self.tab, self.sel, self.top) = (self.tab.next().next(), 0, 0),
             KeyCode::Char('/') => self.filtering = true, // edits the current filter
             KeyCode::Char('o') => self.sort(self.order.next(), self.rev),
             KeyCode::Char('O') => self.sort(self.order, !self.rev),
@@ -433,9 +544,11 @@ impl List {
         let tab = |name: String, on: bool| Span::styled(name, if on { hs.add_modifier(ratatui::style::Modifier::BOLD | ratatui::style::Modifier::UNDERLINED) } else { hs.patch(ui.stale) });
         let tabs = Line::from(vec![
             Span::styled(" ", hs),
-            tab(format!("open {open}{}", if self.prs.len() >= gh::LIST_MAX { "+" } else { "" }), !self.worktrees),
+            tab(format!("open {open}{}", if self.prs.len() >= gh::LIST_MAX { "+" } else { "" }), self.tab == Tab::Open),
             Span::styled("  ", hs),
-            tab(format!("worktrees {}", self.local.len()), self.worktrees),
+            tab(format!("worktrees {}", self.local.len()), self.tab == Tab::Worktrees),
+            Span::styled("  ", hs),
+            tab(format!("replacements {}", self.reps.len()), self.tab == Tab::Replacements),
             Span::styled(format!("   by {} {arrow}  (Tab switches)", self.order.name()), hs.patch(ui.stale)),
         ]);
         f.render_widget(Paragraph::new(tabs).style(hs), head);
@@ -459,13 +572,24 @@ impl List {
             .skip(self.top)
             .take(h)
             .flat_map(|(i, p)| {
-                let mark = Mark { marked: self.marked.contains(&p.number), claude: self.claude_state(p.number), new: self.new.contains(&p.number) };
-                card(p, &cx, i == sel, self.local.get(&p.number), mark)
+                let mark = match self.tab {
+                    Tab::Replacements => {
+                        let replaces = self.rep_of.get(&p.number).map(|r| {
+                            let each: Vec<String> = r.replaces.iter().map(|o| format!("#{} (@{})", o.number, o.author)).collect();
+                            format!("replaces {}", each.join(", "))
+                        });
+                        Mark { marked: false, claude: self.draft_state(p.number, "claude"), new: false, replaces }
+                    }
+                    _ => Mark { marked: self.marked.contains(&p.number), claude: self.claude_state(p.number), new: self.new.contains(&p.number), replaces: None },
+                };
+                let local = if self.tab == Tab::Replacements { None } else { self.local.get(&p.number) };
+                card(p, &cx, i == sel, local, mark)
             })
             .collect();
         let typed = self.query.trim().trim_start_matches('#').parse::<u64>().ok();
-        let none = match (self.worktrees, self.query.is_empty(), typed) {
-            (true, true, _) => " no PR worktrees here yet: `dv N -w` (or dv list -w, then Enter) makes one".into(),
+        let none = match (self.tab, self.query.is_empty(), typed) {
+            (Tab::Worktrees, true, _) => " no PR worktrees here yet: `dv N -w` (or dv list -w, then Enter) makes one".into(),
+            (Tab::Replacements, true, _) => " no replacements yet: A A on a PR (or marked ones) has Claude draft one".into(),
             (_, _, Some(n)) => format!(" #{n} isn't listed: Enter opens it anyway"),
             _ => String::new(),
         };
@@ -487,16 +611,39 @@ impl List {
         f.render_widget(Paragraph::new(flags).alignment(Alignment::Right).style(bar), status);
         if !self.help && !self.filtering {
             // The keys for this tab, bottom right, as dv's diff view shows them.
-            let enter = match self.worktrees {
-                true => "review, in its worktree".to_owned(),
-                false if self.flags.is_empty() => "review".to_owned(),
-                false => format!("review (dv N {})", self.flags),
+            let enter = match self.tab {
+                Tab::Worktrees => "review, in its worktree".to_owned(),
+                Tab::Replacements => "review it, in its worktree".to_owned(),
+                Tab::Open if self.flags.is_empty() => "review".to_owned(),
+                Tab::Open => format!("review (dv N {})", self.flags),
             };
-            let tab = if self.worktrees { "open PRs" } else { "PRs with a worktree" };
-            let keys = [("Enter", enter.as_str()), ("Tab", tab), ("/", "filter"), ("o O", "sort / reverse"), ("R", "refresh"), ("m", "mark"), ("a a", "Claude reviews marked"), ("D D", "remove worktree"), ("?", "all keys"), ("q", "quit")];
+            let tab = match self.tab {
+                Tab::Open => "PRs with a worktree",
+                Tab::Worktrees => "replacements",
+                Tab::Replacements => "open PRs",
+            };
+            let remove = if self.tab == Tab::Replacements { "remove replacement" } else { "remove worktree" };
+            let keys = [
+                ("Enter", enter.as_str()),
+                ("Tab", tab),
+                ("/", "filter"),
+                ("o O", "sort / reverse"),
+                ("R", "refresh"),
+                ("m", "mark"),
+                ("a a", "Claude reviews marked"),
+                ("A A", "Claude drafts a replacement"),
+                ("D D", remove),
+                ("?", "all keys"),
+                ("q", "quit"),
+            ];
+            let reps = self.tab == Tab::Replacements;
             let lines: Vec<Line> = keys
                 .iter()
-                .filter(|(k, _)| self.worktrees || *k != "D D")
+                .filter(|(k, _)| match *k {
+                    "D D" => self.tab != Tab::Open,
+                    "m" | "a a" | "A A" => !reps,
+                    _ => true,
+                })
                 .map(|(k, d)| Line::from(vec![Span::styled(format!("{k:<6}"), ui.key), Span::raw(d.to_string())]))
                 .collect();
             let w = (lines.iter().map(Line::width).max().unwrap_or(10) as u16 + 4).min(area.width);
@@ -538,12 +685,63 @@ enum Do {
     Remove(u64),
     /// Have Claude review these PRs, in the background.
     Review(Vec<u64>),
+    /// Have Claude draft one replacement for these PRs, in the background.
+    Replace(Vec<u64>),
+    /// Remove this replacement (its worktree and record).
+    RemoveReplacement(u64),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Tab {
+    Open,
+    Worktrees,
+    Replacements,
+}
+
+impl Tab {
+    fn next(self) -> Tab {
+        match self {
+            Tab::Open => Tab::Worktrees,
+            Tab::Worktrees => Tab::Replacements,
+            Tab::Replacements => Tab::Open,
+        }
+    }
+}
+
+/// A replacement's card: its drafted title, its branch, and its size against its base (from
+/// git: nothing's on GitHub yet).
+fn rep_card(r: &crate::replace::Record, root: &std::path::Path) -> Listed {
+    let branch = crate::replace::branch(r.id);
+    let git = |args: &[&str]| crate::diff::git(&[&["-C", &root.to_string_lossy()], args].concat()).unwrap_or_default();
+    // " 3 files changed, 10 insertions(+), 2 deletions(-)"
+    let stat = git(&["diff", "--shortstat", &format!("origin/{}...{branch}", r.base)]);
+    let count = |what: &str| -> u64 {
+        stat.split(',').find(|p| p.contains(what)).and_then(|p| p.split_whitespace().next()?.parse().ok()).unwrap_or(0)
+    };
+    let title = match r.title.is_empty() {
+        true => format!("(replacement of #{}, not drafted yet)", r.id),
+        false => r.title.clone(),
+    };
+    Listed {
+        number: r.id,
+        title,
+        base: r.base.clone(),
+        branch,
+        state: "OPEN".into(),
+        updated: git(&["log", "-1", "--format=%cI", &crate::replace::branch(r.id)]).trim().to_owned(),
+        files: count("file"),
+        additions: count("insertion"),
+        deletions: count("deletion"),
+        ..Listed::default()
+    }
 }
 
 /// A card's own marks: picked for review (`m`), and how Claude's review of it stands.
 struct Mark {
     /// Something on it you haven't seen.
     new: bool,
+    /// A replacement's card: what it replaces (said instead of an author).
+    replaces: Option<String>,
     marked: bool,
     claude: Option<(String, bool)>,
 }
@@ -551,6 +749,16 @@ struct Mark {
 impl List {
     /// What a card says about Claude's review: ("claude ✓", good) or ("claude: reviewing…", …).
     fn claude_state(&self, n: u64) -> Option<(String, bool)> {
+        // A PR being replaced says so too.
+        let id = self.rep_of.values().find(|r| r.replaces.iter().any(|o| o.number == n)).map(|r| r.id);
+        let replaced = id.or(self.drafting.contains_key(&n).then_some(n)).and_then(|id| self.draft_state(id, "replacement"));
+        match (self.review_state(n), replaced) {
+            (Some((a, x)), Some((b, y))) => Some((format!("{a} · {b}"), x && y)),
+            (a, b) => a.or(b),
+        }
+    }
+
+    fn review_state(&self, n: u64) -> Option<(String, bool)> {
         match self.batch.get(&n) {
             Some(batch::Status::Queued) => Some(("claude: queued".into(), true)),
             Some(batch::Status::Preparing) => Some(("claude: checking out…".into(), true)),
@@ -605,7 +813,8 @@ fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathBuf, Option<
     top.extend([sp(new.into(), tint(ui.key).add_modifier(ratatui::style::Modifier::BOLD)), sp(age, dim)]);
 
     let sep = || sp(" · ".into(), dim);
-    let mut bottom = vec![sp(" ".repeat(num_w + 2), row), sp(format!("@{}", p.author), dim)];
+    let who = mark.replaces.clone().unwrap_or_else(|| format!("@{}", p.author));
+    let mut bottom = vec![sp(" ".repeat(num_w + 2), row), sp(who, dim)];
     match p.checks {
         Some((0, 0, 0)) => {}
         Some((pass, fail, pending)) => {
@@ -614,7 +823,7 @@ fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathBuf, Option<
                 bottom.extend([sp(if k == 0 { " · " } else { " " }.into(), dim), sp(format!("{mark}{n}"), tint(st))]);
             }
         }
-        None if cx.checks_loading => bottom.extend([sep(), sp("checks…".into(), dim)]),
+        None if cx.checks_loading && mark.replaces.is_none() => bottom.extend([sep(), sp("checks…".into(), dim)]),
         None => {}
     }
     match p.decision.as_str() {
@@ -798,7 +1007,7 @@ fn filter_and_keys() {
     assert!(k(&mut l, KeyCode::Char('D')).is_none());
     assert!(matches!(k(&mut l, KeyCode::Char('D')), Some(Do::Remove(22))));
     // m marks (and moves on); a asks, a again has Claude review the marked ones.
-    k(&mut l, KeyCode::Tab); // open PRs: 1, 22, 333
+    k(&mut l, KeyCode::BackTab); // open PRs: 1, 22, 333
     k(&mut l, KeyCode::Char('g'));
     k(&mut l, KeyCode::Char('g'));
     k(&mut l, KeyCode::Char('m'));
@@ -814,6 +1023,25 @@ fn filter_and_keys() {
     assert_eq!(l.claude_state(1), Some(("claude ✓".into(), true)));
     assert!(k(&mut l, KeyCode::Char('q')).is_none() && l.msg.starts_with("Claude is still reviewing"));
     assert!(matches!(k(&mut l, KeyCode::Char('q')), Some(Do::Quit)));
+    // A A drafts one replacement for the marked PRs (or this one).
+    l.marked = HashSet::from([22, 1]);
+    assert!(k(&mut l, KeyCode::Char('A')).is_none() && l.msg.starts_with("A again: Claude drafts one replacement for #1 #22"));
+    assert!(matches!(k(&mut l, KeyCode::Char('A')), Some(Do::Replace(ref p)) if p == &[1, 22]));
+    // The replacements tab: its cards, and the PRs it replaces say so.
+    let o = |number| crate::replace::Original { number, author: "bot".into(), ..Default::default() };
+    let r = crate::replace::Record { id: 1, replaces: vec![o(1), o(22)], title: "Do it properly".into(), ..Default::default() };
+    l.reps = vec![Listed { number: 1, title: r.title.clone(), ..Listed::default() }];
+    l.rep_of.insert(1, r);
+    assert_eq!(l.claude_state(22), Some(("replacement ✓".into(), true)));
+    l.drafting.insert(1, batch::Status::Reviewing);
+    assert_eq!(l.draft_state(1, "claude"), Some(("claude: drafting…".into(), true)));
+    k(&mut l, KeyCode::Tab);
+    k(&mut l, KeyCode::Tab);
+    assert_eq!(l.tab, Tab::Replacements);
+    assert_eq!(shown(&l), [1]);
+    assert!(k(&mut l, KeyCode::Char('a')).is_none() && l.msg.starts_with("a replacement: Enter opens it"));
+    assert!(k(&mut l, KeyCode::Char('D')).is_none());
+    assert!(matches!(k(&mut l, KeyCode::Char('D')), Some(Do::RemoveReplacement(1))));
 }
 
 #[test]
@@ -823,7 +1051,7 @@ fn selected_card_readable() {
     (ui.menu_selected, ui.stale) = (Style::new().fg(Color::Black).bg(Color::Cyan), Style::new().fg(Color::Gray));
     let cx = Cards { ui: &ui, num_w: 5, width: 120, checks_loading: false, usual: "main" };
     let p = Listed { number: 1, title: "t".into(), author: "amy".into(), labels: vec![("bug".into(), "d73a4a".into())], ..Listed::default() };
-    let mark = || Mark { marked: false, claude: Some(("claude ✓".into(), true)), new: true };
+    let mark = || Mark { marked: false, claude: Some(("claude ✓".into(), true)), new: true, replaces: None };
     let [top, bottom] = card(&p, &cx, true, None, mark());
     for line in [&top, &bottom] {
         assert_eq!(line.width(), 120); // the highlight runs to the edge

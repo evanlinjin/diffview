@@ -6,6 +6,12 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Added
+- Replacements: Claude drafts the change a PR (or several attempts at the same thing) should
+  have been, unpublished, for you to review first. `A A` in `dv list`, `Space a` in dv, or
+  `dv replace N`; Claude works in `<repo>-replace-N` on `dv/replace-N`, commits (never pushes),
+  and drafts the new PR's title and description and a note for closing the originals. `dv
+  list`'s new replacements tab lists them, and Enter opens one in dv with what it replaces and
+  the drafts on top. Publishing and closing come next.
 - `S` → "Comment and close the PR": your comment as a review (pending comments too), then the
   PR closed; with nothing to say, it only closes.
 - `dv list`: `[new]` on PRs with something you haven't seen: GitHub activity or a change to
