@@ -207,7 +207,7 @@ impl App {
                 ("t", "review threads"),
                 ("p", "your pending comments"),
                 ("A", "Claude's comments"),
-                ("a", "ask Claude Code…"),
+                ("a", "ask Claude: review / answer / make changes"),
                 ("k", "hover / preview link"),
                 ("v", "mark file viewed"),
                 ("r", "resolve thread"),
@@ -350,7 +350,7 @@ impl App {
                             self.msg = "deleting…".into();
                             self.job = Some(Job::DeleteComment(id));
                         }
-                        Target::Claude(ask) => self.run_claude(ask),
+                        Target::Claude(ask) => self.pick_claude(ask),
                         Target::Nothing => {}
                     }
                 }

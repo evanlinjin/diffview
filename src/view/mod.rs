@@ -93,7 +93,7 @@ REVIEW
   S                    submit (comment / approve / request changes), or discard
   Space p  Space t     pick from your pending comments / all threads
   Space v              mark the file viewed (folds it, moves on)
-  Space a              ask Claude Code to review, or to answer your replies
+  Space a              ask Claude Code to review, answer your replies, or make the changes
   Space A              pick from Claude's comments ([waiting]: unanswered)
 
 GENERAL
@@ -182,6 +182,8 @@ enum Action {
     Reply { thread: String, comment: u64, review: bool, quote: String },
     /// A reply to Claude on its comment (by id), saved to the review file for Claude to answer.
     ClaudeReply(String),
+    /// Have Claude make the changes its open comments ask for, after your own instructions.
+    ClaudeFix,
     /// A new PR conversation comment, starting with `quote` (may be empty).
     Converse { quote: String },
     /// Rewrite one of your comments (node id, current body).
@@ -501,6 +503,13 @@ impl App {
                 let Some(body) = compose_with("reply to Claude", false, "", false)? else { return Ok("reply cancelled".into()) };
                 keep_on_error(crate::claude::reply(&p, &k, &body), &body)?;
                 Ok(self.answer_now())
+            }
+            Action::ClaudeFix => {
+                // Optional: empty goes ahead; quitting the editor with an error (`:cq`) cancels.
+                let what = "instructions for Claude, on top of its comments (optional)";
+                let Some(extra) = compose(what, true)? else { return Ok("Claude not asked".into()) };
+                self.run_claude(agent::Ask::Fix, &extra);
+                Ok(std::mem::take(&mut self.msg))
             }
             Action::Converse { quote } => {
                 self.pr.as_ref().context("no PR")?;

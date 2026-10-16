@@ -94,7 +94,12 @@ file that dv reloads whenever it changes, so you can keep dv open while Claude w
    replies", does the same by hand.) For each unresolved
    comment where you spoke last, it replies, or makes the change you asked for and says what it
    changed. Its answers appear in dv as it writes them. Repeat 4–5 as needed.
-6. **Submit**: `S` submits your pending review, holding whatever you queued with `c`. Claude
+6. **Have Claude make the changes** (optional): `Space a`, "Ask Claude to make the changes". You
+   can add your own instructions in `$EDITOR` first (leave it empty to just go). Claude makes
+   the change each open comment asks for (not the resolved, dismissed or outdated ones),
+   replying on each with what it changed; those comments then show as outdated. Check the
+   changes, then resolve.
+7. **Submit**: `S` submits your pending review, holding whatever you queued with `c`. Claude
    never posts to GitHub; only you do, from dv.
 
 **When the code changes** (Claude's edits, yours in `hx`, a new push), Claude's comments follow

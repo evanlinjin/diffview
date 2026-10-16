@@ -427,6 +427,13 @@ fn claude_menu() {
     let p = app.picker.as_ref().unwrap();
     assert!(p.items[0].label.starts_with("Update Claude's review"));
     assert!(p.items[1].label.contains("(1 waiting)") && p.sel == 1); // answering preselected
+    assert!(p.items[2].label.contains("make the changes (2 open comments")); // the resolved one is skipped
+    // Picking it asks for your own instructions first (an editor), then runs Claude.
+    app.picker = None;
+    app.pick_claude(agent::Ask::Fix);
+    assert!(matches!(app.action.take(), Some(Action::ClaudeFix)));
+    assert!(app.claude_prompt(agent::Ask::Fix, "keep the API").ends_with("The user adds:\nkeep the API"));
+    assert!(!app.claude_prompt(agent::Ask::Fix, "  ").contains("The user adds"));
     app.picker = None;
     // Space A lists Claude's comments, the unanswered one tagged.
     app.key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
@@ -444,7 +451,7 @@ fn claude_menu() {
     assert_eq!(app.matches(), [2]);
     app.picker = None;
     app.threads.clear();
-    app.run_claude(agent::Ask::Answer);
+    app.run_claude(agent::Ask::Answer, "");
     assert!(app.msg.contains("no replies waiting") && app.claude_job.is_none());
 }
 

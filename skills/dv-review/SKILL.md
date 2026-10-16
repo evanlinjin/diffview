@@ -97,6 +97,21 @@ whose code moved (`fixed:`) by itself. A comment whose code you changed becomes 
 (and `start_line`), delete its `code`, and run `dv review-check` again. If your change
 addressed it, leave it outdated and say so in your reply.
 
+## 4. Make the changes
+
+When asked to make the changes your comments ask for: read the file, and for every comment
+that isn't `"resolved": true` and that `dv review-check` doesn't report as outdated (the user
+dismisses comments they don't want by deleting them, so all that are left are wanted):
+
+- make the change in the code (for a `suggestion` block, apply it; otherwise do what the
+  comment says, keeping the change as small as the comment implies);
+- append `{ "author": "claude", "body": "Changed: <what you did>", "created": "<now>" }` to
+  its `replies`. Don't resolve it: the user resolves once they've checked your change.
+- if a comment turns out not to need a change, or you're unsure, reply saying so instead.
+
+Then run `dv review-check`: the comments whose code you changed show as outdated, which is
+expected. Finally, summarise what you changed (and what you didn't, and why).
+
 ## Notes
 
 - Never post anything to GitHub yourself; the user decides what goes there from dv.

@@ -7,6 +7,8 @@ use super::*;
 pub(super) enum Ask {
     Review,
     Answer,
+    /// Make the changes Claude's open comments ask for.
+    Fix,
 }
 
 /// What `claude -p` may do in the background: edit files (the review, and code when asked),
@@ -27,6 +29,12 @@ impl App {
         self.threads.iter().filter(|t| t.claude.is_some() && !t.resolved && yours(t)).count()
     }
 
+    /// Claude's comments still to act on: not dismissed (still in the file), not resolved, and
+    /// not outdated (their code has already changed).
+    pub(super) fn open_claude_comments(&self) -> usize {
+        self.threads.iter().filter(|t| t.claude.is_some() && !t.resolved && !t.outdated).count()
+    }
+
     pub(super) fn claude_menu(&mut self) {
         if self.claude_path.is_none() {
             return self.msg = "no review file here (not in a git repo?)".into();
@@ -37,37 +45,60 @@ impl App {
             false => "Ask Claude to review this",
         };
         let n = self.waiting_replies();
+        let open = self.open_claude_comments();
         let items = vec![
             Item::new(review, Target::Claude(Ask::Review)),
             Item::new(format!("Ask Claude to answer your replies ({n} waiting)"), Target::Claude(Ask::Answer)),
+            Item::new(format!("Ask Claude to make the changes ({open} open comments)"), Target::Claude(Ask::Fix)),
         ];
         self.picker = Some(Picker { title: " claude ", items, query: String::new(), sel: if n > 0 { 1 } else { 0 } });
     }
 
-    fn claude_prompt(&self, ask: Ask) -> String {
+    /// `extra`: the user's own instructions for this run (may be empty).
+    pub(super) fn claude_prompt(&self, ask: Ask, extra: &str) -> String {
         let what = match &self.pr {
             Some(p) => format!("PR #{}", p.number),
             None => "the current branch".into(),
         };
-        match ask {
+        let prompt = match ask {
             Ask::Review => format!("Use the dv-review skill to review {what} for dv. If there's already a review, update it."),
             Ask::Answer => format!("Use the dv-review skill to answer my replies in the dv review of {what}."),
+            Ask::Fix => format!(
+                "Use the dv-review skill to make the changes your open comments ask for in the dv review of {what} \
+                 (every comment that isn't resolved or outdated), replying on each with what you changed."
+            ),
+        };
+        match extra.trim() {
+            "" => prompt,
+            e => format!("{prompt}\n\nThe user adds:\n{e}"),
         }
     }
 
-    pub(super) fn run_claude(&mut self, ask: Ask) {
+    /// From the `Space a` menu. Making the changes first asks for your own instructions.
+    pub(super) fn pick_claude(&mut self, ask: Ask) {
+        match ask {
+            Ask::Fix if self.open_claude_comments() > 0 => self.action = Some(Action::ClaudeFix),
+            ask => self.run_claude(ask, ""),
+        }
+    }
+
+    pub(super) fn run_claude(&mut self, ask: Ask, extra: &str) {
         if matches!(ask, Ask::Answer) && self.waiting_replies() == 0 {
             return self.msg = "no replies waiting for Claude (r on a Claude comment replies)".into();
+        }
+        if matches!(ask, Ask::Fix) && self.open_claude_comments() == 0 {
+            return self.msg = "no open Claude comments to act on (resolved, outdated and dismissed ones are skipped)".into();
         }
         if let Some((child, ..)) = &mut self.claude_job
             && child.try_wait().ok().flatten().is_none()
         {
             return self.msg = "Claude is still working on the last request".into();
         }
-        let prompt = self.claude_prompt(ask);
+        let prompt = self.claude_prompt(ask, extra);
         let label = match ask {
             Ask::Review => "reviewing",
             Ask::Answer => "answering your replies",
+            Ask::Fix => "making the changes",
         };
         self.msg = match in_zellij() {
             // A real session in a pane: watch it, approve what it asks, talk to it.
@@ -100,7 +131,7 @@ impl App {
             self.claude_again = true;
             return "reply saved; Claude answers it when it's done with what it's doing".into();
         }
-        let prompt = self.claude_prompt(Ask::Answer);
+        let prompt = self.claude_prompt(Ask::Answer, "");
         match self.spawn_claude(&prompt) {
             Ok((child, log)) => {
                 self.claude_job = Some((child, log, "answering"));
