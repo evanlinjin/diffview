@@ -607,18 +607,22 @@ fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathBuf, Option<
         true => cut(&p.branch, 32),
         false => format!("{} ← {}", p.base, cut(&p.branch, 32)),
     };
-    if let Some((text, ok)) = mark.claude {
-        bottom.extend([sep(), sp(text, tint(if ok { ui.key } else { ui.error }))]);
-    }
     bottom.extend([sep(), sp(branch, dim)]);
     if let Some((dir, branch)) = local {
         let name = dir.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned());
         let on = branch.as_deref().map_or("detached".to_owned(), |b| format!("on {}", cut(b, 24)));
         bottom.extend([sep(), sp(format!("⌂ {name} ({on})"), tint(ui.key))]);
     }
-    // The highlight runs to the edge.
-    let used: usize = bottom.iter().map(Span::width).sum();
-    bottom.push(sp(" ".repeat(width.saturating_sub(used)), row));
+    // Claude's part at the right end, where it stands out (under the age), the rest cut to
+    // make room; the highlight runs to the edge.
+    let claude = mark.claude.map(|(text, ok)| sp(format!("{text} "), tint(if ok { ui.key } else { ui.error })));
+    let room = width.saturating_sub(claude.as_ref().map_or(0, |c| c.width() + 1));
+    let mut used: usize = bottom.iter().map(Span::width).sum();
+    while (used > room || bottom.last().is_some_and(|s| s.content == " · ")) && bottom.len() > 1 {
+        used -= bottom.pop().map_or(0, |s| s.width());
+    }
+    bottom.push(sp(" ".repeat(width.saturating_sub(used + claude.as_ref().map_or(0, Span::width))), row));
+    bottom.extend(claude);
     [Line::from(top).style(row), Line::from(bottom).style(row)]
 }
 
@@ -799,4 +803,12 @@ fn selected_card_readable() {
     }
     let [_, bottom] = card(&p, &cx, false, None, mark());
     assert!(bottom.spans.iter().any(|s| s.style.fg == Some(Color::Gray))); // unselected: its colors
+    // Claude's part at the right end, even when the rest has to be cut for it.
+    assert_eq!(bottom.spans.last().unwrap().content, "claude ✓ ");
+    let narrow = Cards { width: 30, ..cx };
+    let p = Listed { branch: "a-very-long-branch-name-indeed".into(), ..p };
+    let [_, bottom] = card(&p, &narrow, false, None, mark());
+    assert_eq!(bottom.width(), 30);
+    assert_eq!(bottom.spans.last().unwrap().content, "claude ✓ ");
+    assert!(!bottom.spans.iter().rev().nth(2).is_some_and(|s| s.content == " · ")); // no separator left dangling
 }
