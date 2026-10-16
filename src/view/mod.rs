@@ -582,6 +582,7 @@ impl App {
                 // Optional: empty goes ahead; quitting the editor with an error (`:cq`) cancels.
                 let what = match ask {
                     agent::Ask::Review => "anything for Claude to look at or keep in mind in its review (optional)",
+                    _ if self.open_claude_comments() == 0 => "what Claude should change (there are no open comments to act on)",
                     _ => "instructions for Claude, on top of its comments (optional)",
                 };
                 let Some(extra) = compose(what, true)? else { return Ok("Claude not asked".into()) };

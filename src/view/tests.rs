@@ -838,3 +838,17 @@ fn mouse() {
     app.mouse(at(MouseEventKind::Down(MouseButton::Left), 20, 6)); // again: opens it
     assert!(app.picker.is_none() && app.rows[app.head.row].line.text.starts_with("img.png"));
 }
+
+#[test]
+fn make_changes_without_comments() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    app.claude_path = Some(std::env::temp_dir().join(format!("dv-fix-{}", std::process::id())).join("pr-1.json"));
+    // No open comments: still asks for instructions; with none written, nothing to do.
+    app.pick_claude(agent::Ask::Fix);
+    assert!(matches!(app.action.take(), Some(Action::ClaudeWith(agent::Ask::Fix))));
+    app.run_claude(agent::Ask::Fix, "  ");
+    assert!(app.msg.starts_with("nothing to change") && app.claude_job.is_none());
+    // With instructions, those are the request.
+    let prompt = app.claude_prompt(agent::Ask::Fix, "rename x to y");
+    assert!(prompt.starts_with("Make the change the user asks for below") && prompt.ends_with("rename x to y"));
+}

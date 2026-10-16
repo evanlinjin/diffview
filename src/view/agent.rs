@@ -121,6 +121,10 @@ impl App {
             Ask::Answer => format!(
                 "Use the dv-review skill to answer my replies (and the comments I left for you) in the dv review of {what}."
             ),
+            Ask::Fix if self.open_claude_comments() == 0 => format!(
+                "Make the change the user asks for below, in {what} (there are no open dv review comments to act on). \
+                 Use the dv-review skill's notes on the repo, if it has any."
+            ),
             Ask::Fix => format!(
                 "Use the dv-review skill to make the changes your open comments ask for in the dv review of {what} \
                  (every comment that isn't resolved or outdated), replying on each with what you changed and resolving \
@@ -172,7 +176,8 @@ impl App {
     pub(super) fn pick_claude(&mut self, ask: Ask) {
         match ask {
             Ask::Review => self.action = Some(Action::ClaudeWith(Ask::Review)),
-            Ask::Fix if self.open_claude_comments() > 0 => self.action = Some(Action::ClaudeWith(Ask::Fix)),
+            // Always to the editor: instructions alone are enough, even without open comments.
+            Ask::Fix => self.action = Some(Action::ClaudeWith(Ask::Fix)),
             ask => self.run_claude(ask, ""),
         }
     }
@@ -181,8 +186,8 @@ impl App {
         if matches!(ask, Ask::Answer) && self.waiting_replies() == 0 {
             return self.msg = "no replies waiting for Claude (r on a Claude comment replies)".into();
         }
-        if matches!(ask, Ask::Fix) && self.open_claude_comments() == 0 {
-            return self.msg = "no open Claude comments to act on (resolved, outdated and dismissed ones are skipped)".into();
+        if matches!(ask, Ask::Fix) && self.open_claude_comments() == 0 && extra.trim().is_empty() {
+            return self.msg = "nothing to change: no open Claude comments, and no instructions written".into();
         }
         if let Some(job) = &mut self.claude_job
             && job.child.try_wait().ok().flatten().is_none()
