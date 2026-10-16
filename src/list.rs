@@ -7,6 +7,11 @@ use ratatui::layout::{Alignment, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::{DefaultTerminal, Frame};
+use std::collections::HashMap;
+use std::sync::mpsc::{self, Receiver};
+use std::time::Duration;
+
+type Checks = anyhow::Result<HashMap<u64, (usize, usize, usize)>>;
 
 pub struct List {
     prs: Vec<Listed>,
@@ -19,13 +24,16 @@ pub struct List {
     /// Typing a `/` filter (Enter keeps it, Esc clears it).
     filtering: bool,
     pending_g: bool,
+    /// CI check counts, still on their way (they take a few seconds for a busy repo).
+    checks: Option<Receiver<Checks>>,
     pub msg: String,
 }
 
 impl List {
     pub fn new(flags: String) -> List {
         let ui = Theme::load().ui();
-        List { prs: vec![], ui, flags, sel: 0, top: 0, query: String::new(), filtering: false, pending_g: false, msg: String::new() }
+        let (query, msg) = (String::new(), String::new());
+        List { prs: vec![], ui, flags, sel: 0, top: 0, query, filtering: false, pending_g: false, checks: None, msg }
     }
 
     /// Show the list until a PR is picked (`Some`) or the user quits (`None`).
@@ -35,6 +43,16 @@ impl List {
         }
         loop {
             term.draw(|f| self.draw(f))?;
+            if let Some(Ok(res)) = self.checks.as_ref().map(Receiver::try_recv) {
+                self.checks = None;
+                match res {
+                    Ok(by_pr) => self.prs.iter_mut().for_each(|p| p.checks = by_pr.get(&p.number).copied()),
+                    Err(e) => self.msg = format!("checks: {e:#}"),
+                }
+            }
+            if !event::poll(Duration::from_millis(100))? {
+                continue;
+            }
             let Event::Key(k) = event::read()? else { continue };
             if k.kind != KeyEventKind::Press {
                 continue;
@@ -54,6 +72,9 @@ impl List {
         let keep = self.shown().get(self.sel).map(|p| p.number);
         match gh::list() {
             Ok(prs) => {
+                let (tx, rx) = mpsc::channel();
+                std::thread::spawn(move || tx.send(gh::list_checks()));
+                self.checks = Some(rx);
                 self.msg = if prs.is_empty() { "no open PRs".into() } else { String::new() };
                 self.prs = prs;
                 self.sel = keep.and_then(|n| self.shown().iter().position(|p| p.number == n)).unwrap_or(0);
@@ -109,14 +130,14 @@ impl List {
         None
     }
 
-    /// List rows on screen (between the header and the status bar), from the last draw.
+    /// Cards on screen (2 rows each, between the header and the status bar).
     fn height(&self) -> usize {
-        ratatui::crossterm::terminal::size().map_or(20, |(_, h)| h.saturating_sub(2) as usize)
+        ratatui::crossterm::terminal::size().map_or(10, |(_, h)| h.saturating_sub(2) as usize / 2)
     }
 
     fn draw(&mut self, f: &mut Frame) {
         let area = f.area();
-        let h = area.height.saturating_sub(2) as usize;
+        let h = area.height.saturating_sub(2) as usize / 2;
         let sel = self.sel.min(self.shown().len().saturating_sub(1));
         // Keep the selection on screen.
         (self.sel, self.top) = (sel, self.top.min(sel).max((sel + 1).saturating_sub(h)));
@@ -130,29 +151,15 @@ impl List {
         f.render_widget(Paragraph::new(pos).alignment(Alignment::Right).style(hs), head);
 
         let num_w = shown.iter().map(|p| p.number.to_string().len()).max().unwrap_or(1) + 1;
+        let width = area.width as usize;
         let lines: Vec<Line> = shown
             .iter()
             .enumerate()
             .skip(self.top)
             .take(h)
-            .map(|(i, p)| {
-                let row = if i == sel { ui.base.patch(ui.menu_selected) } else { ui.base };
-                let dim = row.patch(ui.stale);
-                let meta = format!("  @{} · {} · {}", p.author, cut(&p.branch, 24), gh::ago(&p.updated));
-                let draft = if p.draft { " draft" } else { "" };
-                // Long titles give way so the author and age stay visible.
-                let room = (area.width as usize).saturating_sub(num_w + 2 + meta.chars().count() + draft.len()).max(10);
-                let title = cut(&p.title, room);
-                Line::from(vec![
-                    Span::styled(format!(" {:>num_w$} ", format!("#{}", p.number)), row.patch(ui.key)),
-                    Span::styled(title, row),
-                    Span::styled(draft, dim),
-                    Span::styled(meta, dim),
-                ])
-                .style(row)
-            })
+            .flat_map(|(i, p)| card(p, ui, i == sel, num_w, width, self.checks.is_some()))
             .collect();
-        f.render_widget(Paragraph::new(lines), Rect { y: area.y + 1, height: h as u16, ..area });
+        f.render_widget(Paragraph::new(lines), Rect { y: area.y + 1, height: (h * 2) as u16, ..area });
 
         let status = Rect { y: area.bottom().saturating_sub(1), height: 1.min(area.height), ..area };
         let bar = ui.base.patch(ui.status);
@@ -174,6 +181,57 @@ enum Do {
     Refresh,
 }
 
+/// A PR as two lines: number, title, draft badge and age; then who, CI, review, size, labels
+/// and branches, most useful first so a narrow screen cuts the least useful.
+fn card(p: &Listed, ui: &Ui, selected: bool, num_w: usize, width: usize, checks_loading: bool) -> [Line<'static>; 2] {
+    let row = if selected { ui.base.patch(ui.menu_selected) } else { ui.base };
+    let dim = row.patch(ui.stale);
+    let sp = |t: String, st| Span::styled(t, st);
+    let age = format!("{} ", gh::ago(&p.updated));
+    let draft = if p.draft { "  DRAFT " } else { "" };
+    let room = width.saturating_sub(num_w + 3 + draft.len() + age.len()).max(10);
+    let mut top = vec![
+        sp(format!(" {:>num_w$} ", format!("#{}", p.number)), row.patch(ui.key)),
+        sp(cut(&p.title, room), row),
+    ];
+    if p.draft {
+        top.extend([sp("  ".into(), row), sp(" DRAFT ".into(), crate::view::chip("6e7681"))]);
+    }
+    let used: usize = top.iter().map(Span::width).sum();
+    top.push(sp(format!("{age:>w$}", w = width.saturating_sub(used)), dim));
+
+    let sep = || sp(" · ".into(), dim);
+    let mut bottom = vec![sp(" ".repeat(num_w + 2), row), sp(format!("@{}", p.author), dim)];
+    match p.checks {
+        Some((0, 0, 0)) => {}
+        Some((pass, fail, pending)) => {
+            let counts = [(pass, '✓', ui.plus), (fail, '✗', ui.error), (pending, '●', ui.warning)];
+            for (k, &(n, mark, st)) in counts.iter().filter(|c| c.0 > 0).enumerate() {
+                bottom.extend([sp(if k == 0 { " · " } else { " " }.into(), dim), sp(format!("{mark}{n}"), row.patch(st))]);
+            }
+        }
+        None if checks_loading => bottom.extend([sep(), sp("checks…".into(), dim)]),
+        None => {}
+    }
+    match p.decision.as_str() {
+        "APPROVED" => bottom.extend([sep(), sp("✓ approved".into(), row.patch(ui.plus))]),
+        "CHANGES_REQUESTED" => bottom.extend([sep(), sp("✗ changes requested".into(), row.patch(ui.error))]),
+        _ => {}
+    }
+    bottom.extend([
+        sep(),
+        sp(format!("+{}", p.additions), row.patch(ui.plus)),
+        sp(" ".into(), row),
+        sp(format!("−{}", p.deletions), row.patch(ui.minus)),
+        sp(format!(" in {} file{}", p.files, if p.files == 1 { "" } else { "s" }), dim),
+    ]);
+    for (name, color) in &p.labels {
+        bottom.extend([sp(" ".into(), row), sp(format!(" {name} "), crate::view::chip(color))]);
+    }
+    bottom.extend([sep(), sp(format!("{} ← {}", p.base, cut(&p.branch, 32)), dim)]);
+    [Line::from(top).style(row), Line::from(bottom).style(row)]
+}
+
 /// `s` cut to `n` chars, ending in `…` if it was longer.
 fn cut(s: &str, n: usize) -> String {
     match s.chars().count() > n {
@@ -192,9 +250,16 @@ fn filter_and_keys() {
         number,
         title: title.into(),
         author: author.into(),
+        base: "master".into(),
         branch: "b".into(),
         draft: false,
         updated: String::new(),
+        additions: 1,
+        deletions: 2,
+        files: 1,
+        decision: String::new(),
+        labels: vec![],
+        checks: None,
     };
     let mut l = List::new("-wb".into());
     l.prs = vec![pr(1, "Fix CI", "ann"), pr(22, "Add docs", "bo"), pr(333, "fix fees", "cy")];

@@ -1007,7 +1007,7 @@ fn gist(body: &str) -> &str {
 }
 
 /// A GitHub-style badge: the given background (hex, no '#'), black or white text for contrast.
-fn chip(hex: &str) -> Style {
+pub(crate) fn chip(hex: &str) -> Style {
     let n = u32::from_str_radix(hex.trim_start_matches('#'), 16).unwrap_or(0x6e7681);
     let (r, g, b) = ((n >> 16) as u8, (n >> 8) as u8, n as u8);
     let light = 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32 > 150.0;

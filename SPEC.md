@@ -109,7 +109,9 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `?` | key help overlay; `/` inside it filters entries (smart case), Enter keeps, Esc clears |
 | `q` | quit |
 
-`dv list` (the 200 most recently updated open PRs): `j k`, `gg ge`, `Ctrl-d Ctrl-u` move,
+`dv list` (the 200 most recently updated open PRs) shows each PR as a two-line card: number,
+title, draft badge, age; then author, CI (✓/✗/● counts, fetched in the background since they're
+slow), review decision, size, labels, base ← branch. `j k`, `gg ge`, `Ctrl-d Ctrl-u` move,
 `/` filters on number/title/author/branch (smart case; Enter keeps, Esc clears), `Enter`
 reviews the PR as `dv <N> <flags>` would, `R` refreshes, `q` quits. Quitting the review
 returns to the list; if opening a PR fails, the error shows in the list's status bar.

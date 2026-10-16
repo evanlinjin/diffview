@@ -122,31 +122,74 @@ pub struct Listed {
     pub number: u64,
     pub title: String,
     pub author: String,
+    pub base: String,
     pub branch: String,
     pub draft: bool,
     pub updated: String,
+    pub additions: u64,
+    pub deletions: u64,
+    pub files: u64,
+    /// APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED or empty.
+    pub decision: String,
+    /// (name, hex color)
+    pub labels: Vec<(String, String)>,
+    /// (passed, failed, pending), filled in by `list_checks` (slow, so fetched separately).
+    pub checks: Option<(usize, usize, usize)>,
 }
 
 // ponytail: the 200 most recently updated open PRs; a search box if a repo has more worth scanning.
 pub fn list() -> Result<Vec<Listed>> {
-    let out = gh(&["pr", "list", "--limit", "200", "--json", "number,title,author,headRefName,isDraft,updatedAt"])?;
-    let v: Value = serde_json::from_str(&out)?;
+    const FIELDS: &str = "number,title,author,baseRefName,headRefName,isDraft,updatedAt,additions,deletions,changedFiles,reviewDecision,labels";
+    let v: Value = serde_json::from_str(&gh(&["pr", "list", "--limit", "200", "--json", FIELDS])?)?;
     let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
+    let n = |v: &Value| v.as_u64().unwrap_or(0);
     let mut prs: Vec<Listed> = v
         .as_array()
         .context("gh pr list")?
         .iter()
         .map(|p| Listed {
-            number: p["number"].as_u64().unwrap_or(0),
+            number: n(&p["number"]),
             title: s(&p["title"]),
             author: s(&p["author"]["login"]),
+            base: s(&p["baseRefName"]),
             branch: s(&p["headRefName"]),
-            draft: p["isDraft"].as_bool().unwrap_or(false),
+            draft: p["isDraft"] == true,
             updated: s(&p["updatedAt"]),
+            additions: n(&p["additions"]),
+            deletions: n(&p["deletions"]),
+            files: n(&p["changedFiles"]),
+            decision: s(&p["reviewDecision"]),
+            labels: p["labels"].as_array().into_iter().flatten().map(|l| (s(&l["name"]), s(&l["color"]))).collect(),
+            checks: None,
         })
         .collect();
     prs.sort_by(|a, b| b.updated.cmp(&a.updated)); // ISO times sort as text
     Ok(prs)
+}
+
+/// CI check counts for the PRs `list` returns: number → (passed, failed, pending).
+pub fn list_checks() -> Result<std::collections::HashMap<u64, (usize, usize, usize)>> {
+    let v: Value = serde_json::from_str(&gh(&["pr", "list", "--limit", "200", "--json", "number,statusCheckRollup"])?)?;
+    let prs = v.as_array().context("gh pr list")?;
+    Ok(prs
+        .iter()
+        .map(|p| {
+            let checks = p["statusCheckRollup"].as_array().map(Vec::as_slice).unwrap_or(&[]);
+            let count = |m| checks.iter().filter(|c| verdict(c) == m).count();
+            (p["number"].as_u64().unwrap_or(0), (count('✓'), count('✗'), count('●')))
+        })
+        .collect())
+}
+
+/// A CI check's outcome: ✓ passed, ✗ failed, ● pending. CheckRun has status/conclusion;
+/// StatusContext has state.
+fn verdict(c: &Value) -> char {
+    match (c["status"].as_str(), c["conclusion"].as_str().or(c["state"].as_str())) {
+        (Some(st), _) if st != "COMPLETED" => '●',
+        (_, Some("SUCCESS" | "NEUTRAL" | "SKIPPED")) => '✓',
+        (_, Some("PENDING" | "EXPECTED")) | (_, None) => '●',
+        _ => '✗',
+    }
 }
 
 // ponytail: first 100 threads × 100 comments; paginate if a PR ever outgrows that.
@@ -475,14 +518,7 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
     }
     out.push(l);
 
-    // CheckRun has status/conclusion; StatusContext has state.
     let checks = list(&v["statusCheckRollup"]);
-    let verdict = |c: &Value| match (c["status"].as_str(), c["conclusion"].as_str().or(c["state"].as_str())) {
-        (Some(st), _) if st != "COMPLETED" => '●',
-        (_, Some("SUCCESS" | "NEUTRAL" | "SKIPPED")) => '✓',
-        (_, Some("PENDING" | "EXPECTED")) | (_, None) => '●',
-        _ => '✗',
-    };
     if checks.is_empty() {
         out.push(plain("checks: none".into()));
     } else {
