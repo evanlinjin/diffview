@@ -184,6 +184,7 @@ impl App {
                 self.refresh_help();
             }
             'c' => self.comment_or_reply(true),
+            'a' => self.start_ask_claude(),
             's' => self.start_suggest(),
             'C' => self.comment_or_reply(false),
             'r' => self.start_reply(true),
@@ -322,6 +323,15 @@ impl App {
         let m = self.matches();
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
         let Some(p) = &mut self.picker else { return };
+        // In the pending comments picker, Ctrl-d deletes the selected one (after a confirmation).
+        if ctrl && k.code == KeyCode::Char('d') && p.title == " pending comments " {
+            if let Some(Target::Comment(ti, ci)) = m.get(p.sel).map(|&i| &p.items[i].target)
+                && let Some(c) = self.threads.get(*ti).and_then(|t| t.comments.get(*ci)).cloned()
+            {
+                self.confirm_delete(c);
+            }
+            return;
+        }
         match k.code {
             KeyCode::Esc => self.picker = None,
             KeyCode::Enter => {

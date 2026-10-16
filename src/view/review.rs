@@ -164,6 +164,11 @@ impl App {
             self.msg = "move onto a comment to delete it".into();
             return;
         };
+        self.confirm_delete(c.clone());
+    }
+
+    /// The "delete this comment?" picker, "No" preselected.
+    pub(super) fn confirm_delete(&mut self, c: gh::Comment) {
         if !c.can_delete {
             self.msg = format!("you can't delete @{}'s comment", c.author);
             return;
@@ -405,6 +410,9 @@ impl App {
         match items.is_empty() {
             true => self.msg = "no pending comments".into(),
             false => self.picker = Some(Picker { title: " pending comments ", items, query: String::new(), sel: 0 }),
+        }
+        if self.picker.is_some() {
+            self.msg = "Enter jumps there · Ctrl-d deletes it".into();
         }
     }
 

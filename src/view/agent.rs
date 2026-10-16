@@ -67,7 +67,9 @@ impl App {
         };
         let prompt = match ask {
             Ask::Review => format!("Use the dv-review skill to review {what} for dv. If there's already a review, update it."),
-            Ask::Answer => format!("Use the dv-review skill to answer my replies in the dv review of {what}."),
+            Ask::Answer => format!(
+                "Use the dv-review skill to answer my replies (and the comments I left for you) in the dv review of {what}."
+            ),
             Ask::Fix => format!(
                 "Use the dv-review skill to make the changes your open comments ask for in the dv review of {what} \
                  (every comment that isn't resolved or outdated), replying on each with what you changed."
@@ -88,6 +90,25 @@ impl App {
             }
             Err(e) => self.msg = format!("{e:#}"),
         }
+    }
+
+    /// `a`: leave a comment for Claude on the selected lines (or the cursor's), in the review
+    /// file; Claude answers right away, as it does replies. Nothing goes to GitHub.
+    pub(super) fn start_ask_claude(&mut self) {
+        if self.claude_path.is_none() {
+            return self.msg = "no review file here (not in a git repo?)".into();
+        }
+        let anchor = match self.selection_anchor() {
+            Ok(a) => a,
+            Err(_) => return self.msg = "a on code lines leaves Claude a comment there".into(),
+        };
+        // Their text, so the comment follows its code (as review-check records for Claude's).
+        let code = self.files.iter().find(|f| f.path == anchor.path).map_or(vec![], |f| {
+            let lines = crate::claude::side_lines(f, anchor.left);
+            let first = anchor.start.map_or(anchor.line, |s| s.0);
+            lines.iter().filter(|l| (first..=anchor.line).contains(&l.0)).map(|l| l.1.to_owned()).collect()
+        });
+        self.action = Some(Action::AskClaude { anchor, code });
     }
 
     /// From the `Space a` menu. Reviewing and making the changes first ask for your own
@@ -118,6 +139,13 @@ impl App {
             Ask::Answer => "answering your replies",
             Ask::Fix => "making the changes",
         };
+        // Claude already open on this PR in a pane: ask there, rather than open another.
+        if let Some(pane) = self.claude_pane() {
+            return self.msg = match send_to_pane(pane, &prompt) {
+                Ok(()) => format!("asked Claude in its pane (it's on this PR): {label}"),
+                Err(e) => format!("typing into Claude's pane: {e:#}"),
+            };
+        }
         self.msg = match in_zellij() {
             // A real session in a pane (the PR's, as the background runs use): watch it, approve
             // what it asks, talk to it.
@@ -149,6 +177,14 @@ impl App {
     /// zellij: a pane per reply would get in the way). Replies made while it's working are
     /// picked up by one more run when it finishes. Returns what to tell the user.
     pub(super) fn answer_now(&mut self) -> String {
+        // The PR's session is open in a pane: answer there (two processes on one session would
+        // trip over each other).
+        if let Some(pane) = self.claude_pane() {
+            return match send_to_pane(pane, &self.claude_prompt(Ask::Answer, "")) {
+                Ok(()) => "reply sent to Claude's pane; it answers there".into(),
+                Err(e) => format!("reply saved, but typing into Claude's pane failed: {e:#}"),
+            };
+        }
         if self.claude_job.is_some() {
             self.claude_again = true;
             return "reply saved; Claude answers it when it's done with what it's doing".into();
@@ -161,6 +197,18 @@ impl App {
             }
             Err(e) => format!("reply saved, but starting claude failed: {e:#} (Space a to retry)"),
         }
+    }
+
+    /// The zellij pane running this PR's Claude Code session, if one is open: dv starts those
+    /// with the session id on the command line, which no other pane has.
+    fn claude_pane(&self) -> Option<u64> {
+        let id = self.claude_session.as_ref().filter(|_| in_zellij())?;
+        let out = std::process::Command::new("zellij").args(["action", "list-panes", "-j", "-c", "-s"]).output().ok()?;
+        let panes: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
+        panes.as_array()?.iter().find_map(|p| {
+            let live = p["exited"] != true && p["pane_command"].as_str().is_some_and(|c| c.contains(id.as_str()));
+            live.then(|| p["id"].as_u64()).flatten()
+        })
     }
 
     /// The PR's Claude Code session: resume it, or start it under a new id. Either way the id
@@ -234,4 +282,20 @@ impl App {
     pub(super) fn claude_working(&self) -> bool {
         self.claude_job.is_some()
     }
+}
+
+/// Type `prompt` into a Claude Code pane and send it: as a paste (so a multi-line prompt
+/// arrives whole), then Enter. If Claude is busy, it queues it.
+fn send_to_pane(pane: u64, prompt: &str) -> Result<()> {
+    let id = format!("terminal_{pane}");
+    for chars in [format!("\x1b[200~{prompt}\x1b[201~"), "\r".into()] {
+        let st = std::process::Command::new("zellij")
+            .args(["action", "write-chars", "-p", &id, &chars])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()?;
+        anyhow::ensure!(st.success(), "zellij action write-chars failed ({st})");
+    }
+    Ok(())
 }

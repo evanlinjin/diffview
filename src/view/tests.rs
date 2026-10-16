@@ -262,6 +262,12 @@ fn comments_placed_and_anchored() {
     assert_eq!(p.items.len(), 1);
     assert_eq!((p.items[0].label.as_str(), p.items[0].detail.as_slice()), ("src/a.rs:2  reply", &["unused".to_owned()][..])); // quote skipped
     let Target::Comment(ti, ci) = p.items[0].target else { panic!() };
+    // Ctrl-d there asks to delete it ("No" first), then deletes that comment.
+    app.picker = Some(p);
+    app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL));
+    let confirm = app.picker.take().unwrap();
+    assert_eq!((confirm.title, confirm.sel), (" delete comment? ", 0));
+    assert!(matches!(confirm.items[1].target, Target::DeleteComment(ref id) if id == "C2"));
     app.goto_comment(ti, ci);
     assert!(app.rows[app.head.row].line.text.starts_with("[pending] amy"));
     app.threads[0].comments[1].body = "unused".into();
@@ -590,4 +596,22 @@ fn approve_says_ack() {
     assert_eq!(ack("APPROVE", Some(&pr)), "ACK cb1cec09");
     assert_eq!(ack("COMMENT", Some(&pr)), "");
     assert_eq!(ack("APPROVE", None), "");
+}
+
+#[test]
+fn ask_claude_on_lines() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let dir = std::env::temp_dir().join(format!("dv-ask-{}", std::process::id()));
+    app.claude_path = Some(dir.join("pr-1.json"));
+    let add = app.rows.iter().position(|r| r.line.kind == Kind::Add).unwrap();
+    app.goto(add, 0);
+    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+    let Some(Action::AskClaude { anchor, code }) = app.action.take() else { panic!("no comment for Claude started") };
+    assert_eq!((anchor.path.as_str(), anchor.line, anchor.left), ("src/a.rs", 2, false));
+    assert_eq!(code, ["    new_call(x);"]);
+    // Once written, it's waiting for Claude (the user had the last word).
+    crate::claude::add_comment(app.claude_path.as_ref().unwrap(), &anchor, code, "why?").unwrap();
+    app.load_claude();
+    _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(app.waiting_replies(), 1);
 }

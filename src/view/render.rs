@@ -125,6 +125,7 @@ impl App {
                 ("c", "comment (review)"),
                 ("C", "comment now"),
                 ("s", "suggest a change"),
+                ("a", "a comment for Claude"),
                 ("y", "copy"),
                 ("Space c", "copy file:line ref"),
             ]));
@@ -145,6 +146,7 @@ impl App {
                     ("C", "reply now"),
                     ("Space r", "resolve"),
                     ("Space e", "edit your comment"),
+                    ("Space d", "delete your comment"),
                     ("Space c", "copy link"),
                 ]),
             });

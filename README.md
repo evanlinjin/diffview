@@ -75,6 +75,7 @@ file that dv reloads whenever it changes, so you can keep dv open while Claude w
    opens for anything it should focus on; leave it empty to just go. (Or, in Claude Code in
    that checkout, ask it to "review this PR for dv".) Inside zellij, Claude
    Code opens in a pane on the right, where you can watch it and approve what it asks to do;
+   if that PR's Claude pane is already open, dv asks there instead of opening another;
    elsewhere it runs in the background, allowed to edit files and run only the `dv review-*`
    and read-only `git` commands it needs, and the status bar says when it's done. It runs
    `dv review-info` (the review file's path, and the base commit: `git diff <base>` is the
@@ -91,6 +92,9 @@ file that dv reloads whenever it changes, so you can keep dv open while Claude w
    | `r` | reply to Claude: it answers right away, in the background (nothing goes to GitHub) |
    | `Space r` | resolve it, so Claude leaves it alone |
    | `Space d` | dismiss it |
+
+   To ask Claude something yourself, select lines and press `a`: your comment goes into the
+   review file and Claude answers it like a reply.
 
    A comment copied to GitHub is removed from the review file, so it doesn't show twice.
 5. **Claude answers**: as soon as you reply, Claude Code answers in the background, resuming

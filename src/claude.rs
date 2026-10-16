@@ -17,7 +17,8 @@
 //! ```
 //! `line`/`start_line` are file line numbers on `side` ("new" = the working tree, default;
 //! "old" = the base). `start_line` is optional (single-line comment). Replies are a
-//! conversation with Claude: dv appends the user's (`r`), Claude appends its answers.
+//! conversation with Claude: dv appends the user's (`r`), Claude appends its answers. A comment
+//! with `"author": "user"` is one the user left for Claude (`a` in dv), which Claude answers.
 //!
 //! `id` names a comment for good (`c1`, `c2`, …), so replies and dismissals reach the right one
 //! however the list is edited; dv and `dv review-check` give one to any comment without.
@@ -137,7 +138,8 @@ fn parse(text: &str) -> Result<Review> {
                     .collect(),
                 // Without an id yet: its position, until dv or review-check gives it one.
                 claude: Some(c["id"].as_str().map_or(format!("#{i}"), str::to_owned)),
-                comments: std::iter::once((AUTHOR.to_owned(), s(&c["body"]), created.clone()))
+                // A comment's own time (the user's have one), else the review's.
+                comments: std::iter::once((root_author(c), s(&c["body"]), Some(s(&c["created"])).filter(|t| !t.is_empty()).unwrap_or(created.clone())))
                     .chain(c["replies"].as_array().into_iter().flatten().map(|r| {
                         let who = s(&r["author"]);
                         (if who == USER { "you".into() } else { who }, s(&r["body"]), s(&r["created"]))
@@ -207,6 +209,40 @@ fn update(path: &std::path::Path, key: &str, f: impl FnOnce(&mut Vec<Value>, usi
     write(path, &v)
 }
 
+/// Who started a comment: Claude, unless it's one the user left for Claude (shown as "you").
+fn root_author(c: &Value) -> String {
+    if c["author"] == USER { "you".into() } else { AUTHOR.into() }
+}
+
+/// A comment the user leaves for Claude on lines of the diff (`a` in dv), for Claude to answer
+/// or act on. Starts the review file if there isn't one. Returns its id.
+pub fn add_comment(path: &std::path::Path, a: &crate::gh::Anchor, code: Vec<String>, body: &str) -> Result<String> {
+    let mut v: Value = match std::fs::read_to_string(path) {
+        Ok(t) => serde_json::from_str(&t)?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => serde_json::json!({ "comments": [] }),
+        Err(e) => return Err(e.into()),
+    };
+    if !v["comments"].is_array() {
+        v["comments"] = serde_json::json!([]);
+    }
+    let comments = v["comments"].as_array_mut().context("no comments")?;
+    let mut c = serde_json::json!({
+        "path": a.path, "line": a.line, "side": if a.left { "old" } else { "new" },
+        "author": USER, "body": body, "created": now(), "code": code,
+    });
+    if let Some((s, _)) = a.start {
+        c["start_line"] = s.into();
+    }
+    comments.push(c);
+    assign_ids(comments);
+    let id = comments.last().and_then(|c| c["id"].as_str()).unwrap_or_default().to_owned();
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    write(path, &v)?;
+    Ok(id)
+}
+
 /// Remove comment `key`.
 pub fn dismiss(path: &std::path::Path, key: &str) -> Result<()> {
     update(path, key, |c, i| _ = c.remove(i))
@@ -259,7 +295,7 @@ pub enum Found {
 }
 
 /// The file's lines on one side: (line number, text).
-fn side_lines(f: &FileDiff, left: bool) -> Vec<(u32, &str)> {
+pub fn side_lines(f: &FileDiff, left: bool) -> Vec<(u32, &str)> {
     f.full
         .iter()
         .filter_map(|l| match (left, l.kind) {
@@ -409,6 +445,19 @@ fn parse_and_dismiss() {
     let left = std::fs::read_to_string(&p).unwrap();
     _ = std::fs::remove_file(&p);
     assert!(!left.contains("\"x\"") && left.contains("\"extra\": true"));
+}
+
+#[test]
+fn comments_for_claude() {
+    let p = std::env::temp_dir().join(format!("dv-claude-ask-{}", std::process::id())).join("pr-1.json");
+    let a = crate::gh::Anchor { path: "src/a.rs".into(), line: 3, left: false, start: Some((2, false)) };
+    let id = add_comment(&p, &a, vec!["x".into(), "y".into()], "why?").unwrap(); // no file yet: started
+    let r = load(&p).unwrap().unwrap();
+    _ = std::fs::remove_dir_all(p.parent().unwrap());
+    let t = &r.threads[0];
+    assert_eq!((t.claude.as_deref(), t.start_line, t.line), (Some(id.as_str()), Some(2), Some(3)));
+    assert_eq!((t.comments[0].author.as_str(), t.comments[0].body.as_str()), ("you", "why?"));
+    assert_eq!(t.hunk, ["+x", "+y"]); // its code, so it follows it as the code changes
 }
 
 #[test]

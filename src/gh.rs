@@ -44,6 +44,7 @@ pub struct Thread {
     pub claude: Option<String>,
 }
 
+#[derive(Clone)]
 pub struct Comment {
     pub id: u64,
     /// GraphQL node id (for editing).

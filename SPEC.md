@@ -134,13 +134,14 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `Space r` | resolve / unresolve the thread under the cursor |
 | `Space e` | edit your comment under the cursor (opens its text in `$EDITOR`) |
 | `Space d` | delete the comment under the cursor (confirmation picker, "No" preselected) |
-| `Space p` | picker of your pending review's comments; jumps there (unfolding as needed) |
+| `Space p` | picker of your pending review's comments; jumps there (unfolding as needed); `Ctrl-d` deletes the selected one (asks first) |
 | `Space a` | run Claude Code: review (or update the review), answer your replies, or make the changes its open comments ask for (with your own instructions, optional) |
 | `Space A` | picker of Claude's comments (`[waiting]` = your reply is unanswered); jumps there |
 | `Space t` | picker of all review threads (state tags, author, gist, reply count); type to filter, e.g. `resolved` |
 | `Space v` | mark / unmark the file as viewed on GitHub (folds it and moves to the next file); viewed files start folded, headers show `✓ Viewed` / `↻ changed since viewed` at the right edge |
 | `]c [c` | next/prev comment thread |
 | `]a [a` | next/prev Claude comment, wrapping around; folded files and threads are opened on the way |
+| `a` | on code lines: a comment for Claude (in the review file, `"author": "user"`), which Claude answers right away; `r` continues the thread |
 | `r` on a Claude comment | reply to Claude: saved in the review file, then Claude answers right away in the background (`claude -p`, resuming the last run's session; replies made meanwhile get one more run) |
 | `c` / `C` on a Claude comment | copy it into your pending review / post it now; dismissed from the file once posted |
 | `R` | refresh: re-run `git diff`, re-fetch threads + PR info |

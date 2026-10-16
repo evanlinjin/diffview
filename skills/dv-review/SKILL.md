@@ -81,8 +81,12 @@ The user replies to your comments from dv. Each comment can have a `replies` lis
 ]
 ```
 
-When asked to answer them: read the file, and for every comment whose last reply is from
-`"user"` and isn't `"resolved": true`:
+The user can also leave you comments of their own on lines (`"author": "user"` on the comment
+itself; Claude's comments have no `author`): questions about the code, or requests. Treat each
+like a reply: it's waiting for you while the user has the last word.
+
+When asked to answer them: read the file, and for every comment whose last word (its last
+reply, or the comment itself if it has none) is from `"user"` and isn't `"resolved": true`:
 
 - answer by appending `{ "author": "claude", "body": "…", "created": "<now>" }` to its
   `replies`;

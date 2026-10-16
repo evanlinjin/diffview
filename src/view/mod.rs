@@ -75,6 +75,7 @@ RUST-ANALYZER
 ON SELECTED LINES
   c                    comment, in your pending review (C: post it now)
   s                    suggest a change, in your pending review
+  a                    a comment for Claude (it answers right away; not on GitHub)
 
 ON A REVIEW THREAD
   r                    reply, in your pending review (C: post it now)
@@ -91,7 +92,7 @@ ON PR TEXT
 
 REVIEW
   S                    submit (comment / approve / request changes), or discard
-  Space p  Space t     pick from your pending comments / all threads
+  Space p  Space t     pick from your pending comments (Ctrl-d deletes) / all threads
   Space v              mark the file viewed (folds it, moves on)
   Space a              ask Claude Code to review, answer your replies, or make the changes
   Space A              pick from Claude's comments ([waiting]: unanswered)
@@ -182,6 +183,8 @@ enum Action {
     Reply { thread: String, comment: u64, review: bool, quote: String },
     /// A reply to Claude on its comment (by id), saved to the review file for Claude to answer.
     ClaudeReply(String),
+    /// A comment for Claude on these lines (with their text), then Claude answers it.
+    AskClaude { anchor: Anchor, code: Vec<String> },
     /// Run Claude (review, or make the changes) after your own instructions for it.
     ClaudeWith(agent::Ask),
     /// A new PR conversation comment, starting with `quote` (may be empty).
@@ -522,6 +525,15 @@ impl App {
                 let p = self.claude_path.clone().context("no review file")?;
                 let Some(body) = compose_with("reply to Claude", false, "", false)? else { return Ok("reply cancelled".into()) };
                 keep_on_error(crate::claude::reply(&p, &k, &body), &body)?;
+                Ok(self.answer_now())
+            }
+            Action::AskClaude { anchor, code } => {
+                let p = self.claude_path.clone().context("no review file")?;
+                let range = anchor.start.map_or(anchor.line.to_string(), |(s, _)| format!("{s}-{}", anchor.line));
+                let what = format!("a comment for Claude on {}:{range} (it answers right away; nothing goes to GitHub)", anchor.path);
+                let Some(body) = compose(&what, false)? else { return Ok("comment cancelled".into()) };
+                keep_on_error(crate::claude::add_comment(&p, &anchor, code, &body).map(drop), &body)?;
+                self.load_claude();
                 Ok(self.answer_now())
             }
             Action::ClaudeWith(ask) => {
