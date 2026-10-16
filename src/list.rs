@@ -5,13 +5,29 @@ use anyhow::Result;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::layout::{Alignment, Rect};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::Paragraph;
+use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::{DefaultTerminal, Frame};
 use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
 type Checks = anyhow::Result<HashMap<u64, (usize, usize, usize)>>;
+
+const HELP: &str = "\
+  j k, Up Down         move
+  gg ge                first / last PR
+  Ctrl-d Ctrl-u        half a page down / up
+  Enter                review the PR (with dv list's flags); q there comes back here
+  /                    filter (Enter keeps it, Esc clears it); terms must all match:
+                         text            number, title, author, branch, labels
+                         author: label: base: branch:   part of that field
+                         is:draft  review:approved|changes|required|none
+                         ci:pass|fail|pending|none     -term excludes
+  Esc                  clear the filter
+  o O                  next sort order (updated, created, number, size) / reverse
+  R                    refresh
+  ?                    this help
+  q, Ctrl-c            quit";
 
 pub struct List {
     prs: Vec<Listed>,
@@ -24,6 +40,7 @@ pub struct List {
     /// Typing a `/` filter (Enter keeps it, Esc clears it).
     filtering: bool,
     pending_g: bool,
+    help: bool,
     order: Order,
     /// Oldest / smallest / lowest first instead.
     rev: bool,
@@ -36,7 +53,7 @@ impl List {
     pub fn new(flags: String) -> List {
         let ui = Theme::load().ui();
         let (query, msg) = (String::new(), String::new());
-        List { prs: vec![], ui, flags, sel: 0, top: 0, query, filtering: false, pending_g: false, order: Order::Updated, rev: false, checks: None, msg }
+        List { prs: vec![], ui, flags, sel: 0, top: 0, query, filtering: false, pending_g: false, help: false, order: Order::Updated, rev: false, checks: None, msg }
     }
 
     /// Show the list until a PR is picked (`Some`) or the user quits (`None`).
@@ -116,6 +133,9 @@ impl List {
         }
         let n = self.shown().len();
         self.msg.clear();
+        if std::mem::take(&mut self.help) {
+            return None; // any key closes the help
+        }
         if self.filtering {
             match k.code {
                 KeyCode::Esc => (self.query.clear(), self.filtering = false).1,
@@ -134,6 +154,7 @@ impl List {
             KeyCode::Esc if !self.query.is_empty() => (self.query.clear(), self.sel = 0).1,
             KeyCode::Char('q') | KeyCode::Esc => return Some(Do::Quit),
             KeyCode::Char('R') => return Some(Do::Refresh),
+            KeyCode::Char('?') => self.help = true,
             KeyCode::Char('/') => self.filtering = true, // edits the current filter
             KeyCode::Char('o') => self.sort(self.order.next(), self.rev),
             KeyCode::Char('O') => self.sort(self.order, !self.rev),
@@ -187,11 +208,31 @@ impl List {
             (true, _, _) => format!(" /{}▏  author: label: base: branch: is:draft review: ci:  -x negates", self.query),
             (_, _, false) => format!(" {}", self.msg),
             (_, false, _) => format!(" filter: {}  (Esc clears)", self.query),
-            _ => " Enter review · / filter · o O order · R refresh · q quit".into(),
+            _ => " Enter review · / filter · o O order · R refresh · ? help · q quit".into(),
         };
         let flags = if self.flags.is_empty() { String::new() } else { format!("opens with {}  ", self.flags) };
         f.render_widget(Paragraph::new(left).style(bar), status);
         f.render_widget(Paragraph::new(flags).alignment(Alignment::Right).style(bar), status);
+        if self.help {
+            // Like dv's popups: no border, the popup background, a header row.
+            let lines: Vec<&str> = HELP.lines().collect();
+            let w = (lines.iter().map(|l| l.chars().count()).max().unwrap_or(0) as u16 + 4).min(area.width);
+            let h = (lines.len() as u16 + 3).min(area.height);
+            let r = Rect { x: (area.width - w) / 2, y: (area.height - h) / 2, width: w, height: h };
+            f.render_widget(Clear, r);
+            f.render_widget(Block::new().style(ui.base.patch(ui.popup)), r);
+            let hs = ui.base.patch(ui.header);
+            f.render_widget(Paragraph::new(" dv list keys").style(hs), Rect { height: 1, ..r });
+            f.render_widget(Paragraph::new("any key closes ").alignment(Alignment::Right).style(hs), Rect { height: 1, ..r });
+            let body: Vec<Line> = lines
+                .iter()
+                .map(|l| {
+                    let (k, d) = l.split_at(l.char_indices().nth(23).map_or(l.len(), |(i, _)| i));
+                    Line::from(vec![Span::styled(k.to_owned(), ui.key), Span::raw(d.to_owned())])
+                })
+                .collect();
+            f.render_widget(Paragraph::new(body), Rect { x: r.x + 1, y: r.y + 2, width: r.width.saturating_sub(2), height: h.saturating_sub(3) });
+        }
     }
 }
 
@@ -377,5 +418,9 @@ fn filter_and_keys() {
     k(&mut l, KeyCode::Char('O'));
     assert_eq!(shown(&l), [1, 22, 333]);
     assert_eq!(l.shown()[l.sel].number, 333);
+    // `?` shows the help; the next key only closes it.
+    k(&mut l, KeyCode::Char('?'));
+    assert!(l.help);
+    assert!(k(&mut l, KeyCode::Char('q')).is_none() && !l.help);
     assert!(matches!(k(&mut l, KeyCode::Char('q')), Some(Do::Quit)));
 }
