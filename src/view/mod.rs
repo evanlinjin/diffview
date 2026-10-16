@@ -489,10 +489,12 @@ impl App {
 
     fn reload(&mut self, threads: bool) -> Result<()> {
         let keep = self.cursor_key();
-        if threads {
-            self.load_threads();
-        }
         self.files = diff::load(&self.base, DEFAULT_CONTEXT)?;
+        // After the diff: Claude's comments follow their code, which may have just been edited.
+        match threads {
+            true => self.load_threads(),
+            false => self.load_claude(),
+        }
         self.shape();
         self.rebuild(keep);
         Ok(())

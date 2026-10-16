@@ -195,20 +195,15 @@ fn review_file(cmd: &str, o: &Opts) -> anyhow::Result<()> {
         println!("exists: {}", path.exists());
         return Ok(());
     }
-    let review = claude::load(&path)?.with_context(|| format!("no review at {}", path.display()))?;
     let files = diff::load(&base, 3)?;
-    let (errors, warnings) = claude::check(&review, &files);
-    for w in &warnings {
-        println!("warning: {w}");
+    let r = claude::check(&path, &files)?;
+    for (kind, msgs) in [("fixed", &r.notes), ("warning", &r.warnings), ("error", &r.errors)] {
+        msgs.iter().for_each(|m| println!("{kind}: {m}"));
     }
-    for e in &errors {
-        println!("error: {e}");
+    if !r.errors.is_empty() {
+        anyhow::bail!("{} of {} comment(s) can't be placed", r.errors.len(), r.comments);
     }
-    let n = review.threads.len();
-    if !errors.is_empty() {
-        anyhow::bail!("{} of {n} comment(s) can't be placed", errors.len());
-    }
-    println!("ok: {n} comment(s), {} warning(s)", warnings.len());
+    println!("ok: {} comment(s), {} warning(s)", r.comments, r.warnings.len());
     Ok(())
 }
 

@@ -18,6 +18,10 @@
 //! `line`/`start_line` are file line numbers on `side` ("new" = the working tree, default;
 //! "old" = the base). `start_line` is optional (single-line comment). Replies are a
 //! conversation with Claude: dv appends the user's (`r`), Claude appends its answers.
+//!
+//! `code` is the text of the commented lines, recorded by `dv review-check`. It keeps comments
+//! on their code as the code changes: dv finds those lines again where they moved, and shows a
+//! comment as outdated when they're gone.
 use crate::diff::{self, FileDiff, Kind};
 use crate::gh::{Comment, Thread};
 use anyhow::{Context, Result};
@@ -79,7 +83,13 @@ fn parse(text: &str) -> Result<Review> {
                 original_line: Some(end),
                 resolved: c["resolved"] == true,
                 outdated: false,
-                hunk: vec![],
+                // The recorded code, diff-style (+ new side, - old), as outdated threads show it.
+                hunk: c["code"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|l| format!("{}{}", if c["side"] == "old" { '-' } else { '+' }, l.as_str().unwrap_or("")))
+                    .collect(),
                 claude: Some(i),
                 comments: std::iter::once((AUTHOR.to_owned(), s(&c["body"]), created.clone()))
                     .chain(c["replies"].as_array().into_iter().flatten().map(|r| {
@@ -154,34 +164,141 @@ fn now() -> String {
     format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", secs / 3600, secs % 3600 / 60, secs % 60)
 }
 
-/// Problems with the review against the diff: errors (dv can't place the comment) and
-/// warnings (dv can, but GitHub won't take it as a line comment).
-pub fn check(r: &Review, files: &[FileDiff]) -> (Vec<String>, Vec<String>) {
-    let (mut errors, mut warnings) = (vec![], vec![]);
+/// Where a comment's recorded code is now.
+#[derive(Debug, PartialEq)]
+pub enum Found {
+    /// No code recorded: nothing to check against.
+    Unknown,
+    Here,
+    /// Lines moved: the new (start_line, line).
+    Moved(Option<u32>, u32),
+    /// Its lines are gone or changed.
+    Gone,
+}
+
+/// The file's lines on one side: (line number, text).
+fn side_lines(f: &FileDiff, left: bool) -> Vec<(u32, &str)> {
+    f.full
+        .iter()
+        .filter_map(|l| match (left, l.kind) {
+            (true, Kind::Ctx | Kind::Del) => Some((l.old?, l.text.as_str())),
+            (false, Kind::Ctx | Kind::Add) => Some((l.new?, l.text.as_str())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Find thread `t`'s recorded code in `f`: where it was, else the nearest place the same
+/// lines appear (trailing whitespace ignored).
+pub fn locate(t: &Thread, f: &FileDiff) -> Found {
+    let code: Vec<&str> = t.hunk.iter().map(|l| l.get(1..).unwrap_or("").trim_end()).collect();
+    let Some(line) = t.line.or(t.original_line) else { return Found::Gone };
+    if code.is_empty() {
+        return Found::Unknown;
+    }
+    let start = t.start_line.unwrap_or(line);
+    let lines = side_lines(f, t.left);
+    let at = |i: usize| lines[i..].iter().take(code.len()).map(|l| l.1.trim_end()).eq(code.iter().copied());
+    let hits = (0..lines.len()).filter(|&i| at(i));
+    match hits.min_by_key(|&i| (lines[i].0 as i64 - start as i64).abs()) {
+        Some(i) if lines[i].0 == start => Found::Here,
+        Some(i) => {
+            let s = lines[i].0;
+            Found::Moved(t.start_line.map(|_| s), s + (line - start))
+        }
+        None => Found::Gone,
+    }
+}
+
+/// Keep Claude's comments on their code: move the ones whose lines moved, and mark the ones
+/// whose lines are gone outdated (or that aren't in the diff any more, which dv can't show).
+pub fn reanchor(threads: &mut [Thread], files: &[FileDiff]) {
+    for t in threads.iter_mut().filter(|t| t.claude.is_some()) {
+        let found = match files.iter().find(|f| f.path == t.path) {
+            Some(f) => locate(t, f),
+            None => Found::Gone,
+        };
+        match found {
+            Found::Unknown | Found::Here => {}
+            Found::Moved(s, l) => (t.start_line, t.line) = (s, Some(l)),
+            Found::Gone => (t.outdated, t.line) = (true, None),
+        }
+    }
+}
+
+pub struct Report {
+    /// dv can't place these comments.
+    pub errors: Vec<String>,
+    /// dv shows these, but GitHub won't take them, or they're outdated.
+    pub warnings: Vec<String>,
+    /// What `check` fixed in the file.
+    pub notes: Vec<String>,
+    pub comments: usize,
+}
+
+/// Check the review at `path` against the diff, and keep it anchored: record each comment's
+/// code (if it isn't yet), and move comments whose code moved. Writes the file if it changed.
+pub fn check(path: &std::path::Path, files: &[FileDiff]) -> Result<Report> {
+    let r = load(path)?.with_context(|| format!("no review at {}", path.display()))?;
+    let mut v: Value = serde_json::from_str(&std::fs::read_to_string(path)?)?;
+    let mut rep = Report { errors: vec![], warnings: vec![], notes: vec![], comments: r.threads.len() };
+    let mut changed = false;
     for (i, t) in r.threads.iter().enumerate() {
+        let c = &mut v["comments"][i];
         let at = format!("comment {} ({}:{})", i + 1, t.path, t.line.unwrap_or(0));
         let Some(f) = files.iter().find(|f| f.path == t.path) else {
-            errors.push(format!("{at}: {} isn't in the diff", t.path));
+            rep.errors.push(format!("{at}: {} isn't in the diff", t.path));
             continue;
         };
-        let side = |l: &diff::Line| match t.left {
-            true => matches!(l.kind, Kind::Ctx | Kind::Del),
-            false => matches!(l.kind, Kind::Ctx | Kind::Add),
-        };
-        let no = |l: &diff::Line| if t.left { l.old } else { l.new };
-        for n in t.start_line.into_iter().chain(t.line) {
-            let Some(i) = f.full.iter().position(|l| side(l) && no(l) == Some(n)) else {
-                errors.push(format!("{at}: line {n} doesn't exist on the {} side", if t.left { "old" } else { "new" }));
+        let (mut start, mut line) = (t.start_line, t.line.unwrap_or(0));
+        match locate(t, f) {
+            Found::Here => {}
+            Found::Moved(s, l) => {
+                rep.notes.push(format!("{at}: its code moved, now at line {l}"));
+                (start, line) = (s, l);
+                c["line"] = l.into();
+                if let Some(s) = s {
+                    c["start_line"] = s.into();
+                }
+                changed = true;
+            }
+            Found::Gone => {
+                rep.warnings.push(format!(
+                    "{at}: the code it was on has changed, so dv shows it as outdated; to re-anchor it, set its \"line\" (and \"start_line\") and delete its \"code\""
+                ));
                 continue;
-            };
-            // GitHub takes line comments within its hunks: 3 lines of context around a change.
+            }
+            Found::Unknown => {
+                let lines = side_lines(f, t.left);
+                let code: Option<Vec<&str>> =
+                    (start.unwrap_or(line)..=line).map(|n| lines.iter().find(|l| l.0 == n).map(|l| l.1)).collect();
+                match code {
+                    Some(code) => {
+                        c["code"] = serde_json::json!(code);
+                        changed = true;
+                    }
+                    None => {
+                        let side = if t.left { "old" } else { "new" };
+                        rep.errors.push(format!("{at}: lines {}-{line} don't all exist on the {side} side", start.unwrap_or(line)));
+                        continue;
+                    }
+                }
+            }
+        }
+        // GitHub takes line comments within its hunks: 3 lines of context around a change.
+        let full_at = |n: u32| f.full.iter().position(|l| if t.left { l.old == Some(n) && l.kind != Kind::Add } else { l.new == Some(n) && l.kind != Kind::Del });
+        for n in start.into_iter().chain([line]) {
+            let Some(i) = full_at(n) else { continue };
             let near = &f.full[i.saturating_sub(3)..(i + 4).min(f.full.len())];
             if !near.iter().any(|l| matches!(l.kind, Kind::Add | Kind::Del)) {
-                warnings.push(format!("{at}: line {n} is outside the diff's hunks, so it can't become a GitHub comment"));
+                rep.warnings.push(format!("{at}: line {n} is outside the diff's hunks, so it can't become a GitHub comment"));
             }
         }
     }
-    (errors, warnings)
+    if changed {
+        std::fs::write(path, serde_json::to_string_pretty(&v)? + "\n")?;
+    }
+    Ok(rep)
 }
 
 #[test]
@@ -207,4 +324,37 @@ fn parse_and_dismiss() {
     let left = std::fs::read_to_string(&p).unwrap();
     _ = std::fs::remove_file(&p);
     assert!(!left.contains("\"x\"") && left.contains("\"extra\": true"));
+}
+
+#[test]
+fn anchoring() {
+    let mut f = diff::parse(diff::SAMPLE).remove(0);
+    f.prepare();
+    // New side: 1 `fn main() {`, 2 `    new_call(x);`, 3 `}`. Old side: 2 `    old();`.
+    let p = std::env::temp_dir().join(format!("dv-claude-anchor-{}.json", std::process::id()));
+    std::fs::write(&p, r#"{ "comments": [
+        { "path": "src/a.rs", "line": 2, "body": "a" },
+        { "path": "src/a.rs", "line": 2, "side": "old", "body": "b" },
+        { "path": "src/a.rs", "line": 9, "body": "c" } ] }"#).unwrap();
+    let rep = check(&p, std::slice::from_ref(&f)).unwrap();
+    assert_eq!(rep.errors.len(), 1); // line 9 doesn't exist
+    let mut r = load(&p).unwrap().unwrap();
+    assert_eq!(r.threads[0].hunk, ["+    new_call(x);"]); // code recorded by check
+    assert_eq!(r.threads[1].hunk, ["-    old();"]);
+    assert_eq!(locate(&r.threads[0], &f), Found::Here);
+    // The code moved down a line: found there. Changed: outdated.
+    r.threads[0].line = Some(1);
+    assert_eq!(locate(&r.threads[0], &f), Found::Moved(None, 2));
+    r.threads[1].hunk = vec!["-    gone();".into()];
+    reanchor(&mut r.threads, std::slice::from_ref(&f));
+    assert_eq!((r.threads[0].line, r.threads[0].outdated), (Some(2), false));
+    assert_eq!((r.threads[1].line, r.threads[1].outdated), (None, true));
+    // check moves a moved comment in the file too.
+    let mut v: Value = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    v["comments"][0]["line"] = 1.into();
+    std::fs::write(&p, v.to_string()).unwrap();
+    let rep = check(&p, std::slice::from_ref(&f)).unwrap();
+    assert_eq!(rep.notes.len(), 1);
+    assert_eq!(load(&p).unwrap().unwrap().threads[0].line, Some(2));
+    _ = std::fs::remove_file(&p);
 }

@@ -59,9 +59,11 @@ the file as JSON:
   ```
   ````
 
-Then run `dv review-check`. It checks every comment against the diff. Fix each `error:`
-(the comment can't be placed: wrong path or line), and consider each `warning:`. Run it
-again until it says `ok`.
+Then run `dv review-check`. It checks every comment against the diff and records the text
+of the commented lines in each comment's `code` field. Don't write `code` yourself. dv uses
+it to keep comments on their code as the code changes, and shows a comment as outdated once
+its code is gone. Fix each `error:` (the comment can't be placed: wrong path or line), and
+consider each `warning:`. Run it again until it says `ok`.
 
 Writing the file replaces any review that was there. If one exists, keep its comments that
 still apply rather than dropping the user's replies.
@@ -86,9 +88,11 @@ When asked to answer them: read the file, and for every comment whose last reply
 - if the user convinced you the comment is wrong, say so in the reply (don't delete it).
 
 Edit the file in place: keep every other field, comment and reply exactly as it is (the
-user's tools rely on comment order). Run `dv review-check` afterwards. If you changed code,
-line numbers below your change may have moved: update the affected comments' `line` /
-`start_line` so they still point at the right code.
+user's tools rely on comment order). Run `dv review-check` afterwards. It moves comments
+whose code moved (`fixed:`) by itself. A comment whose code you changed becomes outdated
+(`warning: … outdated`). If it still applies to the new code, re-anchor it: set its `line`
+(and `start_line`), delete its `code`, and run `dv review-check` again. If your change
+addressed it, leave it outdated and say so in your reply.
 
 ## Notes
 

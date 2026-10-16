@@ -364,3 +364,28 @@ fn claude_review() {
     assert!(app.threads.is_empty() && app.msg.contains("0 comment(s)"));
     _ = std::fs::remove_file(&p);
 }
+
+#[test]
+fn claude_outdated() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let p = std::env::temp_dir().join(format!("dv-claude-outdated-{}.json", std::process::id()));
+    // One whose code moved (recorded on line 1, now on 2) and one whose code is gone.
+    std::fs::write(&p, r#"{ "comments": [
+        { "path": "src/a.rs", "line": 1, "body": "moved", "code": ["    new_call(x);"] },
+        { "path": "src/a.rs", "line": 2, "body": "gone", "code": ["    other();"] } ] }"#).unwrap();
+    app.claude_path = Some(p.clone());
+    app.load_threads();
+    app.build();
+    _ = std::fs::remove_file(&p);
+    let (moved, gone) = (&app.threads[0], &app.threads[1]);
+    assert_eq!((moved.line, moved.outdated), (Some(2), false));
+    assert!(gone.outdated && !app.thread_open(1)); // folded, like GitHub's outdated threads
+    let head = app.rows.iter().position(|r| r.thread == Some(1)).unwrap();
+    assert!(app.rows[head].line.text.starts_with("[outdated] claude"));
+    // Under the line it moved to: the added line (new side 2).
+    let m = app.rows.iter().position(|r| r.thread == Some(0)).unwrap();
+    assert_eq!(app.rows[m - 1].line.new, Some(2));
+    app.goto(head, 0);
+    app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+    assert!(app.action.is_none() && app.msg.contains("outdated"));
+}

@@ -164,11 +164,17 @@ impl App {
         let Some(p) = &self.claude_path else { return };
         self.claude_mtime = std::fs::metadata(p).and_then(|m| m.modified()).ok();
         match crate::claude::load(p) {
-            Ok(Some(r)) => {
+            Ok(Some(mut r)) => {
+                // Comments with their code recorded follow it; others can only trust their lines.
                 let head = diff::git(&["rev-parse", "HEAD"]).unwrap_or_default();
-                if !r.head.is_empty() && !head.trim().starts_with(&r.head) && !r.head.starts_with(head.trim()) {
-                    self.msg = format!("Claude reviewed {}, HEAD has moved since: its line numbers may be off", &r.head[..r.head.len().min(8)]);
+                let moved = !r.head.is_empty() && !head.trim().starts_with(&r.head) && !r.head.starts_with(head.trim());
+                if moved && r.threads.iter().any(|t| t.hunk.is_empty()) {
+                    self.msg = format!(
+                        "Claude reviewed {}; HEAD has moved since, so its line numbers may be off (`dv review-check` re-anchors)",
+                        &r.head[..r.head.len().min(8)]
+                    );
                 }
+                crate::claude::reanchor(&mut r.threads, &self.files);
                 self.claude_summary = r.summary;
                 self.threads.extend(r.threads);
             }
@@ -215,6 +221,9 @@ impl App {
     /// post it now. Claude's copy is dismissed once it's on GitHub.
     pub(super) fn start_promote(&mut self, t: usize, i: usize, review: bool) {
         let th = &self.threads[t];
+        if th.outdated {
+            return self.msg = "this comment is outdated (its code changed): ask Claude to update it, or Space d".into();
+        }
         let anchor = Anchor { path: th.path.clone(), line: th.line.unwrap_or(0), left: th.left, start: th.start_line.map(|s| (s, th.left)) };
         let body = self.comment_under_cursor(t).map(|c| c.body.clone()).unwrap_or_default();
         match self.check_synced() {
