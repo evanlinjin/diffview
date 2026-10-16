@@ -1,3 +1,4 @@
+mod batch;
 mod claude;
 mod diff;
 mod gh;
@@ -95,6 +96,8 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Opts> {
             "review-info" => o.cmd = Some("review-info"),
             "review-check" => o.cmd = Some("review-check"),
             "install-skill" => o.cmd = Some("install-skill"),
+            // For `dv list`'s batch reviews: a process of its own, as it changes directory.
+            "prepare-worktree" => o.cmd = Some("prepare-worktree"),
             _ if a.starts_with('-') => anyhow::bail!("unknown flag {a}\n{USAGE}"),
             _ if !a.is_empty() && a.bytes().all(|b| b.is_ascii_digit()) => o.pr = Some(num(Some(a))?),
             _ => o.base = Some(a),
@@ -135,6 +138,12 @@ fn run() -> anyhow::Result<()> {
     }
     match o.cmd {
         Some("install-skill") => return install_skill(),
+        Some("prepare-worktree") => {
+            let n = o.pr.context("prepare-worktree needs a PR number")?;
+            let (dir, _) = enter_worktree(n, o.branch, false)?; // -b: it's on the PR's branch; keep it so
+            println!("{}", dir.display());
+            return Ok(());
+        }
         Some(cmd) => return review_file(cmd, &o),
         None => {}
     }
@@ -371,9 +380,9 @@ fn ensure_ours(dir: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// `dv 123 --rm`: remove PR 123's worktree. git refuses if it has local changes (`-f` discards
-/// them). A branch checked out there is kept, since it may have unpushed commits.
-/// Remove PR `n`'s worktree (`force`: with its local changes); says what was done.
+/// `dv 123 --rm` (and `D D` in `dv list`): remove PR 123's worktree, saying what was done. git
+/// refuses if it has local changes (`force` discards them). A branch checked out there is
+/// kept, since it may have unpushed commits.
 pub(crate) fn remove_worktree(n: u64, force: bool) -> anyhow::Result<String> {
     let (main, dir) = worktree_dir(n)?;
     if !dir.exists() {

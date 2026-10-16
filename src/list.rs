@@ -8,7 +8,8 @@ use ratatui::layout::{Alignment, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::{DefaultTerminal, Frame};
-use std::collections::HashMap;
+use crate::batch;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
@@ -29,6 +30,10 @@ const HELP: &str = "\
                          ci:pass|fail|pending|none     -term excludes
   Esc                  clear the filter
   o O                  next sort order (updated, created, number, size) / reverse
+  m                    mark the PR (again: unmark), for Claude to review
+  a a                  Claude reviews the marked PRs (or this one) in the background, two at a
+                       time, each in its worktree (<repo>-N, made if need be); cards show how
+                       it's going, and claude ✓ once a PR has a review
   D D                  worktrees tab: remove the PR's worktree (not with local changes in it;
                        its branch stays)
   R                    refresh
@@ -56,8 +61,18 @@ pub struct List {
     local: HashMap<u64, (PathBuf, Option<String>)>,
     /// Showing the worktrees tab.
     worktrees: bool,
-    /// `D` pressed on this PR's worktree: `D` again removes it.
-    removing: Option<u64>,
+    /// A key that asks to be pressed again (`D` on this PR's worktree, `a`, `q`): any other
+    /// key calls it off.
+    confirm: Option<(char, u64)>,
+    /// PRs marked (`m`) for Claude to review.
+    marked: HashSet<u64>,
+    /// Claude's reviews from here (`a`): how each is going, and the news on its way.
+    batch: HashMap<u64, batch::Status>,
+    batch_rx: Option<Receiver<(u64, batch::Status)>>,
+    /// PRs Claude has a review of.
+    reviewed: HashSet<u64>,
+    /// The repo, for the reviews' worktrees.
+    root: PathBuf,
     pub msg: String,
 }
 
@@ -87,7 +102,12 @@ impl List {
             checks: None,
             local: HashMap::new(),
             worktrees: false,
-            removing: None,
+            confirm: None,
+            marked: HashSet::new(),
+            batch: HashMap::new(),
+            batch_rx: None,
+            reviewed: HashSet::new(),
+            root: std::env::current_dir().unwrap_or_default(),
             msg,
         }
     }
@@ -99,6 +119,7 @@ impl List {
         }
         loop {
             term.draw(|f| self.draw(f))?;
+            self.batch_news();
             if let Some(Ok(res)) = self.checks.as_ref().map(Receiver::try_recv) {
                 self.checks = None;
                 match res {
@@ -125,6 +146,13 @@ impl List {
                     return Ok(Some(Pick { number: n, worktree }));
                 }
                 Some(Do::Refresh) => self.refresh(term)?,
+                Some(Do::Review(prs)) => {
+                    let on_branch = |n| self.local.get(&n).is_some_and(|w| w.1.is_some());
+                    let prs: Vec<(u64, bool)> = prs.into_iter().map(|n| (n, on_branch(n))).collect();
+                    self.msg = format!("Claude is reviewing {} PR(s), {} at a time", prs.len(), batch::AT_ONCE);
+                    self.marked.clear();
+                    self.batch_rx = Some(batch::start(prs, self.root.clone()));
+                }
                 Some(Do::Remove(n)) => {
                     self.msg = match crate::remove_worktree(n, false) {
                         Ok(m) => {
@@ -142,11 +170,34 @@ impl List {
         }
     }
 
+    /// How Claude's reviews are going: each card shows it; one finished counts as reviewed.
+    fn batch_news(&mut self) {
+        let Some(rx) = &self.batch_rx else { return };
+        let news: Vec<(u64, batch::Status)> = rx.try_iter().collect();
+        let mut worktrees = false;
+        for (n, s) in news {
+            match &s {
+                batch::Status::Done(took) => {
+                    self.reviewed.insert(n);
+                    self.msg = format!("Claude reviewed #{n} ({took}): Enter opens it, in its worktree from the worktrees tab");
+                }
+                batch::Status::Failed(e) => self.msg = format!("Claude's review of #{n}: {e}"),
+                batch::Status::Reviewing => worktrees = true, // its worktree is ready
+                _ => {}
+            }
+            self.batch.insert(n, s);
+        }
+        if worktrees {
+            self.local = crate::pr_worktrees().into_iter().map(|(n, dir, b)| (n, (dir, b))).collect();
+        }
+    }
+
     fn refresh(&mut self, term: &mut DefaultTerminal) -> Result<()> {
         self.msg = "loading PRs…".into();
         term.draw(|f| self.draw(f))?;
         let keep = self.shown().get(self.sel).map(|p| p.number);
         self.local = crate::pr_worktrees().into_iter().map(|(n, dir, b)| (n, (dir, b))).collect();
+        self.reviewed = crate::batch::reviewed();
         match gh::list() {
             Ok(mut prs) => {
                 let (tx, rx) = mpsc::channel();
@@ -202,7 +253,7 @@ impl List {
         }
         let n = self.shown().len();
         self.msg.clear();
-        let armed = self.removing.take(); // any other key keeps the worktree
+        let armed = self.confirm.take();
         if std::mem::take(&mut self.help) {
             return None; // any key closes the help
         }
@@ -226,16 +277,46 @@ impl List {
                 return self.shown().get(self.sel).map(|p| p.number).or(typed).map(Do::Open);
             }
             KeyCode::Esc if !self.query.is_empty() => (self.query.clear(), self.sel = 0).1,
+            // Reviews running: they'd stop with dv (the ones started finish; queued ones don't start).
+            KeyCode::Char('q') | KeyCode::Esc if self.batch.values().any(batch::Status::running) && armed != Some(('q', 0)) => {
+                self.msg = "Claude is still reviewing: q again quits (reviews under way finish; queued ones don't start)".into();
+                self.confirm = Some(('q', 0));
+            }
             KeyCode::Char('q') | KeyCode::Esc => return Some(Do::Quit),
             KeyCode::Char('R') => return Some(Do::Refresh),
             KeyCode::Char('D') if self.worktrees => {
                 let p = self.shown().get(self.sel).map(|p| p.number)?;
                 let (dir, _) = self.local.get(&p)?;
-                if armed == Some(p) {
+                if armed == Some(('D', p)) {
                     return Some(Do::Remove(p));
                 }
                 self.msg = format!("D again removes {} (its branch stays); any other key keeps it", dir.display());
-                self.removing = Some(p);
+                self.confirm = Some(('D', p));
+            }
+            KeyCode::Char('m') => {
+                let p = self.shown().get(self.sel).map(|p| p.number)?;
+                if !self.marked.remove(&p) {
+                    self.marked.insert(p);
+                }
+                self.sel = (self.sel + 1).min(n.saturating_sub(1)); // on to the next, to mark a run
+                self.msg = format!("{} marked: a asks Claude to review them", self.marked.len());
+            }
+            KeyCode::Char('a') => {
+                let mut prs: Vec<u64> = match self.marked.is_empty() {
+                    true => self.shown().get(self.sel).map(|p| vec![p.number]).unwrap_or_default(),
+                    false => self.marked.iter().copied().collect(),
+                };
+                prs.retain(|n| !self.batch.get(n).is_some_and(batch::Status::running));
+                prs.sort();
+                if prs.is_empty() {
+                    return None;
+                }
+                if armed == Some(('a', 0)) {
+                    return Some(Do::Review(prs));
+                }
+                let which = prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(" ");
+                self.msg = format!("a again: Claude reviews {which} in the background, each in its worktree (<repo>-N)");
+                self.confirm = Some(('a', 0));
             }
             KeyCode::Char('?') => self.help = true,
             KeyCode::Tab | KeyCode::BackTab => (self.worktrees, self.sel, self.top) = (!self.worktrees, 0, 0),
@@ -323,7 +404,10 @@ impl List {
             .enumerate()
             .skip(self.top)
             .take(h)
-            .flat_map(|(i, p)| card(p, &cx, i == sel, self.local.get(&p.number)))
+            .flat_map(|(i, p)| {
+                let mark = Mark { marked: self.marked.contains(&p.number), claude: self.claude_state(p.number) };
+                card(p, &cx, i == sel, self.local.get(&p.number), mark)
+            })
             .collect();
         let typed = self.query.trim().trim_start_matches('#').parse::<u64>().ok();
         let none = match (self.worktrees, self.query.is_empty(), typed) {
@@ -355,7 +439,7 @@ impl List {
                 false => format!("review (dv N {})", self.flags),
             };
             let tab = if self.worktrees { "open PRs" } else { "PRs with a worktree" };
-            let keys = [("Enter", enter.as_str()), ("Tab", tab), ("/", "filter"), ("o O", "sort / reverse"), ("R", "refresh"), ("D D", "remove worktree"), ("?", "all keys"), ("q", "quit")];
+            let keys = [("Enter", enter.as_str()), ("Tab", tab), ("/", "filter"), ("o O", "sort / reverse"), ("R", "refresh"), ("m", "mark"), ("a a", "Claude reviews marked"), ("D D", "remove worktree"), ("?", "all keys"), ("q", "quit")];
             let lines: Vec<Line> = keys
                 .iter()
                 .filter(|(k, _)| self.worktrees || *k != "D D")
@@ -398,6 +482,28 @@ enum Do {
     Refresh,
     /// Remove this PR's worktree.
     Remove(u64),
+    /// Have Claude review these PRs, in the background.
+    Review(Vec<u64>),
+}
+
+/// A card's own marks: picked for review (`m`), and how Claude's review of it stands.
+struct Mark {
+    marked: bool,
+    claude: Option<(String, bool)>,
+}
+
+impl List {
+    /// What a card says about Claude's review: ("claude ✓", good) or ("claude: reviewing…", …).
+    fn claude_state(&self, n: u64) -> Option<(String, bool)> {
+        match self.batch.get(&n) {
+            Some(batch::Status::Queued) => Some(("claude: queued".into(), true)),
+            Some(batch::Status::Preparing) => Some(("claude: checking out…".into(), true)),
+            Some(batch::Status::Reviewing) => Some(("claude: reviewing…".into(), true)),
+            Some(batch::Status::Failed(_)) => Some(("claude: failed".into(), false)),
+            _ if self.reviewed.contains(&n) => Some(("claude ✓".into(), true)),
+            _ => None,
+        }
+    }
 }
 
 /// What every card on screen shares.
@@ -412,7 +518,7 @@ struct Cards<'a> {
 
 /// A PR as two lines: number, title, state / draft badge and age; then who, CI, review, size,
 /// labels, branches and its worktree, most useful first so a narrow screen cuts the least useful.
-fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathBuf, Option<String>)>) -> [Line<'static>; 2] {
+fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathBuf, Option<String>)>, mark: Mark) -> [Line<'static>; 2] {
     let (ui, num_w, width, usual) = (cx.ui, cx.num_w, cx.width, cx.usual);
     let row = if selected { ui.base.patch(ui.menu_selected) } else { ui.base };
     let dim = row.patch(ui.stale);
@@ -427,7 +533,7 @@ fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathBuf, Option<
     };
     let room = width.saturating_sub(num_w + 3 + badge.map_or(0, |b| b.0.len() + 4) + age.len()).max(10);
     let mut top = vec![
-        sp(format!(" {:>num_w$} ", format!("#{}", p.number)), row.patch(ui.key)),
+        sp(format!("{}{:>num_w$} ", if mark.marked { "●" } else { " " }, format!("#{}", p.number)), row.patch(ui.key)),
         sp(cut(&p.title, room), row),
     ];
     if let Some((text, color)) = badge {
@@ -468,6 +574,9 @@ fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathBuf, Option<
         true => cut(&p.branch, 32),
         false => format!("{} ← {}", p.base, cut(&p.branch, 32)),
     };
+    if let Some((text, ok)) = mark.claude {
+        bottom.extend([sep(), sp(text, row.patch(if ok { ui.key } else { ui.error }))]);
+    }
     bottom.extend([sep(), sp(branch, dim)]);
     if let Some((dir, branch)) = local {
         let name = dir.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned());
@@ -619,5 +728,21 @@ fn filter_and_keys() {
     k(&mut l, KeyCode::Char('o'));
     assert!(k(&mut l, KeyCode::Char('D')).is_none());
     assert!(matches!(k(&mut l, KeyCode::Char('D')), Some(Do::Remove(22))));
+    // m marks (and moves on); a asks, a again has Claude review the marked ones.
+    k(&mut l, KeyCode::Tab); // open PRs: 1, 22, 333
+    k(&mut l, KeyCode::Char('g'));
+    k(&mut l, KeyCode::Char('g'));
+    k(&mut l, KeyCode::Char('m'));
+    k(&mut l, KeyCode::Char('j')); // past 22
+    k(&mut l, KeyCode::Char('m'));
+    assert_eq!(l.marked, HashSet::from([1, 333]));
+    assert!(k(&mut l, KeyCode::Char('a')).is_none() && l.msg.starts_with("a again: Claude reviews #1 #333"));
+    assert!(matches!(k(&mut l, KeyCode::Char('a')), Some(Do::Review(ref p)) if p == &[1, 333]));
+    // While reviews run, cards say so, and q asks before quitting.
+    l.batch.insert(333, batch::Status::Reviewing);
+    l.reviewed.insert(1);
+    assert_eq!(l.claude_state(333), Some(("claude: reviewing…".into(), true)));
+    assert_eq!(l.claude_state(1), Some(("claude ✓".into(), true)));
+    assert!(k(&mut l, KeyCode::Char('q')).is_none() && l.msg.starts_with("Claude is still reviewing"));
     assert!(matches!(k(&mut l, KeyCode::Char('q')), Some(Do::Quit)));
 }

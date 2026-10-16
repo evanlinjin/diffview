@@ -25,6 +25,10 @@ on GitHub are its section here.
   instead of failing there, and "viewed" counts only the PR's files.
 - A background Claude run says what it took when it's done ("5 turns, $0.22"); `Space m`
   has the total so far.
+- Batch reviews from `dv list`: `m` marks PRs, `a a` has Claude review them in the
+  background, two at a time, each in its worktree (`<repo>-N`, made if need be) and its own
+  session, so opening one later carries on from there. Cards show how each is going, and
+  `claude ✓` once a PR has a review.
 - Claude's comments show whose turn it is: `[waiting]` (you spoke last) and `[answered]`
   (Claude answered you); typing either in `Space A` lists just those.
 - A `severity` for Claude's comments (`bug`, `nit`, `question`, …), shown as a tag and put

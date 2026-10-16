@@ -189,7 +189,7 @@ impl App {
                     "Use the dv-review skill to update your dv review of {what}: review only what changed since you \
                      reviewed {old} (`git diff {old}`), and keep the comments that still apply."
                 ),
-                None => format!("Use the dv-review skill to review {what} for dv. If there's already a review, update it."),
+                None => review_prompt(&what),
             },
             Ask::Answer => format!(
                 "Use the dv-review skill to answer my replies (and the comments I left for you) in the dv review of {what}."
@@ -316,7 +316,7 @@ impl App {
                 .arg(path_env) // the pane gets zellij's environment, not dv's
                 .args(["claude", &prompt])
                 .args(self.session_args())
-                .args(self.claude_dirs())
+                .args(claude_dirs())
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
@@ -376,15 +376,6 @@ impl App {
         })
     }
 
-    /// `--add-dir` for dv's directory (the review files and notes): it's outside the checkout
-    /// Claude runs in, which is all Claude Code lets it touch otherwise.
-    pub(super) fn claude_dirs(&self) -> Vec<std::ffi::OsString> {
-        match crate::claude::dv_dir() {
-            Ok(dv) => vec!["--add-dir".into(), dv.into_os_string()],
-            Err(_) => vec![],
-        }
-    }
-
     /// The PR's Claude Code session in this checkout: resume it if Claude Code has it, else
     /// start it under a new id. The id is saved next to the review file (per checkout, as Claude
     /// Code keeps sessions per directory), so the next run continues the same conversation. One
@@ -416,18 +407,11 @@ impl App {
         self.claude_runs += 1;
         let log = std::env::temp_dir().join(format!("dv-claude-{}-{}.log", std::process::id(), self.claude_runs));
         let err = log.with_extension("err");
-        let mut cmd = std::process::Command::new("claude");
-        cmd.env("PATH", path_for_claude());
-        cmd.args(["-p", prompt, "--output-format", "json", "--permission-mode", "acceptEdits"]);
-        cmd.args(self.session_args());
+        let mut session = self.session_args().to_vec();
         if forked {
-            cmd.arg("--fork-session");
+            session.push("--fork-session".into());
         }
-        let child = cmd
-            .args(self.claude_dirs())
-            .arg("--allowedTools")
-            .args(ALLOWED)
-            .current_dir(&self.root)
+        let child = claude_command(prompt, &self.root, &session)
             .stdin(std::process::Stdio::null())
             .stdout(std::fs::File::create(&log)?)
             .stderr(std::fs::File::create(&err)?)
@@ -514,6 +498,34 @@ fn offer_to_pane(pane: u64, prompt: &str) -> Result<bool> {
     zellij(&["action", "paste", "-p", &id, prompt])?;
     zellij(&["action", "focus-pane-id", &id])?;
     Ok(true)
+}
+
+/// `--add-dir` for dv's directory (the review files and notes): it's outside the checkout
+/// Claude runs in, which is all Claude Code lets it touch otherwise.
+pub(super) fn claude_dirs() -> Vec<std::ffi::OsString> {
+    match crate::claude::dv_dir() {
+        Ok(dv) => vec!["--add-dir".into(), dv.into_os_string()],
+        Err(_) => vec![],
+    }
+}
+
+/// Asking Claude to review `what` ("PR #12").
+pub(crate) fn review_prompt(what: &str) -> String {
+    format!("Use the dv-review skill to review {what} for dv. If there's already a review, update it.")
+}
+
+/// `claude -p prompt` in `dir` as dv runs it in the background: its result as JSON on stdout,
+/// edits allowed, in the session `session` names (`--resume <id>`, `--session-id <id>`, …),
+/// with dv's directory reachable, and only the commands the skill needs.
+pub(crate) fn claude_command(prompt: &str, dir: &Path, session: &[String]) -> std::process::Command {
+    let mut cmd = std::process::Command::new("claude");
+    cmd.env("PATH", path_for_claude())
+        .args(["-p", prompt, "--output-format", "json", "--permission-mode", "acceptEdits"])
+        .args(session);
+    cmd.args(claude_dirs());
+    // Last: it takes every argument after it.
+    cmd.arg("--allowedTools").args(ALLOWED).current_dir(dir);
+    cmd
 }
 
 /// PATH for Claude, with this dv's directory first: the skill runs `dv review-*`, which must

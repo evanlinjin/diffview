@@ -596,7 +596,7 @@ fn claude_session_per_pr() {
     assert!(saved.starts_with(&format!("{}\t11111111-2222-4333-8444-555555555555\t", app.root.display()))); // + its skill
     // Claude may touch dv's directory for the repo, where the notes (and reviews) are.
     let notes = crate::claude::notes_path().unwrap();
-    assert_eq!(app.claude_dirs(), [std::ffi::OsString::from("--add-dir"), notes.parent().unwrap().as_os_str().to_owned()]);
+    assert_eq!(agent::claude_dirs(), [std::ffi::OsString::from("--add-dir"), notes.parent().unwrap().as_os_str().to_owned()]);
     // …and forgetting it (a failed run, or Space a → fresh session) removes it, so the next
     // run starts afresh.
     app.claude_menu();

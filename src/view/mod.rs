@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 mod agent;
+pub(crate) use agent::{claude_command, review_prompt};
 mod git;
 mod keys;
 mod mouse;
