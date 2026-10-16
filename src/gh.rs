@@ -19,6 +19,8 @@ pub struct Pr {
 /// Review threads plus the viewer's pending review on the PR, if any.
 pub struct Review {
     pub pr_id: String,
+    /// Whether you opened the PR.
+    pub mine: bool,
     pub pending: Option<String>,
     pub threads: Vec<Thread>,
     /// Your "Viewed" marks: path → VIEWED, or DISMISSED (the file changed after you marked it).
@@ -42,6 +44,8 @@ pub struct Thread {
     pub comments: Vec<Comment>,
     /// A comment from a local review file (see `claude.rs`): its id there. Not on GitHub.
     pub claude: Option<String>,
+    /// From the review file: how much it matters ("bug", "nit", "question", …); empty if unsaid.
+    pub severity: String,
 }
 
 #[derive(Clone)]
@@ -265,7 +269,7 @@ fn verdict(c: &Value) -> char {
 // ponytail: first 100 threads × 100 comments; paginate if a PR ever outgrows that.
 const THREADS: &str = "query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) { pullRequest(number: $number) {
-    id
+    id viewerDidAuthor
     reviews(states: PENDING, first: 10) { nodes { id viewerDidAuthor } }
     files(first: 100) { nodes { path viewerViewedState } }
     reviewThreads(first: 100) { nodes {
@@ -288,6 +292,7 @@ fn parse_review(pr: &Value) -> Review {
     let nodes = |v: &Value| v["nodes"].as_array().cloned().unwrap_or_default();
     Review {
         pr_id: pr["id"].as_str().unwrap_or("").to_owned(),
+        mine: pr["viewerDidAuthor"] != false,
         pending: nodes(&pr["reviews"])
             .iter()
             .find(|r| r["viewerDidAuthor"] == true)
@@ -455,6 +460,7 @@ fn parse_thread(t: &Value) -> Thread {
             })
             .collect(),
         claude: None,
+        severity: String::new(),
     }
 }
 

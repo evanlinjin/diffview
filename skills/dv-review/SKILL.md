@@ -37,6 +37,7 @@ the file as JSON:
       "line": 42,
       "start_line": 40,
       "side": "new",
+      "severity": "bug",
       "body": "Markdown. Say what's wrong, why it matters, and what to do instead."
     }
   ]
@@ -50,9 +51,10 @@ the file as JSON:
   Get them from the diff's `@@` headers or by reading the file. Don't guess.
 - Comment on changed lines or close to them (within 3 lines). Those can become GitHub
   comments; lines further away still show in dv but can't.
-- One issue per comment. Lead with the severity in bold if it helps triage, e.g.
-  `**bug:**`, `**nit:**`, `**question:**`. To propose exact code, use a GitHub suggestion
-  block (it replaces the commented lines):
+- One issue per comment, with its `severity`: `bug`, `security`, `perf`, `design`,
+  `question` or `nit` (dv shows it as a tag, and puts it before the text when the user copies
+  the comment to GitHub, so don't repeat it in the body). To propose exact code, use a GitHub
+  suggestion block (it replaces the commented lines):
 
   ````markdown
   ```suggestion
@@ -66,6 +68,9 @@ Don't write `code` or `id` yourself. dv uses
 it to keep comments on their code as the code changes, and shows a comment as outdated once
 its code is gone. Fix each `error:` (the comment can't be placed: wrong path or line), and
 consider each `warning:`. Run it again until it says `ok`.
+
+When asked to review only what changed since you last reviewed (`git diff <that commit>`):
+comment on those changes, keep your earlier comments, and set `head` to the new one.
 
 Writing the file replaces any review that was there. If one exists, keep its comments that
 still apply rather than dropping the user's replies, and always keep the user's own comments
@@ -126,6 +131,23 @@ comments they don't want by deleting them, so all that are left are wanted):
 
 Then run `dv review-check`: the comments whose code you changed show as outdated, which is
 expected. Finally, summarise what you changed (and what you didn't, and why).
+
+## 5. Suggest the changes (someone else's PR)
+
+When the PR isn't the user's, they can't push to it: asked to suggest the changes, **don't edit
+the code**. For every open comment (as in 4), propose the change as a GitHub suggestion block
+the user can post:
+
+- on your comment: add the block to its `body` (it replaces the commented lines, so re-anchor
+  the comment with `line` / `start_line` if the change needs other lines; then delete its
+  `code`). The user copies it to GitHub with `c`;
+- on the user's own comment (`"author": "user"`): leave it as it is, and add a comment of yours
+  on those lines with the block, saying which of theirs it's for;
+- reply `"Suggested: <what>"` and leave it unresolved: whether it goes to GitHub is the user's
+  call. If a change can't be a suggestion (it spans files, or isn't near the diff), describe it
+  in the reply instead.
+
+Then run `dv review-check`.
 
 ## Your notes on the repo
 

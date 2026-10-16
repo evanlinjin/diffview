@@ -254,6 +254,7 @@ impl App {
     pub(super) fn load_claude(&mut self) {
         self.threads.retain(|t| t.claude.is_none());
         self.claude_summary.clear();
+        self.claude_head.clear();
         let Some(p) = &self.claude_path else { return };
         let loaded = crate::claude::load_with_ids(p);
         self.claude_mtime = std::fs::metadata(p).and_then(|m| m.modified()).ok(); // after any id write
@@ -269,7 +270,7 @@ impl App {
                     );
                 }
                 crate::claude::reanchor(&mut r.threads, &self.files);
-                self.claude_summary = r.summary;
+                (self.claude_summary, self.claude_head) = (r.summary, r.head);
                 self.threads.extend(r.threads);
             }
             Ok(None) => {}
@@ -322,7 +323,11 @@ impl App {
             return self.msg = "this comment is outdated (its code changed): ask Claude to update it, or Space d".into();
         }
         let anchor = Anchor { path: th.path.clone(), line: th.line.unwrap_or(0), left: th.left, start: th.start_line.map(|s| (s, th.left)) };
-        let body = self.comment_under_cursor(t).map(|c| c.body.clone()).unwrap_or_default();
+        let mut body = self.comment_under_cursor(t).map(|c| c.body.clone()).unwrap_or_default();
+        // On GitHub the severity leads the text, as reviewers write it: "**nit:** …".
+        if !th.severity.is_empty() && !body.starts_with("**") && self.comment_index_under_cursor(t) == 0 {
+            body = format!("**{}:** {body}", th.severity);
+        }
         match self.check_synced() {
             Ok(()) => self.action = Some(Action::Comment { anchor, review, prefill: body, claude: Some(key) }),
             Err(e) => self.msg = format!("{e:#}"),
@@ -342,6 +347,7 @@ impl App {
                 if let Some(pr) = &mut self.pr {
                     pr.node_id = r.pr_id;
                 }
+                self.theirs = !r.mine;
             }
             Err(e) => self.msg = format!("loading comments: {e:#}"),
         }
@@ -386,7 +392,8 @@ impl App {
         self.threads_picker_of(" threads ", |_| true, "no review threads");
     }
 
-    /// `Space A`: Claude's comments, `[waiting]` where your reply hasn't been answered.
+    /// `Space A`: Claude's comments, `[waiting]` where your reply hasn't been answered,
+    /// `[answered]` where Claude has answered you (type either to pick from just those).
     pub(super) fn claude_picker(&mut self) {
         self.threads_picker_of(" Claude's comments ", |t| t.claude.is_some(), "no comments from Claude (Space a asks for a review)");
     }
@@ -400,14 +407,16 @@ impl App {
             .filter_map(|(ti, t)| {
                 let c = t.comments.first()?;
                 let line = t.line.or(t.original_line).map_or(String::new(), |n| format!(":{n}"));
+                let severity = (!t.severity.is_empty()).then(|| format!("[{}] ", t.severity));
                 let tags: String = [
                     (t.comments.iter().any(|c| c.pending), "[pending] "),
                     (t.resolved, "[resolved] "),
                     (t.outdated, "[outdated] "),
-                    (t.claude.is_some() && !t.resolved && t.comments.last().is_some_and(|c| c.author == "you"), "[waiting] "),
                 ]
                 .iter()
                 .filter_map(|&(on, s)| on.then_some(s))
+                .chain(severity.as_deref())
+                .chain(agent::turn(t))
                 .collect();
                 // Before the text, so a long first line can't push it out of sight.
                 let replies = match t.comments.len() - 1 {

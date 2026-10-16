@@ -45,11 +45,30 @@ pub(super) fn claude_wrote(t: &Thread) -> bool {
     t.claude.is_some() && t.comments.first().is_some_and(|c| c.author == crate::claude::AUTHOR)
 }
 
+/// Whose turn it is on an open thread of the review file: Claude's (`[waiting]`: you had the
+/// last word), or yours once Claude has answered you (`[answered]`).
+pub(super) fn turn(t: &Thread) -> Option<&'static str> {
+    let last = t.comments.last().filter(|_| t.claude.is_some() && !t.resolved)?;
+    match last.author == "you" {
+        true => Some("[waiting] "),
+        false => t.comments.iter().any(|c| c.author == "you").then_some("[answered] "),
+    }
+}
+
 impl App {
     /// Replies of yours that Claude hasn't answered yet.
     pub(super) fn waiting_replies(&self) -> usize {
-        let yours = |t: &Thread| t.comments.last().is_some_and(|c| c.author == "you");
-        self.threads.iter().filter(|t| t.claude.is_some() && !t.resolved && yours(t)).count()
+        self.threads.iter().filter(|t| turn(t) == Some("[waiting] ")).count()
+    }
+
+    /// The commit Claude last reviewed, if there's been more since that build on it (a push,
+    /// your commits): then an update need only look at those. Not after a rebase or force-push:
+    /// that's all new.
+    pub(super) fn reviewed_before(&self) -> Option<&str> {
+        let old = self.claude_head.as_str();
+        let head = diff::git(&["rev-parse", "HEAD"]).ok()?;
+        let newer = !old.is_empty() && !head.trim().starts_with(old);
+        (newer && diff::git(&["merge-base", "--is-ancestor", old, "HEAD"]).is_ok()).then_some(old)
     }
 
     /// What "make the changes" acts on: the review file's open comments, Claude's and the ones
@@ -78,9 +97,10 @@ impl App {
             return self.msg = "no review file here (not in a git repo?)".into();
         }
         let has_review = self.threads.iter().any(claude_wrote) || !self.claude_summary.is_empty();
-        let review = match has_review {
-            true => "Update Claude's review (keeps comments that still apply, and your replies)",
-            false => "Ask Claude to review this",
+        let review = match (has_review, self.reviewed_before()) {
+            (true, Some(old)) => format!("Update Claude's review: what changed since it reviewed {}", &old[..old.len().min(8)]),
+            (true, None) => "Update Claude's review (keeps comments that still apply, and your replies)".into(),
+            (false, _) => "Ask Claude to review this".into(),
         };
         let n = self.waiting_replies();
         let open = self.change_requests();
@@ -92,9 +112,12 @@ impl App {
             Item::new(review, Target::Claude(Ask::Review)),
             Item::new(format!("Ask Claude to answer your replies ({n} waiting)"), Target::Claude(Ask::Answer)),
             Item::new(
-                match open {
-                    0 => "Ask Claude to make a change (no open comments: you say what)".to_owned(),
-                    n => format!("Ask Claude to make the changes ({n} open comments)"),
+                match (open, self.theirs) {
+                    (0, false) => "Ask Claude to make a change (no open comments: you say what)".to_owned(),
+                    (n, false) => format!("Ask Claude to make the changes ({n} open comments)"),
+                    // Someone else's PR: as suggestions you can post, not edits.
+                    (0, true) => "Ask Claude to suggest a change (you say what; their PR: no edits)".to_owned(),
+                    (n, true) => format!("Ask Claude to suggest the changes ({n} open comments; their PR: no edits)"),
                 },
                 Target::Claude(Ask::Fix),
             ),
@@ -144,9 +167,23 @@ impl App {
             None => "the current branch".into(),
         };
         let prompt = match ask {
-            Ask::Review => format!("Use the dv-review skill to review {what} for dv. If there's already a review, update it."),
+            Ask::Review => match self.reviewed_before() {
+                Some(old) => format!(
+                    "Use the dv-review skill to update your dv review of {what}: review only what changed since you \
+                     reviewed {old} (`git diff {old}`), and keep the comments that still apply."
+                ),
+                None => format!("Use the dv-review skill to review {what} for dv. If there's already a review, update it."),
+            },
             Ask::Answer => format!(
                 "Use the dv-review skill to answer my replies (and the comments I left for you) in the dv review of {what}."
+            ),
+            Ask::Fix if self.theirs && self.change_requests() == 0 => format!(
+                "Use the dv-review skill to suggest the change the user asks for below, in the dv review of {what}: \
+                 it's someone else's PR, so don't edit the code; add a comment of yours there with a suggestion block."
+            ),
+            Ask::Fix if self.theirs => format!(
+                "Use the dv-review skill to suggest the changes the open comments in the dv review of {what} ask for \
+                 (see \"Suggest the changes\"): it's someone else's PR, so don't edit the code."
             ),
             Ask::Fix if self.change_requests() == 0 => format!(
                 "Make the change the user asks for below, in {what}. First run `dv review-info`: if the notes it lists \
@@ -235,6 +272,7 @@ impl App {
         let label = match ask {
             Ask::Review => "reviewing",
             Ask::Answer => "answering your replies",
+            Ask::Fix if self.theirs => "suggesting the changes",
             Ask::Fix => "making the changes",
         };
         // Claude already open on this PR in a pane: put the request there, rather than open

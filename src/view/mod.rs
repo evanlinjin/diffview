@@ -98,7 +98,7 @@ REVIEW
   Space p  Space t     pick from your pending comments (Ctrl-d deletes) / all threads
   Space v              mark the file viewed (folds it, moves on)
   Space a              ask Claude Code to review, answer your replies, or make the changes
-  Space A              pick from Claude's comments ([waiting]: unanswered)
+  Space A              pick from Claude's comments ([waiting]: its turn, [answered]: yours)
 
 GENERAL
   ?                    this help (/ to search it)
@@ -354,6 +354,10 @@ pub struct App {
     claude_path: Option<PathBuf>,
     claude_mtime: Option<std::time::SystemTime>,
     claude_summary: String,
+    /// The commit Claude's review was made against (its `head`).
+    claude_head: String,
+    /// The PR is someone else's: Claude suggests changes there rather than making them.
+    theirs: bool,
     /// The `hx` pane dv opened (inside zellij), reused for the next file.
     hx: Option<HxPane>,
     /// When dv last looked at the working tree, and what it saw (`watch_tree`).
@@ -466,6 +470,8 @@ impl App {
             claude_path: None,
             claude_mtime: None,
             claude_summary: String::new(),
+            claude_head: String::new(),
+            theirs: false,
             claude_job: None,
             hx: None,
             tree_checked: std::time::Instant::now(),
@@ -1092,10 +1098,15 @@ impl App {
         };
         // Tags lead the header so stale threads are easy to spot when scanning.
         let first_pending = t.comments.first().is_some_and(|c| c.pending);
+        let severity = format!("[{}] ", t.severity);
+        let serious = matches!(t.severity.as_str(), "bug" | "security" | "major" | "blocker");
+        let turn = agent::turn(t);
         let tags: Vec<(&str, Style)> = [
             (first_pending, "[pending] ", self.ui.pending),
             (t.outdated, "[outdated] ", self.ui.warning),
             (t.resolved, "[resolved] ", self.ui.resolved),
+            (!t.severity.is_empty(), severity.as_str(), if serious { self.ui.warning } else { self.ui.resolved }),
+            (turn.is_some(), turn.unwrap_or(""), self.ui.pending),
         ]
             .into_iter()
             .filter_map(|(on, s, c)| on.then_some((s, c)))

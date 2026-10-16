@@ -10,7 +10,7 @@
 //!   "created": "2026-10-16T12:00:00Z",
 //!   "summary": "markdown",
 //!   "comments": [
-//!     { "path": "src/a.rs", "line": 42, "start_line": 40, "side": "new", "body": "markdown",
+//!     { "path": "src/a.rs", "line": 42, "start_line": 40, "side": "new", "severity": "nit", "body": "markdown",
 //!       "resolved": false,
 //!       "replies": [ { "author": "user", "body": "why?" }, { "author": "claude", "body": "…" } ] }
 //!   ]
@@ -222,6 +222,7 @@ fn parse(text: &str) -> Result<Review> {
                     .collect(),
                 // Without an id yet: its position, until dv or review-check gives it one.
                 claude: Some(c["id"].as_str().map_or(format!("#{i}"), str::to_owned)),
+                severity: s(&c["severity"]).to_lowercase(),
                 // A comment's own time (the user's have one), else the review's.
                 comments: std::iter::once((root_author(c), s(&c["body"]), Some(s(&c["created"])).filter(|t| !t.is_empty()).unwrap_or(created.clone())))
                     .chain(c["replies"].as_array().into_iter().flatten().map(|r| {

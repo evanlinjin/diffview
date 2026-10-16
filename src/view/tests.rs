@@ -184,7 +184,7 @@ fn comments_placed_and_anchored() {
     let t = |left, line, resolved, comments| Thread {
         id: format!("T{line:?}"),
         path: "src/a.rs".into(), left, line, start_line: None, original_line: Some(1), resolved, outdated: line.is_none(),
-        hunk: vec![], comments, claude: None,
+        hunk: vec![], comments, claude: None, severity: String::new(),
     };
     app.threads = vec![
         t(true, Some(2), false, vec![c(1, "why remove?"), c(2, "unused")]), // on the deleted line
@@ -505,7 +505,7 @@ fn copy_refs() {
     let c = |id| gh::Comment { id, node_id: String::new(), can_edit: false, can_delete: false, author: "amy".into(), body: "hi".into(), created: String::new(), pending: false };
     app.threads = vec![gh::Thread {
         id: "T".into(), path: "src/a.rs".into(), left: false, line: Some(2), start_line: None, original_line: Some(2),
-        resolved: false, outdated: false, hunk: vec![], comments: vec![c(11), c(12)], claude: None,
+        resolved: false, outdated: false, hunk: vec![], comments: vec![c(11), c(12)], claude: None, severity: String::new(),
     }];
     let heading = |text: &str, url: &str| gh::InfoLine { heading: true, md: false, text: text.into(), marks: vec![], url: url.into() };
     let body = |text: &str| gh::InfoLine { heading: false, md: true, text: text.into(), marks: vec![], url: String::new() };
@@ -635,7 +635,7 @@ fn cycle_pending_comments() {
     let c = |id, pending| gh::Comment { id, node_id: String::new(), can_edit: true, can_delete: true, author: "me".into(), body: format!("c{id}"), created: String::new(), pending };
     let t = |line, comments| gh::Thread {
         id: String::new(), path: "src/a.rs".into(), left: false, line: Some(line), start_line: None, original_line: Some(line),
-        resolved: false, outdated: false, hunk: vec![], comments, claude: None,
+        resolved: false, outdated: false, hunk: vec![], comments, claude: None, severity: String::new(),
     };
     // A pending reply on line 3's thread, a pending comment on line 1, a posted one between.
     app.threads = vec![t(3, vec![c(1, false), c(2, true)]), t(1, vec![c(3, true)]), t(2, vec![c(4, false)])];
@@ -713,7 +713,7 @@ fn comments_in_the_margin() {
     let c = |id, body: &str| gh::Comment { id, node_id: String::new(), can_edit: false, can_delete: false, author: "amy".into(), body: body.into(), created: String::new(), pending: false };
     let t = |line, comments| gh::Thread {
         id: String::new(), path: "a.rs".into(), left: false, line: Some(line), start_line: None, original_line: Some(line),
-        resolved: false, outdated: false, hunk: vec![], comments, claude: None,
+        resolved: false, outdated: false, hunk: vec![], comments, claude: None, severity: String::new(),
     };
     app.threads = vec![t(1, vec![c(1, "first")]), t(2, vec![c(2, "second")])];
     app.margin_active = true;
@@ -789,7 +789,7 @@ fn margin_tags_on_their_own_line() {
     let c = gh::Comment { id: 1, node_id: String::new(), can_edit: false, can_delete: false, author: "amy".into(), body: "old".into(), created: String::new(), pending: false };
     app.threads = vec![gh::Thread {
         id: String::new(), path: "src/a.rs".into(), left: false, line: Some(2), start_line: None, original_line: Some(2),
-        resolved: true, outdated: false, hunk: vec![], comments: vec![c], claude: None,
+        resolved: true, outdated: false, hunk: vec![], comments: vec![c], claude: None, severity: String::new(),
     }];
     let rows = |app: &App| app.rows.iter().filter(|r| r.thread == Some(0)).map(|r| r.line.text.clone()).collect::<Vec<_>>();
     app.build();
@@ -863,4 +863,30 @@ fn make_changes_without_comments() {
     // With instructions, those are the request.
     let prompt = app.claude_prompt(agent::Ask::Fix, "rename x to y");
     assert!(prompt.starts_with("Make the change the user asks for below") && prompt.ends_with("rename x to y"));
+}
+
+#[test]
+fn whose_turn_and_severity() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let p = std::env::temp_dir().join(format!("dv-claude-turn-{}.json", std::process::id()));
+    std::fs::write(&p, r#"{ "comments": [
+        { "path": "src/a.rs", "line": 2, "body": "a", "severity": "Bug", "replies": [ { "author": "user", "body": "why?" }, { "author": "claude", "body": "because" } ] },
+        { "path": "src/a.rs", "line": 2, "body": "b", "replies": [ { "author": "user", "body": "why?" } ] },
+        { "path": "src/a.rs", "line": 2, "body": "c" } ] }"#).unwrap();
+    app.claude_path = Some(p.clone());
+    app.load_claude();
+    _ = std::fs::remove_file(&p);
+    let turns: Vec<_> = app.threads.iter().map(agent::turn).collect();
+    assert_eq!(turns, [Some("[answered] "), Some("[waiting] "), None]); // nobody's waiting on c
+    app.build();
+    assert!(app.rows.iter().any(|r| r.line.text.starts_with("[bug] [answered] claude")));
+    app.key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('A'), KeyModifiers::NONE));
+    assert_eq!(app.picker.as_ref().unwrap().items[0].label, "src/a.rs:2  2 replies · [bug] [answered] @claude");
+    // On someone else's PR, Claude suggests the changes instead of making them.
+    app.picker = None;
+    app.theirs = true;
+    app.claude_menu();
+    assert_eq!(app.picker.take().unwrap().items[2].label, "Ask Claude to suggest the changes (3 open comments; their PR: no edits)");
+    assert!(app.claude_prompt(agent::Ask::Fix, "").contains("don't edit the code"));
 }
