@@ -1,6 +1,7 @@
 //! Diff view state, Helix-style keys, and rendering.
 use crate::diff::{self, FileDiff, Kind, Line as DLine};
 use crate::gh::{self, Anchor, Pr, Thread};
+use crate::highlight::{Colors, Highlighter};
 use crate::lsp::{self, Loc, Lsp};
 use anyhow::{bail, Context, Result};
 use ratatui::{
@@ -17,7 +18,57 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+const HELP: &str = "
+MOVE
+  h j k l, arrows      move (counts: 5j)
+  w b e  W B E         word motions (select)
+  gh gl gs             line start / end / first non-blank
+  f t F T <c>          find char
+  gw                   jump labels
+  gg ge                top / end
+  Ctrl-d Ctrl-u        half page down / up
+  Ctrl-e Ctrl-y        scroll 5 lines
+  zz zt zb             cursor line to center / top / bottom
+  Ctrl-o               jump back
+
+DIFF
+  n N, ]g [g           next / prev hunk
+  ]f [f, Space f       next / prev file, file picker
+  ]c [c                next / prev comment thread
+  /  Alt-n Alt-N  *    search, next / prev match, search selection
+
+SELECT & COPY
+  x                    select line (repeat to extend)
+  v  ;  Esc            select mode / collapse / exit select mode
+  y, Space y           copy text
+  Y                    copy as patch
+  Space c              copy file:line ref (e.g. src/a.rs:12-15)
+
+VIEW
+  + =  -               file context +10 / -10 lines
+  Z                    whole file
+  Tab                  fold file / PR info / thread
+  Shift-Tab            fold / unfold all files
+  Enter                open hx at cursor
+
+RUST-ANALYZER
+  gd gr gy gi          definition / references / type / impl
+  Space k              hover
+
+PR
+  c                    comment on selected lines
+  r                    reply to thread
+
+  ?                    this help
+  q, Ctrl-c            quit
+";
+
 const DEFAULT_CONTEXT: u32 = 3;
+const ADD_BG: Color = Color::Rgb(0x1f, 0x33, 0x22);
+const DEL_BG: Color = Color::Rgb(0x3a, 0x20, 0x22);
+const SEL_BG: Color = Color::Rgb(0x3b, 0x42, 0x52);
+/// Files bigger than this aren't highlighted.
+const HL_MAX_BYTES: usize = 1 << 20;
 const FULL: u32 = 1_000_000;
 /// `Row::file` for the PR info section at the top.
 const INFO: usize = usize::MAX - 1;
@@ -94,6 +145,9 @@ pub struct App {
     threads: Vec<Thread>,
     info: Vec<gh::InfoLine>,
     info_collapsed: bool,
+    hl: Highlighter,
+    /// Highlighted files by (path, new side?), filled lazily as rows are drawn.
+    hl_cache: HashMap<(String, bool), Colors>,
     /// Width comment/info text is wrapped to; follows the terminal.
     wrap_w: usize,
     /// Root comment ids of threads folded/unfolded against the default (resolved = folded).
@@ -103,7 +157,8 @@ pub struct App {
     lsp_ready: bool,
     inflight: HashMap<u64, Req>,
     progress: HashMap<String, (String, String)>,
-    popup: Option<(String, u16)>,
+    /// Scrollable overlay: (title, text, scroll).
+    popup: Option<(&'static str, String, u16)>,
     jumps: Vec<Pos>,
     alphabet: Vec<char>,
     /// `gw` jump labels: (word start, word end, label), plus the first label char typed.
@@ -155,6 +210,8 @@ impl App {
             info: vec![],
             info_collapsed: false,
             wrap_w: 100,
+            hl: Highlighter::new(),
+            hl_cache: HashMap::new(),
             toggled: HashSet::new(),
             root: std::env::current_dir().unwrap_or_default(),
             lsp: None,
@@ -186,6 +243,7 @@ impl App {
             if let Some(a) = self.action.take() {
                 ratatui::restore();
                 let res = self.perform(a);
+                self.hl_cache.clear(); // the editor may have changed files
                 *term = ratatui::init();
                 if let Err(e) = self.reload(true) {
                     self.msg = e.to_string();
@@ -619,10 +677,36 @@ impl App {
             self.msg = "nothing to copy".into();
             return;
         }
-        let mut out = std::io::stdout();
-        let _ = write!(out, "\x1b]52;c;{}\x07", base64(t.as_bytes()));
-        let _ = out.flush();
+        clipboard(&t);
         self.msg = format!("copied {} line(s)", t.lines().count().max(1));
+    }
+
+    /// `path:line` or `path:start-end` for the selection (new-side numbering), for pasting elsewhere.
+    fn file_ref(&self) -> Option<String> {
+        let (s, e) = self.ordered();
+        let fi = self.rows[self.head.row].file;
+        let f = self.files.get(fi)?;
+        let in_file = || self.rows[s.row..=e.row].iter().filter(|r| r.file == fi && r.thread.is_none());
+        let span = |p: &str, a: u32, b: u32| if a == b { format!("{p}:{a}") } else { format!("{p}:{a}-{b}") };
+        let news: Vec<u32> = in_file().filter_map(|r| r.line.new).collect();
+        let olds: Vec<u32> = in_file().filter_map(|r| r.line.old).collect();
+        Some(match (news.first(), news.last(), olds.first(), olds.last()) {
+            (Some(&a), Some(&b), _, _) => span(&f.path, a, b),
+            (_, _, Some(&a), Some(&b)) => {
+                format!("{} (removed lines, at base {})", span(&f.old_path, a, b), &self.base[..self.base.len().min(10)])
+            }
+            _ => f.path.clone(),
+        })
+    }
+
+    fn copy_ref(&mut self) {
+        match self.file_ref() {
+            Some(r) => {
+                clipboard(&r);
+                self.msg = format!("copied {r}");
+            }
+            None => self.msg = "not in a file".into(),
+        }
     }
 
     fn find(&mut self, fwd: bool) {
@@ -674,6 +758,20 @@ impl App {
         let Some(p) = self.files.get(fi).map(|f| f.path.clone()) else { return };
         if !self.collapsed.remove(&p) {
             self.collapsed.insert(p);
+        }
+        self.build();
+        self.select = false;
+        let r = self.rows.iter().position(|r| r.file == fi).unwrap_or(0);
+        self.goto(r, 0);
+    }
+
+    /// Fold every file if any is unfolded, else unfold them all. The cursor goes to its file's header.
+    fn toggle_collapse_all(&mut self) {
+        let fi = self.rows[self.head.row].file;
+        if self.files.iter().any(|f| !self.collapsed.contains(&f.path)) {
+            self.collapsed = self.files.iter().map(|f| f.path.clone()).collect();
+        } else {
+            self.collapsed.clear();
         }
         self.build();
         self.select = false;
@@ -836,7 +934,7 @@ impl App {
                     }
                     Req::Hover => match lsp::hover_text(res).trim().to_owned() {
                         t if t.is_empty() => self.msg = "no hover info".into(),
-                        t => self.popup = Some((t, 0)),
+                        t => self.popup = Some((" hover  j/k scroll ", t, 0)),
                     },
                     Req::Goto => self.show_locations(lsp::locations(res)),
                 }
@@ -890,7 +988,7 @@ impl App {
 
     fn key(&mut self, k: KeyEvent) {
         self.msg.clear();
-        if let Some((_, scroll)) = &mut self.popup {
+        if let Some((_, _, scroll)) = &mut self.popup {
             match k.code {
                 KeyCode::Char('j') | KeyCode::Down => *scroll += 1,
                 KeyCode::Char('k') | KeyCode::Up => *scroll = scroll.saturating_sub(1),
@@ -931,6 +1029,7 @@ impl App {
             }
             KeyCode::Tab if self.rows[self.head.row].thread.is_some() => return self.toggle_thread(),
             KeyCode::Tab => return self.toggle_collapse(),
+            KeyCode::BackTab => return self.toggle_collapse_all(),
             KeyCode::Left => return self.key(ch('h')),
             KeyCode::Down => return self.key(ch('j')),
             KeyCode::Up => return self.key(ch('k')),
@@ -998,6 +1097,7 @@ impl App {
             '+' | '=' => self.set_context(|c| c.saturating_add(10)),
             '-' => self.set_context(|c| if c >= FULL { DEFAULT_CONTEXT } else { c.saturating_sub(10) }),
             'Z' => self.set_context(|c| if c >= FULL { DEFAULT_CONTEXT } else { FULL }),
+            '?' => self.popup = Some((" keys  j/k scroll · any other key closes ", HELP.trim_matches('\n').into(), 0)),
             'c' => self.start_comment(),
             'r' => self.start_reply(),
             'q' => self.quit = true,
@@ -1045,6 +1145,7 @@ impl App {
                 self.picker = Some(Picker { title: " files ", items, query: String::new(), sel: 0 });
             }
             (' ', 'y') => self.yank(false),
+            (' ', 'c') => self.copy_ref(),
             ('f' | 't' | 'F' | 'T', c) => self.find_char(p, c),
             _ => {}
         }
@@ -1134,6 +1235,17 @@ impl App {
                 Some(_) => vec![(p, b)], // after the first key, show the remaining char at the word start
             })
             .collect();
+        for r in self.top..(self.top + h).min(self.rows.len()) {
+            if let Some(key) = self.hl_key(r).filter(|k| !self.hl_cache.contains_key(k)) {
+                let text = match key.1 {
+                    true => std::fs::read_to_string(&key.0).unwrap_or_default(),
+                    false => diff::git(&["show", &format!("{}:{}", self.base, key.0)]).unwrap_or_default(),
+                };
+                // ponytail: whole file highlighted synchronously on first view; a thread if big PRs stutter.
+                let colors = if text.len() > HL_MAX_BYTES { vec![] } else { self.hl.file(&key.0, &text) };
+                self.hl_cache.insert(key, colors);
+            }
+        }
         let lines: Vec<Line> = (self.top..(self.top + h).min(self.rows.len()))
             .map(|r| self.render_row(r, s, e, lw, gw, tw, &overlay))
             .collect();
@@ -1183,13 +1295,24 @@ impl App {
             f.render_widget(Paragraph::new(lines).block(Block::bordered().title(p.title)), r);
         }
 
-        if let Some((text, scroll)) = &self.popup {
+        if let Some((title, text, scroll)) = &self.popup {
             let w = area.width.saturating_sub(4).min(100);
             let h = (text.lines().count() as u16 + 2).min(area.height.saturating_sub(4)).max(3);
             let r = Rect { x: (area.width - w) / 2, y: 2.min(area.height), width: w, height: h.min(area.height) };
             f.render_widget(Clear, r);
             let p = Paragraph::new(text.as_str()).wrap(Wrap { trim: false }).scroll((*scroll, 0));
-            f.render_widget(p.block(Block::bordered().title(" hover  j/k scroll ")), r);
+            f.render_widget(p.block(Block::bordered().title(*title)), r);
+        }
+    }
+
+    /// Which highlighted file a code row's colors come from: the base for removed lines, else the working tree.
+    fn hl_key(&self, r: usize) -> Option<(String, bool)> {
+        let row = &self.rows[r];
+        let f = self.files.get(row.file).filter(|f| f.meta != "binary")?;
+        match row.line.kind {
+            Kind::Del => Some((f.old_path.clone(), false)),
+            Kind::Add | Kind::Ctx => Some((f.path.clone(), true)),
+            _ => None,
         }
     }
 
@@ -1200,6 +1323,8 @@ impl App {
         let row = &self.rows[r];
         let l = &row.line;
         let num = |n: Option<u32>| n.map(|n| n.to_string()).unwrap_or_default();
+        let mut line_bg = None;
+        let mut gstyle = Style::new().fg(Color::DarkGray);
         let (gutter, style) = match l.kind {
             Kind::File => {
                 let collapsed = match row.file {
@@ -1222,21 +1347,34 @@ impl App {
                 (format!("{:>gw$}", "┃ "), st)
             }
             k => {
-                let (m, st) = match k {
-                    Kind::Add => ('+', Style::new().fg(Color::Green)),
-                    Kind::Del => ('-', Style::new().fg(Color::Red)),
-                    _ => (' ', Style::new()),
+                let m = match k {
+                    Kind::Add => {
+                        (line_bg, gstyle) = (Some(ADD_BG), gstyle.fg(Color::Green));
+                        '+'
+                    }
+                    Kind::Del => {
+                        (line_bg, gstyle) = (Some(DEL_BG), gstyle.fg(Color::Red));
+                        '-'
+                    }
+                    _ => ' ',
                 };
-                (format!("{:>lw$} {:>lw$} {m} ", num(l.old), num(l.new)), st)
+                (format!("{:>lw$} {:>lw$} {m} ", num(l.old), num(l.new)), Style::new())
             }
         };
-        let mut spans = vec![Span::styled(gutter, Style::new().fg(Color::DarkGray))];
+        let syn = self.hl_key(r).and_then(|k| {
+            let n = if k.1 { l.new } else { l.old }?;
+            self.hl_cache.get(&k)?.get(n as usize - 1)
+        });
+        let mut spans = vec![Span::styled(gutter, gstyle)];
         let mut n = 0;
         for (i, c) in l.text.chars().enumerate().skip(self.left).take(tw) {
             let p = Pos { row: r, col: i };
             let mut st = style;
+            if let Some(c) = syn.and_then(|syn| syn.get(i).copied().flatten()) {
+                st = st.fg(c);
+            }
             if s <= p && p <= e {
-                st = st.bg(Color::Rgb(0x3b, 0x42, 0x52));
+                st = st.bg(SEL_BG);
             }
             if p == self.head {
                 st = st.add_modifier(Modifier::REVERSED);
@@ -1252,6 +1390,12 @@ impl App {
         }
         if self.head.row == r && self.head.col >= n.max(self.left) {
             spans.push(Span::styled(" ", Style::new().add_modifier(Modifier::REVERSED)));
+        }
+        if let Some(bg) = line_bg {
+            // Tint the rest of the row too, so added/removed lines read as bands.
+            let used: usize = spans[1..].iter().map(|s| s.content.chars().count()).sum();
+            spans.push(Span::styled(" ".repeat(tw.saturating_sub(used)), Style::new().bg(bg)));
+            return Line::from(spans).style(Style::new().bg(bg));
         }
         Line::from(spans)
     }
@@ -1330,6 +1474,13 @@ fn change_start(rows: &[Row], r: usize) -> bool {
     is(r) && (r == 0 || !is(r - 1))
 }
 
+/// Copy to the system clipboard via OSC 52 (handled by the terminal; works over SSH).
+fn clipboard(t: &str) {
+    let mut out = std::io::stdout();
+    let _ = write!(out, "\x1b]52;c;{}\x07", base64(t.as_bytes()));
+    let _ = out.flush();
+}
+
 fn base64(b: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut o = String::new();
@@ -1362,6 +1513,11 @@ fn keys_and_yank() {
     app.key(enter);
     assert!(app.msg.starts_with("no match")); // smart case: uppercase query is case-sensitive
     assert_eq!(base64(b"hello"), "aGVsbG8=");
+    let back = KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT);
+    app.key(back);
+    assert_eq!(app.rows.len(), 3); // only the three file headers
+    app.key(back);
+    assert!(app.rows.len() > 3);
     app.alphabet = vec!['a', 's'];
     app.height = 20;
     app.goto(4, 0);
@@ -1401,6 +1557,7 @@ fn comments_placed_and_anchored() {
     app.select = true;
     app.goto(9, 0);
     let a = app.selection_anchor().unwrap();
+    assert_eq!(app.file_ref().unwrap(), "src/a.rs:2"); // new-side lines only; the deleted one has none
     assert_eq!((a.line, a.left, a.start), (2, false, Some((2, true))));
     assert_eq!(wrap("aaa bbb ccc", 7), ["aaa bbb", "ccc"]);
 }

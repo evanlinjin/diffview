@@ -26,7 +26,10 @@ disk: rust-analyzer can index it and `hx` can open it.
    **PR info** (title, state/draft, base ← head, labels, review decision + reviewers,
    CI checks with failing/pending ones listed, description, conversation) is a
    section at the top of the view from `gh pr view --json`; `Tab` folds it.
-4. **Later**: syntax highlighting, side-by-side, batched reviews
+   **Syntax highlighting**: syntect (pure-Rust regex), whole file per side (working
+   tree / `git show base:path`) so multi-line constructs parse right; scopes map to
+   named ANSI colors so the terminal theme decides. Added/removed lines get a bg tint.
+4. **Later**: side-by-side, batched reviews
    (approve/request changes), multiple cursors.
 
 ## Keys
@@ -45,13 +48,16 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `]f [f`, `Space f` | next/prev file, file picker |
 | `/`, `Alt-n Alt-N`, `*` | search (smart case), next/prev match, search for the selection |
 | `y` / `Space y`, `Y` | copy text, copy as patch (via OSC 52) |
+| `Space c` | copy a `path:line` / `path:start-end` ref for the selection |
 | `+`/`=`, `-`, `Z` | file context ±10 lines, whole file |
 | `Tab` | collapse/expand file; on a comment, fold/unfold its thread |
+| `Shift-Tab` | fold all files, or unfold all if all are folded |
 | `Enter` | open `hx file:line:col`, reload diff afterwards |
 | `gd gr gy gi`, `Space k` | definition / references / type / impl, hover |
 | `Ctrl-o` | jump back |
 | `c`, `r` | comment on the selected lines / reply to the thread under the cursor |
 | `]c [c` | next/prev comment thread |
+| `?` | key help overlay |
 | `q` | quit |
 
 ## Design
