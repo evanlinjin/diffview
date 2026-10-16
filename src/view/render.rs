@@ -324,12 +324,13 @@ impl App {
         let claude = self.threads.iter().filter(|t| agent::claude_wrote(t)).count();
         let review_file = self.threads.iter().filter(|t| t.claude.is_some()).count();
         let seen = self.files.iter().filter(|f| self.viewed.get(&f.path).is_some_and(|s| s == "VIEWED")).count();
+        let on_github = self.files.iter().filter(|f| f.meta != "untracked").count(); // what "viewed" can be of
         let threads = match (self.threads.len() - review_file, claude) {
             (n, 0) => format!("{n} threads"),
             (n, c) => format!("{n} threads + {c} Claude"),
         };
         let pr = match &self.pr {
-            Some(p) => format!("#{} · {threads} · {seen}/{} viewed{pending}  ", p.number, self.files.len()),
+            Some(p) => format!("#{} · {threads} · {seen}/{on_github} viewed{pending}  ", p.number),
             None if claude > 0 => format!("{threads}  "),
             None => String::new(),
         };

@@ -972,3 +972,17 @@ fn threads_on_files_gone_from_the_diff() {
     let placed = app.drows.iter().filter(|d| matches!(d, DRow::Full(r) if app.rows[*r].thread == Some(0))).count();
     assert_eq!(placed, gone_rows);
 }
+
+#[test]
+fn untracked_files_stay_off_github() {
+    let mut files = diff::parse(diff::SAMPLE);
+    files[0].meta = "untracked".into();
+    let mut app = App::with("base".into(), files);
+    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new() });
+    let a = Anchor { path: "src/a.rs".into(), line: 2, left: false, start: None };
+    assert!(app.on_github(a).is_err_and(|e| format!("{e:#}").contains("untracked")));
+    let line = app.rows.iter().position(|r| r.line.kind == Kind::Add).unwrap();
+    app.goto(line, 0);
+    app.toggle_viewed();
+    assert!(app.msg.contains("untracked") && app.job.is_none());
+}

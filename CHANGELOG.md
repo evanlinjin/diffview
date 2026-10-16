@@ -21,6 +21,8 @@ on GitHub are its section here.
 - Comments on files that are no longer in the diff (a change reverted, a file back to the
   base) are listed in the PR section, by file, instead of showing nowhere; `]c` / `]a` and
   the pickers get there.
+- `c` / `C` / `s` / `Space v` on an untracked file say why they can't (GitHub hasn't got it)
+  instead of failing there, and "viewed" counts only the PR's files.
 - Claude's comments show whose turn it is: `[waiting]` (you spoke last) and `[answered]`
   (Claude answered you); typing either in `Space A` lists just those.
 - A `severity` for Claude's comments (`bug`, `nit`, `question`, …), shown as a tag and put

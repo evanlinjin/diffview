@@ -167,6 +167,9 @@ impl App {
         if self.pr.is_none() {
             return self.msg = "no PR for this branch".into();
         }
+        if self.files.iter().any(|f| f.path == path && f.meta == "untracked") {
+            return self.msg = format!("{path} is untracked: not on GitHub, so it can't be marked viewed there");
+        }
         let on = self.viewed.get(&path).is_none_or(|s| s != "VIEWED");
         self.msg = if on { "marking as viewed…" } else { "unmarking…" }.into();
         self.job = Some(Job::Viewed(path, on));
@@ -364,8 +367,8 @@ impl App {
         if !th.severity.is_empty() && !body.starts_with("**") && self.comment_index_under_cursor(t) == 0 {
             body = format!("**{}:** {body}", th.severity);
         }
-        match self.check_synced() {
-            Ok(()) => self.action = Some(Action::Comment { anchor, review, prefill: body, claude: Some(key) }),
+        match self.check_synced().and_then(|_| self.on_github(anchor)) {
+            Ok(anchor) => self.action = Some(Action::Comment { anchor, review, prefill: body, claude: Some(key) }),
             Err(e) => self.msg = format!("{e:#}"),
         }
     }
@@ -620,8 +623,16 @@ impl App {
         Ok(())
     }
 
+    /// GitHub only takes comments on files the PR has: not on one that's untracked here.
+    pub(super) fn on_github(&self, a: Anchor) -> Result<Anchor> {
+        match self.files.iter().any(|f| f.path == a.path && f.meta == "untracked") {
+            true => bail!("{} is untracked: GitHub hasn't got it (commit and push it: Space g), or `a` asks Claude", a.path),
+            false => Ok(a),
+        }
+    }
+
     pub(super) fn start_comment(&mut self, review: bool) {
-        match self.check_synced().and_then(|_| self.selection_anchor()) {
+        match self.check_synced().and_then(|_| self.selection_anchor()).and_then(|a| self.on_github(a)) {
             Ok(anchor) => self.action = Some(Action::Comment { anchor, review, prefill: String::new(), claude: None }),
             Err(e) => self.msg = format!("{e:#}"),
         }
@@ -629,7 +640,7 @@ impl App {
 
     /// `s`: a GitHub suggestion for the selected new-side lines, pre-filled with their code.
     pub(super) fn start_suggest(&mut self) {
-        match self.check_synced().and_then(|_| self.suggestion()) {
+        match self.check_synced().and_then(|_| self.suggestion()).and_then(|(a, p)| Ok((self.on_github(a)?, p))) {
             Ok((anchor, prefill)) => self.action = Some(Action::Comment { anchor, review: true, prefill, claude: None }),
             Err(e) => self.msg = format!("{e:#}"),
         }
