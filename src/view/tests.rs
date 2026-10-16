@@ -736,4 +736,12 @@ fn comments_in_the_margin() {
     app.goto(12, 0); // the last line
     app.vmove(1); // only a spacer below: stays
     assert_eq!(app.head.row, 12);
+    // A search that lands in a comment leaves the cursor in the margin: j stays there.
+    let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+    app.goto(0, 0);
+    "/first".chars().for_each(|ch| app.key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)));
+    app.key(enter);
+    assert_eq!(app.head.row, 4); // thread 0's body
+    app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    assert_eq!(app.head.row, 5); // its bottom edge, not the code beside it
 }

@@ -27,6 +27,8 @@ on GitHub are its section here.
   confirmation); the review thread key popup lists `Space d`.
 
 ### Changed
+- Inside zellij, `Enter` reuses dv's hx pane while it's open (`:open` + `:goto` there) instead of
+  opening another, and dv reloads as you save in it, not only when hx exits.
 - Claude resolves a thread once it's settled (it made the change asked for, or you agree it
   doesn't apply), after replying; answering a question leaves it open. Reopen with `Space r`.
 - Inside zellij, a PR's Claude Code pane is reused: when it's open, `Space a` puts the request

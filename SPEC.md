@@ -127,7 +127,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `Ctrl-w c` | comments in the right margin (default when the window fits 80 code columns + a 60-column margin; single-pane view) / inline |
 | `Ctrl-w v` | toggle split view: old ‖ new side by side (removed runs pair with the added lines after them) |
 | `Ctrl-w h` `Ctrl-w l` (or `Ctrl-h` `Ctrl-l`) | split view: move to the old / new side |
-| `Enter` | open `hx file:line:col` (inside zellij: in a pane on the right, dv still usable meanwhile), reload the diff when hx exits; on a link, open the link |
+| `Enter` | open `hx file:line:col` (inside zellij: in a pane on the right, reused for the next file while it is open; dv stays usable and reloads as you save); on a link, open the link |
 | `gf` | open the link under the cursor in the browser (`xdg-open` / `open`); a tooltip shows the URL while the cursor is on a link |
 | `gd gr gy gi`, `Space k` | definition / references / type / impl, hover |
 | `Space k` on an issue/PR link | preview it in a popup: state, author, age, comments, labels, body (the link tooltip says so) |

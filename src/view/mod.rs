@@ -311,8 +311,6 @@ pub struct App {
     margin_pref: bool,
     /// The layout has them there now (set by `draw` from the width).
     margin_active: bool,
-    /// The cursor is in the margin (on a comment), not the code.
-    margin_side: bool,
     /// In margin mode: each thread's code line (the one it's about), as laid out.
     margin_anchor: HashMap<usize, usize>,
     /// Screen rows, and the screen row of each row (`top` and scrolling count screen rows).
@@ -341,8 +339,9 @@ pub struct App {
     claude_path: Option<PathBuf>,
     claude_mtime: Option<std::time::SystemTime>,
     claude_summary: String,
-    /// An `hx` pane (inside zellij) that dv isn't waiting on: it says when hx exits.
-    hx: Option<std::sync::mpsc::Receiver<std::io::Result<std::process::ExitStatus>>>,
+    /// The `hx` pane dv opened (inside zellij), reused for the next file; and when dv last
+    /// looked at it and at the diff's files (to reload when you save in it).
+    hx: Option<HxPane>,
     /// A background `claude -p` run: (process, log file, what it's doing).
     claude_job: Option<agent::ClaudeJob>,
     /// The Claude Code session of the last background run, resumed by the next.
@@ -427,7 +426,6 @@ impl App {
             right: true,
             margin_pref: true,
             margin_active: false,
-            margin_side: false,
             margin_anchor: HashMap::new(),
             drows: vec![],
             d_of: vec![],
@@ -512,13 +510,7 @@ impl App {
 
     fn perform(&mut self, a: Action) -> Result<String> {
         match a {
-            Action::Open(target) if in_zellij() => {
-                // hx gets a pane of its own and dv keeps working; when hx exits, dv reloads.
-                let (tx, rx) = std::sync::mpsc::channel();
-                std::thread::spawn(move || tx.send(interactive("hx", std::slice::from_ref(&target), &format!("hx {target}"))));
-                self.hx = Some(rx);
-                Ok("hx is open on the right; dv reloads when you quit it".into())
-            }
+            Action::Open(target) if in_zellij() => self.open_in_hx_pane(&target),
             Action::Open(target) => {
                 interactive("hx", std::slice::from_ref(&target), &format!("hx {target}")).context("running hx")?;
                 Ok(String::new())
@@ -598,16 +590,56 @@ impl App {
         }
     }
 
-    /// When an `hx` pane dv didn't wait for exits: reload, as files may have changed.
-    fn watch_hx(&mut self) {
-        let Some(Ok(res)) = self.hx.as_ref().map(|rx| rx.try_recv()) else { return };
-        self.hx = None;
-        self.hl_cache.retain(|k, _| !k.1); // working-tree files may have changed; the base can't
-        self.msg = match (res, self.reload(false)) {
-            (Err(e), _) => format!("running hx: {e}"),
-            (_, Err(e)) => format!("{e:#}"),
-            (Ok(_), Ok(())) => String::new(),
+    /// `Enter` inside zellij: open the file in dv's hx pane, reusing it if it's still open
+    /// (`:open` + `:goto` typed into it, after `Esc` for normal mode), else in a new pane on the
+    /// right. dv keeps working either way.
+    fn open_in_hx_pane(&mut self, target: &str) -> Result<String> {
+        let zellij = |args: &[&str]| -> Result<String> {
+            let out = std::process::Command::new("zellij").args(args).stdin(std::process::Stdio::null()).output()?;
+            anyhow::ensure!(out.status.success(), "zellij {} failed", args.get(1).unwrap_or(&""));
+            Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
         };
+        if let Some(id) = self.hx.as_ref().map(|h| h.pane.clone()).filter(|id| pane_alive(id)) {
+            // `target` is path:line:col.
+            let mut parts = target.rsplitn(3, ':');
+            let (_col, line, path) = (parts.next(), parts.next().unwrap_or("1"), parts.next().unwrap_or(target));
+            zellij(&["action", "write-chars", "-p", &id, "\x1b"])?;
+            zellij(&["action", "write-chars", "-p", &id, &format!(":open {path}\r:goto {line}\r")])?;
+            zellij(&["action", "focus-pane-id", &id])?;
+            return Ok("opened in hx (its pane on the right); dv reloads as you save".into());
+        }
+        let root = self.root.display().to_string();
+        let id = zellij(&["run", "--direction", "right", "--close-on-exit", "--name", "hx", "--cwd", &root, "--", "hx", target])?;
+        self.hx = Some(HxPane { pane: id, checked: std::time::Instant::now(), stamp: self.files_stamp() });
+        Ok("hx is open on the right; dv reloads as you save, and Enter opens the next file there".into())
+    }
+
+    /// The latest change time of the diff's files in the working tree.
+    fn files_stamp(&self) -> Option<std::time::SystemTime> {
+        self.files.iter().filter_map(|f| std::fs::metadata(self.root.join(&f.path)).and_then(|m| m.modified()).ok()).max()
+    }
+
+    /// About once a second while dv's hx pane is open: reload when a file in the diff changed
+    /// (you saved in hx), and once more when the pane closes.
+    fn watch_hx(&mut self) {
+        let Some(hx) = &mut self.hx else { return };
+        if hx.checked.elapsed() < std::time::Duration::from_secs(1) {
+            return;
+        }
+        hx.checked = std::time::Instant::now();
+        let (alive, before) = (pane_alive(&hx.pane), hx.stamp);
+        let now = self.files_stamp();
+        if alive && now == before {
+            return;
+        }
+        match (alive, &mut self.hx) {
+            (true, Some(h)) => h.stamp = now,
+            _ => self.hx = None, // closed: this reload is the last
+        }
+        self.hl_cache.retain(|k, _| !k.1); // working-tree files may have changed; the base can't
+        if let Err(e) = self.reload(false) {
+            self.msg = format!("{e:#}");
+        }
     }
 
     fn reload(&mut self, threads: bool) -> Result<()> {
@@ -807,6 +839,12 @@ impl App {
         (self.drows, self.d_of) = (d, d_of);
     }
 
+    /// The cursor is in the margin (on a comment), not the code. Worked out from where the
+    /// cursor is, so every way of moving it (search, word motions, jumps) keeps it right.
+    pub(super) fn margin_side(&self) -> bool {
+        self.margin_row(self.head.row)
+    }
+
     /// A review thread's row in a file (not the PR section's comments): in margin mode, it goes
     /// in the margin.
     pub(super) fn margin_row(&self, r: usize) -> bool {
@@ -872,7 +910,7 @@ impl App {
         if !self.margin_active || self.split {
             return None;
         }
-        match self.margin_side {
+        match self.margin_side() {
             true => self.rows[self.head.row].thread,
             false => self.margin_anchor.iter().find(|&(_, &c)| c == self.head.row).map(|(&t, _)| t),
         }
@@ -880,7 +918,7 @@ impl App {
 
     /// With the cursor in a margin comment: the code line it's about (tinted like the cursor's).
     pub(super) fn lit_code(&self) -> Option<usize> {
-        self.margin_side.then(|| self.margin_anchor.get(&self.rows[self.head.row].thread?).copied()).flatten()
+        self.margin_side().then(|| self.margin_anchor.get(&self.rows[self.head.row].thread?).copied()).flatten()
     }
 
     /// The row to put the cursor on for screen row `d`, preferring the current side.
@@ -888,7 +926,7 @@ impl App {
         match self.drows[d] {
             DRow::Full(r) => r,
             DRow::Pair(l, r) => if self.right { r.or(l) } else { l.or(r) }.unwrap_or(0),
-            DRow::Margin(l, r) => if self.margin_side { r.or(l) } else { l.or(r) }.unwrap_or(0),
+            DRow::Margin(l, r) => if self.margin_side() { r.or(l) } else { l.or(r) }.unwrap_or(0),
         }
     }
 
@@ -1208,6 +1246,22 @@ impl App {
 /// `None` if cancelled: the editor failed (e.g. `:cq`), or the text is empty and `allow_empty` isn't set.
 fn compose(what: &str, allow_empty: bool) -> Result<Option<String>> {
     compose_with(what, allow_empty, "", false)
+}
+
+/// dv's hx pane inside zellij.
+struct HxPane {
+    /// e.g. `terminal_12`, as `zellij run` prints it.
+    pane: String,
+    checked: std::time::Instant,
+    stamp: Option<std::time::SystemTime>,
+}
+
+/// Whether zellij pane `id` (e.g. `terminal_12`) is still there and running.
+fn pane_alive(id: &str) -> bool {
+    let Some(n) = id.strip_prefix("terminal_").and_then(|n| n.parse::<u64>().ok()) else { return false };
+    let Ok(out) = std::process::Command::new("zellij").args(["action", "list-panes", "-j", "-s"]).stdin(std::process::Stdio::null()).output() else { return false };
+    let panes: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
+    panes.as_array().is_some_and(|ps| ps.iter().any(|p| p["id"].as_u64() == Some(n) && p["is_plugin"] != true && p["exited"] != true))
 }
 
 fn in_zellij() -> bool {

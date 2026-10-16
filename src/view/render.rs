@@ -199,7 +199,7 @@ impl App {
         }
         let cur_w = match self.drows[self.hd()] {
             DRow::Pair(..) => htw_l.min(htw_r),
-            DRow::Margin(..) if self.margin_side => mtw,
+            DRow::Margin(..) if self.margin_side() => mtw,
             DRow::Margin(..) => ctw,
             DRow::Full(_) => tw,
         };
@@ -277,7 +277,7 @@ impl App {
         if let (Some(url), None, None, false) = (self.link_at_cursor(), &self.picker, &self.popup, header) {
             let y = (hd - self.top) as u16;
             // In the margin, the text starts after the code column, the gap and its own gutter.
-            let start = if self.margin_side && matches!(self.drows[hd], DRow::Margin(..)) { relw + gw + ctw + 1 + 3 } else { relw + gw };
+            let start = if self.margin_side() && matches!(self.drows[hd], DRow::Margin(..)) { relw + gw + ctw + 1 + 3 } else { relw + gw };
             let x = ((start + self.head.col.saturating_sub(self.left)) as u16).min(area.width.saturating_sub(20));
             let preview = if gh::issue_ref(url).is_some() { "Space k preview · " } else { "" };
             let text = format!(" ↗ {url}  {preview}gf open ");

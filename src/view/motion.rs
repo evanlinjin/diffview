@@ -36,7 +36,6 @@ impl App {
             Kind::Add => self.right = true,
             _ => {}
         }
-        self.margin_side = self.margin_row(row);
         self.head = Pos { row, col: col.min(self.len(row).saturating_sub(1)) };
         if !self.select {
             self.anchor = self.head;
@@ -60,8 +59,8 @@ impl App {
         // On the code side, step over spacer rows (margin only, no code); in the margin, over
         // rows with no comment beside the code.
         let skip = |t: usize| match self.drows[t] {
-            DRow::Margin(None, _) => !self.margin_side,
-            DRow::Margin(_, None) => self.margin_side,
+            DRow::Margin(None, _) => !self.margin_side(),
+            DRow::Margin(_, None) => self.margin_side(),
             _ => false,
         };
         let step = if d < 0 { -1 } else { 1 };
