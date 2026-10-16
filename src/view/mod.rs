@@ -48,6 +48,7 @@ DIFF
   n N, ]g [g           next / prev hunk
   ]f [f, Space f       next / prev file, file picker
   ]c [c                next / prev comment thread
+  ]a [a                next / prev Claude comment (wraps around)
   /  Alt-n Alt-N  *    search, next / prev match, search selection
 
 SELECT & COPY
@@ -55,7 +56,7 @@ SELECT & COPY
   v  ;  Esc            select mode / collapse / exit select mode
   y  (or Space y)      copy text
   Y                    copy as patch
-  Space c              copy file:line ref (e.g. src/a.rs:12-15)
+  Space c              copy a ref: file:line, or a comment's / the PR's link
 
 VIEW
   + =  -               hunk context +10 / -10 lines

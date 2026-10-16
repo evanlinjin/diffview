@@ -289,7 +289,7 @@ fn comments_placed_and_anchored() {
 fn quote_into_conversation() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
     app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new() });
-    let line = |heading, md, text: &str| gh::InfoLine { heading, md, text: text.into(), marks: vec![] };
+    let line = |heading, md, text: &str| gh::InfoLine { heading, md, text: text.into(), marks: vec![], url: String::new() };
     app.info = vec![line(true, false, "conversation (1)"), line(true, false, "@bo · 2d ago"), line(false, true, "Looks good\nbut fix CI")];
     app.build();
     let quoted = |app: &mut App, row: usize| {
@@ -452,8 +452,71 @@ fn help_two_columns() {
     };
     let one = rows(&mut app, 100);
     let two = rows(&mut app, 200);
-    assert!(two.len() * 2 <= one.len() + 2, "{} vs {}", two.len(), one.len()); // about half as tall
+    assert!(two.len() <= one.len() / 2 + 4, "{} vs {}", two.len(), one.len()); // about half as tall (sections stay whole)
     let text: String = two[0].spans.iter().map(|s| s.content.as_ref()).collect();
     assert!(text.starts_with(" MOVE") && text.trim_end().ends_with(text.split_whitespace().last().unwrap())); // a heading on each side
     assert!(two.iter().all(|l| l.width() <= 197));
+}
+
+#[test]
+fn copy_refs() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let url = "https://github.com/o/r/pull/1";
+    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: url.into() });
+    let c = |id| gh::Comment { id, node_id: String::new(), can_edit: false, can_delete: false, author: "amy".into(), body: "hi".into(), created: String::new(), pending: false };
+    app.threads = vec![gh::Thread {
+        id: "T".into(), path: "src/a.rs".into(), left: false, line: Some(2), start_line: None, original_line: Some(2),
+        resolved: false, outdated: false, hunk: vec![], comments: vec![c(11), c(12)], claude: None,
+    }];
+    let heading = |text: &str, url: &str| gh::InfoLine { heading: true, md: false, text: text.into(), marks: vec![], url: url.into() };
+    let body = |text: &str| gh::InfoLine { heading: false, md: true, text: text.into(), marks: vec![], url: String::new() };
+    app.info = vec![heading("@bo · 1d ago", "https://github.com/o/r/pull/1#issuecomment-5"), body("Looks good")];
+    app.build();
+    let at = |app: &mut App, text: &str| {
+        let r = app.rows.iter().position(|r| r.line.text == text).unwrap();
+        app.goto(r, 0);
+        app.cursor_ref().unwrap()
+    };
+    assert_eq!(at(&mut app, "Looks good"), "https://github.com/o/r/pull/1#issuecomment-5"); // conversation comment
+    assert_eq!(at(&mut app, "PR #1 · t"), url); // the PR header
+    let second = app.rows.iter().enumerate().filter(|(_, r)| r.thread == Some(0) && r.line.text == "hi").nth(1).unwrap().0;
+    app.goto(second, 0);
+    assert_eq!(app.cursor_ref().unwrap(), "https://github.com/o/r/pull/1#discussion_r12"); // the reply under the cursor
+    app.threads[0].claude = Some("c1".into());
+    app.threads[0].start_line = Some(1);
+    app.build();
+    app.goto(app.rows.iter().position(|r| r.thread == Some(0)).unwrap(), 0);
+    assert_eq!(app.cursor_ref().unwrap(), "src/a.rs:1-2"); // Claude's: where it is
+    let code = app.rows.iter().position(|r| r.line.kind == Kind::Add).unwrap();
+    app.goto(code, 0);
+    assert_eq!(app.cursor_ref().unwrap(), "src/a.rs:2");
+}
+
+#[test]
+fn cycle_claude_comments() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let p = std::env::temp_dir().join(format!("dv-claude-cycle-{}.json", std::process::id()));
+    std::fs::write(&p, r#"{ "comments": [
+        { "path": "src/a.rs", "line": 3, "body": "second" },
+        { "path": "src/a.rs", "line": 1, "body": "first" } ] }"#).unwrap();
+    app.claude_path = Some(p.clone());
+    app.load_threads();
+    _ = std::fs::remove_file(&p);
+    app.collapsed.insert("src/a.rs".into()); // folded: ]a opens it
+    app.build();
+    let press = |app: &mut App, s: &str| s.chars().for_each(|c| app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)));
+    let on = |app: &App| app.rows[app.head.row].thread.map(|t| app.threads[t].comments[0].body.clone());
+    press(&mut app, "]a");
+    assert_eq!(on(&app).as_deref(), Some("first")); // by line, not file order
+    press(&mut app, "]a");
+    assert_eq!(on(&app).as_deref(), Some("second"));
+    press(&mut app, "]a");
+    assert_eq!(on(&app).as_deref(), Some("first")); // wraps around
+    press(&mut app, "[a");
+    assert_eq!(on(&app).as_deref(), Some("second")); // and back
+    // From a code line, forward reaches the comment shown under it.
+    let l3 = app.rows.iter().position(|r| r.line.new == Some(3) && r.thread.is_none()).unwrap();
+    app.goto(l3, 0);
+    press(&mut app, "]a");
+    assert_eq!(on(&app).as_deref(), Some("second"));
 }

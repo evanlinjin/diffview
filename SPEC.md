@@ -110,7 +110,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `]f [f`, `Space f` | next/prev file, file picker |
 | `/`, `Alt-n Alt-N`, `*` | search (smart case), next/prev match, search for the selection |
 | `y` / `Space y`, `Y` | copy text, copy as patch (via OSC 52) |
-| `Space c` | copy a `path:line` / `path:start-end` ref for the selection |
+| `Space c` | copy a ref to paste to Claude: `path:line` / `path:start-end` for the selection; on a GitHub comment its link (`…#discussion_r…`, `…#issuecomment-…`), on the PR header / description the PR's, on a Claude comment its lines |
 | `+`/`=`, `-`, `Z` | context ±10 lines around the hunk under the cursor (hunks merge as they meet), whole file |
 | `Tab` | collapse/expand file; on a comment, fold/unfold its thread |
 | `Shift-Tab` | fold all files, or unfold all if all are folded |
@@ -134,6 +134,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `Space t` | picker of all review threads (state tags, author, gist, reply count); type to filter, e.g. `resolved` |
 | `Space v` | mark / unmark the file as viewed on GitHub (folds it and moves to the next file); viewed files start folded, headers show `✓ Viewed` / `↻ changed since viewed` at the right edge |
 | `]c [c` | next/prev comment thread |
+| `]a [a` | next/prev Claude comment, wrapping around; folded files and threads are opened on the way |
 | `r` on a Claude comment | reply to Claude (saved in the review file for Claude to answer) |
 | `c` / `C` on a Claude comment | copy it into your pending review / post it now; dismissed from the file once posted |
 | `R` | refresh: re-run `git diff`, re-fetch threads + PR info |

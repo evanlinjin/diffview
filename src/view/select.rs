@@ -66,13 +66,37 @@ impl App {
         })
     }
 
+    /// What to paste to Claude for the thing under the cursor: a GitHub comment's (or the PR's)
+    /// link, a Claude comment's lines, else the selected lines' `path:line`.
+    pub(super) fn cursor_ref(&self) -> Option<String> {
+        let row = &self.rows[self.head.row];
+        if let Some(t) = row.thread {
+            let th = &self.threads[t];
+            if th.claude.is_some() {
+                let line = th.line.or(th.original_line)?;
+                return Some(match th.start_line {
+                    Some(s) => format!("{}:{s}-{line}", th.path),
+                    None => format!("{}:{line}", th.path),
+                });
+            }
+            let pr = self.pr.as_ref()?;
+            return Some(format!("{}#discussion_r{}", pr.url, self.comment_under_cursor(t)?.id));
+        }
+        if row.file == INFO {
+            // A comment's rows carry its body's index; the link is on the heading just before.
+            let url = row.info.and_then(|i| self.info.get(i.checked_sub(1)?)).map(|h| h.url.clone()).filter(|u| !u.is_empty());
+            return url.or_else(|| self.pr.as_ref().map(|p| p.url.clone()).filter(|u| !u.is_empty()));
+        }
+        self.file_ref()
+    }
+
     pub(super) fn copy_ref(&mut self) {
-        match self.file_ref() {
+        match self.cursor_ref() {
             Some(r) => {
                 clipboard(&r);
                 self.msg = format!("copied {r}");
             }
-            None => self.msg = "not in a file".into(),
+            None => self.msg = "nothing to copy a reference to here".into(),
         }
     }
 }

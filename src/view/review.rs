@@ -406,6 +406,41 @@ impl App {
         }
     }
 
+    /// `]a` / `[a`: the next / previous Claude comment after the cursor, by file and line,
+    /// wrapping around. Folded files and threads open on the way (`goto_comment`).
+    pub(super) fn next_claude(&mut self, fwd: bool) {
+        let place = |fi: usize, line: Option<u32>| (fi, line.unwrap_or(0));
+        let file = |path: &str| self.files.iter().position(|f| f.path == path);
+        // (file, line, thread); a code line counts as -1, before the threads shown under it.
+        let mut order: Vec<((usize, u32), i64)> = (0..self.threads.len())
+            .filter(|&t| self.threads[t].claude.is_some())
+            .filter_map(|t| {
+                let th = &self.threads[t];
+                Some((place(file(&th.path)?, th.line.or(th.original_line)), t as i64))
+            })
+            .collect();
+        if order.is_empty() {
+            return self.msg = "no comments from Claude (Space a asks for a review)".into();
+        }
+        order.sort();
+        // Where the cursor is, in the same terms (the PR section comes before every file).
+        let row = &self.rows[self.head.row];
+        let here = match row.thread.map(|t| &self.threads[t]) {
+            Some(th) => file(&th.path).map(|fi| (place(fi, th.line.or(th.original_line)), row.thread.unwrap_or(0) as i64)),
+            None if row.file == INFO => None,
+            None => self.files.get(row.file).map(|_| (place(row.file, row.line.new.or(row.line.old)), -1)),
+        };
+        let pick = match (fwd, here) {
+            (true, Some(h)) => order.iter().find(|&&o| o > h).or(order.first()),
+            (false, Some(h)) => order.iter().rev().find(|&&o| o < h).or(order.last()),
+            (true, None) => order.first(),
+            (false, None) => order.last(),
+        };
+        if let Some(&(_, t)) = pick {
+            self.goto_comment(t as usize, 0);
+        }
+    }
+
     /// Jump to comment `ci` of thread `ti`, unfolding its file and thread if needed.
     pub(super) fn goto_comment(&mut self, ti: usize, ci: usize) {
         let Some(t) = self.threads.get(ti) else { return };

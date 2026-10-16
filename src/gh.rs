@@ -466,11 +466,13 @@ pub struct InfoLine {
     pub md: bool,
     pub text: String,
     pub marks: Vec<(usize, usize, Mark)>,
+    /// On a comment's (or the description's) heading: its link on GitHub, for `Space c`.
+    pub url: String,
 }
 
 impl InfoLine {
     fn new(heading: bool, md: bool) -> Self {
-        InfoLine { heading, md, text: String::new(), marks: vec![] }
+        InfoLine { heading, md, text: String::new(), marks: vec![], url: String::new() }
     }
 
     fn put(&mut self, s: &str, mark: Option<Mark>) -> &mut Self {
@@ -598,14 +600,15 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         l.put(&t, None);
         l
     };
-    out.push(heading("description".into()));
+    out.push(InfoLine { url: s(&v["url"]), ..heading("description".into()) });
     let body = s(&v["body"]).replace("\r\n", "\n");
     out.push(markdown(body)); // empty: the view shows a placeholder
 
     let comments = list(&v["comments"]);
     out.push(heading(format!("conversation ({})", comments.len())));
     for c in &comments {
-        out.push(heading(format!("@{} · {}", s(&c["author"]["login"]), ago(&s(&c["createdAt"])))));
+        let h = heading(format!("@{} · {}", s(&c["author"]["login"]), ago(&s(&c["createdAt"]))));
+        out.push(InfoLine { url: s(&c["url"]), ..h });
         out.push(markdown(s(&c["body"]).replace("\r\n", "\n")));
     }
     out
