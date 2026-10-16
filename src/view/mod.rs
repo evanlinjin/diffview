@@ -53,7 +53,7 @@ DIFF
 SELECT & COPY
   x                    select line (repeat to extend)
   v  ;  Esc            select mode / collapse / exit select mode
-  y, Space y           copy text
+  y  (or Space y)      copy text
   Y                    copy as patch
   Space c              copy file:line ref (e.g. src/a.rs:12-15)
 
@@ -71,25 +71,29 @@ RUST-ANALYZER
   gd gr gy gi          definition / references / type / impl
   Space k              hover; on an issue/PR link: preview it
 
-PR
-  c                    comment on selection / reply on a thread (pending review)
-  C                    same, but post now; on PR text: quote it in a new conversation comment
-  s                    suggest a change to the selected lines (pending review)
-  S                    submit review: comment / approve / request changes, or discard
-  Space r              resolve / unresolve thread
-  Space e              edit your comment under the cursor
-  Space d              delete the comment under the cursor (asks first)
-  Space p              pick from your pending comments
-  Space t              pick from all review threads
-  Space v              mark / unmark the file as viewed (folds it, moves on)
+ON SELECTED LINES
+  c                    comment, in your pending review (C: post it now)
+  s                    suggest a change, in your pending review
 
-CLAUDE REVIEW
+ON A REVIEW THREAD
+  c  r                 reply, in your pending review (C: post it now)
+  Space r              resolve / unresolve
+  Space e  Space d     edit / delete your comment (delete asks first)
+
+ON CLAUDE'S COMMENT
+  r                    reply to Claude (saved for Claude Code to answer)
+  c                    copy it into your pending review (C: post it now)
+  Space r  Space d     resolve (Claude skips it) / dismiss
+
+ON PR TEXT
+  C                    quote it in a new conversation comment
+
+REVIEW
+  S                    submit (comment / approve / request changes), or discard
+  Space p  Space t     pick from your pending comments / all threads
+  Space v              mark the file viewed (folds it, moves on)
   Space a              ask Claude Code to review, or to answer your replies
-  Space A              pick from Claude's comments ([waiting]: your reply is unanswered)
-  r                    reply to Claude (saved in the file; ask Claude Code to answer)
-  c / C                copy Claude's comment into your pending review / post it now
-  Space r              resolve / unresolve (Claude skips resolved comments)
-  Space d              dismiss Claude's comment
+  Space A              pick from Claude's comments ([waiting]: unanswered)
 
 GENERAL
   ?                    this help (/ to search it)
@@ -104,6 +108,8 @@ const CTRL_W: char = '\u{17}';
 const HL_MAX_BYTES: usize = 1 << 20;
 /// `Row::file` for the PR info section at the top.
 const INFO: usize = usize::MAX - 1;
+/// `Row::info` for Claude's review summary (it isn't one of `info`'s lines).
+const SUMMARY: usize = usize::MAX;
 
 /// Position in the view: row index into `rows`, char index into the row's text.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -582,8 +588,10 @@ impl App {
                     }
                 }
                 if !self.claude_summary.is_empty() {
-                    rows.push(mk(Kind::Thread, "claude's review".into()));
-                    rows.extend(self.md_rows(&self.claude_summary, mk));
+                    let summary = |r: Row| Row { info: Some(SUMMARY), ..r };
+                    rows.push(summary(mk(Kind::Thread, "claude's review".into())));
+                    rows.extend(self.md_rows(&self.claude_summary, mk).into_iter().map(summary));
+                    rows.push(Row { edge: true, ..summary(mk(Kind::Comment, String::new())) });
                 }
             }
         }

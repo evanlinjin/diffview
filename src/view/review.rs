@@ -522,7 +522,11 @@ impl App {
             return self.msg = "no PR for this branch".into();
         }
         let row = &self.rows[self.head.row];
-        let quote = row.info.and_then(|i| self.info.get(i)).map_or(String::new(), |l| quote(&l.text));
+        let text = match row.info {
+            Some(SUMMARY) => Some(self.claude_summary.as_str()),
+            i => i.and_then(|i| self.info.get(i)).map(|l| l.text.as_str()),
+        };
+        let quote = text.map_or(String::new(), quote);
         self.action = Some(Action::Converse { quote });
     }
 

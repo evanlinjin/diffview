@@ -44,12 +44,14 @@ impl App {
         if sections.is_empty() {
             return vec![Line::styled(format!(" no keys match \"{query}\""), dim)];
         }
-        let mut out = vec![];
-        for (n, (heading, entries)) in sections.into_iter().enumerate() {
-            if n > 0 {
-                out.push(Line::default());
-            }
-            out.push(Line::styled(format!(" {heading}"), ui.heading.add_modifier(ratatui::style::Modifier::BOLD)));
+        // Two columns when the window fits two unwrapped ones (so there's no scrolling).
+        const GAP: usize = 4;
+        let natural = sections.iter().flat_map(|s| &s.1).map(|l| l.chars().count()).max().unwrap_or(0) + 1;
+        let two = sections.len() > 1 && width >= 2 * natural + GAP;
+        let width = if two { natural } else { width.min(97) };
+        let mut blocks: Vec<Vec<Line<'static>>> = vec![];
+        for (heading, entries) in sections {
+            let mut out = vec![Line::styled(format!(" {heading}"), ui.heading.add_modifier(ratatui::style::Modifier::BOLD))];
             for l in entries {
                 let (key, desc) = l.split_at(KEY_COL.min(l.len()));
                 let mut spans: Vec<Span> = vec![Span::raw("  ")];
@@ -73,8 +75,27 @@ impl App {
                 }
                 out.push(Line::from(spans));
             }
+            blocks.push(out);
         }
-        out
+        let join = |bs: &[Vec<Line<'static>>]| -> Vec<Line<'static>> {
+            bs.iter().enumerate().flat_map(|(n, b)| (n > 0).then(Line::default).into_iter().chain(b.iter().cloned())).collect()
+        };
+        if !two {
+            return join(&blocks);
+        }
+        // Split between sections where the columns come out most even.
+        let len = |bs: &[Vec<Line>]| bs.iter().map(|b| b.len() + 1).sum::<usize>();
+        let k = (1..blocks.len()).min_by_key(|&k| len(&blocks[..k]).abs_diff(len(&blocks[k..]))).unwrap_or(1);
+        let (left, right) = (join(&blocks[..k]), join(&blocks[k..]));
+        (0..left.len().max(right.len()))
+            .map(|i| {
+                let mut l = left.get(i).cloned().unwrap_or_default();
+                let pad = (natural + GAP).saturating_sub(l.width());
+                l.spans.push(Span::raw(" ".repeat(pad)));
+                l.spans.extend(right.get(i).cloned().unwrap_or_default().spans);
+                l
+            })
+            .collect()
     }
 
     /// Hover markdown, highlighted (code fences in their language), with the fence lines dropped.
@@ -92,6 +113,24 @@ impl App {
                 Line::from(spans)
             })
             .collect()
+    }
+
+    /// What the overloaded keys do where the cursor is, for the status bar: on a selection, a
+    /// review thread, Claude's comment, or PR text. Nothing elsewhere, to keep it quiet.
+    pub(super) fn context_hint(&self) -> Option<&'static str> {
+        let row = &self.rows[self.head.row];
+        if self.select || self.anchor.row != self.head.row {
+            return Some("c comment · s suggest · C comment now · y copy · Space c copy ref");
+        }
+        if let Some(t) = row.thread {
+            let t = &self.threads[t];
+            return Some(match (t.claude.is_some(), t.outdated) {
+                (true, true) => "outdated · r reply to Claude · Space d dismiss · Tab fold",
+                (true, false) => "r reply to Claude · c copy to your review · C post now · Space r resolve · Space d dismiss",
+                (false, _) => "c reply (review) · C reply now · Space r resolve · Space e edit · Tab fold",
+            });
+        }
+        (row.file == INFO && row.info.is_some()).then_some("C quote in a new conversation comment · Tab fold")
     }
 
     pub(super) fn draw(&mut self, f: &mut Frame) {
@@ -211,10 +250,11 @@ impl App {
                     _ => String::new(),
                 };
                 let (mode, mst) = if self.select { (" SEL ", self.ui.mode_select) } else { (" NOR ", self.ui.mode_normal) };
-                Line::from(vec![
-                    Span::styled(mode, mst),
-                    Span::raw(format!("  {}  {pos}  {}", self.file_path().unwrap_or(""), self.msg)),
-                ])
+                let mut spans = vec![Span::styled(mode, mst), Span::raw(format!("  {}  {pos}  {}", self.file_path().unwrap_or(""), self.msg))];
+                if let Some(hint) = self.context_hint().filter(|_| self.msg.is_empty()) {
+                    spans.push(Span::styled(hint, self.ui.stale));
+                }
+                Line::from(spans)
             }
         };
         let pend = match self.pending {
@@ -229,20 +269,31 @@ impl App {
         };
         let pending = match self.pending_count() {
             0 if self.review.is_none() => String::new(),
-            n => format!(" · {n} pending, S to submit"),
+            n => format!(" · {n} pending (S submits)"),
         };
         let claude = self.threads.iter().filter(|t| t.claude.is_some()).count();
-        let claude_s = if claude > 0 { format!("{claude} from Claude · ") } else { String::new() };
         let seen = self.files.iter().filter(|f| self.viewed.get(&f.path).is_some_and(|s| s == "VIEWED")).count();
-        let pr = self
-            .pr
-            .as_ref()
-            .map(|p| format!("PR #{} · {} threads · {seen}/{} viewed{pending}  ", p.number, self.threads.len() - claude, self.files.len()))
-            .unwrap_or_default();
+        let threads = match (self.threads.len() - claude, claude) {
+            (n, 0) => format!("{n} threads"),
+            (n, c) => format!("{n} threads + {c} Claude"),
+        };
+        let pr = match &self.pr {
+            Some(p) => format!("#{} · {threads} · {seen}/{} viewed{pending}  ", p.number, self.files.len()),
+            None if claude > 0 => format!("{threads}  "),
+            None => String::new(),
+        };
         let working = if self.claude_working() { "Claude working… · " } else { "" };
-        let pr = format!("{working}{claude_s}{pr}");
         let view = if self.split { "split  " } else { "" };
-        let right = format!("{ra}{pr}{view}{count}{pend}  {}/{} ", self.head.row + 1, self.rows.len());
+        // The left side (what you're on, messages, hints) wins: when both don't fit, the right
+        // keeps only the essentials, and the left is cut with an ellipsis.
+        let essential = format!("{view}{count}{pend}  {}/{} ", self.head.row + 1, self.rows.len());
+        let extras = format!("{ra}{working}{pr}");
+        let width = area.width as usize;
+        let right = match left.width() + extras.chars().count() + essential.chars().count() < width {
+            true => format!("{extras}{essential}"),
+            false => essential,
+        };
+        let left = fit(left, width.saturating_sub(right.chars().count() + 1));
         let bar = self.ui.base.patch(self.ui.status);
         f.render_widget(Paragraph::new(left).style(bar), status);
         f.render_widget(Paragraph::new(right).alignment(Alignment::Right).style(bar), status);
@@ -280,8 +331,24 @@ impl App {
             self.scrollbar(f, list, m.len(), vis, off);
         }
 
+        // Which-key: what can follow a pending prefix key, bottom right, like Helix.
+        if let Some((title, keys)) = self.pending.and_then(App::which) {
+            let kw = keys.iter().map(|k| k.0.len()).max().unwrap_or(1);
+            let lines: Vec<Line> = keys
+                .iter()
+                .map(|(k, d)| Line::from(vec![Span::styled(format!("{k:<kw$}  "), self.ui.key), Span::raw(*d)]))
+                .collect();
+            let w = (lines.iter().map(Line::width).max().unwrap_or(10) as u16 + 4).max(title.len() as u16 + 4).min(area.width);
+            let ph = (lines.len() as u16 + 2).min(h as u16);
+            let r = Rect { x: area.width - w, y: (h as u16).saturating_sub(ph), width: w, height: ph };
+            let inner = self.popup_frame(f, r, title, "");
+            f.render_widget(Paragraph::new(lines), inner);
+        }
+
         if let Some((title, text, scroll)) = self.popup.clone() {
-            let w = area.width.saturating_sub(4).min(100);
+            // As wide as the text (hover is wrapped to fit 100; help may be two columns), and the title.
+            let text_w = text.iter().map(Line::width).max().unwrap_or(0).max(title.chars().count() + 1);
+            let w = (text_w as u16 + 3).max(30).min(area.width.saturating_sub(4));
             // ponytail: wrapped height estimated from line widths (char wrap, not word wrap).
             let cw = w.saturating_sub(3).max(1) as usize;
             let total: usize = text.iter().map(|l| l.width().div_ceil(cw).max(1)).sum();
@@ -411,8 +478,8 @@ impl App {
                     None if first => " ▸ ",
                     None => " ┃ ",
                 };
-                // Filled from the text column on; the gutter keeps the page background.
-                line_bg = (part != Some(BoxPart::Bottom)).then_some(ui.comment_bg);
+                // No fill: the box's border sets comments apart. The gutter keeps the page background
+                // (so the cursor line's tint stays in the text column, inside the box).
                 gstyle = gstyle.bg(ui.base.bg.unwrap_or(Color::Reset));
                 (format!("{:>gw$}", mark), st)
             }
@@ -532,4 +599,25 @@ impl App {
         }
         spans
     }
+}
+
+/// `line` cut to `w` columns, ending in `…` if it was longer.
+fn fit(line: Line<'static>, w: usize) -> Line<'static> {
+    if line.width() <= w {
+        return line;
+    }
+    let mut left = w.saturating_sub(1);
+    let mut spans = vec![];
+    for sp in line.spans {
+        let n = sp.content.chars().count();
+        if n <= left {
+            left -= n;
+            spans.push(sp);
+        } else {
+            spans.push(Span::styled(sp.content.chars().take(left).collect::<String>(), sp.style));
+            break;
+        }
+    }
+    spans.push(Span::raw("…"));
+    Line::from(spans)
 }

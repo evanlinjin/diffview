@@ -57,8 +57,8 @@ disk: rust-analyzer can index it and `hx` can open it.
    highlighted in its language, `<details><summary>` as `▸ …`, common `:emoji:`, and line
    breaks kept as GitHub does in comments. PR info: state badge and label chips in GitHub's
    colors, colored review decision and check counts. Comment times are relative ("2d ago").
-   Comments (open review threads, the description and conversation comments) sit in boxes with
-   a subtle border in the line-number color: `╭─ author ─╮`, a `├─` divider per reply, `╰──╯`
+   Comments (open review threads, the description, conversation comments, Claude's summary) sit
+   in boxes with a subtle border in the line-number color (no fill): `╭─ author ─╮`, a `├─` divider per reply, `╰──╯`
    (an empty row of its own); a folded thread stays one `▸` line.
    File headers: dir dimmed, +/− colored. Split view hatches the empty side; pickers
    highlight matched letters.
@@ -137,7 +137,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `r` on a Claude comment | reply to Claude (saved in the review file for Claude to answer) |
 | `c` / `C` on a Claude comment | copy it into your pending review / post it now; dismissed from the file once posted |
 | `R` | refresh: re-run `git diff`, re-fetch threads + PR info |
-| `?` | key help overlay; `/` inside it filters entries (smart case), Enter keeps, Esc clears |
+| `?` | key help overlay (two columns when the window fits them); `/` inside it filters entries (smart case), Enter keeps, Esc clears |
 | `q` | quit |
 
 `dv list` (the 200 most recently updated open PRs) shows each PR as a two-line card: number,
@@ -151,6 +151,12 @@ anything else is text in the number, title, author, branch or labels (smart case
 `ci:fail -is:draft -author:dependabot`. `Enter` reviews the PR as `dv <N> <flags>` would, `R`
 refreshes, `q` quits. Quitting the review returns to the list; if opening a PR fails, the
 error shows in the list's status bar.
+
+Discoverability: after a prefix key (`Space`, `g`, `z`, `]`, `[`, `Ctrl-w`, `m`) a which-key
+popup lists what can follow, as in Helix. On a selection, a review thread, Claude's comment or
+PR text, the status bar says what `c` / `C` / `r` / `s` (etc.) do there. The status bar's left
+side (what you're on, messages, hints) wins over its right: when both don't fit, the right
+keeps only the essentials.
 
 ## Design
 One crate: `main.rs` (args), `diff.rs` (git + parser), `view.rs` (state, keys,

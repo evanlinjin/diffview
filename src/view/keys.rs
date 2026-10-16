@@ -24,8 +24,9 @@ impl App {
     /// Rebuild the help overlay for its current search.
     pub(super) fn refresh_help(&mut self) {
         let Some((q, typing)) = self.help.clone() else { return };
-        // Popup text width: popup is min(width - 4, 100) wide, minus padding and scrollbar.
-        let cw = (self.width.saturating_sub(4).min(100) as usize).saturating_sub(3);
+        // Room for popup text: the window minus the popup's margins, padding and scrollbar. Help
+        // takes two columns when they fit, else one of at most 97.
+        let cw = (self.width.saturating_sub(4) as usize).saturating_sub(3);
         let title = match (typing, q.is_empty()) {
             (true, _) => format!(" keys /{q}▏ Enter keep · Esc clear "),
             (false, false) => format!(" keys /{q} · / edit · j/k scroll · other keys close "),
@@ -200,6 +201,46 @@ impl App {
             'g' | ']' | '[' | ' ' | 'f' | 't' | 'F' | 'T' | 'z' | 'm' => self.pending = Some(c),
             _ => {}
         }
+    }
+
+    /// What can follow prefix key `p`, for the which-key popup (as Helix shows): (title, keys).
+    /// Kept next to `pending_key`, which they mirror.
+    pub(super) fn which(p: char) -> Option<(&'static str, &'static [(&'static str, &'static str)])> {
+        Some(match p {
+            ' ' => ("space", &[
+                ("f", "file picker"),
+                ("t", "review threads"),
+                ("p", "your pending comments"),
+                ("A", "Claude's comments"),
+                ("a", "ask Claude Code…"),
+                ("k", "hover / preview link"),
+                ("v", "mark file viewed"),
+                ("r", "resolve thread"),
+                ("e", "edit your comment"),
+                ("d", "delete / dismiss comment"),
+                ("y", "copy"),
+                ("c", "copy file:line ref"),
+            ]),
+            'g' => ("goto", &[
+                ("g", "top"),
+                ("e", "end"),
+                ("h", "line start"),
+                ("l", "line end"),
+                ("s", "first non-blank"),
+                ("w", "jump labels"),
+                ("d", "definition"),
+                ("r", "references"),
+                ("y", "type definition"),
+                ("i", "implementations"),
+                ("f", "open link in browser"),
+            ]),
+            'z' => ("view", &[("z", "cursor line to center"), ("t", "… to top"), ("b", "… to bottom")]),
+            ']' => ("next", &[("g", "change (hunk)"), ("f", "file"), ("c", "comment thread")]),
+            '[' => ("previous", &[("g", "change (hunk)"), ("f", "file"), ("c", "comment thread")]),
+            CTRL_W => ("window", &[("v", "toggle split view")]),
+            'm' => ("match", &[("m", "matching bracket")]),
+            _ => return None,
+        })
     }
 
     pub(super) fn pending_key(&mut self, p: char, c: char) {

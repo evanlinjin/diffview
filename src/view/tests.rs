@@ -339,6 +339,7 @@ fn claude_review() {
     app.build();
     let texts: Vec<&str> = app.rows.iter().map(|r| r.line.text.as_str()).collect();
     assert_eq!(&texts[..3], ["Claude's review", "claude's review", "Looks fine."]); // summary up top, no PR needed
+    assert_eq!((app.box_part(1), app.box_part(2), app.box_part(3)), (Some(BoxPart::Top), Some(BoxPart::Body), Some(BoxPart::Bottom)));
     let row = |app: &App, side_left: bool| {
         app.rows.iter().position(|r| r.line.kind == Kind::Thread && r.thread.is_some_and(|t| app.threads[t].left == side_left)).unwrap()
     };
@@ -437,4 +438,22 @@ fn posting_shows_progress() {
     let job = app.job.take().unwrap();
     app.run_job(job);
     assert!(app.msg.contains("no PR"));
+}
+
+#[test]
+fn help_two_columns() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let rows = |app: &mut App, w: u16| {
+        app.width = w;
+        app.key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
+        let lines = app.popup.take().unwrap().1;
+        app.help = None;
+        lines
+    };
+    let one = rows(&mut app, 100);
+    let two = rows(&mut app, 200);
+    assert!(two.len() * 2 <= one.len() + 2, "{} vs {}", two.len(), one.len()); // about half as tall
+    let text: String = two[0].spans.iter().map(|s| s.content.as_ref()).collect();
+    assert!(text.starts_with(" MOVE") && text.trim_end().ends_with(text.split_whitespace().last().unwrap())); // a heading on each side
+    assert!(two.iter().all(|l| l.width() <= 197));
 }

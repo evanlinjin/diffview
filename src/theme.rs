@@ -40,8 +40,6 @@ pub struct Ui {
     pub warning: Style,
     pub resolved: Style,
     pub pending: Style,
-    /// Fill for comment threads and the PR info section: a step above the background, below popups.
-    pub comment_bg: Color,
     /// Changed words within a paired removed/added line: a stronger tint than the line's.
     pub emph_add: Color,
     pub emph_del: Color,
@@ -200,12 +198,6 @@ impl Theme {
             warning: self.get("warning"),
             resolved: self.get("diff.plus"),
             pending: self.find("hint").unwrap_or(self.get("info")),
-            comment_bg: self
-                .find("ui.cursorline")
-                .and_then(|s| s.bg)
-                .filter(|&c| Some(c) != bg && Some(c) != self.find("ui.popup").and_then(|p| p.bg))
-                .or_else(|| blend(base.fg?, bg?, 0.06))
-                .unwrap_or(Color::Rgb(0x26, 0x28, 0x2e)),
             emph_add: plus.fg.zip(bg).and_then(|(c, b)| blend(c, b, 0.42)).unwrap_or(Color::Rgb(0x2f, 0x5a, 0x33)),
             emph_del: minus.fg.zip(bg).and_then(|(c, b)| blend(c, b, 0.42)).unwrap_or(Color::Rgb(0x6b, 0x2c, 0x2c)),
             cursorline,
