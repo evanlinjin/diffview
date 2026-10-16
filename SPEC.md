@@ -136,15 +136,15 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `Ctrl-o` | jump back |
 | `c` | comment on the selection, in your pending review |
 | `r` | reply on a thread, in your pending review (on a Claude comment: reply to Claude) |
-| `C` | `c` / `r`, but post immediately; in the PR description/conversation: a new conversation comment quoting the comment under the cursor |
+| `C` | `c` / `r`, but post immediately (not beside a pending review: GitHub refuses that, so dv says so first); in the PR description/conversation: a new conversation comment quoting the comment under the cursor |
 | `s` | suggest a change: `$EDITOR` opens with a ```suggestion block of the selected new-side lines (pending review) |
-| `S` | submit the pending review (comment / approve / request changes) or discard it |
+| `S` | submit the pending review (comment / approve / request changes) or discard it; under the choices, what's still open (Claude's open comments and how many it answered, unresolved GitHub threads, pending comments on changed code, a checkout that isn't the PR head), also as hint lines when approving |
 | `Space r` | resolve / unresolve the thread under the cursor |
 | `Space e` | edit your comment under the cursor (opens its text in `$EDITOR`) |
 | `Space d` | delete the comment under the cursor (confirmation picker, "No" preselected) |
 | `Space p` | picker of your pending review's comments; jumps there (unfolding as needed); `Ctrl-d` deletes the selected one (asks first) |
-| `Space a` | run Claude Code: review (or update the review), answer your replies, or make the changes the open comments ask for (Claude's and yours; your instructions optional, or the whole request when there are none). Background runs may also run `cargo check/build/test/clippy` |
-| `Space A` | picker of Claude's comments (`[waiting]` = your reply is unanswered); jumps there |
+| `Space a` | run Claude Code: review (or update the review: after new commits on top of the reviewed one, just those), answer your replies, or make the changes the open comments ask for (Claude's and yours; your instructions optional, or the whole request when there are none; on someone else's PR: suggest them, as suggestion blocks, without editing). Also: Claude's notes, dismiss its outdated comments, start a fresh session for the PR. Background runs may also run `cargo check/build/test/clippy`, and say what they cost |
+| `Space A` | picker of Claude's comments (`[waiting]`: your reply is unanswered, `[answered]`: Claude answered you; severity tags like `[bug]`); jumps there |
 | `Space t` | picker of all review threads (state tags, author, gist, reply count); type to filter, e.g. `resolved` |
 | `Space v` | mark / unmark the file as viewed on GitHub (folds it and moves to the next file); viewed files start folded, headers show `✓ Viewed` / `↻ changed since viewed` at the right edge |
 | `]c [c` | next/prev comment thread |
@@ -154,12 +154,15 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `r` on a Claude comment | reply to Claude: saved in the review file, then Claude answers right away in the background (`claude -p`, resuming the last run's session; replies made meanwhile get one more run) |
 | `c` / `C` on a Claude comment | copy it into your pending review / post it now; dismissed from the file once posted |
 | `R` | refresh: re-run `git diff`, re-fetch threads + PR info |
+| `Space g` | git: show only what isn't committed (diff against HEAD, to check Claude's changes) / the whole diff again; commit everything (new files too; the message starts from Claude's "Changed: …" replies since the last commit); push to the branch it tracks (a PR's, under its own name) |
+| `Space m` | the status bar's messages so far, in full, and the last background Claude run's log and the runs' cost |
 | `Space u` | update the checkout: to the PR's head as `gh pr checkout` does (fast-forward only; local commits are kept), or `git pull --ff-only` without a PR; then refresh |
 | `?` | key help overlay (two columns when the window fits them); `/` inside it filters entries (smart case), Enter keeps, Esc clears |
 | mouse | wheel scrolls (view, popup, picker); click moves the cursor (or folds, on a fold arrow; picks in a picker, opens on a second click); drag selects. `--no-mouse` leaves it to the terminal |
 | `q` | quit |
 
-`dv list` (the 200 most recently updated open PRs; `Tab` switches to the PRs with a local
+`dv list` (the 1000 most recently updated open PRs; a `#N` filter's Enter opens PR N even if it
+isn't listed; `Tab` switches to the PRs with a local
 `<repo>-N` worktree, open or not, which `Enter` opens in that worktree as it was made:
 detached or on its branch) shows each PR as a two-line card: number,
 title, draft badge, age; then author, CI (✓/✗/● counts, fetched in the background since they're
@@ -170,7 +173,11 @@ all match, GitHub-search style, `-` negating one: `author:` `label:` `base:` `br
 (substring), `is:draft`, `review:approved|changes|required|none`, `ci:pass|fail|pending|none`,
 anything else is text in the number, title, author, branch or labels (smart case). E.g.
 `ci:fail -is:draft -author:dependabot`. `Enter` reviews the PR as `dv <N> <flags>` would, `R`
-refreshes, `q` quits. Quitting the review returns to the list; if opening a PR fails, the
+refreshes, `q` quits. `m` marks PRs and `a a` has Claude review them (or the selected one) in
+the background, two at a time, each in its `<repo>-N` worktree (made if need be; one on the
+PR's branch stays on it) and its own session; cards show `claude: reviewing…` and then
+`claude ✓`. `D D` in the worktrees tab removes the worktree (not with local changes; the branch
+stays). Quitting the review returns to the list; if opening a PR fails, the
 error shows in the list's status bar.
 
 Discoverability: after a prefix key (`Space`, `g`, `z`, `]`, `[`, `Ctrl-w`, `m`) a which-key
@@ -181,8 +188,17 @@ side (what you're on, messages, hints) wins over its right: when both don't fit,
 keeps only the essentials.
 
 ## Design
-One crate: `main.rs` (args), `diff.rs` (git + parser), `view.rs` (state, keys,
-render), later `lsp.rs`, `gh.rs`. Deps: `ratatui`, `anyhow` (+ `serde_json` for
-phases 2–3). Shells out to `git`/`gh`; no git2, no GitHub crate.
+One crate:
+- `main.rs`: args, checkouts and worktrees, the `review-*` / `install-skill` commands
+- `diff.rs`: `git diff` (untracked files too) and its parser
+- `gh.rs`: GitHub through `gh` (REST and GraphQL)
+- `claude.rs`: dv's data directory, review files, sessions, the skill
+- `list.rs`, `batch.rs`: `dv list` and its batch reviews
+- `lsp.rs`, `highlight.rs`, `md.rs`, `theme.rs`: rust-analyzer, syntax, markdown, Helix themes
+- `view/`: the diff viewer (`mod.rs` state and layout; `keys`, `motion`, `select`, `mouse`,
+  `render`; `review` for GitHub, `agent` for Claude Code, `git` for `Space g`, `ra`; `tests`)
+
+Deps: `ratatui`, `anyhow`, `serde_json`, `syntect`, `toml`, `pulldown-cmark`. Shells out to
+`git`/`gh`/`claude`/`zellij`; no git2, no GitHub crate.
 
 Not planned: editing in dv, forges other than GitHub, other LSPs.

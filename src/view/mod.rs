@@ -417,16 +417,17 @@ impl App {
         app.claude_path = crate::claude::path(pr.as_ref().map(|p| p.number)).ok();
         // The PR's Claude Code session, if an earlier run (any dv, any worktree) started one.
         // One that started with another version of the skill would keep following that: start afresh.
-        match app.claude_path.as_ref().and_then(|p| crate::claude::load_session(p, &app.root)) {
-            Some((id, true)) => app.claude_session = Some(id),
-            Some((_, false)) => app.msg = "dv's Claude skill has changed since this PR's Claude session began: the next Claude run starts a new one".into(),
-            None => {}
-        }
+        let session = app.claude_path.as_ref().and_then(|p| crate::claude::load_session(p, &app.root));
+        let other_skill = session.as_ref().is_some_and(|s| !s.1);
+        app.claude_session = session.filter(|s| s.1).map(|s| s.0);
         if pr.is_some() {
             crate::progress(Some("loading comments and PR info"));
         }
         app.pr = pr;
         app.load_threads();
+        if other_skill && app.msg.is_empty() {
+            app.msg = "dv's Claude skill has changed since this PR's Claude session began: the next Claude run starts a new one".into();
+        }
         app.build();
         match Lsp::start(&app.root) {
             Ok((l, id)) => {
@@ -678,7 +679,9 @@ impl App {
                 let head = diff::git(&["rev-parse", "HEAD"]).unwrap_or_default();
                 let mut prefill = ack(event, self.pr.as_ref(), head.trim());
                 if event == "APPROVE" {
-                    let notes: String = self.submit_notes().iter().map(|n| format!("{HINT} still open: {n} -->\n")).collect();
+                    // (A checkout that isn't the PR's head: the ACK's own hint says so.)
+                    let notes = self.submit_notes().into_iter().filter(|n| !n.starts_with("your checkout"));
+                    let notes: String = notes.map(|n| format!("{HINT} still open: {n} -->\n")).collect();
                     prefill = notes + &prefill;
                 }
                 let Some(body) = compose_with(&what, true, &prefill, true)? else {
@@ -867,11 +870,10 @@ impl App {
         // Threads on files that have left the diff (a change reverted, a file now matching the
         // base) would show nowhere: list them here, by file. Not when showing only what isn't
         // committed, where most files are out of the diff on purpose.
-        let gone: Vec<usize> = match self.uncommitted() {
+        let mut gone: Vec<usize> = match self.uncommitted() {
             true => vec![],
             false => (0..self.threads.len()).filter(|&t| !self.files.iter().any(|f| f.path == self.threads[t].path)).collect(),
         };
-        let mut gone = gone;
         gone.sort_by(|&a, &b| self.threads[a].path.cmp(&self.threads[b].path)); // stable: in order within a file
         if !gone.is_empty() {
             let heading = |text: String| Row::text(INFO, Kind::Thread, text);
