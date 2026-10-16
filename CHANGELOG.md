@@ -9,6 +9,10 @@ on GitHub are its section here.
 - `Ctrl-w a`: the Claude view, just Claude's review: the PR's one-line summary, Claude's
   summary, and only the code it commented on (a few lines around each comment).
 
+### Fixed
+- `dv list`: the selected PR is readable (its text takes the highlight's colors), and the
+  highlight runs to the edge on both of its lines.
+
 ## [0.3.0] - 2026-10-16
 
 ### Added

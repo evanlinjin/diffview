@@ -5,6 +5,7 @@ use crate::theme::{Theme, Ui};
 use anyhow::Result;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::layout::{Alignment, Rect};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::{DefaultTerminal, Frame};
@@ -521,7 +522,10 @@ struct Cards<'a> {
 fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathBuf, Option<String>)>, mark: Mark) -> [Line<'static>; 2] {
     let (ui, num_w, width, usual) = (cx.ui, cx.num_w, cx.width, cx.usual);
     let row = if selected { ui.base.patch(ui.menu_selected) } else { ui.base };
-    let dim = row.patch(ui.stale);
+    // On the selected card the text takes the highlight's colors, to stay readable (labels
+    // keep theirs).
+    let tint = |st: Style| if selected { row } else { row.patch(st) };
+    let dim = tint(ui.stale);
     let sp = |t: String, st| Span::styled(t, st);
     let age = format!("{} ", gh::ago(&p.updated));
     // Closed / merged (only in the worktrees tab), else draft, as GitHub colors them.
@@ -533,7 +537,7 @@ fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathBuf, Option<
     };
     let room = width.saturating_sub(num_w + 3 + badge.map_or(0, |b| b.0.len() + 4) + age.len()).max(10);
     let mut top = vec![
-        sp(format!("{}{:>num_w$} ", if mark.marked { "●" } else { " " }, format!("#{}", p.number)), row.patch(ui.key)),
+        sp(format!("{}{:>num_w$} ", if mark.marked { "●" } else { " " }, format!("#{}", p.number)), tint(ui.key)),
         sp(cut(&p.title, room), row),
     ];
     if let Some((text, color)) = badge {
@@ -549,22 +553,22 @@ fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathBuf, Option<
         Some((pass, fail, pending)) => {
             let counts = [(pass, '✓', ui.plus), (fail, '✗', ui.error), (pending, '●', ui.warning)];
             for (k, &(n, mark, st)) in counts.iter().filter(|c| c.0 > 0).enumerate() {
-                bottom.extend([sp(if k == 0 { " · " } else { " " }.into(), dim), sp(format!("{mark}{n}"), row.patch(st))]);
+                bottom.extend([sp(if k == 0 { " · " } else { " " }.into(), dim), sp(format!("{mark}{n}"), tint(st))]);
             }
         }
         None if cx.checks_loading => bottom.extend([sep(), sp("checks…".into(), dim)]),
         None => {}
     }
     match p.decision.as_str() {
-        "APPROVED" => bottom.extend([sep(), sp("✓ approved".into(), row.patch(ui.plus))]),
-        "CHANGES_REQUESTED" => bottom.extend([sep(), sp("✗ changes requested".into(), row.patch(ui.error))]),
+        "APPROVED" => bottom.extend([sep(), sp("✓ approved".into(), tint(ui.plus))]),
+        "CHANGES_REQUESTED" => bottom.extend([sep(), sp("✗ changes requested".into(), tint(ui.error))]),
         _ => {}
     }
     bottom.extend([
         sep(),
-        sp(format!("+{}", p.additions), row.patch(ui.plus)),
+        sp(format!("+{}", p.additions), tint(ui.plus)),
         sp(" ".into(), row),
-        sp(format!("−{}", p.deletions), row.patch(ui.minus)),
+        sp(format!("−{}", p.deletions), tint(ui.minus)),
         sp(format!(" in {} file{}", p.files, if p.files == 1 { "" } else { "s" }), dim),
     ]);
     for (name, color) in &p.labels {
@@ -575,14 +579,17 @@ fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathBuf, Option<
         false => format!("{} ← {}", p.base, cut(&p.branch, 32)),
     };
     if let Some((text, ok)) = mark.claude {
-        bottom.extend([sep(), sp(text, row.patch(if ok { ui.key } else { ui.error }))]);
+        bottom.extend([sep(), sp(text, tint(if ok { ui.key } else { ui.error }))]);
     }
     bottom.extend([sep(), sp(branch, dim)]);
     if let Some((dir, branch)) = local {
         let name = dir.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned());
         let on = branch.as_deref().map_or("detached".to_owned(), |b| format!("on {}", cut(b, 24)));
-        bottom.extend([sep(), sp(format!("⌂ {name} ({on})"), row.patch(ui.key))]);
+        bottom.extend([sep(), sp(format!("⌂ {name} ({on})"), tint(ui.key))]);
     }
+    // The highlight runs to the edge.
+    let used: usize = bottom.iter().map(Span::width).sum();
+    bottom.push(sp(" ".repeat(width.saturating_sub(used)), row));
     [Line::from(top).style(row), Line::from(bottom).style(row)]
 }
 
@@ -745,4 +752,22 @@ fn filter_and_keys() {
     assert_eq!(l.claude_state(1), Some(("claude ✓".into(), true)));
     assert!(k(&mut l, KeyCode::Char('q')).is_none() && l.msg.starts_with("Claude is still reviewing"));
     assert!(matches!(k(&mut l, KeyCode::Char('q')), Some(Do::Quit)));
+}
+
+#[test]
+fn selected_card_readable() {
+    use ratatui::style::Color;
+    let mut ui = crate::theme::Theme::load().ui();
+    (ui.menu_selected, ui.stale) = (Style::new().fg(Color::Black).bg(Color::Cyan), Style::new().fg(Color::Gray));
+    let cx = Cards { ui: &ui, num_w: 5, width: 120, checks_loading: false, usual: "main" };
+    let p = Listed { number: 1, title: "t".into(), author: "amy".into(), labels: vec![("bug".into(), "d73a4a".into())], ..Listed::default() };
+    let mark = || Mark { marked: false, claude: Some(("claude ✓".into(), true)) };
+    let [top, bottom] = card(&p, &cx, true, None, mark());
+    for line in [&top, &bottom] {
+        assert_eq!(line.width(), 120); // the highlight runs to the edge
+        // The highlight's own text color throughout, but for the label chip.
+        assert!(line.spans.iter().filter(|s| s.content != " bug ").all(|s| s.style.fg == Some(Color::Black)), "{line:?}");
+    }
+    let [_, bottom] = card(&p, &cx, false, None, mark());
+    assert!(bottom.spans.iter().any(|s| s.style.fg == Some(Color::Gray))); // unselected: its colors
 }
