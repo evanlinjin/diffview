@@ -27,8 +27,15 @@ disk: rust-analyzer can index it and `hx` can open it.
    CI checks with failing/pending ones listed, description, conversation) is a
    section at the top of the view from `gh pr view --json`; `Tab` folds it.
    **Syntax highlighting**: syntect (pure-Rust regex), whole file per side (working
-   tree / `git show base:path`) so multi-line constructs parse right; scopes map to
-   named ANSI colors so the terminal theme decides. Added/removed lines get a bg tint.
+   tree / `git show base:path`) so multi-line constructs parse right. syntect scopes map
+   to Helix scopes, colored by the user's **Helix theme** (`theme` in config.toml, with
+   `inherits` + palettes, from `~/.config/helix/themes` then the runtime dirs `hx --health`
+   reports); the UI (selection, cursor, statusline, popups, diff colors, jump labels)
+   uses the theme's `ui.*`/`diff.*` keys. No theme → named ANSI colors. Added/removed
+   lines get a tint blended from `diff.plus`/`diff.minus` into `ui.background`.
+   PR description, conversation and (unresolved) review comments are highlighted as
+   markdown, code fences included. TOML uses a small built-in grammar (syntect has
+   none). File headers are a full-width bar with +/− line counts.
 4. **Later**: side-by-side, batched reviews
    (approve/request changes), multiple cursors.
 

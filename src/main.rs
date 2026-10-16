@@ -2,6 +2,7 @@ mod diff;
 mod gh;
 mod highlight;
 mod lsp;
+mod theme;
 mod view;
 
 use anyhow::Context;

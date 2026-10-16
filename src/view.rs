@@ -2,12 +2,13 @@
 use crate::diff::{self, FileDiff, Kind, Line as DLine};
 use crate::gh::{self, Anchor, Pr, Thread};
 use crate::highlight::{Colors, Highlighter};
+use crate::theme::{Theme, Ui};
 use crate::lsp::{self, Loc, Lsp};
 use anyhow::{bail, Context, Result};
 use ratatui::{
     crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     layout::{Alignment, Rect},
-    style::{Color, Modifier, Style},
+    style::Style,
     text::{Line, Span},
     widgets::{Block, Clear, Paragraph, Wrap},
     DefaultTerminal, Frame,
@@ -64,9 +65,6 @@ PR
 ";
 
 const DEFAULT_CONTEXT: u32 = 3;
-const ADD_BG: Color = Color::Rgb(0x1f, 0x33, 0x22);
-const DEL_BG: Color = Color::Rgb(0x3a, 0x20, 0x22);
-const SEL_BG: Color = Color::Rgb(0x3b, 0x42, 0x52);
 /// Files bigger than this aren't highlighted.
 const HL_MAX_BYTES: usize = 1 << 20;
 const FULL: u32 = 1_000_000;
@@ -85,6 +83,8 @@ struct Row {
     line: DLine,
     /// Index into `threads` for comment rows.
     thread: Option<usize>,
+    /// Per-char styles for markdown rows; code rows use `hl_cache` instead.
+    syn: Vec<Option<Style>>,
 }
 
 type CursorKey = (Option<(String, Option<u32>, Option<u32>)>, Option<u64>);
@@ -146,8 +146,11 @@ pub struct App {
     info: Vec<gh::InfoLine>,
     info_collapsed: bool,
     hl: Highlighter,
+    ui: Ui,
     /// Highlighted files by (path, new side?), filled lazily as rows are drawn.
     hl_cache: HashMap<(String, bool), Colors>,
+    /// Highlighted markdown by wrapped text (filled while building rows, hence the RefCell).
+    md_cache: std::cell::RefCell<HashMap<String, Colors>>,
     /// Width comment/info text is wrapped to; follows the terminal.
     wrap_w: usize,
     /// Root comment ids of threads folded/unfolded against the default (resolved = folded).
@@ -158,7 +161,7 @@ pub struct App {
     inflight: HashMap<u64, Req>,
     progress: HashMap<String, (String, String)>,
     /// Scrollable overlay: (title, text, scroll).
-    popup: Option<(&'static str, String, u16)>,
+    popup: Option<(&'static str, Vec<Line<'static>>, u16)>,
     jumps: Vec<Pos>,
     alphabet: Vec<char>,
     /// `gw` jump labels: (word start, word end, label), plus the first label char typed.
@@ -170,6 +173,8 @@ impl App {
     pub fn new(base: String, pr: Option<Pr>) -> Result<Self> {
         let files = diff::diff(&base, DEFAULT_CONTEXT, &[])?;
         let mut app = Self::with(base, files);
+        let theme = Theme::load();
+        (app.hl, app.ui) = (Highlighter::new(&theme), theme.ui());
         app.pr = pr;
         app.load_threads();
         app.build();
@@ -210,8 +215,10 @@ impl App {
             info: vec![],
             info_collapsed: false,
             wrap_w: 100,
-            hl: Highlighter::new(),
+            hl: Highlighter::new(&Theme::ansi()),
+            ui: Theme::ansi().ui(),
             hl_cache: HashMap::new(),
+            md_cache: Default::default(),
             toggled: HashSet::new(),
             root: std::env::current_dir().unwrap_or_default(),
             lsp: None,
@@ -242,10 +249,12 @@ impl App {
             self.lsp_poll();
             if let Some(a) = self.action.take() {
                 ratatui::restore();
+                // Only posting changes GitHub state; skip the network round-trips after plain hx.
+                let posted = !matches!(a, Action::Open(_));
                 let res = self.perform(a);
-                self.hl_cache.clear(); // the editor may have changed files
+                self.hl_cache.retain(|k, _| !k.1); // working-tree files may have changed; the base can't
                 *term = ratatui::init();
-                if let Err(e) = self.reload(true) {
+                if let Err(e) = self.reload(posted) {
                     self.msg = e.to_string();
                 }
                 match res {
@@ -340,49 +349,57 @@ impl App {
         self.jumps.clear();
         let mut rows = vec![];
         if let Some(pr) = &self.pr {
-            let mk = |kind, text| Row { file: INFO, line: DLine { kind, old: None, new: None, text }, thread: None };
+            let mk = |kind, text| Row { file: INFO, line: DLine { kind, old: None, new: None, text }, thread: None, syn: vec![] };
             rows.push(mk(Kind::File, format!("PR #{} · {}", pr.number, pr.title)));
             if !self.info_collapsed {
                 for l in &self.info {
                     match l.heading {
                         true => rows.push(mk(Kind::Thread, l.text.clone())),
-                        false => rows.extend(wrap(&l.text, self.wrap_w).into_iter().map(|t| mk(Kind::Comment, t))),
+                        false => rows.extend(self.md_rows(&l.text, mk)),
                     }
                 }
             }
         }
         for (i, f) in self.files.iter().enumerate() {
-            let text = if f.meta.is_empty() { f.path.clone() } else { format!("{} ({})", f.path, f.meta) };
-            rows.push(Row { file: i, line: DLine { kind: Kind::File, old: None, new: None, text }, thread: None });
+            let count = |k| f.lines.iter().filter(|l| l.kind == k).count();
+            let meta = if f.meta.is_empty() { String::new() } else { format!(" ({})", f.meta) };
+            let text = format!("{}{meta}  +{} −{}", f.path, count(Kind::Add), count(Kind::Del));
+            rows.push(Row { file: i, line: DLine { kind: Kind::File, old: None, new: None, text }, thread: None, syn: vec![] });
             if self.collapsed.contains(&f.path) {
                 continue;
             }
-            let mine: Vec<usize> = (0..self.threads.len()).filter(|&t| self.threads[t].path == f.path).collect();
-            let at = |t: usize, l: &DLine| {
-                let t = &self.threads[t];
-                !t.outdated && t.line.is_some_and(|n| match t.left {
-                    true => l.kind != Kind::Add && l.old == Some(n),
-                    false => l.kind != Kind::Del && l.new == Some(n),
-                })
-            };
-            // Outdated threads, or ones whose line isn't in this diff, go under the file header.
-            for &t in &mine {
-                if !f.lines.iter().any(|l| at(t, l)) {
-                    rows.extend(self.thread_rows(t, i));
-                }
+            // (thread, index into f.lines it sits under); unplaceable ones go under the file header.
+            let placed: Vec<(usize, Option<usize>)> = (0..self.threads.len())
+                .filter(|&t| self.threads[t].path == f.path)
+                .map(|t| (t, anchor_line(&self.threads[t], &f.lines)))
+                .collect();
+            for &(t, _) in placed.iter().filter(|p| p.1.is_none()) {
+                rows.extend(self.thread_rows(t, i));
             }
-            for l in &f.lines {
-                rows.push(Row { file: i, line: l.clone(), thread: None });
-                for &t in mine.iter().filter(|&&t| at(t, l)) {
+            for (li, l) in f.lines.iter().enumerate() {
+                rows.push(Row { file: i, line: l.clone(), thread: None, syn: vec![] });
+                for &(t, _) in placed.iter().filter(|p| p.1 == Some(li)) {
                     rows.extend(self.thread_rows(t, i));
                 }
             }
         }
         if rows.is_empty() {
             let text = "(no changes)".into();
-            rows.push(Row { file: usize::MAX, line: DLine { kind: Kind::Hunk, old: None, new: None, text }, thread: None });
+            rows.push(Row { file: usize::MAX, line: DLine { kind: Kind::Hunk, old: None, new: None, text }, thread: None, syn: vec![] });
         }
         self.rows = rows;
+    }
+
+    /// Wrap markdown into comment rows, highlighted.
+    fn md_rows(&self, text: &str, mk: impl Fn(Kind, String) -> Row) -> Vec<Row> {
+        let lines = wrap(text, self.wrap_w);
+        let joined = lines.join("\n");
+        let colors = self.md_cache.borrow_mut().entry(joined).or_insert_with_key(|t| self.hl.markdown(t)).clone();
+        let mut rows: Vec<Row> = lines.into_iter().map(|l| mk(Kind::Comment, l)).collect();
+        for (row, c) in rows.iter_mut().zip(colors) {
+            row.syn = c;
+        }
+        rows
     }
 
     fn root_id(&self, t: usize) -> Option<u64> {
@@ -391,33 +408,52 @@ impl App {
 
     fn thread_rows(&self, ti: usize, file: usize) -> Vec<Row> {
         let t = &self.threads[ti];
-        let open = t.resolved == self.root_id(ti).is_some_and(|id| self.toggled.contains(&id));
+        let open = self.thread_open(ti);
         let range = match (t.start_line, t.line.or(t.original_line)) {
             (Some(s), Some(e)) if s != e => format!(" · L{s}-{e}"),
+            (_, Some(e)) if t.outdated => format!(" · was L{e}"),
             (_, Some(e)) => format!(" · L{e}"),
             _ => String::new(),
         };
-        let flags = [(t.resolved, " · resolved"), (t.outdated, " · outdated")]
-            .iter()
-            .filter_map(|&(on, s)| on.then_some(s))
-            .collect::<String>();
-        let mk = |kind, text| Row { file, line: DLine { kind, old: None, new: None, text }, thread: Some(ti) };
+        // Tags lead the header so stale threads are easy to spot when scanning.
+        let tags: Vec<(&str, Style)> = [(t.outdated, "[outdated] ", self.ui.warning), (t.resolved, "[resolved] ", self.ui.resolved)]
+            .into_iter()
+            .filter_map(|(on, s, c)| on.then_some((s, c)))
+            .collect();
+        let tag_text: String = tags.iter().map(|t| t.0).collect();
+        let tag_syn: Vec<Option<Style>> =
+            tags.iter().flat_map(|&(s, st)| s.chars().map(move |_| Some(st))).collect();
+        let mk = |kind, text| Row { file, line: DLine { kind, old: None, new: None, text }, thread: Some(ti), syn: vec![] };
         let mut out = vec![];
         for (k, c) in t.comments.iter().enumerate() {
             if k == 0 {
-                let mut head = format!("{} · {}{range}{flags}", c.author, c.created);
+                let mut head = format!("{tag_text}{} · {}{range}", c.author, c.created);
                 if !open {
                     head += &format!(" · {} comment(s), Tab to expand", t.comments.len());
-                    out.push(mk(Kind::Thread, head));
+                }
+                out.push(Row { syn: tag_syn.clone(), ..mk(Kind::Thread, head) });
+                if !open {
                     break;
                 }
-                out.push(mk(Kind::Thread, head));
+                // Outdated: the code may have moved or changed, so show what was commented on.
+                if t.outdated {
+                    let dim = Some(self.ui.stale);
+                    out.extend(t.hunk.iter().map(|h| Row { syn: vec![dim; h.chars().count()], ..mk(Kind::Comment, h.clone()) }));
+                }
             } else {
                 out.push(mk(Kind::Thread, format!("{} · {}", c.author, c.created)));
             }
-            out.extend(wrap(&c.body, self.wrap_w).into_iter().map(|l| mk(Kind::Comment, l)));
+            match t.stale() {
+                true => out.extend(wrap(&c.body, self.wrap_w).into_iter().map(|l| mk(Kind::Comment, l))),
+                false => out.extend(self.md_rows(&c.body, mk)),
+            }
         }
         out
+    }
+
+    /// Stale threads start folded; `Tab` flips a thread from its default.
+    fn thread_open(&self, ti: usize) -> bool {
+        self.threads[ti].stale() == self.root_id(ti).is_some_and(|id| self.toggled.contains(&id))
     }
 
     fn toggle_thread(&mut self) {
@@ -934,13 +970,27 @@ impl App {
                     }
                     Req::Hover => match lsp::hover_text(res).trim().to_owned() {
                         t if t.is_empty() => self.msg = "no hover info".into(),
-                        t => self.popup = Some((" hover  j/k scroll ", t, 0)),
+                        t => self.popup = Some((" hover  j/k scroll ", self.hover_lines(&t), 0)),
                     },
                     Req::Goto => self.show_locations(lsp::locations(res)),
                 }
             }
             _ => {}
         }
+    }
+
+    /// Hover markdown, highlighted (code fences in their language), with the fence lines dropped.
+    fn hover_lines(&self, md: &str) -> Vec<Line<'static>> {
+        let colors = self.hl.markdown(md);
+        md.lines()
+            .zip(colors.into_iter().chain(std::iter::repeat(vec![])))
+            .filter(|(l, _)| !l.trim_start().starts_with("```"))
+            .map(|(l, c)| {
+                let spans: Vec<Span> =
+                    l.chars().zip(c.into_iter().chain(std::iter::repeat(None))).map(|(ch, st)| Span::styled(ch.to_string(), st.unwrap_or_default())).collect();
+                Line::from(spans)
+            })
+            .collect()
     }
 
     fn show_locations(&mut self, locs: Vec<Loc>) {
@@ -1097,7 +1147,10 @@ impl App {
             '+' | '=' => self.set_context(|c| c.saturating_add(10)),
             '-' => self.set_context(|c| if c >= FULL { DEFAULT_CONTEXT } else { c.saturating_sub(10) }),
             'Z' => self.set_context(|c| if c >= FULL { DEFAULT_CONTEXT } else { FULL }),
-            '?' => self.popup = Some((" keys  j/k scroll · any other key closes ", HELP.trim_matches('\n').into(), 0)),
+            '?' => {
+                let lines = HELP.trim_matches('\n').lines().map(|l| Line::from(l.to_owned())).collect();
+                self.popup = Some((" keys  j/k scroll · any other key closes ", lines, 0));
+            }
             'c' => self.start_comment(),
             'r' => self.start_reply(),
             'q' => self.quit = true,
@@ -1249,11 +1302,12 @@ impl App {
         let lines: Vec<Line> = (self.top..(self.top + h).min(self.rows.len()))
             .map(|r| self.render_row(r, s, e, lw, gw, tw, &overlay))
             .collect();
+        f.render_widget(Block::new().style(self.ui.base), area);
         f.render_widget(Paragraph::new(lines), Rect { height: h as u16, ..area });
 
         let status = Rect { y: area.y + h as u16, height: 1, ..area };
         let left = match &self.prompt {
-            Some(q) => format!("/{q}"),
+            Some(q) => Line::from(format!("/{q}")),
             None => {
                 let l = &self.rows[self.head.row].line;
                 let pos = match (l.new, l.old) {
@@ -1261,8 +1315,11 @@ impl App {
                     (None, Some(o)) => format!("-{o}:{}", self.head.col + 1),
                     _ => String::new(),
                 };
-                let mode = if self.select { "SEL" } else { "NOR" };
-                format!(" {mode}  {}  {pos}  {}", self.file_path().unwrap_or(""), self.msg)
+                let (mode, mst) = if self.select { (" SEL ", self.ui.mode_select) } else { (" NOR ", self.ui.mode_normal) };
+                Line::from(vec![
+                    Span::styled(mode, mst),
+                    Span::raw(format!("  {}  {pos}  {}", self.file_path().unwrap_or(""), self.msg)),
+                ])
             }
         };
         let pend = self.pending.map(String::from).unwrap_or_default();
@@ -1274,7 +1331,7 @@ impl App {
         };
         let pr = self.pr.as_ref().map(|p| format!("PR #{} · {} threads  ", p.number, self.threads.len())).unwrap_or_default();
         let right = format!("{ra}{pr}{count}{pend}  {}/{} ", self.head.row + 1, self.rows.len());
-        let bar = Style::new().bg(Color::Rgb(0x2a, 0x2e, 0x38));
+        let bar = self.ui.base.patch(self.ui.status);
         f.render_widget(Paragraph::new(left).style(bar), status);
         f.render_widget(Paragraph::new(right).alignment(Alignment::Right).style(bar), status);
 
@@ -1288,20 +1345,22 @@ impl App {
             let off = sel.saturating_sub(vis.saturating_sub(1));
             let mut lines = vec![Line::from(format!("> {}", p.query))];
             lines.extend(m.iter().enumerate().skip(off).take(vis).map(|(i, &it)| {
-                let st = if i == sel { Style::new().reversed() } else { Style::new() };
+                let st = if i == sel { self.ui.menu_selected } else { Style::new() };
                 Line::styled(p.items[it].label.clone(), st)
             }));
             f.render_widget(Clear, r);
-            f.render_widget(Paragraph::new(lines).block(Block::bordered().title(p.title)), r);
+            let popup = self.ui.base.patch(self.ui.popup);
+            f.render_widget(Paragraph::new(lines).style(popup).block(Block::bordered().title(p.title)), r);
         }
 
         if let Some((title, text, scroll)) = &self.popup {
             let w = area.width.saturating_sub(4).min(100);
-            let h = (text.lines().count() as u16 + 2).min(area.height.saturating_sub(4)).max(3);
+            let h = (text.len() as u16 + 2).min(area.height.saturating_sub(4)).max(3);
             let r = Rect { x: (area.width - w) / 2, y: 2.min(area.height), width: w, height: h.min(area.height) };
             f.render_widget(Clear, r);
-            let p = Paragraph::new(text.as_str()).wrap(Wrap { trim: false }).scroll((*scroll, 0));
-            f.render_widget(p.block(Block::bordered().title(*title)), r);
+            let p = Paragraph::new(text.clone()).wrap(Wrap { trim: false }).scroll((*scroll, 0));
+            let popup = self.ui.base.patch(self.ui.popup);
+            f.render_widget(p.style(popup).block(Block::bordered().title(*title)), r);
         }
     }
 
@@ -1324,36 +1383,48 @@ impl App {
         let l = &row.line;
         let num = |n: Option<u32>| n.map(|n| n.to_string()).unwrap_or_default();
         let mut line_bg = None;
-        let mut gstyle = Style::new().fg(Color::DarkGray);
+        let ui = &self.ui;
+        let mut gstyle = ui.linenr;
         let (gutter, style) = match l.kind {
             Kind::File => {
                 let collapsed = match row.file {
                     INFO => self.info_collapsed,
                     f => self.files.get(f).is_some_and(|f| self.collapsed.contains(&f.path)),
                 };
-                (format!("{:<gw$}", if collapsed { "▸" } else { "▾" }), Style::new().bold().fg(Color::Yellow))
+                line_bg = ui.header.bg;
+                gstyle = ui.header;
+                (format!(" {:<w$}", if collapsed { "▸" } else { "▾" }, w = gw - 1), ui.header)
             }
-            Kind::Hunk => (" ".repeat(gw), Style::new().fg(Color::Cyan)),
+            Kind::Hunk => (" ".repeat(gw), ui.hunk),
             Kind::Thread | Kind::Comment => {
-                let resolved = row.thread.is_some_and(|t| self.threads[t].resolved);
+                let resolved = row.thread.is_some_and(|t| self.threads[t].stale());
                 let check = l.text.chars().next().filter(|_| row.file == INFO);
                 let st = match (l.kind, resolved, check) {
-                    (_, _, Some('✗')) => Style::new().fg(Color::Red),
-                    (_, _, Some('●')) => Style::new().fg(Color::Yellow),
-                    (_, true, _) => Style::new().fg(Color::DarkGray),
-                    (Kind::Thread, _, _) => Style::new().fg(Color::LightBlue).bold(),
+                    (_, _, Some('✗')) => ui.error,
+                    (_, _, Some('●')) => ui.warning,
+                    (_, true, _) => ui.stale,
+                    (Kind::Thread, _, _) if row.file == INFO => ui.heading,
+                    (Kind::Thread, _, _) => ui.thread,
                     _ => Style::new(),
                 };
-                (format!("{:>gw$}", "┃ "), st)
+                let first = row.thread.is_some() && (r == 0 || self.rows[r - 1].thread != row.thread);
+                let mark = match row.thread {
+                    Some(t) if first => {
+                        let folded = !self.thread_open(t);
+                        if folded { "▸ " } else { "▾ " }
+                    }
+                    _ => "┃ ",
+                };
+                (format!("{:>gw$}", mark), st)
             }
             k => {
                 let m = match k {
                     Kind::Add => {
-                        (line_bg, gstyle) = (Some(ADD_BG), gstyle.fg(Color::Green));
+                        (line_bg, gstyle) = (Some(ui.add_bg), ui.plus);
                         '+'
                     }
                     Kind::Del => {
-                        (line_bg, gstyle) = (Some(DEL_BG), gstyle.fg(Color::Red));
+                        (line_bg, gstyle) = (Some(ui.del_bg), ui.minus);
                         '-'
                     }
                     _ => ' ',
@@ -1361,26 +1432,29 @@ impl App {
                 (format!("{:>lw$} {:>lw$} {m} ", num(l.old), num(l.new)), Style::new())
             }
         };
-        let syn = self.hl_key(r).and_then(|k| {
-            let n = if k.1 { l.new } else { l.old }?;
-            self.hl_cache.get(&k)?.get(n as usize - 1)
-        });
+        let syn = match row.syn.is_empty() {
+            false => Some(&row.syn),
+            true => self.hl_key(r).and_then(|k| {
+                let n = if k.1 { l.new } else { l.old }?;
+                self.hl_cache.get(&k)?.get(n as usize - 1)
+            }),
+        };
         let mut spans = vec![Span::styled(gutter, gstyle)];
         let mut n = 0;
         for (i, c) in l.text.chars().enumerate().skip(self.left).take(tw) {
             let p = Pos { row: r, col: i };
             let mut st = style;
             if let Some(c) = syn.and_then(|syn| syn.get(i).copied().flatten()) {
-                st = st.fg(c);
+                st = st.patch(c);
             }
             if s <= p && p <= e {
-                st = st.bg(SEL_BG);
+                st = st.patch(ui.selection);
             }
             if p == self.head {
-                st = st.add_modifier(Modifier::REVERSED);
+                st = st.patch(if self.select { ui.cursor_select } else { ui.cursor });
             }
             if let Some(&lc) = overlay.get(&p) {
-                spans.push(Span::styled(lc.to_string(), Style::new().fg(Color::Magenta).bold()));
+                spans.push(Span::styled(lc.to_string(), ui.jump_label));
                 n = i + 1;
                 continue;
             }
@@ -1389,7 +1463,7 @@ impl App {
             n = i + 1;
         }
         if self.head.row == r && self.head.col >= n.max(self.left) {
-            spans.push(Span::styled(" ", Style::new().add_modifier(Modifier::REVERSED)));
+            spans.push(Span::styled(" ", if self.select { ui.cursor_select } else { ui.cursor }));
         }
         if let Some(bg) = line_bg {
             // Tint the rest of the row too, so added/removed lines read as bands.
@@ -1468,6 +1542,31 @@ fn disk_line(cache: &mut HashMap<PathBuf, String>, p: &Path, n: u32) -> String {
     text.lines().nth(n as usize).unwrap_or("").to_owned()
 }
 
+/// How far (in lines) an outdated thread may land from its original line number.
+const OUTDATED_SLACK: i64 = 10;
+
+/// The diff line a thread belongs under. Current threads use their line. Outdated ones are found
+/// by the commented line's text when it's distinctive, else by their original line number.
+fn anchor_line(t: &Thread, lines: &[DLine]) -> Option<usize> {
+    let side = |l: &DLine| match t.left {
+        true => matches!(l.kind, Kind::Ctx | Kind::Del),
+        false => matches!(l.kind, Kind::Ctx | Kind::Add),
+    };
+    let no = |l: &DLine| if t.left { l.old } else { l.new };
+    if !t.outdated {
+        let n = t.line?;
+        return lines.iter().position(|l| side(l) && no(l) == Some(n));
+    }
+    let want = t.original_line? as i64;
+    let dist = |i: usize| (no(&lines[i]).unwrap_or(0) as i64 - want).abs();
+    let target = t.hunk.last().and_then(|l| l.get(1..)).unwrap_or("").trim();
+    let distinctive = target.chars().filter(|c| c.is_alphanumeric()).count() >= 3;
+    let by_text = (0..lines.len())
+        .filter(|&i| distinctive && side(&lines[i]) && lines[i].text.trim() == target)
+        .min_by_key(|&i| dist(i));
+    by_text.or_else(|| (0..lines.len()).filter(|&i| side(&lines[i])).min_by_key(|&i| dist(i)).filter(|&i| dist(i) <= OUTDATED_SLACK))
+}
+
 /// First row of a run of added/removed lines.
 fn change_start(rows: &[Row], r: usize) -> bool {
     let is = |r: usize| matches!(rows[r].line.kind, Kind::Add | Kind::Del);
@@ -1513,6 +1612,9 @@ fn keys_and_yank() {
     app.key(enter);
     assert!(app.msg.starts_with("no match")); // smart case: uppercase query is case-sensitive
     assert_eq!(base64(b"hello"), "aGVsbG8=");
+    let h = app.hover_lines("```rust\nfn x()\n```\n\ndocs");
+    assert_eq!(h.len(), 3); // fences dropped
+    assert_eq!(h[0].spans[0].style.fg, Some(ratatui::style::Color::Red)); // `fn` highlighted as Rust
     let back = KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT);
     app.key(back);
     assert_eq!(app.rows.len(), 3); // only the three file headers
@@ -1532,19 +1634,20 @@ fn comments_placed_and_anchored() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
     let c = |id, body: &str| gh::Comment { id, author: "amy".into(), body: body.into(), created: "2026-10-01".into() };
     let t = |left, line, resolved, comments| Thread {
-        path: "src/a.rs".into(), left, line, start_line: None, original_line: Some(1), resolved, outdated: line.is_none(), comments,
+        path: "src/a.rs".into(), left, line, start_line: None, original_line: Some(1), resolved, outdated: line.is_none(),
+        hunk: vec![], comments,
     };
     app.threads = vec![
         t(true, Some(2), false, vec![c(1, "why remove?"), c(2, "unused")]), // on the deleted line
-        t(false, None, true, vec![c(3, "old note")]),                        // outdated + resolved → folded
+        t(false, None, true, vec![c(3, "old note")]),                        // outdated + resolved
     ];
     app.build();
     let kinds: Vec<_> = app.rows.iter().take(10).map(|r| (r.line.kind, r.thread)).collect();
     assert_eq!(kinds, [
         (Kind::File, None),
-        (Kind::Thread, Some(1)), // outdated, folded, under the header
         (Kind::Hunk, None),
         (Kind::Ctx, None),
+        (Kind::Thread, Some(1)), // outdated (was L1) + resolved: folded, under line 1
         (Kind::Del, None),
         (Kind::Thread, Some(0)),
         (Kind::Comment, Some(0)),
@@ -1558,6 +1661,16 @@ fn comments_placed_and_anchored() {
     app.goto(9, 0);
     let a = app.selection_anchor().unwrap();
     assert_eq!(app.file_ref().unwrap(), "src/a.rs:2"); // new-side lines only; the deleted one has none
+
+    // An outdated thread is relocated by the commented line's text.
+    let moved = Thread { hunk: vec!["+    new_call(x);".into()], ..t(false, None, false, vec![c(4, "nit")]) };
+    let lines = &app.files[0].lines;
+    assert_eq!(anchor_line(&moved, lines).map(|i| lines[i].kind), Some(Kind::Add));
+    // A trivial line ("}") falls back to the original line number (3 → the closing brace's row).
+    let brace = Thread { hunk: vec![" }".into()], original_line: Some(3), ..t(false, None, false, vec![c(5, "x")]) };
+    assert_eq!(anchor_line(&brace, lines).map(|i| lines[i].new), Some(Some(3)));
+    let far = Thread { original_line: Some(500), ..brace };
+    assert_eq!(anchor_line(&far, lines), None); // nothing within 10 lines → under the file header
     assert_eq!((a.line, a.left, a.start), (2, false, Some((2, true))));
     assert_eq!(wrap("aaa bbb ccc", 7), ["aaa bbb", "ccc"]);
 }

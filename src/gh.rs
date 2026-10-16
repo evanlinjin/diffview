@@ -19,6 +19,9 @@ pub struct Thread {
     pub original_line: Option<u32>,
     pub resolved: bool,
     pub outdated: bool,
+    /// Tail of the first comment's diff hunk (with +/-/space prefixes), ending at the commented
+    /// line. Shown for outdated threads and used to relocate them.
+    pub hunk: Vec<String>,
     pub comments: Vec<Comment>,
 }
 
@@ -74,7 +77,7 @@ const THREADS: &str = "query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) { pullRequest(number: $number) {
     reviewThreads(first: 100) { nodes {
       path line startLine originalLine diffSide isResolved isOutdated
-      comments(first: 100) { nodes { databaseId author { login } body createdAt } }
+      comments(first: 100) { nodes { databaseId author { login } body createdAt diffHunk } }
     } }
   } }
 }";
@@ -89,6 +92,13 @@ pub fn threads(n: u64) -> Result<Vec<Thread>> {
     Ok(nodes.unwrap_or_default().iter().map(parse_thread).collect())
 }
 
+impl Thread {
+    /// Resolved or outdated: shown dimmed and folded until expanded.
+    pub fn stale(&self) -> bool {
+        self.resolved || self.outdated
+    }
+}
+
 fn parse_thread(t: &Value) -> Thread {
     let line = |k: &str| t[k].as_u64().map(|n| n as u32);
     let comments = t["comments"]["nodes"].as_array().map(Vec::as_slice).unwrap_or(&[]);
@@ -100,6 +110,14 @@ fn parse_thread(t: &Value) -> Thread {
         original_line: line("originalLine"),
         resolved: t["isResolved"].as_bool().unwrap_or(false),
         outdated: t["isOutdated"].as_bool().unwrap_or(false),
+        hunk: comments
+            .first()
+            .and_then(|c| c["diffHunk"].as_str())
+            .map(|h| {
+                let lines: Vec<&str> = h.lines().filter(|l| !l.starts_with("@@")).collect();
+                lines[lines.len().saturating_sub(4)..].iter().map(|l| l.to_string()).collect()
+            })
+            .unwrap_or_default(),
         comments: comments
             .iter()
             .map(|c| Comment {
@@ -248,8 +266,10 @@ fn parses_thread() {
     let t = parse_thread(&serde_json::json!({
         "path": "src/a.rs", "line": 12, "startLine": 10, "originalLine": 12, "diffSide": "RIGHT",
         "isResolved": false, "isOutdated": false,
-        "comments": { "nodes": [{ "databaseId": 7, "author": { "login": "amy" }, "body": "a\r\nb", "createdAt": "2026-10-01T00:00:00Z" }] }
+        "comments": { "nodes": [{ "databaseId": 7, "author": { "login": "amy" }, "body": "a\r\nb", "createdAt": "2026-10-01T00:00:00Z",
+            "diffHunk": "@@ -1,2 +1,2 @@\n fn a() {\n+    let x = 1;" }] }
     }));
     assert_eq!((t.left, t.line, t.start_line), (false, Some(12), Some(10)));
+    assert_eq!(t.hunk, [" fn a() {", "+    let x = 1;"]);
     assert_eq!((t.comments[0].id, t.comments[0].body.as_str(), t.comments[0].created.as_str()), (7, "a\nb", "2026-10-01"));
 }
