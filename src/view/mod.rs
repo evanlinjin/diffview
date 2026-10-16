@@ -102,6 +102,7 @@ REVIEW
   Space v              mark the file viewed (folds it, moves on)
   Space a              ask Claude Code to review, answer your replies, or make the changes
   Space A              pick from Claude's comments ([waiting]: its turn, [answered]: yours)
+  ]n [n  Space n      next / prev [new] thread (comments you haven't seen), pick from them
 
 GENERAL
   ?                    this help (/ to search it)
@@ -163,8 +164,8 @@ impl Row {
 struct CursorKey {
     /// (file, old, new) for a diff row.
     line: Option<(String, Option<u32>, Option<u32>)>,
-    /// Root comment id for a thread row.
-    thread: Option<u64>,
+    /// Root comment id for a thread row, and how far into the thread it is.
+    thread: Option<(u64, usize)>,
     /// Row index for a PR info row (the section is at the top and only grows at its end).
     info: Option<usize>,
 }
@@ -371,6 +372,13 @@ pub struct App {
     claude_head: String,
     /// The PR is someone else's: Claude suggests changes there rather than making them.
     theirs: bool,
+    /// Your GitHub login: your comments are never new to you.
+    me: String,
+    /// The comments you've seen (`comment_key`), kept in `seen_path`; and those of the thread
+    /// the cursor is on, seen once it leaves.
+    seen: HashSet<String>,
+    seen_path: Option<PathBuf>,
+    seeing: Vec<String>,
     /// The `hx` pane dv opened (inside zellij), reused for the next file.
     hx: Option<HxPane>,
     /// When dv last looked at the working tree, and what it saw (`watch_tree`).
@@ -415,6 +423,7 @@ impl App {
         (app.hl, app.ui) = (Highlighter::new(&theme), theme.ui());
         app.settings = crate::theme::settings();
         app.claude_path = crate::claude::path(pr.as_ref().map(|p| p.number)).ok();
+        app.load_seen();
         // The PR's Claude Code session, if an earlier run (any dv, any worktree) started one.
         // One that started with another version of the skill would keep following that: start afresh.
         let session = app.claude_path.as_ref().and_then(|p| crate::claude::load_session(p, &app.root));
@@ -525,6 +534,10 @@ impl App {
             claude_summary: String::new(),
             claude_head: String::new(),
             theirs: false,
+            me: String::new(),
+            seen: HashSet::new(),
+            seen_path: None,
+            seeing: vec![],
             claude_job: None,
             hx: None,
             tree_checked: std::time::Instant::now(),
@@ -555,6 +568,7 @@ impl App {
     pub fn run(&mut self, term: &mut DefaultTerminal) -> Result<()> {
         while !self.quit {
             self.log_msg();
+            self.watch_seen();
             term.draw(|f| self.draw(f))?;
             if let Some(job) = self.job.take() {
                 self.run_job(job);
@@ -594,6 +608,8 @@ impl App {
                 }
             }
         }
+        self.seeing.push(String::new()); // what the cursor is on now counts as seen too
+        self.watch_seen();
         Ok(())
     }
 
@@ -785,7 +801,10 @@ impl App {
         let r = &self.rows[self.head.row];
         CursorKey {
             line: self.files.get(r.file).map(|f| (f.path.clone(), r.line.old, r.line.new)),
-            thread: r.thread.and_then(|t| self.root_id(t)),
+            thread: r.thread.and_then(|t| {
+                let first = self.rows.iter().position(|r| r.thread == Some(t))?;
+                Some((self.root_id(t)?, self.head.row - first))
+            }),
             info: (r.file == INFO).then_some(self.head.row),
         }
     }
@@ -795,7 +814,11 @@ impl App {
         self.build();
         let row = keep
             .thread
-            .and_then(|id| self.rows.iter().position(|r| r.thread.and_then(|t| self.root_id(t)) == Some(id)))
+            .and_then(|(id, off)| {
+                let first = self.rows.iter().position(|r| r.thread.and_then(|t| self.root_id(t)) == Some(id))?;
+                let t = self.rows[first].thread;
+                Some((first..=first + off).take_while(|&r| self.rows.get(r).is_some_and(|r| r.thread == t)).last().unwrap_or(first))
+            })
             .or_else(|| keep.line.map(|(p, old, new)| self.locate(&p, old, new)))
             .or(keep.info.filter(|&r| self.rows.get(r).is_some_and(|r| r.file == INFO)))
             .unwrap_or(0);
@@ -1186,6 +1209,7 @@ impl App {
         let serious = matches!(t.severity.as_str(), "bug" | "security" | "major" | "blocker");
         let turn = agent::turn(t);
         let tags: Vec<(&str, Style)> = [
+            (self.is_new(t), "[new] ", self.ui.key),
             (first_pending, "[pending] ", self.ui.pending),
             (t.outdated, "[outdated] ", self.ui.warning),
             (t.resolved, "[resolved] ", self.ui.resolved),

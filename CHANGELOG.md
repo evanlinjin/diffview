@@ -6,6 +6,9 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Added
+- `[new]` on threads with comments you haven't seen (Claude's, or anyone's on GitHub; not
+  your own), until the cursor has been on them; `]n` / `[n` step through those and `Space n`
+  lists them. dv remembers what you've seen per PR (or branch).
 - `Space g`: show only what isn't committed (to check Claude's changes), commit it (the
   message starts from Claude's "Changed: …" replies since the last commit), and push to the
   branch it tracks (a PR's, under its own name). The review loop no longer leaves dv.

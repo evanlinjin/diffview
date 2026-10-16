@@ -89,7 +89,9 @@ file that dv reloads whenever it changes, so you can keep dv open while Claude w
    **claude** under their lines (`]c` / `[c` to step through them, `Space A` lists them),
    tagged with how much each matters (`[bug]`, `[nit]`, …). `[waiting]` marks a thread where
    you spoke last (Claude's turn), `[answered]` one where Claude has answered you (yours);
-   type either in `Space A` to list just those.
+   type either in `Space A` to list just those. `[new]` marks a thread with comments you
+   haven't seen yet (Claude's or anyone's on GitHub; seen once your cursor has been on it):
+   `]n` / `[n` step through those, `Space n` lists them.
 4. **Act on each comment**:
 
    | Key | |

@@ -386,7 +386,7 @@ impl App {
                 if let Some(pr) = &mut self.pr {
                     pr.node_id = r.pr_id;
                 }
-                self.theirs = !r.mine;
+                (self.theirs, self.me) = (!r.mine, r.me);
             }
             Err(e) => self.msg = format!("loading comments: {e:#}"),
         }
@@ -428,26 +428,27 @@ impl App {
     /// `Space p`: a picker of the comments in your pending review.
     /// `Space t`: a picker of every review thread, with its state, author, gist and replies.
     pub(super) fn threads_picker(&mut self) {
-        self.threads_picker_of(" threads ", |_| true, "no review threads");
+        self.threads_picker_of(" threads ", |_, _| true, "no review threads");
     }
 
     /// `Space A`: Claude's comments, `[waiting]` where your reply hasn't been answered,
     /// `[answered]` where Claude has answered you (type either to pick from just those).
     pub(super) fn claude_picker(&mut self) {
-        self.threads_picker_of(" Claude's comments ", |t| t.claude.is_some(), "no comments from Claude (Space a asks for a review)");
+        self.threads_picker_of(" Claude's comments ", |_, t| t.claude.is_some(), "no comments from Claude (Space a asks for a review)");
     }
 
-    fn threads_picker_of(&mut self, title: &'static str, keep: fn(&Thread) -> bool, none: &str) {
+    fn threads_picker_of(&mut self, title: &'static str, keep: impl Fn(usize, &Thread) -> bool, none: &str) {
         let items: Vec<Item> = self
             .threads
             .iter()
             .enumerate()
-            .filter(|(_, t)| keep(t))
+            .filter(|&(ti, t)| keep(ti, t))
             .filter_map(|(ti, t)| {
                 let c = t.comments.first()?;
                 let line = t.line.or(t.original_line).map_or(String::new(), |n| format!(":{n}"));
                 let severity = (!t.severity.is_empty()).then(|| format!("[{}] ", t.severity));
                 let tags: String = [
+                    (self.is_new(t), "[new] "),
                     (t.comments.iter().any(|c| c.pending), "[pending] "),
                     (t.resolved, "[resolved] "),
                     (t.outdated, "[outdated] "),
@@ -472,6 +473,12 @@ impl App {
             true => self.msg = none.into(),
             false => self.picker = Some(Picker { title, items, query: String::new(), sel: 0 }),
         }
+    }
+
+    /// `Space n`: the threads with comments you haven't seen.
+    pub(super) fn new_picker(&mut self) {
+        let new: HashSet<usize> = (0..self.threads.len()).filter(|&t| self.is_new(&self.threads[t])).collect();
+        self.threads_picker_of(" new comments ", |ti, _| new.contains(&ti), "nothing new: you've seen every comment");
     }
 
     pub(super) fn pending_picker(&mut self) {
@@ -501,6 +508,12 @@ impl App {
     pub(super) fn next_claude(&mut self, fwd: bool) {
         let items = (0..self.threads.len()).filter(|&t| agent::claude_wrote(&self.threads[t])).map(|t| (t, 0)).collect();
         self.next_comment(fwd, items, "no comments from Claude (Space a asks for a review)");
+    }
+
+    /// `]n` / `[n`: the next / previous thread with comments you haven't seen.
+    pub(super) fn next_new(&mut self, fwd: bool) {
+        let items = (0..self.threads.len()).filter(|&t| self.is_new(&self.threads[t])).map(|t| (t, 0)).collect();
+        self.next_comment(fwd, items, "nothing new: you've seen every comment");
     }
 
     /// `]p` / `[p`: the next / previous comment of your pending review (replies too).
@@ -710,5 +723,62 @@ impl App {
         let start = self.rows[..=self.head.row].iter().rposition(|r| r.thread != Some(t)).map_or(0, |i| i + 1);
         let heads = self.rows[start..=self.head.row].iter().filter(|r| r.line.kind == Kind::Thread).count();
         heads.saturating_sub(1)
+    }
+}
+
+/// A comment's key in what you've seen: its GitHub id, or its place in Claude's review file.
+fn comment_key(t: &Thread, ci: usize) -> String {
+    match &t.claude {
+        Some(id) => format!("claude:{id}:{ci}"),
+        None => t.comments[ci].node_id.clone(),
+    }
+}
+
+impl App {
+    /// What you've seen of this PR's (or branch's) threads, in dv's directory: `seen/` beside
+    /// `reviews/`, by the same name.
+    pub(super) fn load_seen(&mut self) {
+        self.seen_path = self.claude_path.as_ref().and_then(|p| Some(p.parent()?.parent()?.join("seen").join(p.file_name()?)));
+        let text = self.seen_path.as_ref().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
+        self.seen = serde_json::from_str(&text).unwrap_or_default();
+    }
+
+    /// Thread `t` has comments you haven't seen, not counting your own. (Never, with nowhere
+    /// to keep what you've seen.)
+    pub(super) fn is_new(&self, t: &Thread) -> bool {
+        self.seen_path.is_some()
+            && t.comments.iter().enumerate().any(|(ci, c)| !self.wrote(c) && !self.seen.contains(&comment_key(t, ci)))
+    }
+
+    fn wrote(&self, c: &gh::Comment) -> bool {
+        c.pending || c.author == "you" || (!self.me.is_empty() && c.author == self.me)
+    }
+
+    /// Once the cursor leaves a thread, its comments (as they were when it got there) are seen.
+    pub(super) fn watch_seen(&mut self) {
+        if self.select {
+            return; // the rebuild would drop the selection: later
+        }
+        let here = self.rows.get(self.head.row).and_then(|r| r.thread).map(|ti| {
+            let t = &self.threads[ti];
+            (0..t.comments.len()).map(|ci| comment_key(t, ci)).collect::<Vec<_>>()
+        });
+        let here = here.unwrap_or_default();
+        if here == self.seeing {
+            return;
+        }
+        let left = std::mem::replace(&mut self.seeing, here);
+        let before = self.seen.len();
+        self.seen.extend(left.into_iter().filter(|k| !k.is_empty()));
+        if self.seen.len() != before
+            && let Some(p) = &self.seen_path
+        {
+            let mut keys: Vec<&String> = self.seen.iter().collect();
+            keys.sort();
+            // ponytail: rewrites the whole set; fine for a PR's worth of comments.
+            _ = std::fs::create_dir_all(p.parent().unwrap_or(p)).and_then(|_| std::fs::write(p, serde_json::to_string(&keys).unwrap_or_default()));
+            let keep = self.cursor_key();
+            self.rebuild(keep); // without its [new] tag
+        }
     }
 }

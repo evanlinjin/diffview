@@ -21,6 +21,8 @@ pub struct Review {
     pub pr_id: String,
     /// Whether you opened the PR.
     pub mine: bool,
+    /// Your login.
+    pub me: String,
     pub pending: Option<String>,
     pub threads: Vec<Thread>,
     /// Your "Viewed" marks: path → VIEWED, or DISMISSED (the file changed after you marked it).
@@ -268,6 +270,7 @@ fn verdict(c: &Value) -> char {
 
 // ponytail: first 100 threads × 100 comments; paginate if a PR ever outgrows that.
 const THREADS: &str = "query($owner: String!, $name: String!, $number: Int!) {
+  viewer { login }
   repository(owner: $owner, name: $name) { pullRequest(number: $number) {
     id viewerDidAuthor
     reviews(states: PENDING, first: 10) { nodes { id viewerDidAuthor } }
@@ -285,7 +288,9 @@ pub fn threads(n: u64) -> Result<Review> {
     let v: Value = serde_json::from_str(&gh(&[
         "api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-F", &num, "-f", &q,
     ])?)?;
-    Ok(parse_review(&v["data"]["repository"]["pullRequest"]))
+    let mut r = parse_review(&v["data"]["repository"]["pullRequest"]);
+    r.me = v["data"]["viewer"]["login"].as_str().unwrap_or("").to_owned();
+    Ok(r)
 }
 
 fn parse_review(pr: &Value) -> Review {
@@ -293,6 +298,7 @@ fn parse_review(pr: &Value) -> Review {
     Review {
         pr_id: pr["id"].as_str().unwrap_or("").to_owned(),
         mine: pr["viewerDidAuthor"] != false,
+        me: String::new(),
         pending: nodes(&pr["reviews"])
             .iter()
             .find(|r| r["viewerDidAuthor"] == true)

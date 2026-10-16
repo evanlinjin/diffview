@@ -1009,3 +1009,43 @@ fn claude_pane_asking() {
     assert!(agent::asking(" Is this a project you created or one you trust?\n ❯ No, exit\n   Yes, I trust this folder"));
     assert!(!agent::asking("● Done.\n───\n❯ \n───\n  ⏵⏵ auto mode on"));
 }
+
+#[test]
+fn new_until_seen() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    // As in dv's directory: `reviews/` and `seen/` side by side.
+    let dir = std::env::temp_dir().join(format!("dv-new-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("reviews")).unwrap();
+    let p = dir.join("reviews/pr-1.json");
+    std::fs::write(&p, r#"{ "comments": [
+        { "path": "src/a.rs", "line": 2, "body": "a" },
+        { "path": "src/a.rs", "line": 2, "body": "b", "replies": [ { "author": "user", "body": "why?" } ] },
+        { "path": "src/a.rs", "line": 2, "author": "user", "body": "mine" } ] }"#).unwrap();
+    app.claude_path = Some(p.clone());
+    app.load_claude();
+    app.load_seen();
+    assert_eq!(app.seen_path.as_deref(), Some(dir.join("seen/pr-1.json").as_path()));
+    let new = |app: &App| app.threads.iter().map(|t| app.is_new(t)).collect::<Vec<_>>();
+    assert_eq!(new(&app), [true, true, false]); // your own comment isn't news to you
+    app.build();
+    assert!(app.rows.iter().any(|r| r.line.text.starts_with("[new] claude")));
+    // Seen once the cursor leaves it, and remembered.
+    app.next_new(true);
+    app.watch_seen();
+    assert_eq!(new(&app), [true, true, false]); // still tagged while you're on it
+    let on = app.head.row;
+    app.next_new(true);
+    app.watch_seen();
+    assert_eq!(new(&app), [false, true, false]);
+    assert_eq!(app.rows.iter().filter(|r| r.line.text.starts_with("[new]")).count(), 1); // the tag's gone
+    assert_eq!(app.rows[app.head.row].thread, Some(1)); // and the cursor still where it went
+    assert!(app.head.row > on);
+    app.seen.clear();
+    app.load_seen();
+    _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(new(&app), [false, true, false]);
+    app.new_picker();
+    let items = &app.picker.as_ref().unwrap().items;
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].label, "src/a.rs:2  1 reply · [new] [waiting] @claude");
+}
