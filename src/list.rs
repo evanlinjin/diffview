@@ -272,9 +272,10 @@ impl List {
         let (what, ok) = match self.drafting.get(&id) {
             Some(batch::Status::Failed(_)) => ("draft failed", false),
             Some(s) if s.running() => ("drafting…", true),
-            _ => match self.rep_of.get(&id)?.title.is_empty() {
-                true => ("no draft yet", false),
-                false => ("✓", true),
+            _ => match self.rep_of.get(&id)? {
+                r if r.published.is_some() => return Some((format!("{of}: published as #{}", r.published.unwrap_or(0)), true)),
+                r if r.title.is_empty() => ("no draft yet", false),
+                _ => ("✓", true),
             },
         };
         Some((format!("{of}{}{what}", if what == "✓" { " " } else { ": " }), ok))

@@ -178,7 +178,11 @@ published:
    Claude, `Space a` → "make the changes", or "Redraft this replacement" with new
    instructions (Claude carries on in the same session). `D D` removes one (its branch stays).
 
-Publishing it as a draft PR, and closing the originals with the note, are next.
+4. When it's right, `S` there: **Publish as a draft PR** (your editor has the title, first line,
+   and description to adjust; dv pushes `dv/replace-N` to origin and opens the PR as a draft),
+   then **Close #N with the closing note** (your editor has Claude's note, with the new PR's
+   number in it; each original gets it as a comment, then is closed). Both are public, so each
+   is its own step.
 
 ## Layout
 

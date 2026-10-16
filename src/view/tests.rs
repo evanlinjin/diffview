@@ -1130,7 +1130,7 @@ fn claude_review_is_not_pr_text() {
 #[test]
 fn replacement_in_the_pr_section() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
-    let o = |number, title: &str| crate::replace::Original { number, title: title.into(), author: "bot".into(), url: format!("u{number}") };
+    let o = |number, title: &str| crate::replace::Original { number, title: title.into(), author: "bot".into(), url: format!("https://github.com/o/r/pull/{number}") };
     app.show_replacement(crate::replace::Record {
         id: 12,
         replaces: vec![o(12, "fix"), o(15, "fix again")],
@@ -1146,9 +1146,27 @@ fn replacement_in_the_pr_section() {
     assert!(texts.contains(&"Replaces #12 and #15.") && texts.contains(&"Thanks! Handled in {replacement}."));
     assert_eq!(app.header_tag(INFO).unwrap().0, " UNPUBLISHED ");
     let row = app.rows.iter().find(|r| r.line.text.starts_with("replaces")).unwrap();
-    assert_eq!(row.links.iter().map(|l| l.2.as_str()).collect::<Vec<_>>(), ["u12", "u15"]); // each original links to it
+    assert_eq!(row.links.iter().map(|l| l.2.as_str()).collect::<Vec<_>>(), ["https://github.com/o/r/pull/12", "https://github.com/o/r/pull/15"]); // each original links to it
     // Space a offers to redraft it.
     app.claude_path = Some(std::env::temp_dir().join("dv-no-such-review.json"));
     app.claude_menu();
-    assert!(app.picker.unwrap().items.iter().any(|i| matches!(i.target, Target::ClaudeReplace(ref p) if p == &[12, 15])));
+    assert!(app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::ClaudeReplace(ref p) if p == &[12, 15])));
+    // S: publish first; closing what it replaces comes after.
+    let s = |app: &mut App| {
+        app.review_menu();
+        app.picker.take().unwrap().items.into_iter().map(|i| (i.label, i.target)).collect::<Vec<_>>()
+    };
+    let items = s(&mut app);
+    assert!(items[0].0.starts_with("Publish as a draft PR (pushes dv/replace-12") && matches!(items[0].1, Target::Publish));
+    assert_eq!(items[1].0, "  closing #12, #15 comes once it's published");
+    let mut r = app.replacement.clone().unwrap();
+    (r.published, r.closed) = (Some(20), vec![12]);
+    app.show_replacement(r);
+    app.build();
+    let items = s(&mut app);
+    assert_eq!(items[0].0, "Published as draft PR #20");
+    assert!(items[1].0 == "Close #15 with the closing note…" && matches!(items[1].1, Target::CloseOriginals));
+    assert_eq!(app.header_tag(INFO).unwrap().0, " PUBLISHED ");
+    let row = app.rows.iter().find(|r| r.line.text == "published as draft PR #20").unwrap();
+    assert_eq!(row.links[0].2, "https://github.com/o/r/pull/20"); // the new PR, linked
 }

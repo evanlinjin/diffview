@@ -189,6 +189,9 @@ impl App {
     }
 
     pub(super) fn review_menu(&mut self) {
+        if self.pr.is_none() && self.replacement.is_some() {
+            return self.replacement_menu();
+        }
         if self.pr.is_none() {
             self.msg = "no PR for this branch".into();
             return;
@@ -207,6 +210,27 @@ impl App {
         // What's still open, to see before you say you're done (approving most of all).
         items.extend(self.submit_notes().iter().map(|n| item(&format!("  ! {n}"), Target::Nothing)));
         self.picker = Some(Picker { title: " submit review ", items, query: String::new(), sel: 0 });
+    }
+
+    /// `S` on a replacement: publish it as a draft PR, then close what it replaces.
+    fn replacement_menu(&mut self) {
+        let Some(r) = &self.replacement else { return };
+        let item = |label: String, target| Item::new(label, target);
+        let mut items = vec![match r.published {
+            None if r.title.is_empty() => item("Claude hasn't drafted it yet (Space a → Redraft)".into(), Target::Nothing),
+            None => item(format!("Publish as a draft PR (pushes {} to origin)…", crate::replace::branch(r.id)), Target::Publish),
+            Some(n) => item(format!("Published as draft PR #{n}"), Target::Nothing),
+        }];
+        let open: Vec<String> = r.replaces.iter().filter(|o| !r.closed.contains(&o.number)).map(|o| format!("#{}", o.number)).collect();
+        match (r.published, open.is_empty()) {
+            (_, true) => items.push(item("  the PRs it replaces are closed".into(), Target::Nothing)),
+            (Some(_), false) => items.push(item(format!("Close {} with the closing note…", open.join(", ")), Target::CloseOriginals)),
+            (None, false) => items.push(item(format!("  closing {} comes once it's published", open.join(", ")), Target::Nothing)),
+        }
+        if r.published.is_none() && !diff::git(&["status", "--porcelain"]).unwrap_or_default().trim().is_empty() {
+            items.push(item("  ! there are uncommitted changes, which aren't published: commit them first (Space g)".into(), Target::Nothing));
+        }
+        self.picker = Some(Picker { title: " replacement ", items, query: String::new(), sel: 0 });
     }
 
     /// What's still open in the review: threads waiting on someone, pending comments whose
@@ -402,14 +426,26 @@ impl App {
             replaces.text.push_str(&format!("{num} {} (@{})", o.title, o.author));
             replaces.marks.push((at, at + num.chars().count(), gh::Mark::Link(o.url.clone())));
         }
-        self.info = vec![
-            replaces,
+        let mut status = vec![];
+        if let Some(n) = r.published {
+            let url = r.replaces.first().and_then(|o| Some(format!("{}/{n}", o.url.rsplit_once('/')?.0))).unwrap_or_default();
+            let mut l = line(false, false, &format!("published as draft PR #{n}"));
+            l.marks.push((l.text.chars().count() - format!("#{n}").len(), l.text.chars().count(), gh::Mark::Link(url)));
+            status.push(l);
+        }
+        if !r.closed.is_empty() {
+            let closed: Vec<String> = r.closed.iter().map(|n| format!("#{n}")).collect();
+            status.push(line(false, false, &format!("closed {}, with the note", closed.join(", "))));
+        }
+        self.info = vec![replaces];
+        self.info.extend(status);
+        self.info.extend([
             line(true, false, "description (Claude's draft)"),
             line(false, true, &r.body),
             line(true, false, "closing note, for the PRs it replaces (Claude's draft)"),
             line(false, true, &r.closing_note),
-        ];
-        self.pr_state = Some(("UNPUBLISHED", "6e7681"));
+        ]);
+        self.pr_state = Some(if r.published.is_some() { ("PUBLISHED", "238636") } else { ("UNPUBLISHED", "6e7681") });
         self.replacement = Some(r);
     }
 

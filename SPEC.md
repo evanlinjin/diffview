@@ -107,9 +107,11 @@ disk: rust-analyzer can index it and `hx` can open it.
    them and runs Claude (`claude -p`, the skill's section 6, with `dv replace-info`; allowed
    to read PRs and issues with `gh` and to `git add` / `git commit`, never to push). Drafting
    again resumes the session. dv on a replacement's branch shows, in the PR section, what it
-   replaces (linked), the drafts, and `UNPUBLISHED` on the header line. Next: publish as a
-   draft PR (push, `gh pr create --draft` with the drafts), then close the originals with the
-   note.
+   replaces (linked), the drafts, and `UNPUBLISHED` on the header line. `S` there publishes
+   it (editor: title on the first line, then the description; `git push -u origin
+   dv/replace-N`, `gh pr create --draft`; `published` saved) and then, once published, closes
+   the originals (editor: the note, `{replacement}` filled in; `gh pr close N --comment`;
+   each in `closed` as it goes, so a failure leaves those before it done).
 4. **Later**:
    - **`c` in the PR section → review summary.** `c` on a conversation comment (or the
      description) appends it as a `> ` quote to the pending review's summary (body), saved on

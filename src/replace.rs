@@ -29,6 +29,10 @@ pub struct Record {
     pub closing_note: String,
     /// The Claude Code session that drafted it, to carry on in.
     pub session: String,
+    /// Its PR, once published (a draft).
+    pub published: Option<u64>,
+    /// The originals closed (with the note) since.
+    pub closed: Vec<u64>,
 }
 
 pub fn branch(id: u64) -> String {
@@ -68,6 +72,8 @@ fn parse(id: u64, text: &str) -> Result<Record> {
         body: s(&v["body"]),
         closing_note: s(&v["closing_note"]),
         session: s(&v["session"]),
+        published: v["published"].as_u64(),
+        closed: v["closed"].as_array().into_iter().flatten().filter_map(Value::as_u64).collect(),
     })
 }
 
@@ -76,7 +82,7 @@ fn to_json(r: &Record) -> String {
         r.replaces.iter().map(|o| json!({ "number": o.number, "title": o.title, "author": o.author, "url": o.url })).collect();
     let v = json!({
         "replaces": replaces, "base": r.base, "title": r.title, "body": r.body,
-        "closing_note": r.closing_note, "session": r.session,
+        "closing_note": r.closing_note, "session": r.session, "published": r.published, "closed": r.closed,
     });
     serde_json::to_string_pretty(&v).unwrap_or_default() + "\n"
 }
@@ -170,6 +176,40 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
     Ok(format!("{} turns, ${:.2}", v["num_turns"].as_u64().unwrap_or(0), v["total_cost_usd"].as_f64().unwrap_or(0.0)))
 }
 
+/// Publish replacement `r` as a draft PR, with `title` and `body` (what you made of Claude's
+/// drafts): push its branch to origin (under the same name), then open the PR. Its number.
+pub fn publish(r: &mut Record, title: &str, body: &str) -> Result<u64> {
+    anyhow::ensure!(r.published.is_none(), "already published, as #{}", r.published.unwrap_or(0));
+    let b = branch(r.id);
+    crate::diff::git(&["push", "-q", "-u", "origin", &format!("{b}:refs/heads/{b}")])?;
+    let n = crate::gh::create_draft(&r.base, &b, title, body)?;
+    (r.published, r.title, r.body) = (Some(n), title.to_owned(), body.to_owned());
+    save(r)?;
+    Ok(n)
+}
+
+/// The closing note, with the replacement's PR where Claude left `{replacement}`.
+pub fn note(r: &Record) -> String {
+    let link = r.published.map_or("the replacement".to_owned(), |n| format!("#{n}"));
+    r.closing_note.replace("{replacement}", &link)
+}
+
+/// Close the originals not closed yet, each with `note`: what was closed (an error stops at
+/// the PR it's about, keeping those before).
+pub fn close_originals(r: &mut Record, note: &str) -> Result<Vec<u64>> {
+    let mut done = vec![];
+    for n in r.replaces.iter().map(|o| o.number).filter(|n| !r.closed.contains(n)).collect::<Vec<_>>() {
+        let res = crate::gh::close_with(n, note).with_context(|| format!("closing #{n}"));
+        if res.is_ok() {
+            r.closed.push(n);
+            done.push(n);
+        }
+        save(r)?;
+        res?;
+    }
+    Ok(done)
+}
+
 /// Remove replacement `id`: its worktree (not with local changes) and its record. Its branch
 /// stays, in case there's something on it you want.
 pub fn remove(id: u64, root: &Path) -> Result<String> {
@@ -214,10 +254,15 @@ fn records_round_trip() {
         body: "Replaces #12 and #15.\n\nFixes #9.".into(),
         closing_note: "Thanks! Handled in the replacement.".into(),
         session: "s".into(),
+        published: Some(20),
+        closed: vec![12],
     };
     assert_eq!(parse(12, &to_json(&r)).unwrap(), r);
     // As Claude may leave it: fields missing are empty.
     let bare = parse(3, r#"{ "replaces": [{ "number": 3 }], "base": "main" }"#).unwrap();
     assert_eq!((bare.replaces[0].number, bare.title.as_str(), bare.base.as_str()), (3, "", "main"));
     assert!(prompt(&r, "keep the old API").contains("PR #12, #15") && prompt(&r, "keep the old API").ends_with("keep the old API"));
+    let r = Record { closing_note: "Thanks! See {replacement}.".into(), ..r };
+    assert_eq!(note(&r), "Thanks! See #20.");
+    assert_eq!(note(&Record { published: None, ..r }), "Thanks! See the replacement.");
 }

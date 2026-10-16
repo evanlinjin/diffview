@@ -498,6 +498,19 @@ pub fn conversation_comment(pr: &Pr, body: &str) -> Result<()> {
     post(&ep, &json!({ "body": body }))
 }
 
+/// Open a draft PR from `head` into `base`: its number.
+pub fn create_draft(base: &str, head: &str, title: &str, body: &str) -> Result<u64> {
+    let out = gh_input(&["pr", "create", "--draft", "--base", base, "--head", head, "--title", title, "--body-file", "-"], Some(body))?;
+    // It prints the new PR's URL: …/pull/N
+    let url = out.lines().rev().find(|l| l.contains("/pull/")).context("gh pr create printed no PR URL")?;
+    url.trim().rsplit('/').next().and_then(|n| n.parse().ok()).with_context(|| format!("no PR number in {url}"))
+}
+
+/// Close PR `n` with a comment saying why.
+pub fn close_with(n: u64, comment: &str) -> Result<()> {
+    gh(&["pr", "close", &n.to_string(), "--comment", comment]).map(drop)
+}
+
 /// Close the PR (it can be reopened on GitHub).
 pub fn close(pr: &Pr) -> Result<()> {
     gh(&["pr", "close", &pr.number.to_string()]).map(drop)

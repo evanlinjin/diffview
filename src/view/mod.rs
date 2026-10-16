@@ -220,6 +220,10 @@ enum Action {
     ClaudeWith(agent::Ask),
     /// Have Claude draft a replacement for these PRs, after your instructions for it.
     Replace(Vec<u64>),
+    /// Publish the replacement here as a draft PR, after the editor (title, description).
+    Publish,
+    /// Close the PRs the replacement here replaces, after the editor (the note).
+    CloseOriginals,
     /// A new PR conversation comment, starting with `quote` (may be empty); `as_is`: posted
     /// even if left untouched (Claude's review, yours to post).
     Converse { quote: String, as_is: bool },
@@ -272,6 +276,9 @@ enum Target {
     ClaudeNotes,
     /// Have Claude draft (or redraft) a replacement for these PRs, in the background.
     ClaudeReplace(Vec<u64>),
+    /// Publish the replacement here as a draft PR / close the PRs it replaces.
+    Publish,
+    CloseOriginals,
     ClaudeFresh,
     GitView,
     GitCommit,
@@ -716,6 +723,32 @@ impl App {
                 crate::claude::save_instructions("replace", &extra)?; // `dv replace` reads them
                 agent::spawn_replace(&prs)?;
                 Ok(format!("Claude is drafting a replacement for {which} in the background: dv list's replacements tab shows it"))
+            }
+            Action::Publish => {
+                let mut r = self.replacement.clone().context("not a replacement")?;
+                let prefill = format!("{}\n\n{}", r.title.trim(), r.body.trim());
+                let what = format!("draft PR for {}: its title (first line), then its description", crate::replace::branch(r.id));
+                let Some(text) = compose_with(&what, false, &prefill, true)? else { return Ok("not published".into()) };
+                let (title, body) = text.split_once('\n').map_or((text.as_str(), ""), |(t, b)| (t, b));
+                let (title, body) = (title.trim(), body.trim());
+                if title.is_empty() {
+                    return Ok("not published: it needs a title (the first line)".into());
+                }
+                let res = crate::replace::publish(&mut r, title, body);
+                keep_on_error(res.as_ref().map(drop).map_err(|e| anyhow!("{e:#}")), &text)?;
+                self.show_replacement(r);
+                Ok(format!("published as draft PR #{}: S closes what it replaces, with the note", res.unwrap_or(0)))
+            }
+            Action::CloseOriginals => {
+                let mut r = self.replacement.clone().context("not a replacement")?;
+                let which: Vec<String> = r.replaces.iter().filter(|o| !r.closed.contains(&o.number)).map(|o| format!("#{}", o.number)).collect();
+                let what = format!("note closing {} (each gets it as a comment, then is closed)", which.join(", "));
+                let Some(note) = compose_with(&what, false, &crate::replace::note(&r), true)? else { return Ok("nothing closed".into()) };
+                let res = crate::replace::close_originals(&mut r, &note);
+                self.show_replacement(r);
+                let done = keep_on_error(res.as_ref().map(drop).map_err(|e| anyhow!("{e:#}")), &note).map(|_| res.unwrap_or_default())?;
+                let done: Vec<String> = done.iter().map(|n| format!("#{n}")).collect();
+                Ok(format!("closed {}, with the note", done.join(", ")))
             }
             Action::Converse { quote, as_is } => {
                 self.pr.as_ref().context("no PR")?;
