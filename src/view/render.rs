@@ -186,8 +186,9 @@ impl App {
         let ghw = lw + 3;
         let (htw_l, htw_r) = (half.saturating_sub(ghw).max(1), width.saturating_sub(1 + half).saturating_sub(ghw).max(1));
         // Comments in the right margin when there's room for it beside enough code.
-        // The margin: about a third of the window (60–80 columns), beside at least 80 of code.
-        let mw = (width / 3).clamp(MARGIN_MIN, MARGIN_MAX);
+        // The margin: about a third of the window (60–80 columns), or all that's beyond 200 for
+        // the code side (gutter included), beside at least 80 columns of code.
+        let mw = (width / 3).clamp(MARGIN_MIN, MARGIN_MAX).max(width.saturating_sub(1 + MARGIN_CODE_MAX));
         let margin = self.margin_pref && !self.split && width >= gw + MARGIN_CODE_MIN + 1 + mw;
         let (ctw, mtw) = (width.saturating_sub(gw + 1 + mw).max(1), mw - 3);
         // PR text wraps to the code column's width (narrower beside the margin).

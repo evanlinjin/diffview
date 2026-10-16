@@ -7,7 +7,8 @@ on GitHub are its section here.
 
 ### Added
 - Comments in the right margin: in single-pane view on a wide window (room for 80 columns of
-  code beside the margin: a third of the window, 60–80 columns; thread tags on a line of their
+  code beside the margin: a third of the window, 60–80 columns, or all beyond 200 columns of
+  code side; thread tags on a line of their
   own under the header), review threads sit beside their lines instead of between
   them. A box that would overlap the one before goes just below it; code only gets blank
   rows where a file's comments need more room than its code. `Ctrl-w l` / `Ctrl-w h` move

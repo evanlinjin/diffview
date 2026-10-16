@@ -181,11 +181,13 @@ enum DRow {
     Margin(Option<usize>, Option<usize>),
 }
 
-/// The comment margin's width: about a third of the window, within these bounds; and the
-/// least code text width beside it (narrower windows show comments inline).
+/// The comment margin's width: about a third of the window, within these bounds, or everything
+/// beyond the code side's most (it doesn't read better any wider); and the least code text
+/// width beside it (narrower windows show comments inline).
 const MARGIN_MIN: usize = 60;
 const MARGIN_MAX: usize = 80;
 const MARGIN_CODE_MIN: usize = 80;
+const MARGIN_CODE_MAX: usize = 200;
 
 /// Work that needs the terminal back (an editor), run between frames.
 enum Action {
