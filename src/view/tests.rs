@@ -583,3 +583,11 @@ fn claude_session_per_pr() {
     assert!(!crate::claude::session_path(&review).exists());
     _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn approve_says_ack() {
+    let pr = gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "cb1cec09".into(), url: String::new() };
+    assert_eq!(ack("APPROVE", Some(&pr)), "ACK cb1cec09");
+    assert_eq!(ack("COMMENT", Some(&pr)), "");
+    assert_eq!(ack("APPROVE", None), "");
+}

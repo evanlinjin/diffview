@@ -550,8 +550,10 @@ impl App {
             }
             Action::Submit(event) => {
                 // An empty summary is fine; quitting the editor with an error (`:cq`) cancels.
-                let Some(body) = compose(&format!("review summary ({})", event.to_lowercase().replace('_', " ")), true)?
-                else {
+                // Approving starts from "ACK <the PR's head commit>", posted as is if kept.
+                let what = format!("review summary ({})", event.to_lowercase().replace('_', " "));
+                let prefill = ack(event, self.pr.as_ref());
+                let Some(body) = compose_with(&what, true, &prefill, true)? else {
                     return Ok("review not submitted".into());
                 };
                 self.post_later(Post::Submit(event, body))
@@ -1148,6 +1150,15 @@ fn keep_on_error(res: Result<()>, body: &str) -> Result<()> {
             _ => e,
         }
     })
+}
+
+/// The summary an approval starts from: `ACK <head commit>`, as Bitcoin-style projects write
+/// it, naming exactly what was reviewed. Other reviews start empty.
+fn ack(event: &str, pr: Option<&Pr>) -> String {
+    match pr {
+        Some(p) if event == "APPROVE" && !p.head_oid.is_empty() => format!("ACK {}", p.head_oid),
+        _ => String::new(),
+    }
 }
 
 fn posted_msg(review: bool) -> &'static str {

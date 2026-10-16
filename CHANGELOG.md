@@ -11,6 +11,7 @@ on GitHub are its section here.
 - Claude's notes on the repo (`.git/dv/notes.md`, shared by worktrees): the skill reads them
   before each task and keeps them up to date (conventions, subtle code, your review
   preferences), so what it learns carries over to the next PR. `Space a` opens them in hx.
+- Approving a PR (`S`, Approve) starts the summary as `ACK <the PR's head commit>`.
 
 ### Changed
 - Inside zellij, hx, the comment editor and Claude Code open in a pane to the right instead of
