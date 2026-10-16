@@ -2,7 +2,7 @@
 use crate::diff::{self, FileDiff, Kind, Line as DLine};
 use crate::gh::{self, Anchor, Pr, Thread};
 use crate::highlight::{Colors, Highlighter};
-use crate::theme::{Theme, Ui};
+use crate::theme::{Settings, Theme, Ui};
 use crate::lsp::{self, Loc, Lsp};
 use anyhow::{bail, Context, Result};
 use ratatui::{
@@ -185,6 +185,10 @@ pub struct App {
     /// Screen rows, and the screen row of each row (`top` and scrolling count screen rows).
     drows: Vec<DRow>,
     d_of: Vec<usize>,
+    /// Changed-word spans (char ranges) for paired removed/added rows.
+    emph: HashMap<usize, Vec<(usize, usize)>>,
+    /// Helix `cursorline` / relative `line-number`.
+    settings: Settings,
     quit: bool,
     pr: Option<Pr>,
     threads: Vec<Thread>,
@@ -220,6 +224,7 @@ impl App {
         let mut app = Self::with(base, files);
         let theme = Theme::load();
         (app.hl, app.ui) = (Highlighter::new(&theme), theme.ui());
+        app.settings = crate::theme::settings();
         app.pr = pr;
         app.load_threads();
         app.build();
@@ -261,6 +266,8 @@ impl App {
             right: true,
             drows: vec![],
             d_of: vec![],
+            emph: HashMap::new(),
+            settings: Settings::default(),
             quit: false,
             pr: None,
             threads: vec![],
@@ -566,7 +573,33 @@ impl App {
             rows.push(Row { file: usize::MAX, line: DLine { kind: Kind::Hunk, old: None, new: None, text }, thread: None, syn: vec![] });
         }
         self.rows = rows;
+        self.emph = self.word_spans();
         self.layout();
+    }
+
+    /// Pair each run of removed rows with the added rows after it (as split view does) and
+    /// find the changed words in each pair.
+    fn word_spans(&self) -> HashMap<usize, Vec<(usize, usize)>> {
+        let (n, kind) = (self.rows.len(), |i: usize| self.rows[i].line.kind);
+        let mut out = HashMap::new();
+        let mut i = 0;
+        while i < n {
+            if kind(i) != Kind::Del {
+                i += 1;
+                continue;
+            }
+            let dels = (i..n).take_while(|&j| kind(j) == Kind::Del).count();
+            let adds = (i + dels..n).take_while(|&j| kind(j) == Kind::Add).count();
+            for k in 0..dels.min(adds) {
+                let (d, a) = (i + k, i + dels + k);
+                if let Some((x, y)) = diff::word_diff(&self.rows[d].line.text, &self.rows[a].line.text) {
+                    out.insert(d, x);
+                    out.insert(a, y);
+                }
+            }
+            i += dels + adds;
+        }
+        out
     }
 
     /// Map rows to screen rows. In split view, each run of removed lines pairs with the added
@@ -1617,11 +1650,14 @@ impl App {
         let maxno = self.rows.iter().filter_map(|r| r.line.old.max(r.line.new)).max().unwrap_or(0);
         let lw = maxno.to_string().len().max(3);
         let gw = lw * 2 + 4;
-        let tw = (area.width as usize).saturating_sub(gw).max(1);
+        // Relative line numbers (Helix `line-number = "relative"`) get their own column on the left.
+        let relw = if self.settings.relative { 4 } else { 0 };
+        let width = (area.width as usize).saturating_sub(relw);
+        let tw = width.saturating_sub(gw).max(1);
         // Split halves: one line-number column each, a 1-col divider between.
-        let half = (area.width as usize).saturating_sub(1) / 2;
+        let half = width.saturating_sub(1) / 2;
         let ghw = lw + 3;
-        let (htw_l, htw_r) = (half.saturating_sub(ghw).max(1), (area.width as usize - 1 - half).saturating_sub(ghw).max(1));
+        let (htw_l, htw_r) = (half.saturating_sub(ghw).max(1), width.saturating_sub(1 + half).saturating_sub(ghw).max(1));
         let ww = tw.saturating_sub(1).clamp(40, 100);
         if ww != self.wrap_w {
             self.wrap_w = ww;
@@ -1661,19 +1697,29 @@ impl App {
             }
         }
         let divider = Span::styled("│", self.ui.linenr);
+        let hd = self.hd();
         let lines: Vec<Line> = (self.top..(self.top + h).min(self.drows.len()))
-            .map(|d| match self.drows[d] {
-                DRow::Full(r) => Line::from(self.render_row(r, s, e, (lw, gw, tw), None, &overlay)),
-                DRow::Pair(l, rr) => {
-                    let half = |row: Option<usize>, right: bool, w: usize| match row {
-                        Some(row) => self.render_row(row, s, e, (lw, ghw, w), Some(right), &overlay),
-                        None => vec![Span::raw(" ".repeat(ghw + w))],
-                    };
-                    let mut spans = half(l, false, htw_l);
-                    spans.push(divider.clone());
-                    spans.extend(half(rr, true, htw_r));
-                    Line::from(spans)
+            .map(|d| {
+                let cur = d == hd;
+                let rel = match (relw, cur) {
+                    (0, _) => vec![],
+                    (_, true) => vec![Span::styled(format!("{:>w$} ", "", w = relw - 1), self.ui.linenr_selected)],
+                    _ => vec![Span::styled(format!("{:>w$} ", d.abs_diff(hd), w = relw - 1), self.ui.linenr)],
+                };
+                let mut spans = rel;
+                match self.drows[d] {
+                    DRow::Full(r) => spans.extend(self.render_row(r, s, e, (lw, gw, tw), None, cur, &overlay)),
+                    DRow::Pair(l, rr) => {
+                        let half = |row: Option<usize>, right: bool, w: usize| match row {
+                            Some(row) => self.render_row(row, s, e, (lw, ghw, w), Some(right), cur, &overlay),
+                            None => vec![Span::raw(" ".repeat(ghw + w))],
+                        };
+                        spans.extend(half(l, false, htw_l));
+                        spans.push(divider.clone());
+                        spans.extend(half(rr, true, htw_r));
+                    }
                 }
+                Line::from(spans)
             })
             .collect();
         f.render_widget(Block::new().style(self.ui.base), area);
@@ -1753,6 +1799,30 @@ impl App {
         Rect { x: r.x + 1, y: r.y + 1, width: r.width.saturating_sub(2), height: r.height.saturating_sub(2) }
     }
 
+    /// A hunk header drawn as a quiet rule: `── fn main ─────── L12–18`. The raw `@@` text stays
+    /// the row's text (search, `Y`); only the drawing changes.
+    fn hunk_divider(&self, r: usize, gw: usize, tw: usize) -> Option<Vec<Span<'static>>> {
+        let (start, count, ctx) = diff::hunk_label(&self.rows[r].line.text)?;
+        let range = match count {
+            0 | 1 => format!(" L{start} "),
+            n => format!(" L{start}–{} ", start + n - 1),
+        };
+        let mut left = String::from("──");
+        if !ctx.is_empty() {
+            left += &format!(" {ctx} ");
+        }
+        let fill = tw.saturating_sub(left.chars().count() + range.chars().count() + 1);
+        let text = format!("{left}{}{range}─", "─".repeat(fill));
+        let mut spans = vec![Span::styled(" ".repeat(gw), self.ui.linenr)];
+        let mut chars = text.chars();
+        if self.head.row == r {
+            let c = chars.next().unwrap_or(' ');
+            spans.push(Span::styled(c.to_string(), if self.select { self.ui.cursor_select } else { self.ui.cursor }));
+        }
+        spans.push(Span::styled(chars.collect::<String>(), self.ui.hunk));
+        Some(spans)
+    }
+
     /// Which highlighted file a code row's colors come from: the base for removed lines, else the working tree.
     fn hl_key(&self, r: usize) -> Option<(String, bool)> {
         let row = &self.rows[r];
@@ -1766,8 +1836,9 @@ impl App {
 
     /// One row's spans, padded to the gutter + `tw` width. `side`: None = full width, else
     /// Some(false/true) = the old/new half of a split row (one line number, not two).
+    #[allow(clippy::too_many_arguments)]
     fn render_row(
-        &self, r: usize, s: Pos, e: Pos, (lw, gw, tw): (usize, usize, usize), side: Option<bool>,
+        &self, r: usize, s: Pos, e: Pos, (lw, gw, tw): (usize, usize, usize), side: Option<bool>, cursor_row: bool,
         overlay: &HashMap<Pos, char>,
     ) -> Vec<Span<'static>> {
         let row = &self.rows[r];
@@ -1786,7 +1857,12 @@ impl App {
                 gstyle = ui.header;
                 (format!(" {:<w$}", if collapsed { "▸" } else { "▾" }, w = gw - 1), ui.header)
             }
-            Kind::Hunk => (" ".repeat(gw), ui.hunk),
+            Kind::Hunk => {
+                if let Some(spans) = self.hunk_divider(r, gw, tw) {
+                    return spans;
+                }
+                (" ".repeat(gw), ui.hunk)
+            }
             Kind::Thread | Kind::Comment => {
                 let resolved = row.thread.is_some_and(|t| self.threads[t].stale());
                 let check = l.text.chars().next().filter(|_| row.file == INFO);
@@ -1830,6 +1906,17 @@ impl App {
                 (gutter, Style::new())
             }
         };
+        if cursor_row && self.settings.cursorline {
+            if matches!(l.kind, Kind::Ctx | Kind::Add | Kind::Del) {
+                gstyle = gstyle.patch(ui.linenr_selected);
+            }
+            // Like Helix: the cursor's line is tinted, except where a diff tint already marks it.
+            if matches!(l.kind, Kind::Ctx | Kind::Thread | Kind::Comment) {
+                line_bg = ui.cursorline.or(line_bg);
+            }
+        }
+        let emph_bg = if l.kind == Kind::Add { ui.emph_add } else { ui.emph_del };
+        let emph = self.emph.get(&r);
         let syn = match row.syn.is_empty() {
             false => Some(&row.syn),
             true => self.hl_key(r).and_then(|k| {
@@ -1840,14 +1927,18 @@ impl App {
         let mut spans = vec![Span::styled(gutter, gstyle)];
         let mut n = 0;
         // A context line shows on both sides of a split row; the cursor goes on the current side.
-        let cursor_here = self.head.row == r && (side.is_none() || l.kind != Kind::Ctx || side == Some(self.right));
+        let this_side = side.is_none() || l.kind != Kind::Ctx || side == Some(self.right);
+        let cursor_here = self.head.row == r && this_side;
         for (i, c) in l.text.chars().enumerate().skip(self.left).take(tw) {
             let p = Pos { row: r, col: i };
             let mut st = style;
             if let Some(c) = syn.and_then(|syn| syn.get(i).copied().flatten()) {
                 st = st.patch(c);
             }
-            if s <= p && p <= e {
+            if emph.is_some_and(|e| e.iter().any(|&(a, b)| a <= i && i < b)) {
+                st = st.bg(emph_bg);
+            }
+            if s <= p && p <= e && this_side {
                 st = st.patch(ui.selection);
             }
             if p == self.head && cursor_here {

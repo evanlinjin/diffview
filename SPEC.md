@@ -33,6 +33,11 @@ disk: rust-analyzer can index it and `hx` can open it.
    reports); the UI (selection, cursor, statusline, popups, diff colors, jump labels)
    uses the theme's `ui.*`/`diff.*` keys. No theme → named ANSI colors. Added/removed
    lines get a tint blended from `diff.plus`/`diff.minus` into `ui.background`.
+   Paired removed/added lines also get the changed words emphasised (token LCS; skipped
+   when the lines share less than they differ). Hunk headers draw as a quiet rule
+   (`── fn main ─── L12–18`). Helix's `cursorline` and `line-number = "relative"` are
+   mirrored: cursor row tint + highlighted line number, and a relative column counting
+   screen rows (so `5j` lands where it says).
    PR description, conversation and (unresolved) review comments are highlighted as
    markdown, code fences included. TOML uses a small built-in grammar (syntect has
    none). File headers are a full-width bar with +/− line counts.

@@ -43,6 +43,91 @@ impl FileDiff {
     }
 }
 
+/// A shown hunk header: (new start, new count, function context).
+pub fn hunk_label(h: &str) -> Option<(u32, u32, String)> {
+    let new = h.split_whitespace().nth(2)?.get(1..)?;
+    let (start, count) = new.split_once(',').unwrap_or((new, "1"));
+    Some((start.parse().ok()?, count.parse().ok()?, h.splitn(3, "@@").nth(2).unwrap_or("").trim().to_owned()))
+}
+
+/// Changed spans between a removed line and the added line it pairs with, as char ranges in
+/// each. `None` when they're too different for word-level highlighting to help.
+pub fn word_diff(a: &str, b: &str) -> Option<(Vec<(usize, usize)>, Vec<(usize, usize)>)> {
+    let (ac, bc): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    let (at, bt) = (tokens(&ac), tokens(&bc));
+    if at.len() * bt.len() > 250_000 {
+        return None; // ponytail: quadratic LCS; skip very long lines.
+    }
+    // LCS over tokens.
+    let (n, m) = (at.len(), bt.len());
+    let mut dp = vec![vec![0u16; m + 1]; n + 1];
+    for i in (0..n).rev() {
+        for j in (0..m).rev() {
+            dp[i][j] = if tok(&ac, at[i]) == tok(&bc, bt[j]) { dp[i + 1][j + 1] + 1 } else { dp[i + 1][j].max(dp[i][j + 1]) };
+        }
+    }
+    let (mut ka, mut kb) = (vec![false; n], vec![false; m]);
+    let (mut i, mut j) = (0, 0);
+    while i < n && j < m {
+        if tok(&ac, at[i]) == tok(&bc, bt[j]) {
+            (ka[i], kb[j]) = (true, true);
+            (i, j) = (i + 1, j + 1);
+        } else if dp[i + 1][j] >= dp[i][j + 1] {
+            i += 1;
+        } else {
+            j += 1;
+        }
+    }
+    // Too little in common: the whole line changed, so word emphasis would just be noise.
+    let solid = |c: &[char], t: &[(usize, usize)], keep: &[bool], kept: bool| -> usize {
+        t.iter().zip(keep).filter(|(_, k)| **k == kept).map(|(t, _)| c[t.0..t.1].iter().filter(|c| !c.is_whitespace()).count()).sum()
+    };
+    let same = solid(&ac, &at, &ka, true) + solid(&bc, &bt, &kb, true);
+    let diff = solid(&ac, &at, &ka, false) + solid(&bc, &bt, &kb, false);
+    if same == 0 || diff == 0 || same < diff {
+        return None;
+    }
+    Some((spans(&ac, &at, &ka), spans(&bc, &bt, &kb)))
+}
+
+fn tok(c: &[char], t: (usize, usize)) -> &[char] {
+    &c[t.0..t.1]
+}
+
+/// Word runs, whitespace runs, and single punctuation chars, as char ranges.
+fn tokens(c: &[char]) -> Vec<(usize, usize)> {
+    let class = |c: char| if c.is_alphanumeric() || c == '_' { 0 } else if c.is_whitespace() { 1 } else { 2 };
+    let mut out = vec![];
+    let mut i = 0;
+    while i < c.len() {
+        let k = class(c[i]);
+        let mut j = i + 1;
+        while k != 2 && j < c.len() && class(c[j]) == k {
+            j += 1;
+        }
+        out.push((i, j));
+        i = j;
+    }
+    out
+}
+
+/// Unmatched tokens as merged char ranges (whitespace between two changes joins them).
+fn spans(c: &[char], t: &[(usize, usize)], keep: &[bool]) -> Vec<(usize, usize)> {
+    let mut out: Vec<(usize, usize)> = vec![];
+    for (k, &(s, e)) in t.iter().enumerate() {
+        let ws = c[s..e].iter().all(|c| c.is_whitespace());
+        let changed = !keep[k] || (ws && k > 0 && !keep[k - 1] && t.get(k + 1).is_some() && !keep[k + 1]);
+        if !changed {
+            continue;
+        }
+        match out.last_mut() {
+            Some(last) if last.1 == s => last.1 = e,
+            _ => out.push((s, e)),
+        }
+    }
+    out
+}
+
 fn header(h: &str) -> Option<(u32, String)> {
     let new = h.split_whitespace().nth(2)?.get(1..)?.split(',').next()?.parse().ok()?;
     Some((new, h.splitn(3, "@@").nth(2).unwrap_or("").to_owned()))
@@ -242,6 +327,14 @@ fn parses() {
     assert_eq!(f[0].lines[3].text, "    new_call(x);");
     assert_eq!((f[1].old_path.as_str(), f[1].path.as_str()), ("old.rs", "new.rs"));
     assert_eq!(f[2].meta, "binary");
+}
+
+#[test]
+fn words() {
+    let (a, b) = word_diff("    let a = 1;", "    let ab = 3;").unwrap();
+    assert_eq!((a, b), (vec![(8, 9), (12, 13)], vec![(8, 10), (13, 14)]));
+    assert!(word_diff("fn alpha() {}", "struct Beta;").is_none()); // nothing in common
+    assert_eq!(hunk_label("@@ -1,4 +12,7 @@ fn main"), Some((12, 7, "fn main".into())));
 }
 
 #[test]

@@ -39,6 +39,31 @@ pub struct Ui {
     pub pending: Style,
     /// Fill for comment threads and the PR info section: a step above the background, below popups.
     pub comment_bg: Color,
+    /// Changed words within a paired removed/added line: a stronger tint than the line's.
+    pub emph_add: Color,
+    pub emph_del: Color,
+    pub cursorline: Option<Color>,
+    pub linenr_selected: Style,
+}
+
+/// Helix `[editor]` settings dv mirrors.
+#[derive(Default)]
+pub struct Settings {
+    pub cursorline: bool,
+    pub relative: bool,
+}
+
+pub fn settings() -> Settings {
+    let cfg = helix_config_dir()
+        .and_then(|d| std::fs::read_to_string(d.join("config.toml")).ok())
+        .and_then(|s| toml::from_str::<Table>(&s).ok())
+        .unwrap_or_default();
+    let editor = cfg.get("editor").and_then(Value::as_table);
+    let get = |k: &str| editor.and_then(|e| e.get(k));
+    Settings {
+        cursorline: get("cursorline").and_then(Value::as_bool).unwrap_or(false),
+        relative: get("line-number").and_then(Value::as_str) == Some("relative"),
+    }
 }
 
 impl Theme {
@@ -170,6 +195,10 @@ impl Theme {
                 .filter(|&c| Some(c) != bg && Some(c) != self.find("ui.popup").and_then(|p| p.bg))
                 .or_else(|| blend(base.fg?, bg?, 0.06))
                 .unwrap_or(Color::Rgb(0x26, 0x28, 0x2e)),
+            emph_add: plus.fg.zip(bg).and_then(|(c, b)| blend(c, b, 0.42)).unwrap_or(Color::Rgb(0x2f, 0x5a, 0x33)),
+            emph_del: minus.fg.zip(bg).and_then(|(c, b)| blend(c, b, 0.42)).unwrap_or(Color::Rgb(0x6b, 0x2c, 0x2c)),
+            cursorline: self.find("ui.cursorline.primary").or(self.find("ui.cursorline")).and_then(|s| s.bg),
+            linenr_selected: self.find("ui.linenr.selected").unwrap_or(self.get("ui.linenr").add_modifier(Modifier::BOLD)),
         }
     }
 }
