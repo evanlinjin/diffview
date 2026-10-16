@@ -102,6 +102,7 @@ REVIEW
 GENERAL
   ?                    this help (/ to search it)
   R                    refresh (git diff + GitHub)
+  Space u              update the checkout: to the PR's head (fast-forward only), or git pull
   q, Ctrl-c            quit
 ";
 
@@ -216,6 +217,8 @@ enum Action {
 /// Network work that doesn't need the terminal; run after a frame shows its "…" message.
 enum Job {
     Refresh,
+    /// Bring the checkout up to date: the PR's head, or `git pull --ff-only` without a PR.
+    Pull,
     Resolve(String, bool),
     /// Mark (true) or unmark a file as viewed.
     Viewed(String, bool),

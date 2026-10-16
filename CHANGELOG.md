@@ -6,6 +6,8 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Added
+- `Space u` updates the checkout: to the PR's head (fast-forward only, keeping local commits),
+  or `git pull --ff-only` without a PR, then refreshes.
 - Comments in the right margin: in single-pane view on a wide window (room for 80 columns of
   code beside the margin: a third of the window, 60–80 columns, or all beyond 200 columns of
   code side; thread tags on a line of their

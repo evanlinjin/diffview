@@ -275,7 +275,7 @@ fn install_skill() -> anyhow::Result<()> {
 /// `gh pr checkout`, except when you're already on the PR's branch and it has commits that
 /// aren't on the PR (unpushed work, or a local rebase): then it stays as it is, and the note
 /// returned says so. Never resets your branch unless `force`.
-fn checkout_or_keep(n: u64, force: bool, detach: bool) -> anyhow::Result<Option<String>> {
+pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool) -> anyhow::Result<Option<String>> {
     let Err(e) = gh::checkout(n, force, detach) else { return Ok(None) };
     let msg = format!("{e:#}");
     let diverged = ["Not possible to fast-forward", "Diverging branches"].iter().any(|p| msg.contains(p));

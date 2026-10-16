@@ -15,6 +15,16 @@ impl App {
     }
 
     pub(super) fn run_job(&mut self, job: Job) {
+        if let Job::Pull = job {
+            let res = self.pull();
+            self.hl_cache.retain(|k, _| !k.1); // the working tree changed
+            let reload = self.reload(true);
+            self.msg = match (res, reload) {
+                (Err(e), _) | (_, Err(e)) => format!("{e:#}"),
+                (Ok(m), Ok(())) => m,
+            };
+            return;
+        }
         // Read-only: no reload after.
         if let Job::Preview(url) = job {
             match gh::issue_preview(&url) {
@@ -32,7 +42,7 @@ impl App {
                 "pending review discarded"
             }),
             Job::DeleteComment(c) => gh::delete_comment(&c).map(|_| "comment deleted"),
-            Job::Preview(_) => unreachable!("handled above"),
+            Job::Preview(_) | Job::Pull => unreachable!("handled above"),
             Job::Post(p) => self.post(p),
             Job::Viewed(path, on) => {
                 let pr_id = self.pr.as_ref().map(|p| p.node_id.clone()).unwrap_or_default();
@@ -105,6 +115,23 @@ impl App {
                 keep_on_error(res, &body)?;
                 self.review = None;
                 Ok("review submitted")
+            }
+        }
+    }
+
+    /// `Space u`: on a PR, up to its head as `gh pr checkout` does (fast-forward only: a branch
+    /// with commits that aren't on the PR is left as it is, and said so); else `git pull
+    /// --ff-only`. Local changes in the way are git's to refuse, so nothing is overwritten.
+    fn pull(&self) -> Result<String> {
+        match &self.pr {
+            Some(p) => {
+                let detached = diff::git(&["branch", "--show-current"])?.trim().is_empty();
+                let note = crate::checkout_or_keep(p.number, false, detached)?;
+                Ok(note.unwrap_or_else(|| format!("up to date with PR #{}", p.number)))
+            }
+            None => {
+                diff::git(&["pull", "--ff-only"])?;
+                Ok("pulled".into())
             }
         }
     }

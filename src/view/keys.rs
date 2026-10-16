@@ -211,6 +211,7 @@ impl App {
                 ("a", "ask Claude: review / answer / make changes"),
                 ("k", "hover / preview link"),
                 ("v", "mark file viewed"),
+                ("u", "update checkout (git pull)"),
                 ("r", "resolve thread"),
                 ("e", "edit your comment"),
                 ("d", "delete / dismiss comment"),
@@ -315,6 +316,10 @@ impl App {
             (' ', 'a') => self.claude_menu(),
             (' ', 'A') => self.claude_picker(),
             (' ', 'v') => self.toggle_viewed(),
+            (' ', 'u') => {
+                self.msg = "updating the checkout…".into();
+                self.job = Some(Job::Pull);
+            }
             ('f' | 't' | 'F' | 'T', c) => self.find_char(p, c),
             _ => {}
         }
