@@ -123,7 +123,8 @@ impl App {
             ),
             Ask::Fix => format!(
                 "Use the dv-review skill to make the changes your open comments ask for in the dv review of {what} \
-                 (every comment that isn't resolved or outdated), replying on each with what you changed."
+                 (every comment that isn't resolved or outdated), replying on each with what you changed and resolving \
+                 the ones you addressed."
             ),
         };
         match extra.trim() {

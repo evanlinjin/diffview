@@ -94,6 +94,12 @@ reply, or the comment itself if it has none) is from `"user"` and isn't `"resolv
 - if the user asks for a change, make it in the code, then reply saying what you changed;
 - if the user convinced you the comment is wrong, say so in the reply (don't delete it).
 
+Once a thread is settled, resolve it: set `"resolved": true` on the comment after your reply.
+It's settled when you've made the change it asked for, or you and the user agree it doesn't
+apply. Don't resolve one where you've only answered a question: the user may have more to say.
+A resolved thread folds in dv, where the user can unfold it to check your change, and `Space r`
+there reopens it if they disagree.
+
 The user can reply in dv while you work, and dv writes the same file. So make small, targeted
 edits to it (your Edit tool, not rewriting the whole file from what you read earlier), and if
 an edit fails because the file changed, read it again and redo that edit. Keep every other
@@ -101,7 +107,7 @@ field, comment and reply exactly as it is, `id`s included. Run `dv review-check`
 whose code moved (`fixed:`) by itself. A comment whose code you changed becomes outdated
 (`warning: … outdated`). If it still applies to the new code, re-anchor it: set its `line`
 (and `start_line`), delete its `code`, and run `dv review-check` again. If your change
-addressed it, leave it outdated and say so in your reply.
+addressed it, leave it outdated, say so in your reply, and resolve it.
 
 ## 4. Make the changes
 
@@ -112,8 +118,10 @@ dismisses comments they don't want by deleting them, so all that are left are wa
 - make the change in the code (for a `suggestion` block, apply it; otherwise do what the
   comment says, keeping the change as small as the comment implies);
 - append `{ "author": "claude", "body": "Changed: <what you did>", "created": "<now>" }` to
-  its `replies`. Don't resolve it: the user resolves once they've checked your change.
-- if a comment turns out not to need a change, or you're unsure, reply saying so instead.
+  its `replies`, then resolve it (`"resolved": true`): it's addressed. The user can unfold it in
+  dv to check the change, and reopen it (`Space r`) if it isn't right.
+- if a comment turns out not to need a change, or you're unsure, reply saying so instead, and
+  leave it unresolved for the user to decide.
 
 Then run `dv review-check`: the comments whose code you changed show as outdated, which is
 expected. Finally, summarise what you changed (and what you didn't, and why).

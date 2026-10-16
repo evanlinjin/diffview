@@ -21,6 +21,8 @@ on GitHub are its section here.
   confirmation); the review thread key popup lists `Space d`.
 
 ### Changed
+- Claude resolves a thread once it's settled (it made the change asked for, or you agree it
+  doesn't apply), after replying; answering a question leaves it open. Reopen with `Space r`.
 - Inside zellij, a PR's Claude Code pane is reused: when it's open, `Space a` puts the request
   in its input (pasted, focused; you press Enter) instead of opening another pane, and leaves
   it alone while it's asking you something. Replies are answered in the background on a fork
