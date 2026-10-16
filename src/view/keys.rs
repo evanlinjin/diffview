@@ -351,6 +351,7 @@ impl App {
                             self.job = Some(Job::DeleteComment(id));
                         }
                         Target::Claude(ask) => self.pick_claude(ask),
+                        Target::ClaudeNotes => self.edit_claude_notes(),
                         Target::Nothing => {}
                     }
                 }

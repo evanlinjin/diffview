@@ -244,6 +244,8 @@ fn review_file(cmd: &str, o: &Opts) -> anyhow::Result<()> {
             None => println!("pr:   none (a local review of this branch)"),
         }
         println!("exists: {}", path.exists());
+        let notes = claude::notes_path()?;
+        println!("notes: {}    (your notes on this repo, kept across reviews; exists: {})", notes.display(), notes.exists());
         return Ok(());
     }
     let files = diff::load(&base, 3)?;

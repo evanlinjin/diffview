@@ -18,7 +18,8 @@ current checkout). It prints:
 - `base:` the commit dv diffs against. `git diff <base>` is exactly what dv shows: base →
   **working tree** (uncommitted changes included);
 - `head:` the current commit;
-- `exists:` whether there's already a review (if so, read it first).
+- `exists:` whether there's already a review (if so, read it first);
+- `notes:` your notes on this repo (see below). Read them before you start, if they exist.
 
 ## 2. Write a review
 
@@ -111,6 +112,24 @@ dismisses comments they don't want by deleting them, so all that are left are wa
 
 Then run `dv review-check`: the comments whose code you changed show as outdated, which is
 expected. Finally, summarise what you changed (and what you didn't, and why).
+
+## Your notes on the repo
+
+`notes:` from `dv review-info` is a markdown file that outlives any one review, shared by all
+the repo's worktrees (it's inside `.git`). It's how what you learn about the repo carries over
+to the next PR, so you don't start from nothing each time. The user can edit it too, from dv.
+
+- **Read it** before every task, and follow it: it overrides your own defaults.
+- **Update it** when you learn something that will matter for future reviews of this repo:
+  its conventions (error handling, naming, test layout, MSRV, feature flags), the parts of the
+  code that are subtle, recurring issues, and the user's review preferences (what they
+  dismissed as noise, what they always want flagged, how they reacted to your comments).
+- **Keep it short and current**: a few headed lists of one-line points, under ~60 lines.
+  Rewrite or drop points that turn out wrong; don't log what happened in a particular PR.
+  Create it if it doesn't exist yet (its directory may need creating too).
+
+dv also keeps one Claude Code session per PR and resumes it on every run, so within a PR you
+keep the conversation; the notes are for what should carry across PRs.
 
 ## Notes
 

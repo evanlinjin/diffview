@@ -86,6 +86,10 @@ disk: rust-analyzer can index it and `hx` can open it.
    (`acceptEdits`, Bash limited to `dv review-*` and read-only git), with "Claude working…"
    in the status bar and its log path if it fails. Comments get stable `id`s (assigned by dv on
    load and by review-check); both write the file atomically and re-read it before a change.
+   Each PR has one Claude Code session (`pr-N.session` next to its review file, a UUID dv picks
+   with `--session-id` and then `--resume`s), so every run continues one conversation. Repo-wide
+   notes for Claude live in `<git common dir>/dv/notes.md` (`dv review-info` prints the path; the
+   skill reads them first and keeps them current; `Space a` opens them).
 4. **Later**:
    - **`c` in the PR section → review summary.** `c` on a conversation comment (or the
      description) appends it as a `> ` quote to the pending review's summary (body), saved on

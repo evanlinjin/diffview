@@ -567,3 +567,19 @@ fn replies_while_claude_works_wait_for_it() {
         _ = c.kill();
     }
 }
+
+#[test]
+fn claude_session_per_pr() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let dir = std::env::temp_dir().join(format!("dv-session-{}", std::process::id()));
+    let review = dir.join("pr-7.json");
+    app.claude_path = Some(review.clone());
+    // The first run starts the PR's session under a new id, saved next to the review file…
+    app.set_session(Some("11111111-2222-4333-8444-555555555555".into()));
+    let saved = std::fs::read_to_string(crate::claude::session_path(&review)).unwrap();
+    assert_eq!(saved, "11111111-2222-4333-8444-555555555555");
+    // …and forgetting it (a failed run) removes it, so the next run starts afresh.
+    app.set_session(None);
+    assert!(!crate::claude::session_path(&review).exists());
+    _ = std::fs::remove_dir_all(&dir);
+}

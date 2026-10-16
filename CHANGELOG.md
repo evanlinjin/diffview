@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- One Claude Code session per PR, kept next to its review file: every run (background or in a
+  pane, from any dv and any worktree) continues the same conversation about that PR.
+- Claude's notes on the repo (`.git/dv/notes.md`, shared by worktrees): the skill reads them
+  before each task and keeps them up to date (conventions, subtle code, your review
+  preferences), so what it learns carries over to the next PR. `Space a` opens them in hx.
+
 ### Changed
 - Inside zellij, hx, the comment editor and Claude Code open in a pane to the right instead of
   a floating one.

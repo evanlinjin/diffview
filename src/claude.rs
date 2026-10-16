@@ -55,6 +55,33 @@ pub fn path(pr: Option<u64>) -> Result<PathBuf> {
     Ok(PathBuf::from(common.trim()).join("dv").join("reviews").join(format!("{name}.json")))
 }
 
+/// Notes Claude keeps about the repo across reviews (conventions, recurring issues, the
+/// user's review preferences): `<git common dir>/dv/notes.md`, shared by all worktrees.
+pub fn notes_path() -> Result<PathBuf> {
+    let common = diff::git(&["rev-parse", "--path-format=absolute", "--git-common-dir"])?;
+    Ok(PathBuf::from(common.trim()).join("dv").join("notes.md"))
+}
+
+/// Where the Claude Code session for a review lives: next to its file (`pr-N.session`), so
+/// every dv run, from any worktree, continues the same conversation about that PR.
+pub fn session_path(review: &std::path::Path) -> PathBuf {
+    review.with_extension("session")
+}
+
+/// A fresh session id (a random UUID v4), for `claude --session-id`.
+pub fn new_session_id() -> String {
+    use std::io::Read;
+    let mut b = [0u8; 16];
+    if std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut b)).is_err() {
+        // ponytail: no /dev/urandom (not Linux/macOS): time + pid, unique enough for one machine.
+        let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+        b = (t ^ ((std::process::id() as u128) << 64)).to_le_bytes();
+    }
+    (b[6], b[8]) = (b[6] & 0x0f | 0x40, b[8] & 0x3f | 0x80); // version 4, RFC 4122 variant
+    let h: String = b.iter().map(|x| format!("{x:02x}")).collect();
+    format!("{}-{}-{}-{}-{}", &h[..8], &h[8..12], &h[12..16], &h[16..20], &h[20..])
+}
+
 /// The review at `path`, first giving any comment without an id one (so dv's folding and
 /// cursor, keyed by ids, don't jump when it gets one later); `None` if there is no file.
 pub fn load_with_ids(path: &std::path::Path) -> Result<Option<Review>> {
@@ -382,6 +409,15 @@ fn parse_and_dismiss() {
     let left = std::fs::read_to_string(&p).unwrap();
     _ = std::fs::remove_file(&p);
     assert!(!left.contains("\"x\"") && left.contains("\"extra\": true"));
+}
+
+#[test]
+fn session_ids() {
+    let (a, b) = (new_session_id(), new_session_id());
+    assert_ne!(a, b);
+    assert_eq!(a.len(), 36);
+    assert_eq!(&a[14..15], "4"); // version 4
+    assert_eq!(session_path(std::path::Path::new("/r/.git/dv/reviews/pr-7.json")), std::path::Path::new("/r/.git/dv/reviews/pr-7.session"));
 }
 
 #[test]

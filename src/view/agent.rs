@@ -46,10 +46,15 @@ impl App {
         };
         let n = self.waiting_replies();
         let open = self.open_claude_comments();
+        let notes = match crate::claude::notes_path().is_ok_and(|p| p.exists()) {
+            true => "Edit Claude's notes on this repo (it reads them before each task)",
+            false => "Write notes for Claude on this repo (it reads them before each task)",
+        };
         let items = vec![
             Item::new(review, Target::Claude(Ask::Review)),
             Item::new(format!("Ask Claude to answer your replies ({n} waiting)"), Target::Claude(Ask::Answer)),
             Item::new(format!("Ask Claude to make the changes ({open} open comments)"), Target::Claude(Ask::Fix)),
+            Item::new(notes, Target::ClaudeNotes),
         ];
         self.picker = Some(Picker { title: " claude ", items, query: String::new(), sel: if n > 0 { 1 } else { 0 } });
     }
@@ -71,6 +76,17 @@ impl App {
         match extra.trim() {
             "" => prompt,
             e => format!("{prompt}\n\nThe user adds:\n{e}"),
+        }
+    }
+
+    /// Open Claude's notes on the repo in hx (they're plain markdown; you can write them too).
+    pub(super) fn edit_claude_notes(&mut self) {
+        match crate::claude::notes_path() {
+            Ok(p) => {
+                _ = std::fs::create_dir_all(p.parent().unwrap_or(&p));
+                self.action = Some(Action::Open(p.display().to_string()));
+            }
+            Err(e) => self.msg = format!("{e:#}"),
         }
     }
 
@@ -103,11 +119,16 @@ impl App {
             Ask::Fix => "making the changes",
         };
         self.msg = match in_zellij() {
-            // A real session in a pane: watch it, approve what it asks, talk to it.
+            // A real session in a pane (the PR's, as the background runs use): watch it, approve
+            // what it asks, talk to it.
             true => match std::process::Command::new("zellij")
                 .args(["run", "--direction", "right", "--name", &format!("claude: {label}"), "--cwd"])
                 .arg(&self.root)
                 .args(["--", "claude", &prompt])
+                .args(self.session_args())
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
                 .status()
             {
                 Ok(s) if s.success() => format!("Claude is {label} in the pane on the right; its comments show up here as it writes them"),
@@ -142,16 +163,39 @@ impl App {
         }
     }
 
+    /// The PR's Claude Code session: resume it, or start it under a new id. Either way the id
+    /// is saved next to the review file, so the next run (from any dv, any worktree) continues
+    /// the same conversation about this PR.
+    fn session_args(&mut self) -> [String; 2] {
+        match self.claude_session.clone() {
+            Some(id) => ["--resume".into(), id],
+            None => {
+                let id = crate::claude::new_session_id();
+                self.set_session(Some(id.clone()));
+                ["--session-id".into(), id]
+            }
+        }
+    }
+
+    /// Remember (or, with `None`, forget) the PR's session, on disk too.
+    pub(super) fn set_session(&mut self, id: Option<String>) {
+        if let Some(p) = self.claude_path.as_ref().map(|p| crate::claude::session_path(p)) {
+            _ = match &id {
+                Some(id) => std::fs::create_dir_all(p.parent().unwrap_or(&p)).and_then(|_| std::fs::write(&p, id)),
+                None => std::fs::remove_file(&p),
+            };
+        }
+        self.claude_session = id;
+    }
+
     /// `claude -p` in the background: its result (JSON) in a log file, its errors next to it.
-    /// Resumes the session of the last run, so Claude keeps the review's context across replies.
-    fn spawn_claude(&self, prompt: &str) -> Result<(std::process::Child, PathBuf)> {
+    /// It runs in the PR's session, so Claude keeps the review's context across runs.
+    fn spawn_claude(&mut self, prompt: &str) -> Result<(std::process::Child, PathBuf)> {
         let log = std::env::temp_dir().join(format!("dv-claude-{}.log", std::process::id()));
         let err = log.with_extension("err");
         let mut cmd = std::process::Command::new("claude");
         cmd.args(["-p", prompt, "--output-format", "json", "--permission-mode", "acceptEdits"]);
-        if let Some(id) = &self.claude_session {
-            cmd.args(["--resume", id]);
-        }
+        cmd.args(self.session_args());
         let child = cmd
             .arg("--allowedTools")
             .args(ALLOWED)
@@ -174,8 +218,8 @@ impl App {
         let out: Option<serde_json::Value> = std::fs::read_to_string(&log).ok().and_then(|t| serde_json::from_str(&t).ok());
         let failed = !st.success() || out.as_ref().is_none_or(|v| v["is_error"] == true);
         match out.as_ref().and_then(|v| v["session_id"].as_str()) {
-            Some(id) if !failed => self.claude_session = Some(id.to_owned()),
-            _ => self.claude_session = None, // start afresh next time
+            Some(id) if !failed => self.set_session(Some(id.to_owned())),
+            _ => self.set_session(None), // e.g. the session is gone: start afresh next time
         }
         self.msg = match failed {
             false => format!("Claude is done {label}"),

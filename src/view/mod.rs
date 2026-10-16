@@ -227,6 +227,7 @@ enum Target {
     /// A comment: (thread index, comment index within it).
     Comment(usize, usize),
     Claude(agent::Ask),
+    ClaudeNotes,
     Nothing,
 }
 
@@ -349,6 +350,9 @@ impl App {
         (app.hl, app.ui) = (Highlighter::new(&theme), theme.ui());
         app.settings = crate::theme::settings();
         app.claude_path = crate::claude::path(pr.as_ref().map(|p| p.number)).ok();
+        // The PR's Claude Code session, if an earlier run (any dv, any worktree) started one.
+        app.claude_session = app.claude_path.as_ref().and_then(|p| std::fs::read_to_string(crate::claude::session_path(p)).ok());
+        app.claude_session = app.claude_session.take().map(|s| s.trim().to_owned()).filter(|s| !s.is_empty());
         if pr.is_some() {
             crate::progress(Some("loading comments and PR info"));
         }
