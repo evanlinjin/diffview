@@ -3,7 +3,7 @@
 All notable changes to dv. Versions follow [semver](https://semver.org); a release's notes
 on GitHub are its section here.
 
-## [Unreleased]
+## [0.3.0] - 2026-10-16
 
 ### Added
 - `[new]` on threads with comments you haven't seen (Claude's, or anyone's on GitHub; not
@@ -171,5 +171,6 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.3.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.3.0
 [0.2.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.2.0
 [0.1.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.1.0
