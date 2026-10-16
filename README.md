@@ -40,7 +40,8 @@ dv 2258 -w        # review it in a worktree next to the repo: ../<repo>-2258 (no
 dv 2258 -wb       # same, on the PR's branch, so you can push to the PR
 dv 2258 --rm      # remove that worktree (-f to discard local changes)
 dv list -w        # pick from the open PRs; Enter reviews one (here: in a worktree), q comes back;
-                  # Tab lists the PRs you have worktrees for
+                  # Tab lists the PRs you have worktrees for (D D removes one);
+                  # filter by #N to open a PR that isn't listed
 ```
 
 On a branch with an open PR, plain `dv` loads it too.
@@ -84,7 +85,10 @@ file that dv reloads whenever it changes, so you can keep dv open while Claude w
    diff dv shows), writes its review, and runs `dv review-check`, which checks every line
    reference against the diff and records the commented code.
 3. **Read it in dv**: Claude's summary sits in the top section; its comments are threads by
-   **claude** under their lines (`]c` / `[c` to step through them, `Space A` lists them).
+   **claude** under their lines (`]c` / `[c` to step through them, `Space A` lists them),
+   tagged with how much each matters (`[bug]`, `[nit]`, …). `[waiting]` marks a thread where
+   you spoke last (Claude's turn), `[answered]` one where Claude has answered you (yours);
+   type either in `Space A` to list just those.
 4. **Act on each comment**:
 
    | Key | |
@@ -113,14 +117,18 @@ file that dv reloads whenever it changes, so you can keep dv open while Claude w
    open comment asks for, its own and the ones you left it (not the resolved, dismissed or
    outdated ones),
    replying on each with what it changed and resolving it. Resolved threads fold: unfold one
-   (`Tab`) to check the change, and `Space r` reopens it if it isn't right.
+   (`Tab`) to check the change, and `Space r` reopens it if it isn't right. On someone else's
+   PR this is "suggest the changes": Claude doesn't touch the code, it puts GitHub suggestion
+   blocks in its comments for you to post with `c`.
 7. **Submit**: `S` submits your pending review, holding whatever you queued with `c`. Claude
    never posts to GitHub; only you do, from dv.
 
 **When the code changes** (Claude's edits, yours in `hx`, a new push), Claude's comments follow
 their code: one whose lines moved moves with them; one whose code changed or is gone shows
 `[outdated]`, folded and dimmed near its old line, and can't be copied to GitHub. Claude
-re-anchors outdated comments that still apply when it next runs `dv review-check`.
+re-anchors outdated comments that still apply when it next runs `dv review-check`. After new
+commits on top of the one Claude reviewed, "Update Claude's review" asks it to review just
+those. New files show in the diff before they're committed (marked untracked).
 
 **Good to know**
 

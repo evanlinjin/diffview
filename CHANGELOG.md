@@ -3,6 +3,32 @@
 All notable changes to dv. Versions follow [semver](https://semver.org); a release's notes
 on GitHub are its section here.
 
+## [Unreleased]
+
+### Added
+- Claude's comments show whose turn it is: `[waiting]` (you spoke last) and `[answered]`
+  (Claude answered you); typing either in `Space A` lists just those.
+- A `severity` for Claude's comments (`bug`, `nit`, `question`, …), shown as a tag and put
+  before the text when you copy the comment to GitHub.
+- "Update Claude's review" after new commits on top of the one it reviewed asks it to review
+  just those (`git diff <its head>`).
+- On someone else's PR, "make the changes" becomes "suggest the changes": GitHub suggestion
+  blocks in Claude's comments for you to post, and no edits to the code.
+- Untracked files show in the diff (marked untracked), and changing one reloads it.
+- `dv list`: `D D` in the worktrees tab removes the PR's worktree (not with local changes in
+  it; its branch stays); up to 1000 PRs (was 200), and Enter on a `#N` filter opens PR N even
+  if it isn't listed.
+
+### Fixed
+- `C` beside a pending review says so up front: GitHub refuses single comments then.
+- A refused review submission (e.g. approving your own PR) no longer leaves an empty pending
+  review behind.
+- GitHub's reasons for refusing something show in full, before where your text was saved.
+- Claude finds `dv` (this one) when dv was started by its path or the Claude pane gets a
+  different PATH (a zellij pane gets zellij's environment), so it can run `dv review-*`.
+- Claude's reply times are right: the prompt tells it the time.
+- dv no longer rewrites the review file to give comments ids while Claude may be editing it.
+
 ## [0.2.0] - 2026-10-16
 
 ### Added
