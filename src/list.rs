@@ -622,12 +622,31 @@ fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathBuf, Option<
     [Line::from(top).style(row), Line::from(bottom).style(row)]
 }
 
-/// `s` cut to `n` chars, ending in `…` if it was longer.
+/// `s` cut to `n` columns (emoji and CJK are 2 wide), ending in `…` if it was longer.
 fn cut(s: &str, n: usize) -> String {
-    match s.chars().count() > n {
-        true => format!("{}…", s.chars().take(n.saturating_sub(1)).collect::<String>()),
-        false => s.to_owned(),
+    let w = |c: char| Span::raw(c.to_string()).width();
+    if s.chars().map(w).sum::<usize>() <= n {
+        return s.to_owned();
     }
+    let (mut out, mut used) = (String::new(), 1); // 1 for the `…`
+    for c in s.chars() {
+        used += w(c);
+        if used > n {
+            break;
+        }
+        out.push(c);
+    }
+    out.push('…');
+    out
+}
+
+#[test]
+fn cut_by_columns() {
+    assert_eq!(cut("abc", 3), "abc");
+    assert_eq!(cut("abcd", 3), "ab…");
+    assert_eq!(cut("修复标题", 8), "修复标题");
+    assert_eq!(cut("修复标题", 6), "修复…"); // 4 + 1, not a half character
+    assert_eq!(Span::raw(cut("修复标题修复标题", 7)).width(), 7);
 }
 
 #[derive(Clone, Copy)]
