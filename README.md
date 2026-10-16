@@ -15,8 +15,12 @@ rust-analyzer, and GitHub review comments.
 ## Install
 
 ```sh
-cargo install --path .
+cargo install dv-review   # installs the `dv` binary
 ```
+
+Or download a binary for Linux or macOS from the
+[releases](https://github.com/evanlinjin/diffview/releases), or build from a checkout with
+`cargo install --path .`.
 
 Needs `git`. For PRs: [`gh`](https://cli.github.com), logged in (`gh auth login`).
 Optional: `rust-analyzer` (go to definition, references, hover), `hx` (opening files and
@@ -134,3 +138,8 @@ re-anchors outdated comments that still apply when it next runs `dv review-check
 | `src/view/` | the TUI: state (`mod.rs`), keys, motions, rendering, review actions, rust-analyzer |
 
 `cargo test` runs the tests.
+
+## License
+
+MIT or Apache-2.0, at your option ([LICENSE-MIT](LICENSE-MIT), [LICENSE-APACHE](LICENSE-APACHE)).
+Releasing: [RELEASING.md](RELEASING.md); changes: [CHANGELOG.md](CHANGELOG.md).
