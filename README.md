@@ -51,20 +51,57 @@ table and design notes.
    review; `Space p` lists them.
 4. Submit: `S`, then Comment / Approve / Request changes.
 
-`C` posts a comment immediately instead of adding it to the review.
-
-## Claude Code reviews
-
-`dv install-skill` installs the `dv-review` skill for [Claude Code](https://claude.com/claude-code).
-Then ask Claude Code, in the repo, to "review this PR for dv". It writes its review to a file
-in `.git` (`dv review-info` says where; `dv review-check` validates the line references), and dv
-shows the comments inline next to their lines, with the summary at the top. dv reloads it as
-it changes, so you can keep dv open while Claude works.
-
-On a Claude comment: `r` replies (saved in the file; then ask Claude Code to "answer my dv
-replies", and it answers or makes the change), `c` copies it into your pending GitHub review
-(edit it first, or keep it as is), `Space r` resolves it, `Space d` dismisses it. `Space e` / `Space d`
+`C` posts a comment immediately instead of adding it to the review. `Space e` / `Space d`
 edit / delete a comment, `Space r` resolves a thread, `gf` opens a link, `R` refreshes.
+
+## Reviewing with Claude Code
+
+[Claude Code](https://claude.com/claude-code) writes a review, and dv shows it inline next to
+the lines it's about. You reply to Claude from dv, Claude answers (or changes the code), and
+you copy the comments you agree with into your GitHub review. The two talk through a review
+file that dv reloads whenever it changes, so you can keep dv open while Claude works.
+
+**Setup** (once): `dv install-skill` installs the `dv-review` skill to
+`~/.claude/skills/dv-review/`. Restart any running Claude Code session so it picks it up.
+
+1. **Get the PR**: `dv 2258 -w` (or `dv list -w`, then Enter).
+2. **Ask for a review**: in that checkout, ask Claude Code to "review this PR for dv". It runs
+   `dv review-info` (the review file's path, and the base commit: `git diff <base>` is the
+   diff dv shows), writes its review, and runs `dv review-check`, which checks every line
+   reference against the diff and records the commented code.
+3. **Read it in dv**: Claude's summary sits in the top section; its comments are threads by
+   **claude** under their lines (`]c` / `[c` to step through them, `Space t` lists them).
+4. **Act on each comment**:
+
+   | Key | |
+   |---|---|
+   | `c` | copy it into your pending GitHub review (edit it in `$EDITOR`, or keep it as is) |
+   | `C` | same, but post it now |
+   | `r` | reply to Claude (saved in the review file, not sent anywhere) |
+   | `Space r` | resolve it, so Claude leaves it alone |
+   | `Space d` | dismiss it |
+
+   A comment copied to GitHub is removed from the review file, so it doesn't show twice.
+5. **Let Claude answer**: ask Claude Code to "answer my dv replies". For each unresolved
+   comment where you spoke last, it replies, or makes the change you asked for and says what it
+   changed. Its answers appear in dv as it writes them. Repeat 4–5 as needed.
+6. **Submit**: `S` submits your pending review, holding whatever you queued with `c`. Claude
+   never posts to GitHub; only you do, from dv.
+
+**When the code changes** (Claude's edits, yours in `hx`, a new push), Claude's comments follow
+their code: one whose lines moved moves with them; one whose code changed or is gone shows
+`[outdated]`, folded and dimmed near its old line, and can't be copied to GitHub. Claude
+re-anchors outdated comments that still apply when it next runs `dv review-check`.
+
+**Good to know**
+
+- The review file is `.git/dv/reviews/pr-<N>.json` (`branch-<name>.json` without a PR): never
+  committed, and shared by the repo's worktrees. A new review replaces it (the skill keeps
+  comments that still apply, with your replies).
+- It works on a local branch before there's a PR, but `c` / `C` need one.
+- Like dv's own comments, `c` / `C` need the checkout at the PR head with no local changes.
+  While Claude's changes are uncommitted you can reply and resolve, but copy comments to
+  GitHub only once they're pushed.
 
 ## Layout
 
