@@ -895,3 +895,23 @@ fn whose_turn_and_severity() {
     assert_eq!(app.picker.take().unwrap().items[2].label, "Ask Claude to suggest the changes (3 open comments; their PR: no edits)");
     assert!(app.claude_prompt(agent::Ask::Fix, "").contains("don't edit the code"));
 }
+
+#[test]
+fn commit_draft_from_claudes_changes() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let p = std::env::temp_dir().join(format!("dv-claude-draft-{}.json", std::process::id()));
+    std::fs::write(&p, r#"{ "comments": [
+        { "path": "src/a.rs", "line": 2, "body": "a", "replies": [
+            { "author": "user", "body": "rename it", "created": "2026-10-16T12:00:00Z" },
+            { "author": "claude", "body": "Changed: renamed `x` to `count`.\nMore detail.", "created": "2026-10-16T12:01:00Z" } ] },
+        { "path": "src/a.rs", "line": 2, "body": "b", "replies": [
+            { "author": "claude", "body": "Changed: an older change", "created": "2026-10-16T11:00:00Z" } ] } ] }"#).unwrap();
+    app.claude_path = Some(p.clone());
+    app.load_claude();
+    _ = std::fs::remove_file(&p);
+    let since = gh::epoch_secs("2026-10-16T11:30:00Z").unwrap(); // the last commit: after the older change
+    let d = git::draft(&app.threads, since, " M src/a.rs\n?? new.rs\n");
+    assert_eq!(d, "Address review comments\n\n- renamed `x` to `count`.\n\n<!-- dv: will commit:  M src/a.rs -->\n<!-- dv: will commit: ?? new.rs -->\n");
+    assert_eq!(clean_body(&d, HINT, ""), "Address review comments\n\n- renamed `x` to `count`."); // hints aren't committed
+    assert!(git::draft(&app.threads, i64::MAX, "").trim().is_empty()); // nothing new from Claude: you write it
+}

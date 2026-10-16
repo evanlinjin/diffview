@@ -25,6 +25,15 @@ impl App {
             };
             return;
         }
+        if let Job::Push = job {
+            let res = self.push();
+            let reload = self.reload(true); // the PR's head moved
+            self.msg = match (res, reload) {
+                (Err(e), _) | (_, Err(e)) => format!("{e:#}"),
+                (Ok(m), Ok(())) => m,
+            };
+            return;
+        }
         // Read-only: no reload after.
         if let Job::Preview(url) = job {
             match gh::issue_preview(&url) {
@@ -42,7 +51,7 @@ impl App {
                 "pending review discarded"
             }),
             Job::DeleteComment(c) => gh::delete_comment(&c).map(|_| "comment deleted"),
-            Job::Preview(_) | Job::Pull => unreachable!("handled above"),
+            Job::Preview(_) | Job::Pull | Job::Push => unreachable!("handled above"),
             Job::Post(p) => self.post(p),
             Job::Viewed(path, on) => {
                 let pr_id = self.pr.as_ref().map(|p| p.node_id.clone()).unwrap_or_default();
@@ -269,7 +278,11 @@ impl App {
                         &r.head[..r.head.len().min(8)]
                     );
                 }
-                crate::claude::reanchor(&mut r.threads, &self.files);
+                // Not against HEAD: files without uncommitted changes aren't in that diff, and
+                // their comments would look outdated (and could be dismissed as such).
+                if !self.uncommitted() {
+                    crate::claude::reanchor(&mut r.threads, &self.files);
+                }
                 (self.claude_summary, self.claude_head) = (r.summary, r.head);
                 self.threads.extend(r.threads);
             }

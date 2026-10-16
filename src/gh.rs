@@ -705,7 +705,7 @@ fn ago_at(iso: &str, now: i64) -> String {
 }
 
 /// Seconds since 1970 for "YYYY-MM-DD[THH:MM:SS…]" (UTC).
-fn epoch_secs(iso: &str) -> Option<i64> {
+pub(crate) fn epoch_secs(iso: &str) -> Option<i64> {
     let n = |r: std::ops::Range<usize>| iso.get(r)?.parse::<i64>().ok();
     let (y, m, d) = (n(0..4)?, n(5..7)?, n(8..10)?);
     let (h, mi, s) = (n(11..13).unwrap_or(0), n(14..16).unwrap_or(0), n(17..19).unwrap_or(0));

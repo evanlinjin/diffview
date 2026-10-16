@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 mod agent;
+mod git;
 mod keys;
 mod mouse;
 mod motion;
@@ -95,6 +96,7 @@ ON PR TEXT
 
 REVIEW
   S                    submit (comment / approve / request changes), or discard
+  Space g              git: show only what isn't committed (Claude's changes), commit, push
   Space p  Space t     pick from your pending comments (Ctrl-d deletes) / all threads
   Space v              mark the file viewed (folds it, moves on)
   Space a              ask Claude Code to review, answer your replies, or make the changes
@@ -214,6 +216,8 @@ enum Action {
     Edit { comment: String, body: String, author: String },
     /// Submit the pending review: COMMENT, APPROVE or REQUEST_CHANGES.
     Submit(&'static str),
+    /// Commit everything uncommitted, starting from this message.
+    Commit(String),
 }
 
 /// Network work that doesn't need the terminal; run after a frame shows its "…" message.
@@ -228,6 +232,7 @@ enum Job {
     DeleteComment(String),
     /// Fetch an issue/PR link's preview into a popup.
     Preview(String),
+    Push,
     /// Send what was written in the editor.
     Post(Post),
 }
@@ -255,6 +260,9 @@ enum Target {
     Claude(agent::Ask),
     ClaudeNotes,
     ClaudeFresh,
+    GitView,
+    GitCommit,
+    GitPush,
     /// Dismiss all of Claude's outdated comments (`true`: confirmed).
     ClaudeDismissOutdated(bool),
     Nothing,
@@ -289,6 +297,8 @@ enum Req {
 
 pub struct App {
     base: String,
+    /// The base dv started with (`base` is HEAD while showing only what isn't committed).
+    full_base: String,
     files: Vec<FileDiff>,
     /// Extra context lines per hunk: (path, hunk's first full index) → lines (can be negative).
     extra: HashMap<(String, usize), i64>,
@@ -427,6 +437,7 @@ impl App {
 
     fn with(base: String, files: Vec<FileDiff>) -> Self {
         let mut app = App {
+            full_base: base.clone(),
             base,
             files,
             extra: HashMap::new(),
@@ -632,6 +643,7 @@ impl App {
                 };
                 self.post_later(Post::Submit(event, body))
             }
+            Action::Commit(draft) => self.commit(&draft),
         }
     }
 
@@ -1417,7 +1429,7 @@ fn compose_with(what: &str, allow_empty: bool, prefill: &str, untouched_ok: bool
     const MARK: &str = HINT;
     let path = std::env::temp_dir().join(format!("dv-comment-{}.md", std::process::id()));
     let hint = if allow_empty { "leave empty for none; :cq to cancel" } else { "leave empty to cancel" };
-    std::fs::write(&path, format!("{prefill}\n{MARK} {what}. Save and quit to post; {hint}. -->\n"))?;
+    std::fs::write(&path, format!("{prefill}\n{MARK} {what}. Save and quit when done; {hint}. -->\n"))?;
     let editor = std::env::var("VISUAL").or_else(|_| std::env::var("EDITOR")).unwrap_or_else(|_| "hx".into());
     let mut parts = editor.split_whitespace();
     let prog = parts.next().unwrap_or("hx");

@@ -120,6 +120,10 @@ file that dv reloads whenever it changes, so you can keep dv open while Claude w
    (`Tab`) to check the change, and `Space r` reopens it if it isn't right. On someone else's
    PR this is "suggest the changes": Claude doesn't touch the code, it puts GitHub suggestion
    blocks in its comments for you to post with `c`.
+
+   Then `Space g`: "Show only what isn't committed" to check just Claude's changes, "Commit"
+   (the message starts from what Claude said it changed), and "Push" to the PR's branch.
+   After a push, "Update Claude's review" looks at just what's new.
 7. **Submit**: `S` submits your pending review, holding whatever you queued with `c`. Claude
    never posts to GitHub; only you do, from dv.
 

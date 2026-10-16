@@ -212,6 +212,7 @@ impl App {
                 ("k", "hover / preview link"),
                 ("v", "mark file viewed"),
                 ("u", "update checkout (git pull)"),
+                ("g", "git: uncommitted only / commit / push"),
                 ("r", "resolve thread"),
                 ("e", "edit your comment"),
                 ("d", "delete / dismiss comment"),
@@ -316,6 +317,7 @@ impl App {
             (' ', 'a') => self.claude_menu(),
             (' ', 'A') => self.claude_picker(),
             (' ', 'v') => self.toggle_viewed(),
+            (' ', 'g') => self.git_menu(),
             (' ', 'u') => {
                 self.msg = "updating the checkout…".into();
                 self.job = Some(Job::Pull);
@@ -383,6 +385,9 @@ impl App {
                         Target::Claude(ask) => self.pick_claude(ask),
                         Target::ClaudeNotes => self.edit_claude_notes(),
                         Target::ClaudeFresh => self.fresh_claude_session(),
+                        Target::GitView => self.toggle_uncommitted(),
+                        Target::GitCommit => self.action = Some(Action::Commit(self.commit_draft())),
+                        Target::GitPush => (self.msg, self.job) = ("pushing…".into(), Some(Job::Push)),
                         Target::ClaudeDismissOutdated(sure) => self.dismiss_outdated(sure),
                         Target::Nothing => {}
                     }

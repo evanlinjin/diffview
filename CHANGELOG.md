@@ -6,6 +6,12 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Added
+- `Space g`: show only what isn't committed (to check Claude's changes), commit it (the
+  message starts from Claude's "Changed: …" replies since the last commit), and push to the
+  branch it tracks (a PR's, under its own name). The review loop no longer leaves dv.
+- dv keeps an installed dv-review skill up to date with itself, and a PR's Claude session
+  that started with another version of the skill isn't resumed (Claude Code reads a skill
+  once per session). `Space a` can start a fresh session for the PR.
 - Claude's comments show whose turn it is: `[waiting]` (you spoke last) and `[answered]`
   (Claude answered you); typing either in `Space A` lists just those.
 - A `severity` for Claude's comments (`bug`, `nit`, `question`, …), shown as a tag and put
