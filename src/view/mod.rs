@@ -356,6 +356,8 @@ pub struct App {
     claude_session: Option<String>,
     /// A reply came in while Claude was busy: answer again when it's done.
     claude_again: bool,
+    /// Background runs so far (each gets its own log).
+    claude_runs: u32,
     root: PathBuf,
     lsp: Option<Lsp>,
     lsp_ready: bool,
@@ -458,6 +460,7 @@ impl App {
             hx: None,
             claude_session: None,
             claude_again: false,
+            claude_runs: 0,
             root: std::env::current_dir().unwrap_or_default(),
             lsp: None,
             lsp_ready: false,
@@ -1344,7 +1347,7 @@ fn interactive(prog: &str, args: &[String], name: &str) -> std::io::Result<std::
 /// Like `compose`, with `prefill` above the cursor (e.g. a quote). Leaving only the prefill
 /// counts as empty, unless `untouched_ok` (the prefill is a draft to post as is).
 fn compose_with(what: &str, allow_empty: bool, prefill: &str, untouched_ok: bool) -> Result<Option<String>> {
-    const MARK: &str = "<!-- dv:";
+    const MARK: &str = HINT;
     let path = std::env::temp_dir().join(format!("dv-comment-{}.md", std::process::id()));
     let hint = if allow_empty { "leave empty for none; :cq to cancel" } else { "leave empty to cancel" };
     std::fs::write(&path, format!("{prefill}\n{MARK} {what}. Save and quit to post; {hint}. -->\n"))?;
@@ -1366,6 +1369,9 @@ fn compose_with(what: &str, allow_empty: bool, prefill: &str, untouched_ok: bool
     Ok((st.success() && (allow_empty || !body.is_empty())).then_some(body))
 }
 
+/// How dv's hint lines in the editor start; they're dropped from what's posted.
+const HINT: &str = "<!-- dv:";
+
 /// Drop dv's hint line and trim; untouched prefill alone counts as nothing written.
 fn clean_body(text: &str, mark: &str, prefill: &str) -> String {
     let body: Vec<&str> = text.lines().filter(|l| !l.starts_with(mark)).collect();
@@ -1384,14 +1390,21 @@ fn keep_on_error(res: Result<()>, body: &str) -> Result<()> {
     })
 }
 
-/// The summary an approval starts from: `ACK <head commit>`, as Bitcoin-style projects write
-/// it, naming exactly what was reviewed. Only when what you reviewed (`local`, your HEAD) is
-/// the PR's head; otherwise (your branch has diverged from it) the ACK would name a commit you
-/// didn't look at, so it starts empty, as other reviews do.
+/// The summary an approval starts from: `ACK <the PR's head commit>`, as Bitcoin-style projects
+/// write it. If what you reviewed (`local`, your HEAD) isn't that commit (your branch has
+/// diverged from the PR), a hint line above it says so; hint lines aren't posted. Other
+/// reviews start empty.
 fn ack(event: &str, pr: Option<&Pr>, local: &str) -> String {
-    match pr {
-        Some(p) if event == "APPROVE" && !p.head_oid.is_empty() && p.head_oid == local => format!("ACK {}", p.head_oid),
-        _ => String::new(),
+    let Some(p) = pr.filter(|p| event == "APPROVE" && !p.head_oid.is_empty()) else { return String::new() };
+    let short = |h: &str| h.chars().take(8).collect::<String>();
+    match p.head_oid == local || local.is_empty() {
+        true => format!("ACK {}", p.head_oid),
+        false => format!(
+            "{HINT} your checkout is at {}, not the PR's head {}: check this ACK names what you reviewed -->\nACK {}",
+            short(local),
+            short(&p.head_oid),
+            p.head_oid
+        ),
     }
 }
 

@@ -62,7 +62,9 @@ disk: rust-analyzer can index it and `hx` can open it.
    (an empty row of its own); a folded thread stays one `▸` line.
    File headers: dir dimmed, +/− colored. Split view hatches the empty side; pickers
    highlight matched letters.
-   **Claude reviews**: a review file at `<git common dir>/dv/reviews/pr-<N>.json` (or
+   **Claude reviews**: a review file at `~/.local/share/dv/<repo>/reviews/pr-<N>.json` (dv's
+   data directory, `$XDG_DATA_HOME` if set, named after the main checkout's path; not `.git`,
+   which Claude Code won't edit in; an older `.git/dv` moves there) (or
    `branch-<name>.json`): `{head, created, summary, comments: [{path, line, start_line?, side,
    body, resolved?, replies?: [{author: user|claude, body, created}]}]}`, line numbers being file
    lines on `side` (new = working tree, old = base). Outside the repo's history and shared by its
@@ -93,7 +95,7 @@ disk: rust-analyzer can index it and `hx` can open it.
    the pane (you press Enter; not while the pane is asking you something), and replies run on a
    `--fork-session` in the background. Your own comments for Claude (`a`) stay private: `c`/`C`
    refuse them, and they don't count as Claude's. Repo-wide
-   notes for Claude live in `<git common dir>/dv/notes.md` (`dv review-info` prints the path; the
+   notes for Claude live in `notes.md` in that directory (`dv review-info` prints the path; the
    skill reads them first and keeps them current; `Space a` opens them).
 4. **Later**:
    - **`c` in the PR section → review summary.** `c` on a conversation comment (or the

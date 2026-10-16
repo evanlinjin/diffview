@@ -129,7 +129,7 @@ expected. Finally, summarise what you changed (and what you didn't, and why).
 ## Your notes on the repo
 
 `notes:` from `dv review-info` is a markdown file that outlives any one review, shared by all
-the repo's worktrees (it's inside `.git`). It's how what you learn about the repo carries over
+the repo's worktrees (it's in dv's data directory, outside the repo). It's how what you learn about the repo carries over
 to the next PR, so you don't start from nothing each time. The user can edit it too, from dv.
 
 - **Read it** before every task, and follow it: it overrides your own defaults.
@@ -147,4 +147,5 @@ keep the conversation; the notes are for what should carry across PRs.
 ## Notes
 
 - Never post anything to GitHub yourself; the user decides what goes there from dv.
-- The file lives inside `.git`, so it's never committed.
+- dv's files (the review, your notes) live in dv's data directory, outside the repo, so
+  they're never committed; dv gives you access to that directory.

@@ -19,7 +19,7 @@ on GitHub are its section here.
   width below.
 - One Claude Code session per PR, kept next to its review file: every run (background or in a
   pane, from any dv and any worktree) continues the same conversation about that PR.
-- Claude's notes on the repo (`.git/dv/notes.md`, shared by worktrees): the skill reads them
+- Claude's notes on the repo (`notes.md` in dv's directory, shared by worktrees): the skill reads them
   before each task and keeps them up to date (conventions, subtle code, your review
   preferences), so what it learns carries over to the next PR. `Space a` opens them in hx.
 - Approving a PR (`S`, Approve) starts the summary as `ACK <the PR's head commit>`.
@@ -32,6 +32,14 @@ on GitHub are its section here.
   confirmation); the review thread key popup lists `Space d`.
 
 ### Changed
+- dv's files for a repo (Claude's reviews, sessions, notes) move from `.git/dv` to
+  `~/.local/share/dv/<repo>/` (or `$XDG_DATA_HOME`), on first use: Claude Code refuses to edit
+  anything inside `.git`, so background Claude runs couldn't write the review there. Claude
+  runs get access to that directory (`--add-dir`), from worktrees too.
+- When a Claude run is refused something, dv says what (in the status bar, and keeps one log
+  per run) instead of "done"; replies made meanwhile wait rather than hit the same refusal.
+- Approving pre-fills `ACK <PR head>` even when your checkout has diverged from it, with a hint
+  above it (not posted) that it isn't what you have checked out.
 - Inside zellij, `Enter` reuses dv's hx pane while it's open (`:open` + `:goto` there) instead of
   opening another, and dv reloads as you save in it, not only when hx exits.
 - Claude resolves a thread once it's settled (it made the change asked for, or you agree it
@@ -42,8 +50,6 @@ on GitHub are its section here.
   of its session, so nothing is typed into a pane behind your back.
 - Claude Code sessions are kept per checkout directory (as Claude Code stores them), and one it
   doesn't have isn't resumed.
-
-### Changed
 - Inside zellij, hx, the comment editor and Claude Code open in a pane to the right instead of
   a floating one.
 

@@ -198,7 +198,12 @@ impl App {
         // Claude already open on this PR in a pane: put the request there, rather than open
         // another. Pasted, not sent: what the pane is showing (a permission prompt, your own
         // half-typed text) isn't dv's to answer, so you press Enter there.
-        if let Some(pane) = self.claude_pane() {
+        if let Some((pane, cmd)) = self.claude_pane_cmd() {
+            // A pane from before dv gave Claude its directory can't write the review there.
+            let dv = crate::claude::dv_dir().map(|d| d.display().to_string()).unwrap_or_default();
+            if !dv.is_empty() && !cmd.contains(&dv) {
+                return self.msg = "Claude's pane for this PR can't reach dv's review files (it's from an older dv): close it, and Space a starts a new one".into();
+            }
             return self.msg = match offer_to_pane(pane, &prompt) {
                 Ok(true) => format!("{label}: the request is in Claude's pane, press Enter there to send it"),
                 Ok(false) => "Claude's pane is waiting for you to answer it; ask again after".into(),
@@ -257,21 +262,26 @@ impl App {
     /// The zellij pane running this PR's Claude Code session, if one is open: dv starts those
     /// with the session id on the command line, which no other pane has.
     fn claude_pane(&self) -> Option<u64> {
+        self.claude_pane_cmd().map(|p| p.0)
+    }
+
+    /// The PR's Claude pane and its command line.
+    fn claude_pane_cmd(&self) -> Option<(u64, String)> {
         let id = self.claude_session.as_ref().filter(|_| in_zellij())?;
         let out = std::process::Command::new("zellij").args(["action", "list-panes", "-j", "-c", "-s"]).output().ok()?;
         let panes: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
         panes.as_array()?.iter().find_map(|p| {
-            let live = p["exited"] != true && p["pane_command"].as_str().is_some_and(|c| c.contains(id.as_str()));
-            live.then(|| p["id"].as_u64()).flatten()
+            let cmd = p["pane_command"].as_str().filter(|c| p["exited"] != true && c.contains(id.as_str()))?;
+            Some((p["id"].as_u64()?, cmd.to_owned()))
         })
     }
 
-    /// `--add-dir` for dv's directory in the main checkout's `.git` (the review files and notes):
-    /// from a worktree it's outside where Claude runs, and Claude Code would refuse to touch it.
-    pub(super) fn claude_dirs(&self) -> Vec<String> {
-        match self.claude_path.as_ref().and_then(|p| p.parent()?.parent()) {
-            Some(dv) => vec!["--add-dir".into(), dv.display().to_string()],
-            None => vec![],
+    /// `--add-dir` for dv's directory (the review files and notes): it's outside the checkout
+    /// Claude runs in, which is all Claude Code lets it touch otherwise.
+    pub(super) fn claude_dirs(&self) -> Vec<std::ffi::OsString> {
+        match crate::claude::dv_dir() {
+            Ok(dv) => vec!["--add-dir".into(), dv.into_os_string()],
+            Err(_) => vec![],
         }
     }
 
@@ -302,7 +312,9 @@ impl App {
     /// It runs in the PR's session (or, `forked`, a fork of it), so Claude keeps the review's
     /// context across runs.
     fn spawn_claude(&mut self, prompt: &str, label: &'static str, forked: bool) -> Result<ClaudeJob> {
-        let log = std::env::temp_dir().join(format!("dv-claude-{}.log", std::process::id()));
+        // One log per run, so a follow-up run doesn't wipe the one a message points to.
+        self.claude_runs += 1;
+        let log = std::env::temp_dir().join(format!("dv-claude-{}-{}.log", std::process::id(), self.claude_runs));
         let err = log.with_extension("err");
         let mut cmd = std::process::Command::new("claude");
         cmd.args(["-p", prompt, "--output-format", "json", "--permission-mode", "acceptEdits"]);
@@ -338,18 +350,20 @@ impl App {
             _ => self.set_session(None), // e.g. the session is gone: start afresh next time
         }
         // A run can end "successfully" having been refused what it needed: say what.
-        let denied: Vec<String> = out.as_ref().and_then(|v| v["permission_denials"].as_array()).into_iter().flatten().map(|d| {
-            let input = &d["tool_input"];
-            let what = input["file_path"].as_str().or(input["command"].as_str()).unwrap_or("");
-            format!("{} {what}", d["tool_name"].as_str().unwrap_or("a tool"))
-        }).collect();
-        self.msg = match (failed, denied.first()) {
+        let refused = out.as_ref().and_then(refusal);
+        self.msg = match (failed, &refused) {
             (false, None) => format!("Claude is done {label}"),
-            (false, Some(d)) => format!("Claude finished {label}, but was refused {d}{}: see {}", if denied.len() > 1 { " (and more)" } else { "" }, log.display()),
-            (true, _) => format!("Claude stopped ({st}) while {label}: see {} (and .err)", log.display()),
+            (false, Some(r)) => format!("Claude finished {label}, but was refused {r}: see {}", log.display()),
+            (true, Some(r)) => format!("Claude stopped while {label}, refused {r}: see {}", log.display()),
+            (true, None) => format!("Claude stopped ({st}) while {label}: see {} (and .err)", log.display()),
         };
-        if std::mem::take(&mut self.claude_again) && !failed && self.waiting_replies() > 0 {
-            self.msg = self.answer_now();
+        // Replies made meanwhile: one more run, unless this one went wrong (then that's the news,
+        // and retrying would hit the same wall).
+        if std::mem::take(&mut self.claude_again) && self.waiting_replies() > 0 {
+            match failed || refused.is_some() {
+                true => self.msg += " · your newer replies wait (Space a to retry)",
+                false => self.msg = self.answer_now(),
+            }
         }
     }
 
@@ -357,6 +371,21 @@ impl App {
     pub(super) fn claude_working(&self) -> bool {
         self.claude_job.is_some()
     }
+}
+
+/// What a run's result says it was refused, in a few words: the first refusal's tool and its
+/// target (first line, kept short for the status bar), "and N more" if there were others.
+pub(super) fn refusal(out: &serde_json::Value) -> Option<String> {
+    let denied = out["permission_denials"].as_array().filter(|d| !d.is_empty())?;
+    let d = &denied[0];
+    let input = &d["tool_input"];
+    let target = ["file_path", "path", "command", "pattern", "url"].iter().find_map(|k| input[*k].as_str()).unwrap_or("");
+    let target: String = target.lines().next().unwrap_or("").chars().take(60).collect();
+    let more = match denied.len() {
+        1 => String::new(),
+        n => format!(" (and {} more)", n - 1),
+    };
+    Some(format!("{} {target}{more}", d["tool_name"].as_str().unwrap_or("a tool")).replace("  ", " ").trim().to_owned())
 }
 
 /// Put `prompt` in a Claude Code pane's input, as a paste (so a multi-line prompt arrives

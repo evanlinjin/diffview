@@ -1,7 +1,8 @@
 //! Reviews written by Claude Code (or anything else) as a JSON file that dv shows inline.
 //!
-//! The file lives at `<git common dir>/dv/reviews/<pr-N | branch-NAME>.json`, so it's never
-//! committed and every worktree of the repo finds it. Format:
+//! The file lives in dv's directory for the repo (`dv_dir`: `~/.local/share/dv/<repo>/`), at
+//! `reviews/<pr-N | branch-NAME>.json`: outside the repo, so it's never committed, and the same
+//! for every worktree of it. (Not in `.git`: Claude Code won't edit anything in there.) Format:
 //!
 //! ```json
 //! {
@@ -43,9 +44,48 @@ pub struct Review {
     pub threads: Vec<Thread>,
 }
 
+/// dv's directory for this repo: `$XDG_DATA_HOME/dv/<repo>/` (`~/.local/share/dv/...`), named
+/// after the main checkout's path so its worktrees share it. Moves an older `.git/dv` here the
+/// first time.
+pub fn dv_dir() -> Result<PathBuf> {
+    let common = PathBuf::from(diff::git(&["rev-parse", "--path-format=absolute", "--git-common-dir"])?.trim());
+    let data = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
+        .context("no $HOME")?;
+    let dir = data.join("dv").join(repo_key(&common));
+    let old = common.join("dv");
+    if old.is_dir() && !dir.exists() {
+        std::fs::create_dir_all(dir.parent().unwrap_or(&dir))?;
+        if std::fs::rename(&old, &dir).is_err() {
+            copy_dir(&old, &dir)?; // another filesystem: copy, and leave the old one be
+        }
+    }
+    Ok(dir)
+}
+
+/// A directory name for the repo whose git dir is `common`: its main checkout's path, with `/`
+/// as `-` (as Claude Code names its project directories).
+// ponytail: "/a-b/c" and "/a/b-c" would share a name; a hash suffix if that ever bites.
+fn repo_key(common: &std::path::Path) -> String {
+    let main = if common.file_name().is_some_and(|f| f == ".git") { common.parent().unwrap_or(common) } else { common };
+    main.to_string_lossy().trim_start_matches('/').replace(['/', '\\', ':'], "-")
+}
+
+fn copy_dir(from: &std::path::Path, to: &std::path::Path) -> Result<()> {
+    std::fs::create_dir_all(to)?;
+    for e in std::fs::read_dir(from)? {
+        let e = e?;
+        match e.file_type()?.is_dir() {
+            true => copy_dir(&e.path(), &to.join(e.file_name()))?,
+            false => _ = std::fs::copy(e.path(), to.join(e.file_name()))?,
+        }
+    }
+    Ok(())
+}
+
 /// Where the review for PR `pr` (or, without one, the current branch) lives.
 pub fn path(pr: Option<u64>) -> Result<PathBuf> {
-    let common = diff::git(&["rev-parse", "--path-format=absolute", "--git-common-dir"])?;
     let name = match pr {
         Some(n) => format!("pr-{n}"),
         None => match diff::git(&["branch", "--show-current"])?.trim() {
@@ -53,14 +93,13 @@ pub fn path(pr: Option<u64>) -> Result<PathBuf> {
             b => format!("branch-{}", b.replace('/', "-")),
         },
     };
-    Ok(PathBuf::from(common.trim()).join("dv").join("reviews").join(format!("{name}.json")))
+    Ok(dv_dir()?.join("reviews").join(format!("{name}.json")))
 }
 
 /// Notes Claude keeps about the repo across reviews (conventions, recurring issues, the
-/// user's review preferences): `<git common dir>/dv/notes.md`, shared by all worktrees.
+/// user's review preferences): `notes.md` in dv's directory, shared by all worktrees.
 pub fn notes_path() -> Result<PathBuf> {
-    let common = diff::git(&["rev-parse", "--path-format=absolute", "--git-common-dir"])?;
-    Ok(PathBuf::from(common.trim()).join("dv").join("notes.md"))
+    Ok(dv_dir()?.join("notes.md"))
 }
 
 /// Where the Claude Code sessions for a review are kept: next to its file (`pr-N.session`),
@@ -517,7 +556,8 @@ fn session_ids() {
     assert_ne!(a, b);
     assert_eq!(a.len(), 36);
     assert_eq!(&a[14..15], "4"); // version 4
-    assert_eq!(session_path(std::path::Path::new("/r/.git/dv/reviews/pr-7.json")), std::path::Path::new("/r/.git/dv/reviews/pr-7.session"));
+    assert_eq!(session_path(std::path::Path::new("/d/dv/r/reviews/pr-7.json")), std::path::Path::new("/d/dv/r/reviews/pr-7.session"));
+    assert_eq!(repo_key(std::path::Path::new("/home/me/Git/bdk/.git")), "home-me-Git-bdk"); // worktrees share it
     // One per checkout dir; one Claude Code doesn't have isn't resumed.
     let home = std::env::temp_dir().join(format!("dv-sessions-{}", std::process::id()));
     let review = home.join("pr-7.json");

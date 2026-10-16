@@ -587,10 +587,9 @@ fn claude_session_per_pr() {
     app.set_session(Some("11111111-2222-4333-8444-555555555555".into()));
     let saved = std::fs::read_to_string(crate::claude::session_path(&review)).unwrap();
     assert_eq!(saved, format!("{}\t11111111-2222-4333-8444-555555555555\n", app.root.display()));
-    // Claude may touch dv's directory in the main checkout's .git, even from a worktree.
-    // (review files are <git common dir>/dv/reviews/pr-N.json: two levels up is dv's directory)
-    let dv = review.parent().unwrap().parent().unwrap();
-    assert_eq!(app.claude_dirs(), ["--add-dir".to_owned(), dv.display().to_string()]);
+    // Claude may touch dv's directory for the repo, where the notes (and reviews) are.
+    let notes = crate::claude::notes_path().unwrap();
+    assert_eq!(app.claude_dirs(), [std::ffi::OsString::from("--add-dir"), notes.parent().unwrap().as_os_str().to_owned()]);
     // …and forgetting it (a failed run) removes it, so the next run starts afresh.
     app.set_session(None);
     assert!(!crate::claude::session_path(&review).exists());
@@ -601,7 +600,10 @@ fn claude_session_per_pr() {
 fn approve_says_ack() {
     let pr = gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "cb1cec09".into(), url: String::new() };
     assert_eq!(ack("APPROVE", Some(&pr), "cb1cec09"), "ACK cb1cec09");
-    assert_eq!(ack("APPROVE", Some(&pr), "698eec92"), ""); // you reviewed another commit
+    // You reviewed another commit: still the PR's head, with a hint line (dropped when posted).
+    let diverged = ack("APPROVE", Some(&pr), "698eec92");
+    assert!(diverged.starts_with("<!-- dv: your checkout is at 698eec92") && diverged.ends_with("\nACK cb1cec09"));
+    assert_eq!(clean_body(&diverged, HINT, ""), "ACK cb1cec09");
     assert_eq!(ack("COMMENT", Some(&pr), "cb1cec09"), "");
     assert_eq!(ack("APPROVE", None, "cb1cec09"), "");
 }
@@ -792,4 +794,18 @@ fn margin_tags_on_their_own_line() {
     app.build();
     let r = rows(&app);
     assert!(r[0].starts_with("amy") && r[1] == "[resolved]", "{r:?}"); // margin: tags below, even folded
+}
+
+#[test]
+fn what_claude_was_refused() {
+    use agent::refusal;
+    let v = |d: serde_json::Value| serde_json::json!({ "permission_denials": d });
+    assert_eq!(refusal(&v(serde_json::json!([]))), None);
+    let edit = serde_json::json!({ "tool_name": "Edit", "tool_input": { "file_path": "/r/notes.md" } });
+    assert_eq!(refusal(&v(serde_json::json!([edit]))).unwrap(), "Edit /r/notes.md");
+    // A long multi-line command: its first line, short; others counted.
+    let bash = serde_json::json!({ "tool_name": "Bash", "tool_input": { "command": format!("cat <<EOF > x\n{}\nEOF", "y".repeat(200)) } });
+    let grep = serde_json::json!({ "tool_name": "Grep", "tool_input": { "pattern": "fn main", "path": "/r/src" } });
+    assert_eq!(refusal(&v(serde_json::json!([bash, grep]))).unwrap(), "Bash cat <<EOF > x (and 1 more)");
+    assert_eq!(refusal(&v(serde_json::json!([grep]))).unwrap(), "Grep /r/src"); // its path, not a bare name
 }

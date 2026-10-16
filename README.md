@@ -121,8 +121,9 @@ re-anchors outdated comments that still apply when it next runs `dv review-check
 
 **Good to know**
 
-- The review file is `.git/dv/reviews/pr-<N>.json` (`branch-<name>.json` without a PR): never
-  committed, and shared by the repo's worktrees. A new review replaces it (the skill keeps
+- The review file is `~/.local/share/dv/<repo>/reviews/pr-<N>.json` (`branch-<name>.json`
+  without a PR; `$XDG_DATA_HOME` if set): outside the repo, so never committed, and shared by
+  its worktrees. (Not in `.git`: Claude Code won't edit files there.) A new review replaces it (the skill keeps
   comments that still apply, with your replies).
 - It works on a local branch before there's a PR, but `c` / `C` need one.
 - Like dv's own comments, `c` / `C` need the checkout at the PR head with no local changes.
