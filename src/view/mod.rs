@@ -182,8 +182,8 @@ enum Action {
     Reply { thread: String, comment: u64, review: bool, quote: String },
     /// A reply to Claude on its comment (by id), saved to the review file for Claude to answer.
     ClaudeReply(String),
-    /// Have Claude make the changes its open comments ask for, after your own instructions.
-    ClaudeFix,
+    /// Run Claude (review, or make the changes) after your own instructions for it.
+    ClaudeWith(agent::Ask),
     /// A new PR conversation comment, starting with `quote` (may be empty).
     Converse { quote: String },
     /// Rewrite one of your comments (node id, current body).
@@ -504,11 +504,14 @@ impl App {
                 keep_on_error(crate::claude::reply(&p, &k, &body), &body)?;
                 Ok(self.answer_now())
             }
-            Action::ClaudeFix => {
+            Action::ClaudeWith(ask) => {
                 // Optional: empty goes ahead; quitting the editor with an error (`:cq`) cancels.
-                let what = "instructions for Claude, on top of its comments (optional)";
+                let what = match ask {
+                    agent::Ask::Review => "anything for Claude to look at or keep in mind in its review (optional)",
+                    _ => "instructions for Claude, on top of its comments (optional)",
+                };
                 let Some(extra) = compose(what, true)? else { return Ok("Claude not asked".into()) };
-                self.run_claude(agent::Ask::Fix, &extra);
+                self.run_claude(ask, &extra);
                 Ok(std::mem::take(&mut self.msg))
             }
             Action::Converse { quote } => {

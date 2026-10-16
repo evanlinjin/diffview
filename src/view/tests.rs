@@ -431,7 +431,9 @@ fn claude_menu() {
     // Picking it asks for your own instructions first (an editor), then runs Claude.
     app.picker = None;
     app.pick_claude(agent::Ask::Fix);
-    assert!(matches!(app.action.take(), Some(Action::ClaudeFix)));
+    assert!(matches!(app.action.take(), Some(Action::ClaudeWith(agent::Ask::Fix))));
+    app.pick_claude(agent::Ask::Review); // reviewing asks too
+    assert!(matches!(app.action.take(), Some(Action::ClaudeWith(agent::Ask::Review))));
     assert!(app.claude_prompt(agent::Ask::Fix, "keep the API").ends_with("The user adds:\nkeep the API"));
     assert!(!app.claude_prompt(agent::Ask::Fix, "  ").contains("The user adds"));
     app.picker = None;

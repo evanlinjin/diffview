@@ -29,8 +29,9 @@ The first release.
 ### Claude Code
 - `dv install-skill` installs the `dv-review` skill: Claude Code writes a review that dv shows
   inline (`dv review-info`, `dv review-check`), anchored to its code as the code changes.
-- Reply to Claude from dv and it answers right away; ask it to review, answer, or make the
-  changes its open comments ask for (`Space a`); copy its comments into your GitHub review.
+- Reply to Claude from dv and it answers right away; ask it to review or to make the changes
+  its open comments ask for (`Space a`, with your own instructions if you like); copy its
+  comments into your GitHub review.
 
 ### Keys
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same

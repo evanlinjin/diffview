@@ -74,10 +74,12 @@ impl App {
         }
     }
 
-    /// From the `Space a` menu. Making the changes first asks for your own instructions.
+    /// From the `Space a` menu. Reviewing and making the changes first ask for your own
+    /// instructions (an editor; empty is fine); answering replies just goes.
     pub(super) fn pick_claude(&mut self, ask: Ask) {
         match ask {
-            Ask::Fix if self.open_claude_comments() > 0 => self.action = Some(Action::ClaudeFix),
+            Ask::Review => self.action = Some(Action::ClaudeWith(Ask::Review)),
+            Ask::Fix if self.open_claude_comments() > 0 => self.action = Some(Action::ClaudeWith(Ask::Fix)),
             ask => self.run_claude(ask, ""),
         }
     }
