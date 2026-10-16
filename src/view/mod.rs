@@ -182,6 +182,18 @@ enum Job {
     DeleteComment(String),
     /// Fetch an issue/PR link's preview into a popup.
     Preview(String),
+    /// Send what was written in the editor.
+    Post(Post),
+}
+
+/// Something written in the editor, to send to GitHub (as a job, so "posting…" shows first).
+enum Post {
+    /// A new comment on lines (`claude`: copied from Claude's comment, dismissed once sent).
+    Thread { anchor: Anchor, review: bool, body: String, claude: Option<String> },
+    Reply { thread: String, comment: u64, review: bool, body: String },
+    Converse(String),
+    Edit { comment: String, body: String },
+    Submit(&'static str, String),
 }
 
 enum Target {
@@ -296,12 +308,16 @@ pub struct App {
 
 impl App {
     pub fn new(base: String, pr: Option<Pr>) -> Result<Self> {
+        crate::progress(Some("loading the diff"));
         let files = diff::load(&base, DEFAULT_CONTEXT)?;
         let mut app = Self::with(base, files);
         let theme = Theme::load();
         (app.hl, app.ui) = (Highlighter::new(&theme), theme.ui());
         app.settings = crate::theme::settings();
         app.claude_path = crate::claude::path(pr.as_ref().map(|p| p.number)).ok();
+        if pr.is_some() {
+            crate::progress(Some("loading comments and PR info"));
+        }
         app.pr = pr;
         app.load_threads();
         app.build();
@@ -401,14 +417,14 @@ impl App {
                 if !floating {
                     ratatui::restore();
                 }
-                // Only posting changes GitHub state; skip the network round-trips after plain hx.
-                let posted = !matches!(a, Action::Open(_) | Action::ClaudeReply(_));
+                // Anything to post is queued as a job (it runs after a "posting…" frame, then
+                // refetches); here only the diff reloads, as hx may have changed files.
                 let res = self.perform(a);
                 self.hl_cache.retain(|k, _| !k.1); // working-tree files may have changed; the base can't
                 if !floating {
                     *term = ratatui::init();
                 }
-                if let Err(e) = self.reload(posted) {
+                if let Err(e) = self.reload(false) {
                     self.msg = e.to_string();
                 }
                 match res {
@@ -437,29 +453,16 @@ impl App {
                     (None, false) => "suggestion",
                 };
                 let what = format!("{kind} on {}:{range}", anchor.path);
-                let pr = self.pr.clone().context("no PR")?; // before the editor, so nothing written is lost
+                self.pr.as_ref().context("no PR")?; // before the editor, so nothing written is lost
                 let Some(body) = compose_with(&what, false, &prefill, claude.is_some())? else {
                     return Ok(format!("{kind} cancelled"));
                 };
-                let res = match review {
-                    true => self.ensure_review().and_then(|r| gh::add_thread(&r, &anchor, &body)),
-                    false => gh::comment(&pr, &anchor, &body),
-                };
-                keep_on_error(res, &body)?;
-                // It's on GitHub now; drop Claude's copy so it doesn't show twice.
-                if let (Some(k), Some(p)) = (claude, &self.claude_path) {
-                    crate::claude::dismiss(p, &k)?;
-                }
-                Ok(posted_msg(review))
+                self.post_later(Post::Thread { anchor, review, body, claude })
             }
             Action::Reply { thread, comment, review, quote } => {
-                let pr = self.pr.clone().context("no PR")?;
+                self.pr.as_ref().context("no PR")?;
                 let Some(body) = compose_with("reply", false, &quote, false)? else { return Ok("reply cancelled".into()) };
-                let res = match review {
-                    true => self.ensure_review().and_then(|r| gh::add_reply(&r, &thread, &body)),
-                    false => gh::reply(&pr, comment, &body),
-                };
-                keep_on_error(res, &body).map(|_| posted_msg(review))
+                self.post_later(Post::Reply { thread, comment, review, body })
             }
             Action::ClaudeReply(k) => {
                 let p = self.claude_path.clone().context("no review file")?;
@@ -468,19 +471,18 @@ impl App {
                 Ok("reply saved for Claude: ask Claude Code to answer your dv replies".into())
             }
             Action::Converse { quote } => {
-                let pr = self.pr.clone().context("no PR")?;
+                self.pr.as_ref().context("no PR")?;
                 let Some(body) = compose_with("comment on the PR conversation", false, &quote, false)? else {
                     return Ok("comment cancelled".into());
                 };
-                keep_on_error(gh::conversation_comment(&pr, &body), &body)
-                    .map(|_| "comment posted to the conversation".into())
+                self.post_later(Post::Converse(body))
             }
             Action::Edit { comment, body: old, author } => {
                 // Unchanged or emptied counts as cancelled; deleting a comment is a separate thing.
                 // Maintainers can edit others' comments too, so the hint names whose this is.
                 let what = format!("editing @{author}'s comment");
                 let Some(body) = compose_with(&what, false, &old, false)? else { return Ok("edit cancelled".into()) };
-                keep_on_error(gh::edit_comment(&comment, &body), &body).map(|_| "comment updated".into())
+                self.post_later(Post::Edit { comment, body })
             }
             Action::Submit(event) => {
                 // An empty summary is fine; quitting the editor with an error (`:cq`) cancels.
@@ -488,10 +490,7 @@ impl App {
                 else {
                     return Ok("review not submitted".into());
                 };
-                let res = self.ensure_review().and_then(|r| gh::submit_review(&r, event, &body));
-                keep_on_error(res, &body)?;
-                self.review = None;
-                Ok("review submitted".into())
+                self.post_later(Post::Submit(event, body))
             }
         }
     }
@@ -1026,8 +1025,8 @@ fn keep_on_error(res: Result<()>, body: &str) -> Result<()> {
     })
 }
 
-fn posted_msg(review: bool) -> String {
-    if review { "added to pending review (S to submit)" } else { "posted" }.into()
+fn posted_msg(review: bool) -> &'static str {
+    if review { "added to pending review (S to submit)" } else { "posted" }
 }
 
 /// Word-wrap long lines at `w` chars; short lines (and their indentation) are kept as-is.

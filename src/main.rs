@@ -30,6 +30,18 @@ const USAGE: &str = "usage: dv [base | PR | list] [-p N] [-f] [-w [-b]]
                    A -b branch is kept, in case it has unpushed commits
   short flags combine: dv 123 -wb   (worktree on the PR's branch)";
 
+/// What dv is doing before its screen is up, on one line that each step overwrites (only on
+/// a terminal, so piped output stays clean). `None` clears it.
+pub(crate) fn progress(msg: Option<&str>) {
+    use std::io::IsTerminal;
+    if std::io::stderr().is_terminal() {
+        match msg {
+            Some(m) => eprint!("\r\x1b[2Kdv: {m}…"),
+            None => eprint!("\r\x1b[2K"),
+        }
+    }
+}
+
 #[derive(Debug, Default, PartialEq)]
 struct Opts {
     base: Option<String>,
@@ -89,6 +101,12 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Opts> {
 }
 
 fn main() -> anyhow::Result<()> {
+    let res = run();
+    progress(None); // an error goes on its own line
+    res
+}
+
+fn run() -> anyhow::Result<()> {
     let o = parse_args(std::env::args().skip(1))?;
     if o.help {
         println!("{USAGE}");
@@ -139,6 +157,7 @@ fn pick_and_review(o: &Opts, root: &Path) -> anyhow::Result<()> {
         ratatui::restore();
         let Some(n) = picked? else { return Ok(()) };
         let res = review(o, Some(n)).and_then(|(_, res)| res);
+        progress(None);
         std::env::set_current_dir(root)?; // a worktree review leaves us in the worktree
         if let Err(e) = res {
             list.msg = format!("PR #{n}: {e:#}");
@@ -152,15 +171,19 @@ fn review(o: &Opts, pr_num: Option<u64>) -> anyhow::Result<(Option<PathBuf>, any
     let wt = match (pr_num, o.worktree) {
         (Some(n), true) => Some(enter_worktree(n, o.branch, o.force)?),
         (Some(n), false) => {
+            progress(Some(&format!("checking out PR #{n}")));
             gh::checkout(n, o.force, false)?;
             None
         }
         (None, _) => None,
     };
     // Comments only load when the branch has a PR; plain local diffs still work without one.
+    progress(Some("looking up the PR"));
     let pr = gh::pr(pr_num).ok();
     let base = diff_base(o, pr.as_ref())?;
-    let mut app = view::App::new(base, pr)?;
+    let app = view::App::new(base, pr);
+    progress(None);
+    let mut app = app?;
     let mut term = ratatui::init();
     let res = app.run(&mut term);
     ratatui::restore();
@@ -172,6 +195,7 @@ fn review(o: &Opts, pr_num: Option<u64>) -> anyhow::Result<(Option<PathBuf>, any
 fn diff_base(o: &Opts, pr: Option<&gh::Pr>) -> anyhow::Result<String> {
     let mut base = o.base.clone();
     if let (Some(p), None) = (pr, &base) {
+        progress(Some(&format!("fetching origin/{}", p.base)));
         _ = diff::git(&["fetch", "-q", "origin", &p.base]);
         base = Some(format!("origin/{}", p.base));
     }
@@ -228,9 +252,11 @@ fn enter_worktree(n: u64, branch: bool, force: bool) -> anyhow::Result<std::path
     if dir.exists() {
         ensure_ours(&dir)?;
     } else {
+        progress(Some(&format!("creating the worktree {}", dir.display())));
         diff::git(&["worktree", "add", "--detach", &dir.to_string_lossy()])?;
     }
     std::env::set_current_dir(&dir)?;
+    progress(Some(&format!("checking out PR #{n} in {}", dir.display())));
     gh::checkout(n, force, !branch).map_err(|e| {
         // git words this a few ways depending on the step that hits it.
         let msg = format!("{e:#}");

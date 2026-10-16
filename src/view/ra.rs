@@ -19,7 +19,18 @@ impl App {
             None => self.msg = "rust-analyzer is not running".into(),
             Some(_) if !self.lsp_ready => self.msg = "rust-analyzer is starting…".into(),
             Some(l) => match l.request(method, params) {
-                Ok(id) => _ = self.inflight.insert(id, req),
+                Ok(id) => {
+                    // Cleared when the answer comes (rust-analyzer can take a while on a big crate).
+                    self.msg = match method.rsplit('/').next() {
+                        Some("definition") => "finding the definition…",
+                        Some("typeDefinition") => "finding the type…",
+                        Some("implementation") => "finding implementations…",
+                        Some("references") => "finding references…",
+                        _ => "asking rust-analyzer…",
+                    }
+                    .into();
+                    self.inflight.insert(id, req);
+                }
                 Err(e) => self.msg = format!("rust-analyzer: {e}"),
             },
         }
@@ -55,6 +66,9 @@ impl App {
                     return;
                 }
                 let res = &m["result"];
+                if !matches!(req, Req::Init) {
+                    self.msg.clear(); // the "finding …" message
+                }
                 match req {
                     Req::Init => {
                         self.lsp_ready = true;

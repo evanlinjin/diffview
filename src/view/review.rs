@@ -33,6 +33,7 @@ impl App {
             }),
             Job::DeleteComment(c) => gh::delete_comment(&c).map(|_| "comment deleted"),
             Job::Preview(_) => unreachable!("handled above"),
+            Job::Post(p) => self.post(p),
             Job::Viewed(path, on) => {
                 let pr_id = self.pr.as_ref().map(|p| p.node_id.clone()).unwrap_or_default();
                 let res = gh::set_viewed(&pr_id, &path, on);
@@ -58,6 +59,54 @@ impl App {
             (Err(e), _) | (_, Err(e)) => format!("{e:#}"),
             (Ok(m), Ok(())) => m.into(),
         };
+    }
+
+    /// Queue `p` to send after the next frame, which shows what's being sent.
+    pub(super) fn post_later(&mut self, p: Post) -> Result<String> {
+        let msg = match &p {
+            Post::Thread { review: true, .. } | Post::Reply { review: true, .. } => "adding to your pending review…",
+            Post::Thread { .. } | Post::Reply { .. } | Post::Converse(_) => "posting…",
+            Post::Edit { .. } => "updating the comment…",
+            Post::Submit(..) => "submitting the review…",
+        };
+        self.job = Some(Job::Post(p));
+        Ok(msg.into())
+    }
+
+    /// Send `p`; if that fails, its text is saved to a file so it isn't lost.
+    fn post(&mut self, p: Post) -> Result<&'static str> {
+        let pr = self.pr.clone().context("no PR")?;
+        match p {
+            Post::Thread { anchor, review, body, claude } => {
+                let res = match review {
+                    true => self.ensure_review().and_then(|r| gh::add_thread(&r, &anchor, &body)),
+                    false => gh::comment(&pr, &anchor, &body),
+                };
+                keep_on_error(res, &body)?;
+                // It's on GitHub now; drop Claude's copy so it doesn't show twice.
+                if let (Some(k), Some(p)) = (claude, &self.claude_path) {
+                    crate::claude::dismiss(p, &k)?;
+                }
+                Ok(posted_msg(review))
+            }
+            Post::Reply { thread, comment, review, body } => {
+                let res = match review {
+                    true => self.ensure_review().and_then(|r| gh::add_reply(&r, &thread, &body)),
+                    false => gh::reply(&pr, comment, &body),
+                };
+                keep_on_error(res, &body).map(|_| posted_msg(review))
+            }
+            Post::Converse(body) => {
+                keep_on_error(gh::conversation_comment(&pr, &body), &body).map(|_| "comment posted to the conversation")
+            }
+            Post::Edit { comment, body } => keep_on_error(gh::edit_comment(&comment, &body), &body).map(|_| "comment updated"),
+            Post::Submit(event, body) => {
+                let res = self.ensure_review().and_then(|r| gh::submit_review(&r, event, &body));
+                keep_on_error(res, &body)?;
+                self.review = None;
+                Ok("review submitted")
+            }
+        }
     }
 
     /// Viewed files fold, like on GitHub: on first load, and when newly marked. Files you

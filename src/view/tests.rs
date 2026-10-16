@@ -412,3 +412,16 @@ fn claude_menu() {
     app.run_claude(agent::Ask::Answer);
     assert!(app.msg.contains("no replies waiting") && app.claude_job.is_none());
 }
+
+#[test]
+fn posting_shows_progress() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    // Written text is queued as a job, so a "posting…" frame shows before the network call…
+    let msg = app.post_later(Post::Converse("hi".into())).unwrap();
+    assert_eq!(msg, "posting…");
+    assert!(matches!(app.job, Some(Job::Post(Post::Converse(_)))));
+    // …and a failure still reports (with no PR here, before anything is sent).
+    let job = app.job.take().unwrap();
+    app.run_job(job);
+    assert!(app.msg.contains("no PR"));
+}
