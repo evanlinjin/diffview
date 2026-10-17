@@ -444,6 +444,8 @@ impl App {
                         },
                         Target::CloseOriginals => self.action = Some(Action::CloseOriginals),
                         Target::ClaudeFresh => self.fresh_claude_session(),
+                        Target::ClaudeCheck => self.check_claude(),
+                        Target::ClaudeStop => self.stop_claude(),
                         Target::GitView => self.toggle_uncommitted(),
                         Target::GitCommit => self.action = Some(Action::Commit(self.commit_draft())),
                         Target::GitPush => (self.msg, self.job) = ("pushing…".into(), Some(Job::Push)),

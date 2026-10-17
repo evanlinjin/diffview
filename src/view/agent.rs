@@ -50,6 +50,7 @@ pub(super) struct ClaudeJob {
     /// It ran on a fork of the PR's session (the session itself is open in a pane), so its
     /// session id isn't the one to keep.
     pub(super) forked: bool,
+    pub(super) started: std::time::Instant,
 }
 
 /// Whether thread `t` is Claude's own comment (from its review file), not one you left for it.
@@ -160,7 +161,12 @@ impl App {
                 Target::Claude(Ask::Fix),
             ),
             Item::new(notes, Target::ClaudeNotes),
+            Item::new("Check Claude's review now (dv watches it; this reads it again)", Target::ClaudeCheck),
         ];
+        // One that seems stuck: it can be stopped (the session stays, so the next run resumes it).
+        if let Some(j) = &self.claude.job {
+            items.insert(0, Item::new(format!("Stop Claude ({} for {})", j.label, ago(j.started)), Target::ClaudeStop));
+        }
         let outdated = self.outdated_claude_comments().len();
         if outdated > 0 {
             items.push(Item::new(format!("Dismiss Claude's outdated comments ({outdated})"), Target::ClaudeDismissOutdated(false)));
@@ -182,6 +188,28 @@ impl App {
             _ => {}
         }
         self.picker = Some(Picker { title: " claude ", items, query: String::new(), sel: if n > 0 { 1 } else { 0 } });
+    }
+
+    /// `Space a` → check now: the review file read again (as if it had changed), and the
+    /// background run's state, rather than waiting for dv to notice.
+    pub(super) fn check_claude(&mut self) {
+        self.claude.mtime = None; // read it, changed or not
+        self.watch_claude();
+        self.poll_claude();
+        if let Some(j) = &self.claude.job {
+            self.msg = format!("Claude is still {} ({} so far); Space a can stop it", j.label, ago(j.started));
+        }
+    }
+
+    /// `Space a` → stop: end the background run (its log stays). The session is kept, so the
+    /// next run resumes where it left off.
+    pub(super) fn stop_claude(&mut self) {
+        let Some(mut j) = self.claude.job.take() else { return self.msg = "Claude isn't working on anything".into() };
+        _ = j.child.kill();
+        _ = j.child.wait();
+        self.claude.again = false;
+        self.reload_tree(); // what it changed before it stopped
+        self.msg = format!("stopped Claude ({} for {}); its log: {}", j.label, ago(j.started), j.log.display());
     }
 
     /// Forget the PR's Claude session, so the next run starts a new one: when it has got
@@ -471,7 +499,7 @@ impl App {
             .spawn()
             .context("is Claude Code (`claude`) installed?")?;
         self.claude.log = Some(log.clone());
-        Ok(ClaudeJob { child, log, label, forked })
+        Ok(ClaudeJob { child, log, label, forked, started: std::time::Instant::now() })
     }
 
     /// When a background run ends: keep its session for the next one, say how it went (its
@@ -513,10 +541,6 @@ impl App {
         }
     }
 
-    /// For the status bar.
-    pub(super) fn claude_working(&self) -> bool {
-        self.claude.job.is_some()
-    }
 }
 
 /// What a run's result says it was refused, in a few words: the first refusal's tool and its
@@ -623,4 +647,12 @@ fn path_for_claude() -> std::ffi::OsString {
     let own = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf));
     let rest = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect::<Vec<_>>()).unwrap_or_default();
     std::env::join_paths(own.into_iter().chain(rest)).unwrap_or_default()
+}
+
+/// How long since `t`, for the status bar: "40s", "3m".
+pub(super) fn ago(t: std::time::Instant) -> String {
+    match t.elapsed().as_secs() {
+        s if s < 60 => format!("{s}s"),
+        s => format!("{}m", s / 60),
+    }
 }

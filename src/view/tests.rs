@@ -596,7 +596,7 @@ fn replies_while_claude_works_wait_for_it() {
     // Claude busy with a run: a new reply waits for one more run instead of starting a second.
     let child = std::process::Command::new("sleep").arg("5").spawn().unwrap();
     let log = std::env::temp_dir().join("dv-test-none.log");
-    app.claude.job = Some(agent::ClaudeJob { child, log, label: "answering", forked: false });
+    app.claude.job = Some(agent::ClaudeJob { child, log, label: "answering", forked: false, started: std::time::Instant::now() });
     let msg = app.answer_now();
     assert!(app.claude.again && msg.contains("when it's done"));
     if let Some(mut job) = app.claude.job.take() {
@@ -905,7 +905,7 @@ fn make_changes_without_comments() {
     assert!(app.msg.starts_with("nothing to change") && app.claude.job.is_none());
     // While Claude is busy, it says so before the editor opens (so nothing written is lost).
     let child = std::process::Command::new("sleep").arg("5").spawn().unwrap();
-    app.claude.job = Some(agent::ClaudeJob { child, log: std::env::temp_dir().join("dv-test-busy.log"), label: "reviewing", forked: false });
+    app.claude.job = Some(agent::ClaudeJob { child, log: std::env::temp_dir().join("dv-test-busy.log"), label: "reviewing", forked: false, started: std::time::Instant::now() });
     app.pick_claude(agent::Ask::Fix);
     assert!(app.action.is_none() && app.msg.contains("still working"));
     if let Some(mut job) = app.claude.job.take() {
@@ -1036,7 +1036,7 @@ fn claude_runs_say_what_they_cost() {
     std::fs::write(&log, r#"{"is_error": false, "num_turns": 5, "total_cost_usd": 0.2231, "session_id": "s"}"#).unwrap();
     let mut child = std::process::Command::new("true").spawn().unwrap();
     _ = child.wait();
-    app.claude.job = Some(agent::ClaudeJob { child, log: log.clone(), label: "answering", forked: true });
+    app.claude.job = Some(agent::ClaudeJob { child, log: log.clone(), label: "answering", forked: true, started: std::time::Instant::now() });
     app.poll_claude();
     _ = std::fs::remove_file(&log);
     assert_eq!(app.msg, "Claude is done answering (5 turns, $0.22)");
@@ -1514,4 +1514,23 @@ fn comments_pane() {
     assert!(on(&app).is_some() && app.margin_side());
     ctrl(&mut app, 'h');
     assert!(!app.margin_side() && on(&app).is_none());
+}
+
+#[test]
+fn stop_a_stuck_claude() {
+    let mut app = fixture();
+    let child = std::process::Command::new("sleep").arg("30").spawn().unwrap();
+    let pid = child.id();
+    app.claude.job = Some(agent::ClaudeJob { child, log: "/nonexistent/run.json".into(), label: "reviewing", forked: false, started: std::time::Instant::now() });
+    // The menu offers to stop it, first; checking says it's still at it.
+    app.claude.path = Some(std::env::temp_dir().join(format!("dv-stuck-{}.json", std::process::id())));
+    app.claude_menu();
+    let items = app.picker.take().unwrap().items;
+    assert!(matches!(items[0].target, Target::ClaudeStop) && items[0].label.starts_with("Stop Claude (reviewing for "));
+    assert!(items.iter().any(|i| matches!(i.target, Target::ClaudeCheck)));
+    app.check_claude();
+    assert!(app.claude.job.is_some() && app.msg.starts_with("Claude is still reviewing"), "{}", app.msg);
+    app.stop_claude();
+    assert!(app.claude.job.is_none() && app.msg.starts_with("stopped Claude (reviewing for "));
+    assert!(!std::path::Path::new(&format!("/proc/{pid}")).exists() || std::fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|s| s.contains(") Z")), "killed");
 }

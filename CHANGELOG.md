@@ -7,6 +7,9 @@ on GitHub are its section here.
 
 ### Added
 - `dv version` (and `--version`, `-V`) prints dv's version.
+- `Space a` can check on Claude now (reads its review again, and its run's state) and, while a
+  run is going, stop it (the session stays, so the next run resumes it); the status bar says
+  how long it's been working.
 - `c` on a conversation comment or the description quotes it in your review summary, saved on
   your pending review on GitHub (and loaded from it, so it's still there next time); `S` starts
   from it. `c` on Claude's summary adds to it the same way.

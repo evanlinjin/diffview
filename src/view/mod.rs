@@ -120,6 +120,7 @@ REVIEW
   Space p  Space t     pick from your pending comments (Ctrl-d deletes) / all threads
   Space v              mark the file viewed (folds it, moves on)
   Space a              ask Claude Code to review, answer your replies, or make the changes
+                       (or check on its run now, or stop one that's stuck)
   Space A              pick from Claude's comments ([waiting]: its turn, [answered]: yours)
   ]n [n  Space n       next / prev [new] thread (ones you haven't seen) / pick from them
 
@@ -311,6 +312,8 @@ enum Target {
     /// Keep replacement branches on this remote (`dv.replaceRemote`), then publish (as `Publish`).
     ReplaceRemote(String, bool),
     ClaudeFresh,
+    ClaudeCheck,
+    ClaudeStop,
     GitView,
     GitCommit,
     GitPush,

@@ -430,7 +430,10 @@ impl App {
             None if claude > 0 => format!("{threads}  "),
             None => String::new(),
         };
-        let working = if self.claude_working() { "Claude working… · " } else { "" };
+        let working = match &self.claude.job {
+            Some(j) => format!("Claude working {}… · ", agent::ago(j.started)),
+            None => String::new(),
+        };
         let view = format!(
             "{}{}{}",
             match self.view {
