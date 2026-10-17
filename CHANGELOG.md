@@ -3,6 +3,12 @@
 All notable changes to dv. Versions follow [semver](https://semver.org); a release's notes
 on GitHub are its section here.
 
+## [Unreleased]
+
+### Changed
+- `dv list` keeps your marks (`m`) when you quit it, so you can go through marked PRs a few at
+  a time; marks on PRs that have closed go.
+
 ## [0.5.0] - 2026-10-17
 
 ### Changed

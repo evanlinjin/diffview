@@ -33,7 +33,8 @@ const HELP: &str = "\
                          ci:pass|fail|pending|none     -term excludes
   Esc                  clear the filter
   o O                  next sort order (updated, created, number, size) / reverse
-  m                    mark the PR (again: unmark), for Claude to review
+  m                    mark the PR (again: unmark), for Claude to review; marks are kept, for
+                       going through them a PR at a time (quitting dv list too)
   a a                  Claude reviews the marked PRs (or this one) in the background, two at a
                        time, each in its worktree (<repo>-N, made if need be); cards show how
                        it's going, and claude ✓ once a PR has a review
@@ -83,8 +84,10 @@ pub struct List {
     /// A key that asks to be pressed again (`D` on this PR's worktree, `a`, `q`): any other
     /// key calls it off.
     confirm: Option<(char, u64)>,
-    /// PRs marked (`m`) for Claude to review.
+    /// PRs marked (`m`) for Claude to review: kept in dv's directory (`marked.json`), so they
+    /// outlast a `dv list`; and what was saved last.
     marked: HashSet<u64>,
+    marked_saved: HashSet<u64>,
     /// Claude's reviews from here (`a`): how each is going, and the news on its way.
     batch: HashMap<u64, batch::Status>,
     batch_rx: Option<Receiver<(u64, batch::Status)>>,
@@ -133,7 +136,8 @@ impl List {
             reps_changed: None,
             group_rx: None,
             confirm: None,
-            marked: HashSet::new(),
+            marked: load_marks(),
+            marked_saved: load_marks(),
             batch: HashMap::new(),
             batch_rx: None,
             reviewed: HashSet::new(),
@@ -151,6 +155,10 @@ impl List {
         self.find_new(); // back from a PR: that one's seen now
         self.load_reps();
         loop {
+            if self.marked != self.marked_saved {
+                save_marks(&self.marked);
+                self.marked_saved = self.marked.clone();
+            }
             term.draw(|f| self.draw(f))?;
             self.batch_news();
             // A replacement drafted, or its draft changed, from anywhere: show it.
@@ -420,6 +428,8 @@ impl List {
                     prs.push(gh::listed_one(n).unwrap_or(Listed { number: n, title, ..Listed::default() }));
                 }
                 self.prs = prs;
+                // Marks on PRs that aren't open any more go.
+                self.marked.retain(|n| self.prs.iter().any(|p| p.number == *n && (p.state == "OPEN" || p.state.is_empty())));
                 self.find_new();
                 self.sel = keep.and_then(|n| self.shown().iter().position(|p| p.number == n)).unwrap_or(0);
             }
@@ -771,6 +781,31 @@ enum Do {
     RemoveReplacement(u64),
 }
 
+fn marks_path() -> Option<PathBuf> {
+    crate::claude::dv_dir().ok().map(|d| d.join("marked.json"))
+}
+
+fn load_marks() -> HashSet<u64> {
+    marks_path().map(|p| read_marks(&p)).unwrap_or_default()
+}
+
+fn save_marks(marked: &HashSet<u64>) {
+    if let Some(p) = marks_path() {
+        write_marks(&p, marked);
+    }
+}
+
+fn read_marks(p: &std::path::Path) -> HashSet<u64> {
+    let text = std::fs::read_to_string(p).unwrap_or_default();
+    serde_json::from_str::<Vec<u64>>(&text).unwrap_or_default().into_iter().collect()
+}
+
+fn write_marks(p: &std::path::Path, marked: &HashSet<u64>) {
+    let mut v: Vec<u64> = marked.iter().copied().collect();
+    v.sort();
+    _ = std::fs::create_dir_all(p.parent().unwrap_or(p)).and_then(|_| std::fs::write(p, serde_json::to_string(&v).unwrap_or_default()));
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Tab {
     Open,
@@ -1033,6 +1068,7 @@ fn filter_and_keys() {
         ..Listed::default()
     };
     let mut l = List::new("-wb".into());
+    l.marked.clear(); // not whatever this repo's dv list has marked
     l.prs = vec![pr(1, "Fix CI", "ann", "2026-03"), pr(22, "Add docs", "bo", "2026-01"), pr(333, "fix fees", "cy", "2026-02")];
     (l.prs[1].draft, l.prs[1].decision, l.prs[1].labels) = (true, "APPROVED".into(), vec![("docs".into(), "0075ca".into())]);
     l.prs[2].checks = Some((3, 1, 0));
@@ -1162,4 +1198,16 @@ fn selected_card_readable() {
     assert_eq!(bottom.width(), 30);
     assert_eq!(bottom.spans.last().unwrap().content, "claude ✓ ");
     assert!(!bottom.spans.iter().rev().nth(2).is_some_and(|s| s.content == " · ")); // no separator left dangling
+}
+
+#[test]
+fn marks_saved() {
+    let dir = std::env::temp_dir().join(format!("dv-marks-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let p = dir.join("sub/marked.json");
+    assert!(read_marks(&p).is_empty()); // none yet
+    write_marks(&p, &HashSet::from([22, 3]));
+    assert_eq!(std::fs::read_to_string(&p).unwrap(), "[3,22]");
+    assert_eq!(read_marks(&p), HashSet::from([3, 22]));
+    _ = std::fs::remove_dir_all(&dir);
 }
