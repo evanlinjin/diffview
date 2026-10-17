@@ -108,6 +108,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Opts> {
             // For `dv list`'s batch reviews: a process of its own, as it changes directory.
             "prepare-worktree" => o.cmd = Some("prepare-worktree"),
             _ if a.starts_with('-') => anyhow::bail!("unknown flag {a}\n{USAGE}"),
+            _ if a.is_empty() => anyhow::bail!("the base can't be empty\n{USAGE}"),
             _ if !a.is_empty() && a.bytes().all(|b| b.is_ascii_digit()) && o.pr.is_some() && o.cmd == Some("replace") => {
                 o.more.push(num(Some(a))?)
             }
@@ -482,6 +483,7 @@ fn args() {
     assert_eq!(p("-p 7").unwrap(), pr(7, false, false, false));
     assert_eq!(p("main").unwrap(), Opts { base: Some("main".into()), ..Opts::default() });
     assert!(p("-wx").is_err());
+    assert!(parse_args(vec![String::new()]).is_err());
     assert_eq!(p("2258 --rm -f").unwrap(), Opts { pr: Some(2258), rm: true, force: true, ..Opts::default() });
     let l = p("list -wbf").unwrap();
     assert!(l.list && l.pr.is_none());
