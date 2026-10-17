@@ -395,6 +395,7 @@ impl App {
                 .arg(&self.root)
                 .args(["--", "env"])
                 .arg(path_env) // the pane gets zellij's environment, not dv's
+                .args(data_env()) // and so the same dv directory as this one, which it watches
                 .args(["claude", &prompt])
                 .args(self.session_args())
                 .args(claude_dirs())
@@ -650,6 +651,13 @@ fn path_for_claude() -> std::ffi::OsString {
 }
 
 /// How long since `t`, for the status bar: "40s", "3m".
+/// `XDG_DATA_HOME=…` if dv has it set: where its review files are.
+fn data_env() -> Option<std::ffi::OsString> {
+    let mut v = std::ffi::OsString::from("XDG_DATA_HOME=");
+    v.push(std::env::var_os("XDG_DATA_HOME")?);
+    Some(v)
+}
+
 pub(super) fn ago(t: std::time::Instant) -> String {
     match t.elapsed().as_secs() {
         s if s < 60 => format!("{s}s"),

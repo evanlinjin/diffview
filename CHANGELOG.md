@@ -36,6 +36,8 @@ on GitHub are its section here.
   or on its branch, as asked), and the base fetch when the PR's base commit is already here.
 
 ### Fixed
+- A long code line in a comment (a suggestion) no longer runs over the right edge of its box.
+- Claude's zellij pane gets dv's `XDG_DATA_HOME`, so it writes its review where dv looks for it.
 - PRs with more than 100 review threads, 100 comments in a thread, or 100 files: dv loads them
   all (it stopped at 100, so later threads were missing and their files' "Viewed" marks too).
 - `gf` right after `w` (which leaves the cursor on the space after the word) goes by the word.
