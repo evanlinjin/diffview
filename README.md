@@ -13,7 +13,7 @@ rust-analyzer, and GitHub review comments.
   like github.com. Comment on selected lines, suggest changes, reply, edit, delete, resolve,
   mark files viewed, and submit reviews.
 
-## Install
+## Installation Guide
 
 ```sh
 cargo install dv-review   # installs the `dv` binary
