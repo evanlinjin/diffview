@@ -531,7 +531,9 @@ impl App {
             if let Some((path, line)) = file_ref(text, self.head.col) {
                 return self.goto_file_line(&path, line);
             }
-            let in_code = self.rows[self.head.row].syn.get(self.head.col) == Some(&Some(self.ui.md.raw));
+            // Code's color (it may be bold too, in bold text or a heading).
+            let raw = self.ui.md.raw.fg;
+            let in_code = raw.is_some() && self.rows[self.head.row].syn.get(self.head.col).is_some_and(|s| s.and_then(|s| s.fg) == raw);
             return match ident_at(text, self.head.col, in_code) {
                 Some(name) => self.goto_definition(&name),
                 None => self.msg = "no link, file:line or name under the cursor".into(),
@@ -595,17 +597,11 @@ impl App {
                 Some(crate::lsp::Loc { path: self.root.join(path), line: line - 1, character })
             })
             .collect();
-        locs.sort_by_key(|l| !self.files.iter().any(|f| self.root.join(&f.path) == l.path));
+        let in_diff: HashSet<PathBuf> = self.files.iter().map(|f| self.root.join(&f.path)).collect();
+        locs.sort_by_key(|l| !in_diff.contains(&l.path));
         locs.truncate(50);
         if locs.is_empty() {
             return self.msg = format!("no definition of {name} found");
-        }
-        // A folded file opens, so the line can show.
-        let folded: Vec<String> = self.collapsed.iter().filter(|p| locs.iter().any(|l| l.path == self.root.join(p))).cloned().collect();
-        if !folded.is_empty() {
-            folded.iter().for_each(|p| _ = self.collapsed.remove(p));
-            let keep = self.cursor_key();
-            self.rebuild(keep);
         }
         self.show_locations(locs);
     }
@@ -721,7 +717,9 @@ impl App {
             let th = &self.threads[t];
             Some((file(&th.path)?, th.line.or(th.original_line).unwrap_or(0), t as i64, c))
         };
-        let mut order: Vec<_> = items.into_iter().filter(|&(t, _)| self.in_view(&self.threads[t])).filter_map(|(t, c)| key(t, c)).collect();
+        // In the Claude / pending view, those in it; if none are, all (going to one leaves it).
+        let any_here = items.iter().any(|&(t, _)| self.in_view(&self.threads[t]));
+        let mut order: Vec<_> = items.into_iter().filter(|&(t, _)| !any_here || self.in_view(&self.threads[t])).filter_map(|(t, c)| key(t, c)).collect();
         if order.is_empty() {
             return self.msg = none.into();
         }
@@ -1020,7 +1018,7 @@ fn file_ref(text: &str, col: usize) -> Option<(String, u32)> {
 }
 
 /// The words a definition starts with, across the usual languages.
-const DEF_WORDS: &str = "fn|struct|enum|trait|type|union|mod|macro_rules!|const|static|impl|def|class|function|func|interface|let|var";
+const DEF_WORDS: &str = "fn|struct|enum|trait|type|union|mod|macro_rules!|const|static|def|class|function|func|interface";
 
 /// The name under char `col` of `text`, if it's code: `in_code` (a `code` span), or a word
 /// with `_`, a capital after its start, or a digit (`next_returns_none`, `parseArgs`), not a

@@ -114,6 +114,16 @@ impl App {
     }
 
     pub(super) fn jump_loc(&mut self, l: &Loc) {
+        // In a diff file that's folded, or outside what the Claude / pending view shows: show it.
+        let rel = l.path.strip_prefix(&self.root).ok().and_then(|p| p.to_str()).map(str::to_owned);
+        if self.loc_row(l).is_none() && rel.as_ref().is_some_and(|p| self.files.iter().any(|f| &f.path == p)) {
+            let p = rel.unwrap_or_default();
+            if self.collapsed.remove(&p) || self.view != View::All {
+                self.view = View::All;
+                let keep = self.cursor_key();
+                self.rebuild(keep);
+            }
+        }
         match self.loc_row(l) {
             Some(r) => {
                 let col = lsp::char_col(&self.rows[r].line.text, l.character);

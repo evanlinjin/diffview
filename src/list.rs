@@ -113,7 +113,6 @@ impl List {
     pub fn new(flags: String) -> List {
         let ui = Theme::load().ui();
         let (query, msg) = (String::new(), String::new());
-        let marked = load_marks();
         List {
             prs: vec![],
             ui,
@@ -137,8 +136,8 @@ impl List {
             reps_changed: None,
             group_rx: None,
             confirm: None,
-            marked: marked.clone(),
-            marked_saved: marked,
+            marked: HashSet::new(),
+            marked_saved: HashSet::new(),
             batch: HashMap::new(),
             batch_rx: None,
             reviewed: HashSet::new(),
@@ -150,6 +149,9 @@ impl List {
 
     /// Show the list until a PR is picked (`Some`) or the user quits (`None`).
     pub fn run(&mut self, term: &mut DefaultTerminal) -> Result<Option<Pick>> {
+        // As saved: another dv list of this repo may have changed them meanwhile.
+        self.marked = load_marks();
+        self.marked_saved = self.marked.clone();
         if self.prs.is_empty() {
             self.refresh(term)?;
             if !self.marked.is_empty() && self.msg.is_empty() {
@@ -428,8 +430,6 @@ impl List {
                 self.checks = Some(rx);
                 self.msg = if prs.is_empty() { "no open PRs".into() } else { String::new() };
                 // Worktrees of PRs that aren't open any more (or beyond the list): fetch those few.
-                // All open PRs are here, unless gh's limit cut the list.
-                let complete = prs.len() < gh::LIST_MAX;
                 let mut gone: Vec<u64> = self.local.keys().filter(|n| !prs.iter().any(|p| p.number == **n)).copied().collect();
                 gone.sort();
                 for n in gone {
@@ -438,9 +438,11 @@ impl List {
                 }
                 self.prs = prs;
                 // Marks on PRs that aren't open any more go.
+                // Ones not listed (closed, or beyond the list) are looked up: only a few are marked.
+                let open = |p: &Listed| p.state == "OPEN" || p.state.is_empty();
                 self.marked.retain(|n| match self.prs.iter().find(|p| p.number == *n) {
-                    Some(p) => p.state == "OPEN" || p.state.is_empty(),
-                    None => !complete,
+                    Some(p) => open(p),
+                    None => gh::listed_one(*n).map_or(true, |p| open(&p)),
                 });
                 self.find_new();
                 self.sel = keep.and_then(|n| self.shown().iter().position(|p| p.number == n)).unwrap_or(0);
@@ -1094,7 +1096,6 @@ fn filter_and_keys() {
         ..Listed::default()
     };
     let mut l = List::new("-wb".into());
-    l.marked.clear(); // not whatever this repo's dv list has marked
     l.prs = vec![pr(1, "Fix CI", "ann", "2026-03"), pr(22, "Add docs", "bo", "2026-01"), pr(333, "fix fees", "cy", "2026-02")];
     (l.prs[1].draft, l.prs[1].decision, l.prs[1].labels) = (true, "APPROVED".into(), vec![("docs".into(), "0075ca".into())]);
     l.prs[2].checks = Some((3, 1, 0));
