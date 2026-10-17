@@ -3,6 +3,12 @@
 All notable changes to dv. Versions follow [semver](https://semver.org); a release's notes
 on GitHub are its section here.
 
+## [Unreleased]
+
+### Fixed
+- `dv list`: a review (or replacement) that failed says why on its card, not just "failed",
+  and that `a a` (`A A`) tries again.
+
 ## [0.4.1] - 2026-10-17
 
 ### Added

@@ -255,7 +255,7 @@ impl List {
         for (id, s) in news {
             match &s {
                 batch::Status::Done(took) => self.msg = format!("Claude drafted a replacement for #{id} ({took}): it's in the replacements tab"),
-                batch::Status::Failed(e) => self.msg = format!("Claude's replacement of #{id}: {e}"),
+                batch::Status::Failed(e) => self.msg = format!("Claude's replacement of #{id} failed: {e} (A A tries again)"),
                 _ => {}
             }
             let done = !s.running();
@@ -270,7 +270,7 @@ impl List {
     /// replaces: "claude ✓" there reads "replacement ✓".
     fn draft_state(&self, id: u64, of: &str) -> Option<(String, bool)> {
         let (what, ok) = match self.drafting.get(&id) {
-            Some(batch::Status::Failed(_)) => ("draft failed", false),
+            Some(batch::Status::Failed(e)) => return Some((format!("{of}: draft failed: {}", cut(e.lines().next().unwrap_or(""), 60)), false)),
             Some(s) if s.running() => ("drafting…", true),
             _ => match self.rep_of.get(&id)? {
                 r if r.published.is_some() => return Some((format!("{of}: published as #{}", r.published.unwrap_or(0)), true)),
@@ -294,7 +294,7 @@ impl List {
                     self.new.insert(n);
                     self.msg = format!("Claude reviewed #{n} ({took}): Enter opens it, in its worktree from the worktrees tab");
                 }
-                batch::Status::Failed(e) => self.msg = format!("Claude's review of #{n}: {e}"),
+                batch::Status::Failed(e) => self.msg = format!("Claude's review of #{n} failed: {e} (a a asks again)"),
                 batch::Status::Reviewing => worktrees = true, // its worktree is ready
                 _ => {}
             }
@@ -764,7 +764,8 @@ impl List {
             Some(batch::Status::Queued) => Some(("claude: queued".into(), true)),
             Some(batch::Status::Preparing) => Some(("claude: checking out…".into(), true)),
             Some(batch::Status::Reviewing) => Some(("claude: reviewing…".into(), true)),
-            Some(batch::Status::Failed(_)) => Some(("claude: failed".into(), false)),
+            // Why, in short (the status bar said it in full): `a a` asks again.
+            Some(batch::Status::Failed(e)) => Some((format!("claude failed: {}", cut(e.lines().next().unwrap_or(""), 60)), false)),
             _ if self.reviewed.contains(&n) => Some(("claude ✓".into(), true)),
             _ => None,
         }
@@ -1017,6 +1018,13 @@ fn filter_and_keys() {
     assert_eq!(l.marked, HashSet::from([1, 333]));
     assert!(k(&mut l, KeyCode::Char('a')).is_none() && l.msg.starts_with("a again: Claude reviews #1 #333"));
     assert!(matches!(k(&mut l, KeyCode::Char('a')), Some(Do::Review(ref p)) if p == &[1, 333]));
+    // A failed review can be asked for again.
+    l.batch.insert(1, batch::Status::Failed("boom".into()));
+    l.marked = HashSet::from([1]);
+    assert!(k(&mut l, KeyCode::Char('a')).is_none() && l.msg.starts_with("a again: Claude reviews #1"), "{}", l.msg);
+    assert!(matches!(k(&mut l, KeyCode::Char('a')), Some(Do::Review(ref p)) if p == &[1]));
+    assert_eq!(l.claude_state(1), Some(("claude failed: boom".into(), false))); // why, on its card
+    (l.marked, l.batch) = (HashSet::new(), HashMap::new());
     // While reviews run, cards say so, and q asks before quitting.
     l.batch.insert(333, batch::Status::Reviewing);
     l.reviewed.insert(1);
