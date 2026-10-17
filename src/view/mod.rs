@@ -483,6 +483,10 @@ pub struct App {
     /// `gw` jump labels: (word start, word end, label), plus the first label char typed.
     labels: Vec<(Pos, Pos, [char; 2])>,
     label_first: Option<char>,
+    /// The background look at GitHub (`start_github_watch`): what it fetched, with `github_gen`
+    /// as it was then (a load since is newer, so that one's dropped).
+    github: Option<std::sync::mpsc::Receiver<(u64, review::Fetched)>>,
+    github_gen: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl App {
@@ -505,6 +509,9 @@ impl App {
         }
         app.pr = pr;
         app.load_threads();
+        if let Some(n) = app.pr.as_ref().map(|p| p.number) {
+            app.start_github_watch(n);
+        }
         if other_skill && app.msg.is_empty() {
             app.msg = "dv's Claude skill has changed since this PR's Claude session began: the next Claude run starts a new one".into();
         }
@@ -625,6 +632,8 @@ impl App {
             alphabet: jump_alphabet(),
             labels: vec![],
             label_first: None,
+            github: None,
+            github_gen: Default::default(),
         };
         app.shape();
         app.build();
@@ -651,6 +660,7 @@ impl App {
             self.lsp_poll();
             self.watch_tree();
             self.watch_claude();
+            self.watch_github();
             self.watch_replacement();
             self.poll_claude();
             if let Some(a) = self.action.take() {

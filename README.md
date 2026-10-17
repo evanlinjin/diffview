@@ -10,8 +10,8 @@ rust-analyzer, and GitHub review comments.
   your Helix theme, `cursorline`, `line-number`, and `jump-label-alphabet`.
 - **rust-analyzer**: `gd` / `gr` / `gy` / `gi` and hover (`Space k`) from the diff.
 - **GitHub**: the PR's description, conversation, checks and review threads inline, rendered
-  like github.com. Comment on selected lines, suggest changes, reply, edit, delete, resolve,
-  mark files viewed, and submit reviews.
+  like github.com, with new comments showing up as they come. Comment on selected lines,
+  suggest changes, reply, edit, delete, resolve, mark files viewed, and submit reviews.
 
 ## Install
 

@@ -31,6 +31,7 @@ pub struct Review {
     pub viewed: std::collections::HashMap<String, String>,
 }
 
+#[derive(Clone)]
 pub struct Thread {
     /// GraphQL node id (for replies and resolving).
     pub id: String,
@@ -308,6 +309,32 @@ pub fn threads(n: u64) -> Result<Review> {
 fn next_page(list: &Value) -> Option<String> {
     let p = &list["pageInfo"];
     (p["hasNextPage"] == true).then(|| p["endCursor"].as_str().map(str::to_owned)).flatten()
+}
+
+/// The PR's ETag, if it has changed from `etag` (empty: the first look); `None` if GitHub says
+/// 304 Not Modified, which doesn't count against the rate limit. New comments, replies, reviews
+/// and pushes change it; edits and resolving a thread don't.
+pub fn pr_etag(n: u64, etag: &str) -> Result<Option<String>> {
+    let path = format!("repos/{{owner}}/{{repo}}/pulls/{n}");
+    let header = format!("If-None-Match: {etag}");
+    let mut args = vec!["api", "-i", &path];
+    if !etag.is_empty() {
+        args.extend(["-H", &header]);
+    }
+    let out = Command::new("gh").args(&args).stdin(Stdio::null()).output().context("running gh")?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    // gh exits 1 on a 304, so the status line decides.
+    if text.lines().next().is_some_and(|l| l.contains(" 304")) {
+        return Ok(None);
+    }
+    if !out.status.success() {
+        bail!("{}", String::from_utf8_lossy(&out.stderr).trim());
+    }
+    let tag = text.lines().take_while(|l| !l.trim().is_empty()).find_map(|l| {
+        let (k, v) = l.split_once(':')?;
+        k.eq_ignore_ascii_case("etag").then(|| v.trim().to_owned())
+    });
+    Ok(Some(tag.unwrap_or_default()))
 }
 
 /// The paging behind `threads`, with the GraphQL call passed in (so tests can fake it):

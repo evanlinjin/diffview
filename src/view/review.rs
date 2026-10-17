@@ -2,6 +2,20 @@
 //! viewed marks, links, and the pending/threads pickers.
 use super::*;
 
+/// How often dv looks at whether the PR changed on GitHub (a 304 costs no rate limit).
+const GITHUB_POLL: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The PR's review threads and its info, as `fetch_github` got them.
+pub(super) type Fetched = (Result<gh::Review>, Result<(Vec<gh::InfoLine>, String, String, String, gh::State)>);
+
+/// Both at once: each is a ~1s GitHub round-trip.
+fn fetch_github(n: u64) -> Fetched {
+    std::thread::scope(|s| {
+        let info = s.spawn(|| gh::info(n));
+        (gh::threads(n), info.join().unwrap_or_else(|_| Err(anyhow!("panicked"))))
+    })
+}
+
 impl App {
     /// The pending review to add to, starting one on the PR head if there isn't one yet (with
     /// your review text so far, as GitHub can't add any later to one started without).
@@ -503,10 +517,56 @@ impl App {
             return self.load_replacement();
         }
         let Some(n) = self.pr.as_ref().map(|p| p.number) else { return };
-        let (threads, info) = std::thread::scope(|s| {
-            let info = s.spawn(|| gh::info(n));
-            (gh::threads(n), info.join())
+        self.github_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.apply_github(fetch_github(n));
+    }
+
+    /// Every few seconds, a look at the PR's ETag (free while nothing has changed); when it changes,
+    /// its threads and info are fetched in the background, for `watch_github` to show.
+    pub(super) fn start_github_watch(&mut self, n: u64) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let loads = self.github_gen.clone();
+        std::thread::spawn(move || {
+            let mut etag = gh::pr_etag(n, "").ok().flatten().unwrap_or_default();
+            loop {
+                std::thread::sleep(GITHUB_POLL);
+                let Ok(Some(e)) = gh::pr_etag(n, &etag) else { continue };
+                etag = e;
+                let at = loads.load(std::sync::atomic::Ordering::SeqCst);
+                if tx.send((at, fetch_github(n))).is_err() {
+                    return; // dv is done
+                }
+            }
         });
+        self.github = Some(rx);
+    }
+
+    /// Shows what the background look at GitHub fetched, once nothing is in the middle of
+    /// something (a picker's or selection's rows would move under it).
+    pub(super) fn watch_github(&mut self) {
+        let busy = self.action.is_some() || self.job.is_some() || self.picker.is_some() || self.prompt.is_some();
+        if busy || self.pending.is_some() || self.select || !self.labels.is_empty() {
+            return;
+        }
+        let Some((at, f)) = self.github.as_ref().and_then(|rx| rx.try_iter().last()) else { return };
+        if at != self.github_gen.load(std::sync::atomic::Ordering::SeqCst) {
+            return; // loaded since: that's newer
+        }
+        let count = |a: &App| a.threads.iter().filter(|t| t.claude.is_none()).map(|t| t.comments.len()).sum::<usize>();
+        let before = count(self);
+        let keep = self.cursor_key();
+        let claude: Vec<Thread> = std::mem::take(&mut self.threads).into_iter().filter(|t| t.claude.is_some()).collect();
+        self.apply_github(f);
+        self.threads.extend(claude);
+        self.shape();
+        self.rebuild(keep);
+        let new = count(self).saturating_sub(before);
+        if new > 0 && self.msg.is_empty() {
+            self.msg = format!("{new} new comment(s) on GitHub");
+        }
+    }
+
+    fn apply_github(&mut self, (threads, info): Fetched) {
         match threads {
             Ok(r) => {
                 self.apply_viewed(r.viewed);
@@ -523,14 +583,13 @@ impl App {
             Err(e) => self.msg = format!("loading comments: {e:#}"),
         }
         match info {
-            Ok(Ok((lines, title, head, url, state))) => {
+            Ok((lines, title, head, url, state)) => {
                 (self.info, self.pr_state) = (lines, Some(state));
                 if let Some(pr) = &mut self.pr {
                     (pr.title, pr.head_oid, pr.url) = (title, head, url);
                 }
             }
-            Ok(Err(e)) => self.msg = format!("loading PR info: {e:#}"),
-            Err(_) => self.msg = "loading PR info panicked".into(),
+            Err(e) => self.msg = format!("loading PR info: {e:#}"),
         }
     }
 

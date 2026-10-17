@@ -1389,3 +1389,41 @@ fn key_hints_match_the_keys() {
     let missing: Vec<_> = hinted.iter().filter(|k| !HELP.contains(k.as_str())).collect();
     assert!(missing.is_empty(), "not in ? help: {missing:?}");
 }
+
+#[test]
+fn github_changes_shown_when_idle() {
+    let mut app = fixture();
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.github = Some(rx);
+    // What GitHub has now: amy's thread got a reply (Claude's thread isn't GitHub's).
+    let gh_threads: Vec<Thread> = app.threads.iter().filter(|t| t.claude.is_none()).cloned().collect();
+    let mut newer = gh_threads.clone();
+    let mut reply = newer[0].comments[0].clone();
+    (reply.id, reply.body) = (99, "Fair.".into());
+    newer[0].comments.push(reply);
+    let fetched = |threads: Vec<Thread>| -> review::Fetched {
+        let r = gh::Review { pr_id: "PR".into(), mine: true, me: "you".into(), pending: None, pending_body: String::new(), threads, viewed: Default::default() };
+        (Ok(r), Ok((app_info(), "Fix the thing".into(), "abc".into(), String::new(), ("OPEN", "238636"))))
+    };
+    let replies = |app: &App| app.threads.iter().flat_map(|t| &t.comments).filter(|c| c.body == "Fair.").count();
+    // Mid-way through something (here a picker): it waits.
+    tx.send((0, fetched(newer.clone()))).unwrap();
+    app.threads_picker();
+    assert!(app.picker.is_some());
+    app.watch_github();
+    assert_eq!(replies(&app), 0);
+    app.picker = None;
+    app.watch_github();
+    assert_eq!(replies(&app), 1);
+    assert!(app.threads.iter().any(|t| t.claude.is_some()), "Claude's thread stays");
+    assert_eq!(app.msg, "1 new comment(s) on GitHub");
+    // Fetched before a load of dv's own (after posting, say): that load is newer, so it's dropped.
+    app.github_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    tx.send((0, fetched(gh_threads))).unwrap();
+    app.watch_github();
+    assert_eq!(replies(&app), 1);
+}
+
+fn app_info() -> Vec<gh::InfoLine> {
+    vec![gh::InfoLine { heading: false, md: false, text: "OPEN @bo · main ← fix".into(), marks: vec![], url: String::new() }]
+}
