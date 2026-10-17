@@ -1478,6 +1478,16 @@ fn github_cache_reads_back() {
 }
 
 #[test]
+fn long_code_cut_at_the_box_edge() {
+    let mut app = fixture();
+    app.threads[1].comments[0].body = format!("```\n{}\n```", "x".repeat(300));
+    app.build();
+    let s = screen(220, 45, |f| app.draw(f));
+    let line = s.lines().find(|l| l.contains("xxx")).unwrap();
+    assert!(line.trim_end().ends_with("x│"), "{line}");
+}
+
+#[test]
 fn pane_kept_between_runs() {
     let ctrl_w = |app: &mut App, c: char| {
         app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));

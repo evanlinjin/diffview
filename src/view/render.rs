@@ -737,7 +737,11 @@ impl App {
         // A context line shows on both sides of a split row; the cursor goes on the current side.
         let this_side = side.is_none() || l.kind != Kind::Ctx || side == Some(self.right);
         let cursor_here = self.head.row == r && this_side;
-        for (i, c) in l.text.chars().enumerate().skip(self.left).take(tw) {
+        // The box's width: as wide as the comment text wraps (+ margin), not the whole screen;
+        // in the comment pane, the pane's width. What doesn't wrap (code) is cut at its edge.
+        let bw = if self.margin_row(r) { tw } else { tw.min(self.wrap_w + 2) };
+        let text_w = if part.is_some() { bw.saturating_sub(1) } else { tw };
+        for (i, c) in l.text.chars().enumerate().skip(self.left).take(text_w) {
             let p = Pos { row: r, col: i };
             let mut st = style;
             if let Some(c) = syn.and_then(|syn| syn.get(i).copied().flatten()) {
@@ -768,10 +772,7 @@ impl App {
         // added/removed lines read as bands. Spans with their own bg (the cursor) keep it.
         let used: usize = spans[g..].iter().map(|s| s.width()).sum();
         if let Some(p) = part {
-            // The box's right side: header rows run a rule to the corner, body rows pad to the
-            // edge. It's as wide as the comment text wraps (+ margin), not the whole screen; in
-            // the comment pane, the pane's width.
-            let bw = if self.margin_row(r) { tw } else { tw.min(self.wrap_w + 2) };
+            // The box's right side: header rows run a rule to the corner, body rows pad to the edge.
             let (fill, lead, corner) = match p {
                 BoxPart::Top => ('─', " ", '╮'),
                 BoxPart::Divider => ('─', " ", '┤'),
