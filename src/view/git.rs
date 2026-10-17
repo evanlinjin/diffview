@@ -5,6 +5,10 @@ use super::*;
 impl App {
     /// Diffing against HEAD: only what isn't committed yet.
     pub(super) fn uncommitted(&self) -> bool {
+        // handle empty base to avoid panic
+        if self.base.len() == 0 {
+            return false;
+        }
         self.base == "HEAD"
     }
 
