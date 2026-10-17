@@ -8,23 +8,23 @@
        │  Looks right; one nit.                                                                    │
        ╰───────────────────────────────────────────────────────────────────────────────────────────╯
  ▾        src/big.rs  +1 −1
-       ╭─ amy · L20 ───────────────────────────────────────────────────────────────────────────────╮
-       │  Why line 20?                                                                             │
-       ├─ you ─────────────────────────────────────────────────────────────────────────────────────┤
-       │  Because.                                                                                 │
-       ╰───────────────────────────────────────────────────────────────────────────────────────────╯
-          ────────────────────────────────────────────────────────────────────────────────── L9–15 ─
-  9   9   line 9
- 10  10   line 10
- 11  11   line 11
- 12     -     let x = old(12);
-     12 +     let x = new_call(12);
-       ╭─ [nit] claude · L12 ─────────────────────────── Claude's comment
-       │  Name it new_value; see src/a.rs:2.             r        reply to Claude
-       ╰──────────────────────────────────────────────── gf       go to a file:line or name in it
- 13  13   line 13                                        c        copy to your review
- 14  14   line 14                                        C        post it now
- 15  15   line 15                                        Space r  resolve
- ▾        src/a.rs  +1 −1                                Space d  dismiss
-          ── fn main ───────────────────────────────────
- NOR   src/big.rs           #7 · 3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)    22/39
+          ─────────────────────────────────────── ╭─ amy · L20 ────────────────────────────────────╮
+  9   9   line 9                                  │  Why line 20?                                  │
+ 10  10   line 10                                 ├─ you ──────────────────────────────────────────┤
+ 11  11   line 11                                 │  Because.                                      │
+ 12     -     let x = old(12);                    ╰────────────────────────────────────────────────╯
+     12◆+     let x = new_call(12);               ╭─ claude · L12 ─────────────────────────────────╮
+ 13  13   line 13                                 │  [nit]                                         │
+ 14  14   line 14                                 │  Name it new_value; see src/a.rs:2.            │
+ 15  15   line 15                                 ╰────────────────────────────────────────────────╯
+ ▾        src/a.rs  +1 −1
+          ── fn main ──────────────────────────────────────────────────────────────────────── L1–3 ─
+ Claude's comment                                  ▸ amy · L1 · 1 comment
+ r        reply to Claude                          ┃ [resolved]
+ gf       go to a file:line or name in it         ╭─ you · L2 ─────────────────────────────────────╮
+ c        copy to your review                     │  [pending]                                     │
+ C        post it now                             │  Pass y here.                                  │
+ Space r  resolve                                 ╰────────────────────────────────────────────────╯
+ Space d  dismiss                           0
+
+ NOR   src/big.rs           #7 · 3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)    22/42

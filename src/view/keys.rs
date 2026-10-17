@@ -239,7 +239,11 @@ impl App {
             '[' => ("previous", &[("g", "change (hunk)"), ("f", "file"), ("c", "comment thread"), ("a", "Claude's comment"), ("p", "pending comment"), ("n", "new comment")]),
             CTRL_W => ("window", &[
                 ("v", "toggle split view"),
-                ("c", "comments in the margin / inline"),
+                ("c", "show / hide the comments pane"),
+                ("f", "comments pane: a column / floating over the code"),
+                ("<", "narrower comments pane"),
+                (">", "wider comments pane"),
+                ("=", "comments pane at its usual width"),
                 ("a", "Claude view: just Claude's review"),
                 ("p", "pending view: just your pending review"),
                 ("h", "old side / back to the code"),
@@ -294,13 +298,35 @@ impl App {
             (CTRL_W, 'a') => self.toggle_view(View::Claude),
             (CTRL_W, 'p') => self.toggle_view(View::Pending),
             (CTRL_W, 'c') => {
-                self.margin_pref = !self.margin_pref;
-                self.msg = match self.margin_pref {
-                    true => "comments in the right margin (when the window is wide enough)",
-                    false => "comments inline",
+                let show = !self.margin_active;
+                self.margin_pref = Some(show);
+                if !show && self.margin_side() {
+                    // Off the comment, onto what it's beside (it'd show it again).
+                    let r = (0..self.head.row).rev().find(|&r| !self.in_margin(r)).unwrap_or(0);
+                    self.goto(r, 0);
+                }
+                self.msg = match show {
+                    true => "comments shown (Ctrl-w c hides them)",
+                    false => "comments hidden: their lines are marked in the gutter (Ctrl-w c shows them)",
                 }
                 .into();
             }
+            (CTRL_W, 'f') => {
+                let float = !self.margin_float;
+                self.margin_float_pref = Some(float);
+                self.margin_pref = Some(true);
+                self.msg = match float {
+                    true => "comments pane floating over the code (Ctrl-w f: a column beside it)",
+                    false => "comments pane as a column beside the code (Ctrl-w f: floating over it)",
+                }
+                .into();
+            }
+            (CTRL_W, '<') | (CTRL_W, '>') => {
+                let w = self.margin_w as isize + if c == '>' { MARGIN_STEP } else { -MARGIN_STEP };
+                self.margin_w_pref = Some(w.max(MARGIN_NARROW as isize) as usize);
+                self.margin_pref = Some(true);
+            }
+            (CTRL_W, '=') => self.margin_w_pref = None,
             (CTRL_W, 'h') => self.side(false),
             (CTRL_W, 'l') => self.side(true),
             (']', 'f') => self.next_kind(true, file),

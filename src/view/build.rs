@@ -148,7 +148,8 @@ impl App {
                 // Margin mode: the conversation (and Claude's summary) sits beside the description,
                 // whole comments while there's description beside them, wrapped to the margin;
                 // the rest follows full width, as without the margin.
-                let margin = self.margin_active && !self.split;
+                // (Floating, it'd cover the description: the conversation goes below it.)
+                let margin = self.margin_active && !self.split && !self.margin_float;
                 let mut desc_from = None; // where the description's rows start, while in it
                 let mut beside: Option<(usize, usize)> = None; // (description's rows, used beside it)
                 let mut aside = false;

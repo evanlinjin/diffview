@@ -189,30 +189,53 @@ impl App {
         let relw = if self.settings.relative { 4 } else { 0 };
         let width = (area.width as usize).saturating_sub(relw);
         let tw = width.saturating_sub(gw).max(1);
-        // Split halves: one line-number column each, a 1-col divider between.
-        let half = width.saturating_sub(1) / 2;
         let ghw = lw + 3;
-        let (htw_l, htw_r) = (half.saturating_sub(ghw).max(1), width.saturating_sub(1 + half).saturating_sub(ghw).max(1));
-        // Comments in the right margin when there's room for it beside enough code.
-        // The margin: about a third of the window (60–80 columns), or all that's beyond 200 for
-        // the code side (gutter included), beside at least 80 columns of code.
-        let mw = (width / 3).clamp(MARGIN_MIN, MARGIN_MAX).max(width.saturating_sub(1 + MARGIN_CODE_MAX));
-        let margin = self.margin_pref && !self.split && width >= gw + MARGIN_CODE_MIN + 1 + mw;
-        let (ctw, mtw) = (width.saturating_sub(gw + 1 + mw).max(1), mw - 3);
+        // Comments in the right margin. It's about a third of the window (60–80 columns), or
+        // all that's beyond 200 for the code (gutter included). Shown unless hidden (`Ctrl-w c`)
+        // when there's room beside it for at least 80 columns of code (70 each side, in split
+        // view); in a narrower window it's hidden unless shown (then it takes half the window,
+        // floating over the code), except in the Claude and pending views, which are about the
+        // comments. The cursor on a comment (gone to with `]c`, say) shows it.
+        let mut mw = (width / 3).clamp(MARGIN_MIN, MARGIN_MAX).max(width.saturating_sub(1 + MARGIN_CODE_MAX));
+        let room = match self.split {
+            true => width >= 2 * (ghw + MARGIN_SPLIT_MIN) + 1 + 1 + mw,
+            false => width >= gw + MARGIN_CODE_MIN + 1 + mw,
+        };
+        if !room {
+            mw = (width / 2).clamp(MARGIN_NARROW, MARGIN_MIN);
+        }
+        // As set (`Ctrl-w <` / `>`), leaving some code beside it.
+        mw = self.margin_w_pref.unwrap_or(mw).min(width.saturating_sub(gw + 20)).max(MARGIN_NARROW);
+        let mut shown = self.margin_pref.unwrap_or(room || self.view != View::All);
+        if !shown && self.in_margin(self.head.row) {
+            (self.margin_pref, shown) = (Some(true), true);
+        }
+        let margin = shown && width > mw + gw + 10;
+        let float = margin && self.margin_float_pref.unwrap_or(!room);
+        let mtw = mw - 3;
+        // The code's columns: the whole width, or what's left of the margin beside it; split
+        // view's halves (one line-number column each, a 1-col divider between) within that.
+        let code_w = if margin && !float { width.saturating_sub(1 + mw) } else { width };
+        let ctw = code_w.saturating_sub(gw).max(1);
+        let half = code_w.saturating_sub(1) / 2;
+        let (htw_l, htw_r) = (half.saturating_sub(ghw).max(1), code_w.saturating_sub(1 + half).saturating_sub(ghw).max(1));
         // PR text wraps to the code column's width (narrower beside the margin).
         let ww = if margin { ctw } else { tw }.saturating_sub(1).clamp(40, 100);
-        if ww != self.wrap_w || margin != self.margin_active || (margin && mw != self.margin_w) {
-            (self.wrap_w, self.margin_active, self.margin_w) = (ww, margin, mw);
+        if ww != self.wrap_w || margin != self.margin_active || (margin && mw != self.margin_w) || float != self.margin_float {
+            (self.wrap_w, self.margin_active, self.margin_w, self.margin_float) = (ww, margin, mw, float);
             let keep = self.cursor_key();
             self.rebuild(keep);
         }
-        self.geom = mouse::Geom { relw, gw, ghw, half, ctw, picker: None };
+        // Where the margin starts (floating: over the code's right end).
+        let mx = width.saturating_sub(mw).saturating_sub(gw + 1);
+        self.geom = mouse::Geom { relw, gw, ghw, half, ctw: if float { mx } else { ctw }, picker: None };
         if self.head.col < self.left {
             self.left = self.head.col;
         }
         let cur_w = match self.drows[self.hd()] {
             DRow::Pair(..) => htw_l.min(htw_r),
             DRow::Margin(..) if self.margin_side() => mtw,
+            DRow::Margin(Some(_), Some(_), _) => htw_l.min(htw_r),
             DRow::Margin(..) => ctw,
             DRow::Full(_) => tw,
         };
@@ -244,6 +267,17 @@ impl App {
         let divider = Span::styled("│", self.ui.linenr);
         let hd = self.hd();
         let lit_code = self.lit_code();
+        let pair = |l: Option<usize>, rr: Option<usize>, cur: bool| {
+            let half = |row: Option<usize>, right: bool, w: usize| match row {
+                Some(row) => self.render_row(row, s, e, (lw, ghw, w), Some(right), cur, &overlay),
+                // Like delta: a quiet hatch where the other side has no line.
+                None => vec![Span::styled("╱".repeat(ghw + w), self.ui.linenr)],
+            };
+            let mut spans = half(l, false, htw_l);
+            spans.push(divider.clone());
+            spans.extend(half(rr, true, htw_r));
+            spans
+        };
         let lines: Vec<Line> = (self.top..(self.top + h).min(self.drows.len()))
             .map(|d| {
                 let cur = d == hd;
@@ -255,29 +289,29 @@ impl App {
                 let mut spans = rel;
                 match self.drows[d] {
                     DRow::Full(r) => spans.extend(self.render_row(r, s, e, (lw, gw, tw), None, cur, &overlay)),
-                    DRow::Pair(l, rr) => {
-                        let half = |row: Option<usize>, right: bool, w: usize| match row {
-                            Some(row) => self.render_row(row, s, e, (lw, ghw, w), Some(right), cur, &overlay),
-                            // Like delta: a quiet hatch where the other side has no line.
-                            None => vec![Span::styled("╱".repeat(ghw + w), self.ui.linenr)],
+                    DRow::Pair(l, rr) => spans.extend(pair(l, rr, cur)),
+                    DRow::Margin(l, rr, comment) => {
+                        // Code on the left (blank on a spacer row), a gap, then the comment
+                        // column; floating, the code runs full width under it, and is covered
+                        // only where there's a comment.
+                        let lit = |r: usize| cur || lit_code.is_some_and(|(a, b)| (a..=b).contains(&r));
+                        let diff_line = |r: usize| matches!(self.rows[r].line.kind, Kind::Ctx | Kind::Add | Kind::Del);
+                        let cw = if float { tw } else { ctw };
+                        let code = match (l, rr) {
+                            (None, None) => vec![],
+                            (l, rr) if self.split && l.or(rr).is_some_and(diff_line) => pair(l, rr, l.or(rr).is_some_and(lit)),
+                            (Some(r), _) | (None, Some(r)) => self.render_row(r, s, e, (lw, gw, cw), None, lit(r), &overlay),
                         };
-                        spans.extend(half(l, false, htw_l));
-                        spans.push(divider.clone());
-                        spans.extend(half(rr, true, htw_r));
-                    }
-                    DRow::Margin(code, comment) => {
-                        // Code on the left (blank on a spacer row), a gap, then the comment column.
-                        match code {
-                            Some(r) => {
-                                let lit = lit_code.is_some_and(|(a, b)| (a..=b).contains(&r));
-                                spans.extend(self.render_row(r, s, e, (lw, gw, ctw), None, cur || lit, &overlay))
+                        match (comment, float) {
+                            (None, true) => spans.extend(code),
+                            (c, _) => {
+                                spans.extend(clip(code, gw + mx));
+                                spans.push(Span::raw(" "));
+                                match c {
+                                    Some(r) => spans.extend(clip(self.render_row(r, s, e, (lw, 3, mtw), None, cur, &overlay), mw)),
+                                    None => spans.push(Span::raw(" ".repeat(mw))),
+                                }
                             }
-                            None => spans.push(Span::raw(" ".repeat(gw + ctw))),
-                        }
-                        spans.push(Span::raw(" "));
-                        match comment {
-                            Some(r) => spans.extend(self.render_row(r, s, e, (lw, 3, mtw), None, cur, &overlay)),
-                            None => spans.push(Span::raw(" ".repeat(mw))),
                         }
                     }
                 }
@@ -293,7 +327,14 @@ impl App {
         if let (Some(url), None, None, false) = (self.link_at_cursor(), &self.picker, &self.popup, header) {
             let y = (hd - self.top) as u16;
             // In the margin, the text starts after the code column, the gap and its own gutter.
-            let start = if self.margin_side() && matches!(self.drows[hd], DRow::Margin(..)) { relw + gw + ctw + 1 + 3 } else { relw + gw };
+            let start = match self.drows[hd] {
+                DRow::Margin(..) if self.margin_side() => relw + self.geom.gw + self.geom.ctw + 1 + 3,
+                DRow::Pair(..) | DRow::Margin(Some(_), Some(_), _) if self.right => relw + half + 1 + ghw,
+                DRow::Pair(..) => relw + ghw,
+                DRow::Margin(Some(l), None, _) if self.split && self.rows[l].line.kind == Kind::Del => relw + ghw,
+                DRow::Margin(None, Some(_), _) if self.split => relw + half + 1 + ghw,
+                _ => relw + gw,
+            };
             let x = ((start + self.head.col.saturating_sub(self.left)) as u16).min(area.width.saturating_sub(20));
             let preview = if gh::issue_ref(url).is_some() { "Space k preview · " } else { "" };
             let text = format!(" ↗ {url}  {preview}gf open ");
@@ -522,6 +563,19 @@ impl App {
         Some(spans)
     }
 
+    /// The gutter mark for code row `r` when comments are about it: `◆` Claude's, `●` others',
+    /// `○` when all of them are resolved or outdated.
+    fn comment_mark(&self, r: usize) -> Option<(char, Style)> {
+        let ts: Vec<&Thread> = self.margin_anchor.iter().filter(|&(_, &c)| c == r).map(|(&t, _)| &self.threads[t]).collect();
+        let open: Vec<&&Thread> = ts.iter().filter(|t| !t.stale()).collect();
+        match (ts.is_empty(), open.iter().any(|t| t.claude.is_none()), open.is_empty()) {
+            (true, ..) => None,
+            (_, _, true) => Some(('○', self.ui.stale)),
+            (_, true, _) => Some(('●', self.ui.thread)),
+            _ => Some(('◆', self.ui.thread)),
+        }
+    }
+
     /// One row's spans, padded to the gutter + `tw` width. `side`: None = full width, else
     /// Some(false/true) = the old/new half of a split row (one line number, not two).
     #[allow(clippy::too_many_arguments)]
@@ -621,7 +675,17 @@ impl App {
                 self.hl_cache.get(&k)?.get(n as usize - 1)
             }),
         };
-        let mut spans = vec![Span::styled(gutter, gstyle)];
+        // A line with comments on it: marked in the gutter (between its number and its +/−).
+        let mark = matches!(l.kind, Kind::Ctx | Kind::Add | Kind::Del).then(|| self.comment_mark(r)).flatten();
+        let mut spans = match mark {
+            Some((c, st)) => {
+                let at = gutter.chars().count().saturating_sub(3);
+                let (a, b): (String, String) = (gutter.chars().take(at).collect(), gutter.chars().skip(at + 1).collect());
+                vec![Span::styled(a, gstyle), Span::styled(c.to_string(), gstyle.patch(st)), Span::styled(b, gstyle)]
+            }
+            None => vec![Span::styled(gutter, gstyle)],
+        };
+        let g = spans.len(); // the gutter's spans; the text's follow
         let mut n = 0;
         // A context line shows on both sides of a split row; the cursor goes on the current side.
         let this_side = side.is_none() || l.kind != Kind::Ctx || side == Some(self.right);
@@ -655,11 +719,12 @@ impl App {
         }
         // Pad to the full width (so split halves line up), and tint the whole row, so
         // added/removed lines read as bands. Spans with their own bg (the cursor) keep it.
-        let used: usize = spans[1..].iter().map(|s| s.width()).sum();
+        let used: usize = spans[g..].iter().map(|s| s.width()).sum();
         if let Some(p) = part {
             // The box's right side: header rows run a rule to the corner, body rows pad to the
-            // edge. It's as wide as the comment text wraps (+ margin), not the whole screen.
-            let bw = tw.min(self.wrap_w + 2);
+            // edge. It's as wide as the comment text wraps (+ margin), not the whole screen; in
+            // the comment pane, the pane's width.
+            let bw = if self.margin_row(r) { tw } else { tw.min(self.wrap_w + 2) };
             let (fill, lead, corner) = match p {
                 BoxPart::Top => ('─', " ", '╮'),
                 BoxPart::Divider => ('─', " ", '┤'),
@@ -677,7 +742,7 @@ impl App {
             }
             let border = edge.bg(ui.base.bg.unwrap_or(Color::Reset));
             spans.push(Span::styled(corner.to_string(), border));
-            let used: usize = spans[1..].iter().map(|s| s.width()).sum();
+            let used: usize = spans[g..].iter().map(|s| s.width()).sum();
             spans.push(Span::raw(" ".repeat(tw.saturating_sub(used))));
             return spans;
         }
@@ -728,4 +793,30 @@ fn fit(line: Line<'static>, w: usize) -> Line<'static> {
     }
     spans.push(Span::raw("…"));
     Line::from(spans)
+}
+
+/// `spans` cut to `w` columns, padded to them if shorter.
+fn clip(spans: Vec<Span<'static>>, w: usize) -> Vec<Span<'static>> {
+    let mut out = vec![];
+    let mut used = 0;
+    for sp in spans {
+        let sw = sp.width();
+        if used + sw <= w {
+            used += sw;
+            out.push(sp);
+            continue;
+        }
+        let mut text = String::new();
+        for c in sp.content.chars() {
+            let cw = Span::raw(c.to_string()).width();
+            if used + cw > w {
+                break;
+            }
+            (used, _) = (used + cw, text.push(c));
+        }
+        out.push(Span::styled(text, sp.style));
+        break;
+    }
+    out.push(Span::raw(" ".repeat(w - used)));
+    out
 }

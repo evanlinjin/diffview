@@ -16,6 +16,12 @@ on GitHub are its section here.
   at once, while it fetches them afresh; anything that changes GitHub waits for that.
 
 ### Changed
+- Comments are never inline any more: they're in the pane on the right, beside their lines, in
+  split view too. It's shown when the window has room for it, else hidden, with the lines that
+  have comments marked in the gutter (`●`, `◆` Claude's, `○` resolved); `Ctrl-w c` shows or
+  hides it, and going to a comment shows it. `Ctrl-w f` has it float over the code (covering
+  it only where there are comments) rather than beside it, as it does in a narrow window, and
+  `Ctrl-w <` / `>` resize it (`Ctrl-w =`: back to its usual width).
 - Opening a PR skips `gh pr checkout` when the checkout is already at the PR's head (detached,
   or on its branch, as asked), and the base fetch when the PR's base commit is already here.
 

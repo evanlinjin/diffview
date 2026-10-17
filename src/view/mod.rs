@@ -76,7 +76,9 @@ VIEW
   Shift-Tab            fold / unfold all files
   Ctrl-w v             toggle split (side-by-side) view
   Ctrl-w h  Ctrl-w l   split view: old / new side; margin: code / comments (or Ctrl-h Ctrl-l)
-  Ctrl-w c             comments in the right margin (wide windows) / inline
+  Ctrl-w c             show / hide the comments pane (hidden: ● marks their lines)
+  Ctrl-w f             comments pane: a column beside the code / floating over it
+  Ctrl-w <  Ctrl-w >   comments pane narrower / wider (Ctrl-w = its usual width)
   Ctrl-w a             Claude view: only Claude's review and the code it's about
   Ctrl-w p             pending view: only your pending review and the code it's about
   Enter                open hx at cursor (on a link: open it)
@@ -197,20 +199,26 @@ pub(super) enum BoxPart {
 }
 
 /// A screen row: full width, a side-by-side pair (old line, new line) in split view, or code
-/// with a comment row beside it in the right margin.
+/// (one row, or a pair in split view) with a comment row beside it in the right margin.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum DRow {
     Full(usize),
     Pair(Option<usize>, Option<usize>),
-    /// (code row, comment row in the margin); a code-less one is a spacer, where a file's
-    /// comments need more room than its code has.
-    Margin(Option<usize>, Option<usize>),
+    /// (code row or old side, new side in split view, comment row in the margin); a code-less
+    /// one is a spacer, where a file's comments need more room than its code has.
+    Margin(Option<usize>, Option<usize>, Option<usize>),
 }
 
 /// The comment margin's width: about a third of the window, within these bounds, or everything
 /// beyond the code side's most (it doesn't read better any wider); and the least code text
 /// width beside it (narrower windows show comments inline).
 const MARGIN_MIN: usize = 60;
+/// The least code text width beside it for each side of split view.
+const MARGIN_SPLIT_MIN: usize = 70;
+/// How much `Ctrl-w <` / `>` change its width by.
+const MARGIN_STEP: isize = 6;
+/// The least it takes in a narrow window, when it's shown there.
+const MARGIN_NARROW: usize = 36;
 const MARGIN_MAX: usize = 80;
 const MARGIN_CODE_MIN: usize = 80;
 const MARGIN_CODE_MAX: usize = 200;
@@ -411,11 +419,18 @@ pub struct App {
     /// Side-by-side view; `right` is which side the cursor prefers on lines shown on both.
     split: bool,
     right: bool,
-    /// Comments in the right margin when the window is wide enough (`Ctrl-w c` toggles).
-    margin_pref: bool,
+    /// Comments in the right margin: shown or hidden by `Ctrl-w c`; until then (`None`), shown
+    /// when the window is wide enough for it.
+    margin_pref: Option<bool>,
     /// The layout has them there now (set by `draw` from the width), and the margin's width.
     margin_active: bool,
     margin_w: usize,
+    /// Its width (`Ctrl-w <` / `>`) and whether it floats over the code rather than beside it
+    /// (`Ctrl-w f`), as set; until then (`None`), from the window (narrow ones: floating).
+    margin_w_pref: Option<usize>,
+    margin_float_pref: Option<bool>,
+    /// It floats now (set by `draw`).
+    margin_float: bool,
     /// In margin mode: each thread's code line (the one it's about), as laid out.
     margin_anchor: HashMap<usize, usize>,
     /// Where things were drawn last, for mouse clicks.
@@ -596,9 +611,12 @@ impl App {
             viewed: HashMap::new(),
             split: false,
             right: true,
-            margin_pref: true,
+            margin_pref: None,
             margin_active: false,
             margin_w: MARGIN_MIN,
+            margin_w_pref: None,
+            margin_float_pref: None,
+            margin_float: false,
             margin_anchor: HashMap::new(),
             geom: Default::default(),
             drows: vec![],
@@ -966,7 +984,8 @@ impl App {
         for d in &self.drows[self.top.min(self.drows.len())..(self.top + self.height).min(self.drows.len())] {
             match *d {
                 DRow::Full(r) => out.push(r),
-                DRow::Pair(l, r) | DRow::Margin(l, r) => out.extend(l.into_iter().chain(r.filter(|&r| Some(r) != l))),
+                DRow::Pair(l, r) => out.extend(l.into_iter().chain(r.filter(|&r| Some(r) != l))),
+                DRow::Margin(l, r, c) => out.extend(l.into_iter().chain(r.filter(|&r| Some(r) != l)).chain(c)),
             }
         }
         out

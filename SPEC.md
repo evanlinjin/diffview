@@ -21,8 +21,8 @@ disk: rust-analyzer can index it and `hx` can open it.
 2. **rust-analyzer**: JSON-RPC over stdio. `gd gr gy gi`, `Space k` on the
    symbol under the cursor (new-side lines only). Results go into a picker; jump
    within the diff, or open hx if the location is outside it.
-3. **PR comments**: `gh api .../pulls/N/comments`, threaded inline under their
-   lines. A new comment attaches to the **selected lines** (GitHub multi-line
+3. **PR comments**: `gh api .../pulls/N/comments`, in the comment pane on the right
+   beside their lines (never inline: hidden, the lines are marked in the gutter). A new comment attaches to the **selected lines** (GitHub multi-line
    comment: `start_line`/`line` + sides; the selection must sit within one file).
    The comment body is written in `$EDITOR` and posted via `gh api`. Threads load via
    GraphQL (resolved/outdated state included); resolved threads start folded, outdated
@@ -157,7 +157,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `+`/`=`, `-`, `Z` | context ±10 lines around the hunk under the cursor (hunks merge as they meet), whole file |
 | `Tab` | collapse/expand file; on a comment, fold/unfold its thread |
 | `Shift-Tab` | fold all files, or unfold all if all are folded |
-| `Ctrl-w c` | comments in the right margin (default when the window fits 80 code columns + the margin, a third of the window, 60–80 columns, or all beyond a 200-column code side; single-pane view; thread tags on their own line there), and the PR conversation beside the description (the comments that fit beside it; the rest full width below) / inline |
+| `Ctrl-w c` | show / hide the comment pane on the right: comments beside their lines, in unified and split view (thread tags on their own line there), and in unified view the PR conversation beside the description (the comments that fit beside it; the rest full width below). Shown by default when the window fits 80 code columns (70 each side in split view) + the pane (a third of the window, 60–80 columns, or all beyond a 200-column code side); otherwise hidden (except in the Claude and pending views), and shown it takes half the window, floating over the code: covering its right end only on rows with a comment, the conversation below the description. `Ctrl-w f` switches column / floating, `Ctrl-w <` / `>` resize it by 6 columns, `Ctrl-w =` its usual width. Hidden, a line with comments has `●` in its gutter (`◆` Claude's, `○` all resolved or outdated); moving onto a comment (`]c`, a picker) shows the pane |
 | `Ctrl-w v` | toggle split view: old ‖ new side by side (removed runs pair with the added lines after them) |
 | `Ctrl-w h` `Ctrl-w l` (or `Ctrl-h` `Ctrl-l`) | split view: move to the old / new side |
 | `Enter` | open `hx file:line:col` (inside zellij: in a pane on the right, reused for the next file while it is open; dv stays usable); dv reloads whenever the working tree changes; on a link, open the link |

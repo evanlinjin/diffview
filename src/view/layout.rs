@@ -4,45 +4,179 @@
 use super::*;
 
 impl App {
-    /// Map rows to screen rows. In split view, each run of removed lines pairs with the added
-    /// lines that follow it; unchanged lines show on both sides; everything else is full width.
+    /// Map rows to screen rows. Code runs down the left: one column, or in split view two,
+    /// where each run of removed lines pairs with the added lines that follow it and unchanged
+    /// lines show on both sides. Comments on files go in the margin on the right, each box
+    /// beside its line (or just below the box before it, if that's still running there); code
+    /// only gets spacer rows when a file's comments need more room than its code has (they
+    /// never spill into the next file). With the margin hidden they aren't shown, and the lines
+    /// they're on have a mark in the gutter.
     pub(super) fn layout(&mut self) {
-        if self.margin_active && !self.split {
-            return self.layout_margin();
-        }
         let n = self.rows.len();
         let kind = |i: usize| self.rows[i].line.kind;
-        let mut d = vec![];
+        // Code that a comment can sit beside: a diff line, a hunk header, or (beside the
+        // conversation) the description.
+        let code = |i: usize| {
+            let row = &self.rows[i];
+            (matches!(row.line.kind, Kind::Ctx | Kind::Add | Kind::Del | Kind::Hunk) && row.file != INFO) || row.lead
+        };
+        let margin = |i: usize| self.in_margin(i);
+        // The main column's rows (full width, or code: one row, or in split view a pair), each
+        // with the comment rows that follow its rows; and the code row each thread is about.
+        let mut units: Vec<(DRow, Vec<usize>)> = vec![];
+        let mut unit_of = vec![usize::MAX; n];
+        let mut anchors = HashMap::new();
+        let mut last: Option<usize> = None; // the last row in the main column, and the last code row
+        let mut last_code: Option<usize> = None;
         let mut i = 0;
         while i < n {
+            if margin(i) {
+                let first = i == 0 || self.rows[i - 1].thread != self.rows[i].thread;
+                if let (true, Some(t), Some(c)) = (first, self.rows[i].thread, last_code) {
+                    anchors.insert(t, c);
+                }
+                match last {
+                    Some(r) => units[unit_of[r]].1.push(i),
+                    None => units.push((DRow::Margin(None, None, None), vec![i])),
+                }
+                i += 1;
+                continue;
+            }
+            let mut push = |u: DRow, rows: &[usize], units: &mut Vec<(DRow, Vec<usize>)>| {
+                rows.iter().for_each(|&r| unit_of[r] = units.len());
+                units.push((u, vec![]));
+            };
             match kind(i) {
-                _ if !self.split => d.push(DRow::Full(i)),
-                Kind::Ctx => d.push(DRow::Pair(Some(i), Some(i))),
-                Kind::Del | Kind::Add => {
-                    let dels = (i..n).take_while(|&j| kind(j) == Kind::Del).count();
-                    let adds = (i + dels..n).take_while(|&j| kind(j) == Kind::Add).count();
-                    for k in 0..dels.max(adds) {
-                        d.push(DRow::Pair((k < dels).then_some(i + k), (k < adds).then_some(i + dels + k)));
+                Kind::Del | Kind::Add if self.split => {
+                    // The run, its comments aside: the k-th removed line beside the k-th added.
+                    let run: Vec<usize> = (i..n).take_while(|&j| margin(j) || matches!(kind(j), Kind::Del | Kind::Add)).collect();
+                    let dels: Vec<usize> = run.iter().copied().take_while(|&j| margin(j) || kind(j) == Kind::Del).filter(|&j| !margin(j)).collect();
+                    let rest = run.iter().copied().skip_while(|&j| margin(j) || kind(j) == Kind::Del);
+                    let adds: Vec<usize> = rest.take_while(|&j| margin(j) || kind(j) == Kind::Add).filter(|&j| !margin(j)).collect();
+                    let end = adds.last().or(dels.last()).copied().unwrap_or(i);
+                    for k in 0..dels.len().max(adds.len()) {
+                        let (l, r) = (dels.get(k).copied(), adds.get(k).copied());
+                        let rows: Vec<usize> = l.into_iter().chain(r).collect();
+                        push(DRow::Pair(l, r), &rows, &mut units);
                     }
-                    i += dels + adds;
+                    // Its comments go with the line before them.
+                    for j in i..=end {
+                        if margin(j) {
+                            let before = (i..j).rev().find(|&b| !margin(b));
+                            let first = self.rows[j - 1].thread != self.rows[j].thread;
+                            if let (true, Some(t), Some(b)) = (first, self.rows[j].thread, before) {
+                                anchors.insert(t, b);
+                            }
+                            match before {
+                                Some(b) => units[unit_of[b]].1.push(j),
+                                None => units.last_mut().expect("a unit before").1.push(j),
+                            }
+                        } else {
+                            last_code = Some(j);
+                        }
+                    }
+                    last = Some(end);
+                    i = end + 1;
                     continue;
                 }
-                _ => d.push(DRow::Full(i)),
+                Kind::Ctx if self.split => push(DRow::Pair(Some(i), Some(i)), &[i], &mut units),
+                _ => push(DRow::Full(i), &[i], &mut units),
             }
+            if code(i) {
+                last_code = Some(i);
+            }
+            last = Some(i);
             i += 1;
         }
+        self.margin_anchor = anchors;
+        let mut d: Vec<DRow> = vec![];
+        if !self.margin_active {
+            for (u, _) in units {
+                if u != DRow::Margin(None, None, None) {
+                    d.push(u);
+                }
+            }
+            return self.set_drows(d);
+        }
+        // The margin: comments wait in `pending` for a free row beside code.
+        let mut pending: std::collections::VecDeque<usize> = Default::default();
+        let mut free = 0; // the first screen row whose margin is free
+        let mut desc_first = None; // the description's first screen row: the conversation's top
+        let flush = |d: &mut Vec<DRow>, pending: &mut std::collections::VecDeque<usize>| {
+            d.extend(pending.drain(..).map(|c| DRow::Margin(None, None, Some(c))));
+        };
+        for (u, comments) in units {
+            let (l, r) = match u {
+                DRow::Full(r) if code(r) => (Some(r), None),
+                DRow::Pair(l, r) => (l, r),
+                DRow::Margin(..) => (None, None),
+                DRow::Full(r) => {
+                    // File headers and the PR section are full width: comments still waiting
+                    // get spacer rows first, so they stay with their file.
+                    flush(&mut d, &mut pending);
+                    d.push(DRow::Full(r));
+                    free = d.len();
+                    (None, None)
+                }
+            };
+            if l.is_some() || r.is_some() {
+                if l.is_some_and(|l| self.rows[l].lead) && desc_first.is_none() {
+                    desc_first = Some(d.len());
+                }
+                let c = pending.pop_front();
+                d.push(DRow::Margin(l, r, c));
+                if c.is_some() {
+                    free = d.len();
+                }
+            }
+            for i in comments {
+                let row = &self.rows[i];
+                let first = i == 0 || self.rows[i - 1].thread != row.thread || (row.aside && !self.rows[i - 1].aside);
+                // A box starts beside its line (the row just laid out) when that's free; the
+                // conversation, beside the top of the description.
+                let at = match (first, row.aside) {
+                    (true, true) => desc_first.unwrap_or(d.len()).max(free),
+                    (true, false) => d.len().saturating_sub(1).max(free),
+                    (false, _) => free,
+                };
+                match d.get(at) {
+                    Some(&DRow::Margin(l, r, None)) if pending.is_empty() && (l.is_some() || r.is_some()) => {
+                        d[at] = DRow::Margin(l, r, Some(i));
+                        free = at + 1;
+                    }
+                    _ => pending.push_back(i),
+                }
+            }
+        }
+        flush(&mut d, &mut pending);
         self.set_drows(d);
     }
 
+    /// Screen rows, and each row's screen row (a hidden comment's: the line it's on).
     pub(super) fn set_drows(&mut self, d: Vec<DRow>) {
-        let mut d_of = vec![0; self.rows.len()];
+        let mut d_of = vec![usize::MAX; self.rows.len()];
         for (di, dr) in d.iter().enumerate() {
             match *dr {
                 DRow::Full(r) => d_of[r] = di,
-                DRow::Pair(l, r) | DRow::Margin(l, r) => l.into_iter().chain(r).for_each(|x| d_of[x] = di),
+                DRow::Pair(l, r) => l.into_iter().chain(r).for_each(|x| d_of[x] = di),
+                DRow::Margin(l, r, c) => l.into_iter().chain(r).chain(c).for_each(|x| d_of[x] = di),
             }
         }
+        let mut prev = 0;
+        for x in &mut d_of {
+            if *x == usize::MAX {
+                *x = prev;
+            }
+            prev = *x;
+        }
         (self.drows, self.d_of) = (d, d_of);
+    }
+
+    /// A comment on a file (not the PR section's), or the conversation beside the description:
+    /// it goes in the margin, or isn't shown while that's hidden.
+    pub(super) fn in_margin(&self, r: usize) -> bool {
+        let row = &self.rows[r];
+        (row.thread.is_some() && row.file != INFO) || row.aside
     }
 
     /// The cursor is in the margin (on a comment), not the code. Worked out from where the
@@ -51,79 +185,15 @@ impl App {
         self.margin_row(self.head.row)
     }
 
-    /// A review thread's row in a file (not the PR section's comments): in margin mode, it goes
-    /// in the margin.
+    /// In the margin, as laid out now.
     pub(super) fn margin_row(&self, r: usize) -> bool {
-        let row = &self.rows[r];
-        self.margin_active && ((row.thread.is_some() && row.file != INFO) || row.aside)
-    }
-
-    /// Comments in the right margin: each thread's box starts beside its line, or just below
-    /// the box before it if that's still running there; code only gets spacer rows when a
-    /// file's comments need more room than its code (they never spill into the next file).
-    pub(super) fn layout_margin(&mut self) {
-        let n = self.rows.len();
-        let mut d: Vec<DRow> = vec![];
-        let mut pending: std::collections::VecDeque<usize> = Default::default();
-        let mut free = 0; // the first screen row whose margin is free
-        let mut anchors = HashMap::new();
-        let mut last_code = None;
-        let mut desc_first = None; // the description's first screen row: the conversation's top
-        let flush = |d: &mut Vec<DRow>, pending: &mut std::collections::VecDeque<usize>| {
-            d.extend(pending.drain(..).map(|c| DRow::Margin(None, Some(c))));
-        };
-        for i in 0..n {
-            let row = &self.rows[i];
-            if self.margin_row(i) {
-                let first = i == 0 || self.rows[i - 1].thread != row.thread || (row.aside && !self.rows[i - 1].aside);
-                if let (true, Some(t), Some(c)) = (first, row.thread, last_code) {
-                    anchors.insert(t, c);
-                }
-                // A box starts beside its line (the code row just before it) when that's free;
-                // the conversation, beside the top of the description.
-                let at = match (first, row.aside) {
-                    (true, true) => desc_first.unwrap_or(d.len()).max(free),
-                    (true, false) => d.len().saturating_sub(1).max(free),
-                    (false, _) => free,
-                };
-                if pending.is_empty() && matches!(d.get(at), Some(DRow::Margin(Some(_), None))) {
-                    if let DRow::Margin(code, _) = d[at] {
-                        d[at] = DRow::Margin(code, Some(i));
-                    }
-                    free = at + 1;
-                } else {
-                    pending.push_back(i);
-                }
-                continue;
-            }
-            let code = (matches!(row.line.kind, Kind::Ctx | Kind::Add | Kind::Del | Kind::Hunk) && row.file != INFO) || row.lead;
-            if row.lead && desc_first.is_none() {
-                desc_first = Some(d.len());
-            }
-            if code {
-                last_code = Some(i);
-                let c = pending.pop_front();
-                d.push(DRow::Margin(Some(i), c));
-                if c.is_some() {
-                    free = d.len();
-                }
-            } else {
-                // File headers and the PR section are full width: comments still waiting get
-                // spacer rows first, so they stay with their file.
-                flush(&mut d, &mut pending);
-                d.push(DRow::Full(i));
-                free = d.len();
-            }
-        }
-        flush(&mut d, &mut pending);
-        self.margin_anchor = anchors;
-        self.set_drows(d);
+        self.margin_active && self.in_margin(r)
     }
 
     /// In margin mode, the thread whose box is "lit": the one the cursor is in, or one about
     /// the code line it's on. So you can tell which line a box (pushed down) is about.
     pub(super) fn lit_thread(&self) -> Option<usize> {
-        if !self.margin_active || self.split {
+        if !self.margin_active {
             return None;
         }
         match self.margin_side() {
@@ -165,7 +235,10 @@ impl App {
         match self.drows[d] {
             DRow::Full(r) => r,
             DRow::Pair(l, r) => if self.right { r.or(l) } else { l.or(r) }.unwrap_or(0),
-            DRow::Margin(l, r) => if self.margin_side() { r.or(l) } else { l.or(r) }.unwrap_or(0),
+            DRow::Margin(l, r, c) => {
+                let code = if self.right { r.or(l) } else { l.or(r) };
+                if self.margin_side() { c.or(code) } else { code.or(c) }.unwrap_or(0)
+            }
         }
     }
 

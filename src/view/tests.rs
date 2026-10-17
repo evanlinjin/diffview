@@ -750,8 +750,8 @@ fn comments_in_the_margin() {
     app.build();
     // rows: 0 file, 1 hunk, 2 one, 3-5 thread 0 (top, body, bottom), 6 two, 7-9 thread 1, 10 three,
     // 11 -four, 12 +four!
-    let code = |d: usize| match app.drows[d] { DRow::Margin(c, _) => c, _ => None };
-    let note = |d: usize| match app.drows[d] { DRow::Margin(_, n) => n, _ => None };
+    let code = |d: usize| match app.drows[d] { DRow::Margin(c, _, _) => c, _ => None };
+    let note = |d: usize| match app.drows[d] { DRow::Margin(_, _, n) => n, _ => None };
     assert_eq!(app.drows[0], DRow::Full(0)); // the file header stays full width
     // The code runs on, uninterrupted: hunk, one, two, three, -four, +four!, then spacers.
     assert_eq!((1..7).map(code).collect::<Vec<_>>(), [Some(1), Some(2), Some(6), Some(10), Some(11), Some(12)]);
@@ -807,7 +807,7 @@ fn conversation_beside_the_description() {
     assert!(app.rows[by_text("short")].aside && app.rows[by_text("also short")].aside);
     let d = app.d_of[by_text("conversation (3)")];
     assert_eq!(d, app.d_of[by_text("description")]); // beside the top of the description
-    assert!(matches!(app.drows[d], DRow::Margin(Some(_), Some(_))));
+    assert!(matches!(app.drows[d], DRow::Margin(Some(_), None, Some(_))));
     // Once there's no description left beside it, the rest is full width, as without the margin.
     let late = by_text("late");
     assert!(!app.rows[late].aside && matches!(app.drows[app.d_of[late]], DRow::Full(_)));
@@ -1338,11 +1338,16 @@ fn screens() {
     let mut app = fixture();
     shot("diff", &mut app, 100, 60);
     let mut wide = fixture();
-    wide.margin_pref = true;
-    shot("margin", &mut wide, 220, 45);
+    shot("margin", &mut wide, 220, 45); // wide enough: shown
     let mut app = fixture();
     app.toggle_split();
-    shot("split", &mut app, 120, 40);
+    shot("split", &mut app, 120, 40); // too narrow: hidden, marked in the gutter
+    shot("split_margin", &mut app, 240, 40);
+    // Narrow, shown with Ctrl-w c: the margin takes half the window.
+    let mut app = fixture();
+    app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
+    app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+    shot("narrow_margin", &mut app, 100, 40);
     let mut app = fixture();
     app.toggle_view(View::Claude);
     shot("claude_view", &mut app, 100, 30);
@@ -1447,4 +1452,43 @@ fn github_cache_reads_back() {
     assert_eq!((i.1.as_str(), i.2.as_str(), i.4.0), ("Fix", "abc", "DRAFT"));
     assert!(review::cached_github(&dir.join("none.json")).is_none());
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn comments_pane() {
+    let key = |app: &mut App, c: char| app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+    let ctrl = |app: &mut App, c: char| app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL));
+    let draw = |app: &mut App, w: u16| _ = screen(w, 40, |f| app.draw(f));
+    let on = |app: &App| app.rows[app.head.row].thread;
+    // Narrow: hidden, so moving down the code never lands on a comment.
+    let mut app = fixture();
+    draw(&mut app, 100);
+    assert!(!app.margin_active);
+    let line12 = app.rows.iter().position(|r| r.line.kind == Kind::Add && r.line.new == Some(12)).unwrap();
+    app.goto(line12 - 1, 0);
+    key(&mut app, 'j');
+    key(&mut app, 'j');
+    assert_eq!((on(&app), app.rows[app.head.row].line.new), (None, Some(13)));
+    // Going to a comment shows them; Ctrl-w c there hides them and leaves the cursor beside it.
+    app.goto_comment(0, 0);
+    draw(&mut app, 100);
+    assert!(app.margin_active && on(&app) == Some(0));
+    ctrl(&mut app, 'w');
+    key(&mut app, 'c');
+    draw(&mut app, 100);
+    assert!(!app.margin_active && on(&app).is_none());
+    assert_eq!(app.margin_pref, Some(false));
+    // Wide split view: Ctrl-l goes old side → new side → the comment pane; Ctrl-h comes back.
+    let mut app = fixture();
+    app.toggle_split();
+    draw(&mut app, 240);
+    assert!(app.margin_active);
+    let del12 = app.rows.iter().position(|r| r.line.kind == Kind::Del && r.line.old == Some(12)).unwrap();
+    app.goto(del12, 0);
+    ctrl(&mut app, 'l');
+    assert_eq!(app.rows[app.head.row].line.kind, Kind::Add);
+    ctrl(&mut app, 'l');
+    assert!(on(&app).is_some() && app.margin_side());
+    ctrl(&mut app, 'h');
+    assert!(!app.margin_side() && on(&app).is_none());
 }

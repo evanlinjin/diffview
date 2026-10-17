@@ -8,23 +8,23 @@
        │  Lo src/big.rs:20  1 reply · @amy                                                         │
        ╰────   Why line 20?                                                            ────────────╯
  ▾        sr
-       ╭─ am src/a.rs:2  [pending] @you                                                ────────────╮
-       │  Wh   Pass y here.                                                                        │
-       ├─ yo                                                                           ────────────┤
-       │  Be src/a.rs:1  [resolved] @amy                                                           │
-       ╰────   Old news.                                                               ────────────╯
-          ──                                                                           ───── L9–15 ─
-  9   9   li
- 10  10   line 10
- 11  11   line 11
- 12     -     let x = old(12);
-     12 +     let x = new_call(12);
-       ╭─ [nit] claude · L12 ──────────────────────────────────────────────────────────────────────╮
-       │  Name it new_value; see src/a.rs:2.                                                       │
-       ╰───────────────────────────────────────────────────────────────────────────────────────────╯
- 13  13   line 13
+          ── src/a.rs:2  [pending] @you                                                ───── L9–15 ─
+  9   9   li   Pass y here.
+ 10  10   li
+ 11  11   li src/a.rs:1  [resolved] @amy
+ 12     -      Old news.
+     12◆+
+ 13  13   li
  14  14   line 14
  15  15   line 15
  ▾        src/a.rs  +1 −1
           ── fn main ──────────────────────────────────────────────────────────────────────── L1–3 ─
+  1   1○  fn main() {
+  2     -     old();
+      2●+     new_call(x);
+  3   3   }
+ ▾        new.rs (renamed from old.rs)  +0 −0
+ ▾        img.png (binary)  +0 −0
+
+
  NOR                         #7 · 3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)    1/39

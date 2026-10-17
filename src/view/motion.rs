@@ -3,13 +3,15 @@ use super::*;
 
 impl App {
     /// Ctrl-h / Ctrl-l: move to the old / new side of the current split row; with comments in
-    /// the margin, from the code into the margin (the comment beside it, else the nearest one)
-    /// and back (the code line beside it, else the nearest above).
+    /// the margin, from the code (its new side) into the margin (the comment beside it, else
+    /// the nearest one) and back (the code line beside it, else the nearest above).
     pub(super) fn side(&mut self, right: bool) {
-        if self.margin_active && !self.split {
-            let hd = self.hd();
+        let hd = self.hd();
+        let into_margin = self.margin_active && right && (!self.split || self.right) && !self.margin_side();
+        if into_margin || self.margin_side() && !right {
             let at = |d: usize| match self.drows[d] {
-                DRow::Margin(code, comment) => if right { comment } else { code },
+                DRow::Margin(_, _, c) if right => c,
+                DRow::Margin(l, r, _) => if self.right { r.or(l) } else { l.or(r) },
                 _ => None,
             };
             let near = at(hd)
@@ -20,8 +22,11 @@ impl App {
                 None => self.msg = if right { "no comments here" } else { "no code here" }.into(),
             };
         }
+        if self.margin_side() {
+            return; // already as far right as it goes
+        }
         self.right = right;
-        if let DRow::Pair(l, r) = self.drows[self.d_of[self.head.row]]
+        if let DRow::Pair(l, r) | DRow::Margin(l, r, _) = self.drows[hd]
             && let Some(row) = if right { r } else { l } {
                 let col = self.head.col;
                 self.goto(row, col);
@@ -59,8 +64,8 @@ impl App {
         // On the code side, step over spacer rows (margin only, no code); in the margin, over
         // rows with no comment beside the code.
         let skip = |t: usize| match self.drows[t] {
-            DRow::Margin(None, _) => !self.margin_side(),
-            DRow::Margin(_, None) => self.margin_side(),
+            DRow::Margin(None, None, _) => !self.margin_side(),
+            DRow::Margin(_, _, None) => self.margin_side(),
             _ => false,
         };
         let step = if d < 0 { -1 } else { 1 };

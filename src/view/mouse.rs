@@ -7,7 +7,7 @@ use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 #[derive(Default, Clone, Copy)]
 pub(super) struct Geom {
     /// Relative line numbers' column, the gutter, a split half's gutter and the half's width,
-    /// and the code column's width beside the comment margin.
+    /// and the code column's width beside the comment margin (or under it, floating: up to it).
     pub(super) relw: usize,
     pub(super) gw: usize,
     pub(super) ghw: usize,
@@ -103,8 +103,15 @@ impl App {
             DRow::Pair(l, r) if x < g.relw + g.half => (l.or(r)?, g.relw + g.ghw),
             DRow::Pair(l, r) => (r.or(l)?, g.relw + g.half + 1 + g.ghw),
             // The comment margin: after the code column and a 1-column gap, behind its own gutter.
-            DRow::Margin(code, note) if x > g.relw + g.gw + g.ctw => (note.or(code)?, g.relw + g.gw + g.ctw + 1 + 3),
-            DRow::Margin(code, note) => (code.or(note)?, g.relw + g.gw),
+            DRow::Margin(_, _, Some(note)) if x > g.relw + g.gw + g.ctw => (note, g.relw + g.gw + g.ctw + 1 + 3),
+            // Split view's code beside it: as a pair, but a hunk header spans both sides.
+            DRow::Margin(l, r, _) if self.split && l.or(r).is_some_and(|c| matches!(self.rows[c].line.kind, Kind::Ctx | Kind::Add | Kind::Del)) => {
+                match x < g.relw + g.half {
+                    true => (l.or(r)?, g.relw + g.ghw),
+                    false => (r.or(l)?, g.relw + g.half + 1 + g.ghw),
+                }
+            }
+            DRow::Margin(l, r, note) => (l.or(r).or(note)?, g.relw + g.gw),
         };
         Some((row, x.saturating_sub(start) + self.left, x < start))
     }
