@@ -104,10 +104,11 @@ ON CLAUDE'S COMMENT
   Space r  Space d     resolve (Claude skips it) / dismiss
 
 ON PR TEXT
+  c                    quote it in your review summary (S starts from it)
   C                    quote it in a new conversation comment
 
 ON CLAUDE'S REVIEW (its summary)
-  c                    copy it into your review summary (S starts from it)
+  c                    add it to your review summary (S starts from it)
   C                    post it now, as your PR comment
 
 REVIEW
@@ -271,6 +272,8 @@ enum Post {
     Thread { anchor: Anchor, review: bool, body: String, claude: Option<String> },
     Reply { thread: String, comment: u64, review: bool, body: String },
     Converse(String),
+    /// Your pending review's new text (`c` in the PR section, or on Claude's summary).
+    Summary(String),
     Edit { comment: String, body: String },
     Submit(&'static str, String),
 }
@@ -453,7 +456,7 @@ pub struct App {
     /// and when its record last changed (Claude redrafting it: it's shown again).
     replacement: Option<crate::replace::Record>,
     replacement_mtime: Option<std::time::SystemTime>,
-    /// What your review summary starts from (`c` on Claude's review copies it here), for `S`.
+    /// Your pending review's text so far (on GitHub; `c` in the PR section adds to it), for `S`.
     summary_draft: String,
     /// Your GitHub login: your comments are never new to you.
     me: String,

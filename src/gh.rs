@@ -24,6 +24,8 @@ pub struct Review {
     /// Your login.
     pub me: String,
     pub pending: Option<String>,
+    /// Its text so far (the review summary, submitted with it).
+    pub pending_body: String,
     pub threads: Vec<Thread>,
     /// Your "Viewed" marks: path → VIEWED, or DISMISSED (the file changed after you marked it).
     pub viewed: std::collections::HashMap<String, String>,
@@ -318,7 +320,7 @@ fn fetch_review(mut run: impl FnMut(&str, &[(&str, &str)]) -> Result<Value>) -> 
     let mut d = run(
         &format!(
             "query({vars}) {{ viewer {{ login }} {pr} {{ id viewerDidAuthor
-               reviews(states: PENDING, first: 10) {{ nodes {{ id viewerDidAuthor }} }} {} {} }} }} }}",
+               reviews(states: PENDING, first: 10) {{ nodes {{ id viewerDidAuthor body }} }} {} {} }} }} }}",
             files(""),
             threads("")
         ),
@@ -360,14 +362,13 @@ fn fetch_review(mut run: impl FnMut(&str, &[(&str, &str)]) -> Result<Value>) -> 
 
 fn parse_review(pr: &Value) -> Review {
     let nodes = |v: &Value| v["nodes"].as_array().cloned().unwrap_or_default();
+    let pending = nodes(&pr["reviews"]).into_iter().find(|r| r["viewerDidAuthor"] == true);
     Review {
         pr_id: pr["id"].as_str().unwrap_or("").to_owned(),
         mine: pr["viewerDidAuthor"] != false,
         me: String::new(),
-        pending: nodes(&pr["reviews"])
-            .iter()
-            .find(|r| r["viewerDidAuthor"] == true)
-            .and_then(|r| r["id"].as_str().map(str::to_owned)),
+        pending: pending.as_ref().and_then(|r| r["id"].as_str().map(str::to_owned)),
+        pending_body: pending.as_ref().and_then(|r| r["body"].as_str()).unwrap_or("").to_owned(),
         threads: nodes(&pr["reviewThreads"]).iter().map(parse_thread).collect(),
         viewed: nodes(&pr["files"])
             .iter()
@@ -391,12 +392,13 @@ fn side(left: bool) -> &'static str {
     if left { "LEFT" } else { "RIGHT" }
 }
 
-/// Start a pending review on `commit`; returns its id.
-pub fn start_review(pr_id: &str, commit: &str) -> Result<String> {
+/// Start a pending review on `commit`, with `body` as its text if there is one; returns its id.
+/// (GitHub can't give a review started without text any until it's submitted.)
+pub fn start_review(pr_id: &str, commit: &str, body: &str) -> Result<String> {
     let d = mutate(
-        "mutation($pr: ID!, $commit: GitObjectID!) {
-          addPullRequestReview(input: { pullRequestId: $pr, commitOID: $commit }) { pullRequestReview { id } } }",
-        json!({ "pr": pr_id, "commit": commit }),
+        "mutation($pr: ID!, $commit: GitObjectID!, $body: String) {
+          addPullRequestReview(input: { pullRequestId: $pr, commitOID: $commit, body: $body }) { pullRequestReview { id } } }",
+        json!({ "pr": pr_id, "commit": commit, "body": (!body.is_empty()).then_some(body) }),
     )?;
     d["addPullRequestReview"]["pullRequestReview"]["id"].as_str().map(str::to_owned).context("no review id")
 }
@@ -442,6 +444,16 @@ pub fn submit_review(review: &str, event: &str, body: &str) -> Result<()> {
           submitPullRequestReview(input: { pullRequestReviewId: $review, event: $event, body: $body }) {
             pullRequestReview { id } } }",
         json!({ "review": review, "event": event, "body": body }),
+    )
+    .map(drop)
+}
+
+/// Replace a pending review's text (its summary).
+pub fn set_review_body(review: &str, body: &str) -> Result<()> {
+    mutate(
+        "mutation($review: ID!, $body: String!) {
+          updatePullRequestReview(input: { pullRequestReviewId: $review, body: $body }) { pullRequestReview { id } } }",
+        json!({ "review": review, "body": body }),
     )
     .map(drop)
 }

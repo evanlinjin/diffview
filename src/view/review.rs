@@ -3,13 +3,14 @@
 use super::*;
 
 impl App {
-    /// The pending review to add to, starting one on the PR head if there isn't one yet.
+    /// The pending review to add to, starting one on the PR head if there isn't one yet (with
+    /// your review text so far, as GitHub can't add any later to one started without).
     pub(super) fn ensure_review(&mut self) -> Result<String> {
         if let Some(r) = &self.review {
             return Ok(r.clone());
         }
         let pr = self.pr.as_ref().context("no PR")?;
-        let id = gh::start_review(&pr.node_id, &pr.head_oid)?;
+        let id = gh::start_review(&pr.node_id, &pr.head_oid, &self.summary_draft)?;
         self.review = Some(id.clone());
         Ok(id)
     }
@@ -85,6 +86,7 @@ impl App {
         let msg = match &p {
             Post::Thread { review: true, .. } | Post::Reply { review: true, .. } => "adding to your pending review…",
             Post::Thread { .. } | Post::Reply { .. } | Post::Converse(_) => "posting…",
+            Post::Summary(_) => "adding to your review summary…",
             Post::Edit { .. } => "updating the comment…",
             Post::Submit(..) => "submitting the review…",
         };
@@ -117,6 +119,18 @@ impl App {
             }
             Post::Converse(body) => {
                 keep_on_error(gh::conversation_comment(&pr, &body), &body).map(|_| "comment posted to the conversation")
+            }
+            Post::Summary(body) => {
+                // A new review starts with it; one started without text can't take any yet, so
+                // it stays here (S submits it with the review).
+                let fresh = self.review.is_none();
+                let res = self.ensure_review().and_then(|r| if fresh { Ok(()) } else { gh::set_review_body(&r, &body) });
+                match res {
+                    Err(e) if format!("{e:#}").contains("missing body") => Ok(
+                        "in your review summary till you quit (GitHub won't hold it yet): S submits it",
+                    ),
+                    res => keep_on_error(res, &body).map(|_| "in your review summary: S submits it (editing it first)"),
+                }
             }
             Post::Edit { comment, body } => keep_on_error(gh::edit_comment(&comment, &body), &body).map(|_| "comment updated"),
             Post::Submit(event, body) => {
@@ -496,6 +510,10 @@ impl App {
         match threads {
             Ok(r) => {
                 self.apply_viewed(r.viewed);
+                // A draft GitHub couldn't take (see `Post::Summary`) stays until it can.
+                if r.pending.is_none() || !r.pending_body.is_empty() {
+                    self.summary_draft = r.pending_body;
+                }
                 (self.threads, self.review) = (r.threads, r.pending);
                 if let Some(pr) = &mut self.pr {
                     pr.node_id = r.pr_id;
@@ -811,7 +829,7 @@ impl App {
             return self.start_promote(t, k, review);
         }
         match (pr_text, self.rows[self.head.row].thread) {
-            (true, _) if review => self.msg = "select code lines to comment on".into(),
+            (true, _) if review => self.quote_into_summary(),
             (true, _) => self.start_conversation_comment(),
             // `r` replies (in the review); `C` here replies right away, as `C` posts what `c` queues.
             (false, Some(_)) if review => self.msg = "r replies to this thread (c comments on selected code lines)".into(),
@@ -891,6 +909,26 @@ impl App {
         self.action = Some(Action::Converse { quote, as_is: false });
     }
 
+    /// `c` in the PR section: the comment (or description) under the cursor, quoted at the end
+    /// of your pending review's text.
+    fn quote_into_summary(&mut self) {
+        let row = &self.rows[self.head.row];
+        match row.info.and_then(|i| self.info.get(i)).filter(|l| l.md && !l.text.trim().is_empty()) {
+            Some(l) if self.pr.is_some() => {
+                let q = quote(&l.text);
+                self.add_to_summary(q.trim_end());
+            }
+            _ => self.msg = "c here: on a comment or the description, quotes it in your review summary".into(),
+        }
+    }
+
+    /// Appends `text` to your pending review's text, on GitHub (starting the review if need be).
+    fn add_to_summary(&mut self, text: &str) {
+        let draft = self.summary_draft.trim_end();
+        self.summary_draft = if draft.is_empty() { text.to_owned() } else { format!("{draft}\n\n{text}") };
+        self.msg = self.post_later(Post::Summary(self.summary_draft.clone())).unwrap_or_else(|e| format!("{e:#}"));
+    }
+
     /// `c` / `C` on Claude's review (its summary), as on its comments: yours to use, not to
     /// quote. `c` puts it in your review summary (`S` starts from it); `C` posts it as your PR
     /// comment, after the editor.
@@ -900,10 +938,7 @@ impl App {
         }
         let text = self.claude.summary.trim().to_owned();
         match review {
-            true => {
-                self.summary_draft = text;
-                self.msg = "Claude's review is in your review summary: S submits it (edit it there)".into();
-            }
+            true => self.add_to_summary(&text),
             false => self.action = Some(Action::Converse { quote: format!("{text}\n"), as_is: true }),
         }
     }

@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- `c` on a conversation comment or the description quotes it in your review summary, saved on
+  your pending review on GitHub (and loaded from it, so it's still there next time); `S` starts
+  from it. `c` on Claude's summary adds to it the same way.
+
 ### Fixed
 - PRs with more than 100 review threads, 100 comments in a thread, or 100 files: dv loads them
   all (it stopped at 100, so later threads were missing and their files' "Viewed" marks too).

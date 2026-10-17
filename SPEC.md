@@ -49,7 +49,11 @@ disk: rust-analyzer can index it and `hx` can open it.
    **Reviews** use GitHub's own pending review (GraphQL): `c` adds to it (starting one on
    the PR head if needed, or continuing one started on the web), `S` submits with a summary
    from `$EDITOR` (`:cq` cancels), or comments and closes the PR (an empty comment only closes), discard asks for confirmation. Pending comments are
-   tagged `[pending]` and counted in the status bar. If posting fails, the text is saved
+   tagged `[pending]` and counted in the status bar. `c` on a conversation comment (or the
+   description) quotes it at the end of the review's text (its summary), saved on GitHub and
+   loaded with the PR; `S` starts from it. GitHub can't add text to a pending review started
+   without any (`c` on code lines first), so then the text stays in dv until it's submitted
+   (dv starts reviews with the text, when there is some). If posting fails, the text is saved
    to a temp file and the error says where.
    **PR text renders like github.com** (pulldown-cmark, GFM): link text without URLs (bare
    URLs, `#123`, `@user` become links), tables as grids sized to fit (display width, so emoji
@@ -81,7 +85,7 @@ disk: rust-analyzer can index it and `hx` can open it.
    without a PR too), and reloads when the file changes. `r` stages a reply to Claude in the
    file (the skill answers replies, changing code if asked), `c`/`C` copy Claude's comment into
    your pending review / post it (editable in `$EDITOR`; posting as is is fine), then dismiss it
-   from the file; on Claude's summary, `c` copies it into your review summary (what `S` starts
+   from the file; on Claude's summary, `c` adds it to your review summary (what `S` starts
    from) and `C` posts it as your PR comment, as your words (not a quote); `Space r` resolves it in the file, `Space d` dismisses it. `Space a` runs
    Claude Code from dv (review / update the review, answer your waiting replies, or make the
    changes its open comments ask for, after optional instructions of yours in `$EDITOR`): in a
@@ -121,12 +125,6 @@ disk: rust-analyzer can index it and `hx` can open it.
    share a replacement. For several marked PRs, `A A` first has Claude suggest groups (a
    `claude -p` that only reads them), edited in `$EDITOR`, a line each.
 4. **Later**:
-   - **`c` in the PR section → review summary.** `c` on a conversation comment (or the
-     description) appends it as a `> ` quote to the pending review's summary (body), saved on
-     GitHub (`updatePullRequestReview` on the pending review, or `addPullRequestReview` with a
-     body if there is none); `S` then opens the summary editor pre-filled with that draft.
-     Keeps `c` = queue / `C` = post now (`C` there already quotes into a new conversation
-     comment). Until then `c` in the PR section only says "select code lines".
    - **Reproducible release builds**, so a binary can be rebuilt bit for bit and signed ahead
      of time (signatures, or the signed hashes, in the release notes or beside the archives).
      Needs a pinned toolchain, `--remap-path-prefix` for absolute paths, `SOURCE_DATE_EPOCH`,
@@ -163,7 +161,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `Ctrl-o` | jump back |
 | `c` | comment on the selection, in your pending review |
 | `r` | reply on a thread, in your pending review (on a Claude comment: reply to Claude) |
-| `C` | `c` / `r`, but post immediately (not beside a pending review: GitHub refuses that, so dv says so first); in the PR description/conversation: a new conversation comment quoting the comment under the cursor |
+| `C` | `c` / `r`, but post immediately (not beside a pending review: GitHub refuses that, so dv says so first); in the PR description/conversation: a new conversation comment quoting the comment under the cursor (`c` there: quote it in your review summary) |
 | `s` | suggest a change: `$EDITOR` opens with a ```suggestion block of the selected new-side lines (pending review) |
 | `S` | submit the pending review (comment / approve / request changes) or discard it; under the choices, what's still open (Claude's open comments and how many it answered, unresolved GitHub threads, pending comments on changed code, a checkout that isn't the PR head), also as hint lines when approving |
 | `Space r` | resolve / unresolve the thread under the cursor |

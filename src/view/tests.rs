@@ -337,12 +337,25 @@ fn quote_into_conversation() {
     assert_eq!(quoted(&mut app, author), "> Looks good\n> but fix CI\n\n"); // the author line quotes its comment
     let heading = app.rows.iter().position(|r| r.line.text == "conversation (1)").unwrap();
     assert_eq!(quoted(&mut app, heading), ""); // other PR lines: an empty conversation comment
-    // `c` has nothing to queue in the PR section, and says so without checking git state.
-    app.goto(body, 0);
+    // `c` quotes it at the end of your review summary (saved on GitHub), without checking git state.
+    let c = |app: &mut App, row: usize| {
+        app.goto(row, 0);
+        app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+        assert!(app.action.is_none());
+        match app.job.take() {
+            Some(Job::Post(Post::Summary(body))) => assert_eq!(body, app.summary_draft),
+            _ => panic!("summary not saved"),
+        }
+    };
+    app.summary_draft = "Mostly fine.\n".into();
+    c(&mut app, body);
+    c(&mut app, author);
+    assert_eq!(app.summary_draft, "Mostly fine.\n\n> Looks good\n> but fix CI\n\n> Looks good\n> but fix CI");
+    app.goto(heading, 0);
     app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
-    assert!(app.action.is_none());
-    assert_eq!(app.msg, "select code lines to comment on");
+    assert!(app.job.is_none() && app.msg.starts_with("c here: on a comment"), "{}", app.msg);
     // A rebuild (as after posting) keeps the cursor on the same PR row.
+    app.goto(body, 0);
     let keep = app.cursor_key();
     app.rebuild(keep);
     assert_eq!(app.head.row, body);

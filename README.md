@@ -138,7 +138,9 @@ file that dv reloads whenever it changes, so you can keep dv open while Claude w
    Then `Space g`: "Show only what isn't committed" to check just Claude's changes, "Commit"
    (the message starts from what Claude said it changed), and "Push" to the PR's branch.
    After a push, "Update Claude's review" looks at just what's new.
-7. **Submit**: `S` submits your pending review, holding whatever you queued with `c`. Claude
+7. **Submit**: `S` submits your pending review, holding whatever you queued with `c`. In the
+   PR section, `c` on a conversation comment (or the description) quotes it in the review's
+   summary, which `S` starts from. Claude
    never posts to GitHub; only you do, from dv.
 
 **When the code changes** (Claude's edits, yours in `hx`, a new push), Claude's comments follow
