@@ -3,7 +3,7 @@
 All notable changes to dv. Versions follow [semver](https://semver.org); a release's notes
 on GitHub are its section here.
 
-## [Unreleased]
+## [0.4.1] - 2026-10-17
 
 ### Added
 - `gf` on a `file:line` in a comment (`src/a.rs:12`, `a.rs:12-15`, `#L12`) goes there: in the
@@ -224,6 +224,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.4.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.4.1
 [0.4.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.4.0
 [0.3.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.3.0
 [0.2.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.2.0
