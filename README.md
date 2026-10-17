@@ -67,7 +67,7 @@ table and design notes.
 4. Submit: `S`, then Comment / Approve / Request changes, or Comment and close the PR.
 
 `C` posts a comment immediately instead of adding it to the review. `Space e` / `Space d`
-edit / delete a comment, `Space r` resolves a thread, `gf` opens a link (or goes to a `file:line` a comment cites), `R` refreshes.
+edit / delete a comment, `Space r` resolves a thread, `gf` opens a link (or goes to a `file:line` or function a comment cites), `R` refreshes.
 
 ## Reviewing with Claude Code
 

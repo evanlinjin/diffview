@@ -1207,3 +1207,22 @@ fn range_comment_lights_its_lines() {
     app.goto(one, 0);
     assert_eq!(app.lit_thread(), None);
 }
+
+#[test]
+fn gf_on_a_name() {
+    // gf on a name a comment mentions: where it's defined, from a grep of the files.
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let dir = std::env::temp_dir().join(format!("dv-defs-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    diff::git(&["-C", &dir.to_string_lossy(), "init", "-q"]).unwrap();
+    std::fs::write(dir.join("t.rs"), "use x;\n\nfn torn_prefix_file() {}\nfn other() { torn_prefix_file() }\n").unwrap();
+    std::fs::write(dir.join("u.py"), "def two_defs(): pass\nclass two_defs: pass\n").unwrap();
+    app.root = dir.clone();
+    app.goto_definition("torn_prefix_file"); // one: straight there (in hx: it isn't in the diff)
+    assert!(matches!(&app.action, Some(Action::Open(o)) if o.ends_with("t.rs:3:4")), "{:?}", app.msg);
+    app.goto_definition("two_defs"); // several: a picker
+    assert_eq!(app.picker.take().unwrap().items.len(), 2);
+    app.goto_definition("nowhere");
+    assert_eq!(app.msg, "no definition of nowhere found");
+    _ = std::fs::remove_dir_all(&dir);
+}

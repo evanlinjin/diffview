@@ -523,13 +523,18 @@ impl App {
     }
 
     /// `gf`: the link under the cursor in the browser, or the `file:line` under it (as comments
-    /// cite code: `src/a.rs:12`, `a.rs:12-15`, `a.rs#L12`) in dv, or in hx if it isn't shown.
+    /// cite code: `src/a.rs:12`, `a.rs:12-15`, `a.rs#L12`) in dv, or in hx if it isn't shown;
+    /// or, on a name (`next_returns_none`), where it's defined.
     pub(super) fn open_link(&mut self) {
         let Some(url) = self.link_at_cursor().map(str::to_owned) else {
             let text = &self.rows[self.head.row].line.text;
-            return match file_ref(text, self.head.col) {
-                Some((path, line)) => self.goto_file_line(&path, line),
-                None => self.msg = "no link or file:line under the cursor".into(),
+            if let Some((path, line)) = file_ref(text, self.head.col) {
+                return self.goto_file_line(&path, line);
+            }
+            let in_code = self.rows[self.head.row].syn.get(self.head.col) == Some(&Some(self.ui.md.raw));
+            return match ident_at(text, self.head.col, in_code) {
+                Some(name) => self.goto_definition(&name),
+                None => self.msg = "no link, file:line or name under the cursor".into(),
             };
         };
         let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
@@ -569,6 +574,37 @@ impl App {
             self.rebuild(keep);
         }
         self.jump_loc(&crate::lsp::Loc { path: self.root.join(&rel), line: line.saturating_sub(1), character: 0 });
+    }
+
+    /// Where `name` is defined (by a grep for `fn name`, `class name` and the like, in the files
+    /// on disk), the diff's files first: there, or a picker of them.
+    /// ponytail: a grep, not the language server; good enough for names in comments.
+    pub(super) fn goto_definition(&mut self, name: &str) {
+        let pat = format!(r"\b({DEF_WORDS})\s+{name}\b");
+        let root = self.root.display().to_string();
+        let out = diff::git(&["-C", &root, "grep", "-n", "-I", "--untracked", "-E", &pat]).unwrap_or_default();
+        let mut locs: Vec<crate::lsp::Loc> = out
+            .lines()
+            .filter_map(|l| {
+                let (path, rest) = l.split_once(':')?;
+                let line: u32 = rest.split_once(':')?.0.parse().ok()?;
+                let character = rest.split_once(':')?.1.find(name).unwrap_or(0) as u32;
+                Some(crate::lsp::Loc { path: self.root.join(path), line: line - 1, character })
+            })
+            .collect();
+        locs.sort_by_key(|l| !self.files.iter().any(|f| self.root.join(&f.path) == l.path));
+        locs.truncate(50);
+        if locs.is_empty() {
+            return self.msg = format!("no definition of {name} found");
+        }
+        // A folded file opens, so the line can show.
+        let folded: Vec<String> = self.collapsed.iter().filter(|p| locs.iter().any(|l| l.path == self.root.join(p))).cloned().collect();
+        if !folded.is_empty() {
+            folded.iter().for_each(|p| _ = self.collapsed.remove(p));
+            let keep = self.cursor_key();
+            self.rebuild(keep);
+        }
+        self.show_locations(locs);
     }
 
     /// `Space p`: a picker of the comments in your pending review.
@@ -978,6 +1014,37 @@ fn file_ref(text: &str, col: usize) -> Option<(String, u32)> {
     // A file: it has an extension or a directory (not "note:3" or a time "12:30").
     let file = path.rsplit('/').next().is_some_and(|f| f.contains('.') && !f.starts_with('.') || path.contains('/'));
     (file && line > 0 && !path.chars().all(|c| c.is_ascii_digit())).then(|| (path.to_owned(), line))
+}
+
+/// The words a definition starts with, across the usual languages.
+const DEF_WORDS: &str = "fn|struct|enum|trait|type|union|mod|macro_rules!|const|static|impl|def|class|function|func|interface|let|var";
+
+/// The name under char `col` of `text`, if it's code: `in_code` (a `code` span), or a word
+/// with `_`, a capital after its start, or a digit (`next_returns_none`, `parseArgs`), not a
+/// plain English word.
+fn ident_at(text: &str, col: usize, in_code: bool) -> Option<String> {
+    let chars: Vec<char> = text.chars().collect();
+    let ok = |c: char| c.is_alphanumeric() || c == '_';
+    if !chars.get(col).is_some_and(|&c| ok(c)) {
+        return None;
+    }
+    let a = (0..col).rev().take_while(|&i| ok(chars[i])).last().unwrap_or(col);
+    let b = (col..chars.len()).take_while(|&i| ok(chars[i])).last()? + 1;
+    let w: String = chars[a..b].iter().collect();
+    let code = in_code || w.contains('_') || w.chars().skip(1).any(char::is_uppercase) || w.chars().any(|c| c.is_ascii_digit());
+    (code && !w.starts_with(|c: char| c.is_ascii_digit())).then_some(w)
+}
+
+#[test]
+fn idents() {
+    let at = |text: &str, needle: &str| ident_at(text, text.find(needle).unwrap(), false);
+    let t = "half of next_returns_none_after_error, so inline parseArgs or Foo::bar.";
+    assert_eq!(at(t, "none").as_deref(), Some("next_returns_none_after_error")); // anywhere on it
+    assert_eq!(at(t, "parse").as_deref(), Some("parseArgs"));
+    assert_eq!(at(t, "half"), None); // a word
+    assert_eq!(at(t, "Foo"), None); // could be anything: ask by its method
+    assert_eq!(at(t, " so"), None);
+    assert_eq!(ident_at(t, t.find("bar").unwrap(), true).as_deref(), Some("bar")); // in `code`: any name
 }
 
 #[test]

@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- `gf` on a name in a comment (`torn_prefix_file`, or anything in `code`) goes to where it's
+  defined: found by a grep for `fn name`, `class name` and the like, the diff's files first; a
+  picker when there are several.
+
 ### Changed
 - `dv list` keeps your marks (`m`) when you quit it, so you can go through marked PRs a few at
   a time; marks on PRs that have closed go.
