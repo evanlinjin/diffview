@@ -136,7 +136,7 @@ impl App {
                 }
                 let (label, text, info) = match self.view {
                     View::Claude => ("claude's review", &self.claude.summary, Some(SUMMARY)),
-                    _ => ("your review (pending)", &self.summary_draft, None),
+                    _ => ("your review (pending)", &self.summary_draft, Some(DRAFT)),
                 };
                 if !text.is_empty() {
                     let summary = |r: Row| Row { info, ..r };

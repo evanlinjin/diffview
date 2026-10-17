@@ -1123,6 +1123,11 @@ fn claude_view() {
     assert!(v.contains(&"your review (pending)".to_owned()) && v.contains(&"Nearly there.".to_owned()), "{v:?}");
     assert!(!v.contains(&"Looks fine.".to_owned()) && !v.iter().any(|t| t.contains("big.rs")));
     assert_eq!(app.rows.iter().filter_map(|r| r.thread).collect::<HashSet<_>>(), HashSet::from([2]));
+    // Its text is boxed, and `C` there points to `S` rather than quoting it.
+    app.head.row = app.rows.iter().position(|r| r.line.text == "Nearly there.").unwrap();
+    assert!(app.box_part(app.head.row).is_some());
+    app.comment_or_reply(false);
+    assert!(app.msg.contains("S submits"), "{}", app.msg);
     app.toggle_view(View::Pending);
     assert_eq!(app.view, View::All);
 }

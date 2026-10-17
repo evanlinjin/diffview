@@ -80,8 +80,9 @@ VIEW
   Ctrl-w a             Claude view: only Claude's review and the code it's about
   Ctrl-w p             pending view: only your pending review and the code it's about
   Enter                open hx at cursor (on a link: open it)
-  gf                   open the link under the cursor in the browser, or go to the
-                       file:line under it (as comments cite code; Ctrl-o comes back)
+  gf                   open the link under the cursor, or go to the file:line under it
+                       (as comments cite code) or to where the function / type named
+                       under it is defined (Ctrl-o comes back)
 
 RUST-ANALYZER
   gd gr gy gi          definition / references / type / impl
@@ -116,7 +117,7 @@ REVIEW
   Space v              mark the file viewed (folds it, moves on)
   Space a              ask Claude Code to review, answer your replies, or make the changes
   Space A              pick from Claude's comments ([waiting]: its turn, [answered]: yours)
-  ]n [n  Space n      next / prev [new] thread (comments you haven't seen), pick from them
+  ]n [n  Space n       next / prev [new] thread (ones you haven't seen) / pick from them
 
 GENERAL
   ?                    this help (/ to search it)
@@ -136,6 +137,8 @@ const HL_MAX_BYTES: usize = 1 << 20;
 const INFO: usize = usize::MAX - 1;
 /// `Row::info` for Claude's review summary (it isn't one of `info`'s lines).
 const SUMMARY: usize = usize::MAX;
+/// `Row::info` for the text of your pending review, in the pending view.
+const DRAFT: usize = usize::MAX - 1;
 
 /// Position in the view: row index into `rows`, char index into the row's text.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]

@@ -798,6 +798,9 @@ impl App {
         if row.info == Some(SUMMARY) {
             return self.promote_summary(review);
         }
+        if row.info == Some(DRAFT) {
+            return self.msg = "this is your pending review's text: S submits it, editing it first".into();
+        }
         // PR text (not a thread there: those are on files no longer in the diff).
         let pr_text = row.file == INFO && row.thread.is_none();
         if !review && self.review.is_some() && !pr_text {
