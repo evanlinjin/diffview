@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-17
+
 ### Added
 - `gf` on a name in a comment (`torn_prefix_file`, or anything in `code`) goes to where it's
   defined: found by a grep for `fn name`, `class name` and the like, the diff's files first; a
@@ -260,6 +262,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.5.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.5.1
 [0.5.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.5.0
 [0.4.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.4.1
 [0.4.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.4.0
