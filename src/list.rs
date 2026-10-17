@@ -160,8 +160,10 @@ impl List {
         self.load_reps();
         loop {
             if self.marked != self.marked_saved {
-                if let Err(e) = save_marks(&self.marked) {
-                    self.msg = format!("couldn't save the marks: {e}");
+                // On what's saved now: another dv list of this repo may have marked some too.
+                match save_marks(&self.marked_saved, &self.marked) {
+                    Ok(now) => self.marked = now,
+                    Err(e) => self.msg = format!("couldn't save the marks: {e}"),
                 }
                 self.marked_saved = self.marked.clone();
             }
@@ -223,7 +225,6 @@ impl List {
                     let about = |n: u64| self.prs.iter().find(|p| p.number == n).map(|p| (n, p.title.clone(), p.author.clone(), p.base.clone()));
                     let prs = prs.into_iter().map(|n| about(n).unwrap_or((n, String::new(), String::new(), String::new()))).collect();
                     self.msg = "Claude is looking at how to group them (one replacement per group)…".into();
-                    self.marked.clear();
                     self.group_rx = Some(batch::group(prs, self.root.clone()));
                 }
                 Some(Do::RemoveReplacement(id)) => {
@@ -427,8 +428,8 @@ impl List {
                 self.checks = Some(rx);
                 self.msg = if prs.is_empty() { "no open PRs".into() } else { String::new() };
                 // Worktrees of PRs that aren't open any more (or beyond the list): fetch those few.
-                // All open PRs are here, unless gh's limit cut the list (or it came back empty).
-                let complete = !prs.is_empty() && prs.len() < gh::LIST_MAX;
+                // All open PRs are here, unless gh's limit cut the list.
+                let complete = prs.len() < gh::LIST_MAX;
                 let mut gone: Vec<u64> = self.local.keys().filter(|n| !prs.iter().any(|p| p.number == **n)).copied().collect();
                 gone.sort();
                 for n in gone {
@@ -803,8 +804,17 @@ fn load_marks() -> HashSet<u64> {
     marks_path().map(|p| read_marks(&p)).unwrap_or_default()
 }
 
-fn save_marks(marked: &HashSet<u64>) -> Result<()> {
-    write_marks(&marks_path().context("no dv directory for this repo")?, marked)
+/// Save the change from `was` to `marked` onto the marks saved now, and return those.
+fn save_marks(was: &HashSet<u64>, marked: &HashSet<u64>) -> Result<HashSet<u64>> {
+    merge_marks(&marks_path().context("no dv directory for this repo")?, was, marked)
+}
+
+fn merge_marks(p: &std::path::Path, was: &HashSet<u64>, marked: &HashSet<u64>) -> Result<HashSet<u64>> {
+    let mut now = read_marks(p);
+    now.retain(|n| marked.contains(n) || !was.contains(n));
+    now.extend(marked.difference(was));
+    write_marks(p, &now)?;
+    Ok(now)
 }
 
 fn read_marks(p: &std::path::Path) -> HashSet<u64> {
@@ -1225,5 +1235,9 @@ fn marks_saved() {
     write_marks(&p, &HashSet::from([22, 3])).unwrap();
     assert_eq!(std::fs::read_to_string(&p).unwrap(), "[3,22]");
     assert_eq!(read_marks(&p), HashSet::from([3, 22]));
+    // Another dv list marked 7 meanwhile; this one, which had 3 and 22, unmarks 3 and marks 9.
+    write_marks(&p, &HashSet::from([3, 22, 7])).unwrap();
+    let now = merge_marks(&p, &HashSet::from([3, 22]), &HashSet::from([22, 9])).unwrap();
+    assert_eq!(now, HashSet::from([22, 7, 9]));
     _ = std::fs::remove_dir_all(&dir);
 }

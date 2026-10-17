@@ -1225,11 +1225,11 @@ fn gf_on_a_name() {
     let dir = std::env::temp_dir().join(format!("dv-defs-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     diff::git(&["-C", &dir.to_string_lossy(), "init", "-q"]).unwrap();
-    std::fs::write(dir.join("t.rs"), "use x;\n\nfn torn_prefix_file() {}\nfn other() { torn_prefix_file() }\n").unwrap();
+    std::fs::write(dir.join("t:é.rs"), "use x;\n\n/* é */ fn torn_prefix_file() {}\nfn other() { torn_prefix_file() }\n").unwrap(); // a path git would quote
     std::fs::write(dir.join("u.py"), "def two_defs(): pass\nclass two_defs: pass\n").unwrap();
     app.root = dir.clone();
     app.goto_definition("torn_prefix_file"); // one: straight there (in hx: it isn't in the diff)
-    assert!(matches!(&app.action, Some(Action::Open(o)) if o.ends_with("t.rs:3:4")), "{:?}", app.msg);
+    assert!(matches!(&app.action, Some(Action::Open(o)) if o.ends_with("/t:é.rs:3:12")), "{:?}", app.msg);
     app.goto_definition("two_defs"); // several: a picker
     assert_eq!(app.picker.take().unwrap().items.len(), 2);
     app.goto_definition("nowhere");

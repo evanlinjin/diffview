@@ -580,15 +580,18 @@ impl App {
     /// on disk), the diff's files first: there, or a picker of them.
     /// ponytail: a grep, not the language server; good enough for names in comments.
     pub(super) fn goto_definition(&mut self, name: &str) {
-        let pat = format!(r"\b({DEF_WORDS})\s+{name}\b");
+        // POSIX classes, not \b / \s: those are GNU-only.
+        let pat = format!("(^|[^[:alnum:]_])({DEF_WORDS})[[:space:]]+{name}([^[:alnum:]_]|$)");
         let root = self.root.display().to_string();
-        let out = diff::git(&["-C", &root, "grep", "-n", "-I", "--untracked", "-E", &pat]).unwrap_or_default();
+        // -z: path NUL line NUL text, the path unquoted (it may hold `:` or non-ASCII).
+        let out = diff::git(&["-C", &root, "grep", "-n", "-z", "-I", "--untracked", "-E", &pat]).unwrap_or_default();
         let mut locs: Vec<crate::lsp::Loc> = out
             .lines()
             .filter_map(|l| {
-                let (path, rest) = l.split_once(':')?;
-                let line: u32 = rest.split_once(':')?.0.parse().ok()?;
-                let character = rest.split_once(':')?.1.find(name).unwrap_or(0) as u32;
+                let mut parts = l.splitn(3, '\0');
+                let (path, line, text) = (parts.next()?, parts.next()?.parse::<u32>().ok()?, parts.next()?);
+                // A UTF-16 column, as LSP's.
+                let character = text.find(name).map_or(0, |i| text[..i].encode_utf16().count()) as u32;
                 Some(crate::lsp::Loc { path: self.root.join(path), line: line - 1, character })
             })
             .collect();

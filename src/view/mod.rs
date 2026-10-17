@@ -960,16 +960,15 @@ impl App {
                 if let Some(l) = self.info.first().filter(|l| !l.heading && !l.md) {
                     rows.push(self.info_row(l, mk(Kind::Comment, l.text.clone())));
                 }
-                if self.view == View::Claude && !self.claude_summary.is_empty() {
-                    let summary = |r: Row| Row { info: Some(SUMMARY), ..r };
-                    rows.push(summary(mk(Kind::Thread, "claude's review".into())));
-                    rows.extend(self.md_rows_at(&self.claude_summary, self.wrap_w, mk).into_iter().map(summary));
+                let (label, text, info) = match self.view {
+                    View::Claude => ("claude's review", &self.claude_summary, Some(SUMMARY)),
+                    _ => ("your review (pending)", &self.summary_draft, None),
+                };
+                if !text.is_empty() {
+                    let summary = |r: Row| Row { info, ..r };
+                    rows.push(summary(mk(Kind::Thread, label.into())));
+                    rows.extend(self.md_rows_at(text, self.wrap_w, mk).into_iter().map(summary));
                     rows.push(Row { edge: true, ..summary(mk(Kind::Comment, String::new())) });
-                }
-                if self.view == View::Pending && !self.summary_draft.is_empty() {
-                    rows.push(mk(Kind::Thread, "your review (pending)".into()));
-                    rows.extend(self.md_rows_at(&self.summary_draft, self.wrap_w, mk));
-                    rows.push(Row { edge: true, ..mk(Kind::Comment, String::new()) });
                 }
             } else if !self.info_collapsed {
                 // Margin mode: the conversation (and Claude's summary) sits beside the description,
@@ -1044,13 +1043,13 @@ impl App {
                 rows.extend(self.thread_rows(t, INFO));
             }
         }
+        let shown: Vec<&Thread> = self.threads.iter().filter(|t| self.in_view(t)).collect();
         for (i, f) in self.files.iter().enumerate() {
             // The Claude / pending view: only files with its comments, and only around them.
             let around;
             let lines = match self.view != View::All {
-                true if !self.threads.iter().any(|t| t.path == f.path && self.in_view(t)) => continue,
+                true if !shown.iter().any(|t| t.path == f.path) => continue,
                 true => {
-                    let shown: Vec<&Thread> = self.threads.iter().filter(|t| self.in_view(t)).collect();
                     around = view_lines(&shown, f);
                     &around
                 }
@@ -1525,7 +1524,8 @@ impl App {
     /// `+`/`-`: more or less context around the hunk under the cursor (on a header: the next one).
     fn expand(&mut self, d: i64) {
         if self.view != View::All {
-            return self.msg = "this view shows a few lines around each comment (Ctrl-w a / Ctrl-w p: the whole diff)".into();
+            let key = if self.view == View::Claude { 'a' } else { 'p' };
+            return self.msg = format!("this view shows a few lines around each comment (Ctrl-w {key}: the whole diff)");
         }
         let row = &self.rows[self.head.row];
         let Some(f) = self.files.get(row.file) else { return };
@@ -1847,10 +1847,8 @@ fn disk_line(cache: &mut HashMap<PathBuf, String>, p: &Path, n: u32) -> String {
 /// How far (in lines) an outdated thread may land from its original line number.
 const OUTDATED_SLACK: i64 = 10;
 
-/// The diff line a thread belongs under. Current threads use their line. Outdated ones are found
-/// by the commented line's text when it's distinctive, else by their original line number.
-/// The Claude view's lines of `f`: each of Claude's comments with its lines and a few around
-/// them, under `@@` headers as in the full diff.
+/// The Claude / pending view's lines of `f`: each of the shown threads with its lines and a few
+/// around them, under `@@` headers as in the full diff.
 fn view_lines(threads: &[&Thread], f: &FileDiff) -> Vec<DLine> {
     let ctx = DEFAULT_CONTEXT as usize;
     let mut spans: Vec<(usize, usize)> = threads
@@ -1876,6 +1874,8 @@ fn view_lines(threads: &[&Thread], f: &FileDiff) -> Vec<DLine> {
     diff::shown(&f.full, &ws, &f.headers)
 }
 
+/// The diff line a thread belongs under. Current threads use their line. Outdated ones are found
+/// by the commented line's text when it's distinctive, else by their original line number.
 fn anchor_line(t: &Thread, lines: &[DLine]) -> Option<usize> {
     let side = |l: &DLine| match t.left {
         true => matches!(l.kind, Kind::Ctx | Kind::Del),
