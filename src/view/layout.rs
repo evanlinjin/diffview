@@ -4,6 +4,30 @@
 use super::*;
 
 impl App {
+    /// The pane as you last left it (`Ctrl-w c`, `f`, `,` / `.`), in any repo.
+    pub(super) fn load_pane(&mut self) {
+        self.pane_file = crate::claude::data_home().ok().map(|d| d.join("pane.json"));
+        let v = self.pane_json();
+        self.margin_pref = v["shown"].as_bool();
+        self.margin_float_pref = v["float"].as_bool();
+        self.margin_w_pref = v["width"].as_u64().map(|w| w as usize);
+    }
+
+    pub(super) fn pane_json(&self) -> Value {
+        let text = self.pane_file.as_ref().and_then(|p| std::fs::read_to_string(p).ok());
+        text.and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| serde_json::json!({}))
+    }
+
+    /// Keeps `key` for the next run (`null` forgets it). Only what its key set: the pane shown
+    /// for a comment under the cursor isn't a choice to remember.
+    pub(super) fn save_pane(&self, key: &str, val: Value) {
+        let Some(p) = &self.pane_file else { return };
+        let mut v = self.pane_json();
+        v[key] = val;
+        let _ = std::fs::create_dir_all(p.parent().unwrap_or(p));
+        let _ = std::fs::write(p, v.to_string());
+    }
+
     /// Map rows to screen rows. Code runs down the left: one column, or in split view two,
     /// where each run of removed lines pairs with the added lines that follow it and unchanged
     /// lines show on both sides. Comments on files go in the margin on the right, each box

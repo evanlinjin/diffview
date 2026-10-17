@@ -436,6 +436,8 @@ pub struct App {
     /// (`Ctrl-w f`), as set; until then (`None`), from the window (narrow ones: floating).
     margin_w_pref: Option<usize>,
     margin_float_pref: Option<bool>,
+    /// Where those three are kept between runs (`pane.json`, any repo), once set by their keys.
+    pane_file: Option<PathBuf>,
     /// It floats now (set by `draw`).
     margin_float: bool,
     /// The pane's tab (`Ctrl-w t`); the PR tab's rows, and the first one on screen; where the
@@ -528,6 +530,7 @@ impl App {
         let theme = Theme::load();
         (app.hl, app.ui) = (Highlighter::new(&theme), theme.ui());
         app.settings = crate::theme::settings();
+        app.load_pane();
         app.claude.path = crate::claude::path(pr.as_ref().map(|p| p.number)).ok();
         app.load_seen();
         // The PR's Claude Code session, if an earlier run (any dv, any worktree) started one.
@@ -630,6 +633,7 @@ impl App {
             margin_w: MARGIN_MIN,
             margin_w_pref: None,
             margin_float_pref: None,
+            pane_file: None,
             margin_float: false,
             pane_tab: Tab::Comments,
             pr_rows: vec![],

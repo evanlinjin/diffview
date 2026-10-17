@@ -49,11 +49,7 @@ pub struct Review {
 /// first time.
 pub fn dv_dir() -> Result<PathBuf> {
     let common = PathBuf::from(diff::git(&["rev-parse", "--path-format=absolute", "--git-common-dir"])?.trim());
-    let data = std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
-        .context("no $HOME")?;
-    let dir = data.join("dv").join(repo_key(&common));
+    let dir = data_home()?.join(repo_key(&common));
     let old = common.join("dv");
     if old.is_dir() && !dir.exists() {
         std::fs::create_dir_all(dir.parent().unwrap_or(&dir))?;
@@ -62,6 +58,15 @@ pub fn dv_dir() -> Result<PathBuf> {
         }
     }
     Ok(dir)
+}
+
+/// `$XDG_DATA_HOME/dv` (`~/.local/share/dv`): every repo's directory, and what isn't any one's.
+pub fn data_home() -> Result<PathBuf> {
+    let data = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
+        .context("no $HOME")?;
+    Ok(data.join("dv"))
 }
 
 /// A directory name for the repo whose git dir is `common`: its main checkout's path, with `/`

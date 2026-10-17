@@ -301,6 +301,7 @@ impl App {
             (CTRL_W, 'c') => {
                 let show = !self.margin_active;
                 self.margin_pref = Some(show);
+                self.save_pane("shown", show.into());
                 if !show && self.margin_side() {
                     // Off the comment, onto what it's beside (it'd show it again).
                     let r = (0..self.head.row).rev().find(|&r| !self.in_margin(r)).unwrap_or(0);
@@ -330,6 +331,7 @@ impl App {
             (CTRL_W, 'f') => {
                 let float = !self.margin_float;
                 self.margin_float_pref = Some(float);
+                self.save_pane("float", float.into());
                 self.margin_pref = Some(true);
                 self.msg = match float {
                     true => "comments pane floating over the code (Ctrl-w f: a column beside it)",
@@ -339,10 +341,15 @@ impl App {
             }
             (CTRL_W, ',') | (CTRL_W, '.') => {
                 let w = self.margin_w as isize + if c == '.' { MARGIN_STEP } else { -MARGIN_STEP };
-                self.margin_w_pref = Some(w.max(MARGIN_NARROW as isize) as usize);
+                let w = w.max(MARGIN_NARROW as isize) as usize;
+                self.margin_w_pref = Some(w);
                 self.margin_pref = Some(true);
+                self.save_pane("width", w.into());
             }
-            (CTRL_W, '=') => self.margin_w_pref = None,
+            (CTRL_W, '=') => {
+                self.margin_w_pref = None;
+                self.save_pane("width", Value::Null);
+            }
             (CTRL_W, 'h') => self.side(false),
             (CTRL_W, 'l') => self.side(true),
             (']', 'f') => self.next_kind(true, file),

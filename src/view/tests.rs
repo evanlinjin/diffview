@@ -1478,6 +1478,30 @@ fn github_cache_reads_back() {
 }
 
 #[test]
+fn pane_kept_between_runs() {
+    let ctrl_w = |app: &mut App, c: char| {
+        app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
+        app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+    };
+    let p = std::env::temp_dir().join(format!("dv-pane-{}.json", std::process::id()));
+    let _ = std::fs::remove_file(&p);
+    let mut app = fixture();
+    app.pane_file = Some(p.clone());
+    _ = screen(240, 40, |f| app.draw(f));
+    ctrl_w(&mut app, 'c'); // hidden
+    ctrl_w(&mut app, 'f'); // floating (which shows it, but only `c` is kept as shown/hidden)
+    ctrl_w(&mut app, '.');
+    let w = app.margin_w_pref;
+    let mut next = fixture();
+    next.pane_file = Some(p.clone());
+    let v = next.pane_json();
+    assert_eq!((v["shown"].as_bool(), v["float"].as_bool(), v["width"].as_u64().map(|w| w as usize)), (Some(false), Some(true), w));
+    ctrl_w(&mut next, '=');
+    assert!(next.pane_json()["width"].is_null());
+    let _ = std::fs::remove_file(&p);
+}
+
+#[test]
 fn comments_pane() {
     let key = |app: &mut App, c: char| app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
     let ctrl = |app: &mut App, c: char| app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL));
