@@ -33,6 +33,18 @@ pub struct Record {
     pub published: Option<u64>,
     /// The originals closed (with the note) since.
     pub closed: Vec<u64>,
+    /// The process drafting it now, if one is (`drafting_now` checks it's still running).
+    pub drafting: Option<u32>,
+}
+
+impl Record {
+    /// Claude is drafting it now (from any dv): its process is still running.
+    pub fn drafting_now(&self) -> bool {
+        self.drafting.is_some_and(|pid| {
+            let alive = std::process::Command::new("kill").args(["-0", &pid.to_string()]).stderr(std::process::Stdio::null()).status();
+            alive.is_ok_and(|s| s.success())
+        })
+    }
 }
 
 pub fn branch(id: u64) -> String {
@@ -74,6 +86,7 @@ fn parse(id: u64, text: &str) -> Result<Record> {
         session: s(&v["session"]),
         published: v["published"].as_u64(),
         closed: v["closed"].as_array().into_iter().flatten().filter_map(Value::as_u64).collect(),
+        drafting: v["drafting"].as_u64().map(|p| p as u32),
     })
 }
 
@@ -83,6 +96,7 @@ fn to_json(r: &Record) -> String {
     let v = json!({
         "replaces": replaces, "base": r.base, "title": r.title, "body": r.body,
         "closing_note": r.closing_note, "session": r.session, "published": r.published, "closed": r.closed,
+        "drafting": r.drafting,
     });
     serde_json::to_string_pretty(&v).unwrap_or_default() + "\n"
 }
@@ -91,6 +105,13 @@ pub fn save(r: &Record) -> Result<()> {
     let p = path(r.id)?;
     std::fs::create_dir_all(p.parent().context("no dir")?)?;
     Ok(std::fs::write(p, to_json(r))?)
+}
+
+/// When any replacement's record last changed (or one came or went), to notice it.
+pub fn changed() -> Option<std::time::SystemTime> {
+    let d = dir().ok()?;
+    let entries = std::fs::read_dir(&d).ok()?.flatten().filter_map(|e| e.metadata().ok()?.modified().ok());
+    entries.chain(std::fs::metadata(&d).ok()?.modified().ok()).max()
 }
 
 /// Every replacement in this repo, by number.
@@ -112,14 +133,19 @@ pub fn prepare(prs: &[u64], root: &Path) -> Result<(Record, PathBuf)> {
     let id = *prs.first().context("no PR to replace")?;
     let git = |args: &[&str]| crate::diff::git(&[&["-C", &root.to_string_lossy()], args].concat());
     let mut r = load(id).unwrap_or(Record { id, ..Record::default() });
+    anyhow::ensure!(!r.drafting_now(), "Claude is already drafting the replacement of #{id}");
     let mut originals = vec![];
+    let mut bases: Vec<(u64, String)> = vec![];
     for &n in prs {
         let (title, author, url, base) = crate::gh::brief(n)?;
-        if r.base.is_empty() {
-            r.base = base;
-        }
+        bases.push((n, base));
         originals.push(Original { number: n, title, author, url });
     }
+    // One replacement can only target one branch.
+    if let Some((n, b)) = bases.iter().find(|b| b.1 != bases[0].1) {
+        anyhow::bail!("#{} targets {}, #{n} targets {b}: one replacement can't replace both", bases[0].0, bases[0].1);
+    }
+    r.base = bases.first().map(|b| b.1.clone()).unwrap_or_default();
     r.replaces = originals;
     if r.session.is_empty() {
         r.session = crate::claude::new_session_id();
@@ -127,6 +153,8 @@ pub fn prepare(prs: &[u64], root: &Path) -> Result<(Record, PathBuf)> {
     let dir = crate::worktree_dir_named(root, &format!("replace-{id}"))?;
     if dir.exists() {
         crate::ensure_worktree_of(&dir, root)?;
+        // Carrying on: from the base as it is now, if that goes cleanly (else Claude sees why).
+        _ = rebase(&r, &dir);
     } else {
         _ = git(&["fetch", "-q", "origin", &r.base]);
         let (b, d) = (branch(id), dir.to_string_lossy().into_owned());
@@ -139,22 +167,59 @@ pub fn prepare(prs: &[u64], root: &Path) -> Result<(Record, PathBuf)> {
     Ok((r, dir))
 }
 
-/// What Claude is asked, to draft (or redraft) replacement `r`.
+/// Bring replacement `r`'s branch (in `dir`) up to its base on origin: fetch, then rebase onto
+/// it. A rebase that conflicts is undone, and said so.
+pub fn rebase(r: &Record, dir: &Path) -> Result<()> {
+    let git = |args: &[&str]| crate::diff::git(&[&["-C", &dir.to_string_lossy()], args].concat());
+    git(&["fetch", "-q", "origin", &r.base])?;
+    if let Err(e) = git(&["rebase", "-q", &format!("origin/{}", r.base)]) {
+        _ = git(&["rebase", "--abort"]);
+        anyhow::bail!("it doesn't rebase cleanly onto origin/{} ({e:#}): ask Claude to redraft it on the new base", r.base);
+    }
+    Ok(())
+}
+
+/// What Claude is asked, to draft (or redraft) replacement `r`. Your notes on the repo come
+/// with it, to read: a draft reads untrusted PRs, so it gets no access to them (nor to dv's
+/// other files), only to its record.
 pub fn prompt(r: &Record, extra: &str) -> String {
     let prs: Vec<String> = r.replaces.iter().map(|o| format!("#{}", o.number)).collect();
+    let notes = crate::claude::notes_path().ok().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
+    let notes = match notes.trim() {
+        "" => String::new(),
+        n => format!("\n\nThe user's notes on this repo (read-only here; follow them):\n<notes>\n{n}\n</notes>"),
+    };
     let p = format!(
         "Use the dv-review skill to draft a replacement for PR {} (its section 6: \"Draft a replacement\"). \
-         First run `dv replace-info`. (It's {} now.)",
+         First run `dv replace-info`. (It's {} now.){notes}",
         prs.join(", "),
         crate::claude::now()
     );
     crate::view::with_instructions(&p, extra)
 }
 
+/// The directory a draft may write to (its record): `--add-dir`.
+pub fn writable() -> Result<PathBuf> {
+    dir()
+}
+
 /// Draft replacement `prs` with Claude, in its worktree, in the foreground of this thread:
 /// what it took ("12 turns, $0.40").
 pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> Result<String> {
-    let (r, dir) = prepare(prs, root)?;
+    let (mut r, dir) = prepare(prs, root)?;
+    // Others (dv list, another dv) see it's under way, and don't start another.
+    r.drafting = Some(std::process::id());
+    save(&r)?;
+    let res = run_claude(&r, &dir, extra, prepared);
+    // Claude has written to the record meanwhile: only the mark comes off.
+    if let Ok(mut now) = load(r.id) {
+        now.drafting = None;
+        _ = save(&now);
+    }
+    res
+}
+
+fn run_claude(r: &Record, dir: &Path, extra: &str, prepared: impl FnOnce()) -> Result<String> {
     prepared();
     // A record that exists from before has a session that saw it: carry on there.
     let fresh = r.title.is_empty() && r.body.is_empty();
@@ -163,7 +228,7 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
         false => ["--resume".to_owned(), r.session.clone()],
     };
     let log = std::env::temp_dir().join(format!("dv-claude-replace-{}-{}.log", std::process::id(), r.id));
-    let st = crate::view::claude_command(&prompt(&r, extra), &dir, &session, crate::view::REPLACE_TOOLS)
+    let st = crate::view::claude_command(&prompt(r, extra), dir, &session, crate::view::REPLACE_TOOLS, Some(&writable()?))
         .stdin(std::process::Stdio::null())
         .stdout(std::fs::File::create(&log)?)
         .stderr(std::fs::File::create(log.with_extension("err"))?)
@@ -176,22 +241,58 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
     Ok(format!("{} turns, ${:.2}", v["num_turns"].as_u64().unwrap_or(0), v["total_cost_usd"].as_f64().unwrap_or(0.0)))
 }
 
-/// Publish replacement `r` as a draft PR, with `title` and `body` (what you made of Claude's
-/// drafts): push its branch to origin (under the same name), then open the PR. Its number.
-pub fn publish(r: &mut Record, title: &str, body: &str) -> Result<u64> {
+/// The remote replacement branches are pushed to (`git config dv.replaceRemote`): not origin,
+/// but yours (a fork). `None` until it's set.
+pub fn remote() -> Option<String> {
+    crate::diff::git(&["config", "--get", "dv.replaceRemote"]).ok().map(|r| r.trim().to_owned()).filter(|r| !r.is_empty())
+}
+
+pub fn set_remote(name: &str) -> Result<()> {
+    crate::diff::git(&["config", "dv.replaceRemote", name]).map(drop)
+}
+
+/// The remotes it could be (all but origin).
+pub fn remote_choices() -> Vec<(String, String)> {
+    let names = crate::diff::git(&["remote"]).unwrap_or_default();
+    names
+        .lines()
+        .filter(|n| *n != "origin")
+        .map(|n| (n.to_owned(), crate::diff::git(&["remote", "get-url", n]).unwrap_or_default().trim().to_owned()))
+        .collect()
+}
+
+/// The GitHub owner of a remote's repo, from its URL (`git@github.com:owner/repo.git`,
+/// `https://github.com/owner/repo`).
+fn owner(url: &str) -> Option<&str> {
+    let path = url.split_once("github.com")?.1.trim_start_matches([':', '/']);
+    path.split('/').next().filter(|o| !o.is_empty())
+}
+
+/// Publish replacement `r` (checked out in `dir`) as a draft PR, with `title` and `body` (what
+/// you made of Claude's drafts): rebase it onto its base as it is on origin now, push it to
+/// your replacements remote, then open the PR (from there, into origin's repo). Its number.
+pub fn publish(r: &mut Record, dir: &Path, title: &str, body: &str) -> Result<u64> {
     anyhow::ensure!(r.published.is_none(), "already published, as #{}", r.published.unwrap_or(0));
+    let remote = remote().context("no remote for replacement branches (dv.replaceRemote)")?;
+    rebase(r, dir)?;
     let b = branch(r.id);
-    crate::diff::git(&["push", "-q", "-u", "origin", &format!("{b}:refs/heads/{b}")])?;
-    let n = crate::gh::create_draft(&r.base, &b, title, body)?;
+    let url = crate::diff::git(&["remote", "get-url", &remote])?;
+    let owner = owner(url.trim()).with_context(|| format!("{remote} ({}) isn't a GitHub repo", url.trim()))?;
+    crate::diff::git(&["-C", &dir.to_string_lossy(), "push", "-q", "-f", "-u", &remote, &format!("{b}:refs/heads/{b}")])?;
+    let n = crate::gh::create_draft(&r.base, &format!("{owner}:{b}"), title, body)?;
     (r.published, r.title, r.body) = (Some(n), title.to_owned(), body.to_owned());
     save(r)?;
     Ok(n)
 }
 
-/// The closing note, with the replacement's PR where Claude left `{replacement}`.
+/// The closing note, with the replacement's PR where Claude left `{replacement}` (or, if it
+/// didn't, said at the end).
 pub fn note(r: &Record) -> String {
     let link = r.published.map_or("the replacement".to_owned(), |n| format!("#{n}"));
-    r.closing_note.replace("{replacement}", &link)
+    match r.closing_note.contains("{replacement}") {
+        true => r.closing_note.replace("{replacement}", &link),
+        false => format!("{}\n\nSuperseded by {link}.", r.closing_note.trim_end()).trim_start().to_owned(),
+    }
 }
 
 /// Close the originals not closed yet, each with `note`: what was closed (an error stops at
@@ -239,8 +340,7 @@ pub fn info() -> Result<()> {
     }
     println!("branch: {}    (commit your work here; never push)", branch(id));
     println!("base: {base}    (origin/{}: `git diff {base}` is what dv shows)", r.base);
-    let notes = crate::claude::notes_path()?;
-    println!("notes: {}    (your notes on this repo; exists: {})", notes.display(), notes.exists());
+    println!("notes: the user's notes on this repo are in your prompt (read-only for a replacement)");
     Ok(())
 }
 
@@ -256,6 +356,7 @@ fn records_round_trip() {
         session: "s".into(),
         published: Some(20),
         closed: vec![12],
+        drafting: Some(7),
     };
     assert_eq!(parse(12, &to_json(&r)).unwrap(), r);
     // As Claude may leave it: fields missing are empty.
@@ -264,5 +365,13 @@ fn records_round_trip() {
     assert!(prompt(&r, "keep the old API").contains("PR #12, #15") && prompt(&r, "keep the old API").ends_with("keep the old API"));
     let r = Record { closing_note: "Thanks! See {replacement}.".into(), ..r };
     assert_eq!(note(&r), "Thanks! See #20.");
-    assert_eq!(note(&Record { published: None, ..r }), "Thanks! See the replacement.");
+    assert_eq!(note(&Record { published: None, ..r.clone() }), "Thanks! See the replacement.");
+    // Without the placeholder, the link goes at the end.
+    assert_eq!(note(&Record { closing_note: "Thanks!".into(), ..r.clone() }), "Thanks!\n\nSuperseded by #20.");
+    assert_eq!(owner("git@github.com:evan/diffview.git"), Some("evan"));
+    assert_eq!(owner("https://github.com/evan/diffview"), Some("evan"));
+    assert_eq!(owner("/srv/git/x.git"), None);
+    // A draft from a process that's gone isn't under way.
+    assert!(Record { drafting: Some(std::process::id()), ..r.clone() }.drafting_now());
+    assert!(!Record { drafting: None, ..r }.drafting_now());
 }

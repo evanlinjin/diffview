@@ -167,6 +167,7 @@ impl App {
                 format!("Draft a replacement for #{} (Claude writes it properly, unpublished, in the background)", p.number),
                 Target::ClaudeReplace(vec![p.number]),
             )),
+            (None, Some(r)) if r.drafting_now() => items.push(Item::new("Claude is drafting this replacement (dv shows it as it goes)", Target::Nothing)),
             (None, Some(r)) => items.push(Item::new(
                 "Redraft this replacement (Claude carries on, with your instructions)",
                 Target::ClaudeReplace(r.replaces.iter().map(|o| o.number).collect()),
@@ -456,7 +457,7 @@ impl App {
         if forked {
             session.push("--fork-session".into());
         }
-        let child = claude_command(prompt, &self.root, &session, &[])
+        let child = claude_command(prompt, &self.root, &session, &[], None)
             .stdin(std::process::Stdio::null())
             .stdout(std::fs::File::create(&log)?)
             .stderr(std::fs::File::create(&err)?)
@@ -592,13 +593,17 @@ pub(crate) fn review_prompt(what: &str) -> String {
 /// `claude -p prompt` in `dir` as dv runs it in the background: its result as JSON on stdout,
 /// edits allowed, in the session `session` names (`--resume <id>`, `--session-id <id>`, …),
 /// with dv's directory reachable, and only the commands the skill needs.
-/// `more`: tools allowed on top of the usual ones.
-pub(crate) fn claude_command(prompt: &str, dir: &Path, session: &[String], more: &[&str]) -> std::process::Command {
+/// `more`: tools allowed on top of the usual ones; `access`: the one directory outside `dir`
+/// Claude may write to (`None`: all of dv's).
+pub(crate) fn claude_command(prompt: &str, dir: &Path, session: &[String], more: &[&str], access: Option<&Path>) -> std::process::Command {
     let mut cmd = std::process::Command::new("claude");
     cmd.env("PATH", path_for_claude())
         .args(["-p", prompt, "--output-format", "json", "--permission-mode", "acceptEdits"])
         .args(session);
-    cmd.args(claude_dirs());
+    match access {
+        Some(d) => _ = cmd.arg("--add-dir").arg(d),
+        None => _ = cmd.args(claude_dirs()),
+    }
     // Last: it takes every argument after it.
     cmd.arg("--allowedTools").args(ALLOWED).args(more).current_dir(dir);
     cmd

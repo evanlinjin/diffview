@@ -1156,16 +1156,26 @@ fn replacement_in_the_pr_section() {
         app.review_menu();
         app.picker.take().unwrap().items.into_iter().map(|i| (i.label, i.target)).collect::<Vec<_>>()
     };
+    // In a checkout with nothing uncommitted (else committing comes first).
+    let clean = std::env::temp_dir().join(format!("dv-clean-{}", std::process::id()));
+    std::fs::create_dir_all(&clean).unwrap();
+    diff::git(&["-C", &clean.to_string_lossy(), "init", "-q"]).unwrap();
+    app.root = clean.clone();
     let items = s(&mut app);
-    assert!(items[0].0.starts_with("Publish as a draft PR (pushes dv/replace-12") && matches!(items[0].1, Target::Publish));
-    assert_eq!(items[1].0, "  closing #12, #15 comes once it's published");
+    assert!(items[0].0.starts_with("Publish as a draft PR (rebased on origin/") && matches!(items[0].1, Target::Publish(false)));
+    assert!(items[1].0 == "Publish, then close #12, #15 with the closing note…" && matches!(items[1].1, Target::Publish(true)));
+    std::fs::write(clean.join("x"), "").unwrap();
+    let items = s(&mut app);
+    assert!(items[0].0.starts_with("Commit the uncommitted changes first") && matches!(items[0].1, Target::GitCommit));
+    assert_eq!(items.len(), 1); // nothing to publish until then
+    _ = std::fs::remove_dir_all(&clean);
     let mut r = app.replacement.clone().unwrap();
     (r.published, r.closed) = (Some(20), vec![12]);
     app.show_replacement(r);
     app.build();
     let items = s(&mut app);
     assert_eq!(items[0].0, "Published as draft PR #20");
-    assert!(items[1].0 == "Close #15 with the closing note…" && matches!(items[1].1, Target::CloseOriginals));
+    assert!(items[1].0 == "Close #15 with the closing note (now)…" && matches!(items[1].1, Target::CloseOriginals));
     assert_eq!(app.header_tag(INFO).unwrap().0, " PUBLISHED ");
     let row = app.rows.iter().find(|r| r.line.text == "published as draft PR #20").unwrap();
     assert_eq!(row.links[0].2, "https://github.com/o/r/pull/20"); // the new PR, linked

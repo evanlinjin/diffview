@@ -221,8 +221,9 @@ enum Action {
     ClaudeWith(agent::Ask),
     /// Have Claude draft a replacement for these PRs, after your instructions for it.
     Replace(Vec<u64>),
-    /// Publish the replacement here as a draft PR, after the editor (title, description).
-    Publish,
+    /// Publish the replacement here as a draft PR, after the editor (title, description); with
+    /// `true`, closing what it replaces comes next.
+    Publish(bool),
     /// Close the PRs the replacement here replaces, after the editor (the note).
     CloseOriginals,
     /// A new PR conversation comment, starting with `quote` (may be empty); `as_is`: posted
@@ -277,9 +278,12 @@ enum Target {
     ClaudeNotes,
     /// Have Claude draft (or redraft) a replacement for these PRs, in the background.
     ClaudeReplace(Vec<u64>),
-    /// Publish the replacement here as a draft PR / close the PRs it replaces.
-    Publish,
+    /// Publish the replacement here as a draft PR (`true`: then close the PRs it replaces) /
+    /// close them.
+    Publish(bool),
     CloseOriginals,
+    /// Keep replacement branches on this remote (`dv.replaceRemote`), then publish (as `Publish`).
+    ReplaceRemote(String, bool),
     ClaudeFresh,
     GitView,
     GitCommit,
@@ -395,8 +399,10 @@ pub struct App {
     claude_view: bool,
     /// The PR's state and its color (DRAFT, OPEN, …), at the right end of its header line.
     pr_state: Option<gh::State>,
-    /// The replacement checked out here, if it is one (`replace.rs`): shown in the PR section.
+    /// The replacement checked out here, if it is one (`replace.rs`): shown in the PR section;
+    /// and when its record last changed (Claude redrafting it: it's shown again).
     replacement: Option<crate::replace::Record>,
+    replacement_mtime: Option<std::time::SystemTime>,
     /// What your review summary starts from (`c` on Claude's review copies it here), for `S`.
     summary_draft: String,
     /// Your GitHub login: your comments are never new to you.
@@ -566,6 +572,7 @@ impl App {
             pr_state: None,
             summary_draft: String::new(),
             replacement: None,
+            replacement_mtime: None,
             me: String::new(),
             seen: HashSet::new(),
             seen_path: None,
@@ -618,6 +625,7 @@ impl App {
             self.lsp_poll();
             self.watch_tree();
             self.watch_claude();
+            self.watch_replacement();
             self.poll_claude();
             if let Some(a) = self.action.take() {
                 // In zellij the editor gets a pane on the right and dv stays on screen beside it.
@@ -717,6 +725,9 @@ impl App {
                 Ok(keep_on_error(Err(anyhow::anyhow!(why)), &extra).err().map_or(String::new(), |e| format!("{e:#}")))
             }
             Action::Replace(prs) => {
+                if crate::replace::load(prs[0]).is_ok_and(|r| r.drafting_now()) {
+                    return Ok(format!("Claude is already drafting the replacement of #{}", prs[0]));
+                }
                 let which = prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(", ");
                 let last = crate::claude::instructions("replace");
                 let what = format!("instructions for Claude's replacement of {which} (optional)");
@@ -725,8 +736,11 @@ impl App {
                 agent::spawn_replace(&prs)?;
                 Ok(format!("Claude is drafting a replacement for {which} in the background: dv list's replacements tab shows it"))
             }
-            Action::Publish => {
+            Action::Publish(close) => {
                 let mut r = self.replacement.clone().context("not a replacement")?;
+                if crate::replace::remote().is_none() {
+                    return Ok(self.ask_replace_remote(close));
+                }
                 let prefill = format!("{}\n\n{}", r.title.trim(), r.body.trim());
                 let what = format!("draft PR for {}: its title (first line), then its description", crate::replace::branch(r.id));
                 let Some(text) = compose_with(&what, false, &prefill, true)? else { return Ok("not published".into()) };
@@ -735,9 +749,12 @@ impl App {
                 if title.is_empty() {
                     return Ok("not published: it needs a title (the first line)".into());
                 }
-                let res = crate::replace::publish(&mut r, title, body);
+                let res = crate::replace::publish(&mut r, &self.root, title, body);
                 keep_on_error(res.as_ref().map(drop).map_err(|e| anyhow!("{e:#}")), &text)?;
                 self.show_replacement(r);
+                if close {
+                    self.action = Some(Action::CloseOriginals); // its own editor, next
+                }
                 Ok(format!("published as draft PR #{}: S closes what it replaces, with the note", res.unwrap_or(0)))
             }
             Action::CloseOriginals => {

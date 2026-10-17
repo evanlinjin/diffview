@@ -5,6 +5,21 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Changed
+- Replacements:
+  - `A A` on several marked PRs has Claude suggest which go together (one replacement each
+    group) and which stand alone; you edit that in your editor before anything's drafted.
+  - Publishing pushes to your own remote, not origin: dv asks which the first time and keeps
+    it in `git config dv.replaceRemote`. It rebases onto the base on origin first.
+  - `S` can publish and then close the originals in one go (closing on its own stays too).
+  - Uncommitted changes aren't published: `S` has you commit them first.
+  - A closing note without `{replacement}` gets "Superseded by #N." added.
+  - Drafts get your repo notes in their prompt, read-only, and can only write their record:
+    a PR's text can't steer what Claude does in later reviews.
+  - A draft under way is known everywhere (`dv list`, dv, `dv replace`), so none starts a
+    second one; dv and `dv list` show drafts as they change.
+  - PRs into different base branches can't share a replacement.
+
 ### Fixed
 - `dv list`: a review (or replacement) that failed says why on its card, not just "failed",
   and that `a a` (`A A`) tries again.

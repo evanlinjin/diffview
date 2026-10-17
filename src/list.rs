@@ -37,9 +37,10 @@ const HELP: &str = "\
   a a                  Claude reviews the marked PRs (or this one) in the background, two at a
                        time, each in its worktree (<repo>-N, made if need be); cards show how
                        it's going, and claude ✓ once a PR has a review
-  A A                  Claude drafts one replacement for the marked PRs (or this one), on a
-                       branch of its own in <repo>-replace-N, unpublished, for you to review
-                       first (replacements tab); your editor opens first, for instructions
+  A A                  Claude drafts a replacement for this PR, on a branch of its own in
+                       <repo>-replace-N, unpublished, for you to review first (replacements
+                       tab); for marked PRs, it first suggests which go together (one
+                       replacement each group), which you edit; then your instructions
   D D                  worktrees tab: remove the PR's worktree (not with local changes in it;
                        its branch stays); replacements tab: remove the replacement (the same)
   R                    refresh
@@ -73,6 +74,12 @@ pub struct List {
     /// Replacements Claude is drafting: how each is going, and the news on its way.
     drafting: HashMap<u64, batch::Status>,
     draft_rx: Vec<Receiver<(u64, batch::Status)>>,
+    /// Replacements being drafted by another dv (`dv replace`, dv's `Space a`), from their
+    /// records; and when the records last changed, to see that.
+    drafting_elsewhere: HashSet<u64>,
+    reps_changed: Option<std::time::SystemTime>,
+    /// Claude's suggestion of how to group marked PRs into replacements, on its way.
+    group_rx: Option<Receiver<anyhow::Result<batch::Groups>>>,
     /// A key that asks to be pressed again (`D` on this PR's worktree, `a`, `q`): any other
     /// key calls it off.
     confirm: Option<(char, u64)>,
@@ -122,6 +129,9 @@ impl List {
             rep_of: HashMap::new(),
             drafting: HashMap::new(),
             draft_rx: vec![],
+            drafting_elsewhere: HashSet::new(),
+            reps_changed: None,
+            group_rx: None,
             confirm: None,
             marked: HashSet::new(),
             batch: HashMap::new(),
@@ -143,6 +153,16 @@ impl List {
         loop {
             term.draw(|f| self.draw(f))?;
             self.batch_news();
+            // A replacement drafted, or its draft changed, from anywhere: show it.
+            let changed = crate::replace::changed();
+            if changed != self.reps_changed {
+                self.reps_changed = changed;
+                self.load_reps();
+            }
+            if let Some(Ok(res)) = self.group_rx.as_ref().map(Receiver::try_recv) {
+                self.group_rx = None;
+                self.draft_groups(term, res);
+            }
             if let Some(Ok(res)) = self.checks.as_ref().map(Receiver::try_recv) {
                 self.checks = None;
                 match res {
@@ -183,13 +203,14 @@ impl List {
                     self.marked.clear();
                     self.batch_rx = Some(batch::start(prs, self.root.clone(), extra));
                 }
+                // One PR: its replacement. Several: Claude suggests how to group them first.
+                Some(Do::Replace(prs)) if prs.len() == 1 => self.draft_groups(term, Ok(vec![(prs, String::new())])),
                 Some(Do::Replace(prs)) => {
-                    let which = prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(" ");
-                    let what = format!("instructions for Claude's replacement of {which} (optional)");
-                    let Some(extra) = self.instructions(term, "replace", &what) else { continue };
-                    self.msg = format!("Claude is drafting a replacement for {which}: the replacements tab shows it");
+                    let about = |n: u64| self.prs.iter().find(|p| p.number == n).map(|p| (n, p.title.clone(), p.author.clone(), p.base.clone()));
+                    let prs = prs.into_iter().map(|n| about(n).unwrap_or((n, String::new(), String::new(), String::new()))).collect();
+                    self.msg = "Claude is looking at how to group them (one replacement per group)…".into();
                     self.marked.clear();
-                    self.draft_rx.push(batch::replace(prs, self.root.clone(), extra));
+                    self.group_rx = Some(batch::group(prs, self.root.clone()));
                 }
                 Some(Do::RemoveReplacement(id)) => {
                     self.msg = crate::replace::remove(id, &self.root).unwrap_or_else(|e| format!("{e:#}"));
@@ -242,9 +263,63 @@ impl List {
         }
     }
 
+    /// Draft a replacement for each group, after your editor: the groups (Claude's suggestion,
+    /// for several PRs, a line each), then instructions for all of them.
+    fn draft_groups(&mut self, term: &mut DefaultTerminal, groups: Result<batch::Groups>) {
+        let (groups, why) = match groups {
+            Ok(g) => (g, String::new()),
+            Err(e) => (vec![], format!("{e:#}")),
+        };
+        let suggested = batch::groups_text(&self.group_notes(&groups));
+        let mut groups: Vec<Vec<u64>> = groups.iter().map(|g| g.0.clone()).collect();
+        if groups.len() > 1 || groups.first().is_some_and(|g| g.len() > 1) || !why.is_empty() {
+            let what = match why.is_empty() {
+                true => "replacements to draft: one per line, the PRs it replaces (Claude's suggestion; change it as you like, # notes are ignored)".to_owned(),
+                false => format!("replacements to draft, one per line (Claude couldn't suggest any: {why})"),
+            };
+            let in_pane = crate::view::in_zellij();
+            if !in_pane {
+                crate::view::restore_terminal();
+            }
+            let edited = crate::view::compose_with(&what, false, &suggested, true);
+            if !in_pane {
+                *term = crate::view::init_terminal();
+            }
+            match edited {
+                Ok(Some(text)) => groups = batch::parse_groups_text(&text),
+                Ok(None) => return self.msg = "cancelled".into(),
+                Err(e) => return self.msg = format!("{e:#}"),
+            }
+        }
+        groups.retain(|g| !g.is_empty() && !self.drafting_elsewhere.contains(&g[0]) && !self.drafting.get(&g[0]).is_some_and(batch::Status::running));
+        if groups.is_empty() {
+            return self.msg = "nothing to draft".into();
+        }
+        let which: Vec<String> = groups.iter().map(|g| g.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join("+")).collect();
+        let what = format!("instructions for Claude's replacement of {} (optional)", which.join(", "));
+        let Some(extra) = self.instructions(term, "replace", &what) else { return };
+        self.msg = format!("Claude is drafting {} replacement(s): the replacements tab shows them", groups.len());
+        self.marked.clear();
+        for g in groups {
+            self.draft_rx.push(batch::replace(g, self.root.clone(), extra.clone()));
+        }
+    }
+
+    /// Groups with Claude's reason for each, if it gave one (else the PRs' titles).
+    fn group_notes(&self, groups: &batch::Groups) -> batch::Groups {
+        groups
+            .iter()
+            .map(|(g, why)| {
+                let titles: Vec<String> = g.iter().filter_map(|n| self.prs.iter().find(|p| p.number == *n).map(|p| p.title.clone())).collect();
+                (g.clone(), if why.is_empty() { titles.join(" / ") } else { why.clone() })
+            })
+            .collect()
+    }
+
     /// The replacements, as cards: what they replace, and their size against their base.
     fn load_reps(&mut self) {
         let records = crate::replace::all();
+        self.drafting_elsewhere = records.iter().filter(|r| r.drafting_now()).map(|r| r.id).collect();
         self.reps = records.iter().map(|r| rep_card(r, &self.root)).collect();
         self.rep_of = records.into_iter().map(|r| (r.id, r)).collect();
     }
@@ -270,6 +345,7 @@ impl List {
     /// replaces: "claude ✓" there reads "replacement ✓".
     fn draft_state(&self, id: u64, of: &str) -> Option<(String, bool)> {
         let (what, ok) = match self.drafting.get(&id) {
+            _ if self.drafting_elsewhere.contains(&id) => ("drafting…", true),
             Some(batch::Status::Failed(e)) => return Some((format!("{of}: draft failed: {}", cut(e.lines().next().unwrap_or(""), 60)), false)),
             Some(s) if s.running() => ("drafting…", true),
             _ => match self.rep_of.get(&id)? {
@@ -472,7 +548,7 @@ impl List {
                 };
                 prs.sort();
                 let id = *prs.first()?;
-                if self.drafting.get(&id).is_some_and(batch::Status::running) {
+                if self.drafting.get(&id).is_some_and(batch::Status::running) || self.drafting_elsewhere.contains(&id) {
                     return (self.msg = format!("Claude is already drafting the replacement of #{id}"), None).1;
                 }
                 if armed == Some(('A', 0)) {
@@ -480,7 +556,10 @@ impl List {
                 }
                 let which = prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(" ");
                 let again = if self.rep_of.contains_key(&id) { " (again: it has one, which Claude carries on from)" } else { "" };
-                self.msg = format!("A again: Claude drafts one replacement for {which}{again}, unpublished; your editor opens first, for instructions");
+                self.msg = match prs.len() {
+                    1 => format!("A again: Claude drafts a replacement for {which}{again}, unpublished; your editor opens first, for instructions"),
+                    _ => format!("A again: Claude suggests how to group {which} into replacements (you decide, in your editor), then drafts them, unpublished"),
+                };
                 self.confirm = Some(('A', 0));
             }
             KeyCode::Char('?') => self.help = true,
@@ -1034,7 +1113,7 @@ fn filter_and_keys() {
     assert!(matches!(k(&mut l, KeyCode::Char('q')), Some(Do::Quit)));
     // A A drafts one replacement for the marked PRs (or this one).
     l.marked = HashSet::from([22, 1]);
-    assert!(k(&mut l, KeyCode::Char('A')).is_none() && l.msg.starts_with("A again: Claude drafts one replacement for #1 #22"));
+    assert!(k(&mut l, KeyCode::Char('A')).is_none() && l.msg.starts_with("A again: Claude suggests how to group #1 #22"));
     assert!(matches!(k(&mut l, KeyCode::Char('A')), Some(Do::Replace(ref p)) if p == &[1, 22]));
     // The replacements tab: its cards, and the PRs it replaces say so.
     let o = |number| crate::replace::Original { number, author: "bot".into(), ..Default::default() };

@@ -107,11 +107,19 @@ disk: rust-analyzer can index it and `hx` can open it.
    them and runs Claude (`claude -p`, the skill's section 6, with `dv replace-info`; allowed
    to read PRs and issues with `gh` and to `git add` / `git commit`, never to push). Drafting
    again resumes the session. dv on a replacement's branch shows, in the PR section, what it
-   replaces (linked), the drafts, and `UNPUBLISHED` on the header line. `S` there publishes
-   it (editor: title on the first line, then the description; `git push -u origin
-   dv/replace-N`, `gh pr create --draft`; `published` saved) and then, once published, closes
-   the originals (editor: the note, `{replacement}` filled in; `gh pr close N --comment`;
-   each in `closed` as it goes, so a failure leaves those before it done).
+   replaces (linked), the drafts, and `UNPUBLISHED` on the header line, and shows it again
+   when the record changes. `S` there publishes it, or publishes then closes the originals
+   (editor: title on the first line, then the description; not with uncommitted changes:
+   committing is offered instead; fetch and rebase onto `origin/<base>`, aborted on conflict;
+   push to `dv.replaceRemote` (git config; asked for from the remotes other than origin when
+   unset); `gh pr create --draft --head <owner>:dv/replace-N`; `published` saved). Closing
+   (editor: the note, `{replacement}` filled in, or "Superseded by #N." appended; `gh pr close
+   N --comment`) records each in `closed` as it goes. A draft under way has its process in the
+   record (`drafting`), so `dv list`, dv and `dv replace` don't start another; `dv list`
+   watches the records. Drafts get the notes in the prompt and write access only to
+   `replacements/` (not the notes, which every review reads). PRs into different bases can't
+   share a replacement. For several marked PRs, `A A` first has Claude suggest groups (a
+   `claude -p` that only reads them), edited in `$EDITOR`, a line each.
 4. **Later**:
    - **`c` in the PR section → review summary.** `c` on a conversation comment (or the
      description) appends it as a `> ` quote to the pending review's summary (body), saved on

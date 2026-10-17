@@ -164,13 +164,16 @@ Some PRs aren't worth reviewing into shape (low-effort, often AI-generated ones)
 write the change properly instead, as a **replacement** you review before anything is
 published:
 
-1. In `dv list`, `A A` on the PR (or on several marked ones that try the same thing; one
-   replacement covers them all), or `Space a` → "Draft a replacement" in dv. Your editor opens
-   first for instructions (your last ones are there to start from).
+1. In `dv list`, `A A` on the PR, or `Space a` → "Draft a replacement" in dv. With several
+   marked PRs, Claude first suggests which belong together (attempts at the same change: one
+   replacement covers them) and which stand alone; your editor shows that, a line per
+   replacement, to change as you like. Then your editor opens for instructions (your last ones
+   are there to start from).
 2. Claude works in the background, in a worktree of its own, `<repo>-replace-N` on branch
    `dv/replace-N`, from the originals' base: it reads them (and the issue they claim to fix),
    works out what they got wrong, writes the change properly with tests, and commits it
-   (never pushing). It drafts the new PR's title and description ("Replaces #N", with any
+   (never pushing). Your notes on the repo come in its prompt, read-only: it reads untrusted
+   PRs, so it can't touch dv's other files. It drafts the new PR's title and description ("Replaces #N", with any
    "Fixes #X" carried over) and a short, civil note for closing the originals.
 3. `dv list`'s **replacements** tab lists them (cards say what they replace; a replaced PR's
    card says `replacement ✓`). Enter opens one in dv: its diff against the base, and above it
@@ -178,11 +181,16 @@ published:
    Claude, `Space a` → "make the changes", or "Redraft this replacement" with new
    instructions (Claude carries on in the same session). `D D` removes one (its branch stays).
 
+   It updates by itself as Claude redrafts.
 4. When it's right, `S` there: **Publish as a draft PR** (your editor has the title, first line,
-   and description to adjust; dv pushes `dv/replace-N` to origin and opens the PR as a draft),
-   then **Close #N with the closing note** (your editor has Claude's note, with the new PR's
-   number in it; each original gets it as a comment, then is closed). Both are public, so each
-   is its own step.
+   and description to adjust), or **Publish, then close** the originals too. dv rebases it onto
+   its base as it is on origin now (stopping if that conflicts), pushes `dv/replace-N` to your
+   own remote (not origin: the first time, dv asks which, and keeps it in `git config
+   dv.replaceRemote`), and opens the draft PR from there. What isn't committed isn't
+   published, so dv has you commit it first. **Close #N with the closing note** (your editor
+   has Claude's note, with the new PR's number in it, or "Superseded by #N." added if it left
+   that out) comments on each original, then closes it; it's also on `S` later. Several PRs
+   with different base branches can't share a replacement.
 
 ## Layout
 

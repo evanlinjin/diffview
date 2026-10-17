@@ -393,7 +393,11 @@ impl App {
                         Target::Claude(ask) => self.pick_claude(ask),
                         Target::ClaudeNotes => self.edit_claude_notes(),
                         Target::ClaudeReplace(prs) => self.action = Some(Action::Replace(prs)),
-                        Target::Publish => self.action = Some(Action::Publish),
+                        Target::Publish(close) => self.action = Some(Action::Publish(close)),
+                        Target::ReplaceRemote(name, close) => match crate::replace::set_remote(&name) {
+                            Ok(()) => self.action = Some(Action::Publish(close)),
+                            Err(e) => self.msg = format!("{e:#}"),
+                        },
                         Target::CloseOriginals => self.action = Some(Action::CloseOriginals),
                         Target::ClaudeFresh => self.fresh_claude_session(),
                         Target::GitView => self.toggle_uncommitted(),

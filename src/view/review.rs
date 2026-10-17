@@ -216,21 +216,56 @@ impl App {
     fn replacement_menu(&mut self) {
         let Some(r) = &self.replacement else { return };
         let item = |label: String, target| Item::new(label, target);
-        let mut items = vec![match r.published {
-            None if r.title.is_empty() => item("Claude hasn't drafted it yet (Space a → Redraft)".into(), Target::Nothing),
-            None => item(format!("Publish as a draft PR (pushes {} to origin)…", crate::replace::branch(r.id)), Target::Publish),
-            Some(n) => item(format!("Published as draft PR #{n}"), Target::Nothing),
-        }];
         let open: Vec<String> = r.replaces.iter().filter(|o| !r.closed.contains(&o.number)).map(|o| format!("#{}", o.number)).collect();
+        let dirty = !diff::git(&["-C", &self.root.to_string_lossy(), "status", "--porcelain"]).unwrap_or_default().trim().is_empty();
+        let to = crate::replace::remote().map_or("your remote: dv asks which".to_owned(), |r| format!("to {r}"));
+        let mut items = match r.published {
+            _ if r.drafting_now() => vec![item("Claude is drafting it: wait for it to finish".into(), Target::Nothing)],
+            None if r.title.is_empty() => vec![item("Claude hasn't drafted it yet (Space a → Redraft)".into(), Target::Nothing)],
+            // Only commits are published: what isn't committed would be left out.
+            None if dirty => vec![item("Commit the uncommitted changes first (they'd be left out)…".into(), Target::GitCommit)],
+            None => {
+                let mut v = vec![item(format!("Publish as a draft PR (rebased on origin/{}, pushed {to})…", r.base), Target::Publish(false))];
+                if !open.is_empty() {
+                    v.push(item(format!("Publish, then close {} with the closing note…", open.join(", ")), Target::Publish(true)));
+                }
+                v
+            }
+            Some(n) => vec![item(format!("Published as draft PR #{n}"), Target::Nothing)],
+        };
         match (r.published, open.is_empty()) {
             (_, true) => items.push(item("  the PRs it replaces are closed".into(), Target::Nothing)),
-            (Some(_), false) => items.push(item(format!("Close {} with the closing note…", open.join(", ")), Target::CloseOriginals)),
-            (None, false) => items.push(item(format!("  closing {} comes once it's published", open.join(", ")), Target::Nothing)),
-        }
-        if r.published.is_none() && !diff::git(&["status", "--porcelain"]).unwrap_or_default().trim().is_empty() {
-            items.push(item("  ! there are uncommitted changes, which aren't published: commit them first (Space g)".into(), Target::Nothing));
+            (Some(_), false) => items.push(item(format!("Close {} with the closing note (now)…", open.join(", ")), Target::CloseOriginals)),
+            (None, false) => {}
         }
         self.picker = Some(Picker { title: " replacement ", items, query: String::new(), sel: 0 });
+    }
+
+    /// Which remote keeps replacement branches: asked once, then kept in `dv.replaceRemote`.
+    pub(super) fn ask_replace_remote(&mut self, close: bool) -> String {
+        let choices = crate::replace::remote_choices();
+        if choices.is_empty() {
+            return "replacement branches go to a remote of your own, not origin: add one (git remote add <name> <your fork's URL>), then S again".into();
+        }
+        let items = choices.into_iter().map(|(n, url)| Item::new(format!("{n}  {url}"), Target::ReplaceRemote(n, close))).collect();
+        self.picker = Some(Picker { title: " which remote keeps replacement branches? ", items, query: String::new(), sel: 0 });
+        "dv remembers it (git config dv.replaceRemote)".into()
+    }
+
+    /// The replacement here, shown again when its record changes (Claude redrafting it).
+    pub(super) fn watch_replacement(&mut self) {
+        let Some(id) = self.replacement.as_ref().map(|r| r.id) else { return };
+        let mtime = crate::replace::path(id).ok().and_then(|p| std::fs::metadata(p).ok()?.modified().ok());
+        if mtime == self.replacement_mtime {
+            return;
+        }
+        let first = self.replacement_mtime.is_none();
+        self.replacement_mtime = mtime;
+        if let (false, Ok(r)) = (first, crate::replace::load(id)) {
+            let keep = self.cursor_key();
+            self.show_replacement(r);
+            self.rebuild(keep);
+        }
     }
 
     /// What's still open in the review: threads waiting on someone, pending comments whose

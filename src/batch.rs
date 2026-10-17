@@ -75,7 +75,7 @@ fn review(n: u64, branch: bool, root: &Path, extra: &str, tx: &Sender<(u64, Stat
     let prompt = format!("{} (It's {} now.)", crate::view::review_prompt(&format!("PR #{n}")), crate::claude::now());
     let prompt = crate::view::with_instructions(&prompt, extra);
     let log = std::env::temp_dir().join(format!("dv-claude-batch-{}-{n}.log", std::process::id()));
-    let st = crate::view::claude_command(&prompt, &dir, &session, &[])
+    let st = crate::view::claude_command(&prompt, &dir, &session, &[], None)
         .stdin(std::process::Stdio::null())
         .stdout(std::fs::File::create(&log)?)
         .stderr(std::fs::File::create(log.with_extension("err"))?)
@@ -105,6 +105,72 @@ pub fn replace(prs: Vec<u64>, root: PathBuf, extra: String) -> Receiver<(u64, St
         _ = tx.send((id, st.map_or_else(|e| Status::Failed(format!("{e:#}")), Status::Done)));
     });
     rx
+}
+
+/// A replacement each: the PRs it replaces, and why they go together (Claude's word).
+pub type Groups = Vec<(Vec<u64>, String)>;
+
+/// Claude suggests which of `prs` (number, title, author, base) one replacement should cover
+/// together (attempts at the same change) and which stand alone, in the background. It only
+/// reads them.
+pub fn group(prs: Vec<(u64, String, String, String)>, root: PathBuf) -> Receiver<anyhow::Result<Groups>> {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || _ = tx.send(suggest_groups(&prs, &root)));
+    rx
+}
+
+fn suggest_groups(prs: &[(u64, String, String, String)], root: &Path) -> anyhow::Result<Groups> {
+    let list: Vec<String> = prs.iter().map(|(n, t, a, b)| format!("- #{n} {t} (@{a}, into {b})")).collect();
+    let prompt = format!(
+        "These PRs are to be replaced by better ones:\n{}\n\nRead each (`gh pr view N`, `gh pr diff N`) and group \
+         them: PRs that try to make the same change (the same issue, the same code) go in one group, to be replaced \
+         by one PR; the others each alone. PRs into different base branches never share a group. Change nothing. \
+         Reply with only a JSON array, no other text: [{{\"prs\": [12, 15], \"why\": \"one short line\"}}], \
+         every PR in exactly one group.",
+        list.join("\n")
+    );
+    let tools = ["Bash(gh pr view:*)", "Bash(gh pr diff:*)"];
+    let out = crate::view::claude_command(&prompt, root, &[], &tools, Some(root)).stdin(std::process::Stdio::null()).output()?;
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
+    anyhow::ensure!(v["is_error"] == false, "Claude couldn't group them ({})", out.status);
+    parse_groups(v["result"].as_str().unwrap_or(""))
+}
+
+/// The groups in Claude's answer (a JSON array, maybe with words around it).
+fn parse_groups(answer: &str) -> anyhow::Result<Groups> {
+    use anyhow::Context;
+    let json = answer.get(answer.find('[').context("no groups in Claude's answer")?..=answer.rfind(']').context("no groups")?).unwrap_or("");
+    let v: serde_json::Value = serde_json::from_str(json)?;
+    Ok(v.as_array()
+        .context("no groups")?
+        .iter()
+        .map(|g| (g["prs"].as_array().into_iter().flatten().filter_map(serde_json::Value::as_u64).collect(), g["why"].as_str().unwrap_or("").to_owned()))
+        .filter(|g: &(Vec<u64>, String)| !g.0.is_empty())
+        .collect())
+}
+
+/// Groups as you edit them: a line each, the PRs' numbers, `#` and after it a note.
+pub fn groups_text(groups: &Groups) -> String {
+    groups.iter().map(|(prs, why)| {
+        let nums: Vec<String> = prs.iter().map(u64::to_string).collect();
+        format!("{:<14} # {why}\n", nums.join(" "))
+    }).collect()
+}
+
+pub fn parse_groups_text(text: &str) -> Vec<Vec<u64>> {
+    text.lines()
+        .map(|l| l.split('#').next().unwrap_or("").split_whitespace().filter_map(|n| n.trim_start_matches('#').parse().ok()).collect::<Vec<u64>>())
+        .filter(|g| !g.is_empty())
+        .collect()
+}
+
+#[test]
+fn groups() {
+    let g = parse_groups("Here: [{\"prs\": [12, 15], \"why\": \"same fix\"}, {\"prs\": [20], \"why\": \"alone\"}]").unwrap();
+    assert_eq!(g, vec![(vec![12, 15], "same fix".to_owned()), (vec![20], "alone".to_owned())]);
+    let text = groups_text(&g);
+    assert_eq!(text, "12 15          # same fix\n20             # alone\n");
+    assert_eq!(parse_groups_text(&format!("{text}\n21 22 # mine")), [vec![12, 15], vec![20], vec![21, 22]]);
 }
 
 /// The PRs that have a review from Claude (a review file in dv's directory).
