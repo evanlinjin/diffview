@@ -528,13 +528,16 @@ impl App {
     pub(super) fn open_link(&mut self) {
         let Some(url) = self.link_at_cursor().map(str::to_owned) else {
             let text = &self.rows[self.head.row].line.text;
-            if let Some((path, line)) = file_ref(text, self.head.col) {
+            // After `w` the cursor is on the space after the word: the selection's start is on it.
+            let on_space = text.chars().nth(self.head.col).is_none_or(char::is_whitespace);
+            let col = if on_space && self.anchor.row == self.head.row { self.anchor.col } else { self.head.col };
+            if let Some((path, line)) = file_ref(text, col) {
                 return self.goto_file_line(&path, line);
             }
             // Code's color (it may be bold too, in bold text or a heading).
             let raw = self.ui.md.raw.fg;
-            let in_code = raw.is_some() && self.rows[self.head.row].syn.get(self.head.col).is_some_and(|s| s.and_then(|s| s.fg) == raw);
-            return match ident_at(text, self.head.col, in_code) {
+            let in_code = raw.is_some() && self.rows[self.head.row].syn.get(col).is_some_and(|s| s.and_then(|s| s.fg) == raw);
+            return match ident_at(text, col, in_code) {
                 Some(name) => self.goto_definition(&name),
                 None => self.msg = "no link, file:line or name under the cursor".into(),
             };

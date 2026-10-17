@@ -1244,3 +1244,22 @@ fn gf_on_a_name() {
     assert_eq!(app.msg, "no definition of nowhere found");
     _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn gf_after_w() {
+    // `w` leaves the cursor on the space after the word it selects: gf goes by the word.
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let c = gh::Comment { id: 1, node_id: String::new(), can_edit: false, can_delete: false, author: "claude".into(), body: "Rename new_call there".into(), created: String::new(), pending: false };
+    app.threads = vec![gh::Thread {
+        id: String::new(), path: "src/a.rs".into(), left: false, line: Some(2), start_line: None, original_line: Some(2),
+        resolved: false, outdated: false, hunk: vec![], comments: vec![c], claude: Some("c1".into()), severity: String::new(),
+    }];
+    app.build();
+    app.root = std::env::temp_dir().join(format!("dv-gfw-{}", std::process::id())); // nothing there
+    app.head = Pos { row: app.rows.iter().position(|r| r.line.text.starts_with("Rename")).unwrap(), col: 0 };
+    app.anchor = app.head;
+    app.word('w');
+    app.word('w'); // "new_call " selected, the cursor on its space
+    app.open_link();
+    assert_eq!(app.msg, "no definition of new_call found");
+}
