@@ -532,3 +532,4 @@ fn renders_like_github() {
     let urls: Vec<&str> = auto[0].links.iter().map(|l| l.2.as_str()).collect();
     assert_eq!(urls, ["https://github.com/o/r/issues/12", "https://github.com/amy", "https://x.y/z"]);
 }
+// livetest
