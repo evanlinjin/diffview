@@ -1562,9 +1562,16 @@ fn stop_a_stuck_claude() {
     let items = app.picker.take().unwrap().items;
     assert!(matches!(items[0].target, Target::ClaudeStop) && items[0].label.starts_with("Stop Claude (reviewing for "));
     assert!(items.iter().any(|i| matches!(i.target, Target::ClaudeCheck)));
+    // Typed, a word picks what has it, not what has its letters in order ("Edit Claude's notes").
+    app.claude_menu();
+    app.picker.as_mut().unwrap().query = "check".into();
+    let first = app.matches()[0];
+    assert!(matches!(app.picker.take().unwrap().items[first].target, Target::ClaudeCheck));
     app.check_claude();
     assert!(app.claude.job.is_some() && app.msg.starts_with("Claude is still reviewing"), "{}", app.msg);
     app.stop_claude();
     assert!(app.claude.job.is_none() && app.msg.starts_with("stopped Claude (reviewing for "));
+    app.check_claude();
+    assert!(app.msg.starts_with("Claude hasn't written a review yet"), "{}", app.msg);
     assert!(!std::path::Path::new(&format!("/proc/{pid}")).exists() || std::fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|s| s.contains(") Z")), "killed");
 }

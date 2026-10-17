@@ -36,6 +36,8 @@ on GitHub are its section here.
   or on its branch, as asked), and the base fetch when the PR's base commit is already here.
 
 ### Fixed
+- Typing in a picker or menu lists what has the text as typed first: `Space a`, `check` picks
+  "Check Claude's review now", not "Edit Claude's notes" (whose letters come in that order).
 - A long code line in a comment (a suggestion) no longer runs over the right edge of its box.
 - Claude's zellij pane gets dv's `XDG_DATA_HOME`, so it writes its review where dv looks for it.
 - PRs with more than 100 review threads, 100 comments in a thread, or 100 files: dv loads them

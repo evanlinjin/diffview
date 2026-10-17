@@ -198,6 +198,8 @@ impl App {
         self.poll_claude();
         if let Some(j) = &self.claude.job {
             self.msg = format!("Claude is still {} ({} so far); Space a can stop it", j.label, ago(j.started));
+        } else if !self.claude.path.as_ref().is_some_and(|p| p.exists()) {
+            self.msg = "Claude hasn't written a review yet (Space a → review asks for one)".into();
         }
     }
 

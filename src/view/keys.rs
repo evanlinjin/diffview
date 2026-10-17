@@ -390,14 +390,17 @@ impl App {
     pub(super) fn matches(&self) -> Vec<usize> {
         let Some(p) = &self.picker else { return vec![] };
         let q = p.query.to_lowercase();
-        (0..p.items.len())
+        let text = |it: &Item| std::iter::once(&it.label).chain(&it.detail).map(|s| s.to_lowercase()).collect::<Vec<_>>().join(" ");
+        let mut m: Vec<usize> = (0..p.items.len())
             .filter(|&i| {
-                let it = &p.items[i];
-                let text = std::iter::once(&it.label).chain(&it.detail).map(|s| s.to_lowercase()).collect::<Vec<_>>().join(" ");
+                let text = text(&p.items[i]);
                 let mut chars = text.chars();
                 q.chars().all(|c| chars.any(|x| x == c))
             })
-            .collect()
+            .collect();
+        // What has the query as typed comes first ("check": "Check …", not "Edit Claude's notes").
+        m.sort_by_key(|&i| !text(&p.items[i]).contains(&q));
+        m
     }
 
     pub(super) fn picker_key(&mut self, k: KeyEvent) {
