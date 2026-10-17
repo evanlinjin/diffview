@@ -3,7 +3,7 @@
 //! here.
 use crate::gh::{self, Listed};
 use crate::theme::{Theme, Ui};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::layout::{Alignment, Rect};
 use ratatui::style::Style;
@@ -113,6 +113,7 @@ impl List {
     pub fn new(flags: String) -> List {
         let ui = Theme::load().ui();
         let (query, msg) = (String::new(), String::new());
+        let marked = load_marks();
         List {
             prs: vec![],
             ui,
@@ -136,8 +137,8 @@ impl List {
             reps_changed: None,
             group_rx: None,
             confirm: None,
-            marked: load_marks(),
-            marked_saved: load_marks(),
+            marked: marked.clone(),
+            marked_saved: marked,
             batch: HashMap::new(),
             batch_rx: None,
             reviewed: HashSet::new(),
@@ -151,12 +152,17 @@ impl List {
     pub fn run(&mut self, term: &mut DefaultTerminal) -> Result<Option<Pick>> {
         if self.prs.is_empty() {
             self.refresh(term)?;
+            if !self.marked.is_empty() && self.msg.is_empty() {
+                self.msg = format!("{} marked from before: a a or A A acts on them; m unmarks", self.marked.len());
+            }
         }
         self.find_new(); // back from a PR: that one's seen now
         self.load_reps();
         loop {
             if self.marked != self.marked_saved {
-                save_marks(&self.marked);
+                if let Err(e) = save_marks(&self.marked) {
+                    self.msg = format!("couldn't save the marks: {e}");
+                }
                 self.marked_saved = self.marked.clone();
             }
             term.draw(|f| self.draw(f))?;
@@ -421,6 +427,8 @@ impl List {
                 self.checks = Some(rx);
                 self.msg = if prs.is_empty() { "no open PRs".into() } else { String::new() };
                 // Worktrees of PRs that aren't open any more (or beyond the list): fetch those few.
+                // All open PRs are here, unless gh's limit cut the list (or it came back empty).
+                let complete = !prs.is_empty() && prs.len() < gh::LIST_MAX;
                 let mut gone: Vec<u64> = self.local.keys().filter(|n| !prs.iter().any(|p| p.number == **n)).copied().collect();
                 gone.sort();
                 for n in gone {
@@ -429,7 +437,10 @@ impl List {
                 }
                 self.prs = prs;
                 // Marks on PRs that aren't open any more go.
-                self.marked.retain(|n| self.prs.iter().any(|p| p.number == *n && (p.state == "OPEN" || p.state.is_empty())));
+                self.marked.retain(|n| match self.prs.iter().find(|p| p.number == *n) {
+                    Some(p) => p.state == "OPEN" || p.state.is_empty(),
+                    None => !complete,
+                });
                 self.find_new();
                 self.sel = keep.and_then(|n| self.shown().iter().position(|p| p.number == n)).unwrap_or(0);
             }
@@ -527,7 +538,10 @@ impl List {
                 self.confirm = Some(('D', p));
             }
             KeyCode::Char('m') => {
-                let p = self.shown().get(self.sel).map(|p| p.number)?;
+                let (p, state) = self.shown().get(self.sel).map(|p| (p.number, p.state.clone()))?;
+                if !matches!(state.as_str(), "OPEN" | "") && !self.marked.contains(&p) {
+                    return (self.msg = format!("#{p} isn't open: nothing to mark it for"), None).1;
+                }
                 if !self.marked.remove(&p) {
                     self.marked.insert(p);
                 }
@@ -789,10 +803,8 @@ fn load_marks() -> HashSet<u64> {
     marks_path().map(|p| read_marks(&p)).unwrap_or_default()
 }
 
-fn save_marks(marked: &HashSet<u64>) {
-    if let Some(p) = marks_path() {
-        write_marks(&p, marked);
-    }
+fn save_marks(marked: &HashSet<u64>) -> Result<()> {
+    write_marks(&marks_path().context("no dv directory for this repo")?, marked)
 }
 
 fn read_marks(p: &std::path::Path) -> HashSet<u64> {
@@ -800,10 +812,14 @@ fn read_marks(p: &std::path::Path) -> HashSet<u64> {
     serde_json::from_str::<Vec<u64>>(&text).unwrap_or_default().into_iter().collect()
 }
 
-fn write_marks(p: &std::path::Path, marked: &HashSet<u64>) {
+fn write_marks(p: &std::path::Path, marked: &HashSet<u64>) -> Result<()> {
     let mut v: Vec<u64> = marked.iter().copied().collect();
     v.sort();
-    _ = std::fs::create_dir_all(p.parent().unwrap_or(p)).and_then(|_| std::fs::write(p, serde_json::to_string(&v).unwrap_or_default()));
+    std::fs::create_dir_all(p.parent().unwrap_or(p))?;
+    // In one step (temp file, renamed over), so another dv list never reads half of it.
+    let tmp = p.with_extension(format!("json.{}.tmp", std::process::id()));
+    std::fs::write(&tmp, serde_json::to_string(&v)?)?;
+    Ok(std::fs::rename(&tmp, p)?)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1206,7 +1222,7 @@ fn marks_saved() {
     std::fs::create_dir_all(&dir).unwrap();
     let p = dir.join("sub/marked.json");
     assert!(read_marks(&p).is_empty()); // none yet
-    write_marks(&p, &HashSet::from([22, 3]));
+    write_marks(&p, &HashSet::from([22, 3])).unwrap();
     assert_eq!(std::fs::read_to_string(&p).unwrap(), "[3,22]");
     assert_eq!(read_marks(&p), HashSet::from([3, 22]));
     _ = std::fs::remove_dir_all(&dir);
