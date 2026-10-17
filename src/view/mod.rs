@@ -336,6 +336,8 @@ pub struct App {
     files: Vec<FileDiff>,
     /// Extra context lines per hunk: (path, hunk's first full index) → lines (can be negative).
     extra: HashMap<(String, usize), i64>,
+    /// The same in the Claude / pending view, per comment: (path, its line's full index).
+    view_extra: HashMap<(String, usize), i64>,
     /// Files shown whole (`Z`).
     whole: HashSet<String>,
     collapsed: HashSet<String>,
@@ -530,6 +532,7 @@ impl App {
             base,
             files,
             extra: HashMap::new(),
+            view_extra: HashMap::new(),
             whole: HashSet::new(),
             collapsed: HashSet::new(),
             rows: vec![],
@@ -1050,7 +1053,8 @@ impl App {
             let lines = match self.view != View::All {
                 true if !shown.iter().any(|t| t.path == f.path) => continue,
                 true => {
-                    around = view_lines(&shown, f);
+                    let e = |a| *self.view_extra.get(&(f.path.clone(), a)).unwrap_or(&0);
+                    around = diff::shown(&f.full, &view_windows(&shown, f, e, self.whole.contains(&f.path)), &f.headers);
                     &around
                 }
                 false => &f.lines,
@@ -1523,10 +1527,6 @@ impl App {
 
     /// `+`/`-`: more or less context around the hunk under the cursor (on a header: the next one).
     fn expand(&mut self, d: i64) {
-        if self.view != View::All {
-            let key = if self.view == View::Claude { 'a' } else { 'p' };
-            return self.msg = format!("this view shows a few lines around each comment (Ctrl-w {key}: the whole diff)");
-        }
         let row = &self.rows[self.head.row];
         let Some(f) = self.files.get(row.file) else { return };
         let path = f.path.clone();
@@ -1540,11 +1540,18 @@ impl App {
         let Some(idx) = code.and_then(|c| f.full.iter().position(|x| x.old == c.line.old && x.new == c.line.new)) else {
             return;
         };
-        let e = |a| *self.extra.get(&(path.clone(), a)).unwrap_or(&0);
-        let ws = diff::windows(&f.full, DEFAULT_CONTEXT as usize, e, self.whole.contains(&path));
+        // The Claude / pending view keeps its own, per comment.
+        let view = self.view != View::All;
+        let extra = if view { &self.view_extra } else { &self.extra };
+        let e = |a| *extra.get(&(path.clone(), a)).unwrap_or(&0);
+        let ws = match view {
+            true => view_windows(&self.threads.iter().filter(|t| self.in_view(t)).collect::<Vec<_>>(), f, e, false),
+            false => diff::windows(&f.full, DEFAULT_CONTEXT as usize, e, self.whole.contains(&path)),
+        };
         let Some((_, _, hunks)) = ws.into_iter().find(|w| w.0 <= idx && idx <= w.1) else { return };
+        let extra = if view { &mut self.view_extra } else { &mut self.extra };
         for a in hunks {
-            let x = self.extra.entry((path.clone(), a)).or_insert(0);
+            let x = extra.entry((path.clone(), a)).or_insert(0);
             *x = (*x + d).max(-(DEFAULT_CONTEXT as i64));
         }
         self.reshape();
@@ -1847,11 +1854,11 @@ fn disk_line(cache: &mut HashMap<PathBuf, String>, p: &Path, n: u32) -> String {
 /// How far (in lines) an outdated thread may land from its original line number.
 const OUTDATED_SLACK: i64 = 10;
 
-/// The Claude / pending view's lines of `f`: each of the shown threads with its lines and a few
-/// around them, under `@@` headers as in the full diff.
-fn view_lines(threads: &[&Thread], f: &FileDiff) -> Vec<DLine> {
-    let ctx = DEFAULT_CONTEXT as usize;
-    let mut spans: Vec<(usize, usize)> = threads
+/// The Claude / pending view's windows of `f` (as `diff::windows`): each of the shown threads
+/// with its lines and a few around them (± its `extra`, by its line's index), merged where they
+/// meet, each with the comment lines it covers. `whole` shows the entire file.
+fn view_windows(threads: &[&Thread], f: &FileDiff, extra: impl Fn(usize) -> i64, whole: bool) -> Vec<(usize, usize, Vec<usize>)> {
+    let mut spans: Vec<(usize, usize, usize)> = threads
         .iter()
         .filter(|t| t.path == f.path)
         .filter_map(|t| {
@@ -1860,18 +1867,25 @@ fn view_lines(threads: &[&Thread], f: &FileDiff) -> Vec<DLine> {
                 (Some(s), Some(e)) if e > s => (e - s) as usize,
                 _ => 0,
             };
-            Some((at.saturating_sub(more + ctx), (at + ctx).min(f.full.len() - 1)))
+            let x = (DEFAULT_CONTEXT as i64 + extra(at)).max(0) as usize;
+            Some((at.saturating_sub(more + x), (at + x).min(f.full.len() - 1), at))
         })
         .collect();
+    if whole && !f.full.is_empty() {
+        return vec![(0, f.full.len() - 1, spans.into_iter().map(|s| s.2).collect())];
+    }
     spans.sort();
     let mut ws: Vec<(usize, usize, Vec<usize>)> = vec![];
-    for (lo, hi) in spans {
+    for (lo, hi, at) in spans {
         match ws.last_mut() {
-            Some(w) if lo <= w.1 + 1 => w.1 = w.1.max(hi),
-            _ => ws.push((lo, hi, vec![])),
+            Some(w) if lo <= w.1 + 1 => {
+                w.1 = w.1.max(hi);
+                w.2.push(at);
+            }
+            _ => ws.push((lo, hi, vec![at])),
         }
     }
-    diff::shown(&f.full, &ws, &f.headers)
+    ws
 }
 
 /// The diff line a thread belongs under. Current threads use their line. Outdated ones are found

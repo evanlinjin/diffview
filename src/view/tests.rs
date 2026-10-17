@@ -1104,6 +1104,14 @@ fn claude_view() {
     assert!(!v.iter().any(|t| t.contains("src/a.rs") || t.contains("new_call")));
     assert_eq!(app.rows.iter().filter_map(|r| r.thread).collect::<HashSet<_>>(), HashSet::from([0])); // only Claude's
     assert!(v.iter().any(|t| t.starts_with("@@ -0,0 +17,7 @@")));
+    // + / - show more or less around the comment, as on a hunk.
+    let code_rows = |app: &App| app.rows.iter().filter(|r| r.line.text.starts_with("line ")).count();
+    app.head.row = app.rows.iter().position(|r| r.line.text == "line 20").unwrap();
+    app.expand(2);
+    assert_eq!(code_rows(&app), 11); // lines 15-25
+    app.expand(-4);
+    assert_eq!(code_rows(&app), 3); // 19-21
+    app.expand(2);
     // Going to a thread that isn't Claude's leaves the Claude view.
     app.goto_comment(2, 0);
     assert!(app.view == View::All && app.rows[app.head.row].thread == Some(2));
