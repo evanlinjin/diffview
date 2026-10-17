@@ -6,6 +6,7 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Added
+- `dv version` (and `--version`, `-V`) prints dv's version.
 - `c` on a conversation comment or the description quotes it in your review summary, saved on
   your pending review on GitHub (and loaded from it, so it's still there next time); `S` starts
   from it. `c` on Claude's summary adds to it the same way.

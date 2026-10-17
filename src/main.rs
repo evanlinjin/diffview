@@ -27,6 +27,7 @@ const USAGE: &str = "usage: dv [base | PR | list] [-p N] [-f] [-w [-b]]
                    replacements tab shows it)
   dv replace-info  for Claude: the replacement checked out here (its record, what it replaces)
   dv install-skill install the dv-review skill for Claude Code (~/.claude/skills/dv-review)
+  dv version       print dv's version (also --version, -V)
   -f, --force      with a PR: reset the local PR branch to the PR head (drops its local commits)
   -w, --worktree   with a PR: check it out in a worktree next to the repo, <repo>-123
                    (created or updated, detached at the PR head), and review it there
@@ -59,7 +60,7 @@ struct Opts {
     rm: bool,
     no_mouse: bool,
     list: bool,
-    /// review-info / review-check / install-skill / replace / replace-info
+    /// review-info / review-check / install-skill / replace / replace-info / version
     cmd: Option<&'static str>,
     /// More PR numbers after the first (`dv replace 12 15`).
     more: Vec<u64>,
@@ -93,6 +94,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Opts> {
     while let Some(a) = args.next() {
         match a.as_str() {
             "-h" | "--help" => o.help = true,
+            "version" | "--version" | "-V" => o.cmd = Some("version"),
             "-p" | "--pr" => o.pr = Some(num(args.next())?),
             "-f" | "--force" => o.force = true,
             "-w" | "--worktree" => o.worktree = true,
@@ -129,6 +131,10 @@ fn run() -> anyhow::Result<()> {
     view::MOUSE.store(!o.no_mouse, std::sync::atomic::Ordering::Relaxed);
     if o.help {
         println!("{USAGE}");
+        return Ok(());
+    }
+    if o.cmd == Some("version") {
+        println!("dv {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
     if (o.list || o.cmd.is_some()) && o.rm {
@@ -515,6 +521,9 @@ fn args() {
     assert_eq!(l.flags(), "-wbf");
     assert_eq!(p("list").unwrap().flags(), "");
     assert_eq!(p("review-info -p 7").unwrap(), Opts { pr: Some(7), cmd: Some("review-info"), ..Opts::default() });
+    for v in ["version", "--version", "-V"] {
+        assert_eq!(p(v).unwrap(), Opts { cmd: Some("version"), ..Opts::default() });
+    }
     assert_eq!(p("review-check").unwrap().cmd, Some("review-check"));
     let r = p("replace 12 15").unwrap();
     assert_eq!((r.cmd, r.pr, r.more), (Some("replace"), Some(12), vec![15]));
