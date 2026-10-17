@@ -19,8 +19,8 @@
  15  15   line 15                             c  show / hide the comments pane
  ▾        src/a.rs  +1 −1                     t  comments pane: comments / the PR's text
           ── fn main ──────────────────────── f  comments pane: a column / floating over the code
-  1   1○  fn main() {                         <  narrower comments pane
-  2     -     old();                          >  wider comments pane
+  1   1○  fn main() {                         ,  narrower comments pane
+  2     -     old();                          .  wider comments pane
       2●+     new_call(x);                    =  comments pane at its usual width
   3   3   }                                   a  Claude view: just Claude's review
  ▾        new.rs (renamed from old.rs)  +0 −0 p  pending view: just your pending review

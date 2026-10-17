@@ -242,8 +242,8 @@ impl App {
                 ("c", "show / hide the comments pane"),
                 ("t", "comments pane: comments / the PR's text"),
                 ("f", "comments pane: a column / floating over the code"),
-                ("<", "narrower comments pane"),
-                (">", "wider comments pane"),
+                (",", "narrower comments pane"),
+                (".", "wider comments pane"),
                 ("=", "comments pane at its usual width"),
                 ("a", "Claude view: just Claude's review"),
                 ("p", "pending view: just your pending review"),
@@ -337,8 +337,8 @@ impl App {
                 }
                 .into();
             }
-            (CTRL_W, '<') | (CTRL_W, '>') => {
-                let w = self.margin_w as isize + if c == '>' { MARGIN_STEP } else { -MARGIN_STEP };
+            (CTRL_W, ',') | (CTRL_W, '.') => {
+                let w = self.margin_w as isize + if c == '.' { MARGIN_STEP } else { -MARGIN_STEP };
                 self.margin_w_pref = Some(w.max(MARGIN_NARROW as isize) as usize);
                 self.margin_pref = Some(true);
             }

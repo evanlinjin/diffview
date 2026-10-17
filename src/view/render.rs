@@ -197,7 +197,7 @@ impl App {
         if !room {
             mw = (width / 2).clamp(MARGIN_NARROW, MARGIN_MIN);
         }
-        // As set (`Ctrl-w <` / `>`), leaving some code beside it.
+        // As set (`Ctrl-w ,` / `.`), leaving some code beside it.
         mw = self.margin_w_pref.unwrap_or(mw).min(width.saturating_sub(gw + 20)).max(MARGIN_NARROW);
         let mut shown = self.margin_pref.unwrap_or(room || self.view != View::All);
         if !shown && self.in_margin(self.head.row) {

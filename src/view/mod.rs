@@ -79,7 +79,7 @@ VIEW
   Ctrl-w c             show / hide the comments pane (hidden: ● marks their lines)
   Ctrl-w t             comments pane: comments / the PR's description and conversation
   Ctrl-w f             comments pane: a column beside the code / floating over it
-  Ctrl-w <  Ctrl-w >   comments pane narrower / wider (Ctrl-w = its usual width)
+  Ctrl-w ,  Ctrl-w .   comments pane narrower / wider (Ctrl-w = its usual width)
   Ctrl-w a             Claude view: only Claude's review and the code it's about
   Ctrl-w p             pending view: only your pending review and the code it's about
   Enter                open hx at cursor (on a link: open it)
@@ -220,7 +220,7 @@ enum Tab {
 const MARGIN_MIN: usize = 60;
 /// The least code text width beside it for each side of split view.
 const MARGIN_SPLIT_MIN: usize = 70;
-/// How much `Ctrl-w <` / `>` change its width by.
+/// How much `Ctrl-w ,` / `.` change its width by.
 const MARGIN_STEP: isize = 6;
 /// The least it takes in a narrow window, when it's shown there.
 const MARGIN_NARROW: usize = 36;
@@ -432,7 +432,7 @@ pub struct App {
     /// The layout has them there now (set by `draw` from the width), and the margin's width.
     margin_active: bool,
     margin_w: usize,
-    /// Its width (`Ctrl-w <` / `>`) and whether it floats over the code rather than beside it
+    /// Its width (`Ctrl-w ,` / `.`) and whether it floats over the code rather than beside it
     /// (`Ctrl-w f`), as set; until then (`None`), from the window (narrow ones: floating).
     margin_w_pref: Option<usize>,
     margin_float_pref: Option<bool>,
