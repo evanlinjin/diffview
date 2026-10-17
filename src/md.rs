@@ -23,6 +23,8 @@ pub struct MdLine {
     pub text: String,
     pub styles: Vec<Option<Style>>,
     pub links: Vec<(usize, usize, String)>,
+    /// A code block's line: it doesn't wrap (shown scrolled sideways where it's too wide).
+    pub code: bool,
 }
 
 #[derive(Clone)]
@@ -207,6 +209,9 @@ impl R<'_> {
                         Cell { ch, st: Some(bg.patch(syn.unwrap_or_default())), link: None }
                     }).collect();
                     self.line(self.prefix(true), cells);
+                    if let Some(l) = self.out.last_mut() {
+                        l.code = true;
+                    }
                 }
                 self.blank();
             }
@@ -390,6 +395,7 @@ impl R<'_> {
             text: all.iter().map(|c| c.ch).collect(),
             styles: all.iter().map(|c| c.st).collect(),
             links,
+            code: false,
         });
     }
 

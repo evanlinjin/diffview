@@ -257,9 +257,6 @@ impl App {
         // Where the margin starts (floating: over the code's right end).
         let mx = width.saturating_sub(mw).saturating_sub(gw + 1);
         self.geom = mouse::Geom { relw, gw, ghw, half, ctw: if float { mx } else { ctw }, picker: None };
-        if self.head.col < self.left {
-            self.left = self.head.col;
-        }
         let cur_w = match self.drows[self.hd()] {
             DRow::Pair(..) => htw_l.min(htw_r),
             DRow::Margin(..) if self.margin_side() => mtw,
@@ -267,8 +264,27 @@ impl App {
             DRow::Margin(..) => ctw,
             DRow::Full(_) => tw,
         };
-        if self.head.col >= self.left + cur_w {
-            self.left = self.head.col + 1 - cur_w;
+        // The cursor kept in view: in a comment's code block by scrolling only that block (to
+        // its box's edge, as `render_row` cuts it); elsewhere in a comment there's nothing to
+        // scroll; in the diff by `left`.
+        let block = self.code_block(self.head.row).filter(|_| self.box_part(self.head.row).is_some());
+        if block != self.code_at {
+            (self.code_at, self.code_left) = (block, 0);
+        }
+        let col = self.head.col;
+        let follow = |left: &mut usize, w: usize| {
+            *left = (*left).min(col);
+            if col >= *left + w {
+                *left = col + 1 - w;
+            }
+        };
+        match (block, self.box_part(self.head.row)) {
+            (Some(_), _) => {
+                let w = self.box_w(self.head.row, cur_w).saturating_sub(1);
+                follow(&mut self.code_left, w)
+            }
+            (None, Some(_)) => {}
+            (None, None) => follow(&mut self.left, cur_w),
         }
 
         let (s, e) = self.ordered();
@@ -379,7 +395,7 @@ impl App {
                 DRow::Margin(None, Some(_), _) if self.split => relw + half + 1 + ghw,
                 _ => relw + gw,
             };
-            let x = ((start + self.head.col.saturating_sub(self.left)) as u16).min(area.width.saturating_sub(20));
+            let x = ((start + self.head.col.saturating_sub(self.hscroll(self.head.row))) as u16).min(area.width.saturating_sub(20));
             let preview = if gh::issue_ref(url).is_some() { "Space k preview · " } else { "" };
             let text = format!(" ↗ {url}  {preview}gf open ");
             let w = (text.chars().count() as u16).min(area.width - x);
@@ -737,11 +753,11 @@ impl App {
         // A context line shows on both sides of a split row; the cursor goes on the current side.
         let this_side = side.is_none() || l.kind != Kind::Ctx || side == Some(self.right);
         let cursor_here = self.head.row == r && this_side;
-        // The box's width: as wide as the comment text wraps (+ margin), not the whole screen;
-        // in the comment pane, the pane's width. What doesn't wrap (code) is cut at its edge.
-        let bw = if self.margin_row(r) { tw } else { tw.min(self.wrap_w + 2) };
+        // In a box, what doesn't wrap (code) is cut at its edge, and scrolled on its own.
+        let bw = self.box_w(r, tw);
         let text_w = if part.is_some() { bw.saturating_sub(1) } else { tw };
-        for (i, c) in l.text.chars().enumerate().skip(self.left).take(text_w) {
+        let skip = self.hscroll(r);
+        for (i, c) in l.text.chars().enumerate().skip(skip).take(text_w) {
             let p = Pos { row: r, col: i };
             let mut st = style;
             if let Some(c) = syn.and_then(|syn| syn.get(i).copied().flatten()) {
@@ -765,8 +781,24 @@ impl App {
             spans.push(Span::styled(if c == '\t' { "    ".into() } else { c.to_string() }, st));
             n = i + 1;
         }
-        if cursor_here && self.head.col >= n.max(self.left) {
+        if cursor_here && self.head.col >= n.max(skip) {
             spans.push(Span::styled(" ", if self.select { ui.cursor_select } else { ui.cursor }));
+        }
+        // A code line cut by its box: `‹` / `›` where there's more (not over the cursor).
+        if row.code && part.is_some() && spans.len() > g {
+            let more = Style::new().fg(ui.linenr.fg.unwrap_or(Color::DarkGray));
+            let mark = |sp: &mut Span<'static>, c: &str, at: usize| {
+                if !(cursor_here && self.head.col == at) {
+                    (sp.content, sp.style) = (c.to_owned().into(), sp.style.patch(more));
+                }
+            };
+            if skip > 0 {
+                mark(&mut spans[g], "‹", skip);
+            }
+            if l.text.chars().count() > skip + text_w {
+                let last = spans.len() - 1;
+                mark(&mut spans[last], "›", skip + text_w - 1);
+            }
         }
         // Pad to the full width (so split halves line up), and tint the whole row, so
         // added/removed lines read as bands. Spans with their own bg (the cursor) keep it.

@@ -284,7 +284,7 @@ impl App {
             .entry(key)
             .or_insert_with(|| crate::md::render(text, width, &self.ui.md, &self.hl, self.repo_url()))
             .clone();
-        lines.into_iter().map(|l| Row { syn: l.styles, links: l.links, ..mk(Kind::Comment, l.text) }).collect()
+        lines.into_iter().map(|l| Row { syn: l.styles, links: l.links, code: l.code, ..mk(Kind::Comment, l.text) }).collect()
     }
 
     /// Color a PR info line by its marks: badges, pass/fail colors, links.

@@ -102,7 +102,7 @@ impl App {
         if self.in_pr_tab_area(x) {
             let row = *self.pr_rows.get(self.pr_top + y)?;
             let start = g.relw + g.gw + g.ctw + 1 + 3;
-            return Some((row, x.saturating_sub(start) + self.left, x < start));
+            return Some((row, x.saturating_sub(start) + self.hscroll(row), x < start));
         }
         let (row, start) = match *self.drows.get(d)? {
             DRow::Full(r) => (r, g.relw + g.gw),
@@ -120,7 +120,7 @@ impl App {
             }
             DRow::Margin(l, r, note) => (l.or(r).or(note)?, g.relw + g.gw),
         };
-        Some((row, x.saturating_sub(start) + self.left, x < start))
+        Some((row, x.saturating_sub(start) + self.hscroll(row), x < start))
     }
 
     /// Screen column `x` is on the pane's PR tab.

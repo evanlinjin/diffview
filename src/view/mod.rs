@@ -165,11 +165,13 @@ struct Row {
     info: Option<usize>,
     /// The bottom edge of a comment's box (an empty row, drawn as a border).
     edge: bool,
+    /// A line of a code block in a comment: cut at the box's edge, scrolled sideways.
+    code: bool,
 }
 
 impl Row {
     fn new(file: usize, line: DLine) -> Row {
-        Row { file, line, thread: None, syn: vec![], links: vec![], info: None, edge: false }
+        Row { file, line, thread: None, syn: vec![], links: vec![], info: None, edge: false, code: false }
     }
 
     /// A row of plain text (headers, comments, PR info).
@@ -414,6 +416,10 @@ pub struct App {
     msg: String,
     top: usize,
     left: usize,
+    /// The code block in a comment that the cursor is in (its first row), and how far it's
+    /// scrolled sideways: only it, so the code beside it and the comment's text stay put.
+    code_at: Option<usize>,
+    code_left: usize,
     height: usize,
     width: u16,
     action: Option<Action>,
@@ -620,6 +626,8 @@ impl App {
             msg: String::new(),
             top: 0,
             left: 0,
+            code_at: None,
+            code_left: 0,
             height: 1,
             width: 80,
             action: None,

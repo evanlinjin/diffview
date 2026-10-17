@@ -4,6 +4,29 @@
 use super::*;
 
 impl App {
+    /// The width of the comment box row `r` is in, drawn `tw` wide: as wide as the comment text
+    /// wraps (+ margin), not the whole screen; in the comment pane, the pane's width.
+    pub(super) fn box_w(&self, r: usize, tw: usize) -> usize {
+        if self.margin_row(r) { tw } else { tw.min(self.wrap_w + 2) }
+    }
+
+    /// The first row of the code block (in a comment) that row `r` is a line of.
+    pub(super) fn code_block(&self, r: usize) -> Option<usize> {
+        let row = self.rows.get(r).filter(|x| x.code)?;
+        let same = |x: &Row| x.code && x.thread == row.thread && x.info == row.info;
+        Some((0..r).rev().take_while(|&i| same(&self.rows[i])).last().unwrap_or(r))
+    }
+
+    /// How far row `r`'s text is scrolled sideways: the diff by `left`; in a comment's box,
+    /// not at all, but for the cursor's code block, by its own offset.
+    pub(super) fn hscroll(&self, r: usize) -> usize {
+        match self.box_part(r) {
+            None => self.left,
+            Some(_) if self.code_at.is_some() && self.code_block(r) == self.code_at => self.code_left,
+            Some(_) => 0,
+        }
+    }
+
     /// The pane as you last left it (`Ctrl-w c`, `f`, `,` / `.`), in any repo.
     pub(super) fn load_pane(&mut self) {
         self.pane_file = crate::claude::data_home().ok().map(|d| d.join("pane.json"));

@@ -38,7 +38,10 @@ on GitHub are its section here.
 ### Fixed
 - Typing in a picker or menu lists what has the text as typed first: `Space a`, `check` picks
   "Check Claude's review now", not "Edit Claude's notes" (whose letters come in that order).
-- A long code line in a comment (a suggestion) no longer runs over the right edge of its box.
+- A long code line in a comment (a suggestion) no longer runs over the right edge of its box:
+  it's cut there, with `›` (and `‹`) where there's more, and the cursor moving along it
+  scrolls that code block sideways, on its own: the code beside it and the comment's text
+  stay put.
 - Claude's zellij pane gets dv's `XDG_DATA_HOME`, so it writes its review where dv looks for it.
 - PRs with more than 100 review threads, 100 comments in a thread, or 100 files: dv loads them
   all (it stopped at 100, so later threads were missing and their files' "Viewed" marks too).
