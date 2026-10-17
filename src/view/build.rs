@@ -141,30 +141,13 @@ impl App {
                 if !text.is_empty() {
                     let summary = |r: Row| Row { info, ..r };
                     rows.push(summary(mk(Kind::Thread, label.into())));
-                    rows.extend(self.md_rows_at(text, self.wrap_w, mk).into_iter().map(summary));
+                    rows.extend(self.md_rows_at(text, self.info_w(), mk).into_iter().map(summary));
                     rows.push(Row { edge: true, ..summary(mk(Kind::Comment, String::new())) });
                 }
             } else if !self.info_collapsed {
-                // Margin mode: the conversation (and Claude's summary) sits beside the description,
-                // whole comments while there's description beside them, wrapped to the margin;
-                // the rest follows full width, as without the margin.
-                // (Floating, it'd cover the description: the conversation goes below it.)
-                let margin = self.margin_active && !self.split && !self.margin_float;
-                let mut desc_from = None; // where the description's rows start, while in it
-                let mut beside: Option<(usize, usize)> = None; // (description's rows, used beside it)
-                let mut aside = false;
+                // In the pane (when it's shown), wrapped to its width.
+                let width = self.info_w();
                 for (ii, l) in self.info.iter().enumerate() {
-                    if l.heading {
-                        if margin && l.text == "description" {
-                            desc_from = Some(rows.len());
-                        } else if let Some(from) = desc_from.take() {
-                            beside = Some((rows.len() - from, 0));
-                        }
-                        aside = beside.is_some_and(|(cap, used)| used < cap);
-                    }
-                    let start = rows.len();
-                    let mk = |kind, text| Row { lead: desc_from.is_some(), aside, ..Row::text(INFO, kind, text) };
-                    let width = if aside { self.margin_w - 3 - 2 } else { self.wrap_w };
                     match (l.heading, l.md) {
                         // An author line belongs to the body after it, so `C` there quotes it.
                         (true, _) => {
@@ -179,17 +162,9 @@ impl App {
                         }
                         (false, false) => rows.push(self.info_row(l, mk(Kind::Comment, l.text.clone()))),
                     }
-                    if let (true, Some((_, used))) = (aside, &mut beside) {
-                        *used += rows.len() - start;
-                    }
                 }
                 if !self.claude.summary.is_empty() {
-                    if let Some(from) = desc_from.take() {
-                        beside = Some((rows.len() - from, 0));
-                    }
-                    let aside = beside.is_some_and(|(cap, used)| used < cap);
-                    let width = if aside { self.margin_w - 3 - 2 } else { self.wrap_w };
-                    let summary = |r: Row| Row { info: Some(SUMMARY), aside, ..r };
+                    let summary = |r: Row| Row { info: Some(SUMMARY), ..r };
                     rows.push(summary(mk(Kind::Thread, "claude's review".into())));
                     rows.extend(self.md_rows_at(&self.claude.summary, width, mk).into_iter().map(summary));
                     rows.push(Row { edge: true, ..summary(mk(Kind::Comment, String::new())) });
@@ -313,6 +288,11 @@ impl App {
     }
 
     /// Color a PR info line by its marks: badges, pass/fail colors, links.
+    /// The width PR text wraps to: the pane's, when it's shown (the text is there).
+    pub(super) fn info_w(&self) -> usize {
+        if self.margin_active { self.margin_w - 3 - 2 } else { self.wrap_w }
+    }
+
     pub(super) fn info_row(&self, l: &gh::InfoLine, mut row: Row) -> Row {
         let ui = &self.ui;
         row.syn = vec![None; l.text.chars().count()];

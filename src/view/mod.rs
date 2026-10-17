@@ -77,6 +77,7 @@ VIEW
   Ctrl-w v             toggle split (side-by-side) view
   Ctrl-w h  Ctrl-w l   split view: old / new side; margin: code / comments (or Ctrl-h Ctrl-l)
   Ctrl-w c             show / hide the comments pane (hidden: ● marks their lines)
+  Ctrl-w t             comments pane: comments / the PR's description and conversation
   Ctrl-w f             comments pane: a column beside the code / floating over it
   Ctrl-w <  Ctrl-w >   comments pane narrower / wider (Ctrl-w = its usual width)
   Ctrl-w a             Claude view: only Claude's review and the code it's about
@@ -163,15 +164,11 @@ struct Row {
     info: Option<usize>,
     /// The bottom edge of a comment's box (an empty row, drawn as a border).
     edge: bool,
-    /// Margin mode, PR section: the description (the left column), and the conversation beside
-    /// it (in the margin).
-    lead: bool,
-    aside: bool,
 }
 
 impl Row {
     fn new(file: usize, line: DLine) -> Row {
-        Row { file, line, thread: None, syn: vec![], links: vec![], info: None, edge: false, lead: false, aside: false }
+        Row { file, line, thread: None, syn: vec![], links: vec![], info: None, edge: false }
     }
 
     /// A row of plain text (headers, comments, PR info).
@@ -207,6 +204,13 @@ enum DRow {
     /// (code row or old side, new side in split view, comment row in the margin); a code-less
     /// one is a spacer, where a file's comments need more room than its code has.
     Margin(Option<usize>, Option<usize>, Option<usize>),
+}
+
+/// The pane's tabs: comments beside their lines, or the PR's text (scrolled on its own).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Tab {
+    Comments,
+    Pr,
 }
 
 /// The comment margin's width: about a third of the window, within these bounds, or everything
@@ -431,6 +435,13 @@ pub struct App {
     margin_float_pref: Option<bool>,
     /// It floats now (set by `draw`).
     margin_float: bool,
+    /// The pane's tab (`Ctrl-w t`); the PR tab's rows, and the first one on screen; where the
+    /// cursor was last in the code, and on the PR tab (`Ctrl-h` / `Ctrl-l` go back there).
+    pane_tab: Tab,
+    pr_rows: Vec<usize>,
+    pr_top: usize,
+    code_head: Pos,
+    pr_head: Option<usize>,
     /// In margin mode: each thread's code line (the one it's about), as laid out.
     margin_anchor: HashMap<usize, usize>,
     /// Where things were drawn last, for mouse clicks.
@@ -617,6 +628,11 @@ impl App {
             margin_w_pref: None,
             margin_float_pref: None,
             margin_float: false,
+            pane_tab: Tab::Comments,
+            pr_rows: vec![],
+            pr_top: 0,
+            code_head: Pos { row: 0, col: 0 },
+            pr_head: None,
             margin_anchor: HashMap::new(),
             geom: Default::default(),
             drows: vec![],

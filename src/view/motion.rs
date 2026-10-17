@@ -6,6 +6,19 @@ impl App {
     /// the margin, from the code (its new side) into the margin (the comment beside it, else
     /// the nearest one) and back (the code line beside it, else the nearest above).
     pub(super) fn side(&mut self, right: bool) {
+        // The PR tab: back to where the cursor was in the code, and into it where it was there.
+        if self.on_pr_tab() {
+            if !right {
+                let p = self.code_head;
+                self.goto(p.row, p.col);
+            }
+            return;
+        }
+        if self.margin_active && self.pane_tab == Tab::Pr && right && (!self.split || self.right) && !self.pr_rows.is_empty() {
+            let back = self.pr_head.filter(|r| self.pr_rows.contains(r));
+            let r = back.unwrap_or(self.pr_rows[self.pr_top.min(self.pr_rows.len() - 1)]);
+            return self.goto(r, 0);
+        }
         let hd = self.hd();
         let into_margin = self.margin_active && right && (!self.split || self.right) && !self.margin_side();
         if into_margin || self.margin_side() && !right {
@@ -58,8 +71,14 @@ impl App {
     }
 
     pub(super) fn vmove(&mut self, d: isize) {
-        let last = self.drows.len() as isize - 1;
         let w = self.want_col;
+        if let Some(i) = self.pr_index() {
+            let j = (i as isize + d).clamp(0, self.pr_rows.len() as isize - 1) as usize;
+            self.goto(self.pr_rows[j], w);
+            self.want_col = w;
+            return;
+        }
+        let last = self.drows.len() as isize - 1;
         let mut target = (self.hd() as isize + d).clamp(0, last) as usize;
         // On the code side, step over spacer rows (margin only, no code); in the margin, over
         // rows with no comment beside the code.
@@ -286,6 +305,9 @@ impl App {
     }
 
     pub(super) fn scroll(&mut self, d: isize) {
+        if self.on_pr_tab() {
+            return self.scroll_pr(d);
+        }
         let last = self.drows.len() as isize - 1;
         self.top = (self.top as isize + d).clamp(0, last) as usize;
         let so = 3.min(self.height / 2);
@@ -294,6 +316,27 @@ impl App {
         if hd < lo || hd > hi {
             let w = self.want_col;
             self.goto(self.pick(hd.clamp(lo, hi.max(lo)).min(last as usize)), w);
+            self.want_col = w;
+        }
+    }
+
+    /// The cursor's place on the PR tab, when it's there.
+    pub(super) fn pr_index(&self) -> Option<usize> {
+        self.on_pr_tab().then(|| self.pr_rows.iter().position(|&r| r == self.head.row)).flatten()
+    }
+
+    /// Scroll the PR tab (the cursor stays on it, if it's there).
+    pub(super) fn scroll_pr(&mut self, d: isize) {
+        let n = self.pr_rows.len();
+        if n == 0 {
+            return;
+        }
+        self.pr_top = (self.pr_top as isize + d).clamp(0, n as isize - 1) as usize;
+        let so = 3.min(self.height / 2);
+        let (lo, hi) = (self.pr_top + so, (self.pr_top + self.height).saturating_sub(so + 1));
+        if let Some(i) = self.pr_index().filter(|&i| i < lo || i > hi) {
+            let w = self.want_col;
+            self.goto(self.pr_rows[i.clamp(lo, hi.max(lo)).min(n - 1)], w);
             self.want_col = w;
         }
     }

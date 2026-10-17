@@ -22,6 +22,11 @@ on GitHub are its section here.
   hides it, and going to a comment shows it. `Ctrl-w f` has it float over the code (covering
   it only where there are comments) rather than beside it, as it does in a narrow window, and
   `Ctrl-w <` / `>` resize it (`Ctrl-w =`: back to its usual width).
+- The pane has a second tab, the PR's text (`Ctrl-w t`): its description, conversation, checks
+  and Claude's summary, beside the code and scrolled on their own (`Ctrl-l` goes in, `Ctrl-h`
+  back to the code). While the pane is shown the PR section is there, not above the diff (its
+  header line stays); hidden, it's above the diff as before. The conversation no longer sits
+  beside the description.
 - Opening a PR skips `gh pr checkout` when the checkout is already at the PR's head (detached,
   or on its branch, as asked), and the base fetch when the PR's base commit is already here.
 

@@ -9,18 +9,19 @@ impl App {
     /// lines show on both sides. Comments on files go in the margin on the right, each box
     /// beside its line (or just below the box before it, if that's still running there); code
     /// only gets spacer rows when a file's comments need more room than its code has (they
-    /// never spill into the next file). With the margin hidden they aren't shown, and the lines
-    /// they're on have a mark in the gutter.
+    /// never spill into the next file). With the margin hidden, or on its PR tab, they aren't
+    /// shown, and the lines they're on have a mark in the gutter. With it shown, the PR section
+    /// (but its header line) is on its PR tab, not here.
     pub(super) fn layout(&mut self) {
         let n = self.rows.len();
         let kind = |i: usize| self.rows[i].line.kind;
-        // Code that a comment can sit beside: a diff line, a hunk header, or (beside the
-        // conversation) the description.
+        // Code that a comment can sit beside: a diff line or a hunk header.
         let code = |i: usize| {
             let row = &self.rows[i];
-            (matches!(row.line.kind, Kind::Ctx | Kind::Add | Kind::Del | Kind::Hunk) && row.file != INFO) || row.lead
+            matches!(row.line.kind, Kind::Ctx | Kind::Add | Kind::Del | Kind::Hunk) && row.file != INFO
         };
         let margin = |i: usize| self.in_margin(i);
+        let pr_tab: Vec<usize> = (0..n).filter(|&i| self.pr_row(i)).collect();
         // The main column's rows (full width, or code: one row, or in split view a pair), each
         // with the comment rows that follow its rows; and the code row each thread is about.
         let mut units: Vec<(DRow, Vec<usize>)> = vec![];
@@ -30,6 +31,10 @@ impl App {
         let mut last_code: Option<usize> = None;
         let mut i = 0;
         while i < n {
+            if self.pr_row(i) {
+                i += 1;
+                continue;
+            }
             if margin(i) {
                 let first = i == 0 || self.rows[i - 1].thread != self.rows[i].thread;
                 if let (true, Some(t), Some(c)) = (first, self.rows[i].thread, last_code) {
@@ -89,8 +94,9 @@ impl App {
             i += 1;
         }
         self.margin_anchor = anchors;
+        self.pr_rows = pr_tab;
         let mut d: Vec<DRow> = vec![];
-        if !self.margin_active {
+        if !self.comments_in_pane() {
             for (u, _) in units {
                 if u != DRow::Margin(None, None, None) {
                     d.push(u);
@@ -101,7 +107,6 @@ impl App {
         // The margin: comments wait in `pending` for a free row beside code.
         let mut pending: std::collections::VecDeque<usize> = Default::default();
         let mut free = 0; // the first screen row whose margin is free
-        let mut desc_first = None; // the description's first screen row: the conversation's top
         let flush = |d: &mut Vec<DRow>, pending: &mut std::collections::VecDeque<usize>| {
             d.extend(pending.drain(..).map(|c| DRow::Margin(None, None, Some(c))));
         };
@@ -120,9 +125,6 @@ impl App {
                 }
             };
             if l.is_some() || r.is_some() {
-                if l.is_some_and(|l| self.rows[l].lead) && desc_first.is_none() {
-                    desc_first = Some(d.len());
-                }
                 let c = pending.pop_front();
                 d.push(DRow::Margin(l, r, c));
                 if c.is_some() {
@@ -130,15 +132,9 @@ impl App {
                 }
             }
             for i in comments {
-                let row = &self.rows[i];
-                let first = i == 0 || self.rows[i - 1].thread != row.thread || (row.aside && !self.rows[i - 1].aside);
-                // A box starts beside its line (the row just laid out) when that's free; the
-                // conversation, beside the top of the description.
-                let at = match (first, row.aside) {
-                    (true, true) => desc_first.unwrap_or(d.len()).max(free),
-                    (true, false) => d.len().saturating_sub(1).max(free),
-                    (false, _) => free,
-                };
+                // A box starts beside its line (the row just laid out) when that's free.
+                let first = i == 0 || self.rows[i - 1].thread != self.rows[i].thread;
+                let at = if first { d.len().saturating_sub(1).max(free) } else { free };
                 match d.get(at) {
                     Some(&DRow::Margin(l, r, None)) if pending.is_empty() && (l.is_some() || r.is_some()) => {
                         d[at] = DRow::Margin(l, r, Some(i));
@@ -172,11 +168,35 @@ impl App {
         (self.drows, self.d_of) = (d, d_of);
     }
 
-    /// A comment on a file (not the PR section's), or the conversation beside the description:
-    /// it goes in the margin, or isn't shown while that's hidden.
+    /// A comment on a file (not the PR section's): it goes in the margin, or isn't shown while
+    /// that's hidden.
     pub(super) fn in_margin(&self, r: usize) -> bool {
         let row = &self.rows[r];
-        (row.thread.is_some() && row.file != INFO) || row.aside
+        row.thread.is_some() && row.file != INFO
+    }
+
+    /// PR text (the PR section but its header line), on the pane's PR tab while it's shown.
+    pub(super) fn pr_row(&self, r: usize) -> bool {
+        let row = &self.rows[r];
+        self.margin_active && row.file == INFO && row.line.kind != Kind::File
+    }
+
+    /// Comments on files are in the pane: it's shown, on that tab.
+    pub(super) fn comments_in_pane(&self) -> bool {
+        self.margin_active && self.pane_tab == Tab::Comments
+    }
+
+    /// Row `r` is in the pane now: a comment (on that tab) or PR text (on the PR tab).
+    pub(super) fn in_pane(&self, r: usize) -> bool {
+        match self.pane_tab {
+            Tab::Comments => self.comments_in_pane() && self.in_margin(r),
+            Tab::Pr => self.pr_row(r),
+        }
+    }
+
+    /// The cursor is on the pane's PR tab.
+    pub(super) fn on_pr_tab(&self) -> bool {
+        self.pane_tab == Tab::Pr && self.pr_row(self.head.row)
     }
 
     /// The cursor is in the margin (on a comment), not the code. Worked out from where the
@@ -187,13 +207,13 @@ impl App {
 
     /// In the margin, as laid out now.
     pub(super) fn margin_row(&self, r: usize) -> bool {
-        self.margin_active && self.in_margin(r)
+        self.in_pane(r)
     }
 
     /// In margin mode, the thread whose box is "lit": the one the cursor is in, or one about
     /// the code line it's on. So you can tell which line a box (pushed down) is about.
     pub(super) fn lit_thread(&self) -> Option<usize> {
-        if !self.margin_active {
+        if !self.comments_in_pane() {
             return None;
         }
         match self.margin_side() {

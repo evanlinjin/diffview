@@ -174,13 +174,6 @@ impl App {
         self.height = h.max(1);
         self.width = area.width;
         let so = 3.min(h / 2);
-        let hd = self.hd();
-        if hd < self.top + so {
-            self.top = hd.saturating_sub(so);
-        }
-        if hd + so + 1 > self.top + h {
-            self.top = hd + so + 1 - h;
-        }
 
         let maxno = self.rows.iter().filter_map(|r| r.line.old.max(r.line.new)).max().unwrap_or(0);
         let lw = maxno.to_string().len().max(3);
@@ -226,6 +219,41 @@ impl App {
             let keep = self.cursor_key();
             self.rebuild(keep);
         }
+        // The cursor onto a comment, or PR text, while the pane is on its other tab: that tab.
+        let tab = match () {
+            _ if self.in_margin(self.head.row) => Tab::Comments,
+            _ if self.pr_row(self.head.row) => Tab::Pr,
+            _ => self.pane_tab,
+        };
+        if self.margin_active && tab != self.pane_tab {
+            self.pane_tab = tab;
+            self.layout();
+        }
+        let pr_tab = self.margin_active && self.pane_tab == Tab::Pr;
+        let on_pr = self.on_pr_tab();
+        match on_pr {
+            true => self.pr_head = Some(self.head.row),
+            false if !self.margin_side() => self.code_head = self.head,
+            false => {}
+        }
+        // Scroll the code to the cursor (on the PR tab: to where it was in the code), and the PR
+        // tab to it there.
+        let hd = if on_pr { self.d_of[self.code_head.row.min(self.rows.len() - 1)] } else { self.hd() };
+        if hd < self.top + so {
+            self.top = hd.saturating_sub(so);
+        }
+        if hd + so + 1 > self.top + h {
+            self.top = hd + so + 1 - h;
+        }
+        if let Some(i) = on_pr.then(|| self.pr_rows.iter().position(|&r| r == self.head.row)).flatten() {
+            if i < self.pr_top + so {
+                self.pr_top = i.saturating_sub(so);
+            }
+            if i + so + 1 > self.pr_top + h {
+                self.pr_top = i + so + 1 - h;
+            }
+        }
+        self.pr_top = self.pr_top.min(self.pr_rows.len().saturating_sub(1));
         // Where the margin starts (floating: over the code's right end).
         let mx = width.saturating_sub(mw).saturating_sub(gw + 1);
         self.geom = mouse::Geom { relw, gw, ghw, half, ctw: if float { mx } else { ctw }, picker: None };
@@ -265,7 +293,6 @@ impl App {
             }
         }
         let divider = Span::styled("│", self.ui.linenr);
-        let hd = self.hd();
         let lit_code = self.lit_code();
         let pair = |l: Option<usize>, rr: Option<usize>, cur: bool| {
             let half = |row: Option<usize>, right: bool, w: usize| match row {
@@ -278,17 +305,22 @@ impl App {
             spans.extend(half(rr, true, htw_r));
             spans
         };
-        let lines: Vec<Line> = (self.top..(self.top + h).min(self.drows.len()))
-            .map(|d| {
-                let cur = d == hd;
+        let rows_shown = if pr_tab { h } else { (self.top + h).min(self.drows.len()).saturating_sub(self.top) };
+        let lines: Vec<Line> = (0..rows_shown)
+            .map(|y| {
+                let d = self.top + y;
+                let cur = d == hd && !on_pr;
                 let rel = match (relw, cur) {
                     (0, _) => vec![],
                     (_, true) => vec![Span::styled(format!("{:>w$} ", "", w = relw - 1), self.ui.linenr_selected)],
                     _ => vec![Span::styled(format!("{:>w$} ", d.abs_diff(hd), w = relw - 1), self.ui.linenr)],
                 };
-                let mut spans = rel;
-                match self.drows[d] {
-                    DRow::Full(r) => spans.extend(self.render_row(r, s, e, (lw, gw, tw), None, cur, &overlay)),
+                let mut spans = if d < self.drows.len() { rel } else { vec![] };
+                // Beside the PR tab (as a column), full-width rows are as wide as the code.
+                let fw = if pr_tab && !float { ctw } else { tw };
+                match self.drows.get(d).copied().unwrap_or(DRow::Pair(None, None)) {
+                    _ if d >= self.drows.len() => {}
+                    DRow::Full(r) => spans.extend(self.render_row(r, s, e, (lw, gw, fw), None, cur, &overlay)),
                     DRow::Pair(l, rr) => spans.extend(pair(l, rr, cur)),
                     DRow::Margin(l, rr, comment) => {
                         // Code on the left (blank on a spacer row), a gap, then the comment
@@ -315,6 +347,15 @@ impl App {
                         }
                     }
                 }
+                // The PR tab: its own rows, scrolled on their own, over the right of every line.
+                if pr_tab {
+                    spans = clip(spans, relw + gw + mx);
+                    spans.push(Span::raw(" "));
+                    match self.pr_rows.get(self.pr_top + y) {
+                        Some(&r) => spans.extend(clip(self.render_row(r, s, e, (lw, 3, mtw), None, r == self.head.row, &overlay), mw)),
+                        None => spans.push(Span::raw(" ".repeat(mw))),
+                    }
+                }
                 Line::from(spans)
             })
             .collect();
@@ -325,7 +366,10 @@ impl App {
         // Not on the PR header (where dv starts): the status hint says it links there.
         let header = self.rows[self.head.row].line.kind == Kind::File;
         if let (Some(url), None, None, false) = (self.link_at_cursor(), &self.picker, &self.popup, header) {
-            let y = (hd - self.top) as u16;
+            let y = match on_pr {
+                true => self.pr_rows.iter().position(|&r| r == self.head.row).unwrap_or(0).saturating_sub(self.pr_top),
+                false => hd - self.top,
+            } as u16;
             // In the margin, the text starts after the code column, the gap and its own gutter.
             let start = match self.drows[hd] {
                 DRow::Margin(..) if self.margin_side() => relw + self.geom.gw + self.geom.ctw + 1 + 3,

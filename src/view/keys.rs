@@ -240,6 +240,7 @@ impl App {
             CTRL_W => ("window", &[
                 ("v", "toggle split view"),
                 ("c", "show / hide the comments pane"),
+                ("t", "comments pane: comments / the PR's text"),
                 ("f", "comments pane: a column / floating over the code"),
                 ("<", "narrower comments pane"),
                 (">", "wider comments pane"),
@@ -308,6 +309,21 @@ impl App {
                 self.msg = match show {
                     true => "comments shown (Ctrl-w c hides them)",
                     false => "comments hidden: their lines are marked in the gutter (Ctrl-w c shows them)",
+                }
+                .into();
+            }
+            (CTRL_W, 't') => {
+                let tab = if self.pane_tab == Tab::Pr { Tab::Comments } else { Tab::Pr };
+                // Off what the other tab shows (it'd come back for it).
+                if self.margin_side() {
+                    let p = self.code_head;
+                    self.goto(p.row, p.col);
+                }
+                (self.pane_tab, self.margin_pref) = (tab, Some(true));
+                self.layout();
+                self.msg = match tab {
+                    Tab::Pr => "pane: the PR's description and conversation (Ctrl-w t: comments; Ctrl-l goes in)",
+                    Tab::Comments => "pane: comments beside their lines (Ctrl-w t: the PR's text)",
                 }
                 .into();
             }

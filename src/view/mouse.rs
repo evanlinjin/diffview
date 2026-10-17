@@ -37,6 +37,8 @@ impl App {
                     if let Some(p) = &mut self.picker {
                         p.sel = if down { (p.sel + 1).min(n.saturating_sub(1)) } else { p.sel.saturating_sub(1) };
                     }
+                } else if self.in_pr_tab_area(x) {
+                    self.scroll_pr(if down { 3 } else { -3 });
                 } else {
                     self.scroll(if down { 3 } else { -3 });
                 }
@@ -97,6 +99,11 @@ impl App {
         }
         let d = self.top + y;
         let g = self.geom;
+        if self.in_pr_tab_area(x) {
+            let row = *self.pr_rows.get(self.pr_top + y)?;
+            let start = g.relw + g.gw + g.ctw + 1 + 3;
+            return Some((row, x.saturating_sub(start) + self.left, x < start));
+        }
         let (row, start) = match *self.drows.get(d)? {
             DRow::Full(r) => (r, g.relw + g.gw),
             // Split view: the old side, the divider, the new side.
@@ -114,5 +121,10 @@ impl App {
             DRow::Margin(l, r, note) => (l.or(r).or(note)?, g.relw + g.gw),
         };
         Some((row, x.saturating_sub(start) + self.left, x < start))
+    }
+
+    /// Screen column `x` is on the pane's PR tab.
+    fn in_pr_tab_area(&self, x: usize) -> bool {
+        self.margin_active && self.pane_tab == Tab::Pr && x > self.geom.relw + self.geom.gw + self.geom.ctw
     }
 }

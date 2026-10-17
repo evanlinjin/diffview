@@ -787,30 +787,51 @@ fn comments_in_the_margin() {
 }
 
 #[test]
-fn conversation_beside_the_description() {
-    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
-    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new(), ..Default::default() });
-    let heading = |t: &str| gh::InfoLine { heading: true, md: false, text: t.into(), marks: vec![], url: String::new() };
-    let md = |t: &str| gh::InfoLine { heading: false, md: true, text: t.into(), marks: vec![], url: String::new() };
-    app.info = vec![
-        heading("description"), md("line 1\nline 2\nline 3\nline 4\nline 5"),
-        heading("conversation (3)"),
-        heading("@bo · 2d ago"), md("short"),
-        heading("@cy · 1d ago"), md("also short"),
-        heading("@dee · 1h ago"), md("late"),
-    ];
-    app.margin_active = true;
-    app.build();
-    let by_text = |t: &str| app.rows.iter().position(|r| r.line.text == t).unwrap();
-    // The description is the left column; the first comments sit in the margin beside it.
-    assert!(app.rows[by_text("line 3")].lead);
-    assert!(app.rows[by_text("short")].aside && app.rows[by_text("also short")].aside);
-    let d = app.d_of[by_text("conversation (3)")];
-    assert_eq!(d, app.d_of[by_text("description")]); // beside the top of the description
-    assert!(matches!(app.drows[d], DRow::Margin(Some(_), None, Some(_))));
-    // Once there's no description left beside it, the rest is full width, as without the margin.
-    let late = by_text("late");
-    assert!(!app.rows[late].aside && matches!(app.drows[app.d_of[late]], DRow::Full(_)));
+fn pr_text_on_the_pane_tab() {
+    let key = |app: &mut App, c: char| app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+    let ctrl = |app: &mut App, c: char| app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL));
+    let draw = |app: &mut App| _ = screen(220, 30, |f| app.draw(f));
+    let mut app = fixture();
+    let long: String = (1..=60).map(|n| format!("para {n}\n\n")).collect();
+    app.info[3].text = long;
+    draw(&mut app);
+    // Shown: the PR text isn't in the diff (but its header line); it's on the PR tab.
+    let by_text = |app: &App, t: &str| app.rows.iter().position(|r| r.line.text == t).unwrap();
+    let para1 = by_text(&app, "para 1");
+    assert!(app.pr_row(para1) && app.pr_rows.contains(&para1));
+    assert!(app.drows.iter().all(|d| !matches!(d, DRow::Full(r) if *r == para1)));
+    assert!(matches!(app.drows[0], DRow::Full(0)));
+    // Ctrl-w t, then Ctrl-l: into the PR tab; j moves there, and its scroll is its own.
+    let line12 = app.rows.iter().position(|r| r.line.kind == Kind::Add && r.line.new == Some(12)).unwrap();
+    app.goto(line12, 0);
+    draw(&mut app);
+    let top = app.top;
+    ctrl(&mut app, 'w');
+    key(&mut app, 't');
+    draw(&mut app);
+    assert_eq!(app.pane_tab, Tab::Pr);
+    ctrl(&mut app, 'l');
+    assert!(app.on_pr_tab());
+    for _ in 0..80 {
+        key(&mut app, 'j');
+    }
+    draw(&mut app);
+    assert!(app.pr_top > 0 && app.top == top, "the PR tab scrolled, the code didn't");
+    // Ctrl-h: back to the code line it left.
+    ctrl(&mut app, 'h');
+    assert_eq!(app.head.row, line12);
+    // Going to a comment shows the comments tab again.
+    app.goto_comment(0, 0);
+    draw(&mut app);
+    assert_eq!(app.pane_tab, Tab::Comments);
+    // Hidden, the PR text is back at the top of the diff.
+    let mut app = fixture();
+    draw(&mut app);
+    ctrl(&mut app, 'w');
+    key(&mut app, 'c');
+    draw(&mut app);
+    let desc = by_text(&app, "description");
+    assert!(!app.pr_row(desc) && matches!(app.drows[app.d_of[desc]], DRow::Full(r) if r == desc));
 }
 
 #[test]
@@ -987,12 +1008,11 @@ fn threads_on_files_gone_from_the_diff() {
     assert_eq!(app.rows[app.head.row].thread, Some(0));
     app.key(KeyEvent::new(KeyCode::Char('C'), KeyModifiers::NONE));
     assert!(matches!(app.action.take(), Some(Action::Reply { review: false, .. })));
-    // In the comment margin they stay full width, with the PR section, every row placed once.
+    // With the pane shown they're with the PR section, on its PR tab, every row placed once.
     app.margin_active = true;
     app.build();
-    let gone_rows = app.rows.iter().filter(|r| r.thread == Some(0)).count();
-    let placed = app.drows.iter().filter(|d| matches!(d, DRow::Full(r) if app.rows[*r].thread == Some(0))).count();
-    assert_eq!(placed, gone_rows);
+    let gone_rows: Vec<usize> = (0..app.rows.len()).filter(|&r| app.rows[r].thread == Some(0)).collect();
+    assert!(gone_rows.iter().all(|r| app.pr_rows.iter().filter(|&p| p == r).count() == 1));
 }
 
 #[test]
@@ -1339,6 +1359,9 @@ fn screens() {
     shot("diff", &mut app, 100, 60);
     let mut wide = fixture();
     shot("margin", &mut wide, 220, 45); // wide enough: shown
+    wide.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
+    wide.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+    shot("pr_tab", &mut wide, 220, 30);
     let mut app = fixture();
     app.toggle_split();
     shot("split", &mut app, 120, 40); // too narrow: hidden, marked in the gutter
