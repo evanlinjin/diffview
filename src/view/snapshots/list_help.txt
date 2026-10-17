@@ -1,0 +1,60 @@
+ open 3  worktrees 0  replacements 0   by updated ↓  (Tab switches)                           2 / 3
+   #1 Fix CI                                                                                2026-03
+      @ann · +1 −0 in 1 file · b                                                           claude ✓
+●#333 fix fees                                                                              2026-02
+      @cy · ✓3 ✗1 · +333 −0 in 1 file · b
+  #22 Add docs   DRAFT                                                                [new] 2026-01
+      @bo · ✓ approved · +22 −0 in 1 file  docs  · b
+
+
+
+
+
+
+
+  dv list keys                                                                      any key closes
+
+  j k, Up Down         move
+    gg ge                first / last PR
+    Ctrl-d Ctrl-u        half a page down / up
+    Tab                  open PRs / PRs with a local worktree (<repo>-N, as dv N -w makes) /
+                         replacements (Claude's drafts, unpublished)
+    Enter                review the PR (with dv list's flags; from the worktrees tab, in its
+                         worktree as it was made); q there comes back here
+    /                    filter (Enter keeps it, Esc clears it); terms must all match:
+                           text            number, title, author, branch, labels
+                           author: label: base: branch:   part of that field
+                           is:draft  review:approved|changes|required|none
+                           ci:pass|fail|pending|none     -term excludes
+    Esc                  clear the filter
+    o O                  next sort order (updated, created, number, size) / reverse
+    m                    mark the PR (again: unmark), for Claude to review; marks are kept, for
+                         going through them a PR at a time (quitting dv list too)
+    a a                  Claude reviews the marked PRs (or this one) in the background, two at a
+                         time, each in its worktree (<repo>-N, made if need be); cards show how
+                         it's going, and claude ✓ once a PR has a review
+    A A                  Claude drafts a replacement for this PR, on a branch of its own in
+                         <repo>-replace-N, unpublished, for you to review first (replacements
+                         tab); for marked PRs, it first suggests which go together (one
+                         replacement each group), which you edit; then your instructions
+    D D                  worktrees tab: remove the PR's worktree (not with local changes in it;
+                         its branch stays); replacements tab: remove the replacement (the same)
+    R                    refresh
+    ?                    this help
+    q, Ctrl-c            quit
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

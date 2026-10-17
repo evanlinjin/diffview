@@ -1,0 +1,12 @@
+ open 3  worktrees 0  replacements 0   by updated ↓  (Tab switc keys
+   #1 Fix CI                                                    Enter review
+      @ann · +1 −0 in 1 file · b                                Tab   PRs with a worktree
+●#333 fix fees                                                  /     filter
+      @cy · ✓3 ✗1 · +333 −0 in 1 file · b                       o O   sort / reverse
+                                                                R     refresh
+                                                                m     mark
+                                                                a a   Claude reviews marked
+                                                                A A   Claude drafts a replacement
+                                                                ?     all keys
+                                                                q     quit
+ filter: fix  (Esc clears)

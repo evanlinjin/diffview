@@ -1,0 +1,8 @@
+ open 3  worktrees 0  replacements 0   by updated ↓  (Tab switc keys
+                                                                Enter review, in its worktree
+ no PR worktrees here yet: `dv N -w` (or dv list -w, then Enter Tab   replacements
+                                                                /     filter
+                                                                o O   sort / reverse
+                                                                R     refresh
+                                                                m     mark
+

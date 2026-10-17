@@ -1242,3 +1242,40 @@ fn marks_saved() {
     assert_eq!(now, HashSet::from([22, 7, 9]));
     _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn screens() {
+    use crate::view::tests::{screen, snapshot};
+    let pr = |number, title: &str, author: &str, updated: &str| Listed {
+        number,
+        title: title.into(),
+        author: author.into(),
+        base: "master".into(),
+        branch: "b".into(),
+        state: "OPEN".into(),
+        updated: updated.into(), // not a time: shown as it is, so the snapshot doesn't age
+        additions: number,
+        files: 1,
+        ..Listed::default()
+    };
+    let mut l = List::new("".into());
+    l.prs = vec![pr(1, "Fix CI", "ann", "2026-03"), pr(22, "Add docs", "bo", "2026-01"), pr(333, "fix fees", "cy", "2026-02")];
+    (l.prs[1].draft, l.prs[1].decision, l.prs[1].labels) = (true, "APPROVED".into(), vec![("docs".into(), "0075ca".into())]);
+    l.prs[2].checks = Some((3, 1, 0));
+    l.marked = HashSet::from([333]);
+    l.new = HashSet::from([22]);
+    l.reviewed = HashSet::from([1]);
+    let k = |l: &mut List, c| l.key(KeyEvent::new(c, KeyModifiers::NONE));
+    k(&mut l, KeyCode::Char('j'));
+    snapshot("list", &screen(100, 12, |f| l.draw(f)));
+    l.query = "fix".into();
+    snapshot("list_filtered", &screen(100, 12, |f| l.draw(f)));
+    l.query.clear();
+    k(&mut l, KeyCode::Char('?'));
+    snapshot("list_help", &screen(100, 60, |f| l.draw(f)));
+    k(&mut l, KeyCode::Esc);
+    k(&mut l, KeyCode::Tab);
+    snapshot("list_worktrees", &screen(100, 8, |f| l.draw(f)));
+    k(&mut l, KeyCode::Tab);
+    snapshot("list_replacements", &screen(100, 8, |f| l.draw(f)));
+}

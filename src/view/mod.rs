@@ -31,7 +31,7 @@ mod render;
 mod review;
 mod select;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 const HELP: &str = "
 MOVE

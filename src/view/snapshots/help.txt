@@ -1,0 +1,50 @@
+ ▾        PR #7 · Fix the thing
+          OPEN @bo · main ← fix · +2 −2 in 3 files
+          review: wait keys · / search · j/k scroll · other keys close                 1–44 / 104
+       ╭─ description   MOVE                                                                    ┃ ─────────────╮
+       │  Fixes the th   h j k l, arrows      move (counts: 5j)                                 ┃              │
+       ╰──────────────   w b e  W B E         word motions (select)                             ┃ ─────────────╯
+       ╭─ claude's rev   gh gl gs             line start / end / first non-blank                ┃ ─────────────╮
+       │  Looks right;   f t F T <c>          find char                                         ┃              │
+       ╰──────────────   gw                   jump labels                                       ┃ ─────────────╯
+ ▾        src/big.rs     mm                   matching bracket                                  ┃
+       ╭─ amy · L20 ──   gg ge                top / end                                         ┃ ─────────────╮
+       │  Why line 20?   Ctrl-d Ctrl-u        half page down / up                               ┃              │
+       ├─ you ────────   Ctrl-e Ctrl-y        scroll 5 lines                                    ┃ ─────────────┤
+       │  Because.       zz zt zb             cursor line to center / top / bottom              ┃              │
+       ╰──────────────   Ctrl-o               jump back                                         ┃ ─────────────╯
+          ────────────                                                                          ┃ ────────────── L9–15 ─
+  9   9   line 9        DIFF                                                                    ┃
+ 10  10   line 10        ]g [g                next / prev hunk (change)                         ┃
+ 11  11   line 11        ]f [f, Space f       next / prev file, file picker                     ┃
+ 12     -     let x =    ]c [c                next / prev comment thread                        ┃
+     12 +     let x =    ]a [a                next / prev Claude comment (wraps around)         ┃
+       ╭─ [nit] claude   ]p [p                next / prev comment of your pending review (wraps ┃ ─────────────╮
+       │  Name it new_                        around)                                           │              │
+       ╰──────────────   /  n N  *            search, next / prev match, search selection       │ ─────────────╯
+ 13  13   line 13                                                                               │
+ 14  14   line 14       SELECT & COPY                                                           │
+ 15  15   line 15        x                    select line (repeat to extend)                    │
+ ▾        src/a.rs  +1   v  ;  Esc            select mode / collapse / exit select mode         │
+          ── fn main ─   y  (or Space y)      copy text                                         │ ─────────────── L1–3 ─
+  1   1   fn main() {    Y                    copy as patch                                     │
+        ▸ [resolved] a   Space c              copy a ref: file:line, or a comment's / the PR's  │
+  2     -     old();                          link                                              │
+      2 +     new_call                                                                          │
+       ╭─ [pending] yo  VIEW                                                                    │ ─────────────╮
+       │  Pass y here.   + =  -               hunk context +10 / -10 lines                      │              │
+       ╰──────────────   Z                    whole file                                        │ ─────────────╯
+  3   3   }              Tab                  fold file / PR info / thread                      │
+ ▾        new.rs (rena   Shift-Tab            fold / unfold all files                           │
+ ▾        img.png (bin   Ctrl-w v             toggle split (side-by-side) view                  │
+                         Ctrl-w h  Ctrl-w l   split view: old / new side; margin: code /        │
+                                              comments (or Ctrl-h Ctrl-l)                       │
+                         Ctrl-w c             comments in the right margin (wide windows) /     │
+                                              inline                                            │
+                         Ctrl-w a             Claude view: only Claude's review and the code    │
+                                              it's about                                        │
+                         Ctrl-w p             pending view: only your pending review and the    │
+                                              code it's about                                   │
+
+
+ NOR                                             #7 · 3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)    1/39

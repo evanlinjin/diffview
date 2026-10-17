@@ -1,0 +1,30 @@
+ ▾        PR #7 · Fix the thing
+          OPEN @bo · main ← fix · +2 −2 in 3 files
+          your review (pending)
+          Nearly there.
+
+ ▾        src/a.rs  +1 −1
+          ── fn main ──────────────────────────────────────────────────────────────────────── L1–3 ─
+  1   1   fn main() {
+  2     -     old();
+      2 +     new_call(x);
+       ╭─ [pending] you · L2 ──────────────────────────────────────────────────────────────────────╮
+       │  Pass y here.                                                                             │
+       ╰───────────────────────────────────────────────────────────────────────────────────────────╯
+  3   3   }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ NOR       pending view: your pending review and the code it's on (S submits … pending view    1/14

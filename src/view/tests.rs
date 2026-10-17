@@ -1263,3 +1263,111 @@ fn gf_after_w() {
     app.open_link();
     assert_eq!(app.msg, "no definition of new_call found");
 }
+
+// Screen snapshots: what dv draws in its main states, as text (colors aside), checked against
+// src/view/snapshots/*.txt. After a change that's meant to change the screen,
+// `UPDATE_SNAPSHOTS=1 cargo test` rewrites them; review the diff.
+
+/// The screen `app` draws at `w`×`h`, a line per row, trailing spaces trimmed.
+pub(crate) fn screen(w: u16, h: u16, draw: impl FnMut(&mut Frame)) -> String {
+    let mut draw = draw;
+    let mut t = ratatui::Terminal::new(ratatui::backend::TestBackend::new(w, h)).unwrap();
+    t.draw(&mut draw).unwrap(); // the first draw lays out for the size
+    let buf = t.draw(&mut draw).unwrap().buffer.clone();
+    (0..h).map(|y| (0..w).map(|x| buf[(x, y)].symbol()).collect::<String>().trim_end().to_owned() + "\n").collect()
+}
+
+pub(crate) fn snapshot(name: &str, got: &str) {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("src/view/snapshots/{name}.txt"));
+    if std::env::var_os("UPDATE_SNAPSHOTS").is_some() || !path.exists() {
+        return std::fs::write(&path, got).unwrap();
+    }
+    let want = std::fs::read_to_string(&path).unwrap();
+    assert!(want == got, "snapshot {name} changed:\n--- want\n{want}--- got\n{got}");
+}
+
+/// A PR with two changed files and every kind of thread: Claude's, someone's on GitHub (with your
+/// reply), a pending one of yours, a resolved one; Claude's summary and your review's text.
+fn fixture() -> App {
+    let body: String = (1..=24).map(|n| if n == 12 { "-    let x = old(12);\n+    let x = new_call(12);\n".to_owned() } else { format!(" line {n}\n") }).collect();
+    let text = format!("diff --git a/src/big.rs b/src/big.rs\nindex 1..2 100644\n--- a/src/big.rs\n+++ b/src/big.rs\n@@ -1,24 +1,24 @@ fn big\n{body}{}", diff::SAMPLE);
+    let mut app = App::with("base".into(), diff::parse(&text));
+    app.pr = Some(gh::Pr { number: 7, node_id: "PR".into(), title: "Fix the thing".into(), base: "main".into(), head_oid: "abc".into(), url: String::new() });
+    let line = |heading, md, text: &str| gh::InfoLine { heading, md, text: text.into(), marks: vec![], url: String::new() };
+    app.info = vec![line(false, false, "OPEN @bo · main ← fix · +2 −2 in 3 files"), line(false, false, "review: waiting on @cy"), line(true, false, "description"), line(false, true, "Fixes **the thing**, see `new_call`.")];
+    app.claude_summary = "Looks right; one nit.".into();
+    app.summary_draft = "Nearly there.".into();
+    // Each comment its own id, as on GitHub and in Claude's review (dv keys threads by them).
+    let id = std::cell::Cell::new(0);
+    let c = |author: &str, body: &str, pending| gh::Comment { id: { id.set(id.get() + 1); id.get() }, node_id: String::new(), can_edit: true, can_delete: true, author: author.into(), body: body.into(), created: String::new(), pending };
+    let t = |path: &str, line, comments, claude: Option<&str>, resolved| gh::Thread {
+        id: String::new(), path: path.into(), left: false, line: Some(line), start_line: None, original_line: Some(line),
+        resolved, outdated: false, hunk: vec![], comments, claude: claude.map(Into::into), severity: if claude.is_some() { "nit".into() } else { String::new() },
+    };
+    app.threads = vec![
+        t("src/big.rs", 12, vec![c("claude", "Name it `new_value`; see src/a.rs:2.", false)], Some("c1"), false),
+        t("src/big.rs", 20, vec![c("amy", "Why line 20?", false), c("you", "Because.", false)], None, false),
+        t("src/a.rs", 2, vec![c("you", "Pass `y` here.", true)], None, false),
+        t("src/a.rs", 1, vec![c("amy", "Old news.", false)], None, true),
+    ];
+    app.build();
+    app
+}
+
+#[test]
+fn screens() {
+    let shot = |name: &str, app: &mut App, w, h| snapshot(name, &screen(w, h, |f| app.draw(f)));
+    let mut app = fixture();
+    shot("diff", &mut app, 100, 60);
+    let mut wide = fixture();
+    wide.margin_pref = true;
+    shot("margin", &mut wide, 220, 45);
+    let mut app = fixture();
+    app.toggle_split();
+    shot("split", &mut app, 120, 40);
+    let mut app = fixture();
+    app.toggle_view(View::Claude);
+    shot("claude_view", &mut app, 100, 30);
+    app.toggle_view(View::Pending);
+    shot("pending_view", &mut app, 100, 30);
+    let mut app = fixture();
+    app.key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
+    shot("help", &mut app, 120, 50);
+    let mut app = fixture();
+    app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
+    shot("ctrl_w_popup", &mut app, 100, 30);
+    let mut app = fixture();
+    app.threads_picker();
+    shot("threads_picker", &mut app, 100, 30);
+    let mut app = fixture();
+    app.goto_comment(0, 0);
+    shot("on_claude_comment", &mut app, 100, 30);
+}
+
+#[test]
+fn key_hints_match_the_keys() {
+    // The which-key popups list exactly the keys pending_key handles, and ? help has each.
+    let src = include_str!("keys.rs");
+    let body = &src[src.find("fn pending_key").unwrap()..];
+    let name = |p: char| match p {
+        ' ' => "Space ".to_owned(),
+        CTRL_W => "Ctrl-w ".to_owned(),
+        p => p.to_string(),
+    };
+    let mut handled = std::collections::BTreeSet::new();
+    for p in [' ', 'g', 'z', ']', '[', 'm'].into_iter().map(|p| (p, format!("'{p}'"))).chain([(CTRL_W, "CTRL_W".to_owned())]) {
+        for (i, _) in body.match_indices(&format!("({}, '", p.1)) {
+            let c = body[i + p.1.len() + 4..].chars().next().unwrap();
+            handled.insert(format!("{}{c}", name(p.0)));
+        }
+    }
+    let mut hinted = std::collections::BTreeSet::new();
+    for p in [' ', 'g', 'z', ']', '[', 'm', CTRL_W] {
+        for (k, _) in App::which(p).unwrap().1 {
+            hinted.insert(format!("{}{k}", name(p)));
+        }
+    }
+    assert_eq!(handled, hinted);
+    let missing: Vec<_> = hinted.iter().filter(|k| !HELP.contains(k.as_str())).collect();
+    assert!(missing.is_empty(), "not in ? help: {missing:?}");
+}
