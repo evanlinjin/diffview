@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- `gf` on a `file:line` in a comment (`src/a.rs:12`, `a.rs:12-15`, `#L12`) goes there: in the
+  diff if it's shown, else in hx (`Ctrl-o` comes back). The skill has Claude cite code as
+  `path:line` from the repo root, so it always resolves.
+
 ### Fixed
 - A comment on a range of lines (5-10) lights all of them beside its box in the comment
   margin, not just its last line; the cursor on any of them lights the box.

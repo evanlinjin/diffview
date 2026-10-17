@@ -149,7 +149,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `Ctrl-w v` | toggle split view: old ‖ new side by side (removed runs pair with the added lines after them) |
 | `Ctrl-w h` `Ctrl-w l` (or `Ctrl-h` `Ctrl-l`) | split view: move to the old / new side |
 | `Enter` | open `hx file:line:col` (inside zellij: in a pane on the right, reused for the next file while it is open; dv stays usable); dv reloads whenever the working tree changes; on a link, open the link |
-| `gf` | open the link under the cursor in the browser (`xdg-open` / `open`); a tooltip shows the URL while the cursor is on a link |
+| `gf` | open the link under the cursor in the browser (`xdg-open` / `open`); a tooltip shows the URL while the cursor is on a link. On a `path:line` in text (`src/a.rs:12`, `:12-15`, `:12:5`, `#L12`; the path from the repo root, or the end of one if that's unambiguous): go there, in the diff if it's shown (unfolding its file), else in hx; `Ctrl-o` comes back. The skill has Claude cite code that way |
 | `gd gr gy gi`, `Space k` | definition / references / type / impl, hover |
 | `Space k` on an issue/PR link | preview it in a popup: state, author, age, comments, labels, body (the link tooltip says so) |
 | `Ctrl-o` | jump back |

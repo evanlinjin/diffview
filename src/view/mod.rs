@@ -72,7 +72,8 @@ VIEW
   Ctrl-w c             comments in the right margin (wide windows) / inline
   Ctrl-w a             Claude view: only Claude's review and the code it's about
   Enter                open hx at cursor (on a link: open it)
-  gf                   open the link under the cursor in the browser
+  gf                   open the link under the cursor in the browser, or go to the
+                       file:line under it (as comments cite code; Ctrl-o comes back)
 
 RUST-ANALYZER
   gd gr gy gi          definition / references / type / impl

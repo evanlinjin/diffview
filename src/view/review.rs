@@ -487,9 +487,15 @@ impl App {
         self.rows[self.head.row].links.iter().find(|(a, b, _)| *a <= col && col < *b).map(|l| l.2.as_str())
     }
 
+    /// `gf`: the link under the cursor in the browser, or the `file:line` under it (as comments
+    /// cite code: `src/a.rs:12`, `a.rs:12-15`, `a.rs#L12`) in dv, or in hx if it isn't shown.
     pub(super) fn open_link(&mut self) {
         let Some(url) = self.link_at_cursor().map(str::to_owned) else {
-            return self.msg = "no link under the cursor".into();
+            let text = &self.rows[self.head.row].line.text;
+            return match file_ref(text, self.head.col) {
+                Some((path, line)) => self.goto_file_line(&path, line),
+                None => self.msg = "no link or file:line under the cursor".into(),
+            };
         };
         let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
         let spawned = std::process::Command::new(opener)
@@ -502,6 +508,32 @@ impl App {
             Ok(_) => format!("opened {url}"),
             Err(e) => format!("{opener}: {e}"),
         };
+    }
+
+    /// Go to `line` of `path` (as a comment wrote it: from the repo root, or just its end, like
+    /// `view.rs`): in the diff when it's shown there, else in hx.
+    fn goto_file_line(&mut self, path: &str, line: u32) {
+        let path = path.trim_start_matches("./");
+        let ends = |p: &str| p == path || p.ends_with(&format!("/{path}"));
+        let found = match self.root.join(path).is_file() {
+            true => Some(path.to_owned()),
+            false => self.files.iter().map(|f| f.path.clone()).find(|p| ends(p)).or_else(|| {
+                let all = diff::git(&["ls-files"]).unwrap_or_default();
+                let mut hits = all.lines().filter(|p| ends(p));
+                // Only if it's unambiguous.
+                match (hits.next(), hits.next()) {
+                    (Some(p), None) => Some(p.to_owned()),
+                    _ => None,
+                }
+            }),
+        };
+        let Some(rel) = found else { return self.msg = format!("no file {path} here") };
+        // A folded file opens, so the line can show.
+        if self.collapsed.remove(&rel) {
+            let keep = self.cursor_key();
+            self.rebuild(keep);
+        }
+        self.jump_loc(&crate::lsp::Loc { path: self.root.join(&rel), line: line.saturating_sub(1), character: 0 });
     }
 
     /// `Space p`: a picker of the comments in your pending review.
@@ -893,3 +925,36 @@ impl App {
 
 /// `S` → "Comment and close the PR": a comment review (if there's anything to say), then closing.
 pub(super) const CLOSE: &str = "CLOSE";
+
+/// The `path:line` reference in `text` around char `col`, if there is one: `src/a.rs:12`,
+/// `a.rs:12-15`, `a.rs:12:5`, `a.rs#L12` (a trailing `.`/`,`/`:` is punctuation).
+fn file_ref(text: &str, col: usize) -> Option<(String, u32)> {
+    let chars: Vec<char> = text.chars().collect();
+    let ok = |c: char| c.is_alphanumeric() || "_./-:#".contains(c);
+    if !chars.get(col).is_some_and(|&c| ok(c)) {
+        return None;
+    }
+    let a = (0..col).rev().take_while(|&i| ok(chars[i])).last().unwrap_or(col);
+    let b = (col..chars.len()).take_while(|&i| ok(chars[i])).last()? + 1;
+    let token: String = chars[a..b].iter().collect();
+    let token = token.trim_end_matches(['.', ',', ':', '-']);
+    let (path, rest) = token.split_once("#L").or_else(|| token.split_once(':'))?;
+    let line: u32 = rest.split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()?;
+    // A file: it has an extension or a directory (not "note:3" or a time "12:30").
+    let file = path.rsplit('/').next().is_some_and(|f| f.contains('.') && !f.starts_with('.') || path.contains('/'));
+    (file && line > 0 && !path.chars().all(|c| c.is_ascii_digit())).then(|| (path.to_owned(), line))
+}
+
+#[test]
+fn file_refs() {
+    let at = |text: &str, needle: &str| file_ref(text, text.find(needle).unwrap());
+    let t = "see src/view/mod.rs:1213 and a.rs:12-15, also b.rs#L7.";
+    assert_eq!(at(t, "mod.rs"), Some(("src/view/mod.rs".into(), 1213)));
+    assert_eq!(at(t, "1213"), Some(("src/view/mod.rs".into(), 1213))); // anywhere on it
+    assert_eq!(at(t, "a.rs"), Some(("a.rs".into(), 12)));
+    assert_eq!(at(t, "b.rs"), Some(("b.rs".into(), 7)));
+    assert_eq!(at(t, "see"), None);
+    assert_eq!(at("at 12:30 today", "12"), None); // a time
+    assert_eq!(at("note: this", "note"), None);
+    assert_eq!(at("x.rs:12:5,", "x.rs"), Some(("x.rs".into(), 12)));
+}

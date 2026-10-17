@@ -139,6 +139,7 @@ impl App {
                 (true, true, true) => ("Claude's comment (outdated)", &[("r", "reply to Claude"), ("Space d", "dismiss"), ("Tab", "fold")]),
                 (true, true, false) => ("Claude's comment", &[
                     ("r", "reply to Claude"),
+                    ("gf", "go to a file:line in it"),
                     ("c", "copy to your review"),
                     ("C", "post it now"),
                     ("Space r", "resolve"),
