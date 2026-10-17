@@ -275,29 +275,87 @@ fn verdict(c: &Value) -> char {
     }
 }
 
-// ponytail: first 100 threads × 100 comments; paginate if a PR ever outgrows that.
-const THREADS: &str = "query($owner: String!, $name: String!, $number: Int!) {
-  viewer { login }
-  repository(owner: $owner, name: $name) { pullRequest(number: $number) {
-    id viewerDidAuthor
-    reviews(states: PENDING, first: 10) { nodes { id viewerDidAuthor } }
-    files(first: 100) { nodes { path viewerViewedState } }
-    reviewThreads(first: 100) { nodes {
-      id path line startLine originalLine diffSide isResolved isOutdated
-      comments(first: 100) { nodes { id databaseId author { login } body createdAt diffHunk state viewerCanUpdate viewerCanDelete } }
-    } }
-  } }
-}";
+const COMMENT: &str = "id databaseId author { login } body createdAt diffHunk state viewerCanUpdate viewerCanDelete";
+const THREAD: &str = "id path line startLine originalLine diffSide isResolved isOutdated";
+const PAGE: &str = "pageInfo { hasNextPage endCursor }";
 
+/// The PR's review threads, viewed files and your pending review: the first 100 of each
+/// (threads, their comments, files), then the rest a page at a time.
 pub fn threads(n: u64) -> Result<Review> {
     let num = format!("number={n}");
-    let q = format!("query={THREADS}");
-    let v: Value = serde_json::from_str(&gh(&[
-        "api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-F", &num, "-f", &q,
-    ])?)?;
-    let mut r = parse_review(&v["data"]["repository"]["pullRequest"]);
-    r.me = v["data"]["viewer"]["login"].as_str().unwrap_or("").to_owned();
+    let run = |q: &str, vars: &[(&str, &str)]| -> Result<Value> {
+        let q = format!("query={q}");
+        let vars: Vec<String> = vars.iter().map(|(k, v)| format!("{k}={v}")).collect();
+        let mut args = vec!["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-F", &num, "-f", &q];
+        for v in &vars {
+            args.extend(["-f", v]);
+        }
+        let v: Value = serde_json::from_str(&gh(&args)?)?;
+        if let Some(e) = v["errors"].get(0) {
+            bail!("GitHub: {}", e["message"].as_str().unwrap_or("GraphQL error"));
+        }
+        Ok(v["data"].clone())
+    };
+    let d = fetch_review(run)?;
+    let mut r = parse_review(&d["repository"]["pullRequest"]);
+    r.me = d["viewer"]["login"].as_str().unwrap_or("").to_owned();
     Ok(r)
+}
+
+/// The cursor of a list's next page, if it has one.
+fn next_page(list: &Value) -> Option<String> {
+    let p = &list["pageInfo"];
+    (p["hasNextPage"] == true).then(|| p["endCursor"].as_str().map(str::to_owned)).flatten()
+}
+
+/// The paging behind `threads`, with the GraphQL call passed in (so tests can fake it):
+/// the first page, with later pages' nodes appended to its lists.
+fn fetch_review(mut run: impl FnMut(&str, &[(&str, &str)]) -> Result<Value>) -> Result<Value> {
+    let pr = "repository(owner: $owner, name: $name) { pullRequest(number: $number)";
+    let vars = "$owner: String!, $name: String!, $number: Int!";
+    let threads = |after: &str| format!("reviewThreads(first: 100{after}) {{ {PAGE} nodes {{ {THREAD} comments(first: 100) {{ {PAGE} nodes {{ {COMMENT} }} }} }} }}");
+    let files = |after: &str| format!("files(first: 100{after}) {{ {PAGE} nodes {{ path viewerViewedState }} }}");
+    let mut d = run(
+        &format!(
+            "query({vars}) {{ viewer {{ login }} {pr} {{ id viewerDidAuthor
+               reviews(states: PENDING, first: 10) {{ nodes {{ id viewerDidAuthor }} }} {} {} }} }} }}",
+            files(""),
+            threads("")
+        ),
+        &[],
+    )?;
+    let at = |d: &Value, k: &str| d["repository"]["pullRequest"][k].clone();
+    // Appends a page's nodes to `list`; the cursor of the next page, if there is one.
+    let append = |list: &mut Value, page: &Value| -> Option<String> {
+        if let (Some(l), Some(p)) = (list["nodes"].as_array_mut(), page["nodes"].as_array()) {
+            l.extend(p.iter().cloned());
+        }
+        next_page(page)
+    };
+    let p = &mut d["repository"]["pullRequest"];
+    for (key, list) in [("reviewThreads", threads(", after: $after")), ("files", files(", after: $after"))] {
+        let mut next = next_page(&p[key]);
+        while let Some(after) = next {
+            let page = run(&format!("query({vars}, $after: String!) {{ {pr} {{ {list} }} }} }}"), &[("after", &after)])?;
+            next = append(&mut p[key], &at(&page, key));
+        }
+    }
+    // A thread with more than 100 comments: the rest of them.
+    if let Some(ts) = p["reviewThreads"]["nodes"].as_array_mut() {
+        for t in ts {
+            let mut next = next_page(&t["comments"]);
+            let id = t["id"].as_str().unwrap_or("").to_owned();
+            while let Some(after) = next {
+                let q = format!(
+                    "query($id: ID!, $after: String!) {{ node(id: $id) {{ ... on PullRequestReviewThread {{
+                       comments(first: 100, after: $after) {{ {PAGE} nodes {{ {COMMENT} }} }} }} }} }}"
+                );
+                let page = run(&q, &[("id", &id), ("after", &after)])?;
+                next = append(&mut t["comments"], &page["node"]["comments"]);
+            }
+        }
+    }
+    Ok(d)
 }
 
 fn parse_review(pr: &Value) -> Review {
@@ -802,4 +860,35 @@ fn parses_thread() {
     assert_eq!((t.left, t.line, t.start_line), (false, Some(12), Some(10)));
     assert_eq!(t.hunk, [" fn a() {", "+    let x = 1;"]);
     assert_eq!((t.comments[0].id, t.comments[0].body.as_str(), t.comments[0].created.as_str()), (7, "a\nb", "2026-10-01T00:00:00Z"));
+}
+
+#[test]
+fn review_pages() {
+    // Two pages of threads (the first thread's comments on two pages too) and two of files.
+    let page = |next: Option<&str>, nodes: Value| json!({ "pageInfo": { "hasNextPage": next.is_some(), "endCursor": next }, "nodes": nodes });
+    let comment = |id: u64| json!({ "id": format!("C{id}"), "databaseId": id, "body": "", "createdAt": "" });
+    let thread = |id: &str, comments: Value| json!({ "id": id, "path": "a.rs", "line": 1, "comments": comments });
+    let pr = |k: &str, v: Value| json!({ "repository": { "pullRequest": { k: v } } });
+    let mut calls = vec![];
+    let d = fetch_review(|q, vars| {
+        calls.push(vars.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(" "));
+        Ok(if q.contains("viewer { login }") {
+            let mut d = pr("reviewThreads", page(Some("t1"), json!([thread("T1", page(Some("c1"), json!([comment(1)])))])));
+            d["repository"]["pullRequest"]["files"] = page(Some("f1"), json!([{ "path": "a.rs", "viewerViewedState": "VIEWED" }]));
+            d["viewer"] = json!({ "login": "me" });
+            d
+        } else if q.contains("node(id") {
+            json!({ "node": { "comments": page(None, json!([comment(2)])) } })
+        } else if q.contains("reviewThreads") {
+            pr("reviewThreads", page(None, json!([thread("T2", page(None, json!([comment(3)])))])))
+        } else {
+            pr("files", page(None, json!([{ "path": "b.rs", "viewerViewedState": "DISMISSED" }])))
+        })
+    })
+    .unwrap();
+    assert_eq!(calls, ["", "after=t1", "after=f1", "id=T1 after=c1"]);
+    let r = parse_review(&d["repository"]["pullRequest"]);
+    let ids: Vec<Vec<u64>> = r.threads.iter().map(|t| t.comments.iter().map(|c| c.id).collect()).collect();
+    assert_eq!(ids, [vec![1, 2], vec![3]]);
+    assert_eq!(r.viewed.len(), 2);
 }

@@ -6,6 +6,8 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Fixed
+- PRs with more than 100 review threads, 100 comments in a thread, or 100 files: dv loads them
+  all (it stopped at 100, so later threads were missing and their files' "Viewed" marks too).
 - `gf` right after `w` (which leaves the cursor on the space after the word) goes by the word.
 - The pending view boxes your review's text, as the Claude view does Claude's summary; `c`
   there points to `S`.
