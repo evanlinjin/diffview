@@ -292,7 +292,8 @@ const PAGE: &str = "pageInfo { hasNextPage endCursor }";
 
 /// The PR's review threads, viewed files and your pending review: the first 100 of each
 /// (threads, their comments, files), then the rest a page at a time.
-pub fn threads(n: u64) -> Result<Review> {
+/// GitHub's answer, as JSON (dv caches it; `parse_threads` reads it).
+pub fn threads_json(n: u64) -> Result<Value> {
     let num = format!("number={n}");
     let run = |q: &str, vars: &[(&str, &str)]| -> Result<Value> {
         let q = format!("query={q}");
@@ -307,10 +308,13 @@ pub fn threads(n: u64) -> Result<Review> {
         }
         Ok(v["data"].clone())
     };
-    let d = fetch_review(run)?;
+    fetch_review(run)
+}
+
+pub fn parse_threads(d: &Value) -> Review {
     let mut r = parse_review(&d["repository"]["pullRequest"]);
     r.me = d["viewer"]["login"].as_str().unwrap_or("").to_owned();
-    Ok(r)
+    r
 }
 
 /// The cursor of a list's next page, if it has one.
@@ -669,10 +673,15 @@ const INFO_FIELDS: &str = "headRefOid,title,author,state,isDraft,url,baseRefName
 changedFiles,labels,reviewDecision,reviewRequests,latestReviews,statusCheckRollup,body,comments";
 
 /// PR info lines, plus the current (title, head commit, url) so a refresh picks up new pushes.
-pub fn info(n: u64) -> Result<(Vec<InfoLine>, String, String, String, State)> {
-    let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", INFO_FIELDS])?)?;
+/// GitHub's answer, as JSON (dv caches it; `parse_info` reads it).
+pub fn info_json(n: u64) -> Result<Value> {
+    Ok(serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", INFO_FIELDS])?)?)
+}
+
+/// The PR section's lines, and its title, head, URL and state.
+pub fn parse_info(v: &Value) -> (Vec<InfoLine>, String, String, String, State) {
     let s = |k: &str| v[k].as_str().unwrap_or("").to_owned();
-    Ok((info_lines(&v), s("title"), s("headRefOid"), s("url"), state(&v)))
+    (info_lines(v), s("title"), s("headRefOid"), s("url"), state(v))
 }
 
 /// A PR's state as GitHub shows it, with its color: DRAFT, OPEN, MERGED or CLOSED.

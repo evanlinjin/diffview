@@ -360,7 +360,7 @@ fn assign_ids(comments: &mut [Value]) -> bool {
 
 /// Replace the file in one step (write a temp file, rename it over), so dv and Claude never
 /// read a half-written review.
-fn write(path: &std::path::Path, v: &Value) -> Result<()> {
+pub(crate) fn write(path: &std::path::Path, v: &Value) -> Result<()> {
     let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
     std::fs::write(&tmp, serde_json::to_string_pretty(v)? + "\n")?;
     std::fs::rename(&tmp, path)?;

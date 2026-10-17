@@ -1406,7 +1406,8 @@ fn github_changes_shown_when_idle() {
         (Ok(r), Ok((app_info(), "Fix the thing".into(), "abc".into(), String::new(), ("OPEN", "238636"))))
     };
     let replies = |app: &App| app.threads.iter().flat_map(|t| &t.comments).filter(|c| c.body == "Fair.").count();
-    // Mid-way through something (here a picker): it waits.
+    // Mid-way through something (here a picker): it waits. (What's shown came from the cache.)
+    (app.github_stale, app.msg) = (true, review::STALE.into());
     tx.send((0, fetched(newer.clone()))).unwrap();
     app.threads_picker();
     assert!(app.picker.is_some());
@@ -1417,6 +1418,7 @@ fn github_changes_shown_when_idle() {
     assert_eq!(replies(&app), 1);
     assert!(app.threads.iter().any(|t| t.claude.is_some()), "Claude's thread stays");
     assert_eq!(app.msg, "1 new comment(s) on GitHub");
+    assert!(!app.github_stale, "fresh now");
     // Fetched before a load of dv's own (after posting, say): that load is newer, so it's dropped.
     app.github_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     tx.send((0, fetched(gh_threads))).unwrap();
@@ -1426,4 +1428,23 @@ fn github_changes_shown_when_idle() {
 
 fn app_info() -> Vec<gh::InfoLine> {
     vec![gh::InfoLine { heading: false, md: false, text: "OPEN @bo · main ← fix".into(), marks: vec![], url: String::new() }]
+}
+
+#[test]
+fn github_cache_reads_back() {
+    // What `fetch_github` keeps: GitHub's JSON as it came, parsed the same way when read back.
+    let dir = std::env::temp_dir().join(format!("dv-cache-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let p = dir.join("pr-1.json");
+    let threads = json!({ "viewer": { "login": "you" }, "repository": { "pullRequest": { "id": "PR_1", "reviewThreads": { "nodes": [
+        { "id": "T1", "path": "a.rs", "line": 2, "comments": { "nodes": [{ "databaseId": 5, "body": "hi", "author": { "login": "amy" } }] } }
+    ] } } } });
+    let info = json!({ "title": "Fix", "headRefOid": "abc", "url": "u", "state": "OPEN", "isDraft": true, "author": { "login": "bo" } });
+    crate::claude::write(&p, &json!({ "threads": threads, "info": info })).unwrap();
+    let (r, i) = review::cached_github(&p).unwrap();
+    let (r, i) = (r.unwrap(), i.unwrap());
+    assert_eq!((r.me.as_str(), r.threads.len(), r.threads[0].comments[0].body.as_str()), ("you", 1, "hi"));
+    assert_eq!((i.1.as_str(), i.2.as_str(), i.4.0), ("Fix", "abc", "DRAFT"));
+    assert!(review::cached_github(&dir.join("none.json")).is_none());
+    std::fs::remove_dir_all(dir).unwrap();
 }

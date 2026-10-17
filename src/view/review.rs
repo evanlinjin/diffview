@@ -2,18 +2,38 @@
 //! viewed marks, links, and the pending/threads pickers.
 use super::*;
 
+/// Shown while what's on screen is from the cache.
+pub(super) const STALE: &str = "showing the PR as dv last saw it; refreshing from GitHub…";
+
 /// How often dv looks at whether the PR changed on GitHub (a 304 costs no rate limit).
 const GITHUB_POLL: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// The PR's review threads and its info, as `fetch_github` got them.
 pub(super) type Fetched = (Result<gh::Review>, Result<(Vec<gh::InfoLine>, String, String, String, gh::State)>);
 
-/// Both at once: each is a ~1s GitHub round-trip.
-fn fetch_github(n: u64) -> Fetched {
-    std::thread::scope(|s| {
-        let info = s.spawn(|| gh::info(n));
-        (gh::threads(n), info.join().unwrap_or_else(|_| Err(anyhow!("panicked"))))
-    })
+/// Both at once (each is a ~1s GitHub round-trip), kept in `cache` when both came.
+fn fetch_github(n: u64, cache: Option<&Path>) -> Fetched {
+    let (threads, info) = std::thread::scope(|s| {
+        let info = s.spawn(|| gh::info_json(n));
+        (gh::threads_json(n), info.join().unwrap_or_else(|_| Err(anyhow!("panicked"))))
+    });
+    if let (Some(p), Ok(t), Ok(i)) = (cache, &threads, &info) {
+        // Not keeping it only costs the next start its head start.
+        _ = p.parent().map(std::fs::create_dir_all);
+        _ = crate::claude::write(p, &json!({ "threads": t, "info": i }));
+    }
+    (threads.map(|t| gh::parse_threads(&t)), info.map(|i| gh::parse_info(&i)))
+}
+
+/// Where the PR's last answers from GitHub are kept, to show at once next time.
+fn cache_path(n: u64) -> Option<PathBuf> {
+    Some(crate::claude::dv_dir().ok()?.join("cache").join(format!("pr-{n}.json")))
+}
+
+/// What `fetch_github` kept, if anything.
+pub(super) fn cached_github(p: &Path) -> Option<Fetched> {
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(p).ok()?).ok()?;
+    Some((Ok(gh::parse_threads(&v["threads"])), Ok(gh::parse_info(&v["info"]))))
 }
 
 impl App {
@@ -50,6 +70,9 @@ impl App {
             return;
         }
         // Read-only: no reload after.
+        if !matches!(job, Job::Preview(_)) {
+            self.ensure_fresh();
+        }
         if let Job::Preview(url) = job {
             match gh::issue_preview(&url) {
                 Ok((title, md)) => (self.msg.clear(), self.popup = Some((title, self.hover_lines(&md), 0))).1,
@@ -518,22 +541,53 @@ impl App {
         }
         let Some(n) = self.pr.as_ref().map(|p| p.number) else { return };
         self.github_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        self.apply_github(fetch_github(n));
+        self.github_stale = false;
+        self.apply_github(fetch_github(n, cache_path(n).as_deref()));
+    }
+
+    /// At start: the PR as dv last saw it, if it kept that, while `start_github_watch` fetches
+    /// it afresh. Until that's in, `ensure_fresh` holds back anything that changes GitHub.
+    pub(super) fn show_cached(&mut self, n: u64) -> bool {
+        let Some(f) = cache_path(n).as_deref().and_then(cached_github) else { return false };
+        let head = self.pr.as_ref().map(|p| p.head_oid.clone()); // just looked up; the cache's may be old
+        self.github_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.apply_github(f);
+        if let (Some(pr), Some(h)) = (&mut self.pr, head) {
+            pr.head_oid = h;
+        }
+        self.github_stale = true;
+        self.msg = STALE.into();
+        true
+    }
+
+    /// Before changing anything on GitHub: the PR as it is now, not as cached.
+    fn ensure_fresh(&mut self) {
+        if self.github_stale {
+            let keep = self.cursor_key();
+            self.load_threads(); // the background fetch, when it comes, is older: dropped
+            self.rebuild(keep);
+        }
     }
 
     /// Every few seconds, a look at the PR's ETag (free while nothing has changed); when it changes,
     /// its threads and info are fetched in the background, for `watch_github` to show.
-    pub(super) fn start_github_watch(&mut self, n: u64) {
+    /// `fetch_now`: once at the start too (what's shown came from the cache).
+    pub(super) fn start_github_watch(&mut self, n: u64, fetch_now: bool) {
         let (tx, rx) = std::sync::mpsc::channel();
         let loads = self.github_gen.clone();
+        let cache = cache_path(n);
         std::thread::spawn(move || {
             let mut etag = gh::pr_etag(n, "").ok().flatten().unwrap_or_default();
+            let at = loads.load(std::sync::atomic::Ordering::SeqCst);
+            if fetch_now && tx.send((at, fetch_github(n, cache.as_deref()))).is_err() {
+                return;
+            }
             loop {
                 std::thread::sleep(GITHUB_POLL);
                 let Ok(Some(e)) = gh::pr_etag(n, &etag) else { continue };
                 etag = e;
                 let at = loads.load(std::sync::atomic::Ordering::SeqCst);
-                if tx.send((at, fetch_github(n))).is_err() {
+                if tx.send((at, fetch_github(n, cache.as_deref()))).is_err() {
                     return; // dv is done
                 }
             }
@@ -560,6 +614,9 @@ impl App {
         self.threads.extend(claude);
         self.shape();
         self.rebuild(keep);
+        if std::mem::take(&mut self.github_stale) && self.msg == STALE {
+            self.msg.clear();
+        }
         let new = count(self).saturating_sub(before);
         if new > 0 && self.msg.is_empty() {
             self.msg = format!("{new} new comment(s) on GitHub");

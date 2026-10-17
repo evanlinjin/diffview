@@ -487,6 +487,8 @@ pub struct App {
     /// as it was then (a load since is newer, so that one's dropped).
     github: Option<std::sync::mpsc::Receiver<(u64, review::Fetched)>>,
     github_gen: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    /// What's shown came from the cache, and the fresh fetch isn't in yet.
+    github_stale: bool,
 }
 
 impl App {
@@ -508,11 +510,17 @@ impl App {
             crate::progress(Some("loading comments and PR info"));
         }
         app.pr = pr;
-        app.load_threads();
-        if let Some(n) = app.pr.as_ref().map(|p| p.number) {
-            app.start_github_watch(n);
+        // What dv saw last time, if it kept it, while it fetches the PR afresh.
+        let n = app.pr.as_ref().map(|p| p.number);
+        let cached = n.is_some_and(|n| app.show_cached(n));
+        match cached {
+            true => app.load_claude(),
+            false => app.load_threads(),
         }
-        if other_skill && app.msg.is_empty() {
+        if let Some(n) = n {
+            app.start_github_watch(n, cached);
+        }
+        if other_skill && (app.msg.is_empty() || app.github_stale) {
             app.msg = "dv's Claude skill has changed since this PR's Claude session began: the next Claude run starts a new one".into();
         }
         app.build();
@@ -634,6 +642,7 @@ impl App {
             label_first: None,
             github: None,
             github_gen: Default::default(),
+            github_stale: false,
         };
         app.shape();
         app.build();

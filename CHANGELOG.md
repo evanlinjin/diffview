@@ -12,6 +12,8 @@ on GitHub are its section here.
 - New comments, replies and reviews on GitHub show up while dv is open: every 5 seconds it asks
   whether the PR changed (an ETag check, free against the rate limit while nothing has), and
   fetches it in the background when it has. Edits and resolved threads wait for the next fetch.
+- Opening a PR shows its comments and info as dv last saw them (kept in dv's data directory)
+  at once, while it fetches them afresh; anything that changes GitHub waits for that.
 
 ### Changed
 - Opening a PR skips `gh pr checkout` when the checkout is already at the PR's head (detached,

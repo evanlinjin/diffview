@@ -49,7 +49,10 @@ disk: rust-analyzer can index it and `hx` can open it.
    **Reviews** use GitHub's own pending review (GraphQL): `c` adds to it (starting one on
    the PR head if needed, or continuing one started on the web), `S` submits with a summary
    from `$EDITOR` (`:cq` cancels), or comments and closes the PR (an empty comment only closes), discard asks for confirmation. Pending comments are
-   tagged `[pending]` and counted in the status bar. dv checks the PR's ETag every 5 seconds
+   tagged `[pending]` and counted in the status bar. GitHub's answers are kept in
+   `cache/pr-N.json` in dv's data directory: opening the PR shows them at once and fetches
+   afresh in the background; a job that changes GitHub first waits for the fresh state
+   (fetching it then if it isn't in yet). dv checks the PR's ETag every 5 seconds
    (a `304` costs no rate limit) and refetches in the background when it changed (new
    comments, replies, reviews, pushes; not edits or resolving), shown once no picker,
    prompt, selection or pending key is open. `c` on a conversation comment (or the
