@@ -152,7 +152,8 @@ fn run() -> anyhow::Result<()> {
         Some("install-skill") => return install_skill(),
         Some("prepare-worktree") => {
             let n = o.pr.context("prepare-worktree needs a PR number")?;
-            let (dir, _) = enter_worktree(n, o.branch, false)?; // -b: it's on the PR's branch; keep it so
+            let known = gh::pr(Some(n)).ok();
+            let (dir, _) = enter_worktree(n, o.branch, false, known.as_ref())?; // -b: it's on the PR's branch; keep it so
             println!("{}", dir.display());
             return Ok(());
         }
@@ -257,11 +258,15 @@ fn review(o: &Opts, pr_num: Option<u64>) -> anyhow::Result<(Option<PathBuf>, any
         }
         None => o,
     };
+    // The PR first, when it's given: its head says whether there's anything to check out.
+    progress(Some("looking up the PR"));
+    let known = pr_num.and_then(|n| gh::pr(Some(n)).ok());
     let (wt, note) = match (pr_num, o.worktree) {
         (Some(n), true) => {
-            let (dir, note) = enter_worktree(n, o.branch, o.force)?;
+            let (dir, note) = enter_worktree(n, o.branch, o.force, known.as_ref())?;
             (Some(dir), note)
         }
+        (Some(_), false) if known.as_ref().is_some_and(|p| at_head(p, false)) => (None, None),
         (Some(n), false) => {
             progress(Some(&format!("checking out PR #{n}")));
             (None, checkout_or_keep(n, o.force, false)?)
@@ -269,8 +274,7 @@ fn review(o: &Opts, pr_num: Option<u64>) -> anyhow::Result<(Option<PathBuf>, any
         (None, _) => (None, None),
     };
     // Comments only load when the branch has a PR; plain local diffs still work without one.
-    progress(Some("looking up the PR"));
-    let pr = gh::pr(pr_num).ok();
+    let pr = known.or_else(|| gh::pr(pr_num).ok());
     let base = diff_base(o, pr.as_ref())?;
     let app = view::App::new(base, pr);
     progress(None);
@@ -285,13 +289,19 @@ fn review(o: &Opts, pr_num: Option<u64>) -> anyhow::Result<(Option<PathBuf>, any
 }
 
 /// The commit the diff starts from: the merge-base with the given base, else the PR's base
-/// (fetched first), else origin/HEAD.
+/// (its commit if it's here, else its branch, fetched first), else origin/HEAD.
 fn diff_base(o: &Opts, pr: Option<&gh::Pr>) -> anyhow::Result<String> {
     let mut base = o.base.clone();
     if let (Some(p), None) = (pr, &base) {
-        progress(Some(&format!("fetching origin/{}", p.base)));
-        _ = diff::git(&["fetch", "-q", "origin", &p.base]);
-        base = Some(format!("origin/{}", p.base));
+        let here = !p.base_oid.is_empty() && diff::git(&["cat-file", "-e", &format!("{}^{{commit}}", p.base_oid)]).is_ok();
+        base = Some(match here {
+            true => p.base_oid.clone(),
+            false => {
+                progress(Some(&format!("fetching origin/{}", p.base)));
+                _ = diff::git(&["fetch", "-q", "origin", &p.base]);
+                format!("origin/{}", p.base)
+            }
+        });
     }
     diff::merge_base(base.as_deref())
 }
@@ -359,11 +369,25 @@ pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool) -> anyhow::Res
     }
 }
 
+/// Already at PR `p`'s head as `gh pr checkout` would leave it (`detach`ed, or on its branch),
+/// so there's nothing to fetch.
+fn at_head(p: &gh::Pr, detach: bool) -> bool {
+    let head = diff::git(&["rev-parse", "HEAD"]).unwrap_or_default();
+    let here = diff::git(&["branch", "--show-current"]).unwrap_or_default();
+    let here = here.trim();
+    // gh names the local branch as the PR's, or `<owner>-<branch>` when that name is taken.
+    let on_it = match detach {
+        true => here.is_empty(),
+        false => !here.is_empty() && (here == p.head_branch || here == format!("{}-{}", p.head_owner, p.head_branch)),
+    };
+    !p.head_oid.is_empty() && head.trim() == p.head_oid && on_it
+}
+
 /// Check PR `n` out in `<repo>-<n>` next to the repo (creating the worktree if needed) and make
 /// it the current dir: detached at the PR head, or with `branch`, on the PR's branch (as
 /// `gh pr checkout` sets it up, so pushing updates the PR). Refuses a dir that isn't a worktree
 /// of this repo; git refuses to update one with local changes.
-fn enter_worktree(n: u64, branch: bool, force: bool) -> anyhow::Result<(PathBuf, Option<String>)> {
+fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> anyhow::Result<(PathBuf, Option<String>)> {
     let (_, dir) = worktree_dir(n)?;
     if dir.exists() {
         ensure_ours(&dir)?;
@@ -372,6 +396,9 @@ fn enter_worktree(n: u64, branch: bool, force: bool) -> anyhow::Result<(PathBuf,
         diff::git(&["worktree", "add", "--detach", &dir.to_string_lossy()])?;
     }
     std::env::set_current_dir(&dir)?;
+    if known.is_some_and(|p| at_head(p, !branch)) {
+        return Ok((dir, None));
+    }
     progress(Some(&format!("checking out PR #{n} in {}", dir.display())));
     let note = checkout_or_keep(n, force, !branch).map_err(|e| {
         // git words this a few ways depending on the step that hits it.

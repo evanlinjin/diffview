@@ -62,7 +62,7 @@ fn suggestion_block() {
 #[test]
 fn viewed_files() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
-    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new() });
+    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new(), ..Default::default() });
     let viewed = |p: &str, s: &str| HashMap::from([(p.to_owned(), s.to_owned())]);
     app.apply_viewed(viewed("src/a.rs", "VIEWED"));
     app.build();
@@ -232,7 +232,7 @@ fn comments_placed_and_anchored() {
     app.threads[0].comments[1].pending = true;
     app.build();
     assert!(app.rows.iter().any(|r| r.line.text.starts_with("[pending] amy")));
-    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: "https://github.com/o/r/pull/1".into() });
+    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: "https://github.com/o/r/pull/1".into(), ..Default::default() });
     let tr = app.rows.iter().position(|r| r.thread == Some(0)).unwrap();
     app.goto(tr, 0);
     let press = |app: &mut App, c| app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
@@ -319,7 +319,7 @@ fn comments_placed_and_anchored() {
 #[test]
 fn quote_into_conversation() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
-    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new() });
+    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new(), ..Default::default() });
     let line = |heading, md, text: &str| gh::InfoLine { heading, md, text: text.into(), marks: vec![], url: String::new() };
     app.info = vec![line(true, false, "conversation (1)"), line(true, false, "@bo · 2d ago"), line(false, true, "Looks good\nbut fix CI")];
     app.build();
@@ -526,7 +526,7 @@ fn help_two_columns() {
 fn copy_refs() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
     let url = "https://github.com/o/r/pull/1";
-    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: url.into() });
+    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: url.into(), ..Default::default() });
     let c = |id| gh::Comment { id, node_id: String::new(), can_edit: false, can_delete: false, author: "amy".into(), body: "hi".into(), created: String::new(), pending: false };
     app.threads = vec![gh::Thread {
         id: "T".into(), path: "src/a.rs".into(), left: false, line: Some(2), start_line: None, original_line: Some(2),
@@ -631,7 +631,7 @@ fn claude_session_per_pr() {
 
 #[test]
 fn approve_says_ack() {
-    let pr = gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "cb1cec09".into(), url: String::new() };
+    let pr = gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "cb1cec09".into(), url: String::new(), ..Default::default() };
     assert_eq!(ack("APPROVE", Some(&pr), "cb1cec09"), "ACK cb1cec09");
     // You reviewed another commit: still the PR's head, with a hint line (dropped when posted).
     let diverged = ack("APPROVE", Some(&pr), "698eec92");
@@ -690,7 +690,7 @@ fn your_comments_for_claude_stay_private() {
     let a = gh::Anchor { path: "src/a.rs".into(), line: 2, left: false, start: None };
     crate::claude::add_comment(&p, &a, vec!["    new_call(x);".into()], "is this right?").unwrap();
     app.claude.path = Some(p);
-    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new() });
+    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new(), ..Default::default() });
     app.load_claude(); // not load_threads: that asks GitHub about PR 1 of this repo
     app.build();
     _ = std::fs::remove_dir_all(&dir);
@@ -789,7 +789,7 @@ fn comments_in_the_margin() {
 #[test]
 fn conversation_beside_the_description() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
-    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new() });
+    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new(), ..Default::default() });
     let heading = |t: &str| gh::InfoLine { heading: true, md: false, text: t.into(), marks: vec![], url: String::new() };
     let md = |t: &str| gh::InfoLine { heading: false, md: true, text: t.into(), marks: vec![], url: String::new() };
     app.info = vec![
@@ -974,7 +974,7 @@ fn threads_on_files_gone_from_the_diff() {
         id: "T1".into(), path: "src/reverted.rs".into(), left: false, line: Some(4), start_line: None, original_line: Some(4),
         resolved: false, outdated: false, hunk: vec![], comments: vec![c], claude: None, severity: String::new(),
     }];
-    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new() });
+    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new(), ..Default::default() });
     app.build();
     let texts: Vec<&str> = app.rows.iter().map(|r| r.line.text.as_str()).collect();
     let at = texts.iter().position(|t| *t == "comments on files no longer in the diff (1)").expect("listed");
@@ -1000,7 +1000,7 @@ fn untracked_files_stay_off_github() {
     let mut files = diff::parse(diff::SAMPLE);
     files[0].meta = "untracked".into();
     let mut app = App::with("base".into(), files);
-    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new() });
+    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new(), ..Default::default() });
     let a = Anchor { path: "src/a.rs".into(), line: 2, left: false, start: None };
     assert!(app.on_github(a).is_err_and(|e| format!("{e:#}").contains("untracked")));
     let line = app.rows.iter().position(|r| r.line.kind == Kind::Add).unwrap();
@@ -1091,7 +1091,7 @@ fn claude_view() {
         diff::SAMPLE
     );
     let mut app = App::with("base".into(), diff::parse(&text));
-    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new() });
+    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new(), ..Default::default() });
     let plain = |text: &str| gh::InfoLine { heading: false, md: false, text: text.into(), marks: vec![], url: String::new() };
     let heading = |text: &str| gh::InfoLine { heading: true, md: false, text: text.into(), marks: vec![], url: String::new() };
     let md = |text: &str| gh::InfoLine { heading: false, md: true, text: text.into(), marks: vec![], url: String::new() };
@@ -1148,7 +1148,7 @@ fn claude_view() {
 #[test]
 fn claude_review_is_not_pr_text() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
-    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new() });
+    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new(), ..Default::default() });
     app.claude.summary = "Looks fine.".into();
     app.build();
     let row = app.rows.iter().position(|r| r.line.text == "Looks fine.").unwrap();
@@ -1310,7 +1310,7 @@ fn fixture() -> App {
     let body: String = (1..=24).map(|n| if n == 12 { "-    let x = old(12);\n+    let x = new_call(12);\n".to_owned() } else { format!(" line {n}\n") }).collect();
     let text = format!("diff --git a/src/big.rs b/src/big.rs\nindex 1..2 100644\n--- a/src/big.rs\n+++ b/src/big.rs\n@@ -1,24 +1,24 @@ fn big\n{body}{}", diff::SAMPLE);
     let mut app = App::with("base".into(), diff::parse(&text));
-    app.pr = Some(gh::Pr { number: 7, node_id: "PR".into(), title: "Fix the thing".into(), base: "main".into(), head_oid: "abc".into(), url: String::new() });
+    app.pr = Some(gh::Pr { number: 7, node_id: "PR".into(), title: "Fix the thing".into(), base: "main".into(), head_oid: "abc".into(), url: String::new(), ..Default::default() });
     let line = |heading, md, text: &str| gh::InfoLine { heading, md, text: text.into(), marks: vec![], url: String::new() };
     app.info = vec![line(false, false, "OPEN @bo · main ← fix · +2 −2 in 3 files"), line(false, false, "review: waiting on @cy"), line(true, false, "description"), line(false, true, "Fixes **the thing**, see `new_call`.")];
     app.claude.summary = "Looks right; one nit.".into();

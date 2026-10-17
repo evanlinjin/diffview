@@ -13,6 +13,10 @@ on GitHub are its section here.
   whether the PR changed (an ETag check, free against the rate limit while nothing has), and
   fetches it in the background when it has. Edits and resolved threads wait for the next fetch.
 
+### Changed
+- Opening a PR skips `gh pr checkout` when the checkout is already at the PR's head (detached,
+  or on its branch, as asked), and the base fetch when the PR's base commit is already here.
+
 ### Fixed
 - PRs with more than 100 review threads, 100 comments in a thread, or 100 files: dv loads them
   all (it stopped at 100, so later threads were missing and their files' "Viewed" marks too).

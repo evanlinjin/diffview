@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 use std::io::Write;
 use std::process::{Command, Stdio};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Pr {
     pub number: u64,
     /// GraphQL node id; filled in by `threads`.
@@ -14,6 +14,11 @@ pub struct Pr {
     pub head_oid: String,
     /// e.g. https://github.com/o/r/pull/1; filled in by `info`.
     pub url: String,
+    /// The base as of the PR's last push (not the base branch's tip now).
+    pub base_oid: String,
+    /// Its branch, and whose (a fork's owner, or the repo's).
+    pub head_branch: String,
+    pub head_owner: String,
 }
 
 /// Review threads plus the viewer's pending review on the PR, if any.
@@ -124,7 +129,7 @@ pub fn checkout(n: u64, force: bool, detach: bool) -> Result<()> {
 /// The PR `n`, or the PR for the current branch.
 pub fn pr(n: Option<u64>) -> Result<Pr> {
     let n = n.map(|n| n.to_string());
-    let mut args = vec!["pr", "view", "--json", "number,title,baseRefName,headRefOid"];
+    let mut args = vec!["pr", "view", "--json", "number,title,baseRefName,headRefOid,baseRefOid,headRefName,headRepositoryOwner"];
     args.extend(n.as_deref());
     let v: Value = serde_json::from_str(&gh(&args)?)?;
     Ok(Pr {
@@ -134,6 +139,9 @@ pub fn pr(n: Option<u64>) -> Result<Pr> {
         base: v["baseRefName"].as_str().unwrap_or("main").to_owned(),
         head_oid: v["headRefOid"].as_str().unwrap_or("").to_owned(),
         url: String::new(),
+        base_oid: v["baseRefOid"].as_str().unwrap_or("").to_owned(),
+        head_branch: v["headRefName"].as_str().unwrap_or("").to_owned(),
+        head_owner: v["headRepositoryOwner"]["login"].as_str().unwrap_or("").to_owned(),
     })
 }
 
