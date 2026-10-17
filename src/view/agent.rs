@@ -85,7 +85,7 @@ impl App {
         self.rebuild(keep);
         let any = self.threads.iter().any(|t| self.in_view(t));
         self.msg = match self.view {
-            View::Claude if !any && self.claude_summary.is_empty() => "Claude view: Claude hasn't reviewed this yet (Space a asks it; Ctrl-w a: the whole diff)",
+            View::Claude if !any && self.claude.summary.is_empty() => "Claude view: Claude hasn't reviewed this yet (Space a asks it; Ctrl-w a: the whole diff)",
             View::Claude => "Claude view: its summary and the code it commented on (Ctrl-w a: the whole diff)",
             View::Pending if !any && self.summary_draft.is_empty() => "pending view: no pending review yet (c queues a comment; Ctrl-w p: the whole diff)",
             View::Pending => "pending view: your pending review and the code it's on (S submits it; Ctrl-w p: the whole diff)",
@@ -103,7 +103,7 @@ impl App {
     /// your commits): then an update need only look at those. Not after a rebase or force-push:
     /// that's all new.
     pub(super) fn reviewed_before(&self) -> Option<&str> {
-        let old = self.claude_head.as_str();
+        let old = self.claude.head.as_str();
         let head = diff::git(&["rev-parse", "HEAD"]).ok()?;
         let newer = !old.is_empty() && !head.trim().starts_with(old);
         (newer && diff::git(&["merge-base", "--is-ancestor", old, "HEAD"]).is_ok()).then_some(old)
@@ -119,7 +119,7 @@ impl App {
     /// so nothing you write is lost to it): still busy, or the PR's pane is from an older dv
     /// that can't reach the review files (when the request needs them).
     fn claude_blocked(&self, needs_files: bool) -> Option<String> {
-        let busy = self.claude_job.is_some();
+        let busy = self.claude.job.is_some();
         if busy {
             return Some("Claude is still working on the last request".into());
         }
@@ -131,10 +131,10 @@ impl App {
     }
 
     pub(super) fn claude_menu(&mut self) {
-        if self.claude_path.is_none() {
+        if self.claude.path.is_none() {
             return self.msg = "no review file here (not in a git repo?)".into();
         }
-        let has_review = self.threads.iter().any(claude_wrote) || !self.claude_summary.is_empty();
+        let has_review = self.threads.iter().any(claude_wrote) || !self.claude.summary.is_empty();
         let review = match (has_review, self.reviewed_before()) {
             (true, Some(old)) => format!("Update Claude's review: what changed since it reviewed {}", &old[..old.len().min(8)]),
             (true, None) => "Update Claude's review (keeps comments that still apply, and your replies)".into(),
@@ -165,7 +165,7 @@ impl App {
         if outdated > 0 {
             items.push(Item::new(format!("Dismiss Claude's outdated comments ({outdated})"), Target::ClaudeDismissOutdated(false)));
         }
-        if self.claude_session.is_some() {
+        if self.claude.session.is_some() {
             items.push(Item::new("Start a fresh Claude session for this PR (the review stays)", Target::ClaudeFresh));
         }
         // A replacement: Claude writes the change itself, unpublished, for you to review here.
@@ -187,7 +187,7 @@ impl App {
     /// Forget the PR's Claude session, so the next run starts a new one: when it has got
     /// something wrong into its head, or grown long. The review file is what carries over.
     pub(super) fn fresh_claude_session(&mut self) {
-        if self.claude_job.is_some() {
+        if self.claude.job.is_some() {
             return self.msg = "Claude is still working on the last request; once it's done".into();
         }
         let pane = self.claude_pane().is_some();
@@ -217,7 +217,7 @@ impl App {
             ];
             return self.picker = Some(Picker { title: " dismiss outdated? ", items, query: String::new(), sel: 0 });
         }
-        let Some(p) = self.claude_path.clone() else { return };
+        let Some(p) = self.claude.path.clone() else { return };
         let keep = self.cursor_key();
         let res = crate::claude::dismiss_all(&p, &keys);
         self.load_claude();
@@ -286,7 +286,7 @@ impl App {
     /// `a`: leave a comment for Claude on the selected lines (or the cursor's), in the review
     /// file; Claude answers right away, as it does replies. Nothing goes to GitHub.
     pub(super) fn start_ask_claude(&mut self) {
-        if self.claude_path.is_none() {
+        if self.claude.path.is_none() {
             return self.msg = "no review file here (not in a git repo?)".into();
         }
         let anchor = match self.selection_anchor() {
@@ -381,7 +381,7 @@ impl App {
             },
             false => match self.spawn_claude(&prompt, label, false) {
                 Ok(job) => {
-                    self.claude_job = Some(job);
+                    self.claude.job = Some(job);
                     (format!("Claude is {label} in the background…"), true)
                 }
                 Err(e) => (format!("starting claude: {e:#}"), false),
@@ -397,15 +397,15 @@ impl App {
     /// processes on one session. Replies made while it's working get one more run when it
     /// finishes. Returns what to tell the user.
     pub(super) fn answer_now(&mut self) -> String {
-        if self.claude_job.is_some() {
-            self.claude_again = true;
+        if self.claude.job.is_some() {
+            self.claude.again = true;
             return "reply saved; Claude answers it when it's done with what it's doing".into();
         }
         let prompt = self.claude_prompt(Ask::Answer, "");
         let forked = self.claude_pane().is_some();
         match self.spawn_claude(&prompt, "answering", forked) {
             Ok(job) => {
-                self.claude_job = Some(job);
+                self.claude.job = Some(job);
                 "reply sent; Claude is answering…".into()
             }
             Err(e) => format!("reply saved, but starting claude failed: {e:#} (Space a to retry)"),
@@ -420,7 +420,7 @@ impl App {
 
     /// The PR's Claude pane and its command line.
     fn claude_pane_cmd(&self) -> Option<(u64, String)> {
-        let id = self.claude_session.as_ref().filter(|_| in_zellij())?;
+        let id = self.claude.session.as_ref().filter(|_| in_zellij())?;
         let out = std::process::Command::new("zellij").args(["action", "list-panes", "-j", "-c", "-s"]).output().ok()?;
         let panes: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
         panes.as_array()?.iter().find_map(|p| {
@@ -434,7 +434,7 @@ impl App {
     /// Code keeps sessions per directory), so the next run continues the same conversation. One
     /// that never started (a pane that failed) isn't resumed: Claude Code doesn't have it.
     fn session_args(&mut self) -> [String; 2] {
-        match self.claude_session.clone().filter(|id| crate::claude::session_exists(id)) {
+        match self.claude.session.clone().filter(|id| crate::claude::session_exists(id)) {
             Some(id) => ["--resume".into(), id],
             None => {
                 let id = crate::claude::new_session_id();
@@ -446,10 +446,10 @@ impl App {
 
     /// Remember (or, with `None`, forget) the PR's session in this checkout, on disk too.
     pub(super) fn set_session(&mut self, id: Option<String>) {
-        if let Some(p) = &self.claude_path {
+        if let Some(p) = &self.claude.path {
             _ = crate::claude::save_session(p, &self.root, id.as_deref());
         }
-        self.claude_session = id;
+        self.claude.session = id;
     }
 
     /// `claude -p` in the background: its result (JSON) in a log file, its errors next to it.
@@ -457,8 +457,8 @@ impl App {
     /// context across runs.
     fn spawn_claude(&mut self, prompt: &str, label: &'static str, forked: bool) -> Result<ClaudeJob> {
         // One log per run, so a follow-up run doesn't wipe the one a message points to.
-        self.claude_runs += 1;
-        let log = std::env::temp_dir().join(format!("dv-claude-{}-{}.log", std::process::id(), self.claude_runs));
+        self.claude.runs += 1;
+        let log = std::env::temp_dir().join(format!("dv-claude-{}-{}.log", std::process::id(), self.claude.runs));
         let err = log.with_extension("err");
         let mut session = self.session_args().to_vec();
         if forked {
@@ -470,16 +470,16 @@ impl App {
             .stderr(std::fs::File::create(&err)?)
             .spawn()
             .context("is Claude Code (`claude`) installed?")?;
-        self.claude_log = Some(log.clone());
+        self.claude.log = Some(log.clone());
         Ok(ClaudeJob { child, log, label, forked })
     }
 
     /// When a background run ends: keep its session for the next one, say how it went (its
     /// writes have already shown up via `watch_claude`), and answer replies made meanwhile.
     pub(super) fn poll_claude(&mut self) {
-        let Some(job) = &mut self.claude_job else { return };
+        let Some(job) = &mut self.claude.job else { return };
         let Ok(Some(st)) = job.child.try_wait() else { return };
-        let Some(ClaudeJob { log, label, forked, .. }) = self.claude_job.take() else { return };
+        let Some(ClaudeJob { log, label, forked, .. }) = self.claude.job.take() else { return };
         self.reload_tree(); // it may have changed code (making changes, or answering a request)
         let out: Option<serde_json::Value> = std::fs::read_to_string(&log).ok().and_then(|t| serde_json::from_str(&t).ok());
         let failed = !st.success() || out.as_ref().is_none_or(|v| v["is_error"] == true);
@@ -492,7 +492,7 @@ impl App {
         // A run can end "successfully" having been refused what it needed: say what.
         let refused = out.as_ref().and_then(refusal);
         let cost = out.as_ref().and_then(|v| v["total_cost_usd"].as_f64());
-        self.claude_spent += cost.unwrap_or(0.0);
+        self.claude.spent += cost.unwrap_or(0.0);
         let took = match (out.as_ref().and_then(|v| v["num_turns"].as_u64()), cost) {
             (Some(n), Some(c)) => format!(" ({n} turns, ${c:.2})"),
             _ => String::new(),
@@ -505,7 +505,7 @@ impl App {
         };
         // Replies made meanwhile: one more run, unless this one went wrong (then that's the news,
         // and retrying would hit the same wall).
-        if std::mem::take(&mut self.claude_again) && self.waiting_replies() > 0 {
+        if std::mem::take(&mut self.claude.again) && self.waiting_replies() > 0 {
             match failed || refused.is_some() {
                 true => self.msg += " · your newer replies wait (Space a to retry)",
                 false => self.msg = self.answer_now(),
@@ -515,7 +515,7 @@ impl App {
 
     /// For the status bar.
     pub(super) fn claude_working(&self) -> bool {
-        self.claude_job.is_some()
+        self.claude.job.is_some()
     }
 }
 

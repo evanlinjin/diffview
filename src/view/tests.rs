@@ -365,7 +365,7 @@ fn claude_review() {
     std::fs::write(&p, r#"{ "summary": "Looks fine.", "comments": [
         { "path": "src/a.rs", "line": 2, "body": "**nit:** name" },
         { "path": "src/a.rs", "line": 2, "side": "old", "body": "why remove?" } ] }"#).unwrap();
-    app.claude_path = Some(p.clone());
+    app.claude.path = Some(p.clone());
     app.load_claude(); // not load_threads: that asks GitHub about PR 1 of this repo
     app.build();
     let texts: Vec<&str> = app.rows.iter().map(|r| r.line.text.as_str()).collect();
@@ -395,7 +395,7 @@ fn claude_review() {
     assert_eq!(app.threads.iter().filter(|t| t.claude.is_some()).count(), 1);
     // Claude writing the file shows up without a refresh.
     std::fs::write(&p, r#"{ "comments": [] }"#).unwrap();
-    app.claude_mtime = None;
+    app.claude.mtime = None;
     app.watch_claude();
     assert!(app.threads.is_empty() && app.msg.contains("0 comment(s)"));
     _ = std::fs::remove_file(&p);
@@ -409,7 +409,7 @@ fn claude_outdated() {
     std::fs::write(&p, r#"{ "comments": [
         { "path": "src/a.rs", "line": 1, "body": "moved", "code": ["    new_call(x);"] },
         { "path": "src/a.rs", "line": 2, "body": "gone", "code": ["    other();"] } ] }"#).unwrap();
-    app.claude_path = Some(p.clone());
+    app.claude.path = Some(p.clone());
     app.load_claude(); // not load_threads: that asks GitHub about PR 1 of this repo
     app.build();
     _ = std::fs::remove_file(&p);
@@ -434,7 +434,7 @@ fn claude_menu() {
         { "path": "src/a.rs", "line": 2, "body": "a", "replies": [ { "author": "user", "body": "why?" } ] },
         { "path": "src/a.rs", "line": 2, "body": "b", "resolved": true, "replies": [ { "author": "user", "body": "ok" } ] },
         { "path": "src/a.rs", "line": 2, "body": "**nit:** use `x` ([docs](https://x.y))", "replies": [ { "author": "claude", "body": "done" } ] } ] }"#).unwrap();
-    app.claude_path = Some(p.clone());
+    app.claude.path = Some(p.clone());
     app.load_claude(); // not load_threads: that asks GitHub about PR 1 of this repo
     _ = std::fs::remove_file(&p);
     assert_eq!(app.waiting_replies(), 1); // resolved and answered ones don't count
@@ -470,7 +470,7 @@ fn claude_menu() {
     app.picker = None;
     app.threads.clear();
     app.run_claude(agent::Ask::Answer, "");
-    assert!(app.msg.contains("no replies waiting") && app.claude_job.is_none());
+    assert!(app.msg.contains("no replies waiting") && app.claude.job.is_none());
 }
 
 #[test]
@@ -555,7 +555,7 @@ fn cycle_claude_comments() {
     std::fs::write(&p, r#"{ "comments": [
         { "path": "src/a.rs", "line": 3, "body": "second" },
         { "path": "src/a.rs", "line": 1, "body": "first" } ] }"#).unwrap();
-    app.claude_path = Some(p.clone());
+    app.claude.path = Some(p.clone());
     app.load_claude(); // not load_threads: that asks GitHub about PR 1 of this repo
     _ = std::fs::remove_file(&p);
     app.collapsed.insert("src/a.rs".into()); // folded: ]a opens it
@@ -583,10 +583,10 @@ fn replies_while_claude_works_wait_for_it() {
     // Claude busy with a run: a new reply waits for one more run instead of starting a second.
     let child = std::process::Command::new("sleep").arg("5").spawn().unwrap();
     let log = std::env::temp_dir().join("dv-test-none.log");
-    app.claude_job = Some(agent::ClaudeJob { child, log, label: "answering", forked: false });
+    app.claude.job = Some(agent::ClaudeJob { child, log, label: "answering", forked: false });
     let msg = app.answer_now();
-    assert!(app.claude_again && msg.contains("when it's done"));
-    if let Some(mut job) = app.claude_job.take() {
+    assert!(app.claude.again && msg.contains("when it's done"));
+    if let Some(mut job) = app.claude.job.take() {
         _ = job.child.kill();
     }
 }
@@ -596,7 +596,7 @@ fn claude_session_per_pr() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
     let dir = std::env::temp_dir().join(format!("dv-session-{}", std::process::id()));
     let review = dir.join("pr-7.json");
-    app.claude_path = Some(review.clone());
+    app.claude.path = Some(review.clone());
     // The first run starts the PR's session under a new id, saved next to the review file
     // for this checkout (Claude Code keeps sessions per directory)…
     app.set_session(Some("11111111-2222-4333-8444-555555555555".into()));
@@ -611,7 +611,7 @@ fn claude_session_per_pr() {
     let items = app.picker.take().unwrap().items;
     assert!(matches!(items.last().unwrap().target, Target::ClaudeFresh));
     app.fresh_claude_session();
-    assert!(app.claude_session.is_none() && app.msg.starts_with("the next Claude run starts a new session"));
+    assert!(app.claude.session.is_none() && app.msg.starts_with("the next Claude run starts a new session"));
     assert!(!crate::claude::session_path(&review).exists());
     _ = std::fs::remove_dir_all(&dir);
 }
@@ -632,7 +632,7 @@ fn approve_says_ack() {
 fn ask_claude_on_lines() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
     let dir = std::env::temp_dir().join(format!("dv-ask-{}", std::process::id()));
-    app.claude_path = Some(dir.join("pr-1.json"));
+    app.claude.path = Some(dir.join("pr-1.json"));
     let add = app.rows.iter().position(|r| r.line.kind == Kind::Add).unwrap();
     app.goto(add, 0);
     app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
@@ -640,7 +640,7 @@ fn ask_claude_on_lines() {
     assert_eq!((anchor.path.as_str(), anchor.line, anchor.left), ("src/a.rs", 2, false));
     assert_eq!(code, ["    new_call(x);"]);
     // Once written, it's waiting for Claude (the user had the last word).
-    crate::claude::add_comment(app.claude_path.as_ref().unwrap(), &anchor, code, "why?").unwrap();
+    crate::claude::add_comment(app.claude.path.as_ref().unwrap(), &anchor, code, "why?").unwrap();
     app.load_claude();
     _ = std::fs::remove_dir_all(&dir);
     assert_eq!(app.waiting_replies(), 1);
@@ -676,7 +676,7 @@ fn your_comments_for_claude_stay_private() {
     let p = dir.join("pr-1.json");
     let a = gh::Anchor { path: "src/a.rs".into(), line: 2, left: false, start: None };
     crate::claude::add_comment(&p, &a, vec!["    new_call(x);".into()], "is this right?").unwrap();
-    app.claude_path = Some(p);
+    app.claude.path = Some(p);
     app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new() });
     app.load_claude(); // not load_threads: that asks GitHub about PR 1 of this repo
     app.build();
@@ -710,7 +710,7 @@ fn dismiss_outdated_claude_comments() {
         { "id": "c2", "path": "src/a.rs", "line": 2, "body": "current", "code": ["    new_call(x);"] },
         { "id": "c3", "path": "src/a.rs", "line": 1, "body": "gone 2", "code": ["fn nope() {"] },
         { "id": "c4", "path": "src/a.rs", "line": 1, "author": "user", "body": "mine", "code": ["fn other() {"] } ] }"#).unwrap();
-    app.claude_path = Some(p.clone());
+    app.claude.path = Some(p.clone());
     app.load_claude(); // not load_threads: that asks GitHub about PR 1 of this repo
     app.build();
     assert_eq!(app.outdated_claude_comments(), ["c1", "c3"]);
@@ -863,18 +863,18 @@ fn mouse() {
 #[test]
 fn make_changes_without_comments() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
-    app.claude_path = Some(std::env::temp_dir().join(format!("dv-fix-{}", std::process::id())).join("pr-1.json"));
+    app.claude.path = Some(std::env::temp_dir().join(format!("dv-fix-{}", std::process::id())).join("pr-1.json"));
     // No open comments: still asks for instructions; with none written, nothing to do.
     app.pick_claude(agent::Ask::Fix);
     assert!(matches!(app.action.take(), Some(Action::ClaudeWith(agent::Ask::Fix))));
     assert!(!app.run_claude(agent::Ask::Fix, "  "));
-    assert!(app.msg.starts_with("nothing to change") && app.claude_job.is_none());
+    assert!(app.msg.starts_with("nothing to change") && app.claude.job.is_none());
     // While Claude is busy, it says so before the editor opens (so nothing written is lost).
     let child = std::process::Command::new("sleep").arg("5").spawn().unwrap();
-    app.claude_job = Some(agent::ClaudeJob { child, log: std::env::temp_dir().join("dv-test-busy.log"), label: "reviewing", forked: false });
+    app.claude.job = Some(agent::ClaudeJob { child, log: std::env::temp_dir().join("dv-test-busy.log"), label: "reviewing", forked: false });
     app.pick_claude(agent::Ask::Fix);
     assert!(app.action.is_none() && app.msg.contains("still working"));
-    if let Some(mut job) = app.claude_job.take() {
+    if let Some(mut job) = app.claude.job.take() {
         _ = job.child.kill();
     }
     // With instructions, those are the request.
@@ -890,7 +890,7 @@ fn whose_turn_and_severity() {
         { "path": "src/a.rs", "line": 2, "body": "a", "severity": "Bug", "replies": [ { "author": "user", "body": "why?" }, { "author": "claude", "body": "because" } ] },
         { "path": "src/a.rs", "line": 2, "body": "b", "replies": [ { "author": "user", "body": "why?" } ] },
         { "path": "src/a.rs", "line": 2, "body": "c" } ] }"#).unwrap();
-    app.claude_path = Some(p.clone());
+    app.claude.path = Some(p.clone());
     app.load_claude();
     _ = std::fs::remove_file(&p);
     let turns: Vec<_> = app.threads.iter().map(agent::turn).collect();
@@ -921,7 +921,7 @@ fn commit_draft_from_claudes_changes() {
             { "author": "claude", "body": "Changed: renamed `x` to `count`.\nMore detail.", "created": "2026-10-16T12:01:00Z" } ] },
         { "path": "src/a.rs", "line": 2, "body": "b", "replies": [
             { "author": "claude", "body": "Changed: an older change", "created": "2026-10-16T11:00:00Z" } ] } ] }"#).unwrap();
-    app.claude_path = Some(p.clone());
+    app.claude.path = Some(p.clone());
     app.load_claude();
     _ = std::fs::remove_file(&p);
     let since = gh::epoch_secs("2026-10-16T11:30:00Z").unwrap(); // the last commit: after the older change
@@ -1003,11 +1003,11 @@ fn claude_runs_say_what_they_cost() {
     std::fs::write(&log, r#"{"is_error": false, "num_turns": 5, "total_cost_usd": 0.2231, "session_id": "s"}"#).unwrap();
     let mut child = std::process::Command::new("true").spawn().unwrap();
     _ = child.wait();
-    app.claude_job = Some(agent::ClaudeJob { child, log: log.clone(), label: "answering", forked: true });
+    app.claude.job = Some(agent::ClaudeJob { child, log: log.clone(), label: "answering", forked: true });
     app.poll_claude();
     _ = std::fs::remove_file(&log);
     assert_eq!(app.msg, "Claude is done answering (5 turns, $0.22)");
-    assert!((app.claude_spent - 0.2231).abs() < 1e-9);
+    assert!((app.claude.spent - 0.2231).abs() < 1e-9);
 }
 
 #[test]
@@ -1029,10 +1029,10 @@ fn new_until_seen() {
         { "path": "src/a.rs", "line": 2, "body": "a" },
         { "path": "src/a.rs", "line": 2, "body": "b", "replies": [ { "author": "user", "body": "why?" } ] },
         { "path": "src/a.rs", "line": 2, "author": "user", "body": "mine" } ] }"#).unwrap();
-    app.claude_path = Some(p.clone());
+    app.claude.path = Some(p.clone());
     app.load_claude();
     app.load_seen();
-    assert_eq!(app.seen_path.as_deref(), Some(dir.join("seen/pr-1.json").as_path()));
+    assert_eq!(app.seen.path.as_deref(), Some(dir.join("seen/pr-1.json").as_path()));
     let new = |app: &App| app.threads.iter().map(|t| app.is_new(t)).collect::<Vec<_>>();
     assert_eq!(new(&app), [true, true, false]); // your own comment isn't news to you
     app.build();
@@ -1048,7 +1048,7 @@ fn new_until_seen() {
     assert_eq!(app.rows.iter().filter(|r| r.line.text.starts_with("[new]")).count(), 1); // the tag's gone
     assert_eq!(app.rows[app.head.row].thread, Some(1)); // and the cursor still where it went
     assert!(app.head.row > on);
-    app.seen.clear();
+    app.seen.keys.clear();
     app.load_seen();
     assert_eq!(new(&app), [false, true, false]);
     app.new_picker();
@@ -1059,11 +1059,11 @@ fn new_until_seen() {
     // Or once the cursor has stayed on it a while.
     app.watch_seen();
     assert_eq!(new(&app), [false, true, false]);
-    app.seeing_since -= std::time::Duration::from_secs(5);
+    app.seen.since -= std::time::Duration::from_secs(5);
     app.watch_seen();
     assert_eq!(new(&app), [false, false, false]);
     assert_eq!(app.rows[app.head.row].thread, Some(1)); // the cursor stays put
-    app.seen.clear();
+    app.seen.keys.clear();
     app.load_seen();
     _ = std::fs::remove_dir_all(&dir);
     assert_eq!(new(&app), [false, false, false]);
@@ -1083,7 +1083,7 @@ fn claude_view() {
     let heading = |text: &str| gh::InfoLine { heading: true, md: false, text: text.into(), marks: vec![], url: String::new() };
     let md = |text: &str| gh::InfoLine { heading: false, md: true, text: text.into(), marks: vec![], url: String::new() };
     app.info = vec![plain("OPEN @bo · main ← x"), plain("review: waiting on @cy"), heading("description"), md("Long story")];
-    app.claude_summary = "Looks fine.".into();
+    app.claude.summary = "Looks fine.".into();
     let c = |author: &str| gh::Comment { id: 1, node_id: String::new(), can_edit: false, can_delete: false, author: author.into(), body: "hm".into(), created: String::new(), pending: false };
     let t = |path: &str, line, claude: Option<&str>, author| gh::Thread {
         id: String::new(), path: path.into(), left: false, line: Some(line), start_line: None, original_line: Some(line),
@@ -1131,7 +1131,7 @@ fn claude_view() {
 fn claude_review_is_not_pr_text() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
     app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new() });
-    app.claude_summary = "Looks fine.".into();
+    app.claude.summary = "Looks fine.".into();
     app.build();
     let row = app.rows.iter().position(|r| r.line.text == "Looks fine.").unwrap();
     app.goto(row, 0);
@@ -1166,7 +1166,7 @@ fn replacement_in_the_pr_section() {
     let row = app.rows.iter().find(|r| r.line.text.starts_with("replaces")).unwrap();
     assert_eq!(row.links.iter().map(|l| l.2.as_str()).collect::<Vec<_>>(), ["https://github.com/o/r/pull/12", "https://github.com/o/r/pull/15"]); // each original links to it
     // Space a offers to redraft it.
-    app.claude_path = Some(std::env::temp_dir().join("dv-no-such-review.json"));
+    app.claude.path = Some(std::env::temp_dir().join("dv-no-such-review.json"));
     app.claude_menu();
     assert!(app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::ClaudeReplace(ref p) if p == &[12, 15])));
     // S: publish first; closing what it replaces comes after.
@@ -1295,7 +1295,7 @@ fn fixture() -> App {
     app.pr = Some(gh::Pr { number: 7, node_id: "PR".into(), title: "Fix the thing".into(), base: "main".into(), head_oid: "abc".into(), url: String::new() });
     let line = |heading, md, text: &str| gh::InfoLine { heading, md, text: text.into(), marks: vec![], url: String::new() };
     app.info = vec![line(false, false, "OPEN @bo · main ← fix · +2 −2 in 3 files"), line(false, false, "review: waiting on @cy"), line(true, false, "description"), line(false, true, "Fixes **the thing**, see `new_call`.")];
-    app.claude_summary = "Looks right; one nit.".into();
+    app.claude.summary = "Looks right; one nit.".into();
     app.summary_draft = "Nearly there.".into();
     // Each comment its own id, as on GitHub and in Claude's review (dv keys threads by them).
     let id = std::cell::Cell::new(0);

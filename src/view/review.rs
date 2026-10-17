@@ -103,7 +103,7 @@ impl App {
                 };
                 keep_on_error(res, &body)?;
                 // It's on GitHub now; drop Claude's copy so it doesn't show twice.
-                if let (Some(k), Some(p)) = (claude, &self.claude_path) {
+                if let (Some(k), Some(p)) = (claude, &self.claude.path) {
                     crate::claude::dismiss(p, &k)?;
                 }
                 Ok(posted_msg(review))
@@ -357,11 +357,11 @@ impl App {
     /// Claude's review file, replacing its threads (GitHub's stay).
     pub(super) fn load_claude(&mut self) {
         self.threads.retain(|t| t.claude.is_none());
-        self.claude_summary.clear();
-        self.claude_head.clear();
-        let Some(p) = &self.claude_path else { return };
+        self.claude.summary.clear();
+        self.claude.head.clear();
+        let Some(p) = &self.claude.path else { return };
         let loaded = crate::claude::load_with_ids(p);
-        self.claude_mtime = std::fs::metadata(p).and_then(|m| m.modified()).ok(); // after any id write
+        self.claude.mtime = std::fs::metadata(p).and_then(|m| m.modified()).ok(); // after any id write
         match loaded {
             Ok(Some(mut r)) => {
                 // Comments with their code recorded follow it; others can only trust their lines.
@@ -378,7 +378,7 @@ impl App {
                 if !self.uncommitted() {
                     crate::claude::reanchor(&mut r.threads, &self.files);
                 }
-                (self.claude_summary, self.claude_head) = (r.summary, r.head);
+                (self.claude.summary, self.claude.head) = (r.summary, r.head);
                 self.threads.extend(r.threads);
             }
             Ok(None) => {}
@@ -388,9 +388,9 @@ impl App {
 
     /// Reload Claude's review when its file changes (Claude writing it, or answering replies).
     pub(super) fn watch_claude(&mut self) {
-        let Some(p) = &self.claude_path else { return };
+        let Some(p) = &self.claude.path else { return };
         let mtime = std::fs::metadata(p).and_then(|m| m.modified()).ok();
-        if mtime != self.claude_mtime {
+        if mtime != self.claude.mtime {
             let keep = self.cursor_key();
             self.msg.clear(); // a warning from loading takes its place
             self.load_claude();
@@ -404,7 +404,7 @@ impl App {
 
     /// Run a change to Claude's review file on comment `i`, then show the result.
     pub(super) fn edit_claude(&mut self, key: &str, f: fn(&std::path::Path, &str) -> Result<()>, done: &str) {
-        let Some(p) = self.claude_path.clone() else { return };
+        let Some(p) = self.claude.path.clone() else { return };
         let (keep, res) = (self.cursor_key(), f(&p, key));
         self.load_claude();
         self.rebuild(keep);
@@ -895,7 +895,7 @@ impl App {
         if self.pr.is_none() {
             return self.msg = "no PR for this branch".into();
         }
-        let text = self.claude_summary.trim().to_owned();
+        let text = self.claude.summary.trim().to_owned();
         match review {
             true => {
                 self.summary_draft = text;
@@ -948,16 +948,16 @@ impl App {
     /// What you've seen of this PR's (or branch's) threads, in dv's directory: `seen/` beside
     /// `reviews/`, by the same name.
     pub(super) fn load_seen(&mut self) {
-        self.seen_path = self.claude_path.as_ref().and_then(|p| Some(p.parent()?.parent()?.join("seen").join(p.file_name()?)));
-        let text = self.seen_path.as_ref().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
-        self.seen = serde_json::from_str(&text).unwrap_or_default();
+        self.seen.path = self.claude.path.as_ref().and_then(|p| Some(p.parent()?.parent()?.join("seen").join(p.file_name()?)));
+        let text = self.seen.path.as_ref().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
+        self.seen.keys = serde_json::from_str(&text).unwrap_or_default();
     }
 
     /// Thread `t` has comments you haven't seen, not counting your own. (Never, with nowhere
     /// to keep what you've seen.)
     pub(super) fn is_new(&self, t: &Thread) -> bool {
-        self.seen_path.is_some()
-            && t.comments.iter().enumerate().any(|(ci, c)| !self.wrote(c) && !self.seen.contains(&comment_key(t, ci)))
+        self.seen.path.is_some()
+            && t.comments.iter().enumerate().any(|(ci, c)| !self.wrote(c) && !self.seen.keys.contains(&comment_key(t, ci)))
     }
 
     fn wrote(&self, c: &gh::Comment) -> bool {
@@ -975,20 +975,20 @@ impl App {
             (0..t.comments.len()).map(|ci| comment_key(t, ci)).collect::<Vec<_>>()
         });
         let here = here.unwrap_or_default();
-        let seen = match here == self.seeing {
-            true if self.seeing_since.elapsed() >= SEEN_AFTER => self.seeing.clone(),
+        let seen = match here == self.seen.current {
+            true if self.seen.since.elapsed() >= SEEN_AFTER => self.seen.current.clone(),
             true => return,
             false => {
-                self.seeing_since = std::time::Instant::now();
-                std::mem::replace(&mut self.seeing, here)
+                self.seen.since = std::time::Instant::now();
+                std::mem::replace(&mut self.seen.current, here)
             }
         };
-        let before = self.seen.len();
-        self.seen.extend(seen.into_iter().filter(|k| !k.is_empty()));
-        if self.seen.len() != before
-            && let Some(p) = &self.seen_path
+        let before = self.seen.keys.len();
+        self.seen.keys.extend(seen.into_iter().filter(|k| !k.is_empty()));
+        if self.seen.keys.len() != before
+            && let Some(p) = &self.seen.path
         {
-            let mut keys: Vec<&String> = self.seen.iter().collect();
+            let mut keys: Vec<&String> = self.seen.keys.iter().collect();
             keys.sort();
             // ponytail: rewrites the whole set; fine for a PR's worth of comments.
             _ = std::fs::create_dir_all(p.parent().unwrap_or(p)).and_then(|_| std::fs::write(p, serde_json::to_string(&keys).unwrap_or_default()));

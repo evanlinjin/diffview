@@ -120,7 +120,7 @@ impl App {
                 let title = if r.title.is_empty() { "(not drafted yet)" } else { r.title.as_str() };
                 Some(format!("Replacement of #{} · {title}", r.id))
             }
-            (None, None) => (!self.claude_summary.is_empty()).then(|| "Claude's review".to_owned()),
+            (None, None) => (!self.claude.summary.is_empty()).then(|| "Claude's review".to_owned()),
         };
         if let Some(title) = title {
             let mk = |kind, text| Row::text(INFO, kind, text);
@@ -135,7 +135,7 @@ impl App {
                     rows.push(self.info_row(l, mk(Kind::Comment, l.text.clone())));
                 }
                 let (label, text, info) = match self.view {
-                    View::Claude => ("claude's review", &self.claude_summary, Some(SUMMARY)),
+                    View::Claude => ("claude's review", &self.claude.summary, Some(SUMMARY)),
                     _ => ("your review (pending)", &self.summary_draft, None),
                 };
                 if !text.is_empty() {
@@ -182,7 +182,7 @@ impl App {
                         *used += rows.len() - start;
                     }
                 }
-                if !self.claude_summary.is_empty() {
+                if !self.claude.summary.is_empty() {
                     if let Some(from) = desc_from.take() {
                         beside = Some((rows.len() - from, 0));
                     }
@@ -190,7 +190,7 @@ impl App {
                     let width = if aside { self.margin_w - 3 - 2 } else { self.wrap_w };
                     let summary = |r: Row| Row { info: Some(SUMMARY), aside, ..r };
                     rows.push(summary(mk(Kind::Thread, "claude's review".into())));
-                    rows.extend(self.md_rows_at(&self.claude_summary, width, mk).into_iter().map(summary));
+                    rows.extend(self.md_rows_at(&self.claude.summary, width, mk).into_iter().map(summary));
                     rows.push(Row { edge: true, ..summary(mk(Kind::Comment, String::new())) });
                 }
             }

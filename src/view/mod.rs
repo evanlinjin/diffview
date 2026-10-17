@@ -336,6 +336,38 @@ enum Req {
     Hover,
 }
 
+/// Claude's review for this PR/branch, and the background `claude -p` runs that write it.
+#[derive(Default)]
+struct ClaudeState {
+    /// Its review file (see `claude.rs`), and when that last changed.
+    path: Option<PathBuf>,
+    mtime: Option<std::time::SystemTime>,
+    summary: String,
+    /// The commit the review was made against (its `head`).
+    head: String,
+    /// A background `claude -p` run: (process, log file, what it's doing).
+    job: Option<agent::ClaudeJob>,
+    /// The Claude Code session of the last background run, resumed by the next.
+    session: Option<String>,
+    /// A reply came in while Claude was busy: answer again when it's done.
+    again: bool,
+    /// Background runs so far (each gets its own log).
+    runs: u32,
+    /// The last background run's log (its result, as JSON).
+    log: Option<PathBuf>,
+    /// What background runs have cost so far (as Claude Code reports it, in USD).
+    spent: f64,
+}
+
+/// The comments you've seen (`comment_key`), kept in `path`; and those of the thread the
+/// cursor is on, seen once it leaves.
+struct Seen {
+    keys: HashSet<String>,
+    path: Option<PathBuf>,
+    current: Vec<String>,
+    since: std::time::Instant,
+}
+
 pub struct App {
     base: String,
     /// The base dv started with (`base` is HEAD while showing only what isn't committed).
@@ -404,12 +436,8 @@ pub struct App {
     wrap_w: usize,
     /// Root comment ids of threads folded/unfolded against the default (resolved = folded).
     toggled: HashSet<u64>,
-    /// Claude's review file for this PR/branch (see `claude.rs`), and when it last changed.
-    claude_path: Option<PathBuf>,
-    claude_mtime: Option<std::time::SystemTime>,
-    claude_summary: String,
-    /// The commit Claude's review was made against (its `head`).
-    claude_head: String,
+    /// Claude's review and its background runs.
+    claude: ClaudeState,
     /// The PR is someone else's: Claude suggests changes there rather than making them.
     theirs: bool,
     /// The Claude view (`Ctrl-w a`): only Claude's review: the PR's one-line summary, Claude's
@@ -426,29 +454,13 @@ pub struct App {
     summary_draft: String,
     /// Your GitHub login: your comments are never new to you.
     me: String,
-    /// The comments you've seen (`comment_key`), kept in `seen_path`; and those of the thread
-    /// the cursor is on, seen once it leaves.
-    seen: HashSet<String>,
-    seen_path: Option<PathBuf>,
-    seeing: Vec<String>,
-    seeing_since: std::time::Instant,
+    /// The comments you've seen.
+    seen: Seen,
     /// The `hx` pane dv opened (inside zellij), reused for the next file.
     hx: Option<HxPane>,
     /// When dv last looked at the working tree, and what it saw (`watch_tree`).
     tree_checked: std::time::Instant,
     tree_seen: Option<(Option<std::time::SystemTime>, u64)>,
-    /// A background `claude -p` run: (process, log file, what it's doing).
-    claude_job: Option<agent::ClaudeJob>,
-    /// The Claude Code session of the last background run, resumed by the next.
-    claude_session: Option<String>,
-    /// A reply came in while Claude was busy: answer again when it's done.
-    claude_again: bool,
-    /// Background runs so far (each gets its own log).
-    claude_runs: u32,
-    /// The last background Claude run's log (its result, as JSON).
-    claude_log: Option<PathBuf>,
-    /// What background Claude runs have cost so far (as Claude Code reports it, in USD).
-    claude_spent: f64,
     /// Messages shown in the status bar, with when (`Space m` lists them in full).
     msgs: Vec<(String, String)>,
     root: PathBuf,
@@ -475,13 +487,13 @@ impl App {
         let theme = Theme::load();
         (app.hl, app.ui) = (Highlighter::new(&theme), theme.ui());
         app.settings = crate::theme::settings();
-        app.claude_path = crate::claude::path(pr.as_ref().map(|p| p.number)).ok();
+        app.claude.path = crate::claude::path(pr.as_ref().map(|p| p.number)).ok();
         app.load_seen();
         // The PR's Claude Code session, if an earlier run (any dv, any worktree) started one.
         // One that started with another version of the skill would keep following that: start afresh.
-        let session = app.claude_path.as_ref().and_then(|p| crate::claude::load_session(p, &app.root));
+        let session = app.claude.path.as_ref().and_then(|p| crate::claude::load_session(p, &app.root));
         let other_skill = session.as_ref().is_some_and(|s| !s.1);
-        app.claude_session = session.filter(|s| s.1).map(|s| s.0);
+        app.claude.session = session.filter(|s| s.1).map(|s| s.0);
         if pr.is_some() {
             crate::progress(Some("loading comments and PR info"));
         }
@@ -521,9 +533,9 @@ impl App {
         if md.is_empty() {
             md = "_no messages yet_\n".into();
         }
-        if let Some(log) = &self.claude_log {
+        if let Some(log) = &self.claude.log {
             md += &format!("\nThe last background Claude run's log: `{}` (its errors: `.err`)\n", log.display());
-            md += &format!("\nBackground Claude runs so far: {}, ${:.2} (runs in a pane aren't counted)\n", self.claude_runs, self.claude_spent);
+            md += &format!("\nBackground Claude runs so far: {}, ${:.2} (runs in a pane aren't counted)\n", self.claude.runs, self.claude.spent);
         }
         self.popup = Some((" messages (UTC) · j/k scroll ".into(), self.hover_lines(&md), 0));
     }
@@ -583,10 +595,6 @@ impl App {
             hl_cache: HashMap::new(),
             md_cache: Default::default(),
             toggled: HashSet::new(),
-            claude_path: None,
-            claude_mtime: None,
-            claude_summary: String::new(),
-            claude_head: String::new(),
             theirs: false,
             view: View::All,
             pr_state: None,
@@ -594,19 +602,11 @@ impl App {
             replacement: None,
             replacement_mtime: None,
             me: String::new(),
-            seen: HashSet::new(),
-            seen_path: None,
-            seeing: vec![],
-            seeing_since: std::time::Instant::now(),
-            claude_job: None,
+            seen: Seen { keys: HashSet::new(), path: None, current: vec![], since: std::time::Instant::now() },
+            claude: ClaudeState::default(),
             hx: None,
             tree_checked: std::time::Instant::now(),
             tree_seen: None,
-            claude_session: None,
-            claude_again: false,
-            claude_runs: 0,
-            claude_log: None,
-            claude_spent: 0.0,
             msgs: vec![],
             root: std::env::current_dir().unwrap_or_default(),
             lsp: None,
@@ -669,7 +669,7 @@ impl App {
                 }
             }
         }
-        self.seeing.push(String::new()); // what the cursor is on now counts as seen too
+        self.seen.current.push(String::new()); // what the cursor is on now counts as seen too
         self.watch_seen();
         if let Some(pr) = &self.pr {
             _ = crate::claude::set_looked(pr.number); // for `dv list`'s [new]
@@ -707,13 +707,13 @@ impl App {
                 self.post_later(Post::Reply { thread, comment, review, body })
             }
             Action::ClaudeReply(k) => {
-                let p = self.claude_path.clone().context("no review file")?;
+                let p = self.claude.path.clone().context("no review file")?;
                 let Some(body) = compose_with("reply to Claude", false, "", false)? else { return Ok("reply cancelled".into()) };
                 keep_on_error(crate::claude::reply(&p, &k, &body), &body)?;
                 Ok(self.answer_now())
             }
             Action::AskClaude { anchor, code } => {
-                let p = self.claude_path.clone().context("no review file")?;
+                let p = self.claude.path.clone().context("no review file")?;
                 let range = anchor.start.map_or(anchor.line.to_string(), |(s, _)| format!("{s}-{}", anchor.line));
                 let what = format!("a comment for Claude on {}:{range} (it answers right away; nothing goes to GitHub)", anchor.path);
                 let Some(body) = compose(&what, false)? else { return Ok("comment cancelled".into()) };
