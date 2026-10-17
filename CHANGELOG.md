@@ -7,8 +7,8 @@ on GitHub are its section here.
 
 ### Fixed
 - `gf` right after `w` (which leaves the cursor on the space after the word) goes by the word.
-- The pending view boxes your review's text, as the Claude view does Claude's summary; `c`/`C`
-  there point to `S`.
+- The pending view boxes your review's text, as the Claude view does Claude's summary; `c`
+  there points to `S`.
 - Help: `gf` mentions names; the `]n [n  Space n` line is aligned.
 
 ## [0.5.1] - 2026-10-17

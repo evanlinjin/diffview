@@ -162,7 +162,7 @@ impl App {
             return Some(("Claude's review", &[("c", "copy to your review summary"), ("C", "post it as your PR comment")]));
         }
         if row.info == Some(DRAFT) {
-            return Some(("your review", &[("S", "edit it and submit")]));
+            return Some(("your review", &[("S", "edit it and submit"), ("C", "new conversation comment"), ("Space c", "copy link")]));
         }
         (row.file == INFO && row.info.is_some())
             .then_some(("PR text", &[("C", "quote in a new conversation comment"), ("Space c", "copy link")]))

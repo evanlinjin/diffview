@@ -138,7 +138,7 @@ const INFO: usize = usize::MAX - 1;
 /// `Row::info` for Claude's review summary (it isn't one of `info`'s lines).
 const SUMMARY: usize = usize::MAX;
 /// `Row::info` for the text of your pending review, in the pending view.
-const DRAFT: usize = usize::MAX - 1;
+const DRAFT: usize = usize::MAX - 2;
 
 /// Position in the view: row index into `rows`, char index into the row's text.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
