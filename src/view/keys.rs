@@ -290,7 +290,8 @@ impl App {
             ('z', 't') => self.top = self.hd().saturating_sub(so),
             ('z', 'b') => self.top = (self.hd() + so + 1).saturating_sub(self.height),
             (CTRL_W, 'v') => self.toggle_split(),
-            (CTRL_W, 'a') => self.toggle_claude_view(),
+            (CTRL_W, 'a') => self.toggle_view(View::Claude),
+            (CTRL_W, 'p') => self.toggle_view(View::Pending),
             (CTRL_W, 'c') => {
                 self.margin_pref = !self.margin_pref;
                 self.msg = match self.margin_pref {

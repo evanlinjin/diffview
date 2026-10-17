@@ -68,21 +68,28 @@ pub(super) fn turn(t: &Thread) -> Option<&'static str> {
 }
 
 impl App {
-    /// Whether thread `t` shows: in the Claude view, only those of Claude's review.
+    /// Whether thread `t` shows: in the Claude view, only those of Claude's review; in the
+    /// pending view, those with a comment of your pending review.
     pub(super) fn in_view(&self, t: &Thread) -> bool {
-        !self.claude_view || t.claude.is_some()
+        match self.view {
+            View::All => true,
+            View::Claude => t.claude.is_some(),
+            View::Pending => t.comments.iter().any(|c| c.pending),
+        }
     }
 
-    /// `Ctrl-w a`: the Claude view, or back to the whole diff.
-    pub(super) fn toggle_claude_view(&mut self) {
-        self.claude_view = !self.claude_view;
+    /// `Ctrl-w a` / `Ctrl-w p`: the Claude / pending view, or back to the whole diff.
+    pub(super) fn toggle_view(&mut self, v: View) {
+        self.view = if self.view == v { View::All } else { v };
         let keep = self.cursor_key();
         self.rebuild(keep);
-        let any = self.threads.iter().any(|t| t.claude.is_some()) || !self.claude_summary.is_empty();
-        self.msg = match (self.claude_view, any) {
-            (true, false) => "Claude view: Claude hasn't reviewed this yet (Space a asks it; Ctrl-w a: the whole diff)",
-            (true, true) => "Claude view: its summary and the code it commented on (Ctrl-w a: the whole diff)",
-            (false, _) => "the whole diff",
+        let any = self.threads.iter().any(|t| self.in_view(t));
+        self.msg = match self.view {
+            View::Claude if !any && self.claude_summary.is_empty() => "Claude view: Claude hasn't reviewed this yet (Space a asks it; Ctrl-w a: the whole diff)",
+            View::Claude => "Claude view: its summary and the code it commented on (Ctrl-w a: the whole diff)",
+            View::Pending if !any && self.summary_draft.is_empty() => "pending view: no pending review yet (c queues a comment; Ctrl-w p: the whole diff)",
+            View::Pending => "pending view: your pending review and the code it's on (S submits it; Ctrl-w p: the whole diff)",
+            View::All => "the whole diff",
         }
         .into();
     }

@@ -176,6 +176,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `Space v` | mark / unmark the file as viewed on GitHub (folds it and moves to the next file); viewed files start folded, headers show `✓ Viewed` / `↻ changed since viewed` at the right edge |
 | `]c [c` | next/prev comment thread |
 | `Ctrl-w a` | Claude view: only Claude's review: the PR's first info line (state, author, branches, size), Claude's summary, and the files it commented on, each comment with its lines ± 3 (other threads hidden; `+`/`-` don't apply; going to a thread that isn't Claude's leaves it). Again: the whole diff |
+| `Ctrl-w p` | Pending view: as the Claude view, for your pending review: the PR's first info line, the review's text so far, and the threads with a pending comment, each with its lines ± 3. Again: the whole diff |
 | `]n [n`, `Space n` | next/prev thread tagged `[new]` (comments you haven't seen, not your own: seen once the cursor leaves the thread or has stayed on it for 3 s, remembered in dv's directory, `seen/`), and a picker of them |
 | `]p [p` | next/prev comment of your pending review (replies too), wrapping around; opens folded files and threads |
 | `]a [a` | next/prev Claude comment, wrapping around; folded files and threads are opened on the way |

@@ -98,7 +98,8 @@ file that dv reloads whenever it changes, so you can keep dv open while Claude w
    haven't seen yet (Claude's or anyone's on GitHub; seen once your cursor has been on it for 3 seconds, or has moved on):
    `]n` / `[n` step through those, `Space n` lists them. `Ctrl-w a` switches to the
    Claude view: just the PR's one-line summary, Claude's summary, and its comments with a few
-   lines of code around each (and back).
+   lines of code around each (and back). `Ctrl-w p` does the same for your pending review: its
+   text and the comments in it, before you submit.
 4. **Act on each comment**:
 
    | Key | |

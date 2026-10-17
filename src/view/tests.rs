@@ -1093,7 +1093,7 @@ fn claude_view() {
     app.build();
     let texts = |app: &App| app.rows.iter().map(|r| r.line.text.clone()).collect::<Vec<_>>();
     assert!(texts(&app).contains(&"Long story".to_owned()));
-    app.toggle_claude_view();
+    app.toggle_view(View::Claude);
     let v = texts(&app);
     // The PR's first line and Claude's summary, not the rest of the PR section.
     assert!(v.contains(&"OPEN @bo · main ← x".to_owned()) && v.contains(&"Looks fine.".to_owned()), "{v:?}");
@@ -1106,7 +1106,17 @@ fn claude_view() {
     assert!(v.iter().any(|t| t.starts_with("@@ -0,0 +17,7 @@")));
     // Going to a thread that isn't Claude's leaves the Claude view.
     app.goto_comment(2, 0);
-    assert!(!app.claude_view && app.rows[app.head.row].thread == Some(2));
+    assert!(app.view == View::All && app.rows[app.head.row].thread == Some(2));
+    // The pending view: the same for your pending review (a comment queued on a.rs:2, its text).
+    app.threads[2].comments[0].pending = true;
+    app.summary_draft = "Nearly there.".into();
+    app.toggle_view(View::Pending);
+    let v = texts(&app);
+    assert!(v.contains(&"your review (pending)".to_owned()) && v.contains(&"Nearly there.".to_owned()), "{v:?}");
+    assert!(!v.contains(&"Looks fine.".to_owned()) && !v.iter().any(|t| t.contains("big.rs")));
+    assert_eq!(app.rows.iter().filter_map(|r| r.thread).collect::<HashSet<_>>(), HashSet::from([2]));
+    app.toggle_view(View::Pending);
+    assert_eq!(app.view, View::All);
 }
 
 #[test]

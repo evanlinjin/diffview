@@ -745,7 +745,7 @@ impl App {
     pub(super) fn goto_comment(&mut self, ti: usize, ci: usize) {
         let Some(t) = self.threads.get(ti) else { return };
         if !self.in_view(t) {
-            self.claude_view = false; // it's not Claude's: back to the whole diff, to show it
+            self.view = View::All; // it's not in this view: back to the whole diff, to show it
         }
         let t = &self.threads[ti];
         self.collapsed.remove(&t.path.clone());

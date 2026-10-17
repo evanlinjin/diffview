@@ -345,7 +345,11 @@ impl App {
         let working = if self.claude_working() { "Claude working… · " } else { "" };
         let view = format!(
             "{}{}{}",
-            if self.claude_view { "claude view  " } else { "" },
+            match self.view {
+                View::Claude => "claude view  ",
+                View::Pending => "pending view  ",
+                View::All => "",
+            },
             if self.uncommitted() { "uncommitted  " } else { "" },
             if self.split { "split  " } else { "" }
         );

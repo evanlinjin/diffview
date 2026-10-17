@@ -9,6 +9,8 @@ on GitHub are its section here.
 - `gf` on a name in a comment (`torn_prefix_file`, or anything in `code`) goes to where it's
   defined: found by a grep for `fn name`, `class name` and the like, the diff's files first; a
   picker when there are several.
+- `Ctrl-w p`: the pending view, as the Claude view for your pending review: its text so far and
+  the comments in it, each with a few lines of code around it.
 
 ### Changed
 - `dv list` keeps your marks (`m`) when you quit it, so you can go through marked PRs a few at

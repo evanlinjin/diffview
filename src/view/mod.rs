@@ -71,6 +71,7 @@ VIEW
   Ctrl-w h  Ctrl-w l   split view: old / new side; margin: code / comments (or Ctrl-h Ctrl-l)
   Ctrl-w c             comments in the right margin (wide windows) / inline
   Ctrl-w a             Claude view: only Claude's review and the code it's about
+  Ctrl-w p             pending view: only your pending review and the code it's about
   Enter                open hx at cursor (on a link: open it)
   gf                   open the link under the cursor in the browser, or go to the
                        file:line under it (as comments cite code; Ctrl-o comes back)
@@ -293,6 +294,14 @@ enum Target {
     Nothing,
 }
 
+/// What the diff shows: all of it, or only the threads of Claude's review / your pending one.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(super) enum View {
+    All,
+    Claude,
+    Pending,
+}
+
 struct Item {
     label: String,
     /// More lines under the label (dimmed), e.g. a comment's text; matched by the filter too.
@@ -395,8 +404,9 @@ pub struct App {
     /// The PR is someone else's: Claude suggests changes there rather than making them.
     theirs: bool,
     /// The Claude view (`Ctrl-w a`): only Claude's review: the PR's one-line summary, Claude's
-    /// summary, and its comments with a few lines of code around each.
-    claude_view: bool,
+    /// summary, and its comments with a few lines of code around each. The pending view
+    /// (`Ctrl-w p`): the same for your pending review.
+    view: View,
     /// The PR's state and its color (DRAFT, OPEN, …), at the right end of its header line.
     pr_state: Option<gh::State>,
     /// The replacement checked out here, if it is one (`replace.rs`): shown in the PR section;
@@ -568,7 +578,7 @@ impl App {
             claude_summary: String::new(),
             claude_head: String::new(),
             theirs: false,
-            claude_view: false,
+            view: View::All,
             pr_state: None,
             summary_draft: String::new(),
             replacement: None,
@@ -944,16 +954,22 @@ impl App {
             let url = self.pr.as_ref().map(|p| p.url.clone()).filter(|u| !u.is_empty());
             let links = url.map(|u| vec![(0, title.chars().count(), u)]).unwrap_or_default();
             rows.push(Row { links, ..mk(Kind::File, title) });
-            if self.claude_view && !self.info_collapsed {
-                // The PR's state, author, branches and size; then Claude's summary.
+            if self.view != View::All && !self.info_collapsed {
+                // The PR's state, author, branches and size; then Claude's summary, or the text
+                // of your pending review.
                 if let Some(l) = self.info.first().filter(|l| !l.heading && !l.md) {
                     rows.push(self.info_row(l, mk(Kind::Comment, l.text.clone())));
                 }
-                if !self.claude_summary.is_empty() {
+                if self.view == View::Claude && !self.claude_summary.is_empty() {
                     let summary = |r: Row| Row { info: Some(SUMMARY), ..r };
                     rows.push(summary(mk(Kind::Thread, "claude's review".into())));
                     rows.extend(self.md_rows_at(&self.claude_summary, self.wrap_w, mk).into_iter().map(summary));
                     rows.push(Row { edge: true, ..summary(mk(Kind::Comment, String::new())) });
+                }
+                if self.view == View::Pending && !self.summary_draft.is_empty() {
+                    rows.push(mk(Kind::Thread, "your review (pending)".into()));
+                    rows.extend(self.md_rows_at(&self.summary_draft, self.wrap_w, mk));
+                    rows.push(Row { edge: true, ..mk(Kind::Comment, String::new()) });
                 }
             } else if !self.info_collapsed {
                 // Margin mode: the conversation (and Claude's summary) sits beside the description,
@@ -1029,12 +1045,13 @@ impl App {
             }
         }
         for (i, f) in self.files.iter().enumerate() {
-            // The Claude view: only files Claude commented on, and only around its comments.
+            // The Claude / pending view: only files with its comments, and only around them.
             let around;
-            let lines = match self.claude_view {
+            let lines = match self.view != View::All {
                 true if !self.threads.iter().any(|t| t.path == f.path && self.in_view(t)) => continue,
                 true => {
-                    around = claude_lines(&self.threads, f);
+                    let shown: Vec<&Thread> = self.threads.iter().filter(|t| self.in_view(t)).collect();
+                    around = view_lines(&shown, f);
                     &around
                 }
                 false => &f.lines,
@@ -1507,8 +1524,8 @@ impl App {
 
     /// `+`/`-`: more or less context around the hunk under the cursor (on a header: the next one).
     fn expand(&mut self, d: i64) {
-        if self.claude_view {
-            return self.msg = "the Claude view shows a few lines around each comment (Ctrl-w a: the whole diff)".into();
+        if self.view != View::All {
+            return self.msg = "this view shows a few lines around each comment (Ctrl-w a / Ctrl-w p: the whole diff)".into();
         }
         let row = &self.rows[self.head.row];
         let Some(f) = self.files.get(row.file) else { return };
@@ -1834,11 +1851,11 @@ const OUTDATED_SLACK: i64 = 10;
 /// by the commented line's text when it's distinctive, else by their original line number.
 /// The Claude view's lines of `f`: each of Claude's comments with its lines and a few around
 /// them, under `@@` headers as in the full diff.
-fn claude_lines(threads: &[Thread], f: &FileDiff) -> Vec<DLine> {
+fn view_lines(threads: &[&Thread], f: &FileDiff) -> Vec<DLine> {
     let ctx = DEFAULT_CONTEXT as usize;
     let mut spans: Vec<(usize, usize)> = threads
         .iter()
-        .filter(|t| t.path == f.path && t.claude.is_some())
+        .filter(|t| t.path == f.path)
         .filter_map(|t| {
             let at = anchor_line(t, &f.full)?;
             let more = match (t.start_line, t.line) {
