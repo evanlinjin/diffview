@@ -5,6 +5,10 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Fixed
+- A PR rebased onto a newer base while open in dv (by Claude, say) no longer shows the base's own
+  commits and files as the PR's: the diff starts from the new fork point.
+
 ### Changed
 - Auto CI is now auto (`C` in `dv list`, git config `dv.auto`; turn it on again): Claude also
   reviews, updates its reviews and answers you as things come in, and ranks the todo list again as

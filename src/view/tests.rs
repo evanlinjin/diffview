@@ -2456,3 +2456,39 @@ fn back_from_the_pr_tab_after_the_conversation_grows() {
     draw(&mut app);
     assert_ne!(app.bar(), Bar::Pr);
 }
+
+#[test]
+fn diff_base_follows_a_rebase() {
+    // The PR rebased onto its base branch, moved on: the diff starts at the new fork point, not
+    // the old one (which would show the base's own commits as the PR's).
+    let dir = std::env::temp_dir().join(format!("dv-rebase-{}", std::process::id()));
+    _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let d = dir.to_string_lossy().into_owned();
+    let git = |args: &[&str]| diff::git(&[&["-C", d.as_str(), "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"], args].concat()).unwrap().trim().to_owned();
+    let commit = |f: &str| {
+        std::fs::write(dir.join(f), f).unwrap();
+        git(&["add", f]);
+        git(&["commit", "-qm", f]);
+        git(&["rev-parse", "HEAD"])
+    };
+    git(&["init", "-q", "-b", "main"]);
+    let a = commit("a");
+    git(&["checkout", "-qb", "pr"]);
+    commit("p");
+    git(&["checkout", "-q", "main"]);
+    let b = commit("b");
+    git(&["update-ref", "refs/remotes/origin/main", &b]);
+    git(&["checkout", "-q", "pr"]);
+    git(&["rebase", "-q", "main"]);
+    let mut app = fixture();
+    (app.root, app.base, app.full_base, app.follow_base) = (dir.clone(), a.clone(), a.clone(), Some("origin/main".into()));
+    app.follow_rebase();
+    assert_eq!((app.base.as_str(), app.full_base.as_str()), (b.as_str(), b.as_str()));
+    // Not a base you named, nor backwards.
+    (app.base, app.full_base) = (b.clone(), b.clone());
+    app.follow_base = Some(a.clone());
+    app.follow_rebase();
+    assert_eq!(app.full_base, b);
+    _ = std::fs::remove_dir_all(&dir);
+}

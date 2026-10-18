@@ -316,9 +316,12 @@ fn review(o: &Opts, pr_num: Option<u64>) -> anyhow::Result<(Option<PathBuf>, any
     // Comments only load when the branch has a PR; plain local diffs still work without one.
     let pr = known.or_else(|| gh::pr(pr_num).ok());
     let base = diff_base(o, pr.as_ref())?;
+    // The branch the base follows (not one you named): a rebase onto it moves the diff's base.
+    let follow = pr.as_ref().filter(|_| o.base.is_none()).map(|p| format!("origin/{}", p.base));
     let app = view::App::new(base, pr);
     progress(None);
     let mut app = app?;
+    app.follow_base = follow;
     if let Some(n) = note {
         app.notice(n);
     }

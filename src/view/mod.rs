@@ -475,6 +475,9 @@ pub struct App {
     base: String,
     /// The base dv started with (`base` is HEAD while showing only what isn't committed).
     full_base: String,
+    /// The branch `full_base` comes from (`origin/<the PR's base>`), when dv chose it: after a
+    /// rebase onto it, the diff starts from where the branch is now (`reload`).
+    pub follow_base: Option<String>,
     /// The commit the diff goes up to while showing some of the PR's commits, else the
     /// working tree.
     to: Option<String>,
@@ -739,6 +742,7 @@ impl App {
     fn with(base: String, files: Vec<FileDiff>) -> Self {
         let mut app = App {
             full_base: base.clone(),
+            follow_base: None,
             base,
             to: None,
             commits: vec![],
@@ -1163,6 +1167,7 @@ impl App {
 
     fn reload(&mut self, threads: bool) -> Result<()> {
         let keep = self.cursor_key();
+        self.follow_rebase();
         self.load_commits();
         self.files = diff::load(&self.base, self.to.as_deref(), DEFAULT_CONTEXT)?;
         // After the diff: Claude's comments follow their code, which may have just been edited.
@@ -1174,6 +1179,25 @@ impl App {
         self.rebuild(keep);
         self.refresh_sync();
         Ok(())
+    }
+
+    /// HEAD rebased onto a newer base (its branch has moved on, and the PR with it): the diff
+    /// starts there, else it'd show the base's own commits between as the PR's. Only forward:
+    /// a base ahead of the old one, on HEAD's history.
+    pub(super) fn follow_rebase(&mut self) {
+        let Some(branch) = &self.follow_base else { return };
+        let root = self.root.to_string_lossy().into_owned();
+        let git = |args: &[&str]| diff::git(&[&["-C", root.as_str()], args].concat());
+        let Ok(now) = git(&["merge-base", branch, "HEAD"]).map(|s| s.trim().to_owned()) else { return };
+        if now == self.full_base || git(&["merge-base", "--is-ancestor", &self.full_base, &now]).is_err() {
+            return;
+        }
+        if !self.uncommitted() {
+            self.base = now.clone(); // the whole diff (a commit shown, or a range, goes)
+        }
+        self.full_base = now;
+        (self.to, self.commit_shown, self.commit_anchor) = (None, None, None);
+        self.hl_cache.retain(|k, _| !k.1);
     }
 
     /// https://github.com/owner/repo, for `#123` links.
