@@ -38,13 +38,15 @@ impl App {
                         p.sel = if down { (p.sel + 1).min(n.saturating_sub(1)) } else { p.sel.saturating_sub(1) };
                     }
                 } else {
-                    // What's under the mouse, wherever the cursor is; at its end, beside the PR
-                    // tab (which scrolls on its own), the other one.
+                    // What's under the mouse, wherever the cursor is, and only that: each stops at
+                    // its own end. The PR tab scrolls on its own; the comments tab with the code
+                    // (they're beside their lines), while there are comments that way.
                     let d = if down { 3 } else { -3 };
-                    let pr = self.margin_active && self.pane_tab == Tab::Pr;
-                    match self.in_pr_tab_area(x) {
-                        true => _ = self.scroll_pr(d) || self.scroll_code(d),
-                        false => _ = self.scroll_code(d) || (pr && self.scroll_pr(d)),
+                    let over_pane = self.margin_active && x > self.geom.relw + self.geom.gw + self.geom.ctw;
+                    if self.in_pr_tab_area(x) {
+                        _ = self.scroll_pr(d);
+                    } else if !over_pane || self.comments_beyond(down) {
+                        _ = self.scroll_code(d);
                     }
                 }
             }

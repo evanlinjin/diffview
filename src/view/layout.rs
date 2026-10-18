@@ -20,6 +20,16 @@ impl App {
         }
     }
 
+    /// Comments further down (`down`) or up than what's on screen, beside the code.
+    pub(super) fn comments_beyond(&self, down: bool) -> bool {
+        let has = |d: &DRow| matches!(d, DRow::Margin(_, _, Some(_)));
+        let end = (self.top + self.height).min(self.drows.len());
+        match down {
+            true => self.drows[end..].iter().any(has),
+            false => self.drows[..self.top.min(self.drows.len())].iter().any(has),
+        }
+    }
+
     /// The code line the comment under the cursor is beside.
     pub(super) fn line_beside(&self) -> usize {
         (0..self.head.row).rev().find(|&r| !self.in_margin(r)).unwrap_or(0)

@@ -194,7 +194,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `Space m` | the status bar's messages so far, in full, and the last background Claude run's log and the runs' cost |
 | `Space u` | update the checkout: to the PR's head as `gh pr checkout` does (fast-forward only; local commits are kept), or `git pull --ff-only` without a PR; then refresh |
 | `?` | key help overlay (two columns when the window fits them); `/` inside it filters entries (smart case), Enter keeps, Esc clears |
-| mouse | wheel scrolls (view, popup, picker); click moves the cursor (or folds, on a fold arrow; picks in a picker, opens on a second click); drag selects. `--no-mouse` leaves it to the terminal |
+| mouse | wheel scrolls what's under it (view, popup, picker), each stopping at its own end: the PR tab its text; the comments tab the code with it, while there are comments that way; click moves the cursor (or folds, on a fold arrow; picks in a picker, opens on a second click); drag selects. `--no-mouse` leaves it to the terminal |
 | `q` | quit |
 
 `dv list`'s first tab, **todo**, is what needs you, in the order to take it (`todo.rs`,

@@ -1709,21 +1709,30 @@ fn wheel_scrolls_what_is_under_it() {
     wheel(&mut app, 20);
     draw(&mut app);
     assert!(app.top > top && app.pr_top == pr_top && app.on_pr_tab(), "{top} → {}, pr {pr_top} → {}", app.top, app.pr_top);
-    // The PR tab's text all on screen: the wheel over its empty space scrolls the code.
+    // The PR tab's text all on screen: the wheel over it moves nothing (not the code either).
     let pane = (app.geom.relw + app.geom.gw + app.geom.ctw + 10) as u16;
     let top = app.top;
     wheel(&mut app, pane);
     draw(&mut app);
-    assert!(app.top > top && app.pr_top == 0, "{top} → {}", app.top);
-    // Long PR text, the code at its end: the wheel over the code scrolls the PR text.
-    app.info[3].text = (1..=60).map(|n| format!("para {n}\n\n")).collect();
-    app.build();
+    assert_eq!((app.top, app.pr_top), (top, 0));
+    // The comments tab: the wheel over it scrolls (with the code) while there are comments
+    // further down, and stops once the last one is on screen.
+    let mut app = fixture();
     draw(&mut app);
-    app.top = app.drows.len() - 1;
-    let pr_top = app.pr_top;
+    let pane = (app.geom.relw + app.geom.gw + app.geom.ctw + 10) as u16;
+    for _ in 0..20 {
+        wheel(&mut app, pane);
+        draw(&mut app);
+    }
+    let top = app.top;
+    assert!(!app.comments_beyond(true));
+    wheel(&mut app, pane);
+    draw(&mut app);
+    assert_eq!(app.top, top, "the pane's wheel kept scrolling past its last comment");
+    // The code's wheel goes on.
     wheel(&mut app, 20);
     draw(&mut app);
-    assert!(app.pr_top > pr_top, "pr {pr_top} → {}", app.pr_top);
+    assert!(app.top > top || app.top == app.drows.len() - 1);
 }
 
 #[test]

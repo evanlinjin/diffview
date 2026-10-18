@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Fixed
+- The mouse wheel over the comments pane stops at its end: on the comments tab once the last
+  comment is on screen (it scrolled on through the code), on the PR tab at the end of its text
+  (it went on to scroll the code).
+
 ## [0.8.5] - 2026-10-18
 
 ### Added
