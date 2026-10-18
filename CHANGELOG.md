@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-10-18
+
 ### Fixed
 - `dv list`: why Claude failed was cut to 60 characters (and the card's 30-column zone): its
   card says all of it now, the review and Claude lines running on to the window's edge.
@@ -603,6 +605,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.17.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.17.1
 [0.17.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.17.0
 [0.16.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.16.0
 [0.15.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.15.0
