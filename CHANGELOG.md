@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Changed
+- Replacements and new PRs publish as drafts only; a draft is marked ready for review (`Space g`)
+  only once its CI passes: dv says what's failing or still running otherwise.
+
+### Added
+- Todo: Claude fixes your PR's failing CI (a published draft's too): `a a` on it has Claude read
+  the failed runs' logs and fix the cause in its worktree, for you to check and push.
+
 ## [0.25.0] - 2026-10-18
 
 ### Changed

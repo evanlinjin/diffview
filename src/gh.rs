@@ -103,9 +103,17 @@ pub fn body(n: u64) -> Result<String> {
     Ok(v["body"].as_str().unwrap_or("").replace("\r\n", "\n"))
 }
 
-/// Mark draft PR `n` ready for review (`gh pr ready`).
+/// Mark draft PR `n` ready for review (`gh pr ready`): only once CI passes, nothing failing
+/// or still running (a PR with no checks has nothing to wait for).
 pub fn mark_ready(n: u64) -> Result<()> {
-    gh(&["pr", "ready", &n.to_string()]).map(drop)
+    let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", "statusCheckRollup"])?)?;
+    let checks = v["statusCheckRollup"].as_array().map(Vec::as_slice).unwrap_or(&[]);
+    let count = |m| checks.iter().filter(|c| verdict(c) == m).count();
+    match (count('✗'), count('●')) {
+        (0, 0) => gh(&["pr", "ready", &n.to_string()]).map(drop),
+        (0, k) => bail!("CI is still running ({k} check{} pending): ready once it passes", if k == 1 { "" } else { "s" }),
+        (k, _) => bail!("CI fails ({k} check{} failed): fix it first (dv list: a a has Claude look)", if k == 1 { "" } else { "s" }),
+    }
 }
 
 /// Replace PR `n`'s description with `body` (`gh pr edit`, the text on stdin).
@@ -742,12 +750,9 @@ pub fn conversation_comment(pr: &Pr, body: &str) -> Result<()> {
     post(&ep, &json!({ "body": body }))
 }
 
-/// Open a PR from `head` into `base`, a draft unless `ready` (for review): its number.
-pub fn create_pr(base: &str, head: &str, title: &str, body: &str, ready: bool) -> Result<u64> {
-    let mut args = vec!["pr", "create", "--base", base, "--head", head, "--title", title, "--body-file", "-"];
-    if !ready {
-        args.push("--draft");
-    }
+/// Open a draft PR from `head` into `base`: its number.
+pub fn create_pr(base: &str, head: &str, title: &str, body: &str) -> Result<u64> {
+    let args = ["pr", "create", "--draft", "--base", base, "--head", head, "--title", title, "--body-file", "-"];
     let out = gh_input(&args, Some(body))?;
     // It prints the new PR's URL: …/pull/N
     let url = out.lines().rev().find(|l| l.contains("/pull/")).context("gh pr create printed no PR URL")?;

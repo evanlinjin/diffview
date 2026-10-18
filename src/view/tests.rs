@@ -1268,10 +1268,10 @@ fn replacement_in_the_pr_section() {
     diff::git(&["-C", &clean.to_string_lossy(), "init", "-q"]).unwrap();
     app.root = clean.clone();
     let items = s(&mut app);
-    assert!(items[0].0.starts_with("Publish as a draft PR (rebased on origin/") && matches!(items[0].1, Target::Publish(false, false)));
-    assert!(matches!(items[1].1, Target::Publish(false, true))); // ready for review, not a draft
-    assert!(items[2].0 == "Publish, then close #12, #15 with the closing note…" && matches!(items[2].1, Target::Publish(true, false)));
-    assert!(matches!(items[3].1, Target::Publish(true, true)));
+    // Only as a draft: ready for review once CI passes.
+    assert!(items[0].0.starts_with("Publish as a draft PR (rebased on origin/") && matches!(items[0].1, Target::Publish(false)));
+    assert!(items[1].0 == "Publish, then close #12, #15 with the closing note…" && matches!(items[1].1, Target::Publish(true)));
+    assert!(!items.iter().any(|i| i.0.contains("ready for review")));
     std::fs::write(clean.join("x"), "").unwrap();
     let items = s(&mut app);
     assert!(items[0].0.starts_with("Commit the uncommitted changes first") && matches!(items[0].1, Target::GitCommit));

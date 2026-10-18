@@ -359,11 +359,11 @@ fn owner(url: &str) -> Option<&str> {
     path.split('/').next().filter(|o| !o.is_empty())
 }
 
-/// Publish replacement `r` (checked out in `dir`) as a PR (a draft, unless `ready` for
-/// review), with `title` and `body` (what
+/// Publish replacement `r` (checked out in `dir`) as a draft PR (ready for review once CI
+/// passes), with `title` and `body` (what
 /// you made of Claude's drafts): rebase it onto its base as it is on origin now, push it to
 /// your replacements remote, then open the PR (from there, into origin's repo). Its number.
-pub fn publish(r: &mut Record, dir: &Path, title: &str, body: &str, ready: bool) -> Result<u64> {
+pub fn publish(r: &mut Record, dir: &Path, title: &str, body: &str) -> Result<u64> {
     anyhow::ensure!(r.published.is_none(), "already published, as #{}", r.published.unwrap_or(0));
     let remote = remote().context("no remote for replacement branches (dv.replaceRemote)")?;
     rebase(r, dir)?;
@@ -371,7 +371,7 @@ pub fn publish(r: &mut Record, dir: &Path, title: &str, body: &str, ready: bool)
     let url = crate::diff::git(&["remote", "get-url", &remote])?;
     let owner = owner(url.trim()).with_context(|| format!("{remote} ({}) isn't a GitHub repo", url.trim()))?;
     crate::diff::git(&["-C", &dir.to_string_lossy(), "push", "-q", "-f", "-u", &remote, &format!("{b}:refs/heads/{b}")])?;
-    let n = crate::gh::create_pr(&r.base, &format!("{owner}:{b}"), title, body, ready)?;
+    let n = crate::gh::create_pr(&r.base, &format!("{owner}:{b}"), title, body)?;
     (r.published, r.title, r.body) = (Some(n), title.to_owned(), body.to_owned());
     save(r)?;
     Ok(n)

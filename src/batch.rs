@@ -27,6 +27,8 @@ pub enum Task {
     Review,
     Update(String),
     Answer { theirs: bool },
+    /// Your PR's CI fails: find out why, fix it in the checkout (you push).
+    FixChecks,
 }
 
 impl Task {
@@ -36,6 +38,7 @@ impl Task {
             Task::Review => "reviewing",
             Task::Update(_) => "updating its review",
             Task::Answer { .. } => "answering",
+            Task::FixChecks => "fixing CI",
         }
     }
 
@@ -45,6 +48,7 @@ impl Task {
             Task::Review => "could review",
             Task::Update(_) => "could update its review",
             Task::Answer { .. } => "could answer you",
+            Task::FixChecks => "could fix CI",
         }
     }
 
@@ -54,6 +58,7 @@ impl Task {
             Task::Review => crate::view::review_prompt(&what),
             Task::Update(old) => crate::view::update_prompt(&what, old),
             Task::Answer { theirs } => crate::view::answer_prompt(&what, *theirs),
+            Task::FixChecks => crate::view::fix_checks_prompt(&what),
         }
     }
 }

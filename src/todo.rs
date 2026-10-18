@@ -272,6 +272,9 @@ pub fn needs(f: &Facts) -> (Vec<Need>, Option<Task>) {
     // Claude's part: your replies waiting on it, a review behind the PR, or none yet.
     let waiting = count(&|t| crate::view::turn(t) == Some("[waiting] "));
     let claude = match f.review {
+        // Your PR's CI failing (a draft too: a published replacement's, say): Claude looks into
+        // it and fixes it here, for you to push. Not again while its changes wait on you.
+        _ if mine && f.unpushed == (0, 0) && pr.checks.is_some_and(|c| c.1 > 0) => Some(Task::FixChecks),
         _ if pr.draft => None,
         Some(_) if waiting > 0 => Some(Task::Answer { theirs: !mine }),
         Some(r) if !r.head.is_empty() && !head.is_empty() && r.head != head => Some(Task::Update(r.head.clone())),
@@ -804,6 +807,17 @@ mod tests {
         assert!(ci("me", true).contains(&Need::ChecksFailing(2, true)));
         assert!(!ci("amy", true).iter().any(|n| matches!(n, Need::ChecksFailing(..))));
         assert_eq!(Need::ChecksFailing(2, true).says(), "2 checks failing: fix them");
+        // Claude's part on yours (a draft too): fix CI; not while changes wait to be pushed.
+        let fix = |author: &str, unpushed| {
+            let mut p = pr(11, author);
+            (p.checks, p.draft) = (Some((5, 2, 0)), true);
+            let mut f = facts(leak(p), Some(leak(extra(None, false, "h"))), None);
+            f.unpushed = unpushed;
+            needs(&f).1
+        };
+        assert_eq!(fix("me", (0, 0)), Some(Task::FixChecks));
+        assert_eq!(fix("me", (1, 0)), None);
+        assert_eq!(fix("amy", (0, 0)), None);
         // Workflow runs waiting for a maintainer's approval: a need, yours to do (W W).
         let mut e = extra(None, false, "h");
         e.awaiting = 2;

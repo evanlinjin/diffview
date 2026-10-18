@@ -356,7 +356,8 @@ impl List {
                     let on_branch = |n| self.local.get(&n).map_or(self.flags.contains('b'), |w| w.1.is_some());
                     // From the todo tab, what's due on each (answers, an update, a review).
                     let task = |n| if self.tab == Tab::Todo { self.todo_task(n) } else { batch::Task::Review };
-                    let prs: Vec<(u64, bool, batch::Task)> = prs.into_iter().map(|n| (n, on_branch(n), task(n))).collect();
+                    // Fixing CI makes changes to push: on the PR's branch, always.
+                    let prs: Vec<(u64, bool, batch::Task)> = prs.into_iter().map(|n| (n, task(n))).map(|(n, t)| (n, on_branch(n) || t == batch::Task::FixChecks, t)).collect();
                     let with = if extra.is_empty() { "" } else { ", with your instructions" };
                     let doing: Vec<String> = prs.iter().map(|(n, _, t)| format!("{} #{n}", t.doing())).collect();
                     self.msg = format!("Claude is {}{with}, {} at a time", doing.join(", "), batch::AT_ONCE);

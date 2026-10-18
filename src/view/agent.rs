@@ -29,6 +29,9 @@ const ALLOWED: &[&str] = &[
     "Bash(git rev-parse:*)",
     // The PR's description and conversation, to propose a new description from.
     "Bash(gh pr view:*)",
+    // Why CI fails, to fix it.
+    "Bash(gh pr checks:*)",
+    "Bash(gh run view:*)",
     // To check a change it made still builds and passes.
     "Bash(cargo check:*)",
     "Bash(cargo build:*)",
@@ -888,6 +891,16 @@ pub(crate) fn answer_prompt(what: &str, theirs: bool) -> String {
         ),
         false => base,
     }
+}
+
+/// Claude's prompt for fixing `what`'s failing CI.
+pub(crate) fn fix_checks_prompt(what: &str) -> String {
+    format!(
+        "CI fails on {what}. See which checks fail (`gh pr checks`) and why (`gh run view <run id> --log-failed`), \
+         then fix the cause in the code here, and check the fix (build, tests). Don't commit or push: the user \
+         reviews and pushes it. If it isn't the code's fault (a flaky test, CI itself), change nothing and say \
+         so. First run `dv review-info`: if the notes it lists exist, read them and follow them."
+    )
 }
 
 pub(crate) fn review_prompt(what: &str) -> String {
