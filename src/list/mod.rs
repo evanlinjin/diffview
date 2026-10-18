@@ -57,6 +57,9 @@ const HELP: &str = "\
                        <repo>-replace-N, unpublished, for you to review first (replacements
                        tab); for marked PRs, it first suggests which go together (one
                        replacement each group), which you edit; then your instructions
+  b b                  ask the PR's author for a rebase: a comment saying it needs one (in your
+                       editor first); on the todo tab it's then deferred until it changes
+                       (their push brings it back)
   M M                  merge the PR with github-merge.py (Bitcoin Core's script, built into dv;
                        git config dv.mergescript <path> runs your own copy), in the main
                        checkout: its worktree goes first, unless something in it is unpushed;
@@ -307,6 +310,7 @@ impl List {
                     self.msg = "Claude is looking at how to group them (one replacement per group)…".into();
                     self.group_rx = Some(batch::group(prs, self.root.clone()));
                 }
+                Some(Do::AskRebase(n)) => self.ask_rebase(term, n),
                 Some(Do::RemoveReplacement(id)) => {
                     self.msg = crate::replace::remove(id, &self.root).unwrap_or_else(|e| format!("{e:#}"));
                     self.load_reps();
@@ -333,20 +337,25 @@ impl List {
     /// ones (kept if left as they are). In zellij the editor gets a pane beside the list;
     /// elsewhere it takes the terminal. `None`: cancelled (`:cq`), or it failed (said so).
     fn instructions(&mut self, term: &mut DefaultTerminal, kind: &str, what: &str) -> Option<String> {
+        let last = crate::claude::instructions(kind);
+        let extra = self.edit_text(term, what, last.trim(), true)?;
+        _ = crate::claude::save_instructions(kind, &extra);
+        Some(extra)
+    }
+
+    /// Your editor on `prefill` (kept as is if you leave it: `untouched_ok`), as `instructions`
+    /// opens it. `None`: cancelled, or it failed (said so).
+    fn edit_text(&mut self, term: &mut DefaultTerminal, what: &str, prefill: &str, allow_empty: bool) -> Option<String> {
         let in_pane = crate::view::in_zellij();
         if !in_pane {
             crate::view::restore_terminal();
         }
-        let last = crate::claude::instructions(kind);
-        let extra = crate::view::compose_with(what, true, last.trim(), true);
+        let text = crate::view::compose_with(what, allow_empty, prefill, true);
         if !in_pane {
             *term = crate::view::init_terminal();
         }
-        match extra {
-            Ok(Some(e)) => {
-                _ = crate::claude::save_instructions(kind, &e);
-                Some(e)
-            }
+        match text {
+            Ok(Some(t)) => Some(t),
             Ok(None) => {
                 self.msg = "cancelled".into();
                 None
@@ -355,6 +364,24 @@ impl List {
                 self.msg = format!("{e:#}");
                 None
             }
+        }
+    }
+
+    /// `b b`: ask PR `n`'s author for a rebase (a comment, after your editor), then defer it
+    /// on the todo tab until it changes (a push brings it back).
+    fn ask_rebase(&mut self, term: &mut DefaultTerminal, n: u64) {
+        let base = self.prs.iter().find(|p| p.number == n).map_or("its base".to_owned(), |p| format!("`{}`", p.base));
+        let what = format!("comment asking for a rebase of #{n} (posted on its conversation)");
+        let Some(body) = self.edit_text(term, &what, &format!("Needs rebase: this conflicts with {base} now."), false) else { return };
+        let pr = gh::Pr { number: n, ..Default::default() };
+        if let Err(e) = gh::conversation_comment(&pr, &body) {
+            return self.msg = format!("not posted: {e:#}");
+        }
+        self.msg = format!("asked for a rebase of #{n}");
+        if let Some(it) = self.todo.iter().find(|it| !it.rep && it.number == n).cloned() {
+            self.deferred.insert(it.key(), (crate::claude::now_secs() + 7 * 86400, it.needs_key()));
+            self.msg += "; deferred on the todo tab until it changes";
+            self.save_defer();
         }
     }
 
@@ -665,6 +692,14 @@ impl List {
                 self.msg = self.rank_offer();
                 self.confirm = Some(('r', 0));
             }
+            KeyCode::Char('b') if self.tab != Tab::Replacements => {
+                let p = self.shown().get(self.sel).map(|p| p.number)?;
+                if armed == Some(('b', p)) {
+                    return Some(Do::AskRebase(p));
+                }
+                self.msg = format!("b again: ask #{p}'s author for a rebase (a comment; your editor opens first); any other key doesn't");
+                self.confirm = Some(('b', p));
+            }
             KeyCode::Char('M') if self.tab != Tab::Replacements => {
                 let p = self.shown().get(self.sel).map(|p| p.number)?;
                 if armed == Some(('M', p)) {
@@ -921,6 +956,7 @@ impl List {
                 ("a a", if self.tab == Tab::Todo { "Claude does its part (marked)" } else { "Claude reviews marked" }),
                 ("A A", "Claude drafts a replacement"),
                 ("M M", "merge (github-merge.py)"),
+                ("b b", "ask for a rebase (a comment)"),
                 ("D D", remove),
                 ("?", "all keys"),
                 ("q", "quit"),
@@ -932,7 +968,7 @@ impl List {
                     "D D" => !matches!(self.tab, Tab::Open | Tab::Todo),
                     "o O" => self.tab != Tab::Todo, // in the order of what needs you
                     "r r" | "s" => self.tab == Tab::Todo,
-                    "m" | "a a" | "A A" | "M M" => !reps,
+                    "m" | "a a" | "A A" | "M M" | "b b" => !reps,
                     _ => true,
                 })
                 .map(|(k, d)| Line::from(vec![Span::styled(format!("{k:<6}"), ui.key), Span::raw(d.to_string())]))
@@ -982,6 +1018,8 @@ enum Do {
     RemoveReplacement(u64),
     /// Merge this PR with github-merge.py.
     Merge(u64),
+    /// Ask this PR's author for a rebase.
+    AskRebase(u64),
 }
 
 fn marks_path() -> Option<PathBuf> {

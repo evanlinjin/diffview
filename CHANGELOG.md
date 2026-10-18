@@ -7,6 +7,9 @@ on GitHub are its section here.
 
 ### Added
 - `]u` / `[u`: the next / previous unresolved comment thread (wrapping around).
+- `b b` in `dv list` asks a PR's author for a rebase: a comment (in your editor first), then the
+  item is deferred on the todo tab until it changes. The todo tab lists PRs that conflict with
+  their base.
 
 ### Changed
 - Comment marks are at the code's right edge, beside the pane, shown or not: `╎` down the lines a

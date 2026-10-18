@@ -82,8 +82,8 @@ note.
 ## What needs you
 
 `dv list`'s **todo** tab lists the PRs and replacements waiting on you: approved and green,
-pushed since your review, Claude answered you, your review requested, no review from you yet, a
-replacement to publish, and so on. `r r` has Claude rank them, with a word on why and what next
+pushed since your review, Claude answered you, your review requested, conflicts with its base
+(`b b` asks for a rebase), no review from you yet, a replacement to publish, and so on. `r r` has Claude rank them, with a word on why and what next
 (one Claude run, so only when you ask: the header says what the last ranking cost and what's
 changed since). `a a` has Claude do its part on one (answer, update its review, review it);
 `s` defers one you can't act on yet; Enter opens it.

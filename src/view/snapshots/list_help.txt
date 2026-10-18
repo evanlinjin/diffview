@@ -3,8 +3,6 @@
         @ann   +1 −0 in 1 file
         claude ✓
         b
-
-▌●#333  fix fees                                                                            2026-02
  dv list keys                                                                        any key closes
 
  j k, Up Down         move
@@ -36,6 +34,9 @@
                         <repo>-replace-N, unpublished, for you to review first (replacements
                         tab); for marked PRs, it first suggests which go together (one
                         replacement each group), which you edit; then your instructions
+   b b                  ask the PR's author for a rebase: a comment saying it needs one (in your
+                        editor first); on the todo tab it's then deferred until it changes
+                        (their push brings it back)
    M M                  merge the PR with github-merge.py (Bitcoin Core's script, built into dv;
                         git config dv.mergescript <path> runs your own copy), in the main
                         checkout: its worktree goes first, unless something in it is unpushed;
@@ -50,7 +51,6 @@
                         the last cost and what's changed since, to judge if it's worth it)
    ?                    this help
    q, Ctrl-c            quit
-
 
 
 

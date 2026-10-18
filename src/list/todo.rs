@@ -152,7 +152,7 @@ impl List {
         self.save_defer();
     }
 
-    fn save_defer(&mut self) {
+    pub(super) fn save_defer(&mut self) {
         if let Err(e) = todo::save_deferred(self.deferred_file.as_deref(), &self.deferred) {
             self.msg = format!("couldn't save it: {e:#}");
         }

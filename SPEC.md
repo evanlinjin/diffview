@@ -201,7 +201,9 @@ disk: rust-analyzer can index it and `hx` can open it.
 `list/todo.rs`). dv finds what's waiting on you, from its own files and one GraphQL query (your
 latest review and the commit it was on, review requests, mergeability, the head commit): a
 replacement to publish or to close the originals for, a push since your review, Claude answering
-you, your review requested, approved + mergeable + checks green, Claude's review new to you (since
+you, your review requested, approved + mergeable + checks green, conflicts with its base (ask for
+a rebase: `b b` in `dv list` posts a comment saying so, after your editor, then defers the item
+until it changes), Claude's review new to you (since
 you last left the PR in dv), Claude's comments you haven't touched, no review from you (not your
 PRs, not drafts), else activity since you looked. It orders them by the most pressing of those,
 then the longest waiting; then Claude (one read-only `claude -p`, `gh pr view/diff` only, the repo's

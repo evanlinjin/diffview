@@ -312,6 +312,12 @@ fn defer_from_the_todo_tab() {
     assert_eq!((shown(&l), l.todo_now()), (vec![2, 1], 1));
     assert!(l.todo[1].deferred.is_some_and(|u| u - crate::claude::now_secs() > 3 * 3600));
     assert!(crate::todo::load_deferred(Some(&dir.join("deferred.json"))).contains_key("pr-1"));
+    // b b: ask for a rebase (the first b says what it'll do; anything else calls it off).
+    k(&mut l, KeyCode::Char('b'));
+    assert!(l.msg.starts_with("b again: ask #2's author for a rebase"), "{}", l.msg);
+    assert!(k(&mut l, KeyCode::Char('x')).is_none());
+    k(&mut l, KeyCode::Char('b'));
+    assert!(matches!(k(&mut l, KeyCode::Char('b')), Some(Do::AskRebase(2))));
     // s on it again: back.
     k(&mut l, KeyCode::Char('j'));
     k(&mut l, KeyCode::Char('s'));

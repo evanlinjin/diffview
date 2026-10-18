@@ -23,6 +23,8 @@ pub enum Need {
     ReviewRequested,
     /// Approved, mergeable, checks green: merge it.
     ReadyToMerge,
+    /// It conflicts with its base: a rebase is needed (`true`: yours, so yours to do).
+    Conflicts(bool),
     /// Claude's review has changed since you last looked.
     ClaudeReviewNew,
     /// Claude's comments (this many) you haven't answered or resolved.
@@ -43,6 +45,7 @@ impl Need {
             Need::ReviewRequested => 70,
             Need::CloseOriginals(_) => 65,
             Need::ReadyToMerge => 60,
+            Need::Conflicts(_) => 55,
             Need::ClaudeReviewNew => 50,
             Need::ClaudeComments(_) => 40,
             Need::NoReview => 30,
@@ -60,6 +63,8 @@ impl Need {
             Need::ClaudeAnswered(n) => format!("Claude answered you on {n} thread{}", s(*n)),
             Need::ReviewRequested => "your review is requested".into(),
             Need::ReadyToMerge => "approved, checks green: merge it".into(),
+            Need::Conflicts(true) => "conflicts with its base: rebase it".into(),
+            Need::Conflicts(false) => "conflicts with its base: ask for a rebase (b b)".into(),
             Need::ClaudeReviewNew => "Claude's review is new to you".into(),
             Need::ClaudeComments(n) => format!("{n} comment{} from Claude to go through", s(*n)),
             Need::NoReview => "no review from you yet".into(),
@@ -146,6 +151,9 @@ pub fn needs(f: &Facts) -> (Vec<Need>, Option<Task>) {
     let green = pr.checks.is_some_and(|(_, fail, pending)| fail == 0 && pending == 0);
     if pr.decision == "APPROVED" && f.extra.is_some_and(|e| e.mergeable == "MERGEABLE") && green && !pr.draft {
         out.push(Need::ReadyToMerge);
+    }
+    if f.extra.is_some_and(|e| e.mergeable == "CONFLICTING") && !pr.draft {
+        out.push(Need::Conflicts(mine));
     }
     if f.review.is_some() && f.review_changed.is_some_and(|c| c > f.looked.unwrap_or(0)) {
         out.push(Need::ClaudeReviewNew);
@@ -439,6 +447,11 @@ mod tests {
         p.updated = "2026-12-01T00:00:00Z".into();
         let (n, _) = needs(&facts(leak(p), Some(leak(extra(None, false, "h"))), None));
         assert_eq!(n, vec![Need::NewActivity]);
+        // Conflicting with its base: ask for a rebase (or, yours, do it).
+        let mut conflicting = extra(None, false, "h");
+        conflicting.mergeable = "CONFLICTING".into();
+        assert_eq!(needs(&facts(leak(pr(7, "amy")), Some(leak(conflicting.clone())), None)).0, vec![Need::Conflicts(false), Need::NoReview]);
+        assert_eq!(needs(&facts(leak(pr(7, "me")), Some(leak(conflicting)), None)).0, vec![Need::Conflicts(true)]);
         // Claude's review changed since you looked.
         let mut f = facts(leak(pr(6, "me")), Some(leak(extra(None, false, "h"))), Some(leak(review(vec![], "h"))));
         f.review_changed = Some(LOOKED + 1);
