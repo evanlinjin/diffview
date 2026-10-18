@@ -12,6 +12,10 @@ on GitHub are its section here.
 - When Claude finds failing CI isn't the PR's doing (a flaky test, CI itself, the base), it says so
   on the todo card and offers a new PR fixing CI (`N N` on it, or `Space a` in the PR).
 
+### Changed
+- An unpublished replacement or new PR has no PR tab: what it replaces (or what you asked for)
+  heads its description, in the diff. Published, the tab is back.
+
 ### Fixed
 - `dv list`'s top bar is as dark as the PR view's, its other tabs dimmed the same way.
 

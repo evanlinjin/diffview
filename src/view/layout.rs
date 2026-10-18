@@ -37,6 +37,8 @@ impl App {
 
     /// The pane on `tab` (shown, if it wasn't): `gn` / `gp`, or a click on the tab.
     pub(super) fn pane_to(&mut self, tab: Tab) {
+        // An unpublished draft has no PR tab.
+        let tab = if self.unpublished() { Tab::Comments } else { tab };
         // Off what the other tab shows (it'd come back for it): from the PR's text, to where
         // the cursor was in the code; from a comment, to the line it's on.
         if tab != self.pane_tab && self.on_pr_tab() {
@@ -68,9 +70,10 @@ impl App {
     /// starts): each one's label and its columns.
     pub(super) fn pane_tabs(&self) -> Vec<(Bar, &'static str, std::ops::Range<usize>)> {
         let mut x = 1;
-        // A draft no one else has seen: only Claude's comments and yours, so one tab for both.
+        // A draft no one else has seen: only Claude's comments and yours, so one tab for both;
+        // and no PR yet (what it replaces is atop its description).
         let tabs: &[_] = match self.unpublished() {
-            true => &[(Bar::Claude, " Claude "), (Bar::Pr, " PR ")],
+            true => &[(Bar::Claude, " Claude ")],
             false => &[(Bar::Comments, " Comments "), (Bar::Claude, " Claude "), (Bar::Pr, " PR ")],
         };
         tabs.iter()
@@ -85,7 +88,7 @@ impl App {
     /// The tab that's lit: the PR's text, Claude's review (the Claude view), or the comments.
     pub(super) fn bar(&self) -> Bar {
         match (self.pane_tab, self.view) {
-            (Tab::Comments, _) if self.unpublished() => Bar::Claude,
+            _ if self.unpublished() => Bar::Claude,
             (_, View::Claude) => Bar::Claude,
             (Tab::Pr, _) => Bar::Pr,
             _ => Bar::Comments,

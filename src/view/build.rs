@@ -177,8 +177,9 @@ impl App {
                 let facts = self.info.iter().take_while(|l| !l.heading && !l.md).count();
                 let url = self.pr.as_ref().map(|p| p.url.clone()).filter(|u| !u.is_empty());
                 for (ii, l) in self.info.iter().enumerate() {
-                    // The description has a section of its own in the diff's column (below).
-                    if self.in_section(ii) {
+                    // The description has a section of its own in the diff's column (below). An
+                    // unpublished draft has no PR tab: what it replaces is atop its description.
+                    if self.in_section(ii) || self.unpublished() {
                         continue;
                     }
                     match (l.heading, l.md) {
@@ -253,7 +254,14 @@ impl App {
                             (true, false) => "_(no description)_",
                             _ => text,
                         };
-                        rows.extend(self.section(DESCRIPTION, self.info[h].text.clone(), text, Some(h + 1)));
+                        let mut s = self.section(DESCRIPTION, self.info[h].text.clone(), text, Some(h + 1));
+                        // An unpublished draft: what it replaces (or what you asked for) first, as
+                        // it has no PR tab.
+                        if let Some(l) = self.info.first().filter(|_| self.unpublished() && s.len() > 1) {
+                            let mk = |text| Row { main: Some(DESCRIPTION), info: Some(h + 1), ..Row::text(INFO, Kind::Comment, text) };
+                            s.splice(1..1, [self.info_row(l, mk(l.text.clone())), mk(String::new())]);
+                        }
+                        rows.extend(s);
                     }
                     // Claude's proposal: what it changes, line by line (as markdown source).
                     false => {

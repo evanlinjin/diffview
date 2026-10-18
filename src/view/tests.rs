@@ -1238,15 +1238,16 @@ fn replacement_in_the_pr_section() {
     let names: Vec<files::Spot> = app.file_entries().into_iter().map(|e| e.spot).take(2).collect();
     assert_eq!(names, [files::Spot::Section(DESCRIPTION), files::Spot::Section(CLOSING_NOTE)]);
     assert_eq!(app.header_tag(INFO).unwrap().0, " UNPUBLISHED ");
-    // Unpublished: one tab for Claude's comments and yours (the whole diff), then the PR's.
+    // Unpublished: one tab, for Claude's comments and yours (the whole diff); no PR tab, what
+    // it replaces is atop its description.
     let tabs = |app: &App| app.pane_tabs().into_iter().map(|t| t.1).collect::<Vec<_>>();
-    assert_eq!(tabs(&app), [" Claude ", " PR "]);
-    assert_eq!(app.bar(), Bar::Claude);
+    assert_eq!(tabs(&app), [" Claude "]);
     app.cycle_bar(true);
-    assert_eq!(app.bar(), Bar::Pr);
-    app.cycle_bar(true);
-    assert!(app.bar() == Bar::Claude && app.view == View::All);
-    let row = app.rows.iter().find(|r| r.line.text.starts_with("replaces")).unwrap();
+    app.pane_to(Tab::Pr);
+    assert!(app.bar() == Bar::Claude && app.view == View::All && app.pane_tab == Tab::Comments);
+    let replaces = app.rows.iter().position(|r| r.line.text.starts_with("replaces")).unwrap();
+    assert!(app.rows[replaces].main == Some(DESCRIPTION) && replaces < desc && !(0..app.rows.len()).any(|r| app.pr_row(r)));
+    let row = &app.rows[replaces];
     assert_eq!(row.links.iter().map(|l| l.2.as_str()).collect::<Vec<_>>(), ["https://github.com/o/r/pull/12", "https://github.com/o/r/pull/15"]); // each original links to it
     // Space a offers to redraft it.
     app.claude.path = Some(std::env::temp_dir().join("dv-no-such-review.json"));
@@ -1294,6 +1295,8 @@ fn replacement_in_the_pr_section() {
     assert!(items[1].0 == "Close #15 with the closing note (now)…" && matches!(items[1].1, Target::CloseOriginals));
     assert_eq!(app.header_tag(INFO).unwrap().0, " PUBLISHED ");
     assert_eq!(app.pane_tabs().len(), 3); // others comment now
+    let replaces = app.rows.iter().position(|r| r.line.text.starts_with("replaces")).unwrap();
+    assert!(app.pr_row(replaces)); // on the PR tab again
     let row = app.rows.iter().find(|r| r.line.text == "published as PR #20").unwrap();
     assert_eq!(row.links[0].2, "https://github.com/o/r/pull/20"); // the new PR, linked
 }
