@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-10-18
+
 ### Added
 - `dv list` shows Claude at work on a PR from any dv (a review, answers, making the changes,
   started from the PR's view too): on its card, and on the todo tab it goes to the bottom, out of
@@ -421,6 +423,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.8.2]: https://github.com/evanlinjin/diffview/releases/tag/v0.8.2
 [0.8.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.8.1
 [0.8.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.8.0
 [0.7.2]: https://github.com/evanlinjin/diffview/releases/tag/v0.7.2
