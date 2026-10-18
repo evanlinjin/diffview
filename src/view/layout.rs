@@ -70,8 +70,8 @@ impl App {
     /// The tab that's lit: the PR's text, Claude's review (the Claude view), or the comments.
     pub(super) fn bar(&self) -> Bar {
         match (self.pane_tab, self.view) {
-            (Tab::Pr, _) => Bar::Pr,
             (_, View::Claude) => Bar::Claude,
+            (Tab::Pr, _) => Bar::Pr,
             _ => Bar::Comments,
         }
     }
@@ -79,10 +79,10 @@ impl App {
     /// To tab `b` (a click on it, `gn` / `gp`): Claude's is the Claude view, beside its comments;
     /// the comments tab, the whole diff again.
     pub(super) fn bar_to(&mut self, b: Bar) {
+        // Each tab its view: Claude's, the Claude view; the comments' and the PR's, the whole diff.
         let view = match b {
             Bar::Claude => Some(View::Claude),
-            Bar::Comments => Some(View::All),
-            Bar::Pr => None, // the PR's text, whichever view
+            Bar::Comments | Bar::Pr => Some(View::All),
         };
         if let Some(v) = view.filter(|&v| v != self.view) {
             self.toggle_view(if v == View::All { self.view } else { v });

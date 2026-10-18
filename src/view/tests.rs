@@ -2007,13 +2007,18 @@ fn commits_under_the_files() {
     let draw = |app: &mut App| screen(220, 24, |f| app.draw(f));
     let mut app = fixture();
     app.files_pref = Some(true);
-    app.commits = (1..=3).map(|n| files::Commit { sha: format!("{n}{}", "0".repeat(39)), short: format!("c{n}"), subject: format!("commit {n}") }).collect();
+    app.commits = (1..=3).map(|n| files::Commit { sha: format!("{n}{}", "0".repeat(39)), short: format!("c{n}"), signed: true, subject: format!("commit {n}") }).collect();
     let s = draw(&mut app);
     // Under the files: the heading, "all commits" (shown), then each, oldest first.
     let list: Vec<String> = s.lines().map(|l| l.chars().take(app.files_w - 1).collect::<String>().trim_end().to_owned()).collect();
     let at = list.iter().position(|l| l.starts_with(" COMMITS 3")).expect(&s);
     assert_eq!(list[at + 1].trim_start_matches('▌').trim(), "all commits");
     assert!(list[at + 2].contains("c1 commit 1") && list[at + 4].contains("c3 commit 3"), "{list:?}");
+    // An unsigned commit is marked.
+    app.commits[1].signed = false;
+    let s = draw(&mut app);
+    assert!(s.contains("c2 ✗ commit 2"), "{s}");
+    app.commits[1].signed = true;
     // From the code into the list, down past the last file into the commits; Enter on one shows
     // it alone: the diff from its parent (the previous commit) to it.
     app.key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL));
@@ -2182,9 +2187,9 @@ fn claude_tab_is_the_claude_view() {
     assert!(text.iter().any(|t| t.starts_with("Third")), "{text:?}");
     assert!(app.summary_strip(60).iter().all(|row| !row.iter().any(|s| s.content.contains("claude"))));
     app.cycle_bar(true);
-    assert_eq!((app.bar(), app.view), (Bar::Pr, View::Claude));
+    assert_eq!((app.bar(), app.view), (Bar::Pr, View::All)); // the PR's text beside the whole diff
     app.cycle_bar(true);
-    assert_eq!((app.bar(), app.view), (Bar::Comments, View::All)); // the whole diff again
+    assert_eq!((app.bar(), app.view), (Bar::Comments, View::All));
     // A click on a tab does the same.
     app.bar_to(Bar::Claude);
     assert_eq!(app.view, View::Claude);
@@ -2246,7 +2251,7 @@ fn reply_to_claudes_summary() {
 fn key_hints_at_the_bottom_of_the_contents() {
     let mut app = fixture();
     app.files_pref = Some(true);
-    app.commits = (1..=2).map(|n| files::Commit { sha: format!("{n}{}", "0".repeat(39)), short: format!("c{n}"), subject: format!("commit {n}") }).collect();
+    app.commits = (1..=2).map(|n| files::Commit { sha: format!("{n}{}", "0".repeat(39)), short: format!("c{n}"), signed: true, subject: format!("commit {n}") }).collect();
     let list = |app: &mut App| -> Vec<String> {
         let s = screen(220, 30, |f| app.draw(f));
         s.lines().map(|l| l.chars().take(app.files_w - 1).collect::<String>().trim_end().to_owned()).collect()
@@ -2274,7 +2279,7 @@ fn contents_and_commits_scroll_together() {
     // the list's cursor; its heading stays at the top, and the key hints at the bottom.
     let mut app = fixture();
     app.files_pref = Some(true);
-    app.commits = (1..=40).map(|n| files::Commit { sha: format!("{n:040}"), short: format!("c{n}"), subject: format!("commit {n}") }).collect();
+    app.commits = (1..=40).map(|n| files::Commit { sha: format!("{n:040}"), short: format!("c{n}"), signed: true, subject: format!("commit {n}") }).collect();
     let list = |app: &mut App| -> Vec<String> {
         let s = screen(220, 20, |f| app.draw(f));
         s.lines().map(|l| l.chars().take(app.files_w - 1).collect::<String>().trim_end().to_owned()).collect()

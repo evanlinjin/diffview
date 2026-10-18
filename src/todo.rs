@@ -32,6 +32,9 @@ pub enum Need {
     MarkReady,
     /// It conflicts with its base: a rebase is needed (`true`: yours, so yours to do).
     Conflicts(bool),
+    /// This many of its commits aren't signed, and its base requires signed commits: GitHub
+    /// won't take a merge of it (`true`: yours, so yours to sign).
+    Unsigned(usize, bool),
     /// Claude's review has changed since you last looked.
     ClaudeReviewNew,
     /// Claude's comments (this many) you haven't answered or resolved.
@@ -56,6 +59,7 @@ impl Need {
             Need::MarkReady => 63,
             Need::ReadyToMerge => 60,
             Need::Conflicts(_) => 55,
+            Need::Unsigned(..) => 54,
             Need::ClaudeReviewNew => 50,
             Need::ClaudeComments(_) => 40,
             Need::NoReview => 30,
@@ -86,6 +90,8 @@ impl Need {
             Need::ReadyToMerge => "approved, checks green: merge it".into(),
             Need::MarkReady => "your draft, checks green: mark it ready for review (Space g there)".into(),
             Need::Conflicts(true) => "conflicts with its base: rebase it".into(),
+            Need::Unsigned(n, true) => format!("{n} of your commits unsigned, and its base requires signed ones: sign them, force-push"),
+            Need::Unsigned(n, false) => format!("{n} commit{} unsigned, and its base requires signed ones: ask the author to sign them", s(*n)),
             Need::Conflicts(false) => "conflicts with its base: ask for a rebase (b b)".into(),
             Need::ClaudeReviewNew => "Claude's review is new to you".into(),
             Need::ClaudeComments(n) => format!("{n} comment{} from Claude to go through", s(*n)),
@@ -173,6 +179,11 @@ pub fn needs(f: &Facts) -> (Vec<Need>, Option<Task>) {
         });
     }
     let mine = !f.me.is_empty() && pr.author == f.me;
+    // Commits GitHub would refuse on its base: nothing merges until they're signed. (Someone
+    // else's draft isn't up for merging yet.)
+    if let Some(e) = f.extra.filter(|e| e.signatures_required && e.unsigned > 0 && (!pr.draft || mine)) {
+        out.push(Need::Unsigned(e.unsigned, mine));
+    }
     // Your draft, done by the look of it: nothing failing or still running, nothing unpushed.
     if mine && pr.draft && f.unpushed == (0, 0) && pr.checks.is_some_and(|(_, fail, pending)| fail == 0 && pending == 0) {
         out.push(Need::MarkReady);
@@ -663,6 +674,9 @@ mod tests {
             requested,
             mergeable: "MERGEABLE".into(),
             head_oid: head.into(),
+            base: "main".into(),
+            unsigned: 0,
+            signatures_required: false,
         };
         let facts = |p: &'static Listed, e: Option<&'static Extra>, r: Option<&'static crate::claude::Review>| Facts { pr: p, extra: e, me: "me", review: r, looked: Some(LOOKED), review_changed: Some(50), unpushed: (0, 0), head_at: None };
         // Nothing from you, no Claude review: you, and Claude reviews it.
@@ -722,6 +736,16 @@ mod tests {
         let mut f = draft(Some((4, 0, 0)));
         f.unpushed = (1, 0);
         assert!(!needs(&f).0.contains(&Need::MarkReady));
+        // Unsigned commits where its base requires signed ones: nothing merges until they're
+        // signed (yours to sign, or the author's); not required, not a need.
+        let unsigned = |required| {
+            let mut e = extra(None, false, "h");
+            (e.unsigned, e.signatures_required) = (1, required);
+            facts(leak(pr(10, "amy")), Some(leak(e)), None)
+        };
+        assert!(needs(&unsigned(true)).0.contains(&Need::Unsigned(1, false)));
+        assert!(!needs(&unsigned(false)).0.iter().any(|n| matches!(n, Need::Unsigned(..))));
+        assert_eq!(Need::Unsigned(1, false).says(), "1 commit unsigned, and its base requires signed ones: ask the author to sign them");
         // Conflicting with its base: ask for a rebase (or, yours, do it).
         let mut conflicting = extra(None, false, "h");
         conflicting.mergeable = "CONFLICTING".into();

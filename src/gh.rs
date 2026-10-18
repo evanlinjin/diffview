@@ -305,6 +305,10 @@ pub struct Extra {
     /// MERGEABLE, CONFLICTING or UNKNOWN.
     pub mergeable: String,
     pub head_oid: String,
+    pub base: String,
+    /// Its commits without a signature GitHub verifies, and whether its base requires one.
+    pub unsigned: usize,
+    pub signatures_required: bool,
 }
 
 /// You (your login), and `Extra` for the open PRs (the most recently updated, as `list` lists
@@ -317,7 +321,8 @@ pub fn list_extra() -> Result<(String, std::collections::HashMap<u64, Extra>)> {
         let q = format!(
             "query($owner: String!, $name: String!) {{ viewer {{ login }} repository(owner: $owner, name: $name) {{
                pullRequests(states: OPEN, first: 100{from}, orderBy: {{ field: UPDATED_AT, direction: DESC }}) {{ {PAGE} nodes {{
-                 number headRefOid mergeable
+                 number headRefOid mergeable baseRefName
+                 commits(last: 100) {{ nodes {{ commit {{ signature {{ isValid }} }} }} }}
                  reviewRequests(first: 30) {{ nodes {{ requestedReviewer {{ ... on User {{ login }} }} }} }}
                  latestReviews(first: 50) {{ nodes {{ author {{ login }} state commit {{ oid }} }} }}
                  comments(last: 20) {{ nodes {{ author {{ login }} authorAssociation body }} }} }} }} }} }}"
@@ -331,6 +336,11 @@ pub fn list_extra() -> Result<(String, std::collections::HashMap<u64, Extra>)> {
             Some(c) => after = Some(c),
             None => break,
         }
+    }
+    // Whether each base wants signed commits: asked once a base.
+    let mut required = std::collections::HashMap::new();
+    for e in all.values_mut() {
+        e.signatures_required = *required.entry(e.base.clone()).or_insert_with(|| signatures_required(&e.base));
     }
     Ok((me, all))
 }
@@ -350,6 +360,9 @@ fn extra(p: &Value, me: &str) -> Extra {
         requested: nodes("reviewRequests").iter().any(|r| r["requestedReviewer"]["login"] == me),
         mergeable: s(&p["mergeable"]),
         head_oid: s(&p["headRefOid"]),
+        base: s(&p["baseRefName"]),
+        unsigned: nodes("commits").iter().filter(|c| c["commit"]["signature"]["isValid"] != true).count(),
+        signatures_required: false, // per base, after (`list_extra`)
     }
 }
 
@@ -778,13 +791,52 @@ impl InfoLine {
     }
 }
 
+/// PR `n`'s commits (up to its last 100), oldest first: (oid, signed: a signature GitHub
+/// verifies).
+pub fn commit_signatures(n: u64) -> Result<Vec<(String, bool)>> {
+    let q = "query($owner: String!, $name: String!, $n: Int!) { repository(owner: $owner, name: $name) {
+               pullRequest(number: $n) { commits(last: 100) { nodes { commit { oid signature { isValid } } } } } } }";
+    let v: Value = serde_json::from_str(&gh(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-F", &format!("n={n}"), "-f", &format!("query={q}")])?)?;
+    let nodes = v["data"]["repository"]["pullRequest"]["commits"]["nodes"].as_array().context("gh api graphql: commits")?;
+    Ok(nodes.iter().map(|c| (c["commit"]["oid"].as_str().unwrap_or("").to_owned(), c["commit"]["signature"]["isValid"] == true)).collect())
+}
+
+/// Whether the repo's rules make commits on branch `base` carry verified signatures (GitHub
+/// refuses a push of unsigned ones then). `false` if that can't be told.
+pub fn signatures_required(base: &str) -> bool {
+    let Ok(out) = gh(&["api", &format!("repos/{{owner}}/{{repo}}/rules/branches/{base}")]) else { return false };
+    let rules: Value = serde_json::from_str(&out).unwrap_or_default();
+    rules.as_array().is_some_and(|r| r.iter().any(|r| r["type"] == "required_signatures"))
+}
+
+/// Why PR `n` can't be merged as it is, if it can't: commits GitHub would refuse, unsigned
+/// where its base requires signatures.
+pub fn unsigned_blocking(n: u64) -> Result<Option<String>> {
+    let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", "baseRefName"])?)?;
+    let base = v["baseRefName"].as_str().unwrap_or("").to_owned();
+    if !signatures_required(&base) {
+        return Ok(None);
+    }
+    let unsigned: Vec<String> = commit_signatures(n)?.into_iter().filter(|c| !c.1).map(|c| c.0.chars().take(8).collect()).collect();
+    Ok((!unsigned.is_empty()).then(|| {
+        format!("{} of #{n}'s commits aren't signed ({}), and {base} requires signed commits: GitHub would refuse the push; ask the author to sign them", unsigned.len(), unsigned.join(", "))
+    }))
+}
+
 const INFO_FIELDS: &str = "headRefOid,title,author,state,isDraft,url,baseRefName,headRefName,additions,deletions,\
 changedFiles,labels,reviewDecision,reviewRequests,latestReviews,statusCheckRollup,body,comments,reviews";
 
 /// PR info lines, plus the current (title, head commit, url) so a refresh picks up new pushes.
 /// GitHub's answer, as JSON (dv caches it; `parse_info` reads it).
 pub fn info_json(n: u64) -> Result<Value> {
-    Ok(serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", INFO_FIELDS])?)?)
+    let mut v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", INFO_FIELDS])?)?;
+    // Whether its commits are signed, and whether its base wants them to be (`gh pr view` says
+    // neither): with the rest, so the cache has them too.
+    if let Ok(c) = commit_signatures(n) {
+        v["dvCommits"] = c.into_iter().map(|(oid, signed)| json!({ "oid": oid, "signed": signed })).collect();
+        v["dvSignaturesRequired"] = signatures_required(v["baseRefName"].as_str().unwrap_or("")).into();
+    }
+    Ok(v)
 }
 
 /// The PR section's lines, and its title, head, URL and state.
@@ -897,6 +949,23 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
             };
             out.push(l);
         }
+    }
+
+    // Its commits signed, or which aren't (and whether its base requires them to be).
+    if let Some(cs) = v["dvCommits"].as_array().filter(|c| !c.is_empty()) {
+        let unsigned: Vec<String> = cs.iter().filter(|c| c["signed"] != true).map(|c| s(&c["oid"]).chars().take(8).collect()).collect();
+        let required = v["dvSignaturesRequired"] == true;
+        let mut l = InfoLine::new(false, false);
+        l.put("commits: ", None);
+        match unsigned.len() {
+            0 => l.put(&format!("✓ {} signed", if cs.len() == 1 { "1".to_owned() } else { format!("all {}", cs.len()) }), Some(Mark::Pass)),
+            k => l.put(&format!("✗ {k} of {} unsigned: {}", cs.len(), unsigned.join(", ")), Some(if required { Mark::Fail } else { Mark::Pending })),
+        };
+        if required {
+            let st = if unsigned.is_empty() { Mark::Dim } else { Mark::Fail };
+            l.put(" · ", None).put(&format!("{} requires signed commits", s(&v["baseRefName"])), Some(st));
+        }
+        out.push(l);
     }
 
     let heading = |t: String| {
@@ -1104,4 +1173,17 @@ fn reviews_in_the_conversation() {
     // Each its own link (what `a` keeps a question about it by): not the PR's, nor another's.
     let urls: Vec<&str> = lines[lines.len() - 6..].iter().step_by(2).map(|l| l.url.as_str()).collect();
     assert_eq!(urls, ["c1", "https://github.com/o/r/pull/1#review-R2", "https://github.com/o/r/pull/1#review-R3"]);
+}
+
+#[test]
+fn signed_commits_in_the_pr_info() {
+    let v = |commits: Value, required: bool| {
+        let v = json!({ "baseRefName": "master", "dvCommits": commits, "dvSignaturesRequired": required });
+        info_lines(&v).into_iter().map(|l| l.text).find(|t| t.starts_with("commits: "))
+    };
+    let both = json!([{ "oid": "aaaaaaaa11", "signed": true }, { "oid": "eb35a46622", "signed": false }]);
+    assert_eq!(v(both.clone(), true).unwrap(), "commits: ✗ 1 of 2 unsigned: eb35a466 · master requires signed commits");
+    assert_eq!(v(both, false).unwrap(), "commits: ✗ 1 of 2 unsigned: eb35a466");
+    assert_eq!(v(json!([{ "oid": "a", "signed": true }, { "oid": "b", "signed": true }]), false).unwrap(), "commits: ✓ all 2 signed");
+    assert_eq!(v(json!([]), false), None); // not known (an older cache): nothing said
 }

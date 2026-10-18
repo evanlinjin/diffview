@@ -15,6 +15,8 @@ pub(super) struct Commit {
     pub(super) sha: String,
     pub(super) short: String,
     pub(super) subject: String,
+    /// It carries a signature (git's `%G?` isn't `N`; GitHub's PR info says whether it verifies).
+    pub(super) signed: bool,
 }
 
 /// What a line of the scrolling list is, for clicks: an entry (a file or a section), commit row
@@ -240,11 +242,14 @@ impl App {
                 0 => (String::new(), "all commits".to_owned()),
                 r => (format!("{} ", self.commits[r - 1].short), self.commits[r - 1].subject.clone()),
             };
-            let text = cut(&text, w.saturating_sub(2 + hash.chars().count()));
-            let pad = w.saturating_sub(2 + hash.chars().count() + text.chars().count());
+            // An unsigned commit: marked (a repo may refuse it on its base).
+            let unsigned = if r > 0 && !self.commits[r - 1].signed { "✗ " } else { "" };
+            let text = cut(&text, w.saturating_sub(2 + hash.chars().count() + unsigned.chars().count()));
+            let pad = w.saturating_sub(2 + hash.chars().count() + unsigned.chars().count() + text.chars().count());
             let line = Line::from(vec![
                 Span::styled(if on || shown(r) { "▌ " } else { "  " }, row.patch(Style { fg: ui.key.fg, ..Style::new() })),
                 Span::styled(hash, row.patch(Style { fg: ui.stale.fg, ..Style::new() })),
+                Span::styled(unsigned, row.patch(Style { fg: ui.error.fg, ..Style::new() })),
                 Span::styled(text, if shown(r) { row.add_modifier(ratatui::style::Modifier::BOLD) } else { row }),
                 Span::styled(" ".repeat(pad), row),
             ]);
@@ -275,12 +280,13 @@ impl App {
     /// The PR's commits as checked out (first parents: the branch's own line), oldest first.
     pub(super) fn load_commits(&mut self) {
         let range = format!("{}..HEAD", self.full_base);
-        let Ok(out) = diff::git(&["log", "--reverse", "--first-parent", "--format=%H%x09%h%x09%s", &range]) else { return };
+        let Ok(out) = diff::git(&["log", "--reverse", "--first-parent", "--format=%H%x09%h%x09%G?%x09%s", &range]) else { return };
         self.commits = out
             .lines()
             .filter_map(|l| {
-                let mut p = l.splitn(3, '\t');
-                Some(Commit { sha: p.next()?.into(), short: p.next()?.into(), subject: p.next().unwrap_or("").into() })
+                let mut p = l.splitn(4, '\t');
+                let (sha, short, sig) = (p.next()?, p.next()?, p.next()?);
+                Some(Commit { sha: sha.into(), short: short.into(), signed: sig != "N", subject: p.next().unwrap_or("").into() })
             })
             .collect();
         let n = self.commits.len();
