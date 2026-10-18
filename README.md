@@ -42,8 +42,8 @@ dv 2258 -w        # review it in a worktree next to the repo: ../<repo>-2258 (no
 dv 2258 -wb       # same, on the PR's branch, so you can push to the PR
 dv 2258 --rm      # remove that worktree (-f to discard local changes)
 dv list -w        # pick from the open PRs; Enter reviews one (here: in a worktree), q comes back;
-                  # its todo tab is what needs you, ranked by Claude with why and what next
-                  # (Claude reviewing, updating or answering on the top ones first);
+                  # its todo tab is what needs you, ranked by Claude (r r, when you ask) with
+                  # why and what next; a a there has Claude answer, update or review;
                   # Tab lists the PRs you have worktrees for (D D removes one);
                   # m marks PRs and a a has Claude review them in the background
                   # (your editor opens first, for instructions to all of them; your last

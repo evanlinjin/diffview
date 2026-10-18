@@ -206,12 +206,15 @@ PRs, not drafts), else activity since you looked. It orders them by the most pre
 then the longest waiting; then Claude (one read-only `claude -p`, `gh pr view/diff` only, the repo's
 notes in its prompt) puts them in order with a few words on each ("why — what next", the card's
 third line), saved in dv's directory (`todo.json`) with what it ranked. Items it didn't rank (new,
-or changed) go before the first ranked one that needs you less; the header says when the ranking
-is stale. Claude ranks on `R` there, and by itself when you open the tab and its last ranking is
-missing or over 12 hours old. After a ranking, Claude does its own part on the top three that have
-one, as `a a` runs it (worktree, session): answers your replies waiting on it, updates a review
-behind the PR's head, or reviews one that has none. Enter opens the PR (a replacement, in its
-worktree); back in the list, what you saw to drops off.
+or changed) go before the first ranked one that needs you less, their cards saying "since Claude
+ranked". Claude ranks only when you ask, as it costs a run: `r r` there (`R` refreshes from GitHub
+alone). To judge whether that's worth it, the header says how old the last ranking is, what it
+cost (Claude Code's reported cost, kept with it), and what's changed since (new, changed, seen to),
+and the first `r` says the same. Nothing else starts by itself: a card says what Claude could do
+there (answer your replies waiting on it, update a review behind the PR's head, or review one
+that has none), and `a a` on it (or marked ones) does that, as it runs reviews (worktree,
+session). Enter opens the PR (a replacement, in its worktree); back in the list, what you saw to
+drops off.
 
 Merging: `M M` on a PR in `dv list`, or `Space g` → merge in its review (which ends the review
 first), runs Bitcoin Core's `github-merge.py` (`merge.rs`). dv builds the script in

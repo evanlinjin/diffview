@@ -39,6 +39,15 @@ impl Task {
         }
     }
 
+    /// For a card, before it's asked: "could review", "could update its review", "could answer you".
+    pub fn could(&self) -> &'static str {
+        match self {
+            Task::Review => "could review",
+            Task::Update(_) => "could update its review",
+            Task::Answer { .. } => "could answer you",
+        }
+    }
+
     fn prompt(&self, n: u64) -> String {
         let what = format!("PR #{n}");
         match self {

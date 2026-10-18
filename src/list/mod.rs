@@ -36,8 +36,9 @@ const HELP: &str = "\
                        On todo: a PR or replacement waiting on you (Claude's review or answers,
                        your review requested or none yet, pushed since you reviewed, ready to
                        merge, a replacement to publish or close for), in the order Claude puts
-                       them, with why and what next; Claude first does its part on the top
-                       three (a review, an update to one, answers to your replies)
+                       them (once you have it rank them: r r), with why and what next; a a
+                       there has Claude do its part on one (answer your replies, update its
+                       review, or review it)
   Enter                review the PR (with dv list's flags; from the worktrees tab, in its
                        worktree as it was made); q there comes back here
   /                    filter (Enter keeps it, Esc clears it); terms must all match:
@@ -62,8 +63,9 @@ const HELP: &str = "\
                        in a zellij pane of its own, or in this terminal
   D D                  worktrees tab: remove the PR's worktree (not with local changes in it;
                        its branch stays); replacements tab: remove the replacement (the same)
-  R                    refresh (on todo: and Claude ranks it again; it does by itself when
-                       its last ranking is over 12 hours old)
+  R                    refresh (from GitHub; no Claude)
+  r r                  todo: Claude ranks what needs you (one Claude run: the header says what
+                       the last cost and what's changed since, to judge if it's worth it)
   ?                    this help
   q, Ctrl-c            quit";
 
@@ -119,7 +121,7 @@ pub struct List {
     extra: HashMap<u64, gh::Extra>,
     extra_rx: Option<Receiver<Extras>>,
     todo: Vec<crate::todo::Item>,
-    todo_stale: bool,
+    since: crate::todo::Since,
     ranked: Option<crate::todo::Ranked>,
     rank_rx: Option<Receiver<Result<crate::todo::Ranked>>>,
     /// Rank (again) once what's needed is in (`R` on the todo tab).
@@ -185,7 +187,7 @@ impl List {
             extra: HashMap::new(),
             extra_rx: None,
             todo: vec![],
-            todo_stale: true,
+            since: Default::default(),
             ranked: crate::todo::load(),
             rank_rx: None,
             want_rank: false,
@@ -269,9 +271,6 @@ impl List {
                 }
                 Some(Do::Refresh) => {
                     self.refresh(term)?;
-                    if self.tab == Tab::Todo {
-                        self.want_rank = true; // and Claude ranks it afresh, once GitHub's part is in
-                    }
                 }
                 Some(Do::Review(prs)) => {
                     // Instructions for every one of these reviews, if you have any. In zellij the
@@ -280,9 +279,12 @@ impl List {
                     let what = format!("instructions for Claude's reviews of {which} (optional)");
                     let Some(extra) = self.instructions(term, "review", &what) else { continue };
                     let on_branch = |n| self.local.get(&n).is_some_and(|w| w.1.is_some());
-                    let prs: Vec<(u64, bool, batch::Task)> = prs.into_iter().map(|n| (n, on_branch(n), batch::Task::Review)).collect();
+                    // From the todo tab, what's due on each (answers, an update, a review).
+                    let task = |n| if self.tab == Tab::Todo { self.todo_task(n) } else { batch::Task::Review };
+                    let prs: Vec<(u64, bool, batch::Task)> = prs.into_iter().map(|n| (n, on_branch(n), task(n))).collect();
                     let with = if extra.is_empty() { "" } else { ", with your instructions" };
-                    self.msg = format!("Claude is reviewing {} PR(s){with}, {} at a time", prs.len(), batch::AT_ONCE);
+                    let doing: Vec<String> = prs.iter().map(|(n, _, t)| format!("{} #{n}", t.doing())).collect();
+                    self.msg = format!("Claude is {}{with}, {} at a time", doing.join(", "), batch::AT_ONCE);
                     self.marked.clear();
                     prs.iter().for_each(|(n, _, t)| _ = self.batch_task.insert(*n, t.clone()));
                     self.batch_rx.push(batch::start(prs, self.root.clone(), extra));
@@ -633,6 +635,17 @@ impl List {
                 self.msg = format!("D again removes {} (its branch stays); any other key keeps it", dir.display());
                 self.confirm = Some(('D', p));
             }
+            KeyCode::Char('r') if self.tab == Tab::Todo => {
+                if self.rank_rx.is_some() {
+                    return (self.msg = "Claude is ranking already".into(), None).1;
+                }
+                if armed == Some(('r', 0)) {
+                    self.rank_now();
+                    return None;
+                }
+                self.msg = self.rank_offer();
+                self.confirm = Some(('r', 0));
+            }
             KeyCode::Char('M') if self.tab != Tab::Replacements => {
                 let p = self.shown().get(self.sel).map(|p| p.number)?;
                 if armed == Some(('M', p)) {
@@ -666,8 +679,11 @@ impl List {
                 if armed == Some(('a', 0)) {
                     return Some(Do::Review(prs));
                 }
-                let which = prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(" ");
-                self.msg = format!("a again: Claude reviews {which} in the background, each in its worktree (<repo>-N); your editor opens first, for any instructions");
+                let which = match self.tab {
+                    Tab::Todo => prs.iter().map(|&n| format!("{} #{n}", self.todo_task(n).doing())).collect::<Vec<_>>().join(", "),
+                    _ => format!("reviews {}", prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(" ")),
+                };
+                self.msg = format!("a again: Claude {which} in the background, each in its worktree (<repo>-N); your editor opens first, for any instructions");
                 self.confirm = Some(('a', 0));
             }
             KeyCode::Char('A') => {
@@ -695,9 +711,7 @@ impl List {
             KeyCode::Tab | KeyCode::BackTab => {
                 let tab = if k.code == KeyCode::Tab { self.tab.next() } else { self.tab.prev() };
                 (self.tab, self.sel, self.top) = (tab, 0, 0);
-                if tab == Tab::Todo {
-                    self.maybe_rank(false); // if the last ranking is old (or there's none)
-                }
+
             }
             KeyCode::Char('/') => self.filtering = true, // edits the current filter
             KeyCode::Char('o') => self.sort(self.order.next(), self.rev),
@@ -765,11 +779,11 @@ impl List {
         // Tabs: the current one bold, with counts.
         let open = self.prs.iter().filter(|p| p.state == "OPEN" || p.state.is_empty()).count();
         let tab = |name: String, on: bool| Span::styled(name, if on { hs.add_modifier(ratatui::style::Modifier::BOLD | ratatui::style::Modifier::UNDERLINED) } else { hs.patch(ui.stale) });
-        let ranking = match (&self.rank_rx, &self.ranked, self.todo_stale) {
-            (Some(_), ..) => "Claude is ranking…".to_owned(),
-            (None, Some(r), false) => format!("ranked by Claude {} ago  (R re-ranks)", ago_secs(crate::claude::now_secs() - r.at)),
-            (None, Some(_), true) => "changed since Claude ranked it  (R re-ranks)".to_owned(),
-            (None, None, _) => "not ranked by Claude yet  (R ranks)".to_owned(),
+        // What you'd judge a ranking by: how old the last is, what it cost, what's changed since.
+        let ranking = match (&self.rank_rx, &self.ranked) {
+            (Some(_), _) => "Claude is ranking…".to_owned(),
+            (None, Some(r)) => format!("ranked by Claude {} ago ({}){}  · r r ranks again", ago_secs(crate::claude::now_secs() - r.at), todo::cost_text(r.cost), self.since_text()),
+            (None, None) => "in the rules' order  · r r has Claude rank it (one run)".to_owned(),
         };
         let rest = match self.tab {
             Tab::Todo => format!("   {ranking}"),
@@ -817,7 +831,16 @@ impl List {
                         });
                         Mark { marked: false, claude: self.draft_state(p.number, "claude"), new: false, replaces }
                     }
-                    false => Mark { marked: self.marked.contains(&p.number), claude: self.claude_state(p.number), new: self.new.contains(&p.number), replaces: None },
+                    false => {
+                        // On the todo tab, what Claude could do there (`a a`), when it isn't at it.
+                        let could = item.and_then(|it| it.claude.as_ref()).filter(|_| !self.batch.get(&p.number).is_some_and(batch::Status::running)).map(batch::Task::could);
+                        let claude = match (self.claude_state(p.number), could) {
+                            (Some((s, ok)), Some(c)) => Some((format!("{s} · {c}"), ok)),
+                            (None, Some(c)) => Some((format!("claude {c}"), true)),
+                            (s, None) => s,
+                        };
+                        Mark { marked: self.marked.contains(&p.number), claude, new: self.new.contains(&p.number), replaces: None }
+                    }
                 };
                 let local = if rep_card { None } else { self.local.get(&p.number) };
                 let mut lines = card(p, &cx, i == sel, local, mark);
@@ -872,9 +895,10 @@ impl List {
                 ("Tab", tab),
                 ("/", "filter"),
                 ("o O", "sort / reverse"),
-                ("R", if self.tab == Tab::Todo { "refresh, and Claude re-ranks" } else { "refresh" }),
+                ("R", "refresh (from GitHub)"),
+                ("r r", "Claude ranks what needs you (a run)"),
                 ("m", "mark"),
-                ("a a", "Claude reviews marked"),
+                ("a a", if self.tab == Tab::Todo { "Claude does its part (marked)" } else { "Claude reviews marked" }),
                 ("A A", "Claude drafts a replacement"),
                 ("M M", "merge (github-merge.py)"),
                 ("D D", remove),
@@ -887,6 +911,7 @@ impl List {
                 .filter(|(k, _)| match *k {
                     "D D" => !matches!(self.tab, Tab::Open | Tab::Todo),
                     "o O" => self.tab != Tab::Todo, // in the order of what needs you
+                    "r r" => self.tab == Tab::Todo,
                     "m" | "a a" | "A A" | "M M" => !reps,
                     _ => true,
                 })

@@ -3,12 +3,6 @@
 use super::*;
 use crate::todo::{self, Facts, Item};
 
-/// How many of the top items Claude does its part on (each a Claude run), after a ranking.
-const TODO_CLAUDE: usize = 3;
-
-/// A ranking older than this is redone when you open the tab.
-const RANK_EVERY: i64 = 12 * 3600;
-
 impl List {
     /// What needs you, from what's known now, in Claude's order (where it ranked them).
     pub(super) fn find_todo(&mut self) {
@@ -26,17 +20,17 @@ impl List {
             let facts = Facts { pr: p, extra: self.extra.get(&p.number), me: &self.me, review: review.as_ref(), looked, review_changed: file.and_then(secs) };
             let (needs, claude) = todo::needs(&facts);
             if !needs.is_empty() {
-                items.push(Item { rep: false, number: p.number, needs, claude, updated: p.updated.clone(), reason: None });
+                items.push(Item { rep: false, number: p.number, needs, claude, updated: p.updated.clone(), reason: None, changed: false });
             }
         }
         for r in self.rep_of.values() {
             let needs = todo::rep_needs(r);
             let updated = self.reps.iter().find(|c| c.number == r.id).map_or(String::new(), |c| c.updated.clone());
             if !needs.is_empty() {
-                items.push(Item { rep: true, number: r.id, needs, claude: None, updated, reason: None });
+                items.push(Item { rep: true, number: r.id, needs, claude: None, updated, reason: None, changed: false });
             }
         }
-        (self.todo, self.todo_stale) = todo::order(items, self.ranked.as_ref());
+        (self.todo, self.since) = todo::order(items, self.ranked.as_ref());
     }
 
     /// The todo tab's items with their cards (a PR's, or a replacement's).
@@ -50,15 +44,15 @@ impl List {
             .collect()
     }
 
-    /// Have Claude rank what needs you, if it's due (`R` on the tab, or the ranking is old or
-    /// missing when you open it) and what's needed is in (GitHub's part).
-    pub(super) fn maybe_rank(&mut self, force: bool) {
-        let old = self.ranked.as_ref().is_none_or(|r| crate::claude::now_secs() - r.at > RANK_EVERY);
-        if self.rank_rx.is_some() || self.todo.is_empty() || !(force || old) {
+    /// Have Claude rank what needs you (`r r`: a Claude run, so only when you ask), once what's
+    /// needed is in (GitHub's part).
+    pub(super) fn rank_now(&mut self) {
+        if self.rank_rx.is_some() || self.todo.is_empty() {
             return;
         }
         if self.extra_rx.is_some() || self.checks.is_some() {
-            return self.want_rank = true; // once they're in
+            self.msg = "Claude ranks what needs you once GitHub's part is in…".into();
+            return self.want_rank = true;
         }
         self.want_rank = false;
         let lines: Vec<String> = self
@@ -76,8 +70,29 @@ impl List {
         self.msg = format!("Claude is ranking the {} PR(s) that need you…", self.todo.len());
     }
 
-    /// News from the background: GitHub's part (then what needs you again), and a ranking
-    /// (then Claude starts on its part of the top items).
+    /// What `r` says before `r` again ranks: what it'd cost, and what's changed since the last
+    /// ranking, to judge whether it's worth it.
+    pub(super) fn rank_offer(&self) -> String {
+        let last = match &self.ranked {
+            Some(r) => format!("the last, {} ago, {}", ago_secs(crate::claude::now_secs() - r.at), cost_text(r.cost)),
+            None => "never ranked before".into(),
+        };
+        let since = self.since_text();
+        format!("r again: Claude ranks the {} PR(s) that need you, one run ({last}{since}); nothing else starts", self.todo.len())
+    }
+
+    /// What's changed since the last ranking, for the header and `r`: ", since: 3 new, 1 changed, 2 seen to".
+    pub(super) fn since_text(&self) -> String {
+        let s = self.since;
+        let parts: Vec<String> = [(s.new, "new"), (s.changed, "changed"), (s.gone, "seen to")].iter().filter(|p| p.0 > 0).map(|(n, w)| format!("{n} {w}")).collect();
+        match (self.ranked.is_some(), parts.is_empty()) {
+            (false, _) => String::new(),
+            (true, true) => "; nothing's changed since".into(),
+            (true, false) => format!("; since: {}", parts.join(", ")),
+        }
+    }
+
+    /// News from the background: GitHub's part (then what needs you again), and a ranking.
     pub(super) fn todo_news(&mut self) {
         if let Some(Ok(res)) = self.extra_rx.as_ref().map(Receiver::try_recv) {
             self.extra_rx = None;
@@ -88,39 +103,30 @@ impl List {
             self.find_todo();
         }
         if self.want_rank {
-            self.maybe_rank(true);
+            self.rank_now();
         }
         let Some(Ok(res)) = self.rank_rx.as_ref().map(Receiver::try_recv) else { return };
         self.rank_rx = None;
         match res {
             Ok(r) => {
+                let cost = r.cost;
                 self.ranked = Some(r);
                 self.find_todo();
-                self.msg = format!("Claude ranked what needs you{}", self.queue_claude());
+                self.msg = format!("Claude ranked what needs you (${cost:.2}); a a on one has Claude do its part there");
             }
-            Err(e) => self.msg = format!("ranking: {e:#} (R tries again)"),
+            Err(e) => self.msg = format!("ranking: {e:#} (r r tries again)"),
         }
     }
 
-    /// Claude's part on the top items: a review, an update to one, answers to your replies.
-    /// Returns what to add to the message.
-    fn queue_claude(&mut self) -> String {
-        let busy = |n: &u64| self.batch.get(n).is_some_and(batch::Status::running);
-        let jobs: Vec<(u64, bool, batch::Task)> = self
-            .todo
-            .iter()
-            .filter(|it| !it.rep && !busy(&it.number))
-            .filter_map(|it| Some((it.number, self.local.get(&it.number).is_some_and(|w| w.1.is_some()), it.claude.clone()?)))
-            .take(TODO_CLAUDE)
-            .collect();
-        if jobs.is_empty() {
-            return String::new();
-        }
-        let what: Vec<String> = jobs.iter().map(|(n, _, t)| format!("{} #{n}", t.doing())).collect();
-        jobs.iter().for_each(|(n, _, t)| _ = self.batch_task.insert(*n, t.clone()));
-        self.batch_rx.push(batch::start(jobs, self.root.clone(), crate::claude::instructions("review")));
-        format!("; Claude is {} first", what.join(", "))
+    /// What Claude would do on PR `n` from the todo tab (`a a`): what's due there, else review.
+    pub(super) fn todo_task(&self, n: u64) -> batch::Task {
+        self.todo.iter().find(|it| !it.rep && it.number == n).and_then(|it| it.claude.clone()).unwrap_or(batch::Task::Review)
     }
+}
+
+/// A ranking's cost: "cost $0.38" (one from before dv kept it: not recorded).
+pub(super) fn cost_text(c: f64) -> String {
+    if c > 0.0 { format!("cost ${c:.2}") } else { "cost not recorded".into() }
 }
 
 /// `s` seconds as "40s", "3m", "2h", "5d".

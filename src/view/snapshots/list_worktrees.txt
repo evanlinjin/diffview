@@ -3,6 +3,6 @@
  no PR worktrees here yet: `dv N -w` (or dv list -w, then Enter Tab   replacements
                                                                 /     filter
                                                                 o O   sort / reverse
-                                                                R     refresh
+                                                                R     refresh (from GitHub)
                                                                 m     mark
 

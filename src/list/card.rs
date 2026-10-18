@@ -255,7 +255,9 @@ pub(super) fn todo_line(rank: usize, it: &crate::todo::Item, cx: &Cards, selecte
     let bar = Span::styled(if selected { "▌" } else { " " }, st);
     // Its place in the number's column, the arrow under the title.
     let lead = format!(" {:>w$}  → ", format!("{rank}."), w = cx.num_w);
-    let says = cut(&it.says(), cx.width.saturating_sub(lead.chars().count() + 1));
+    // Placed by the rules since Claude ranked (new, or its needs changed): said so.
+    let says = if it.changed { format!("{}  (since Claude ranked)", it.says()) } else { it.says() };
+    let says = cut(&says, cx.width.saturating_sub(lead.chars().count() + 1));
     let pad = cx.width.saturating_sub(1 + lead.chars().count() + says.chars().count());
     Line::from(vec![bar, Span::styled(lead, st), Span::styled(says, st), Span::styled(" ".repeat(pad), row)]).style(row)
 }

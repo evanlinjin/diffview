@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Changed
+- The todo tab spends nothing without asking: Claude ranks only on `r r` (`R` refreshes from
+  GitHub alone; opening the tab doesn't rank), and starts nothing after a ranking. To judge whether
+  a ranking is worth it, the header and the first `r` say how old the last one is, what it cost,
+  and what's changed since (new, changed, seen to); cards placed since say so. A card says what
+  Claude could do there (answer you, update its review, review it), and `a a` does that.
+
 ## [0.7.2] - 2026-10-18
 
 ### Changed

@@ -262,9 +262,25 @@ fn todo_tab() {
     assert!(l.todo.iter().all(|it| (it.number == 3) == it.claude.is_none()));
     // Claude's ranking: its order and words, kept while nothing's changed.
     let fp = crate::todo::fingerprint(&l.todo);
-    l.ranked = Some(crate::todo::Ranked { at: crate::claude::now_secs(), fingerprint: fp, items: vec![("pr-1".into(), "a fee bug — review it".into()), ("pr-3".into(), "y".into()), ("pr-2".into(), "z".into())] });
+    // Nothing ranks by itself: not opening the tab, not R (only r r, twice).
+    assert!(l.rank_rx.is_none());
+    let k = |l: &mut List, c| l.key(KeyEvent::new(c, KeyModifiers::NONE));
+    k(&mut l, KeyCode::Char('r'));
+    assert!(l.rank_rx.is_none() && l.msg.starts_with("r again: Claude ranks the 3 PR(s) that need you, one run (never ranked before)"), "{}", l.msg);
+    k(&mut l, KeyCode::Char('j')); // anything else calls it off
+    assert!(l.confirm.is_none());
+    l.ranked = Some(crate::todo::Ranked { at: crate::claude::now_secs(), cost: 0.38, fingerprint: fp, items: vec![("pr-1".into(), "a fee bug — review it".into()), ("pr-3".into(), "y".into()), ("pr-2".into(), "z".into())] });
     l.find_todo();
-    assert_eq!((shown(&l), l.todo_stale), (vec![1, 3, 2], false));
+    assert_eq!((shown(&l), l.since), (vec![1, 3, 2], crate::todo::Since::default()));
+    assert!(l.since_text().contains("nothing's changed since"));
+    // A new one since: counted, and said on its card.
+    l.prs.push(pr(4, "New", "cy"));
+    l.extra.insert(4, extra(true));
+    l.find_todo();
+    assert_eq!(l.since.new, 1);
+    assert!(l.rank_offer().contains("cost $0.38; since: 1 new"), "{}", l.rank_offer());
+    l.prs.pop();
+    l.find_todo();
     snapshot("list_todo", &screen(100, 12, |f| l.draw(f)));
     let _ = std::fs::remove_dir_all(&dir);
 }

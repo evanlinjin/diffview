@@ -81,6 +81,8 @@ pub struct Item {
     pub updated: String,
     /// Claude's word on it, from the last ranking: why it's where it is, and what to do.
     pub reason: Option<String>,
+    /// New, or its needs changed, since that ranking: placed by the rules, not Claude.
+    pub changed: bool,
 }
 
 impl Item {
@@ -185,6 +187,8 @@ pub fn rule_order(items: &mut [Item]) {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Ranked {
     pub at: i64,
+    /// What it cost (dollars, as Claude Code reports it).
+    pub cost: f64,
     pub fingerprint: String,
     /// (key, "reason — next"), in order.
     pub items: Vec<(String, String)>,
@@ -197,11 +201,31 @@ pub fn fingerprint(items: &[Item]) -> String {
     keys.join(";")
 }
 
-/// `items` in Claude's order (with its word on each) where it ranked them; the others in the
-/// rules' order, each placed before the first ranked one that needs you less. Also: whether the
-/// ranking is missing or stale.
-pub fn order(mut items: Vec<Item>, ranked: Option<&Ranked>) -> (Vec<Item>, bool) {
-    let stale = ranked.is_none_or(|r| r.fingerprint != fingerprint(&items));
+/// What's changed since a ranking, for judging whether another is worth its cost: items new to
+/// the list, items whose needs changed, items no longer on it (seen to).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Since {
+    pub new: usize,
+    pub changed: usize,
+    pub gone: usize,
+}
+
+/// `items` in Claude's order (with its word on each) where it ranked them as they are; the
+/// others (new, or changed since: `Item::changed`) in the rules' order, each placed before the
+/// first ranked one that needs you less. Also what's changed since the ranking.
+pub fn order(mut items: Vec<Item>, ranked: Option<&Ranked>) -> (Vec<Item>, Since) {
+    // The ranking's items and their needs then, from its fingerprint.
+    let fp = ranked.map_or("", |r| r.fingerprint.as_str());
+    let then: std::collections::HashMap<&str, &str> = fp.split(';').filter_map(|e| e.split_once(':')).collect();
+    let now = |it: &Item| it.needs.iter().map(|n| n.weight().to_string()).collect::<Vec<_>>().join(",");
+    let mut since = Since { gone: then.keys().filter(|k| !items.iter().any(|it| it.key() == **k)).count(), ..Since::default() };
+    for it in items.iter_mut().filter(|_| ranked.is_some()) {
+        match then.get(it.key().as_str()) {
+            None => (it.changed, since.new) = (true, since.new + 1),
+            Some(n) if *n != now(it) => (it.changed, since.changed) = (true, since.changed + 1),
+            Some(_) => {}
+        }
+    }
     let mut out = vec![];
     for (key, word) in ranked.map_or(&[][..], |r| r.items.as_slice()) {
         if let Some(i) = items.iter().position(|it| &it.key() == key) {
@@ -215,7 +239,7 @@ pub fn order(mut items: Vec<Item>, ranked: Option<&Ranked>) -> (Vec<Item>, bool)
         let at = out.iter().position(|o: &Item| o.top() < it.top()).unwrap_or(out.len());
         out.insert(at, it);
     }
-    (out, stale)
+    (out, since)
 }
 
 fn path() -> Option<std::path::PathBuf> {
@@ -226,14 +250,14 @@ fn path() -> Option<std::path::PathBuf> {
 pub fn load() -> Option<Ranked> {
     let v: Value = serde_json::from_str(&std::fs::read_to_string(path()?).ok()?).ok()?;
     let items = v["items"].as_array()?.iter().map(|i| (i["key"].as_str().unwrap_or("").to_owned(), i["says"].as_str().unwrap_or("").to_owned())).collect();
-    Some(Ranked { at: v["at"].as_i64().unwrap_or(0), fingerprint: v["fingerprint"].as_str().unwrap_or("").to_owned(), items })
+    Some(Ranked { at: v["at"].as_i64().unwrap_or(0), cost: v["cost"].as_f64().unwrap_or(0.0), fingerprint: v["fingerprint"].as_str().unwrap_or("").to_owned(), items })
 }
 
 fn save(r: &Ranked) -> Result<()> {
     let items: Vec<Value> = r.items.iter().map(|(k, s)| json!({ "key": k, "says": s })).collect();
     let p = path().context("no dv directory")?;
     std::fs::create_dir_all(p.parent().unwrap_or(&p))?;
-    Ok(std::fs::write(p, json!({ "at": r.at, "fingerprint": r.fingerprint, "items": items }).to_string())?)
+    Ok(std::fs::write(p, json!({ "at": r.at, "cost": r.cost, "fingerprint": r.fingerprint, "items": items }).to_string())?)
 }
 
 /// A line about item `it` for Claude's ranking: what it is and what it needs.
@@ -262,10 +286,7 @@ pub fn about(it: &Item, pr: &Listed, summary: &str) -> String {
 pub fn rank(lines: Vec<String>, fingerprint: String, root: std::path::PathBuf) -> Receiver<Result<Ranked>> {
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
-        let res = ask(&lines, &root).map(|items| {
-            let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
-            Ranked { at, fingerprint, items }
-        });
+        let res = ask(&lines, &root).map(|(items, cost)| Ranked { at: crate::claude::now_secs(), cost, fingerprint, items });
         if let Ok(r) = &res {
             _ = save(r);
         }
@@ -274,7 +295,7 @@ pub fn rank(lines: Vec<String>, fingerprint: String, root: std::path::PathBuf) -
     rx
 }
 
-fn ask(lines: &[String], root: &std::path::Path) -> Result<Vec<(String, String)>> {
+fn ask(lines: &[String], root: &std::path::Path) -> Result<(Vec<(String, String)>, f64)> {
     let notes = crate::claude::notes_path().ok().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
     let notes = match notes.trim() {
         "" => String::new(),
@@ -294,7 +315,7 @@ fn ask(lines: &[String], root: &std::path::Path) -> Result<Vec<(String, String)>
     let out = crate::view::claude_command(&prompt, root, &[], &tools, Some(root)).stdin(std::process::Stdio::null()).output()?;
     let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
     anyhow::ensure!(v["is_error"] == false, "Claude couldn't rank them ({})", out.status);
-    parse(v["result"].as_str().unwrap_or(""))
+    Ok((parse(v["result"].as_str().unwrap_or(""))?, v["total_cost_usd"].as_f64().unwrap_or(0.0)))
 }
 
 /// The order in Claude's answer (a JSON array, maybe with words around it): (key, "reason — next").
@@ -392,19 +413,26 @@ mod tests {
 
     #[test]
     fn ordering() {
-        let it = |n, needs: Vec<Need>, updated: &str| Item { rep: false, number: n, needs, claude: None, updated: updated.into(), reason: None };
+        let it = |n, needs: Vec<Need>, updated: &str| Item { rep: false, number: n, needs, claude: None, updated: updated.into(), reason: None, changed: false };
         let items = vec![it(1, vec![Need::NoReview], "b"), it(2, vec![Need::ReviewRequested], "c"), it(3, vec![Need::NoReview], "a")];
         // Rules: the most pressing first, then the longest waiting.
-        let (o, stale) = order(items.clone(), None);
-        assert!(stale);
+        let (o, since) = order(items.clone(), None);
+        assert_eq!(since, Since::default());
+        assert!(o.iter().all(|i| !i.changed)); // nothing to have changed since
         assert_eq!(o.iter().map(|i| i.number).collect::<Vec<_>>(), [2, 3, 1]);
         // Claude's order, with its word; a new one goes before the first that needs you less.
-        let ranked = Ranked { at: 1, fingerprint: fingerprint(&items), items: vec![("pr-1".into(), "small fix — merge".into()), ("pr-3".into(), "x".into())] };
-        let (o, stale) = order(items.clone(), Some(&ranked));
-        assert!(!stale); // it's of the same three (pr-2 left out of Claude's answer goes by the rules)
+        let ranked = Ranked { at: 1, cost: 0.1, fingerprint: fingerprint(&items), items: vec![("pr-1".into(), "small fix — merge".into()), ("pr-3".into(), "x".into())] };
+        let (o, since) = order(items.clone(), Some(&ranked));
+        assert_eq!(since, Since::default()); // it's of the same three (pr-2 left out of Claude's answer goes by the rules)
         assert_eq!(o.iter().map(|i| i.number).collect::<Vec<_>>(), [2, 1, 3]);
         assert_eq!(o[1].says(), "small fix — merge");
         assert_eq!(o[0].says(), "your review is requested");
+        // Since: one new, one whose needs changed, one gone; those two marked.
+        let mut now = vec![it(1, vec![Need::ReviewRequested], "b"), it(3, vec![Need::NoReview], "a"), it(9, vec![Need::NoReview], "d")];
+        now[0].needs.push(Need::NoReview);
+        let (o, since) = order(now, Some(&ranked));
+        assert_eq!(since, Since { new: 1, changed: 1, gone: 1 });
+        assert_eq!(o.iter().filter(|i| i.changed).map(|i| i.number).collect::<Vec<_>>().len(), 2);
         // Claude's answer, words around it.
         let p = parse("Here: [{\"key\": \"pr-2\", \"reason\": \"bug fix\", \"next\": \"review it\"}, {\"key\": \"rep-12\", \"reason\": \"ready\"}]").unwrap();
         assert_eq!(p, [("pr-2".to_owned(), "bug fix — review it".to_owned()), ("rep-12".to_owned(), "ready".to_owned())]);

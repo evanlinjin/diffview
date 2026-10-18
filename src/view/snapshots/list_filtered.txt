@@ -3,7 +3,7 @@
         @ann   +1 −0 in 1 file                                  Tab   PRs with a worktree
         claude ✓                                                /     filter
         b                                                       o O   sort / reverse
-                                                                R     refresh
+                                                                R     refresh (from GitHub)
 ▌●#333  fix fees                                                m     mark
 ▌       @cy   +333 −0 in 1 file                                 a a   Claude reviews marked
 ▌       CI ✓3 ✗1                                                A A   Claude drafts a replacement

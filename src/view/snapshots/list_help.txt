@@ -6,7 +6,6 @@
 
 ▌●#333  fix fees                                                                            2026-02
 ▌       @cy   +333 −0 in 1 file
-▌       CI ✓3 ✗1
  dv list keys                                                                        any key closes
 
  j k, Up Down         move
@@ -17,8 +16,9 @@
                         On todo: a PR or replacement waiting on you (Claude's review or answers,
                         your review requested or none yet, pushed since you reviewed, ready to
                         merge, a replacement to publish or close for), in the order Claude puts
-                        them, with why and what next; Claude first does its part on the top
-                        three (a review, an update to one, answers to your replies)
+                        them (once you have it rank them: r r), with why and what next; a a
+                        there has Claude do its part on one (answer your replies, update its
+                        review, or review it)
    Enter                review the PR (with dv list's flags; from the worktrees tab, in its
                         worktree as it was made); q there comes back here
    /                    filter (Enter keeps it, Esc clears it); terms must all match:
@@ -43,11 +43,11 @@
                         in a zellij pane of its own, or in this terminal
    D D                  worktrees tab: remove the PR's worktree (not with local changes in it;
                         its branch stays); replacements tab: remove the replacement (the same)
-   R                    refresh (on todo: and Claude ranks it again; it does by itself when
-                        its last ranking is over 12 hours old)
+   R                    refresh (from GitHub; no Claude)
+   r r                  todo: Claude ranks what needs you (one Claude run: the header says what
+                        the last cost and what's changed since, to judge if it's worth it)
    ?                    this help
    q, Ctrl-c            quit
-
 
 
 

@@ -3,6 +3,6 @@
  no replacements yet: A A on a PR (or marked ones) has Claude dr Tab   what needs you
                                                                  /     filter
                                                                  o O   sort / reverse
-                                                                 R     refresh
+                                                                 R     refresh (from GitHub)
                                                                  D D   remove replacement
 
