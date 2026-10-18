@@ -96,7 +96,9 @@ disk: rust-analyzer can index it and `hx` can open it.
    from) and `C` posts it as your PR comment, as your words (not a quote); `Space r` resolves it in the file, `Space d` dismisses it. `Space a` runs
    Claude Code from dv (review / update the review, answer your waiting replies, or make the
    changes its open comments ask for, after optional instructions of yours in `$EDITOR`): in a
-   zellij pane on the right as an interactive session, else `claude -p` in the background
+   zellij floating pane as an interactive session, opened without focus, so hidden while
+   zellij's floating panes are (`Space a` → "Show Claude's pane" brings it up; dv says when it's
+   asking you something, a permission prompt, checking its screen every 3s), else `claude -p` in the background
    (`acceptEdits`, Bash limited to `dv review-*` and read-only git), with "Claude working…"
    in the status bar and its log path if it fails. Comments get stable `id`s (assigned by dv on
    load and by review-check); both write the file atomically and re-read it before a change.

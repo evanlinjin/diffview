@@ -164,6 +164,9 @@ impl App {
             Item::new(notes, Target::ClaudeNotes),
             Item::new("Check Claude's review now (dv watches it; this reads it again)", Target::ClaudeCheck),
         ];
+        if self.claude_pane().is_some() {
+            items.insert(0, Item::new("Show Claude's pane (its session on this PR)", Target::ClaudePane));
+        }
         // One that seems stuck: it can be stopped (the session stays, so the next run resumes it).
         if let Some(j) = &self.claude.job {
             items.insert(0, Item::new(format!("Stop Claude ({} for {})", j.label, ago(j.started)), Target::ClaudeStop));
@@ -236,7 +239,7 @@ impl App {
         let pane = self.claude_pane().is_some();
         self.set_session(None);
         self.msg = match pane {
-            true => "the next Claude run starts a new session; close the pane on the right, which has the old one".into(),
+            true => "the next Claude run starts a new session; close Claude's pane, which has the old one".into(),
             false => "the next Claude run starts a new session".into(),
         };
     }
@@ -439,9 +442,10 @@ impl App {
         let (msg, asked) = match in_zellij() {
             // A real session in a pane (the PR's, as the background runs use): watch it, approve
             // what it asks, talk to it.
+            // Floating and unfocused: hidden while zellij's floating panes are (`Space a` →
+            // show it, or zellij's own toggle); dv says when it's asking you something.
             true => match std::process::Command::new("zellij")
-                .args(zellij_run())
-                .args(["--name", &format!("claude: {label}"), "--cwd"])
+                .args(["run", "--floating", "--no-focus", "--name", &format!("claude: {label}"), "--cwd"])
                 .arg(&self.root)
                 .args(["--", "env"])
                 .arg(path_env) // the pane gets zellij's environment, not dv's
@@ -460,7 +464,7 @@ impl App {
                     if let (Some(p), Some(id)) = (&self.pr, &self.claude.session) {
                         crate::claude::mark_running(p.number, &format!("{label} (in its pane)"), None, Some(id));
                     }
-                    (format!("Claude is {label} in the pane on the right; its comments show up here as it writes them"), true)
+                    (format!("Claude is {label} in a hidden pane (Space a shows it); its comments show up here as it writes them"), true)
                 }
                 Ok(s) => (format!("zellij run failed ({s})"), false),
                 Err(e) => (format!("running zellij: {e}"), false),
@@ -502,6 +506,35 @@ impl App {
     /// with the session id on the command line, which no other pane has.
     fn claude_pane(&self) -> Option<u64> {
         self.claude_pane_cmd().map(|p| p.0)
+    }
+
+    /// `Space a` → show Claude's pane: focused, which brings it up if it's hidden.
+    pub(super) fn show_claude_pane(&mut self) {
+        let Some(pane) = self.claude_pane() else { return self.msg = "Claude's pane is closed".into() };
+        let ok = std::process::Command::new("zellij").args(["action", "focus-pane-id", &format!("terminal_{pane}")]).status().is_ok_and(|s| s.success());
+        if !ok {
+            self.msg = "zellij couldn't show Claude's pane".into();
+        }
+    }
+
+    /// Every few seconds: whether Claude's pane (hidden, maybe) is asking you something, a
+    /// permission prompt it won't get past alone; said once each time it starts asking.
+    pub(super) fn watch_claude_pane(&mut self) {
+        if self.claude.session.is_none() || !in_zellij() || self.claude.pane_check.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(3)) {
+            return;
+        }
+        self.claude.pane_check = Some(std::time::Instant::now());
+        let asking_now = self.claude_pane().is_some_and(|p| {
+            std::process::Command::new("zellij")
+                .args(["action", "dump-screen", "-p", &format!("terminal_{p}")])
+                .stdin(std::process::Stdio::null())
+                .output()
+                .is_ok_and(|o| asking(&String::from_utf8_lossy(&o.stdout)))
+        });
+        if asking_now && !self.claude.asking {
+            self.msg = "Claude is asking you something in its pane: Space a → Show Claude's pane".into();
+        }
+        self.claude.asking = asking_now;
     }
 
     /// The PR's Claude pane and its command line.

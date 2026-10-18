@@ -455,6 +455,7 @@ impl App {
                         },
                         Target::CloseOriginals => self.action = Some(Action::CloseOriginals),
                         Target::ClaudeFresh => self.fresh_claude_session(),
+                        Target::ClaudePane => self.show_claude_pane(),
                         Target::ClaudeCheck => self.check_claude(),
                         Target::ClaudeStop => self.stop_claude(),
                         Target::GitView => self.toggle_uncommitted(),

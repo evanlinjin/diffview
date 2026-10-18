@@ -9,6 +9,9 @@ on GitHub are its section here.
 - The changed files' list on the left (`Ctrl-w e`, kept for the next run): files under their
   folders, the one you're in marked, `✓` when viewed, `·N` its open comments; a click goes to
   one. Shown by default from 150 columns.
+- Claude's pane (`Space a` inside zellij) opens hidden: a floating pane that doesn't take
+  focus. `Space a` → "Show Claude's pane" brings it up, and dv says when Claude is asking you
+  something there (a permission prompt).
 - The file you're in keeps its header pinned at the top of the code as you scroll through it.
 
 ## [0.9.1] - 2026-10-18

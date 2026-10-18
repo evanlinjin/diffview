@@ -329,6 +329,7 @@ enum Target {
     /// Keep replacement branches on this remote (`dv.replaceRemote`), then publish (as `Publish`).
     ReplaceRemote(String, bool),
     ClaudeFresh,
+    ClaudePane,
     ClaudeCheck,
     ClaudeStop,
     GitView,
@@ -402,6 +403,9 @@ struct ClaudeState {
     log: Option<PathBuf>,
     /// What background runs have cost so far (as Claude Code reports it, in USD).
     spent: f64,
+    /// When Claude's pane was last looked at, and whether it was asking you something then.
+    pane_check: Option<std::time::Instant>,
+    asking: bool,
 }
 
 /// The comments you've seen (`comment_key`), kept in `path`; and those of the thread the
@@ -772,6 +776,7 @@ impl App {
             self.watch_github();
             self.watch_replacement();
             self.poll_claude();
+            self.watch_claude_pane();
             if let Some(a) = self.action.take() {
                 // In zellij the editor gets a pane on the right and dv stays on screen beside it.
                 let in_pane = in_zellij();
