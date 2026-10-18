@@ -227,9 +227,11 @@ open when it's done; elsewhere the terminal, and dv waits for Enter after it.
 `dv list` (the 1000 most recently updated open PRs; a `#N` filter's Enter opens PR N even if it
 isn't listed; `Tab` switches to the PRs with a local
 `<repo>-N` worktree, open or not, which `Enter` opens in that worktree as it was made:
-detached or on its branch) shows each PR as a two-line card: number,
-title, draft badge, age; then author, CI (✓/✗/● counts, fetched in the background since they're
-slow), review decision, size, labels, base ← branch. `j k`, `gg ge`, `Ctrl-d Ctrl-u` move;
+detached or on its branch) shows each PR as a card of four lines, a blank one between cards:
+number, title (bold), draft badge, `[new]`, age; author, size, labels; CI (✓/✗/● counts, fetched
+in the background since they're slow), review decision and Claude's part, in columns; base ←
+branch and its worktree. The selected card keeps its colors on a quiet background (the theme's
+cursor line), with a bar down its left edge. `j k`, `gg ge`, `Ctrl-d Ctrl-u` move;
 `o` cycles the order (updated / created / number / size, newest or biggest first), `O`
 reverses it. `/` edits the filter (Enter keeps, Esc clears): space-separated terms that must
 all match, GitHub-search style, `-` negating one: `author:` `label:` `base:` `branch:`
