@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-10-18
+
 ### Fixed
 - Merging (`M M`, `Space g` → merge) checks the PR is still open on GitHub first: merged or
   closed (the list can be older than that), it says so rather than running `github-merge.py`, which
@@ -442,6 +444,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.8.4]: https://github.com/evanlinjin/diffview/releases/tag/v0.8.4
 [0.8.3]: https://github.com/evanlinjin/diffview/releases/tag/v0.8.3
 [0.8.2]: https://github.com/evanlinjin/diffview/releases/tag/v0.8.2
 [0.8.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.8.1
