@@ -823,9 +823,10 @@ fn offer_to_pane(pane: u64, prompt: &str) -> Result<bool> {
     Ok(true)
 }
 
-/// Whether a Claude Code pane's screen shows it working (it says how to stop it then).
+/// Whether a Claude Code pane's screen shows it working: its spinner line, a word and how long
+/// it's been at it ("· Moseying… (59s · ↓ 1.3k tokens)"), or, as it used to say, how to stop it.
 pub(crate) fn working(screen: &str) -> bool {
-    screen.contains("esc to interrupt")
+    screen.contains("esc to interrupt") || screen.lines().any(|l| l.split_once("… (").is_some_and(|(_, t)| t.starts_with(|c: char| c.is_ascii_digit())))
 }
 
 /// Whether a Claude Code pane's screen shows it asking you something: a permission prompt, or

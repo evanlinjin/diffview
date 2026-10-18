@@ -217,7 +217,8 @@ replacement to publish or to close the originals for, work in its worktree that 
 merely moved past: looked at on refresh, back from a PR and when Claude's done; when Claude made
 it, saying what it `Changed:` in its review file after the PR's head commit, it's its own need,
 first: "Claude made changes, not pushed … check them, push them"; a run in a zellij pane counts as
-done once Claude Code there stops working, its pane still open), a push since your
+done once Claude Code there stops working, its pane still open: working is its spinner line, a
+word then how long, `· Moseying… (59s · …)`, whatever the word), a push since your
 review, Claude answering
 you, your review requested, approved + mergeable + checks green, your draft with its checks green
 and nothing unpushed (mark it ready for review: `Space g` in it), unsigned commits where its base

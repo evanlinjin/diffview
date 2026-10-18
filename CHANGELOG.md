@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Fixed
+- `dv list` missed Claude Code working in a pane: it looked for "esc to interrupt", which Claude
+  Code no longer shows. It reads the spinner line now (`· Moseying… (59s · …)`, whatever the
+  word). And a Claude Code pane in a PR's worktree counts too, one dv didn't start ("claude:
+  working (in its pane)…", or asking you something).
+
 ### Added
 - `Space c` on a link copies its URL (the link's tooltip says so, and the key hints have a
   "link" set: open, copy, preview).

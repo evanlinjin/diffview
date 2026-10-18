@@ -1067,6 +1067,12 @@ fn claude_pane_asking() {
     assert!(agent::asking(" Do you want to make this edit to ensure.rs?\n ❯ 1. Yes\n   2. No"));
     assert!(agent::asking(" Is this a project you created or one you trust?\n ❯ No, exit\n   Yes, I trust this folder"));
     assert!(!agent::asking("● Done.\n───\n❯ \n───\n  ⏵⏵ auto mode on"));
+    // At it: its spinner line (Claude Code's words vary), or the older "esc to interrupt".
+    assert!(agent::working("● Reading files\n· Moseying… (59s · ↓ 1.3k tokens)\n───\n❯ \n"));
+    assert!(agent::working("✻ Wibbling… (1m 9s · ↓ 3.4k tokens · thought for 2s)"));
+    assert!(agent::working("✶ Thinking… (esc to interrupt)"));
+    // Done, waiting at its prompt (what you typed there and didn't send isn't work).
+    assert!(!agent::working("● Done… (see above)\n───\n❯ force push it\n───\n  ⏵⏵ auto mode on"));
 }
 
 #[test]

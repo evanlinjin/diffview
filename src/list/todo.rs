@@ -283,13 +283,29 @@ impl List {
         // just while its pane is open: done, it waits there idle.
         let alive = |pid: Option<u32>, session: Option<&str>| match (pid, session) {
             (Some(pid), _) => std::process::Command::new("kill").args(["-0", &pid.to_string()]).stderr(std::process::Stdio::null()).status().is_ok_and(|s| s.success()),
-            (None, Some(id)) => panes.get_or_init(open_panes).iter().find(|(_, c): &&(u64, String)| c.contains(id)).is_some_and(|(p, _)| {
-                let screen = pane_screen(*p);
+            (None, Some(id)) => panes.get_or_init(open_panes).iter().find(|p: &&Pane| p.1.contains(id)).is_some_and(|p| {
+                let screen = pane_screen(p.0);
                 crate::view::working(&screen) || crate::view::asking(&screen)
             }),
             _ => false,
         };
-        let now = crate::claude::running(&dir, alive);
+        let mut now = crate::claude::running(&dir, alive);
+        // Claude Code in a pane of its own in a PR's worktree (one you started, say): at it
+        // there, or asking you something.
+        if crate::view::in_zellij() && !self.local.is_empty() {
+            for (id, cmd, cwd) in panes.get_or_init(open_panes) {
+                let Some(n) = cmd.starts_with("claude").then(|| self.local.iter().find(|(_, (d, _))| cwd.starts_with(d)).map(|(n, _)| *n)).flatten() else { continue };
+                if now.contains_key(&n) {
+                    continue;
+                }
+                let screen = pane_screen(*id);
+                if crate::view::asking(&screen) {
+                    now.insert(n, "asking you (in its pane)".into());
+                } else if crate::view::working(&screen) {
+                    now.insert(n, "working (in its pane)".into());
+                }
+            }
+        }
         let changed = now != self.running;
         self.running = now;
         changed
@@ -350,8 +366,11 @@ pub(super) fn ago_secs(s: i64) -> String {
     }
 }
 
-/// zellij's open panes: their ids and commands (none outside zellij).
-fn open_panes() -> Vec<(u64, String)> {
+/// A zellij pane: its id, command and working directory.
+type Pane = (u64, String, std::path::PathBuf);
+
+/// zellij's open panes (none outside zellij).
+fn open_panes() -> Vec<Pane> {
     if !crate::view::in_zellij() {
         return vec![];
     }
@@ -362,7 +381,7 @@ fn open_panes() -> Vec<(u64, String)> {
         .into_iter()
         .flatten()
         .filter(|p| p["exited"] != true && p["is_plugin"] != true)
-        .filter_map(|p| Some((p["id"].as_u64()?, p["pane_command"].as_str()?.to_owned())))
+        .filter_map(|p| Some((p["id"].as_u64()?, p["pane_command"].as_str()?.to_owned(), std::path::PathBuf::from(p["pane_cwd"].as_str().unwrap_or("")))))
         .collect()
 }
 
