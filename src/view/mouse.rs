@@ -37,10 +37,15 @@ impl App {
                     if let Some(p) = &mut self.picker {
                         p.sel = if down { (p.sel + 1).min(n.saturating_sub(1)) } else { p.sel.saturating_sub(1) };
                     }
-                } else if self.in_pr_tab_area(x) {
-                    self.scroll_pr(if down { 3 } else { -3 });
                 } else {
-                    self.scroll(if down { 3 } else { -3 });
+                    // What's under the mouse, wherever the cursor is; at its end, beside the PR
+                    // tab (which scrolls on its own), the other one.
+                    let d = if down { 3 } else { -3 };
+                    let pr = self.margin_active && self.pane_tab == Tab::Pr;
+                    match self.in_pr_tab_area(x) {
+                        true => _ = self.scroll_pr(d) || self.scroll_code(d),
+                        false => _ = self.scroll_code(d) || (pr && self.scroll_pr(d)),
+                    }
                 }
             }
             MouseEventKind::Down(MouseButton::Left) => {

@@ -11,6 +11,11 @@ on GitHub are its section here.
   fewer separators. The selected card keeps its colors, on a quiet background (the theme's cursor
   line) with a bar down its left edge. On the todo tab, the reason is under the title.
 
+### Fixed
+- The mouse wheel scrolls what's under it, wherever the cursor is: the code, with the cursor in
+  the PR tab's text (it didn't move), or the PR tab. At the end of one, beside the PR tab, it
+  scrolls the other (the PR text stops at the bottom of the pane, not scrolling up past it).
+
 ## [0.7.0] - 2026-10-18
 
 ### Added

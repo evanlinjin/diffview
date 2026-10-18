@@ -1673,3 +1673,47 @@ fn review_summaries_over_the_comments() {
     assert_eq!(app.pane_tab, Tab::Pr);
     assert!(matches!(app.rows[app.head.row].info, Some(SUMMARY) | Some(DRAFT)));
 }
+
+#[test]
+fn wheel_scrolls_what_is_under_it() {
+    use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
+    let wheel = |app: &mut App, x: u16| app.mouse(MouseEvent { kind: MouseEventKind::ScrollDown, column: x, row: 6, modifiers: KeyModifiers::NONE });
+    let draw = |app: &mut App| _ = screen(220, 14, |f| app.draw(f));
+    // The cursor on a comment, the review's summaries over the pane: the wheel still scrolls.
+    let mut app = fixture();
+    draw(&mut app);
+    app.goto_comment(0, 0);
+    draw(&mut app);
+    let pane = (app.geom.relw + app.geom.gw + app.geom.ctw + 10) as u16;
+    let top = app.top;
+    wheel(&mut app, pane);
+    draw(&mut app);
+    assert!(app.top > top, "the pane's wheel moved nothing ({top})");
+    // The cursor in the PR tab's text: the wheel over the code scrolls the code (not the tab).
+    let mut app = fixture();
+    draw(&mut app);
+    app.key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
+    draw(&mut app);
+    assert!(app.on_pr_tab());
+    let (top, pr_top) = (app.top, app.pr_top);
+    wheel(&mut app, 20);
+    draw(&mut app);
+    assert!(app.top > top && app.pr_top == pr_top && app.on_pr_tab(), "{top} → {}, pr {pr_top} → {}", app.top, app.pr_top);
+    // The PR tab's text all on screen: the wheel over its empty space scrolls the code.
+    let pane = (app.geom.relw + app.geom.gw + app.geom.ctw + 10) as u16;
+    let top = app.top;
+    wheel(&mut app, pane);
+    draw(&mut app);
+    assert!(app.top > top && app.pr_top == 0, "{top} → {}", app.top);
+    // Long PR text, the code at its end: the wheel over the code scrolls the PR text.
+    app.info[3].text = (1..=60).map(|n| format!("para {n}\n\n")).collect();
+    app.build();
+    draw(&mut app);
+    app.top = app.drows.len() - 1;
+    let pr_top = app.pr_top;
+    wheel(&mut app, 20);
+    draw(&mut app);
+    assert!(app.pr_top > pr_top, "pr {pr_top} → {}", app.pr_top);
+}

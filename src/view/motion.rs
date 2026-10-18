@@ -305,19 +305,42 @@ impl App {
     }
 
     pub(super) fn scroll(&mut self, d: isize) {
-        if self.on_pr_tab() {
-            return self.scroll_pr(d);
-        }
+        _ = match self.on_pr_tab() {
+            true => self.scroll_pr(d),
+            false => self.scroll_code(d),
+        };
+    }
+
+    /// Scroll the code (with the comments beside it), whichever side the cursor is on: it moves
+    /// along only if it would leave the screen. On the PR tab, it's where the cursor was in the
+    /// code that moves (`Ctrl-h` goes back there), so the wheel over the code scrolls it there too.
+    /// Returns whether it moved (not at its end already).
+    pub(super) fn scroll_code(&mut self, d: isize) -> bool {
         let last = self.drows.len() as isize - 1;
+        let was = self.top;
         self.top = (self.top as isize + d).clamp(0, last) as usize;
+        if self.top == was {
+            return false;
+        }
         let so = 3.min(self.height / 2);
-        let (lo, hi) = (self.top + so, (self.top + self.height).saturating_sub(so + 1));
+        // A comment under the cursor stays below the review's summaries (`draw` keeps it there).
+        let under = if self.margin_side() { self.strip_h } else { 0 };
+        let (lo, hi) = (self.top + so + under, (self.top + self.height).saturating_sub(so + 1));
+        let into = |hd: usize| hd.clamp(lo, hi.max(lo)).min(last as usize);
+        if self.on_pr_tab() {
+            let hd = self.d_of[self.code_head.row.min(self.rows.len() - 1)];
+            if hd < lo || hd > hi {
+                self.code_head = Pos { row: self.pick(into(hd)), col: 0 };
+            }
+            return true;
+        }
         let hd = self.hd();
         if hd < lo || hd > hi {
             let w = self.want_col;
-            self.goto(self.pick(hd.clamp(lo, hi.max(lo)).min(last as usize)), w);
+            self.goto(self.pick(into(hd)), w);
             self.want_col = w;
         }
+        true
     }
 
     /// The cursor's place on the PR tab, when it's there.
@@ -326,12 +349,15 @@ impl App {
     }
 
     /// Scroll the PR tab (the cursor stays on it, if it's there).
-    pub(super) fn scroll_pr(&mut self, d: isize) {
+    /// Its text stops at the bottom of the pane (no scrolling it up past its end). Returns
+    /// whether it moved.
+    pub(super) fn scroll_pr(&mut self, d: isize) -> bool {
         let n = self.pr_rows.len();
-        if n == 0 {
-            return;
+        let was = self.pr_top;
+        self.pr_top = (self.pr_top as isize + d).clamp(0, n.saturating_sub(self.height) as isize) as usize;
+        if self.pr_top == was {
+            return false;
         }
-        self.pr_top = (self.pr_top as isize + d).clamp(0, n as isize - 1) as usize;
         let so = 3.min(self.height / 2);
         let (lo, hi) = (self.pr_top + so, (self.pr_top + self.height).saturating_sub(so + 1));
         if let Some(i) = self.pr_index().filter(|&i| i < lo || i > hi) {
@@ -339,6 +365,7 @@ impl App {
             self.goto(self.pr_rows[i.clamp(lo, hi.max(lo)).min(n - 1)], w);
             self.want_col = w;
         }
+        true
     }
 
     /// Label every visible word (2+ chars), nearest to the cursor first, alternating forward/back.
