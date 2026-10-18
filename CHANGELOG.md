@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-10-18
+
 ### Added
 - On someone else's PR, `Space a` can have Claude make the changes too (not only suggest them):
   as commits in your checkout, for you to push to their branch with `Space g`. The menu says
@@ -657,6 +659,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.21.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.21.0
 [0.20.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.20.0
 [0.19.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.19.1
 [0.19.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.19.0
