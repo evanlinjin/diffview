@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-18
+
 ### Added
 - `r` on Claude's review summary replies to it: your reply and Claude's answer are a thread under
   the summary (on the PR tab, and in the Claude view), and `r` there goes on with it.
@@ -580,6 +582,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.16.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.16.0
 [0.15.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.15.0
 [0.14.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.14.0
 [0.13.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.13.0
