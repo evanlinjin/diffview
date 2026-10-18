@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-10-18
+
 ### Fixed
 - Right after dv pushed, posted Claude's description, marked the PR ready or approved its runs,
   a GitHub fetch already under way could bring back the PR as it was before for a moment (the
@@ -665,6 +667,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.21.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.21.1
 [0.21.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.21.0
 [0.20.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.20.0
 [0.19.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.19.1
