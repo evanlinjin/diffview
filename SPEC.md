@@ -276,7 +276,9 @@ with `githubmerge.repository` set for that run (`GIT_CONFIG_*`) if you haven't s
 checks out the base branch, which the PR's worktree would be in the way of, so that goes first:
 only if it has no local changes (untracked files count) and no commits beyond the PR's head on
 GitHub; else dv stops and says what's there. In zellij the script gets a pane of its own, which
-closes when it succeeds (failing, or rejected, it says so and waits for Enter, for you to read why); elsewhere the terminal, and dv waits for Enter after it.
+closes when it succeeds (failing, or rejected, it says so and waits for Enter, for you to read why);
+a merge that succeeds deletes the script's branches for the PR (`pull/N/base`, `pull/N/head`, …: a
+failed one keeps them, to look into); elsewhere the terminal, and dv waits for Enter after it.
 
 `dv list` (the 1000 most recently updated open PRs; a `#N` filter's Enter opens PR N even if it
 isn't listed; `Tab` switches to the PRs with a local

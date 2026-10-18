@@ -67,11 +67,20 @@ fn command(n: u64) -> Result<(PathBuf, Vec<String>)> {
     Ok((main, argv))
 }
 
-/// `argv` for a pane that closes when it's done: at once if it succeeded, else once you've read
-/// what it said (Enter).
-fn pane_argv(argv: &[String]) -> Vec<String> {
-    let wait = r#""$@"; st=$?; if [ $st -ne 0 ]; then printf '\ngithub-merge.py stopped (exit %s). Enter closes this pane.\n' "$st"; read _; fi; exit $st"#;
-    ["sh", "-c", wait, "sh"].into_iter().map(str::to_owned).chain(argv.iter().cloned()).collect()
+/// The branches github-merge.py makes for PR `n` (and leaves behind: base and head).
+fn script_branches(n: u64) -> Vec<String> {
+    ["base", "head", "merge", "local-merge"].iter().map(|b| format!("pull/{n}/{b}")).collect()
+}
+
+/// `argv` for a pane that closes when it's done: at once if it succeeded (deleting the script's
+/// branches for PR `n`), else once you've read what it said (Enter; the branches stay, to look
+/// into).
+fn pane_argv(argv: &[String], n: u64) -> Vec<String> {
+    let wait = format!(
+        r#""$@"; st=$?; if [ $st -eq 0 ]; then git branch -q -D {} 2>/dev/null; else printf '\ngithub-merge.py stopped (exit %s). Enter closes this pane.\n' "$st"; read _; fi; exit $st"#,
+        script_branches(n).join(" ")
+    );
+    ["sh".to_owned(), "-c".to_owned(), wait, "sh".to_owned()].into_iter().chain(argv.iter().cloned()).collect()
 }
 
 /// Merge PR `n`: its worktree removed first (if it's safe to), then the script, in a zellij pane
@@ -101,7 +110,7 @@ pub fn merge(n: u64, pane: bool) -> Result<String> {
             .args(["run", "--close-on-exit", "--name", &format!("github-merge.py #{n}"), "--cwd"])
             .arg(&main)
             .arg("--")
-            .args(pane_argv(&argv))
+            .args(pane_argv(&argv, n))
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -115,7 +124,13 @@ pub fn merge(n: u64, pane: bool) -> Result<String> {
     let mut line = String::new();
     _ = std::io::stdin().read_line(&mut line);
     Ok(match st.success() {
-        true => format!("{first}github-merge.py finished merging #{n}"),
+        true => {
+            // Its branches for the PR, done with (they'd pile up: a pair a merge).
+            let mut args = vec!["-C".to_owned(), main.to_string_lossy().into_owned(), "branch".into(), "-q".into(), "-D".into()];
+            args.extend(script_branches(n));
+            _ = crate::diff::git(&args.iter().map(String::as_str).collect::<Vec<_>>());
+            format!("{first}github-merge.py finished merging #{n}")
+        }
         false => format!("{first}github-merge.py stopped ({st}) on #{n}"),
     })
 }
@@ -161,7 +176,7 @@ fn merge_pane_closes_on_success() {
     // The wrapped command's status comes through; a failure waits for Enter before closing.
     let run = |cmd: &[&str], input: &str| {
         let argv: Vec<String> = cmd.iter().map(|s| s.to_string()).collect();
-        let a = pane_argv(&argv);
+        let a = pane_argv(&argv, 7);
         let mut c = std::process::Command::new(&a[0]);
         c.args(&a[1..]).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped());
         let mut child = c.spawn().unwrap();
@@ -171,6 +186,20 @@ fn merge_pane_closes_on_success() {
         (out.status.code(), String::from_utf8_lossy(&out.stdout).into_owned())
     };
     assert_eq!(run(&["true"], ""), (Some(0), String::new()));
+    // Succeeding, it deletes the script's branches for the PR (in the checkout it runs in).
+    let dir = std::env::temp_dir().join(format!("dv-merge-branches-{}", std::process::id()));
+    _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let git = |args: &[&str]| crate::diff::git(&[&["-C", &dir.to_string_lossy()], args].concat()).unwrap();
+    git(&["init", "-q", "-b", "master"]);
+    git(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x"]);
+    git(&["branch", "pull/7/base"]);
+    git(&["branch", "pull/7/head"]);
+    git(&["branch", "pull/8/head"]);
+    let a = pane_argv(&["true".to_owned()], 7);
+    assert!(std::process::Command::new(&a[0]).args(&a[1..]).current_dir(&dir).status().unwrap().success());
+    assert_eq!(git(&["branch", "--list", "pull/*"]).trim(), "pull/8/head"); // another PR's stay
+    _ = std::fs::remove_dir_all(&dir);
     let (code, said) = run(&["sh", "-c", "exit 3"], "\n");
     assert_eq!(code, Some(3));
     assert!(said.contains("stopped (exit 3). Enter closes this pane."), "{said}");

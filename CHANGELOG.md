@@ -5,6 +5,10 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Changed
+- A merge that succeeds deletes github-merge.py's branches for the PR (`pull/N/base`,
+  `pull/N/head`), which piled up a pair a merge; a failed one keeps them.
+
 ## [0.22.0] - 2026-10-18
 
 ### Changed
