@@ -70,13 +70,23 @@ impl App {
         }
     }
 
-    /// The pane as you last left it (`Ctrl-w c`, `f`, `,` / `.`), in any repo.
+    /// The pane as you last left it (`Ctrl-w c`, `f`, `,` / `.`), and relative line numbers
+    /// (`Ctrl-w n`), in any repo.
     pub(super) fn load_pane(&mut self) {
         self.pane_file = crate::claude::data_home().ok().map(|d| d.join("pane.json"));
+        self.apply_pane();
+    }
+
+    /// What `pane_file` has, applied.
+    pub(super) fn apply_pane(&mut self) {
         let v = self.pane_json();
         self.margin_pref = v["shown"].as_bool();
         self.margin_float_pref = v["float"].as_bool();
         self.margin_w_pref = v["width"].as_u64().map(|w| w as usize);
+        // Relative line numbers as you last set them (`Ctrl-w n`), over Helix's setting.
+        if let Some(r) = v["relative"].as_bool() {
+            self.settings.relative = r;
+        }
     }
 
     pub(super) fn pane_json(&self) -> Value {

@@ -14,9 +14,9 @@
           ────────────────────────────────────────────────────────────────────────────────── L9–15 ─
   9   9   line 9
  10  10   line 10
- 11  11   line 11
- 12     -     let x = old(12);                window
-     12◆+     let x = new_call(12);           v  toggle split view
+ 11  11   line 11                             window
+ 12     -     let x = old(12);                v  toggle split view
+     12◆+     let x = new_call(12);           n  relative line numbers on / off
  13  13   line 13                             c  show / hide the comments pane
  14  14   line 14                             f  comments pane: a column / floating over the code
  15  15   line 15                             ,  narrower comments pane

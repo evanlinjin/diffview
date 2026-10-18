@@ -6,6 +6,8 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Added
+- `Ctrl-w n` turns relative line numbers on or off, and dv keeps that for next time, over
+  Helix's `line-number` setting.
 - `s` on the todo tab defers an item (then `1` an hour, `4` four hours, `d` a day, `w` a week):
   it goes to the bottom, out of the count, until then, or until what it needs changes. `s` on it
   brings it back. For what you can't act on yet (a merge you lack permission for, say).

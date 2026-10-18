@@ -1535,6 +1535,14 @@ fn pane_kept_between_runs() {
     assert_eq!((v["shown"].as_bool(), v["float"].as_bool(), v["width"].as_u64().map(|w| w as usize)), (Some(false), Some(true), w));
     ctrl_w(&mut next, '=');
     assert!(next.pane_json()["width"].is_null());
+    // Relative line numbers too: Ctrl-w n flips them, kept, and over Helix's setting next time.
+    let rel = next.settings.relative;
+    ctrl_w(&mut next, 'n');
+    assert_eq!(next.pane_json()["relative"].as_bool(), Some(!rel));
+    let mut again = fixture();
+    (again.pane_file, again.settings.relative) = (Some(p.clone()), rel);
+    again.apply_pane();
+    assert_eq!(again.settings.relative, !rel);
     let _ = std::fs::remove_file(&p);
 }
 

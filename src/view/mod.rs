@@ -76,6 +76,7 @@ VIEW
   gn  gp               comments pane: next / previous tab (comments, the PR's text)
   Shift-Tab            fold / unfold all files
   Ctrl-w v             toggle split (side-by-side) view
+  Ctrl-w n             relative line numbers on / off (kept for next time)
   Ctrl-w h  Ctrl-w l   split view: old / new side; margin: code / comments (or Ctrl-h Ctrl-l)
   Ctrl-w c             show / hide the comments pane (hidden: ● marks their lines)
   Ctrl-w f             comments pane: a column beside the code / floating over it
