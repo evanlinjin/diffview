@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-10-18
+
 ### Changed
 - Todo: anything Claude is at goes to the bottom, replacements too: one Claude is working on in a
   pane in its worktree (making changes there, say) no longer stays on top as ready to publish.
@@ -758,6 +760,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.25.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.25.0
 [0.24.3]: https://github.com/evanlinjin/diffview/releases/tag/v0.24.3
 [0.24.2]: https://github.com/evanlinjin/diffview/releases/tag/v0.24.2
 [0.24.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.24.1

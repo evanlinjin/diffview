@@ -227,7 +227,7 @@ dependencies = [
 
 [[package]]
 name = "dv-review"
-version = "0.24.3"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "pulldown-cmark",
