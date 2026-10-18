@@ -321,7 +321,7 @@ pub fn list_extra() -> Result<(String, std::collections::HashMap<u64, Extra>)> {
         let q = format!(
             "query($owner: String!, $name: String!) {{ viewer {{ login }} repository(owner: $owner, name: $name) {{
                pullRequests(states: OPEN, first: 100{from}, orderBy: {{ field: UPDATED_AT, direction: DESC }}) {{ {PAGE} nodes {{
-                 number headRefOid mergeable baseRefName
+                 number headRefOid mergeable baseRefName {SIGNATURE_RULES}
                  commits(last: 100) {{ nodes {{ commit {{ signature {{ isValid }} }} }} }}
                  reviewRequests(first: 30) {{ nodes {{ requestedReviewer {{ ... on User {{ login }} }} }} }}
                  latestReviews(first: 50) {{ nodes {{ author {{ login }} state commit {{ oid }} }} }}
@@ -336,11 +336,6 @@ pub fn list_extra() -> Result<(String, std::collections::HashMap<u64, Extra>)> {
             Some(c) => after = Some(c),
             None => break,
         }
-    }
-    // Whether each base wants signed commits: asked once a base.
-    let mut required = std::collections::HashMap::new();
-    for e in all.values_mut() {
-        e.signatures_required = *required.entry(e.base.clone()).or_insert_with(|| signatures_required(&e.base));
     }
     Ok((me, all))
 }
@@ -362,7 +357,7 @@ fn extra(p: &Value, me: &str) -> Extra {
         head_oid: s(&p["headRefOid"]),
         base: s(&p["baseRefName"]),
         unsigned: nodes("commits").iter().filter(|c| c["commit"]["signature"]["isValid"] != true).count(),
-        signatures_required: false, // per base, after (`list_extra`)
+        signatures_required: requires_signatures(p),
     }
 }
 
@@ -791,35 +786,49 @@ impl InfoLine {
     }
 }
 
-/// PR `n`'s commits (up to its last 100), oldest first: (oid, signed: a signature GitHub
-/// verifies).
-pub fn commit_signatures(n: u64) -> Result<Vec<(String, bool)>> {
-    let q = "query($owner: String!, $name: String!, $n: Int!) { repository(owner: $owner, name: $name) {
-               pullRequest(number: $n) { commits(last: 100) { nodes { commit { oid signature { isValid } } } } } } }";
-    let v: Value = serde_json::from_str(&gh(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-F", &format!("n={n}"), "-f", &format!("query={q}")])?)?;
-    let nodes = v["data"]["repository"]["pullRequest"]["commits"]["nodes"].as_array().context("gh api graphql: commits")?;
-    Ok(nodes.iter().map(|c| (c["commit"]["oid"].as_str().unwrap_or("").to_owned(), c["commit"]["signature"]["isValid"] == true)).collect())
+/// The signatures on a PR's commits, as GitHub has them.
+pub struct Signatures {
+    /// Its last 100 commits (oldest first): (oid, signed: a signature GitHub verifies).
+    pub commits: Vec<(String, bool)>,
+    /// How many commits it has in all (more than `commits` holds, the older aren't checked).
+    pub total: usize,
+    /// Whether its base requires signed commits (a ruleset, or classic branch protection):
+    /// GitHub refuses a push of unsigned ones there.
+    pub required: bool,
 }
 
-/// Whether the repo's rules make commits on branch `base` carry verified signatures (GitHub
-/// refuses a push of unsigned ones then). `false` if that can't be told.
-pub fn signatures_required(base: &str) -> bool {
-    let Ok(out) = gh(&["api", &format!("repos/{{owner}}/{{repo}}/rules/branches/{base}")]) else { return false };
-    let rules: Value = serde_json::from_str(&out).unwrap_or_default();
-    rules.as_array().is_some_and(|r| r.iter().any(|r| r["type"] == "required_signatures"))
+/// What GraphQL says, for a PR's node, of its base's rules on signatures.
+const SIGNATURE_RULES: &str = "baseRef { branchProtectionRule { requiresCommitSignatures } rules(first: 100) { nodes { type } } }";
+
+/// Whether a PR's base (its node, with `SIGNATURE_RULES`) requires signed commits.
+fn requires_signatures(p: &Value) -> bool {
+    let b = &p["baseRef"];
+    b["branchProtectionRule"]["requiresCommitSignatures"] == true || b["rules"]["nodes"].as_array().is_some_and(|r| r.iter().any(|r| r["type"] == "REQUIRED_SIGNATURES"))
+}
+
+/// PR `n`'s commits' signatures, and whether its base requires them: one GraphQL query.
+pub fn signatures(n: u64) -> Result<Signatures> {
+    let q = format!(
+        "query($owner: String!, $name: String!, $n: Int!) {{ repository(owner: $owner, name: $name) {{ pullRequest(number: $n) {{
+           {SIGNATURE_RULES} commits(last: 100) {{ totalCount nodes {{ commit {{ oid signature {{ isValid }} }} }} }} }} }} }}"
+    );
+    let v: Value = serde_json::from_str(&gh(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-F", &format!("n={n}"), "-f", &format!("query={q}")])?)?;
+    let p = &v["data"]["repository"]["pullRequest"];
+    let nodes = p["commits"]["nodes"].as_array().context("gh api graphql: commits")?;
+    Ok(Signatures {
+        commits: nodes.iter().map(|c| (c["commit"]["oid"].as_str().unwrap_or("").to_owned(), c["commit"]["signature"]["isValid"] == true)).collect(),
+        total: p["commits"]["totalCount"].as_u64().unwrap_or(0) as usize,
+        required: requires_signatures(p),
+    })
 }
 
 /// Why PR `n` can't be merged as it is, if it can't: commits GitHub would refuse, unsigned
 /// where its base requires signatures.
 pub fn unsigned_blocking(n: u64) -> Result<Option<String>> {
-    let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", "baseRefName"])?)?;
-    let base = v["baseRefName"].as_str().unwrap_or("").to_owned();
-    if !signatures_required(&base) {
-        return Ok(None);
-    }
-    let unsigned: Vec<String> = commit_signatures(n)?.into_iter().filter(|c| !c.1).map(|c| c.0.chars().take(8).collect()).collect();
-    Ok((!unsigned.is_empty()).then(|| {
-        format!("{} of #{n}'s commits aren't signed ({}), and {base} requires signed commits: GitHub would refuse the push; ask the author to sign them", unsigned.len(), unsigned.join(", "))
+    let s = signatures(n)?;
+    let unsigned: Vec<String> = s.commits.into_iter().filter(|c| !c.1).map(|c| c.0.chars().take(8).collect()).collect();
+    Ok((s.required && !unsigned.is_empty()).then(|| {
+        format!("{} of #{n}'s commits aren't signed ({}), and its base requires signed commits: GitHub would refuse the push; ask the author to sign them", unsigned.len(), unsigned.join(", "))
     }))
 }
 
@@ -832,17 +841,20 @@ pub fn info_json(n: u64) -> Result<Value> {
     let mut v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", INFO_FIELDS])?)?;
     // Whether its commits are signed, and whether its base wants them to be (`gh pr view` says
     // neither): with the rest, so the cache has them too.
-    if let Ok(c) = commit_signatures(n) {
-        v["dvCommits"] = c.into_iter().map(|(oid, signed)| json!({ "oid": oid, "signed": signed })).collect();
-        v["dvSignaturesRequired"] = signatures_required(v["baseRefName"].as_str().unwrap_or("")).into();
+    if let Ok(s) = signatures(n) {
+        v["dvCommits"] = s.commits.into_iter().map(|(oid, signed)| json!({ "oid": oid, "signed": signed })).collect();
+        v["dvCommitsTotal"] = s.total.into();
+        v["dvSignaturesRequired"] = s.required.into();
     }
     Ok(v)
 }
 
-/// The PR section's lines, and its title, head, URL and state.
-pub fn parse_info(v: &Value) -> (Vec<InfoLine>, String, String, String, State) {
+/// The PR section's lines, its title, head, URL and state, and its commits GitHub has no
+/// valid signature on.
+pub fn parse_info(v: &Value) -> (Vec<InfoLine>, String, String, String, State, Vec<String>) {
     let s = |k: &str| v[k].as_str().unwrap_or("").to_owned();
-    (info_lines(v), s("title"), s("headRefOid"), s("url"), state(v))
+    let unsigned = v["dvCommits"].as_array().into_iter().flatten().filter(|c| c["signed"] != true).filter_map(|c| c["oid"].as_str().map(str::to_owned)).collect();
+    (info_lines(v), s("title"), s("headRefOid"), s("url"), state(v), unsigned)
 }
 
 /// A PR's state as GitHub shows it, with its color: DRAFT, OPEN, MERGED or CLOSED.
@@ -961,6 +973,11 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
             0 => l.put(&format!("✓ {} signed", if cs.len() == 1 { "1".to_owned() } else { format!("all {}", cs.len()) }), Some(Mark::Pass)),
             k => l.put(&format!("✗ {k} of {} unsigned: {}", cs.len(), unsigned.join(", ")), Some(if required { Mark::Fail } else { Mark::Pending })),
         };
+        // More than GitHub's last 100: the older ones aren't checked.
+        let total = v["dvCommitsTotal"].as_u64().unwrap_or(0) as usize;
+        if total > cs.len() {
+            l.put(&format!(" (the last {} of {total})", cs.len()), Some(Mark::Dim));
+        }
         if required {
             let st = if unsigned.is_empty() { Mark::Dim } else { Mark::Fail };
             l.put(" · ", None).put(&format!("{} requires signed commits", s(&v["baseRefName"])), Some(st));
@@ -1186,4 +1203,15 @@ fn signed_commits_in_the_pr_info() {
     assert_eq!(v(both, false).unwrap(), "commits: ✗ 1 of 2 unsigned: eb35a466");
     assert_eq!(v(json!([{ "oid": "a", "signed": true }, { "oid": "b", "signed": true }]), false).unwrap(), "commits: ✓ all 2 signed");
     assert_eq!(v(json!([]), false), None); // not known (an older cache): nothing said
+    // More commits than GitHub gave: the older ones aren't checked, and it says so.
+    let w = json!({ "baseRefName": "master", "dvCommits": [{ "oid": "a", "signed": true }], "dvCommitsTotal": 150 });
+    assert!(info_lines(&w).iter().any(|l| l.text == "commits: ✓ 1 signed (the last 1 of 150)"));
+    // Required by a ruleset, or by classic branch protection.
+    let rules = |r: Value| requires_signatures(&json!({ "baseRef": r }));
+    assert!(rules(json!({ "rules": { "nodes": [{ "type": "PULL_REQUEST" }, { "type": "REQUIRED_SIGNATURES" }] } })));
+    assert!(rules(json!({ "branchProtectionRule": { "requiresCommitSignatures": true }, "rules": { "nodes": [] } })));
+    assert!(!rules(json!({ "branchProtectionRule": null, "rules": { "nodes": [{ "type": "DELETION" }] } })));
+    // The unsigned commits, for the contents' commits.
+    let x = json!({ "dvCommits": [{ "oid": "aa", "signed": true }, { "oid": "bb", "signed": false }] });
+    assert_eq!(parse_info(&x).5, ["bb"]);
 }

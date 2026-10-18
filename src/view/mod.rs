@@ -463,6 +463,8 @@ pub struct App {
     /// last; `None`: all, the whole diff), the cursor there (0: "all commits", then each),
     /// a range being selected (`v`), and whether the list's cursor is there.
     commits: Vec<files::Commit>,
+    /// The PR's commits GitHub has no valid signature on (from its info).
+    unsigned: Vec<String>,
     commit_shown: Option<(usize, usize)>,
     commit_cur: usize,
     commit_anchor: Option<usize>,
@@ -717,6 +719,7 @@ impl App {
             base,
             to: None,
             commits: vec![],
+            unsigned: vec![],
             commit_shown: None,
             commit_cur: 0,
             commit_anchor: None,

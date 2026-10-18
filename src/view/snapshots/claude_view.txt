@@ -27,4 +27,4 @@
 
 
 
- NOR       Claude view: its summary and the code it commented on (Ctrl-w a: th… claude view    1/17
+ NOR       Claude view: its summary and the code it commented on (Ctrl-w a: th… claude view    1/16

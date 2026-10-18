@@ -1134,8 +1134,8 @@ fn claude_view() {
     assert!(texts(&app).contains(&"Long story".to_owned()));
     app.toggle_view(View::Claude);
     let v = texts(&app);
-    // The PR's first line and Claude's summary, not the rest of the PR section.
-    assert!(v.contains(&"OPEN @bo · main ← x".to_owned()) && v.contains(&"Looks fine.".to_owned()), "{v:?}");
+    // Claude's summary, not the PR section (its facts are on the title; its tab isn't this one).
+    assert!(!v.contains(&"OPEN @bo · main ← x".to_owned()) && v.contains(&"Looks fine.".to_owned()), "{v:?}");
     assert!(!v.iter().any(|t| t == "Long story" || t.starts_with("review:")));
     // Only the file Claude commented on, and only lines 17-23 of it.
     let code: Vec<&str> = v.iter().filter(|t| t.starts_with("line ")).map(String::as_str).collect();
@@ -1453,7 +1453,7 @@ fn github_changes_shown_when_idle() {
     newer[0].comments.push(reply);
     let fetched = |threads: Vec<Thread>| -> review::Fetched {
         let r = gh::Review { pr_id: "PR".into(), mine: true, me: "you".into(), pending: None, pending_body: String::new(), threads, viewed: Default::default() };
-        (Ok(r), Ok((app_info(), "Fix the thing".into(), "abc".into(), String::new(), ("OPEN", "238636"))))
+        (Ok(r), Ok((app_info(), "Fix the thing".into(), "abc".into(), String::new(), ("OPEN", "238636"), vec![])))
     };
     let replies = |app: &App| app.threads.iter().flat_map(|t| &t.comments).filter(|c| c.body == "Fair.").count();
     // Mid-way through something (here a picker): it waits. (What's shown came from the cache.)

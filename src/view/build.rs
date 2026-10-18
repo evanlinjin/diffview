@@ -149,7 +149,8 @@ impl App {
             if self.view != View::All && !self.info_collapsed {
                 // The PR's state, author, branches and size; then the text of your pending
                 // review. (Claude's summary is a section of its own in the Claude view, below.)
-                if let Some(l) = self.info.first().filter(|l| !l.heading && !l.md) {
+                // (Not in the Claude view: its tab is Claude's, and the title has these.)
+                if let Some(l) = self.info.first().filter(|l| !l.heading && !l.md && self.view == View::Pending) {
                     rows.push(self.info_row(l, mk(Kind::Comment, l.text.clone())));
                 }
                 let (label, text, info) = ("your review (pending)", &self.summary_draft, Some(DRAFT));

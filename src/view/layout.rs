@@ -76,15 +76,11 @@ impl App {
         }
     }
 
-    /// To tab `b` (a click on it, `gn` / `gp`): Claude's is the Claude view, beside its comments;
-    /// the comments tab, the whole diff again.
+    /// To tab `b` (a click on it, `gn` / `gp`): each tab its view: Claude's, the Claude view
+    /// beside its comments; the comments' and the PR's, the whole diff.
     pub(super) fn bar_to(&mut self, b: Bar) {
-        // Each tab its view: Claude's, the Claude view; the comments' and the PR's, the whole diff.
-        let view = match b {
-            Bar::Claude => Some(View::Claude),
-            Bar::Comments | Bar::Pr => Some(View::All),
-        };
-        if let Some(v) = view.filter(|&v| v != self.view) {
+        let v = if b == Bar::Claude { View::Claude } else { View::All };
+        if v != self.view {
             self.toggle_view(if v == View::All { self.view } else { v });
         }
         let msg = std::mem::take(&mut self.msg);

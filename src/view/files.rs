@@ -15,7 +15,7 @@ pub(super) struct Commit {
     pub(super) sha: String,
     pub(super) short: String,
     pub(super) subject: String,
-    /// It carries a signature (git's `%G?` isn't `N`; GitHub's PR info says whether it verifies).
+    /// GitHub verifies a signature on it (as the PR's info says; no PR: taken as signed).
     pub(super) signed: bool,
 }
 
@@ -280,13 +280,14 @@ impl App {
     /// The PR's commits as checked out (first parents: the branch's own line), oldest first.
     pub(super) fn load_commits(&mut self) {
         let range = format!("{}..HEAD", self.full_base);
-        let Ok(out) = diff::git(&["log", "--reverse", "--first-parent", "--format=%H%x09%h%x09%G?%x09%s", &range]) else { return };
+        let Ok(out) = diff::git(&["log", "--reverse", "--first-parent", "--format=%H%x09%h%x09%s", &range]) else { return };
         self.commits = out
             .lines()
             .filter_map(|l| {
-                let mut p = l.splitn(4, '\t');
-                let (sha, short, sig) = (p.next()?, p.next()?, p.next()?);
-                Some(Commit { sha: sha.into(), short: short.into(), signed: sig != "N", subject: p.next().unwrap_or("").into() })
+                let mut p = l.splitn(3, '\t');
+                let (sha, short) = (p.next()?, p.next()?);
+                let signed = !self.unsigned.iter().any(|u| u == sha);
+                Some(Commit { sha: sha.into(), short: short.into(), signed, subject: p.next().unwrap_or("").into() })
             })
             .collect();
         let n = self.commits.len();

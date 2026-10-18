@@ -12,13 +12,14 @@ on GitHub are its section here.
   or which aren't, and whether the base requires signed commits); unsigned commits are marked
   `✗` in the contents' commits; and on the todo tab, unsigned commits where the base requires
   signed ones are a need ("ask the author to sign them").
-- Merging (`M M`, `Space g`) checks first: unsigned commits the base requires to be signed, or a
-  base branch here with commits GitHub's doesn't (a merge before that wasn't pushed), stop it
-  before github-merge.py runs, saying why.
+- Merging (`M M`, `Space g`) checks first: unsigned commits where the base requires signed ones
+  (a ruleset, or classic branch protection) stop it before github-merge.py runs, saying why; and
+  such a PR isn't "approved, checks green: merge it" on the todo tab.
 
 ### Fixed
 - The pane's `PR` tab kept the Claude view (the diff only Claude's review): it shows the whole
-  diff now, as `Comments` does.
+  diff now, as `Comments` does; a click on the summaries goes there too, and the Claude view has
+  nothing on the PR tab.
 
 ## [0.17.1] - 2026-10-18
 

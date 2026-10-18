@@ -80,25 +80,10 @@ pub fn merge(n: u64, pane: bool) -> Result<String> {
     let (main, _) = crate::worktree_dir(n)?;
     let dirty = crate::diff::git(&["-C", &main.to_string_lossy(), "status", "--porcelain", "--untracked-files=no"])?;
     anyhow::ensure!(dirty.trim().is_empty(), "{} has local changes, which the merge script's checkouts would trip over: commit or stash them first", main.display());
-    // GitHub would refuse the push: say so now, before any of it (the script fails at its end,
-    // leaving its merge on your base branch).
-    if let Some(why) = crate::gh::unsigned_blocking(n)? {
+    // GitHub would refuse the push: say so now, before any of it (the script fails at its end).
+    // Can't tell (a GitHub hiccup)? The script goes ahead, as it would have.
+    if let Ok(Some(why)) = crate::gh::unsigned_blocking(n) {
         anyhow::bail!("not merged: {why}");
-    }
-    // A merge before this one not pushed (refused, say) is still on the base branch here: the
-    // script would build on it, and push it too.
-    let base = crate::gh::pr(Some(n)).map(|p| p.base).unwrap_or_default();
-    if !base.is_empty() {
-        let ahead = crate::diff::git(&["-C", &main.to_string_lossy(), "rev-list", "--count", &format!("origin/{base}..{base}")]).unwrap_or_default();
-        if ahead.trim().parse::<usize>().is_ok_and(|k| k > 0) {
-            anyhow::bail!(
-                "not merged: your {base} in {} has {} commit(s) GitHub's doesn't (a merge that wasn't pushed?): \
-                 `git -C {} reset --hard origin/{base}` drops them, if they're nothing you want",
-                main.display(),
-                ahead.trim(),
-                main.display()
-            );
-        }
     }
     let removed = clear_worktree(n)?;
     let (main, argv) = command(n)?;

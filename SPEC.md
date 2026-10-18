@@ -258,8 +258,8 @@ directory), so a PR its author force-pushed still updates. Worktrees made for Cl
 
 Merging: `M M` on a PR in `dv list`, or `Space g` → merge in its review (which ends the review
 first), runs Bitcoin Core's `github-merge.py` (`merge.rs`). Not when GitHub would refuse the push:
-unsigned commits where the base's rules require signed ones, or the base branch here ahead of
-origin's (a merge before that wasn't pushed: reset it first); dv says which. dv builds the script in
+unsigned commits where the base requires signed ones (a ruleset, or classic branch protection),
+as one GraphQL query tells (if it can't, the script runs as it would). dv builds the script in
 (`vendor/github-merge/`, pinned to an upstream commit; a test checks its SHA-256) and writes it to
 its data directory when it isn't exactly that, so a merge downloads nothing; `git config
 dv.mergescript <path>` runs yours instead. It runs in the main checkout, as `python3 <script> N`,

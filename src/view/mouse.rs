@@ -74,7 +74,7 @@ impl App {
                 // On the summaries over the comments: them in full, on the PR tab.
                 let sy = y.wrapping_sub(self.pin as usize);
                 if self.margin_active && self.pane_tab == Tab::Comments && x >= pane && sy < self.strip_h {
-                    self.pane_to(Tab::Pr);
+                    self.bar_to(Bar::Pr);
                     if let Some(&r) = self.pr_rows.iter().find(|&&r| matches!(self.rows[r].info, Some(SUMMARY) | Some(DRAFT))) {
                         self.goto(r, 0);
                     }

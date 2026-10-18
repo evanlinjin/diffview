@@ -218,7 +218,9 @@ pub fn needs(f: &Facts) -> (Vec<Need>, Option<Task>) {
         out.push(Need::ReviewRequested);
     }
     let green = pr.checks.is_some_and(|(_, fail, pending)| fail == 0 && pending == 0);
-    if pr.decision == "APPROVED" && f.extra.is_some_and(|e| e.mergeable == "MERGEABLE") && green && !pr.draft {
+    // Not with commits GitHub would refuse on its base: that's the need, merging isn't.
+    let refused = f.extra.is_some_and(|e| e.signatures_required && e.unsigned > 0);
+    if pr.decision == "APPROVED" && f.extra.is_some_and(|e| e.mergeable == "MERGEABLE") && green && !pr.draft && !refused {
         out.push(Need::ReadyToMerge);
     }
     if f.extra.is_some_and(|e| e.mergeable == "CONFLICTING") && !pr.draft {
@@ -754,6 +756,13 @@ mod tests {
         };
         assert!(needs(&unsigned(true)).0.contains(&Need::Unsigned(1, false)));
         assert!(!needs(&unsigned(false)).0.iter().any(|n| matches!(n, Need::Unsigned(..))));
+        // Approved, green, mergeable, but with commits GitHub would refuse: not "merge it".
+        let mut p = pr(12, "amy");
+        (p.decision, p.checks) = ("APPROVED".into(), Some((3, 0, 0)));
+        let mut e = extra(None, false, "h");
+        (e.unsigned, e.signatures_required) = (1, true);
+        let n = needs(&facts(leak(p), Some(leak(e)), None)).0;
+        assert!(n.contains(&Need::Unsigned(1, false)) && !n.contains(&Need::ReadyToMerge), "{n:?}");
         assert_eq!(Need::Unsigned(1, false).says(), "1 commit unsigned, and its base requires signed ones: ask the author to sign them");
         // Failing checks: a need (yours to fix, or the author's); not on someone else's draft.
         let ci = |author: &str, draft: bool| {
