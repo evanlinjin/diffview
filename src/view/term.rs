@@ -2,12 +2,6 @@
 
 use super::*;
 
-/// Write a template, open $VISUAL/$EDITOR (default hx), and return the body file, or None if left empty.
-/// `None` if cancelled: the editor failed (e.g. `:cq`), or the text is empty and `allow_empty` isn't set.
-pub(super) fn compose(what: &str, allow_empty: bool) -> Result<Option<String>> {
-    compose_with(what, allow_empty, "", false)
-}
-
 /// dv's hx pane inside zellij.
 pub(super) struct HxPane {
     /// e.g. `terminal_12`, as `zellij run` prints it.

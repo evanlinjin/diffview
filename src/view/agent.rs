@@ -17,6 +17,7 @@ pub(super) enum Ask {
 const ALLOWED: &[&str] = &[
     "Bash(dv review-info:*)",
     "Bash(dv review-check:*)",
+    "Bash(dv review-comments:*)",
     "Bash(git diff:*)",
     "Bash(git show:*)",
     "Bash(git log:*)",
@@ -333,6 +334,10 @@ impl App {
         if self.claude.path.is_none() {
             return self.msg = "no review file here (not in a git repo?)".into();
         }
+        // On a GitHub review thread: ask Claude about the comment under the cursor.
+        if let Some(t) = self.rows[self.head.row].thread.filter(|&t| self.threads[t].claude.is_none()) {
+            return self.ask_about(t);
+        }
         let anchor = match self.selection_anchor() {
             Ok(a) => a,
             Err(_) => return self.msg = "a on code lines leaves Claude a comment there".into(),
@@ -345,7 +350,7 @@ impl App {
         let first = anchor.start.map_or(anchor.line, |s| s.0);
         let code = self.files.iter().find(|f| f.path == anchor.path).and_then(|f| crate::claude::code_at(f, anchor.left, first, anchor.line));
         match code {
-            Some(code) => self.action = Some(Action::AskClaude { anchor, code }),
+            Some(code) => self.action = Some(Action::AskClaude { anchor, code, about: None }),
             None => self.msg = "those lines aren't in this diff".into(),
         }
     }
@@ -357,6 +362,26 @@ impl App {
         let i = row.info.filter(|_| row.file == INFO)?;
         let heading = self.info.get(i.checked_sub(1)?).filter(|h| h.heading && self.info[i].md)?;
         [("description", "description"), ("closing note", "closing note")].into_iter().find(|(h, _)| heading.text.starts_with(h)).map(|x| x.1)
+    }
+
+    /// `a` on a GitHub review thread: a comment for Claude on its lines, asking about the comment
+    /// under the cursor (quoted, with its link and id, so Claude reads it and the thread).
+    fn ask_about(&mut self, t: usize) {
+        let th = &self.threads[t];
+        let Some(line) = th.line else { return self.msg = "this thread is outdated: its lines aren't in the diff to ask about".into() };
+        // The comment under the cursor: its header is the last one at or above it.
+        let first = self.rows.iter().position(|r| r.thread == Some(t)).unwrap_or(self.head.row);
+        let k = (first..=self.head.row).filter(|&r| self.rows[r].line.kind == Kind::Thread).count().saturating_sub(1).min(th.comments.len().saturating_sub(1));
+        let Some(c) = th.comments.get(k) else { return };
+        let anchor = Anchor { path: th.path.clone(), line, left: th.left, start: th.start_line.filter(|&s| s < line).map(|s| (s, th.left)) };
+        let first_line = anchor.start.map_or(line, |s| s.0);
+        let Some(code) = self.files.iter().find(|f| f.path == anchor.path).and_then(|f| crate::claude::code_at(f, anchor.left, first_line, line)) else {
+            return self.msg = "those lines aren't in this diff".into();
+        };
+        let link = self.pr.as_ref().map(|p| format!(" ({}#discussion_r{})", p.url, c.id)).unwrap_or_default();
+        let quote: String = c.body.lines().map(|l| format!("> {l}\n")).collect();
+        let prefill = format!("About @{}'s comment{link}:\n{quote}\n", c.author);
+        self.action = Some(Action::AskClaude { anchor, code, about: Some((c.id, prefill)) });
     }
 
     /// From the `Space a` menu. Reviewing and making the changes first ask for your own

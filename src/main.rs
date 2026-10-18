@@ -24,6 +24,8 @@ const USAGE: &str = "usage: dv [base | PR | list] [-p N] [-f] [-w [-b]]
   dv review-info   for Claude Code (or any tool) writing a review dv shows: the review
                    file's path, and the base and head of the diff dv shows (of PR N with -p N)
   dv review-check  check that file's comments against the diff (exit 1 on errors)
+  dv review-comments  for Claude: the PR's review comments on GitHub, as JSON (ids, lines,
+                   who, what), to answer them in its review (read only)
   dv replace 123 [124 …]   Claude drafts a replacement for those PRs, unpublished, on
                    branch dv/replace-123 in a worktree <repo>-replace-123 (dv list's
                    replacements tab shows it)
@@ -106,6 +108,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Opts> {
             "list" => o.list = true,
             "review-info" => o.cmd = Some("review-info"),
             "review-check" => o.cmd = Some("review-check"),
+            "review-comments" => o.cmd = Some("review-comments"),
             "install-skill" => o.cmd = Some("install-skill"),
             "replace" => o.cmd = Some("replace"),
             "replace-info" => o.cmd = Some("replace-info"),
@@ -345,6 +348,9 @@ fn diff_base(o: &Opts, pr: Option<&gh::Pr>) -> anyhow::Result<String> {
 /// `dv review-info` / `dv review-check`, for the current checkout (or PR `-p N`), no checkout.
 fn review_file(cmd: &str, o: &Opts) -> anyhow::Result<()> {
     let pr = gh::pr(o.pr).ok();
+    if cmd == "review-comments" {
+        return review_comments(pr.as_ref());
+    }
     let path = claude::path(pr.as_ref().map(|p| p.number))?;
     let base = diff_base(o, pr.as_ref())?;
     if cmd == "review-info" {
@@ -359,6 +365,9 @@ fn review_file(cmd: &str, o: &Opts) -> anyhow::Result<()> {
         println!("exists: {}", path.exists());
         let notes = claude::notes_path()?;
         println!("notes: {}    (your notes on this repo, kept across reviews; exists: {})", notes.display(), notes.exists());
+        if pr.is_some() {
+            println!("review comments: `dv review-comments` lists the PR's, on GitHub (to answer them)");
+        }
         return Ok(());
     }
     let files = diff::load(&base, 3)?;
@@ -370,6 +379,26 @@ fn review_file(cmd: &str, o: &Opts) -> anyhow::Result<()> {
         anyhow::bail!("{} of {} comment(s) can't be placed", r.errors.len(), r.comments);
     }
     println!("ok: {} comment(s), {} warning(s)", r.comments, r.warnings.len());
+    Ok(())
+}
+
+/// `dv review-comments`: the PR's review threads on GitHub as JSON, for Claude to read (and
+/// answer, with `"about": <id>` on a comment of its own). Read only.
+fn review_comments(pr: Option<&gh::Pr>) -> anyhow::Result<()> {
+    let p = pr.context("no PR here (dv review-comments -p N for PR N)")?;
+    let review = gh::parse_threads(&gh::threads_json(p.number)?);
+    let threads: Vec<serde_json::Value> = review
+        .threads
+        .iter()
+        .map(|t| {
+            serde_json::json!({
+                "path": t.path, "line": t.line, "start_line": t.start_line, "side": if t.left { "old" } else { "new" },
+                "resolved": t.resolved, "outdated": t.outdated,
+                "comments": t.comments.iter().map(|c| serde_json::json!({ "id": c.id, "author": c.author, "body": c.body })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    println!("{}", serde_json::to_string_pretty(&threads)?);
     Ok(())
 }
 

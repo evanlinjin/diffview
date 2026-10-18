@@ -403,9 +403,16 @@ impl App {
         let tag_syn: Vec<Option<Style>> =
             tags.iter().flat_map(|&(s, st)| s.chars().map(move |_| Some(st))).collect();
         let mk = |kind, text| Row { thread: Some(ti), ..Row::text(file, kind, text) };
-        // Claude's comments (from its review file) carry its name in the accent color.
+        // Claude's comments (from its review file) carry its name in the accent color, after a `◆`
+        // (as the gutter marks them), so they don't pass for GitHub's.
         let by_claude = |c: &gh::Comment| t.claude.is_some() && c.author == crate::claude::AUTHOR;
-        let author_syn = |c: &gh::Comment| vec![by_claude(c).then_some(self.ui.key); c.author.chars().count()];
+        let name = |c: &gh::Comment| if by_claude(c) { format!("◆ {}", c.author) } else { c.author.clone() };
+        let author_syn = |c: &gh::Comment| vec![by_claude(c).then_some(self.ui.key); name(c).chars().count()];
+        // One answering a GitHub review comment says whose.
+        let re = t
+            .about
+            .and_then(|id| self.threads.iter().flat_map(|t| &t.comments).find(|c| c.id == id))
+            .map_or(String::new(), |c| format!(" · re @{}", c.author));
         let when = |c: &gh::Comment| match gh::ago(&c.created) {
             a if a.is_empty() => String::new(),
             a => format!(" · {a}"),
@@ -417,7 +424,7 @@ impl App {
                 // keeps room for who, when and where.
                 let tags_below = self.margin_active && !tag_text.is_empty();
                 let lead = if tags_below { String::new() } else { tag_text.clone() };
-                let mut head = format!("{lead}{}{}{range}", c.author, when(c));
+                let mut head = format!("{lead}{}{re}{}{range}", name(c), when(c));
                 if !open {
                     head += &match t.comments.len() {
                         1 => " · 1 comment".to_owned(),
@@ -443,7 +450,7 @@ impl App {
             } else {
                 let tag = if c.pending { "[pending] " } else { "" };
                 let syn = [vec![Some(self.ui.pending); tag.chars().count()], author_syn(c)].concat();
-                out.push(Row { syn, ..mk(Kind::Thread, format!("{tag}{}{}", c.author, when(c))) });
+                out.push(Row { syn, ..mk(Kind::Thread, format!("{tag}{}{}", name(c), when(c))) });
             }
             // In the margin, comments wrap to its width (less the gutter mark and box sides).
             let w = self.info_w();

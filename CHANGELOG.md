@@ -6,6 +6,16 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Added
+- `a` on a GitHub review comment asks Claude about it ("what do you think about this?"): your
+  editor has it quoted, and Claude answers on that thread's lines.
+- Reviewing, Claude reads the PR's review comments (`dv review-comments`, read only) and answers
+  those it has something to add to, on their lines; dv shows its comment as `re @who`.
+
+### Changed
+- Claude's comments stand apart from GitHub's: a `◆` before "claude", and the boxes of comments
+  in Claude's review file (its, and yours for it) in the hint color.
+
+### Added
 - Deferring until something happens: `s` then `u` on the todo tab, in your words ("#2380 is
   merged", "CI is green", "@amy approves", "Monday"). dv reads the usual phrasings itself, and
   Claude the rest (one small run); then dv watches for it, and the item's back when it's

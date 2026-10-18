@@ -66,6 +66,13 @@ the file as JSON:
   ```
   ````
 
+**Other reviewers' comments.** On a PR, `dv review-comments` lists its review comments on GitHub
+(JSON: each thread's `path`, `line`, and its comments' `id`, `author`, `body`). Read them before you
+write yours. Where you have something worth adding to one (it's wrong, and why; it's right, with
+what it misses; a question in it you can answer; the fix it asks for), add a comment of yours on the
+same lines with `"about": <that comment's id>`, saying it in your own words. dv shows yours as
+answering it. Don't repeat what's already said, and skip the ones you'd only agree with.
+
 Then run `dv review-check`. It checks every comment against the diff and records the text
 of the commented lines in each comment's `code` field, and gives each comment an `id`.
 Don't write `code` or `id` yourself. dv uses
@@ -93,7 +100,9 @@ The user replies to your comments from dv. Each comment can have a `replies` lis
 
 The user can also leave you comments of their own on lines (`"author": "user"` on the comment
 itself; Claude's comments have no `author`): questions about the code, or requests. Treat each
-like a reply: it's waiting for you while the user has the last word.
+like a reply: it's waiting for you while the user has the last word. One with `"about": <id>` asks
+you about another reviewer's comment on GitHub (it quotes it): find it in `dv review-comments` (the
+comment with that `id`, and its thread), and answer what the user asks about it.
 
 When asked to answer them: read the file, and for every comment whose last word (its last
 reply, or the comment itself if it has none) is from `"user"` and isn't `"resolved": true`:

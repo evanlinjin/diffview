@@ -252,8 +252,9 @@ enum Action {
     Reply { thread: String, comment: u64, review: bool, quote: String },
     /// A reply to Claude on its comment (by id), saved to the review file for Claude to answer.
     ClaudeReply(String),
-    /// A comment for Claude on these lines (with their text), then Claude answers it.
-    AskClaude { anchor: Anchor, code: Vec<String> },
+    /// A comment for Claude on these lines (with their text), then Claude answers it; `about`:
+    /// the GitHub review comment it asks about (its id, and a quote of it for the editor).
+    AskClaude { anchor: Anchor, code: Vec<String>, about: Option<(u64, String)> },
     /// Run Claude (review, or make the changes) after your own instructions for it.
     ClaudeWith(agent::Ask),
     /// Have Claude draft a replacement for these PRs, after your instructions for it (starting
@@ -822,12 +823,16 @@ impl App {
                 keep_on_error(crate::claude::reply(&p, &k, &body), &body)?;
                 Ok(self.answer_now())
             }
-            Action::AskClaude { anchor, code } => {
+            Action::AskClaude { anchor, code, about } => {
                 let p = self.claude.path.clone().context("no review file")?;
                 let range = anchor.start.map_or(anchor.line.to_string(), |(s, _)| format!("{s}-{}", anchor.line));
-                let what = format!("a comment for Claude on {}:{range} (it answers right away; nothing goes to GitHub)", anchor.path);
-                let Some(body) = compose(&what, false)? else { return Ok("comment cancelled".into()) };
-                keep_on_error(crate::claude::add_comment(&p, &anchor, code, &body).map(drop), &body)?;
+                let what = match about {
+                    Some(_) => format!("ask Claude about this review comment on {}:{range} (it answers right away; nothing goes to GitHub)", anchor.path),
+                    None => format!("a comment for Claude on {}:{range} (it answers right away; nothing goes to GitHub)", anchor.path),
+                };
+                let prefill = about.as_ref().map_or(String::new(), |(_, q)| q.clone());
+                let Some(body) = compose_with(&what, false, &prefill, false)? else { return Ok("comment cancelled".into()) };
+                keep_on_error(crate::claude::add_comment(&p, &anchor, code, &body, about.map(|a| a.0)).map(drop), &body)?;
                 self.load_claude();
                 Ok(self.answer_now())
             }

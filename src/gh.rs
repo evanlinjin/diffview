@@ -61,6 +61,8 @@ pub struct Thread {
     pub claude: Option<String>,
     /// From the review file: how much it matters ("bug", "nit", "question", …); empty if unsaid.
     pub severity: String,
+    /// From the review file: the GitHub review comment it's about (its id), if it answers one.
+    pub about: Option<u64>,
 }
 
 #[derive(Clone, Default)]
@@ -665,6 +667,7 @@ fn parse_thread(t: &Value) -> Thread {
             .collect(),
         claude: None,
         severity: String::new(),
+        about: None,
     }
 }
 

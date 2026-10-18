@@ -354,6 +354,7 @@ fn parse(text: &str) -> Result<Review> {
                 // Without an id yet: its position, until dv or review-check gives it one.
                 claude: Some(c["id"].as_str().map_or(format!("#{i}"), str::to_owned)),
                 severity: s(&c["severity"]).to_lowercase(),
+                about: about_id(&c["about"]),
                 // A comment's own time (the user's have one), else the review's.
                 comments: std::iter::once((root_author(c), s(&c["body"]), Some(s(&c["created"])).filter(|t| !t.is_empty()).unwrap_or(created.clone())))
                     .chain(c["replies"].as_array().into_iter().flatten().map(|r| {
@@ -377,6 +378,12 @@ fn parse(text: &str) -> Result<Review> {
         })
         .collect::<Result<_>>()?;
     Ok(Review { head: s(&v["head"]), summary: s(&v["summary"]), threads })
+}
+
+/// A GitHub review comment's id, from a review file's `"about"`: the id, or its link
+/// (`…#discussion_r123`).
+fn about_id(v: &Value) -> Option<u64> {
+    v.as_u64().or_else(|| v.as_str()?.rsplit("discussion_r").next()?.trim().parse().ok())
 }
 
 /// A number for comment `k` of the thread `key`, as dv's folding state keys threads. The top bit
@@ -437,7 +444,7 @@ fn root_author(c: &Value) -> String {
 
 /// A comment the user leaves for Claude on lines of the diff (`a` in dv), for Claude to answer
 /// or act on. Starts the review file if there isn't one. Returns its id.
-pub fn add_comment(path: &std::path::Path, a: &crate::gh::Anchor, code: Vec<String>, body: &str) -> Result<String> {
+pub fn add_comment(path: &std::path::Path, a: &crate::gh::Anchor, code: Vec<String>, body: &str, about: Option<u64>) -> Result<String> {
     let mut v: Value = match std::fs::read_to_string(path) {
         Ok(t) => serde_json::from_str(&t)?,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => serde_json::json!({ "comments": [] }),
@@ -453,6 +460,9 @@ pub fn add_comment(path: &std::path::Path, a: &crate::gh::Anchor, code: Vec<Stri
     });
     if let Some((s, _)) = a.start {
         c["start_line"] = s.into();
+    }
+    if let Some(id) = about {
+        c["about"] = id.into(); // a GitHub review comment it asks Claude about
     }
     comments.push(c);
     assign_ids(comments);
@@ -680,7 +690,7 @@ fn parse_and_dismiss() {
 fn comments_for_claude() {
     let p = std::env::temp_dir().join(format!("dv-claude-ask-{}", std::process::id())).join("pr-1.json");
     let a = crate::gh::Anchor { path: "src/a.rs".into(), line: 3, left: false, start: Some((2, false)) };
-    let id = add_comment(&p, &a, vec!["x".into(), "y".into()], "why?").unwrap(); // no file yet: started
+    let id = add_comment(&p, &a, vec!["x".into(), "y".into()], "why?", None).unwrap(); // no file yet: started
     let r = load(&p).unwrap().unwrap();
     _ = std::fs::remove_dir_all(p.parent().unwrap());
     let t = &r.threads[0];

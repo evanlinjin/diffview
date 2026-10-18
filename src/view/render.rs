@@ -910,7 +910,14 @@ impl App {
             };
             let lead = if used == 0 { "" } else { lead };
             let n = bw.saturating_sub(used + lead.len() + 1);
-            let edge = if row.thread.is_some() && row.thread == self.lit_thread() { ui.key } else { ui.linenr };
+            // The lit thread's box in the accent; one from Claude's review file (Claude's, or yours
+            // for it: not on GitHub) in the hint color; GitHub's dim.
+            let local = row.thread.is_some_and(|t| self.threads[t].claude.is_some());
+            let edge = match row.thread.is_some() && row.thread == self.lit_thread() {
+                true => ui.key,
+                false if local => Style { fg: ui.pending.fg, ..Style::new() },
+                false => ui.linenr,
+            };
             spans.push(Span::styled(format!("{lead}{}", fill.to_string().repeat(n)), style.patch(edge)));
             if let Some(bg) = line_bg {
                 for sp in &mut spans {
