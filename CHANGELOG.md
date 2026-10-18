@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.19.1] - 2026-10-18
+
 ### Changed
 - Todo: a card Claude has ranked says, before Claude's words, what holds the PR up on GitHub:
   `[⏸ 3 runs to approve (W W) · ✗ 2 checks failing · 1 unsigned commit · conflicts]` (Claude's
@@ -643,6 +645,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.19.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.19.1
 [0.19.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.19.0
 [0.18.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.18.1
 [0.18.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.18.0
