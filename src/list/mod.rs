@@ -64,6 +64,9 @@ const HELP: &str = "\
   D D                  worktrees tab: remove the PR's worktree (not with local changes in it;
                        its branch stays); replacements tab: remove the replacement (the same)
   R                    refresh (from GitHub; no Claude)
+  s                    todo: defer the item (then 1 an hour, 4 four hours, d a day, w a week):
+                       to the bottom till then, or till what it needs changes; s on a
+                       deferred one brings it back
   r r                  todo: Claude ranks what needs you (one Claude run: the header says what
                        the last cost and what's changed since, to judge if it's worth it)
   ?                    this help
@@ -126,6 +129,10 @@ pub struct List {
     rank_rx: Option<Receiver<Result<crate::todo::Ranked>>>,
     /// Rank (again) once what's needed is in (`R` on the todo tab).
     want_rank: bool,
+    /// Todo items deferred (`s`), kept in dv's directory; the one `s` is asking how long for.
+    deferred: crate::todo::Deferred,
+    deferring: Option<String>,
+    deferred_file: Option<PathBuf>,
     /// The window is wide enough for cards in two zones (set by `draw`; cards are 3 lines then).
     wide: bool,
     /// PRs Claude has a review of, and when its reviews directory last changed: a review
@@ -191,6 +198,9 @@ impl List {
             ranked: crate::todo::load(),
             rank_rx: None,
             want_rank: false,
+            deferred: crate::todo::load_deferred(crate::todo::deferred_path().as_deref()),
+            deferring: None,
+            deferred_file: crate::todo::deferred_path(),
             wide: true,
             reviewed: HashSet::new(),
             reviews_dir: crate::claude::dv_dir().ok().map(|d| d.join("reviews")),
@@ -601,6 +611,14 @@ impl List {
         }
         let half = (self.height() / 2).max(1);
         let g = std::mem::take(&mut self.pending_g);
+        // After `s`: how long to defer it for (any other key: not).
+        if let Some(key) = self.deferring.take() {
+            match k.code {
+                KeyCode::Char(c @ ('1' | '4' | 'd' | 'w')) => self.defer_for(&key, c),
+                _ => self.msg = "not deferred".into(),
+            }
+            return None;
+        }
         match k.code {
             // A filter that's just a number opens that PR, listed or not (older, or closed).
             KeyCode::Enter => {
@@ -635,6 +653,7 @@ impl List {
                 self.msg = format!("D again removes {} (its branch stays); any other key keeps it", dir.display());
                 self.confirm = Some(('D', p));
             }
+            KeyCode::Char('s') if self.tab == Tab::Todo => self.defer_key(),
             KeyCode::Char('r') if self.tab == Tab::Todo => {
                 if self.rank_rx.is_some() {
                     return (self.msg = "Claude is ranking already".into(), None).1;
@@ -791,7 +810,7 @@ impl List {
         };
         let tabs = Line::from(vec![
             Span::styled(" ", hs),
-            tab(format!("todo {}", self.todo.len()), self.tab == Tab::Todo),
+            tab(format!("todo {}", self.todo_now()), self.tab == Tab::Todo),
             Span::styled("  ", hs),
             tab(format!("open {open}{}", if self.prs.len() >= gh::LIST_MAX { "+" } else { "" }), self.tab == Tab::Open),
             Span::styled("  ", hs),
@@ -897,6 +916,7 @@ impl List {
                 ("o O", "sort / reverse"),
                 ("R", "refresh (from GitHub)"),
                 ("r r", "Claude ranks what needs you (a run)"),
+                ("s", "defer it (or bring it back)"),
                 ("m", "mark"),
                 ("a a", if self.tab == Tab::Todo { "Claude does its part (marked)" } else { "Claude reviews marked" }),
                 ("A A", "Claude drafts a replacement"),
@@ -911,7 +931,7 @@ impl List {
                 .filter(|(k, _)| match *k {
                     "D D" => !matches!(self.tab, Tab::Open | Tab::Todo),
                     "o O" => self.tab != Tab::Todo, // in the order of what needs you
-                    "r r" => self.tab == Tab::Todo,
+                    "r r" | "s" => self.tab == Tab::Todo,
                     "m" | "a a" | "A A" | "M M" => !reps,
                     _ => true,
                 })

@@ -214,7 +214,11 @@ and the first `r` says the same. Nothing else starts by itself: a card says what
 there (answer your replies waiting on it, update a review behind the PR's head, or review one
 that has none), and `a a` on it (or marked ones) does that, as it runs reviews (worktree,
 session). Enter opens the PR (a replacement, in its worktree); back in the list, what you saw to
-drops off.
+drops off. `s` defers an item, then `1` an hour, `4` four hours, `d` a day or `w` a week (any
+other key: not): it goes to the bottom, out of the count ("deferred, back in 4h"), until then, or
+until what it needs changes (its needs are kept with it: new activity is new information); `s` on
+it brings it back. Deferrals are kept in dv's directory (`deferred.json`). Deferred items aren't
+ranked.
 
 Merging: `M M` on a PR in `dv list`, or `Space g` → merge in its review (which ends the review
 first), runs Bitcoin Core's `github-merge.py` (`merge.rs`). dv builds the script in

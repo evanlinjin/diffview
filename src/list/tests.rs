@@ -243,7 +243,7 @@ fn todo_tab() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("reviews")).unwrap();
     let mut l = List::new("".into());
-    (l.reviews_dir, l.ranked) = (Some(dir.join("reviews")), None);
+    (l.reviews_dir, l.ranked, l.deferred, l.deferred_file) = (Some(dir.join("reviews")), None, Default::default(), None);
     l.prs = vec![pr(1, "Fix fees", "amy"), pr(2, "Docs", "bo"), pr(3, "Mine", "me")];
     l.me = "me".into();
     let extra = |requested| gh::Extra { requested, mergeable: "MERGEABLE".into(), head_oid: "h".into(), ..Default::default() };
@@ -282,5 +282,39 @@ fn todo_tab() {
     l.prs.pop();
     l.find_todo();
     snapshot("list_todo", &screen(100, 12, |f| l.draw(f)));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn defer_from_the_todo_tab() {
+    let pr = |number, author: &str| Listed { number, title: "t".into(), author: author.into(), state: "OPEN".into(), updated: "2026-01".into(), ..Listed::default() };
+    let dir = std::env::temp_dir().join(format!("dv-defer-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("reviews")).unwrap();
+    let mut l = List::new("".into());
+    (l.reviews_dir, l.ranked, l.deferred_file, l.deferred) = (Some(dir.join("reviews")), None, Some(dir.join("deferred.json")), Default::default());
+    l.prs = vec![pr(1, "amy"), pr(2, "bo")];
+    l.me = "me".into();
+    let extra = |requested| gh::Extra { requested, mergeable: "MERGEABLE".into(), head_oid: "h".into(), ..Default::default() };
+    l.extra = HashMap::from([(1, extra(true)), (2, extra(false))]);
+    l.find_todo();
+    l.tab = Tab::Todo;
+    let shown = |l: &List| l.shown().iter().map(|p| p.number).collect::<Vec<_>>();
+    assert_eq!((shown(&l), l.todo_now()), (vec![1, 2], 2));
+    let k = |l: &mut List, c| l.key(KeyEvent::new(c, KeyModifiers::NONE));
+    // s, then anything but a time: not deferred.
+    k(&mut l, KeyCode::Char('s'));
+    k(&mut l, KeyCode::Char('x'));
+    assert_eq!((shown(&l), l.msg.as_str()), (vec![1, 2], "not deferred"));
+    // s 4: four hours, to the bottom, out of the count; kept.
+    k(&mut l, KeyCode::Char('s'));
+    k(&mut l, KeyCode::Char('4'));
+    assert_eq!((shown(&l), l.todo_now()), (vec![2, 1], 1));
+    assert!(l.todo[1].deferred.is_some_and(|u| u - crate::claude::now_secs() > 3 * 3600));
+    assert!(crate::todo::load_deferred(Some(&dir.join("deferred.json"))).contains_key("pr-1"));
+    // s on it again: back.
+    k(&mut l, KeyCode::Char('j'));
+    k(&mut l, KeyCode::Char('s'));
+    assert_eq!((shown(&l), l.todo_now()), (vec![1, 2], 2));
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -255,8 +255,13 @@ pub(super) fn todo_line(rank: usize, it: &crate::todo::Item, cx: &Cards, selecte
     let bar = Span::styled(if selected { "▌" } else { " " }, st);
     // Its place in the number's column, the arrow under the title.
     let lead = format!(" {:>w$}  → ", format!("{rank}."), w = cx.num_w);
-    // Placed by the rules since Claude ranked (new, or its needs changed): said so.
-    let says = if it.changed { format!("{}  (since Claude ranked)", it.says()) } else { it.says() };
+    // Placed by the rules since Claude ranked (new, or its needs changed): said so. Deferred:
+    // when it's back.
+    let says = match it.deferred {
+        Some(until) => format!("deferred, back in {} (or sooner if it changes; s brings it back now) · {}", super::todo::in_secs(until - crate::claude::now_secs()), it.says()),
+        None if it.changed => format!("{}  (since Claude ranked)", it.says()),
+        None => it.says(),
+    };
     let says = cut(&says, cx.width.saturating_sub(lead.chars().count() + 1));
     let pad = cx.width.saturating_sub(1 + lead.chars().count() + says.chars().count());
     Line::from(vec![bar, Span::styled(lead, st), Span::styled(says, st), Span::styled(" ".repeat(pad), row)]).style(row)

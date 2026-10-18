@@ -20,17 +20,18 @@ impl List {
             let facts = Facts { pr: p, extra: self.extra.get(&p.number), me: &self.me, review: review.as_ref(), looked, review_changed: file.and_then(secs) };
             let (needs, claude) = todo::needs(&facts);
             if !needs.is_empty() {
-                items.push(Item { rep: false, number: p.number, needs, claude, updated: p.updated.clone(), reason: None, changed: false });
+                items.push(Item { rep: false, number: p.number, needs, claude, updated: p.updated.clone(), reason: None, changed: false, deferred: None });
             }
         }
         for r in self.rep_of.values() {
             let needs = todo::rep_needs(r);
             let updated = self.reps.iter().find(|c| c.number == r.id).map_or(String::new(), |c| c.updated.clone());
             if !needs.is_empty() {
-                items.push(Item { rep: true, number: r.id, needs, claude: None, updated, reason: None, changed: false });
+                items.push(Item { rep: true, number: r.id, needs, claude: None, updated, reason: None, changed: false, deferred: None });
             }
         }
-        (self.todo, self.since) = todo::order(items, self.ranked.as_ref());
+        let (items, since) = todo::order(items, self.ranked.as_ref());
+        (self.todo, self.since) = (todo::defer(items, &self.deferred, crate::claude::now_secs()), since);
     }
 
     /// The todo tab's items with their cards (a PR's, or a replacement's).
@@ -58,6 +59,7 @@ impl List {
         let lines: Vec<String> = self
             .todo_shown()
             .into_iter()
+            .filter(|(_, it)| it.deferred.is_none()) // not ranked while deferred
             .map(|(card, it)| {
                 let summary = match it.rep {
                     true => self.rep_of.get(&it.number).map(|r| r.body.clone()).unwrap_or_default(),
@@ -118,6 +120,45 @@ impl List {
         }
     }
 
+    /// What needs you now (not deferred), for the tab's count.
+    pub(super) fn todo_now(&self) -> usize {
+        self.todo.iter().filter(|it| it.deferred.is_none()).count()
+    }
+
+    /// `s` on the selected todo item: bring it back if it's deferred, else ask for how long.
+    pub(super) fn defer_key(&mut self) {
+        let Some(it) = self.todo_shown().get(self.sel).map(|(_, it)| (*it).clone()) else { return };
+        let what = if it.rep { format!("the replacement of #{}", it.number) } else { format!("#{}", it.number) };
+        if it.deferred.is_some() {
+            self.deferred.remove(&it.key());
+            self.msg = format!("{what} is back");
+            return self.save_defer();
+        }
+        self.msg = format!("defer {what} for: 1 an hour, 4 four hours, d a day, w a week (any other key: not); it's back sooner if what it needs changes");
+        self.deferring = Some(it.key());
+    }
+
+    /// Defer the item `s` asked about (its key) for `c`'s time.
+    pub(super) fn defer_for(&mut self, key: &str, c: char) {
+        let Some(it) = self.todo.iter().find(|it| it.key() == key).cloned() else { return };
+        let (secs, how) = match c {
+            '1' => (3600, "an hour"),
+            '4' => (4 * 3600, "four hours"),
+            'd' => (86400, "a day"),
+            _ => (7 * 86400, "a week"),
+        };
+        self.deferred.insert(it.key(), (crate::claude::now_secs() + secs, it.needs_key()));
+        self.msg = format!("deferred for {how} (s on it brings it back)");
+        self.save_defer();
+    }
+
+    fn save_defer(&mut self) {
+        if let Err(e) = todo::save_deferred(self.deferred_file.as_deref(), &self.deferred) {
+            self.msg = format!("couldn't save it: {e:#}");
+        }
+        self.find_todo();
+    }
+
     /// What Claude would do on PR `n` from the todo tab (`a a`): what's due there, else review.
     pub(super) fn todo_task(&self, n: u64) -> batch::Task {
         self.todo.iter().find(|it| !it.rep && it.number == n).and_then(|it| it.claude.clone()).unwrap_or(batch::Task::Review)
@@ -127,6 +168,17 @@ impl List {
 /// A ranking's cost: "cost $0.38" (one from before dv kept it: not recorded).
 pub(super) fn cost_text(c: f64) -> String {
     if c > 0.0 { format!("cost ${c:.2}") } else { "cost not recorded".into() }
+}
+
+/// `s` seconds from now, to the nearest unit: "40s", "3m", "4h", "2d" (four hours just set
+/// reads 4h, not the 3h `ago_secs` would round it down to).
+pub(super) fn in_secs(s: i64) -> String {
+    match s.max(0) {
+        s if s < 60 => format!("{s}s"),
+        s if s < 3600 => format!("{}m", (s + 30) / 60),
+        s if s < 86400 => format!("{}h", (s + 1800) / 3600),
+        s => format!("{}d", (s + 43200) / 86400),
+    }
 }
 
 /// `s` seconds as "40s", "3m", "2h", "5d".

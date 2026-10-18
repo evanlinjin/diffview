@@ -4,9 +4,9 @@
 ▌     @me   +0 −0 in 1 file                         /     filter
 ▌                                                   R     refresh (from GitHub)
 ▌     b                                             r r   Claude ranks what needs you (a run)
+                                                    s     defer it (or bring it back)
                                                     m     mark
                                                     a a   Claude does its part (marked)
                                                     A A   Claude drafts a replacement
                                                     M M   merge (github-merge.py)
-                                                    ?     all keys
 

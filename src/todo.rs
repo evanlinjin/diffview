@@ -83,11 +83,18 @@ pub struct Item {
     pub reason: Option<String>,
     /// New, or its needs changed, since that ranking: placed by the rules, not Claude.
     pub changed: bool,
+    /// Deferred until then (seconds; `s`): at the bottom till then, unless its needs change.
+    pub deferred: Option<i64>,
 }
 
 impl Item {
     pub fn key(&self) -> String {
         format!("{}-{}", if self.rep { "rep" } else { "pr" }, self.number)
+    }
+
+    /// Its needs, as deferring it records them (it comes back early when they change).
+    pub fn needs_key(&self) -> String {
+        self.needs.iter().map(|n| n.weight().to_string()).collect::<Vec<_>>().join(",")
     }
 
     fn top(&self) -> u8 {
@@ -217,7 +224,7 @@ pub fn order(mut items: Vec<Item>, ranked: Option<&Ranked>) -> (Vec<Item>, Since
     // The ranking's items and their needs then, from its fingerprint.
     let fp = ranked.map_or("", |r| r.fingerprint.as_str());
     let then: std::collections::HashMap<&str, &str> = fp.split(';').filter_map(|e| e.split_once(':')).collect();
-    let now = |it: &Item| it.needs.iter().map(|n| n.weight().to_string()).collect::<Vec<_>>().join(",");
+    let now = |it: &Item| it.needs_key();
     let mut since = Since { gone: then.keys().filter(|k| !items.iter().any(|it| it.key() == **k)).count(), ..Since::default() };
     for it in items.iter_mut().filter(|_| ranked.is_some()) {
         match then.get(it.key().as_str()) {
@@ -244,6 +251,43 @@ pub fn order(mut items: Vec<Item>, ranked: Option<&Ranked>) -> (Vec<Item>, Since
 
 fn path() -> Option<std::path::PathBuf> {
     crate::claude::dv_dir().ok().map(|d| d.join("todo.json"))
+}
+
+/// Items deferred (`s`): key → (until, its needs then).
+pub type Deferred = std::collections::HashMap<String, (i64, String)>;
+
+/// Where they're kept: `deferred.json` in dv's directory.
+pub fn deferred_path() -> Option<std::path::PathBuf> {
+    crate::claude::dv_dir().ok().map(|d| d.join("deferred.json"))
+}
+
+/// What's deferred (in file `p`), the expired ones gone.
+pub fn load_deferred(p: Option<&std::path::Path>) -> Deferred {
+    let v: Value = p.and_then(|p| serde_json::from_str(&std::fs::read_to_string(p).ok()?).ok()).unwrap_or_default();
+    let now = crate::claude::now_secs();
+    v.as_object()
+        .into_iter()
+        .flatten()
+        .filter_map(|(k, e)| Some((k.clone(), (e["until"].as_i64()?, e["needs"].as_str().unwrap_or("").to_owned()))))
+        .filter(|(_, (until, _))| *until > now)
+        .collect()
+}
+
+pub fn save_deferred(p: Option<&std::path::Path>, d: &Deferred) -> Result<()> {
+    let v: serde_json::Map<String, Value> = d.iter().map(|(k, (until, needs))| (k.clone(), json!({ "until": until, "needs": needs }))).collect();
+    let p = p.context("no dv directory")?;
+    std::fs::create_dir_all(p.parent().unwrap_or(p))?;
+    Ok(std::fs::write(p, Value::Object(v).to_string())?)
+}
+
+/// `items` with what's deferred (and still needs what it did then) moved to the end, marked.
+pub fn defer(items: Vec<Item>, deferred: &Deferred, now: i64) -> Vec<Item> {
+    let (mut later, mut out): (Vec<Item>, Vec<Item>) = items.into_iter().partition(|it| {
+        deferred.get(&it.key()).is_some_and(|(until, needs)| *until > now && *needs == it.needs_key())
+    });
+    later.iter_mut().for_each(|it| it.deferred = deferred.get(&it.key()).map(|d| d.0));
+    out.append(&mut later);
+    out
 }
 
 /// The last ranking (`todo.json` in dv's directory), if any.
@@ -413,7 +457,7 @@ mod tests {
 
     #[test]
     fn ordering() {
-        let it = |n, needs: Vec<Need>, updated: &str| Item { rep: false, number: n, needs, claude: None, updated: updated.into(), reason: None, changed: false };
+        let it = |n, needs: Vec<Need>, updated: &str| Item { rep: false, number: n, needs, claude: None, updated: updated.into(), reason: None, changed: false, deferred: None };
         let items = vec![it(1, vec![Need::NoReview], "b"), it(2, vec![Need::ReviewRequested], "c"), it(3, vec![Need::NoReview], "a")];
         // Rules: the most pressing first, then the longest waiting.
         let (o, since) = order(items.clone(), None);
@@ -436,5 +480,21 @@ mod tests {
         // Claude's answer, words around it.
         let p = parse("Here: [{\"key\": \"pr-2\", \"reason\": \"bug fix\", \"next\": \"review it\"}, {\"key\": \"rep-12\", \"reason\": \"ready\"}]").unwrap();
         assert_eq!(p, [("pr-2".to_owned(), "bug fix — review it".to_owned()), ("rep-12".to_owned(), "ready".to_owned())]);
+    }
+
+    #[test]
+    fn deferring() {
+        let it = |n, needs: Vec<Need>| Item { rep: false, number: n, needs, claude: None, updated: String::new(), reason: None, changed: false, deferred: None };
+        let items = vec![it(1, vec![Need::ReadyToMerge]), it(2, vec![Need::NoReview])];
+        let d: Deferred = [("pr-1".to_owned(), (200, items[0].needs_key()))].into();
+        // Deferred: to the end, marked, until then.
+        let o = defer(items.clone(), &d, 100);
+        assert_eq!((o[0].number, o[1].number, o[1].deferred), (2, 1, Some(200)));
+        // Past it: back in place.
+        assert_eq!(defer(items.clone(), &d, 300)[0].number, 1);
+        // Its needs changed: back before then.
+        let mut changed = items;
+        changed[0].needs.push(Need::NewActivity);
+        assert_eq!(defer(changed, &d, 100)[0].deferred, None);
     }
 }
