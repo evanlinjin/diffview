@@ -114,7 +114,7 @@ impl App {
         let d = self.top + y;
         if self.in_pr_tab_area(x) {
             let row = *self.pr_rows.get(self.pr_top + y)?;
-            let start = g.relw + g.gw + g.ctw + 1 + 3;
+            let start = g.relw + g.gw + g.ctw + 1 + self.pane_pad() + 3;
             return Some((row, x.saturating_sub(start) + self.hscroll(row), x < start));
         }
         let (row, start) = match *self.drows.get(d)? {
@@ -123,7 +123,7 @@ impl App {
             DRow::Pair(l, r) if x < g.relw + g.half => (l.or(r)?, g.relw + g.ghw),
             DRow::Pair(l, r) => (r.or(l)?, g.relw + g.half + 1 + g.ghw),
             // The comment margin: after the code column and a 1-column gap, behind its own gutter.
-            DRow::Margin(_, _, Some(note)) if x > g.relw + g.gw + g.ctw => (note, g.relw + g.gw + g.ctw + 1 + 3),
+            DRow::Margin(_, _, Some(note)) if x > g.relw + g.gw + g.ctw => (note, g.relw + g.gw + g.ctw + 1 + self.pane_pad() + 3),
             // Split view's code beside it: as a pair, but a hunk header spans both sides.
             DRow::Margin(l, r, _) if self.split && l.or(r).is_some_and(|c| matches!(self.rows[c].line.kind, Kind::Ctx | Kind::Add | Kind::Del)) => {
                 match x < g.relw + g.half {

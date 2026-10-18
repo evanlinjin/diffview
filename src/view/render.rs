@@ -273,9 +273,9 @@ impl App {
         let code_line = matches!(self.rows[self.head.row].line.kind, Kind::Ctx | Kind::Add | Kind::Del);
         let on_pr = self.on_pr_tab();
         let cur_w = match self.drows[self.hd()] {
-            _ if on_pr => mtw, // `hd` is where the cursor was in the code
+            _ if on_pr => mtw - self.pane_pad(), // `hd` is where the cursor was in the code
             DRow::Pair(..) => htw_l.min(htw_r),
-            DRow::Margin(..) if self.margin_side() => mtw,
+            DRow::Margin(..) if self.margin_side() => mtw - self.pane_pad(),
             // Split view beside the pane: a line is one half, paired or not.
             DRow::Margin(..) if self.split && code_line => htw_l.min(htw_r),
             DRow::Margin(..) => ctw,
@@ -340,6 +340,35 @@ impl App {
             spans.extend(half(rr, true, htw_r));
             spans
         };
+        // Where the pane meets the code: as a column, a dim line between them; floating, the
+        // pane in the popup color (on the rows it covers), with no line.
+        let raised = self.ui.popup.bg.or(self.ui.bar);
+        let sep = match float {
+            false => Span::styled("│", Style { fg: self.ui.linenr.fg, ..Style::new() }),
+            true => Span::styled(" ", Style { bg: raised, ..Style::new() }),
+        };
+        let base_bg = self.ui.base.bg;
+        let raise = |v: Vec<Span<'static>>| match (float, raised) {
+            // Its own colors (the cursor line, a selection) stay; the window's give way.
+            (true, Some(bg)) => v
+                .into_iter()
+                .map(|mut sp| {
+                    if sp.style.bg.is_none() || sp.style.bg == base_bg {
+                        sp.style.bg = Some(bg);
+                    }
+                    sp
+                })
+                .collect(),
+            _ => v,
+        };
+        // As a column, a space between the line and the pane's boxes (not `││`).
+        let pad = self.pane_pad();
+        let ptw = mtw - pad;
+        let pane_cell = |v: Vec<Span<'static>>| {
+            let mut out = vec![Span::raw(" ".repeat(pad))];
+            out.extend(clip(v, mw - pad));
+            out
+        };
         let rows_shown = if pr_tab { h } else { (self.top + h).min(self.drows.len()).saturating_sub(self.top) };
         let lines: Vec<Line> = (0..rows_shown)
             .map(|y| {
@@ -351,11 +380,19 @@ impl App {
                     _ => vec![Span::styled(format!("{:>w$} ", d.abs_diff(hd), w = relw - 1), self.ui.linenr)],
                 };
                 let mut spans = if d < self.drows.len() { rel } else { vec![] };
-                // Beside the PR tab (as a column), full-width rows are as wide as the code.
-                let fw = if pr_tab && !float { ctw } else { tw };
+                // Beside the pane (as a column), full-width rows are as wide as the code.
+                let column = margin && !float;
+                let fw = if column { ctw } else { tw };
                 match self.drows.get(d).copied().unwrap_or(DRow::Pair(None, None)) {
                     _ if d >= self.drows.len() => {}
-                    DRow::Full(r) => spans.extend(self.render_row(r, s, e, (lw, gw, fw), None, cur, &overlay)),
+                    DRow::Full(r) => {
+                        spans.extend(self.render_row(r, s, e, (lw, gw, fw), None, cur, &overlay));
+                        if column && !pr_tab {
+                            spans = clip(spans, relw + gw + mx);
+                            spans.push(sep.clone());
+                            spans.push(Span::raw(" ".repeat(mw)));
+                        }
+                    }
                     DRow::Pair(l, rr) => spans.extend(pair(l, rr, cur)),
                     DRow::Margin(l, rr, comment) => {
                         // Code on the left (blank on a spacer row), a gap, then the comment
@@ -373,9 +410,9 @@ impl App {
                             (None, true) => spans.extend(code),
                             (c, _) => {
                                 spans.extend(clip(code, gw + mx));
-                                spans.push(Span::raw(" "));
+                                spans.push(sep.clone());
                                 match c {
-                                    Some(r) => spans.extend(clip(self.render_row(r, s, e, (lw, 3, mtw), None, cur, &overlay), mw)),
+                                    Some(r) => spans.extend(raise(pane_cell(self.render_row(r, s, e, (lw, 3, ptw), None, cur, &overlay)))),
                                     None => spans.push(Span::raw(" ".repeat(mw))),
                                 }
                             }
@@ -385,10 +422,10 @@ impl App {
                 // The PR tab: its own rows, scrolled on their own, over the right of every line.
                 if pr_tab {
                     spans = clip(spans, relw + gw + mx);
-                    spans.push(Span::raw(" "));
+                    spans.push(sep.clone());
                     match self.pr_rows.get(self.pr_top + y) {
-                        Some(&r) => spans.extend(clip(self.render_row(r, s, e, (lw, 3, mtw), None, r == self.head.row, &overlay), mw)),
-                        None => spans.push(Span::raw(" ".repeat(mw))),
+                        Some(&r) => spans.extend(raise(pane_cell(self.render_row(r, s, e, (lw, 3, ptw), None, r == self.head.row, &overlay)))),
+                        None => spans.extend(raise(vec![Span::raw(" ".repeat(mw))])),
                     }
                 }
                 Line::from(spans)
@@ -431,7 +468,7 @@ impl App {
                 + pin as u16;
             // In the margin, the text starts after the code column, the gap and its own gutter.
             let start = match self.drows[hd] {
-                _ if on_pr || self.margin_side() => relw + self.geom.gw + self.geom.ctw + 1 + 3,
+                _ if on_pr || self.margin_side() => relw + self.geom.gw + self.geom.ctw + 1 + self.pane_pad() + 3,
                 DRow::Pair(..) | DRow::Margin(Some(_), Some(_), _) if self.right => relw + half + 1 + ghw,
                 DRow::Pair(..) => relw + ghw,
                 DRow::Margin(Some(_), Some(_), _) if self.split => relw + ghw,

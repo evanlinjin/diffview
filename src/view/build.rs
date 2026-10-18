@@ -309,7 +309,12 @@ impl App {
 
     /// The width comments and PR text wrap to: the pane's, when it's shown (they're there).
     pub(super) fn info_w(&self) -> usize {
-        if self.margin_active { self.margin_w - 3 - 2 } else { self.wrap_w }
+        if self.margin_active { self.margin_w - 3 - 2 - self.pane_pad() } else { self.wrap_w }
+    }
+
+    /// The space inside the line between the code and the pane, as a column.
+    pub(super) fn pane_pad(&self) -> usize {
+        usize::from(!self.margin_float)
     }
 
     /// Color a PR info line by its marks: badges, pass/fail colors, links.

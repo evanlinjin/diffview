@@ -5,6 +5,10 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Changed
+- The comments pane is set off from the code: as a column, by a dim line (file headers stop
+  at it); floating, by the theme's popup color.
+
 ## [0.6.0] - 2026-10-18
 
 ### Added
