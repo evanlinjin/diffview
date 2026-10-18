@@ -236,7 +236,8 @@ a new PR fixing CI from its task, after your editor, and `a a` has Claude try ag
 git config `dv.auto` and shown on the top bar, ` auto: CI · review · rank `: then Claude does its
 part on each item by itself, as `a a` would have it (fixes your failing CI, reviews, updates its
 review, answers you; one batch at a time), a draft of yours with its checks green is marked ready
-for review, each once a head, and the list is ranked again when something's new or changed, at
+for review, each once a head, a published replacement with its checks green closes what it
+replaces, each with its closing note (as `S` → close would), and the list is ranked again when something's new or changed, at
 most every 15 minutes; not items deferred or waiting, nor ones Claude's at already), workflow runs awaiting a maintainer's approval (`W W`; its card says
 `⏸ N to approve`), conflicts with its base (ask for
 a rebase: `b b` in `dv list` posts a comment saying so, after your editor, then defers the item

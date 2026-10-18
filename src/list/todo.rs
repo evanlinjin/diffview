@@ -105,7 +105,25 @@ impl List {
                 _ => {}
             }
         }
+        // A published replacement, its CI passed: what it replaces closed, with its closing note.
+        let mut close = vec![];
+        for it in self.todo.iter().filter(|it| it.rep && it.busy.is_none() && it.deferred.is_none() && it.waits.is_none()) {
+            let Some(r) = self.rep_of.get(&it.number).filter(|_| it.needs.iter().any(|n| matches!(n, todo::Need::CloseOriginals(_)))) else { continue };
+            let Some(p) = r.published.and_then(|n| self.prs.iter().find(|p| p.number == n)) else { continue };
+            let green = !p.checks_head.is_empty() && p.checks.is_some_and(|(pass, fail, pending)| pass > 0 && fail == 0 && pending == 0);
+            if green && self.auto_done.insert((it.number, p.checks_head.clone(), "close")) {
+                close.push(r.clone());
+            }
+        }
         let mut said = vec![];
+        for mut r in close {
+            let (note, n) = (crate::replace::note(&r), r.published.unwrap_or(0));
+            said.push(match crate::replace::close_originals(&mut r, &note) {
+                Ok(done) => format!("closed {} (replaced by #{n}, its CI passed)", done.iter().map(|o| format!("#{o}")).collect::<Vec<_>>().join(", ")),
+                Err(e) => format!("closing what #{n} replaces: {e:#}"),
+            });
+            self.load_reps();
+        }
         if !run.is_empty() {
             said.push(format!("Claude is {}", run.iter().map(|(n, _, t)| format!("{} #{n}", t.doing())).collect::<Vec<_>>().join(", ")));
             run.iter().for_each(|(n, _, t)| _ = self.batch_task.insert(*n, t.clone()));

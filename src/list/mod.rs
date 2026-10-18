@@ -59,7 +59,8 @@ const HELP: &str = "\
   C                    auto on / off (shown on the top bar; kept in git config dv.auto):
                        Claude does its part on what needs you as it comes in (fixes your
                        CI, reviews, updates its reviews, answers you), your drafts are marked
-                       ready for review once CI passes, and the todo list is ranked again
+                       ready for review once CI passes, a published replacement's originals
+                       are closed with its note once its CI passes, and the todo list is ranked again
                        as it changes (at most every 15 minutes)
   a a                  Claude reviews the marked PRs (or this one) in the background, two at a
                        time, each in its worktree (<repo>-N, made if need be); cards show how

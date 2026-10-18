@@ -8,7 +8,8 @@ on GitHub are its section here.
 ### Changed
 - Auto CI is now auto (`C` in `dv list`, git config `dv.auto`; turn it on again): Claude also
   reviews, updates its reviews and answers you as things come in, and ranks the todo list again as
-  it changes (at most every 15 minutes), on top of fixing your CI and marking green drafts ready.
+  it changes (at most every 15 minutes), on top of fixing your CI and marking green drafts ready;
+  and once a published replacement's CI passes, it closes the PRs it replaces, with the closing note.
 
 ### Added
 - Closing a PR with a comment Claude drafts: `Space a` → "Ask Claude to draft a comment closing the
