@@ -72,8 +72,17 @@ impl List {
         let (mut busy, todo): (Vec<Item>, Vec<Item>) = items.into_iter().partition(|it| doing(it).is_some());
         busy.iter_mut().for_each(|it| it.busy = doing(it));
         // A replacement drafted, ready for you to review: first.
-        let (mut ready, mut todo): (Vec<Item>, Vec<Item>) = todo.into_iter().partition(|it| it.rep && it.needs.contains(&todo::Need::Publish));
+        let (mut ready, todo): (Vec<Item>, Vec<Item>) = todo.into_iter().partition(|it| it.rep && it.needs.contains(&todo::Need::Publish));
+        // CI still running on it (a replacement's: on its PR): what it needs mostly waits on
+        // that (merging, marking it ready, closing what it replaces, a fix), so after what you
+        // can do now, before what Claude's at. Back up once CI's done.
+        let ci_running = |it: &Item| {
+            let n = if it.rep { self.rep_of.get(&it.number).and_then(|r| r.published) } else { Some(it.number) };
+            n.and_then(|n| self.prs.iter().find(|p| p.number == n)).and_then(|p| p.checks).is_some_and(|c| c.2 > 0)
+        };
+        let (mut waiting, mut todo): (Vec<Item>, Vec<Item>) = todo.into_iter().partition(ci_running);
         ready.append(&mut todo);
+        ready.append(&mut waiting);
         ready.append(&mut busy);
         (self.todo, self.since) = (ready, since);
         self.auto_run();

@@ -5,6 +5,10 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Changed
+- Todo: a PR with CI still running goes after what you can act on now (before what Claude's
+  at), and back up once CI is done.
+
 ## [0.29.0] - 2026-10-19
 
 ### Added

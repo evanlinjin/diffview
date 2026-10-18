@@ -253,7 +253,9 @@ notes in its prompt) puts them in order with a few words on each ("why — what 
 third line; what holds the PR up on GitHub before them, in short, as its ranking may be older:
 `[⏸ 3 runs to approve (W W) · ✗ 2 checks failing · 1 unsigned commit · conflicts]`), saved in dv's directory (`todo.json`) with what it ranked. Items it didn't rank (new,
 or changed) go before the first ranked one that needs you less, their cards saying "since Claude
-ranked". Claude ranks only when you ask, as it costs a run: `r r` there (`R` refreshes from GitHub
+ranked". Whatever the order, a PR with CI still running (a replacement's: on its PR) goes
+after the rest, as what it needs mostly waits on CI, before what Claude's at, and back up once
+CI's done. Claude ranks only when you ask, as it costs a run: `r r` there (`R` refreshes from GitHub
 alone). To judge whether that's worth it, the header says how old the last ranking is, what it
 cost (Claude Code's reported cost, kept with it), and what's changed since (new, changed, seen to),
 and the first `r` says the same. Nothing else starts by itself: a card says what Claude could do

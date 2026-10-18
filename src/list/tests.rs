@@ -260,6 +260,13 @@ fn todo_tab() {
     let shown = |l: &List| l.shown().iter().map(|p| p.number).collect::<Vec<_>>();
     // Answered (75) before requested (70) before no review (30); yours with nothing else isn't on it.
     assert_eq!(shown(&l), [3, 2, 1]);
+    // CI still running on one: after the rest, back once it's done.
+    l.prs[1].checks = Some((3, 0, 2));
+    l.find_todo();
+    assert_eq!(shown(&l), [3, 1, 2]);
+    l.prs[1].checks = Some((5, 0, 0));
+    l.find_todo();
+    assert_eq!(shown(&l), [3, 2, 1]);
     assert_eq!(l.todo[0].says(), "Claude answered you on 1 thread · Claude's review is new to you");
     // Claude's part: a review where there's none (#1, #2), nothing on #3 (up to date, nothing waiting).
     assert!(l.todo.iter().all(|it| (it.number == 3) == it.claude.is_none()));
