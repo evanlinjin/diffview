@@ -190,7 +190,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `r` on a Claude comment | reply to Claude: saved in the review file, then Claude answers right away in the background (`claude -p`, resuming the last run's session; replies made meanwhile get one more run) |
 | `c` / `C` on a Claude comment | copy it into your pending review / post it now; dismissed from the file once posted |
 | `R` | refresh: re-run `git diff`, re-fetch threads + PR info |
-| `Space g` | git: show only what isn't committed (diff against HEAD, to check Claude's changes) / the whole diff again; commit everything (new files too; the message starts from Claude's "Changed: …" replies since the last commit); push to the branch it tracks (a PR's, under its own name) |
+| `Space g` | git: show only what isn't committed (diff against HEAD, to check Claude's changes) / the whole diff again; commit everything (new files too; the message starts from Claude's "Changed: …" replies since the last commit); push to the branch it tracks (a PR's, under its own name), or from a detached `dv N -w` worktree to the PR's branch in its repo (a fork's too, as `origin` is reached, SSH or HTTPS); after a rebase or amend (HEAD doesn't contain the PR's head), force-push with a lease on the PR's head as dv knows it; merge (ends the review) |
 | `Space m` | the status bar's messages so far, in full, and the last background Claude run's log and the runs' cost |
 | `Space u` | update the checkout: to the PR's head as `gh pr checkout` does (fast-forward only; local commits are kept), or `git pull --ff-only` without a PR; then refresh |
 | `?` | key help overlay (two columns when the window fits them); `/` inside it filters entries (smart case), Enter keeps, Esc clears |
@@ -225,6 +225,13 @@ other key: not): it goes to the bottom, out of the count ("deferred, back in 4h"
 until what it needs changes (its needs are kept with it: new activity is new information); `s` on
 it brings it back. Deferrals are kept in dv's directory (`deferred.json`). Deferred items aren't
 ranked.
+
+Opening a PR that's checked out already (its `<repo>-N` worktree, or its branch here) updates it
+to the PR's head, except over work done there since: commits the PR doesn't have (yours, or
+Claude's: a commit, an amend, a rebase) are kept, `-f` or not, and dv says how many and how to
+push or drop them. dv records the commit it last checked out (`checkouts/pr-N` in its
+directory), so a PR its author force-pushed still updates. Worktrees made for Claude's runs in
+`dv list` follow its `-b`.
 
 Merging: `M M` on a PR in `dv list`, or `Space g` → merge in its review (which ends the review
 first), runs Bitcoin Core's `github-merge.py` (`merge.rs`). dv builds the script in

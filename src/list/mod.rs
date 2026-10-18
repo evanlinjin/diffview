@@ -300,7 +300,8 @@ impl List {
                     let which = prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(" ");
                     let what = format!("instructions for Claude's reviews of {which} (optional)");
                     let Some(extra) = self.instructions(term, "review", &what) else { continue };
-                    let on_branch = |n| self.local.get(&n).is_some_and(|w| w.1.is_some());
+                    // A worktree as it was made; a new one as dv list's flags say (-b: on the PR's branch).
+                    let on_branch = |n| self.local.get(&n).map_or(self.flags.contains('b'), |w| w.1.is_some());
                     // From the todo tab, what's due on each (answers, an update, a review).
                     let task = |n| if self.tab == Tab::Todo { self.todo_task(n) } else { batch::Task::Review };
                     let prs: Vec<(u64, bool, batch::Task)> = prs.into_iter().map(|n| (n, on_branch(n), task(n))).collect();

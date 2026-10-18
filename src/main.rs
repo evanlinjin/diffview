@@ -291,8 +291,21 @@ fn review(o: &Opts, pr_num: Option<u64>) -> anyhow::Result<(Option<PathBuf>, any
         }
         (Some(_), false) if known.as_ref().is_some_and(|p| at_head(p, false)) => (None, None),
         (Some(n), false) => {
-            progress(Some(&format!("checking out PR #{n}")));
-            (None, checkout_or_keep(n, o.force, false)?)
+            // On its branch already, with work the PR doesn't have: kept, not updated over.
+            let on_it = known.as_ref().is_some_and(|p| {
+                let here = diff::git(&["branch", "--show-current"]).unwrap_or_default();
+                let here = here.trim();
+                here == p.head_branch || here == format!("{}-{}", p.head_owner, p.head_branch)
+            });
+            match on_it.then(|| local_work(n)).flatten() {
+                Some(note) => (None, Some(note)),
+                None => {
+                    progress(Some(&format!("checking out PR #{n}")));
+                    let note = checkout_or_keep(n, o.force, false)?;
+                    record_checkout(n);
+                    (None, note)
+                }
+            }
         }
         (None, _) => (None, None),
     };
@@ -392,6 +405,45 @@ pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool) -> anyhow::Res
     }
 }
 
+/// Commits here that PR `n` doesn't have (yours, or Claude's: a commit, an amend, a rebase): a
+/// note saying they're kept, else `None` (nothing here but what dv checked out, or older:
+/// updating to the PR is safe). Updating never drops them, `-f` or not: dv records the commit
+/// it last checked out (`checkouts/pr-N` in its directory), so a PR its author force-pushed
+/// still updates, while work done here since stays until you push it or drop it yourself.
+fn local_work(n: u64) -> Option<String> {
+    let head = diff::git(&["rev-parse", "HEAD"]).ok()?.trim().to_owned();
+    diff::git(&["fetch", "-q", "origin", &format!("refs/pull/{n}/head")]).ok()?;
+    let pr = diff::git(&["rev-parse", "FETCH_HEAD"]).ok()?.trim().to_owned();
+    let behind = head == pr || diff::git(&["merge-base", "--is-ancestor", &head, &pr]).is_ok();
+    if behind || last_checkout(n).as_deref() == Some(head.as_str()) {
+        return None;
+    }
+    let ahead = diff::git(&["rev-list", "--count", &format!("{pr}..HEAD")]).unwrap_or_default();
+    let ahead = ahead.trim();
+    let (s, are, them) = if ahead == "1" { ("", "isn't", "it") } else { ("s", "aren't", "them") };
+    Some(format!(
+        "{ahead} commit{s} here {are} on PR #{n} (yours or Claude's): kept, not updated to the PR. \
+         Space g pushes {them}; to drop {them} instead, `git reset --hard {}`",
+        &pr[..pr.len().min(12)]
+    ))
+}
+
+fn checkout_record(n: u64) -> Option<PathBuf> {
+    claude::dv_dir().ok().map(|d| d.join("checkouts").join(format!("pr-{n}")))
+}
+
+/// The commit dv last checked PR `n` out at, here or in its worktree.
+fn last_checkout(n: u64) -> Option<String> {
+    Some(std::fs::read_to_string(checkout_record(n)?).ok()?.trim().to_owned())
+}
+
+/// Note what PR `n` is checked out at now, for `local_work` next time.
+fn record_checkout(n: u64) {
+    let (Some(p), Ok(head)) = (checkout_record(n), diff::git(&["rev-parse", "HEAD"])) else { return };
+    _ = std::fs::create_dir_all(p.parent().unwrap_or(&p));
+    _ = std::fs::write(p, head.trim());
+}
+
 /// Already at PR `p`'s head as `gh pr checkout` would leave it (`detach`ed, or on its branch),
 /// so there's nothing to fetch.
 fn at_head(p: &gh::Pr, detach: bool) -> bool {
@@ -412,7 +464,8 @@ fn at_head(p: &gh::Pr, detach: bool) -> bool {
 /// of this repo; git refuses to update one with local changes.
 fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> anyhow::Result<(PathBuf, Option<String>)> {
     let (_, dir) = worktree_dir(n)?;
-    if dir.exists() {
+    let existed = dir.exists();
+    if existed {
         ensure_ours(&dir)?;
     } else {
         progress(Some(&format!("creating the worktree {}", dir.display())));
@@ -420,7 +473,12 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
     }
     std::env::set_current_dir(&dir)?;
     if known.is_some_and(|p| at_head(p, !branch)) {
+        record_checkout(n);
         return Ok((dir, None));
+    }
+    // Work done here since (yours, Claude's) stays: not updated to the PR over it.
+    if existed && let Some(note) = local_work(n) {
+        return Ok((dir, Some(note)));
     }
     progress(Some(&format!("checking out PR #{n} in {}", dir.display())));
     let note = checkout_or_keep(n, force, !branch).map_err(|e| {
@@ -433,6 +491,7 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
         };
         e.context(format!("checking out PR #{n} in {}{hint}", dir.display()))
     })?;
+    record_checkout(n);
     Ok((dir, note))
 }
 

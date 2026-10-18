@@ -287,7 +287,8 @@ enum Job {
     DeleteComment(String),
     /// Fetch an issue/PR link's preview into a popup.
     Preview(String),
-    Push,
+    /// Push HEAD to the PR's branch (`true`: force, with a lease on the PR's head).
+    Push(bool),
     /// Send what was written in the editor.
     Post(Post),
 }
@@ -330,6 +331,8 @@ enum Target {
     GitView,
     GitCommit,
     GitPush,
+    /// Force-push (with a lease): HEAD doesn't contain the PR's head (a rebase or amend here).
+    GitForcePush,
     /// End the review and merge the PR with github-merge.py.
     GitMerge,
     /// Dismiss all of Claude's outdated comments (`true`: confirmed).

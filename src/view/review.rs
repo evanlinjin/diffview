@@ -60,8 +60,8 @@ impl App {
             };
             return;
         }
-        if let Job::Push = job {
-            let res = self.push();
+        if let Job::Push(force) = job {
+            let res = self.push(force);
             let reload = self.reload(true); // the PR's head moved
             self.msg = match (res, reload) {
                 (Err(e), _) | (_, Err(e)) => format!("{e:#}"),
@@ -89,7 +89,7 @@ impl App {
                 "pending review discarded"
             }),
             Job::DeleteComment(c) => gh::delete_comment(&c).map(|_| "comment deleted"),
-            Job::Preview(_) | Job::Pull | Job::Push => unreachable!("handled above"),
+            Job::Preview(_) | Job::Pull | Job::Push(_) => unreachable!("handled above"),
             Job::Post(p) => self.post(p),
             Job::Viewed(path, on) => {
                 let pr_id = self.pr.as_ref().map(|p| p.node_id.clone()).unwrap_or_default();

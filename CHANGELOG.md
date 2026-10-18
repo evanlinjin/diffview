@@ -5,6 +5,18 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Fixed
+- Opening a PR that's checked out already (its worktree, or its branch here) never drops
+  commits made there since (yours, or Claude's: a commit, an amend, a rebase), `-f` or not: it's
+  kept as it is, and dv says how many commits the PR doesn't have yet. Before, dv updated it to
+  the PR's head, leaving them only in the reflog. dv records the commit it last checked out, so a
+  PR its author force-pushed still updates.
+- Worktrees made for Claude's runs in `dv list` (`a a`) follow the list's `-b` (on the PR's
+  branch); they were always detached.
+- `Space g` pushes from a detached `dv N -w` worktree too (to the PR's branch, a fork's
+  included), and, after a rebase or amend there, offers a force-push with a lease (only over the
+  PR's head as dv knows it).
+
 ## [0.8.2] - 2026-10-18
 
 ### Added

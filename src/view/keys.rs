@@ -458,7 +458,8 @@ impl App {
                         Target::ClaudeStop => self.stop_claude(),
                         Target::GitView => self.toggle_uncommitted(),
                         Target::GitCommit => self.action = Some(Action::Commit(self.commit_draft())),
-                        Target::GitPush => (self.msg, self.job) = ("pushing…".into(), Some(Job::Push)),
+                        Target::GitPush => (self.msg, self.job) = ("pushing…".into(), Some(Job::Push(false))),
+                        Target::GitForcePush => (self.msg, self.job) = ("force-pushing…".into(), Some(Job::Push(true))),
                         Target::GitMerge => (self.merge, self.quit) = (true, true),
                         Target::ClaudeDismissOutdated(sure) => self.dismiss_outdated(sure),
                         Target::Nothing => {}
