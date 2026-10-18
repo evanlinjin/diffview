@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Changed
+- With the contents list shown, the key hints (after `Space`, `g`, `Ctrl-w`…, and what the keys do
+  where the cursor is) are pinned at its bottom instead of over the code, and its commits follow
+  its files right after.
+
 ## [0.16.0] - 2026-10-18
 
 ### Added

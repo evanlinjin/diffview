@@ -468,8 +468,9 @@ pub struct App {
     commit_anchor: Option<usize>,
     in_commits: bool,
     commits_top: usize,
-    /// Where the commits' heading is on screen (for clicks).
+    /// Where the commits' heading is on screen, and how many of its rows show (for clicks).
     commits_y: u16,
+    commits_rows: usize,
     files: Vec<FileDiff>,
     /// Extra context lines per hunk: (path, hunk's first full index) → lines (can be negative).
     extra: HashMap<(String, usize), i64>,
@@ -724,6 +725,7 @@ impl App {
             in_commits: false,
             commits_top: 0,
             commits_y: 0,
+            commits_rows: 0,
             files,
             extra: HashMap::new(),
             view_extra: HashMap::new(),

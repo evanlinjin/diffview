@@ -2234,3 +2234,28 @@ fn reply_to_claudes_summary() {
     assert_eq!(app.rows[q].main, Some(CLAUDE_REVIEW));
     assert!(s.contains("Because it's minimal."), "{s}");
 }
+
+#[test]
+fn key_hints_at_the_bottom_of_the_contents() {
+    let mut app = fixture();
+    app.files_pref = Some(true);
+    app.commits = (1..=2).map(|n| files::Commit { sha: format!("{n}{}", "0".repeat(39)), short: format!("c{n}"), subject: format!("commit {n}") }).collect();
+    let list = |app: &mut App| -> Vec<String> {
+        let s = screen(220, 30, |f| app.draw(f));
+        s.lines().map(|l| l.chars().take(app.files_w - 1).collect::<String>().trim_end().to_owned()).collect()
+    };
+    // After a prefix key: what can follow, at the list's bottom (above the status bar).
+    app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
+    let l = list(&mut app);
+    let keys = l.iter().position(|r| r.starts_with(" KEYS: window")).expect("the hints' heading");
+    assert!(l[keys + 1].trim_start().starts_with('v'), "{l:?}"); // Ctrl-w v: split view
+    assert!(l[28].trim().len() > 1 && keys > 14, "pinned at the bottom: {l:?}");
+    // The commits right after the files, not at the bottom.
+    let files_end = l.iter().position(|r| r.contains("big.rs")).unwrap();
+    let commits = l.iter().position(|r| r.starts_with(" COMMITS 2")).unwrap();
+    assert!(commits <= files_end + 5 && commits < keys, "{l:?}");
+    // Not a popup over the code as well.
+    let s = screen(220, 30, |f| app.draw(f));
+    assert_eq!(s.matches("window").count(), 1, "{s}");
+    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+}

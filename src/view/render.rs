@@ -487,8 +487,16 @@ impl App {
             .collect();
         f.render_widget(Block::new().style(self.ui.base), full);
         f.render_widget(Paragraph::new(lines), Rect { y: area.y + pin as u16, height: h as u16, ..area });
+        // Like Helix's which-key: what can follow a pending prefix key, else what the keys do where
+        // the cursor is (when no other popup is up). At the bottom of the contents list when it's
+        // shown; else a popup (below).
+        let keys = match self.pending {
+            Some(p) => App::which(p),
+            None if self.picker.is_none() && self.popup.is_none() && self.prompt.is_none() => self.context_keys(),
+            None => None,
+        };
         if sw > 0 {
-            self.draw_files(f, Rect { x: full.x, y: full.y, width: sw as u16, height: (h + pin) as u16 });
+            self.draw_files(f, Rect { x: full.x, y: full.y, width: sw as u16, height: (h + pin) as u16 }, keys);
         }
         if self.pin {
             let bar = Style { bg: self.ui.bar, ..self.ui.header };
@@ -646,15 +654,9 @@ impl App {
             self.geom.picker = Some(mouse::PickerGeom { list, item_h, off });
         }
 
-        // Bottom right, like Helix's which-key: what can follow a pending prefix key, else what the
-        // keys do where the cursor is (when no other popup is up). Bottom left while the cursor is
-        // in the comment margin, so it doesn't cover the comments there.
-        let keys = match self.pending {
-            Some(p) => App::which(p),
-            None if self.picker.is_none() && self.popup.is_none() && self.prompt.is_none() => self.context_keys(),
-            None => None,
-        };
-        if let Some((title, keys)) = keys {
+        // The key hints, without the contents list: bottom right, as Helix has them; bottom left
+        // while the cursor is in the comment margin, so they don't cover the comments there.
+        if let Some((title, keys)) = keys.filter(|_| sw == 0) {
             let kw = keys.iter().map(|k| k.0.len()).max().unwrap_or(1);
             let lines: Vec<Line> = keys
                 .iter()

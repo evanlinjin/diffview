@@ -96,17 +96,34 @@ impl App {
         })
     }
 
-    pub(super) fn draw_files(&mut self, f: &mut Frame, area: Rect) {
+    /// The list: its contents, the commits right after them, and `keys` (the key hints: what
+    /// can follow a prefix key, or what the keys do where the cursor is) pinned at its bottom.
+    pub(super) fn draw_files(&mut self, f: &mut Frame, area: Rect, keys: Option<(&str, &[(&str, &str)])>) {
         let ui = &self.ui;
         let w = area.width as usize - 1; // the divider
         let entries = self.file_entries();
         let cur = self.current_spot();
-        // The commits under the files: up to a third of the height (all of them when few).
+        // The hints: their heading and a line each, cut to the width; at most half the height.
+        let hints: Vec<Line<'static>> = keys.map_or(vec![], |(title, keys)| {
+            let kw = keys.iter().map(|k| k.0.chars().count()).max().unwrap_or(1);
+            let head = Line::from(Span::styled(format!("{:<w$}", format!(" KEYS: {title}")), Style { bg: ui.bar, ..ui.header }));
+            let rows = keys.iter().map(|(k, d)| {
+                Line::from(vec![Span::styled(format!(" {k:<kw$}  "), ui.key), Span::raw(cut(d, w.saturating_sub(kw + 3)))])
+            });
+            std::iter::once(head).chain(rows).take(area.height as usize / 2).collect()
+        });
+        let avail = (area.height as usize).saturating_sub(hints.len());
+        // The commits under the files: up to a third of the height (all of them when few), right
+        // after the files (more room for them when there are few files).
         let ch = match self.commits.len() {
             0 => 0,
-            n => (n + 2).min((area.height as usize / 3).max(4)),
+            n => (n + 2).min((avail / 3).max(4)),
         };
-        let h = (area.height as usize).saturating_sub(1 + ch);
+        let h = entries.len().min(avail.saturating_sub(1 + ch));
+        let ch = match self.commits.len() {
+            0 => 0,
+            n => (n + 2).min(avail.saturating_sub(1 + h)),
+        };
         // The current file in view, when it's another (the wheel scrolls the list meanwhile).
         if let Some(i) = cur.filter(|_| cur != self.files_cur).and_then(|c| entries.iter().position(|e| e.spot == c)) {
             if i < self.files_top {
@@ -178,12 +195,15 @@ impl App {
             };
             lines.push(line);
         }
+        lines.resize(1 + h, Line::default());
+        self.commits_y = area.y + 1 + h as u16;
+        self.commits_rows = ch.saturating_sub(1);
         if ch > 0 {
-            lines.resize(1 + h, Line::default());
-            let y = area.y + 1 + h as u16;
-            self.commits_y = y;
             lines.extend(self.commit_lines(w, ch - 1));
         }
+        // The hints at the bottom.
+        lines.resize(avail, Line::default());
+        lines.extend(hints);
         f.render_widget(Paragraph::new(lines), Rect { width: area.width - 1, ..area });
         // In the key color while it has focus (as the comments pane's edge is).
         let edge = if self.files_focus { Style { fg: self.ui.key.fg, ..Style::new() } } else { self.ui.linenr };
@@ -242,6 +262,9 @@ impl App {
     /// Shift: the commits from the one shown to it).
     pub(super) fn click_file(&mut self, y: usize, shift: bool) {
         let top = self.commits_y as usize;
+        if y > top + self.commits_rows {
+            return; // the key hints under them
+        }
         if !self.commits.is_empty() && y > top {
             let r = self.commits_top + y - top - 1;
             if r <= self.commits.len() {
