@@ -1177,6 +1177,9 @@ fn claude_review_is_not_pr_text() {
     app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new(), ..Default::default() });
     app.claude.summary = "Looks fine.".into();
     app.build();
+    // Not on the PR tab: Claude's summary is the Claude tab's.
+    assert!(!app.rows.iter().any(|r| r.line.text == "Looks fine."));
+    app.toggle_view(View::Claude);
     let row = app.rows.iter().position(|r| r.line.text == "Looks fine.").unwrap();
     app.goto(row, 0);
     assert_eq!(app.context_keys().unwrap().0, "Claude's review");
@@ -1673,7 +1676,8 @@ fn review_summaries_over_the_comments() {
     use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
     let mut app = fixture();
     let s = screen(220, 45, |f| app.draw(f));
-    assert!(app.strip_h == 4 && s.contains("review summary") && s.contains("Nearly there.") && s.contains("Looks right"), "{s}");
+    // Yours (pending); Claude's is the Claude tab's.
+    assert!(app.strip_h == 3 && s.contains("review summary") && s.contains("Nearly there.") && !s.contains("Looks right"), "{s}");
     // The cursor on a comment scrolled up under them: it's kept below them.
     app.goto_comment(1, 0);
     app.top = app.hd();
@@ -2214,8 +2218,9 @@ fn space_g_marks_a_draft_ready() {
 fn reply_to_claudes_summary() {
     let mut app = fixture();
     app.claude.path = Some(std::env::temp_dir().join("dv-unused-review.json"));
+    app.bar_to(Bar::Claude);
     _ = screen(220, 30, |f| app.draw(f));
-    // r on Claude's summary (on the PR tab): a reply to it, starting a thread about it.
+    // r on Claude's summary (on the Claude tab): a reply to it, starting a thread about it.
     let row = app.rows.iter().position(|r| r.info == Some(SUMMARY) && r.line.text.contains("Looks right")).expect("the summary");
     app.goto(row, 0);
     app.start_reply(true);
@@ -2233,18 +2238,19 @@ fn reply_to_claudes_summary() {
     app.build();
     _ = screen(220, 30, |f| app.draw(f));
     let at = |app: &App, t: &str| app.rows.iter().position(|r| r.line.text.contains(t)).expect(t);
-    assert!(at(&app, "why approve?") > row && app.pr_row(at(&app, "why approve?")));
+    // Under its summary's section, in the diff's column; not elsewhere.
+    let s = screen(220, 30, |f| app.draw(f));
+    let q = at(&app, "why approve?");
+    assert!(q > row && app.rows[q].main == Some(CLAUDE_REVIEW));
+    assert!(s.contains("Because it's minimal."), "{s}");
     assert!(!app.rows.iter().any(|r| r.line.text.starts_with("questions about") || r.line.text.starts_with("comments on files no longer")));
     let row = app.rows.iter().position(|r| r.info == Some(SUMMARY) && r.thread.is_none() && r.line.text.contains("Looks right")).unwrap();
     app.goto(row, 0);
     app.start_reply(true);
     assert!(matches!(app.action.take(), Some(Action::ClaudeReply(k)) if k == "c7"));
-    // In the Claude view: under its summary's section, in the diff's column.
-    app.bar_to(Bar::Claude);
-    let s = screen(220, 30, |f| app.draw(f));
-    let q = at(&app, "why approve?");
-    assert_eq!(app.rows[q].main, Some(CLAUDE_REVIEW));
-    assert!(s.contains("Because it's minimal."), "{s}");
+    // The whole diff (Comments, PR): not there.
+    app.bar_to(Bar::Pr);
+    assert!(!app.rows.iter().any(|r| r.line.text.contains("why approve?")));
 }
 
 #[test]

@@ -1129,9 +1129,9 @@ impl App {
     /// The review's summaries (yours, pending, and Claude's) for the top of the comments tab,
     /// `w` wide: two lines of each at most (the PR tab has them in full; a click goes there).
     pub(super) fn summary_strip(&self, w: usize) -> Vec<Vec<Span<'static>>> {
-        let items = [("you", &self.summary_draft), ("claude", &self.claude.summary)];
-        // In the Claude view, Claude's is in full before the files: not here again.
-        let items: Vec<_> = items.into_iter().filter(|(w, t)| !t.trim().is_empty() && !(*w == "claude" && self.view == View::Claude)).collect();
+        // Yours: Claude's is the Claude tab's, in full there.
+        let items = [("you", &self.summary_draft)];
+        let items: Vec<_> = items.into_iter().filter(|(_, t)| !t.trim().is_empty()).collect();
         if items.is_empty() || w < 20 {
             return vec![];
         }

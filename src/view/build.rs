@@ -210,12 +210,14 @@ impl App {
                         (false, false) => rows.push(self.info_row(l, mk(Kind::Comment, l.text.clone()))),
                     }
                 }
-                if !self.claude.summary.is_empty() {
+                // Claude's summary, and your replies to it, are the Claude tab's; but with no PR
+                // (a branch Claude reviewed), its review is all this section is.
+                if !self.claude.summary.is_empty() && self.pr.is_none() && self.replacement.is_none() {
                     let summary = |r: Row| Row { info: Some(SUMMARY), ..r };
                     rows.push(summary(mk(Kind::Thread, "claude's review".into())));
                     rows.extend(self.md_rows_at(&self.claude.summary, width, mk).into_iter().map(summary));
                     rows.push(Row { edge: true, ..summary(mk(Kind::Comment, String::new())) });
-                    rows.extend(self.summary_threads(None)); // your replies to it, and Claude's answers
+                    rows.extend(self.summary_threads(None));
                 }
                 // Yours, as it goes to GitHub with the review (`S`), in full beside the strip
                 // that has its start.
@@ -400,8 +402,8 @@ impl App {
         lines.into_iter().map(|l| Row { syn: l.styles, links: l.links, nowrap: l.nowrap, ..mk(Kind::Comment, l.text) }).collect()
     }
 
-    /// Your replies to Claude's review summary (and its answers), under it: in the pane (`main`
-    /// `None`), or in the Claude view's section.
+    /// Your replies to Claude's review summary (and its answers), under it: in the Claude view's
+    /// section (`main`), or (no PR) the top section's.
     fn summary_threads(&self, main: Option<usize>) -> Vec<Row> {
         (0..self.threads.len())
             .filter(|&t| self.threads[t].conversation == ON_SUMMARY && self.in_view(&self.threads[t]))

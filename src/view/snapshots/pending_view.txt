@@ -1,8 +1,8 @@
           PR #7 · Fix the thing  @bo · main ← amy  Comments  Claude  PR                          gn
  ▾        src/a.rs  +1 −1  · 1 comment            ╭─ review summary ───────────────────────────────╮
           ── fn main ──────────────────────────── │ you     Nearly there.                          │
-  1   1   fn main() {                             │ claude  Looks right; one nit.                  │
-  2     -     old();                              ╰────────────────────────────────────────────────╯
+  1   1   fn main() {                             ╰────────────────────────────────────────────────╯
+  2     -     old();
       2 +     new_call(x);                        ╭─ you · L2 ─────────────────────────────────────╮
   3   3   }                                       │  [pending]                                     │
                                                   │  Pass y here.                                  │
