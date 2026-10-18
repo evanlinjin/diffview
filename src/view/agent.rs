@@ -141,7 +141,7 @@ impl App {
         if busy {
             return Some("Claude is still working on the last request".into());
         }
-        let (_, cmd) = self.claude_pane_cmd()?;
+        let (_, cmd, _) = self.claude_pane_cmd()?;
         let dv = crate::claude::dv_dir().map(|d| d.display().to_string()).unwrap_or_default();
         (needs_files && !dv.is_empty() && !cmd.contains(&dv)).then(|| {
             "Claude's pane for this PR can't reach dv's review files (it's from an older dv): close it, and Space a starts a new one".into()
@@ -600,10 +600,17 @@ impl App {
         let (msg, asked) = match in_zellij() {
             // A real session in a pane (the PR's, as the background runs use): watch it, approve
             // what it asks, talk to it.
-            // Floating and unfocused: hidden while zellij's floating panes are (`Space a` →
-            // show it, or zellij's own toggle); dv says when it's asking you something.
-            true => match std::process::Command::new("zellij")
-                .args(["run", "--floating", "--no-focus", "--name", &format!("claude: {label}"), "--cwd"])
+            // In Claude's tab, unfocused, stacked with the others (`Space a` → show it);
+            // dv says when it's asking you something.
+            true => match {
+                let (tab, id) = self.claude_tab();
+                let mut z = std::process::Command::new("zellij");
+                match id {
+                    Some(t) => z.args(["run", "--tab-id", &t.to_string(), "--stacked", "--no-focus", "--name", &format!("claude: {label}"), "--cwd"]),
+                    None => z.args(["action", "new-tab", "--no-focus", "--name", &tab, "--cwd"]),
+                };
+                z
+            }
                 .arg(&self.root)
                 .args(["--", "env"])
                 .arg(path_env) // the pane gets zellij's environment, not dv's
@@ -622,7 +629,8 @@ impl App {
                     if let (Some(p), Some(id)) = (&self.pr, &self.claude.session) {
                         crate::claude::mark_running(p.number, &format!("{label} (in its pane)"), None, Some(id));
                     }
-                    (format!("Claude is {label} in a hidden pane (Space a shows it); its comments show up here as it writes them"), true)
+                    let (tab, _) = self.claude_tab();
+                    (format!("Claude is {label} in a pane in zellij's {tab} tab (Space a shows it); its comments show up here as it writes them"), true)
                 }
                 Ok(s) => (format!("zellij run failed ({s})"), false),
                 Err(e) => (format!("running zellij: {e}"), false),
@@ -666,10 +674,11 @@ impl App {
         self.claude_pane_cmd().map(|p| p.0)
     }
 
-    /// `Space a` → show Claude's pane: focused, which brings it up if it's hidden.
+    /// `Space a` → show Claude's pane: its tab, the pane focused (expanded in its stack).
     pub(super) fn show_claude_pane(&mut self) {
-        let Some(pane) = self.claude_pane() else { return self.msg = "Claude's pane is closed".into() };
-        let ok = std::process::Command::new("zellij").args(["action", "focus-pane-id", &format!("terminal_{pane}")]).status().is_ok_and(|s| s.success());
+        let Some((pane, _, tab)) = self.claude_pane_cmd() else { return self.msg = "Claude's pane is closed".into() };
+        let z = |args: &[&str]| std::process::Command::new("zellij").arg("action").args(args).status().is_ok_and(|s| s.success());
+        let ok = z(&["go-to-tab-by-id", &tab.to_string()]) && z(&["focus-pane-id", &format!("terminal_{pane}")]);
         if !ok {
             self.msg = "zellij couldn't show Claude's pane".into();
         }
@@ -706,15 +715,25 @@ impl App {
         }
     }
 
-    /// The PR's Claude pane and its command line.
-    fn claude_pane_cmd(&self) -> Option<(u64, String)> {
+    /// The PR's Claude pane, its command line, and its tab's id.
+    fn claude_pane_cmd(&self) -> Option<(u64, String, u64)> {
         let id = self.claude.session.as_ref().filter(|_| in_zellij())?;
-        let out = std::process::Command::new("zellij").args(["action", "list-panes", "-j", "-c", "-s"]).output().ok()?;
-        let panes: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
-        panes.as_array()?.iter().find_map(|p| {
+        zellij_panes().iter().find_map(|p| {
             let cmd = p["pane_command"].as_str().filter(|c| p["exited"] != true && c.contains(id.as_str()))?;
-            Some((p["id"].as_u64()?, cmd.to_owned()))
+            Some((p["id"].as_u64()?, cmd.to_owned(), p["tab_id"].as_u64()?))
         })
+    }
+
+    /// The zellij tab Claude's panes go in: one per repo, `claude: <repo>`, stacked there, out
+    /// of dv's way (a tab's floating panes show and hide all together, and each PR opened in
+    /// dv's tab would add one). Its name, and its id if it's open.
+    fn claude_tab(&self) -> (String, Option<u64>) {
+        let common = diff::git(&["-C", &self.root.to_string_lossy(), "rev-parse", "--path-format=absolute", "--git-common-dir"]).unwrap_or_default();
+        let common = Path::new(common.trim());
+        let main = if common.file_name().is_some_and(|f| f == ".git") { common.parent().unwrap_or(common) } else { common };
+        let name = format!("claude: {}", main.file_name().map_or("repo".into(), |n| n.to_string_lossy()));
+        let id = zellij_panes().iter().find(|p| p["tab_name"].as_str() == Some(name.as_str())).and_then(|p| p["tab_id"].as_u64());
+        (name, id)
     }
 
     /// The PR's Claude Code session in this checkout: resume it if Claude Code has it, else
@@ -841,6 +860,10 @@ fn offer_to_pane(pane: u64, prompt: &str) -> Result<bool> {
         return Ok(false);
     }
     zellij(&["action", "paste", "-p", &id, prompt])?;
+    // Its tab first (Claude's: see `claude_tab`).
+    if let Some(tab) = zellij_panes().iter().find(|p| p["id"].as_u64() == Some(pane) && p["is_plugin"] != true).and_then(|p| p["tab_id"].as_u64()) {
+        zellij(&["action", "go-to-tab-by-id", &tab.to_string()])?;
+    }
     zellij(&["action", "focus-pane-id", &id])?;
     Ok(true)
 }
@@ -871,6 +894,12 @@ pub(super) fn spawn_replace(prs: &[u64]) -> Result<()> {
         .process_group(0) // not this terminal's: closing it doesn't stop the draft
         .spawn()?;
     Ok(())
+}
+
+/// zellij's panes, in every tab (JSON objects: id, command, tab, state).
+fn zellij_panes() -> Vec<serde_json::Value> {
+    let out = std::process::Command::new("zellij").args(["action", "list-panes", "-j", "-c", "-s", "-t"]).stdin(std::process::Stdio::null()).output();
+    out.ok().and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok()).and_then(|v| v.as_array().cloned()).unwrap_or_default()
 }
 
 /// `prompt`, with the user's own instructions (if any) after it.

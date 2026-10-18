@@ -17,6 +17,9 @@ on GitHub are its section here.
 - `dv list` sorts by created by default (newest first), not updated: `o` still cycles.
 - An unpublished replacement or new PR has no PR tab: what it replaces (or what you asked for)
   heads its description, in the diff. Published, the tab is back.
+- Claude's panes open in a zellij tab of their own per repo, `claude: <repo>`, stacked there, not
+  floating over dv: they no longer pile up over the code as you open PRs. `Space a` → "Show
+  Claude's pane" goes there.
 
 ### Fixed
 - `dv list`'s top bar is as dark as the PR view's, its other tabs dimmed the same way.
