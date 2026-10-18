@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-18
+
 ### Added
 - Todo: "Claude made changes, not pushed: … check them, push them" is a need of its own, at the
   top: work in a PR's worktree that Claude made (it said what it `Changed:`) since the PR's head.
@@ -566,6 +568,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.14.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.14.0
 [0.13.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.13.0
 [0.12.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.12.0
 [0.11.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.11.0
