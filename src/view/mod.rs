@@ -1159,6 +1159,9 @@ fn flip<T: std::hash::Hash + Eq>(s: &mut HashSet<T>, x: T) {
 }
 
 fn quote(text: &str) -> String {
+    if text.trim().is_empty() {
+        return String::new(); // nothing to quote (an empty description, a review with no text)
+    }
     let q: Vec<String> = text.lines().map(|l| format!("> {l}").trim_end().to_owned()).collect();
     format!("{}\n\n", q.join("\n"))
 }

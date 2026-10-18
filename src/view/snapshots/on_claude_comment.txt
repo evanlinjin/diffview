@@ -1,5 +1,5 @@
           PR #7 · Fix the thing  @bo · main ← amy  Comments  PR                                  gn
- ▾        src/big.rs  +1 −1                       ╭─ review summary ───────────────────────────────╮
+ ▾        src/big.rs  +1 −1  · 2 comments         ╭─ review summary ───────────────────────────────╮
           ─────────────────────────────────────── │ you     Nearly there.                          │
   9   9   line 9                                  │ claude  Looks right; one nit.                  │
  10  10   line 10                                 ╰────────────────────────────────────────────────╯
@@ -12,7 +12,7 @@
                                                   │  [nit]                                         │
                                                   │  Name it new_value; see src/a.rs:2.            │
                                                   ╰────────────────────────────────────────────────╯
- ▾        src/a.rs  +1 −1
+ ▾        src/a.rs  +1 −1  · 1 comment
           ── fn main ──────────────────────────────────────────────────────────────────────── L1–3 ─
   1   1   fn main() {                              ▸ amy · L1 · 1 comment
   2     -     old();                               ┃ [resolved]

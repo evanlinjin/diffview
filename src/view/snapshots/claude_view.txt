@@ -1,5 +1,5 @@
           PR #7 · Fix the thing  @bo · main ← amy  Comments  PR                                  gn
- ▾        src/big.rs  +1 −1                       ╭─ review summary ───────────────────────────────╮
+ ▾        src/big.rs  +1 −1  · 1 comment          ╭─ review summary ───────────────────────────────╮
           ─────────────────────────────────────── │ you     Nearly there.                          │
  10  10   line 10                                 │ claude  Looks right; one nit.                  │
  11  11   line 11                                 ╰────────────────────────────────────────────────╯

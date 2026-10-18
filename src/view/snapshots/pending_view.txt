@@ -1,5 +1,5 @@
           PR #7 · Fix the thing  @bo · main ← amy  Comments  PR                                  gn
- ▾        src/a.rs  +1 −1                         ╭─ review summary ───────────────────────────────╮
+ ▾        src/a.rs  +1 −1  · 1 comment            ╭─ review summary ───────────────────────────────╮
           ── fn main ──────────────────────────── │ you     Nearly there.                          │
   1   1   fn main() {                             │ claude  Looks right; one nit.                  │
   2     -     old();                              ╰────────────────────────────────────────────────╯

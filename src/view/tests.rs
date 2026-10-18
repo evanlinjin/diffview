@@ -1882,3 +1882,30 @@ fn claude_and_github_review_comments() {
     assert_eq!(r.threads.iter().map(|t| t.about).collect::<Vec<_>>(), [Some(123), Some(456)]);
     let _ = std::fs::remove_file(&p);
 }
+
+#[test]
+fn comments_in_folded_files_and_empty_reviews() {
+    let mut app = fixture();
+    // src/a.rs (two open threads there) folded, as a viewed file is: its header counts them,
+    // and ]c goes in (unfolding it).
+    app.collapsed.insert("src/a.rs".into());
+    app.build();
+    let head = app.rows.iter().find(|r| r.line.kind == Kind::File && r.line.text.contains("src/a.rs")).unwrap();
+    assert!(head.line.text.ends_with("· 1 comment") || head.line.text.contains("comments"), "{}", head.line.text);
+    let a_rs = app.files.iter().position(|f| f.path == "src/a.rs").unwrap();
+    app.goto(0, 0);
+    for _ in 0..4 {
+        app.key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
+        app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+        if app.rows[app.head.row].file == a_rs {
+            break;
+        }
+    }
+    assert!(app.rows[app.head.row].thread.is_some() && app.rows[app.head.row].file == a_rs && !app.collapsed.contains("src/a.rs"));
+    // A review with no text (a verdict alone): its box closed, saying so.
+    let line = |heading, md, text: &str| gh::InfoLine { heading, md, text: text.into(), marks: vec![], url: String::new() };
+    app.info = vec![line(true, false, "conversation (1)"), line(true, false, "@bo · requested changes · 2m ago"), line(false, true, "")];
+    app.build();
+    let r = app.rows.iter().position(|r| r.line.text == "(no comment)").unwrap();
+    assert_eq!(app.box_part(r + 1), Some(BoxPart::Bottom));
+}

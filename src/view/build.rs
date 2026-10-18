@@ -172,8 +172,14 @@ impl App {
                             let body = self.info.get(ii + 1).filter(|n| n.md).map(|_| ii + 1);
                             rows.push(Row { info: body, ..mk(Kind::Thread, l.text.clone()) });
                         }
-                        // GitHub shows a placeholder for an empty description; there's nothing to quote.
-                        (false, true) if l.text.trim().is_empty() => rows.extend(self.md_rows_at("_(no description)_", width, mk)),
+                        // GitHub shows a placeholder for an empty description (and a review with no
+                        // text, just its verdict, has none to show): in its box, closed below.
+                        (false, true) if l.text.trim().is_empty() => {
+                            let description = ii.checked_sub(1).is_some_and(|h| self.info[h].text == "description");
+                            let placeholder = if description { "_(no description)_" } else { "_(no comment)_" };
+                            rows.extend(self.md_rows_at(placeholder, width, mk).into_iter().map(|r| Row { info: Some(ii), ..r }));
+                            rows.push(Row { info: Some(ii), edge: true, ..mk(Kind::Comment, String::new()) });
+                        }
                         (false, true) => {
                             rows.extend(self.md_rows_at(&l.text, width, mk).into_iter().map(|r| Row { info: Some(ii), ..r }));
                             rows.push(Row { info: Some(ii), edge: true, ..mk(Kind::Comment, String::new()) });
@@ -238,6 +244,13 @@ impl App {
             let dir = if dir.is_empty() { String::new() } else { format!("{dir}/") };
             let meta = if f.meta.is_empty() { String::new() } else { format!(" ({})", f.meta) };
             let dim = Some(self.ui.stale);
+            // Its open comments, said even when it's folded (a viewed file is), so none go unseen.
+            let open = self.threads.iter().filter(|t| t.path == f.path && !t.stale() && self.in_view(t)).count();
+            let comments = match open {
+                0 => String::new(),
+                1 => "  · 1 comment".into(),
+                n => format!("  · {n} comments"),
+            };
             let parts = [
                 (dir, dim),
                 (name.to_owned(), None),
@@ -246,6 +259,7 @@ impl App {
                 (format!("+{}", count(Kind::Add)), Some(self.ui.plus)),
                 (" ".into(), None),
                 (format!("−{}", count(Kind::Del)), Some(self.ui.minus)),
+                (comments, Some(self.ui.thread)),
             ];
             let text: String = parts.iter().map(|p| p.0.as_str()).collect();
             let syn = parts.iter().flat_map(|(t, st)| t.chars().map(move |_| *st)).collect();

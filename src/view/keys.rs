@@ -259,7 +259,6 @@ impl App {
 
     pub(super) fn pending_key(&mut self, p: char, c: char) {
         let file = |rows: &[Row], r: usize| rows[r].line.kind == Kind::File;
-        let thread = |rows: &[Row], r: usize| rows[r].thread.is_some() && (r == 0 || rows[r - 1].thread != rows[r].thread);
         let so = 3.min(self.height / 2);
         match (p, c) {
             // In the pane, its own top / end (the first and last comment, or the PR's text).
@@ -287,8 +286,8 @@ impl App {
             },
             (']', 'g') => self.next_kind(true, change_start),
             ('[', 'g') => self.next_kind(false, change_start),
-            (']', 'c') => self.next_kind(true, thread),
-            ('[', 'c') => self.next_kind(false, thread),
+            (']', 'c') => self.next_thread(true),
+            ('[', 'c') => self.next_thread(false),
             (']', 'a') => self.next_claude(true),
             ('[', 'a') => self.next_claude(false),
             (']', 'n') => self.next_new(true),

@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Fixed
+- Comments in a folded file (a viewed one) no longer go unseen: its header counts them
+  ("+8 −1 · 1 comment"), and `]c` / `[c` go into it, unfolding it, as `]u` and `]n` do.
+- A review with no text in the conversation (an approval or change request alone) has its box
+  closed, saying "(no comment)", instead of running into the next.
+
 ## [0.9.0] - 2026-10-18
 
 ### Added
