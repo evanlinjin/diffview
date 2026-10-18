@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-10-18
+
 ### Fixed
 - A PR rebased onto a newer base while open in dv (by Claude, say) no longer shows the base's own
   commits and files as the PR's: the diff starts from the new fork point.
@@ -815,6 +817,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.28.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.28.0
 [0.27.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.27.1
 [0.27.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.27.0
 [0.26.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.26.0
