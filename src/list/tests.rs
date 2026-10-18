@@ -198,3 +198,21 @@ fn screens() {
     k(&mut l, KeyCode::Tab);
     snapshot("list_replacements", &screen(100, 8, |f| l.draw(f)));
 }
+
+#[test]
+fn reviews_from_a_pr_view_show_up() {
+    let dir = std::env::temp_dir().join(format!("dv-list-reviews-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut l = List::new("".into());
+    l.reviews_dir = Some(dir.clone());
+    l.watch_reviews();
+    assert_eq!(l.claude_state(7), None);
+    // Claude, in a PR's view (or its pane), writes the review while the list is up.
+    std::thread::sleep(std::time::Duration::from_millis(20)); // a newer mtime
+    std::fs::write(dir.join("pr-7.session"), "").unwrap();
+    std::fs::write(dir.join("pr-7.json"), "{}").unwrap();
+    l.watch_reviews();
+    assert_eq!(l.claude_state(7), Some(("claude ✓".into(), true)));
+    let _ = std::fs::remove_dir_all(&dir);
+}

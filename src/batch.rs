@@ -176,7 +176,12 @@ fn groups() {
 /// The PRs that have a review from Claude (a review file in dv's directory).
 pub fn reviewed() -> std::collections::HashSet<u64> {
     let Ok(dir) = crate::claude::dv_dir() else { return Default::default() };
-    let Ok(entries) = std::fs::read_dir(dir.join("reviews")) else { return Default::default() };
+    reviewed_in(&dir.join("reviews"))
+}
+
+/// The PRs with a review in `dir`.
+pub fn reviewed_in(dir: &std::path::Path) -> std::collections::HashSet<u64> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return Default::default() };
     entries
         .flatten()
         .filter_map(|e| e.file_name().to_str()?.strip_prefix("pr-")?.strip_suffix(".json")?.parse().ok())

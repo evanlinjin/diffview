@@ -96,8 +96,11 @@ pub struct List {
     /// Claude's reviews from here (`a`): how each is going, and the news on its way.
     batch: HashMap<u64, batch::Status>,
     batch_rx: Option<Receiver<(u64, batch::Status)>>,
-    /// PRs Claude has a review of.
+    /// PRs Claude has a review of, and when its reviews directory last changed: a review
+    /// written from a PR's view (or still being, in Claude's pane) shows up as it lands.
     reviewed: HashSet<u64>,
+    reviews_dir: Option<std::path::PathBuf>,
+    reviews_mtime: Option<std::time::SystemTime>,
     /// PRs with something you haven't seen (`fresh`).
     new: HashSet<u64>,
     /// The repo, for the reviews' worktrees.
@@ -146,6 +149,8 @@ impl List {
             batch: HashMap::new(),
             batch_rx: None,
             reviewed: HashSet::new(),
+            reviews_dir: crate::claude::dv_dir().ok().map(|d| d.join("reviews")),
+            reviews_mtime: None,
             new: HashSet::new(),
             root: std::env::current_dir().unwrap_or_default(),
             msg,
@@ -176,6 +181,7 @@ impl List {
             }
             term.draw(|f| self.draw(f))?;
             self.batch_news();
+            self.watch_reviews();
             // A replacement drafted, or its draft changed, from anywhere: show it.
             let changed = crate::replace::changed();
             if changed != self.reps_changed {
@@ -419,6 +425,17 @@ impl List {
             })
             .map(|p| p.number)
             .collect();
+    }
+
+    /// Claude's reviews read again when one is added: started from a PR's view, it may finish
+    /// after you're back here.
+    fn watch_reviews(&mut self) {
+        let Some(dir) = &self.reviews_dir else { return };
+        let mtime = std::fs::metadata(dir).and_then(|m| m.modified()).ok();
+        if mtime != self.reviews_mtime {
+            self.reviews_mtime = mtime;
+            self.reviewed = crate::batch::reviewed_in(dir);
+        }
     }
 
     fn refresh(&mut self, term: &mut DefaultTerminal) -> Result<()> {

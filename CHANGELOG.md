@@ -40,6 +40,8 @@ on GitHub are its section here.
   or on its branch, as asked), and the base fetch when the PR's base commit is already here.
 
 ### Fixed
+- `dv list` shows `claude ✓` for a review started from a PR's view, once it's written (also
+  after you're back in the list, while Claude finishes it in its pane).
 - `Space a` while Claude is working preselects what it did before, not "Stop Claude": Enter out
   of habit no longer ends the run. Stopping it also stops the commands it was running.
 - `Ctrl-w t` from a comment puts the cursor on the line it's on, not the top of the diff; and
