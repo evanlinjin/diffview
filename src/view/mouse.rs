@@ -81,8 +81,8 @@ impl App {
                     return;
                 }
                 if self.pin && y == 0 && self.margin_active && x >= pane {
-                    if let Some((tab, ..)) = self.pane_tabs().into_iter().find(|t| t.2.contains(&(x - pane))) {
-                        self.pane_to(tab);
+                    if let Some((b, ..)) = self.pane_tabs().into_iter().find(|t| t.2.contains(&(x - pane))) {
+                        self.bar_to(b);
                     }
                     return;
                 }

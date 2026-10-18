@@ -48,17 +48,57 @@ impl App {
         (self.pane_tab, self.margin_pref) = (tab, Some(true));
         self.layout();
         self.msg = match tab {
-            Tab::Pr => "pane: the PR's description and conversation (gn: comments; Ctrl-l goes in)",
-            Tab::Comments => "pane: comments beside their lines (gn: the PR's text)",
+            Tab::Pr => "pane: the PR's facts and conversation (gn: comments; Ctrl-l goes in)",
+            Tab::Comments => "pane: comments beside their lines (gn: Claude's review, then the PR's text)",
         }
         .into();
     }
 
     /// The pane's tabs, on the pinned title's right end, over the pane (`x` from where it
     /// starts): each one's label and its columns.
-    pub(super) fn pane_tabs(&self) -> [(Tab, &'static str, std::ops::Range<usize>); 2] {
-        let (c, p) = (" Comments ", " PR ");
-        [(Tab::Comments, c, 1..1 + c.len()), (Tab::Pr, p, 1 + c.len()..1 + c.len() + p.len())]
+    pub(super) fn pane_tabs(&self) -> Vec<(Bar, &'static str, std::ops::Range<usize>)> {
+        let mut x = 1;
+        [(Bar::Comments, " Comments "), (Bar::Claude, " Claude "), (Bar::Pr, " PR ")]
+            .into_iter()
+            .map(|(b, l)| {
+                x += l.len();
+                (b, l, x - l.len()..x)
+            })
+            .collect()
+    }
+
+    /// The tab that's lit: the PR's text, Claude's review (the Claude view), or the comments.
+    pub(super) fn bar(&self) -> Bar {
+        match (self.pane_tab, self.view) {
+            (Tab::Pr, _) => Bar::Pr,
+            (_, View::Claude) => Bar::Claude,
+            _ => Bar::Comments,
+        }
+    }
+
+    /// To tab `b` (a click on it, `gn` / `gp`): Claude's is the Claude view, beside its comments;
+    /// the comments tab, the whole diff again.
+    pub(super) fn bar_to(&mut self, b: Bar) {
+        let view = match b {
+            Bar::Claude => Some(View::Claude),
+            Bar::Comments => Some(View::All),
+            Bar::Pr => None, // the PR's text, whichever view
+        };
+        if let Some(v) = view.filter(|&v| v != self.view) {
+            self.toggle_view(if v == View::All { self.view } else { v });
+        }
+        let msg = std::mem::take(&mut self.msg);
+        self.pane_to(if b == Bar::Pr { Tab::Pr } else { Tab::Comments });
+        if !msg.is_empty() && b != Bar::Pr {
+            self.msg = msg; // what the view says
+        }
+    }
+
+    /// `gn` / `gp`: the next / previous tab, round.
+    pub(super) fn cycle_bar(&mut self, fwd: bool) {
+        let tabs = [Bar::Comments, Bar::Claude, Bar::Pr];
+        let i = tabs.iter().position(|&b| b == self.bar()).unwrap_or(0);
+        self.bar_to(tabs[(i + if fwd { 1 } else { 2 }) % 3]);
     }
 
     /// The first row of the code block or table (in a comment) that row `r` is a line of.

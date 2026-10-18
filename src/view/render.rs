@@ -502,9 +502,10 @@ impl App {
             if margin {
                 let dim = bar.remove_modifier(ratatui::style::Modifier::BOLD).patch(Style { fg: self.ui.linenr.fg, ..Style::new() });
                 let mut used = 0;
+                let lit = self.bar();
                 for (tab, label, cols) in self.pane_tabs() {
                     spans.push(Span::styled(" ".repeat(cols.start - used), dim));
-                    let on = tab == self.pane_tab;
+                    let on = tab == lit;
                     spans.push(Span::styled(label, if on { self.ui.menu_selected } else { dim }));
                     used = cols.end;
                 }
@@ -1127,7 +1128,8 @@ impl App {
     /// `w` wide: two lines of each at most (the PR tab has them in full; a click goes there).
     pub(super) fn summary_strip(&self, w: usize) -> Vec<Vec<Span<'static>>> {
         let items = [("you", &self.summary_draft), ("claude", &self.claude.summary)];
-        let items: Vec<_> = items.into_iter().filter(|(_, t)| !t.trim().is_empty()).collect();
+        // In the Claude view, Claude's is in full before the files: not here again.
+        let items: Vec<_> = items.into_iter().filter(|(w, t)| !t.trim().is_empty() && !(*w == "claude" && self.view == View::Claude)).collect();
         if items.is_empty() || w < 20 {
             return vec![];
         }

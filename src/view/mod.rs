@@ -75,7 +75,7 @@ VIEW
   + =  -               hunk context +10 / -10 lines
   Z                    whole file
   Tab                  fold file / PR info / thread
-  gn  gp               comments pane: next / previous tab (comments, the PR's text)
+  gn  gp               comments pane: next / previous tab (comments, Claude's, the PR's)
   Shift-Tab            fold / unfold all files
   Ctrl-w v             toggle split (side-by-side) view
   Ctrl-w n             relative line numbers on / off (kept for next time)
@@ -164,6 +164,8 @@ const DRAFT: usize = usize::MAX - 2;
 const FACTS: usize = usize::MAX - 3;
 /// `Row::main` for the description's section (commit `n`'s message is `1 + n`).
 const DESCRIPTION: usize = 0;
+/// `Row::main` for Claude's review summary, a section of its own in the Claude view.
+const CLAUDE_REVIEW: usize = usize::MAX;
 
 /// Position in the view: row index into `rows`, char index into the row's text.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -236,6 +238,15 @@ enum DRow {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Tab {
     Comments,
+    Pr,
+}
+
+/// The pane's tabs as they're shown (`pane_tabs`): its comments, Claude's (the Claude view, its
+/// comments beside its code), the PR's text.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Bar {
+    Comments,
+    Claude,
     Pr,
 }
 

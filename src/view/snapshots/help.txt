@@ -36,8 +36,8 @@
                          + =  -               hunk context +10 / -10 lines                      │
                          Z                    whole file                                        │
                          Tab                  fold file / PR info / thread                      │
-                         gn  gp               comments pane: next / previous tab (comments, the │
-                                              PR's text)                                        │
+                         gn  gp               comments pane: next / previous tab (comments,     │
+                                              Claude's, the PR's)                               │
                          Shift-Tab            fold / unfold all files                           │
                          Ctrl-w v             toggle split (side-by-side) view                  │
                          Ctrl-w n             relative line numbers on / off (kept for next     │

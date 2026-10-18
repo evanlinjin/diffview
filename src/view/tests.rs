@@ -802,13 +802,13 @@ fn pr_text_on_the_pane_tab() {
     assert!(app.pr_row(para1) && app.pr_rows.contains(&para1));
     assert!(app.drows.iter().all(|d| !matches!(d, DRow::Full(r) if *r == para1)));
     assert!(matches!(app.drows[0], DRow::Full(0)));
-    // gn, then Ctrl-l: into the PR tab; j moves there, and its scroll is its own.
+    // gp (Comments, Claude, PR, round: back one), then Ctrl-l: into the PR tab; j moves there, and its scroll is its own.
     let line12 = app.rows.iter().position(|r| r.line.kind == Kind::Add && r.line.new == Some(12)).unwrap();
     app.goto(line12, 0);
     draw(&mut app);
     let top = app.top;
     key(&mut app, 'g');
-    key(&mut app, 'n');
+    key(&mut app, 'p');
     draw(&mut app);
     assert_eq!(app.pane_tab, Tab::Pr);
     ctrl(&mut app, 'l');
@@ -825,9 +825,9 @@ fn pr_text_on_the_pane_tab() {
     app.goto_comment(0, 0);
     draw(&mut app);
     assert_eq!(app.pane_tab, Tab::Comments);
-    // gn from it: the PR tab, the cursor on the line the comment is on (not the top).
+    // gp from it: the PR tab, the cursor on the line the comment is on (not the top).
     key(&mut app, 'g');
-    key(&mut app, 'n');
+    key(&mut app, 'p');
     draw(&mut app);
     assert_eq!((app.pane_tab, app.head.row), (Tab::Pr, line12));
     // Hidden, the PR text is back at the top of the diff.
@@ -1380,7 +1380,7 @@ fn screens() {
     let mut wide = fixture();
     shot("margin", &mut wide, 220, 45); // wide enough: shown
     wide.key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE));
-    wide.key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+    wide.key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE));
     shot("pr_tab", &mut wide, 220, 30);
     let mut app = fixture();
     app.toggle_split();
@@ -1703,7 +1703,7 @@ fn wheel_scrolls_what_is_under_it() {
     let mut app = fixture();
     draw(&mut app);
     app.key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE));
-    app.key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE));
     app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
     draw(&mut app);
     assert!(app.on_pr_tab());
@@ -1758,7 +1758,7 @@ fn gg_in_the_pane() {
     app.info[3].text = (1..=60).map(|n| format!("para {n}\n\n")).collect();
     app.build();
     k(&mut app, 'g');
-    k(&mut app, 'n');
+    k(&mut app, 'p');
     app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
     (0..40).for_each(|_| k(&mut app, 'j'));
     draw(&mut app);
@@ -1841,7 +1841,7 @@ fn between_the_code_and_the_pane() {
     assert!(app.rows[app.head.row].thread.is_none() && !app.in_pane(app.head.row), "{:?}", app.rows[app.head.row].line.text);
     // gw labels the PR tab's text too, beside the code.
     k(&mut app, 'g');
-    k(&mut app, 'n');
+    k(&mut app, 'p');
     draw(&mut app);
     k(&mut app, 'g');
     k(&mut app, 'w');
@@ -2162,3 +2162,30 @@ fn claude_working_and_out_of_sync_on_the_title() {
     assert!(!s.lines().next().unwrap().contains('◐'));
 }
 
+
+#[test]
+fn claude_tab_is_the_claude_view() {
+    let mut app = fixture();
+    app.claude.summary = "Looks right; one nit.\n\nSecond paragraph.\n\nThird, which a two-line strip would cut.".into();
+    _ = screen(220, 30, |f| app.draw(f));
+    // gn goes round: Comments, Claude, PR.
+    assert_eq!(app.bar(), Bar::Comments);
+    app.cycle_bar(true);
+    assert_eq!((app.bar(), app.view), (Bar::Claude, View::Claude));
+    let s = screen(220, 30, |f| app.draw(f));
+    assert!(s.lines().next().unwrap().contains("Claude"));
+    // Claude's summary in full, a section before the files (not cut to the pane's strip).
+    let head = app.rows.iter().position(|r| r.main == Some(CLAUDE_REVIEW) && r.line.kind == Kind::File).expect("its section");
+    let text: Vec<&str> = app.rows[head + 1..].iter().take_while(|r| r.main == Some(CLAUDE_REVIEW)).map(|r| r.line.text.as_str()).collect();
+    assert!(text.iter().any(|t| t.starts_with("Third")), "{text:?}");
+    assert!(app.summary_strip(60).iter().all(|row| !row.iter().any(|s| s.content.contains("claude"))));
+    app.cycle_bar(true);
+    assert_eq!((app.bar(), app.view), (Bar::Pr, View::Claude));
+    app.cycle_bar(true);
+    assert_eq!((app.bar(), app.view), (Bar::Comments, View::All)); // the whole diff again
+    // A click on a tab does the same.
+    app.bar_to(Bar::Claude);
+    assert_eq!(app.view, View::Claude);
+    app.bar_to(Bar::Comments);
+    assert_eq!(app.view, View::All);
+}

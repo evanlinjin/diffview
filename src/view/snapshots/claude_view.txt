@@ -1,8 +1,10 @@
-          PR #7 · Fix the thing  @bo · main ← amy  Comments  PR                                  gn
- ▾        src/big.rs  +1 −1  · 1 comment          ╭─ review summary ───────────────────────────────╮
-          ─────────────────────────────────────── │ you     Nearly there.                          │
- 10  10   line 10                                 │ claude  Looks right; one nit.                  │
- 11  11   line 11                                 ╰────────────────────────────────────────────────╯
+          PR #7 · Fix the thing  @bo · main ← amy  Comments  Claude  PR                          gn
+ ▾        claude's review                         ╭─ review summary ───────────────────────────────╮
+          Looks right; one nit.                   │ you     Nearly there.                          │
+ ▾        src/big.rs  +1 −1  · 1 comment          ╰────────────────────────────────────────────────╯
+          ───────────────────────────────────────────────────────────────────────────────── L10–15 ─
+ 10  10   line 10
+ 11  11   line 11
  12     -     let x = old(12);
      12 +     let x = new_call(12);               ╭─ ◆ claude · L12 ───────────────────────────────╮
  13  13   line 13                                 │  [nit]                                         │
@@ -25,6 +27,4 @@
 
 
 
-
-
- NOR       Claude view: its summary and the code it commented on (Ctrl-w a: th… claude view    1/18
+ NOR       Claude view: its summary and the code it commented on (Ctrl-w a: th… claude view    1/17

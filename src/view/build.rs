@@ -147,16 +147,13 @@ impl App {
             let syn = [vec![None; n], vec![Some(self.ui.linenr); by.chars().count()]].concat();
             rows.push(Row { links, syn, ..mk(Kind::File, title + &by) });
             if self.view != View::All && !self.info_collapsed {
-                // The PR's state, author, branches and size; then Claude's summary, or the text
-                // of your pending review.
+                // The PR's state, author, branches and size; then the text of your pending
+                // review. (Claude's summary is a section of its own in the Claude view, below.)
                 if let Some(l) = self.info.first().filter(|l| !l.heading && !l.md) {
                     rows.push(self.info_row(l, mk(Kind::Comment, l.text.clone())));
                 }
-                let (label, text, info) = match self.view {
-                    View::Claude => ("claude's review", &self.claude.summary, Some(SUMMARY)),
-                    _ => ("your review (pending)", &self.summary_draft, Some(DRAFT)),
-                };
-                if !text.is_empty() {
+                let (label, text, info) = ("your review (pending)", &self.summary_draft, Some(DRAFT));
+                if self.view == View::Pending && !text.is_empty() {
                     let summary = |r: Row| Row { info, ..r };
                     rows.push(summary(mk(Kind::Thread, label.into())));
                     rows.extend(self.md_rows_at(text, self.info_w(), mk).into_iter().map(summary));
@@ -224,6 +221,10 @@ impl App {
                     rows.push(Row { edge: true, ..draft(mk(Kind::Comment, String::new())) });
                 }
             }
+        }
+        // The Claude view: Claude's summary in full, before the files, like one.
+        if self.view == View::Claude && !self.claude.summary.trim().is_empty() {
+            rows.extend(self.section(CLAUDE_REVIEW, "claude's review".into(), &self.claude.summary, Some(SUMMARY)));
         }
         // Before the files, like one: the PR's description, then the messages of the commits shown.
         if self.view == View::All {

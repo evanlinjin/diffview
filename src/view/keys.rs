@@ -323,7 +323,7 @@ impl App {
                 }
                 .into();
             }
-            ('g', 'n') | ('g', 'p') => self.pane_to(if self.pane_tab == Tab::Pr { Tab::Comments } else { Tab::Pr }),
+            ('g', 'n') | ('g', 'p') => self.cycle_bar(c == 'n'),
             (CTRL_W, 'e') => self.toggle_files(),
             (CTRL_W, 'n') => {
                 let on = !self.settings.relative;

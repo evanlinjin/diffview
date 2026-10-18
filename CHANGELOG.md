@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- The comments pane has a `Claude` tab, between `Comments` and `PR`: the Claude view (`Ctrl-w a`)
+  as a tab you can see. `gn` / `gp` go round the three; `Comments` is the whole diff again.
+- In the Claude view, Claude's review summary is in full, before the files (`Tab` folds it).
+
 ## [0.13.0] - 2026-10-18
 
 ### Added
