@@ -232,9 +232,12 @@ the PR does the same; when it finds it isn't the PR's doing, a flaky test, CI it
 changes nothing and writes `ci/pr-N.json` in dv's directory, `{"head", "why", "task"}`: then the
 need says so, Claude's part is done at that head, and `N N` on it, or `Space a` in the PR, starts
 a new PR fixing CI from its task, after your editor, and `a a` has Claude try again all the same
-(the note goes; it writes it again if it still finds so); `C` in `dv list` turns auto CI on, kept in
-git config `dv.autoCI` and shown on the top bar: then on your PRs Claude starts on failing CI by
-itself and a draft with its checks green is marked ready for review, each once a head), workflow runs awaiting a maintainer's approval (`W W`; its card says
+(the note goes; it writes it again if it still finds so); `C` in `dv list` turns auto on, kept in
+git config `dv.auto` and shown on the top bar, ` auto: CI · review · rank `: then Claude does its
+part on each item by itself, as `a a` would have it (fixes your failing CI, reviews, updates its
+review, answers you; one batch at a time), a draft of yours with its checks green is marked ready
+for review, each once a head, and the list is ranked again when something's new or changed, at
+most every 15 minutes; not items deferred or waiting, nor ones Claude's at already), workflow runs awaiting a maintainer's approval (`W W`; its card says
 `⏸ N to approve`), conflicts with its base (ask for
 a rebase: `b b` in `dv list` posts a comment saying so, after your editor, then defers the item
 until it changes), Claude's review new to you (since

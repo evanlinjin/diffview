@@ -56,9 +56,11 @@ const HELP: &str = "\
   m                    mark the PR (again: unmark), for Claude to review; marks are kept, for
                        going through them a PR at a time (quitting dv list too)
   U U                  unmark all
-  C                    auto CI on / off (shown on the top bar; kept in git config dv.autoCI):
-                       on your PRs, Claude fixes CI as it fails (you push), and a draft is
-                       marked ready for review once CI passes
+  C                    auto on / off (shown on the top bar; kept in git config dv.auto):
+                       Claude does its part on what needs you as it comes in (fixes your
+                       CI, reviews, updates its reviews, answers you), your drafts are marked
+                       ready for review once CI passes, and the todo list is ranked again
+                       as it changes (at most every 15 minutes)
   a a                  Claude reviews the marked PRs (or this one) in the background, two at a
                        time, each in its worktree (<repo>-N, made if need be); cards show how
                        it's going, and claude ✓ once a PR has a review
@@ -162,10 +164,11 @@ pub struct List {
     /// The same for replacements (and new PRs), by id: Claude at it in a pane in its worktree.
     running_reps: HashMap<u64, String>,
     running_checked: std::time::Instant,
-    /// Auto CI (`C`, kept in git config `dv.autoCI`): on your PRs, Claude fixes CI as it fails,
-    /// and a draft is marked ready for review once it passes. What it's done, once each: (PR, head).
-    auto_ci: bool,
-    auto_done: HashSet<(u64, String)>,
+    /// Auto (`C`, kept in git config `dv.auto`): Claude does its part on what needs you, green
+    /// drafts are marked ready, and the list is ranked again (`auto_run`). What it's done, once
+    /// each: (PR, head, what).
+    auto: bool,
+    auto_done: HashSet<(u64, String, &'static str)>,
     /// What's not pushed in each PR worktree (`scan_unpushed`): changed files, commits beyond
     /// the PR's head, and when that head was made.
     unpushed: Unpushed,
@@ -255,7 +258,7 @@ impl List {
             unpushed_rx: None,
             rescan: false,
             running_checked: std::time::Instant::now() - std::time::Duration::from_secs(60),
-            auto_ci: crate::diff::git(&["config", "--get", "dv.autoCI"]).is_ok_and(|v| v.trim() == "true"),
+            auto: crate::diff::git(&["config", "--get", "dv.auto"]).is_ok_and(|v| v.trim() == "true"),
             auto_done: HashSet::new(),
             deferred: crate::todo::load_deferred(crate::todo::deferred_path().as_deref()),
             deferring: None,
@@ -928,13 +931,13 @@ impl List {
                 self.sel = (self.sel + 1).min(n.saturating_sub(1)); // on to the next, to mark a run
                 self.msg = format!("{} marked: a asks Claude to review them", self.marked.len());
             }
-            // Auto CI on / off: Claude runs, and drafts marked ready, without you.
+            // Auto on / off: Claude runs, drafts marked ready, rankings, without you.
             KeyCode::Char('C') => {
-                self.auto_ci = !self.auto_ci;
-                _ = crate::diff::git(&["config", "dv.autoCI", if self.auto_ci { "true" } else { "false" }]);
-                self.msg = match self.auto_ci {
-                    true => "auto CI on: on your PRs, Claude fixes CI as it fails (you push), and drafts are marked ready for review once it passes".into(),
-                    false => "auto CI off: a a has Claude fix CI, Space g in a PR marks it ready".into(),
+                self.auto = !self.auto;
+                _ = crate::diff::git(&["config", "dv.auto", if self.auto { "true" } else { "false" }]);
+                self.msg = match self.auto {
+                    true => "auto on: Claude does its part as things come in (fixes your CI, reviews, answers you; Claude runs, at your cost), green drafts are marked ready, and it ranks the list again as it changes".into(),
+                    false => "auto off: a a has Claude do its part, r r ranks, Space g in a PR marks it ready".into(),
                 };
                 self.find_todo();
             }
@@ -1105,10 +1108,10 @@ impl List {
             x += w + 1;
         }
         spans.push(Span::styled(rest, dim));
-        // Auto CI, lit when on: it starts Claude runs, and changes PRs on GitHub.
-        let auto = match self.auto_ci {
-            true => Span::styled(" auto CI ", ui.menu_selected),
-            false => Span::styled("auto CI off (C)", dim),
+        // Auto, lit when on: it starts Claude runs, and changes PRs on GitHub.
+        let auto = match self.auto {
+            true => Span::styled(" auto: CI · review · rank ", ui.menu_selected),
+            false => Span::styled("auto off (C)", dim),
         };
         spans.extend([Span::styled("   ", dim), auto]);
         let tabs = Line::from(spans);
@@ -1226,7 +1229,7 @@ impl List {
                 ("W W", "approve its workflow runs"),
                 ("U U", "unmark all"),
                 ("N N", "Claude drafts a new PR (unpublished)"),
-                ("C", "auto CI on / off"),
+                ("C", "auto on / off (CI, reviews, ranking)"),
                 ("b b", "ask for a rebase (a comment)"),
                 ("D D", remove),
                 ("?", "all keys"),

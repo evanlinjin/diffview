@@ -76,35 +76,43 @@ impl List {
         ready.append(&mut todo);
         ready.append(&mut busy);
         (self.todo, self.since) = (ready, since);
-        self.auto_ci();
+        self.auto_run();
     }
 
-    /// Auto CI: on your PRs, Claude at failing CI (as `a a` would have it), and green drafts
-    /// marked ready for review; each once a head, and not where Claude's already at it.
-    fn auto_ci(&mut self) {
-        if !self.auto_ci {
+    /// Auto (`C`): Claude does its part on each item, as `a a` would have it (fixing your CI,
+    /// reviewing, updating its review, answering you), each once a head; green drafts of yours
+    /// are marked ready for review; and what needs you is ranked again as it changes. Not what
+    /// you've put aside or wait on, not where Claude's at it already.
+    fn auto_run(&mut self) {
+        if !self.auto {
             return;
         }
-        let (mut fix, mut ready) = (vec![], vec![]);
+        let (mut run, mut ready) = (vec![], vec![]);
         // One batch of Claude's at a time: the cap on how many run at once holds (the rest wait
         // for a later look).
         let batch_busy = self.batch.values().any(batch::Status::running);
-        // Not what you've put aside or are waiting on; not where Claude's at it already.
         for it in self.todo.iter().filter(|it| !it.rep && it.busy.is_none() && it.deferred.is_none() && it.waits.is_none()) {
-            // Its checks are on the head the rest knows of (else they're another commit's).
             let Some(p) = self.prs.iter().find(|p| p.number == it.number) else { continue };
-            let Some(head) = self.extra.get(&it.number).map(|e| e.head_oid.clone()).filter(|h| !h.is_empty() && *h == p.checks_head) else { continue };
-            if it.claude == Some(batch::Task::FixChecks) && !batch_busy && self.auto_done.insert((it.number, head.clone())) {
-                fix.push((it.number, true, batch::Task::FixChecks));
-            } else if it.needs.contains(&todo::Need::MarkReady) && self.auto_done.insert((it.number, head)) {
-                ready.push(it.number);
+            let Some(head) = self.extra.get(&it.number).map(|e| e.head_oid.clone()).filter(|h| !h.is_empty()) else { continue };
+            // CI's state is about the head the rest knows of (else it's another commit's).
+            let ci_here = head == p.checks_head;
+            match it.claude.clone() {
+                Some(t) if !batch_busy && (t != batch::Task::FixChecks || ci_here) && self.auto_done.insert((it.number, head.clone(), t.doing())) => {
+                    let branch = t == batch::Task::FixChecks || self.local.get(&it.number).map_or(self.flags.contains('b'), |w| w.1.is_some());
+                    run.push((it.number, branch, t));
+                }
+                _ if ci_here && it.needs.contains(&todo::Need::MarkReady) && self.auto_done.insert((it.number, head, "ready")) => ready.push(it.number),
+                _ => {}
             }
         }
         let mut said = vec![];
-        if !fix.is_empty() {
-            said.push(format!("Claude is fixing CI on {}", fix.iter().map(|f| format!("#{}", f.0)).collect::<Vec<_>>().join(", ")));
-            fix.iter().for_each(|(n, _, t)| _ = self.batch_task.insert(*n, t.clone()));
-            self.batch_rx.push(batch::start(fix, self.root.clone(), String::new()));
+        if !run.is_empty() {
+            said.push(format!("Claude is {}", run.iter().map(|(n, _, t)| format!("{} #{n}", t.doing())).collect::<Vec<_>>().join(", ")));
+            run.iter().for_each(|(n, _, t)| _ = self.batch_task.insert(*n, t.clone()));
+            for (n, ..) in run.iter().filter(|r| r.2 == batch::Task::FixChecks) {
+                crate::claude::ci_note_path(*n).map(std::fs::remove_file).ok();
+            }
+            self.batch_rx.push(batch::start(run, self.root.clone(), String::new()));
         }
         // `mark_ready` checks CI again first; the list's next look at GitHub shows them so. Said
         // either way (not tried again at this head: you'd be told each time).
@@ -114,8 +122,13 @@ impl List {
                 Err(e) => format!("#{n} not marked ready: {e:#}"),
             });
         }
+        // Ranked again once something's new or changed, at most every quarter hour (a run each).
+        let stale = self.ranked.as_ref().is_none_or(|r| crate::claude::now_secs() - r.at > 15 * 60 && self.since.new + self.since.changed > 0);
+        if stale && self.rank_rx.is_none() && !self.want_rank && !self.todo.is_empty() {
+            self.rank_now();
+        }
         if !said.is_empty() {
-            self.msg = format!("auto CI: {}", said.join("; "));
+            self.msg = format!("auto: {}", said.join("; "));
         }
     }
 

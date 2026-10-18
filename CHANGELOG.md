@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Changed
+- Auto CI is now auto (`C` in `dv list`, git config `dv.auto`; turn it on again): Claude also
+  reviews, updates its reviews and answers you as things come in, and ranks the todo list again as
+  it changes (at most every 15 minutes), on top of fixing your CI and marking green drafts ready.
+
 ### Added
 - Closing a PR with a comment Claude drafts: `Space a` → "Ask Claude to draft a comment closing the
   PR" (say why, if you like). The draft shows first in the diff; `Space a` then closes the PR with
