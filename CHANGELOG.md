@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Fixed
+- Merging (`M M`, `Space g` → merge) checks the PR is still open on GitHub first: merged or
+  closed (the list can be older than that), it says so rather than running `github-merge.py`, which
+  failed on the merge ref GitHub drops.
+
 ## [0.8.3] - 2026-10-18
 
 ### Fixed

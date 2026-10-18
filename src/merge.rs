@@ -71,6 +71,11 @@ fn command(n: u64) -> Result<(PathBuf, Vec<String>)> {
 /// beside this one when `pane` (it stays open when the script's done, for you to read), else in
 /// this terminal (dv waits for Enter after it). Returns what to tell you.
 pub fn merge(n: u64, pane: bool) -> Result<String> {
+    // As GitHub has it now (the list may be older): merged or closed, there's nothing to merge,
+    // and the script would only fail on the merge ref GitHub has dropped.
+    if let Some(state) = crate::gh::pr_state(n)?.filter(|s| s != "OPEN") {
+        anyhow::bail!("#{n} is {} already, on GitHub (R refreshes the list)", state.to_lowercase());
+    }
     // The script switches branches in the main checkout: changes there would stop it partway.
     let (main, _) = crate::worktree_dir(n)?;
     let dirty = crate::diff::git(&["-C", &main.to_string_lossy(), "status", "--porcelain", "--untracked-files=no"])?;

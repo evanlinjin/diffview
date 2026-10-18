@@ -320,6 +320,12 @@ fn extra(p: &Value, me: &str) -> Extra {
     }
 }
 
+/// PR `n`'s state on GitHub now: OPEN, CLOSED or MERGED (`None` if gh doesn't say).
+pub fn pr_state(n: u64) -> Result<Option<String>> {
+    let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", "state"])?)?;
+    Ok(v["state"].as_str().map(str::to_owned))
+}
+
 /// This repo on GitHub, as `owner/name`.
 pub fn repo_name() -> Result<String> {
     Ok(gh(&["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"])?.trim().to_owned())
