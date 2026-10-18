@@ -61,9 +61,13 @@ impl List {
         let items = rest;
         // Those Claude is at (here or in any dv; drafting their replacement too): at the bottom
         // till it's done.
-        let doing = |n: u64| self.claude_doing(n).or_else(|| self.drafting_replacement(n).then(|| "drafting a replacement".to_owned()));
-        let (mut busy, todo): (Vec<Item>, Vec<Item>) = items.into_iter().partition(|it| !it.rep && doing(it.number).is_some());
-        busy.iter_mut().for_each(|it| it.busy = doing(it.number));
+        let doing = |it: &Item| match it.rep {
+            // A replacement: Claude drafting it, or at it in its worktree.
+            true => self.drafting_replacement(it.number).then(|| "drafting it".to_owned()).or_else(|| self.running_reps.get(&it.number).cloned()),
+            false => self.claude_doing(it.number).or_else(|| self.drafting_replacement(it.number).then(|| "drafting a replacement".to_owned())),
+        };
+        let (mut busy, todo): (Vec<Item>, Vec<Item>) = items.into_iter().partition(|it| doing(it).is_some());
+        busy.iter_mut().for_each(|it| it.busy = doing(it));
         // A replacement drafted, ready for you to review: first.
         let (mut ready, mut todo): (Vec<Item>, Vec<Item>) = todo.into_iter().partition(|it| it.rep && it.needs.contains(&todo::Need::Publish));
         ready.append(&mut todo);
@@ -302,24 +306,33 @@ impl List {
             _ => false,
         };
         let mut now = crate::claude::running(&dir, alive);
-        // Claude Code in a pane of its own in a PR's worktree (one you started, say): at it
-        // there, or asking you something.
-        if crate::view::in_zellij() && !self.local.is_empty() {
-            for (id, cmd, cwd) in panes.get_or_init(open_panes) {
-                let Some(n) = cmd.starts_with("claude").then(|| self.local.iter().find(|(_, (d, _))| cwd.starts_with(d)).map(|(n, _)| *n)).flatten() else { continue };
-                if now.contains_key(&n) {
+        let mut reps = HashMap::new();
+        // Claude Code in a pane in a PR's worktree, or a replacement's (one you started, from a
+        // shell even: its screen says): at it there, or asking you something.
+        let rep_dirs: Vec<(u64, std::path::PathBuf)> =
+            self.rep_of.keys().filter_map(|&id| Some((id, crate::worktree_dir_named(&self.root, &crate::replace::name(id)).ok()?))).collect();
+        if crate::view::in_zellij() && (!self.local.is_empty() || !rep_dirs.is_empty()) {
+            for (id, _, cwd) in panes.get_or_init(open_panes) {
+                let pr = self.local.iter().find(|(_, (d, _))| cwd.starts_with(d)).map(|(n, _)| *n).filter(|n| !now.contains_key(n));
+                let rep = rep_dirs.iter().find(|(_, d)| cwd.starts_with(d)).map(|(r, _)| *r);
+                if pr.is_none() && rep.is_none() {
                     continue;
                 }
                 let screen = pane_screen(*id);
-                if crate::view::asking(&screen) {
-                    now.insert(n, "asking you (in its pane)".into());
-                } else if crate::view::working(&screen) {
-                    now.insert(n, "working (in its pane)".into());
-                }
+                let doing = match (crate::view::asking(&screen), crate::view::working(&screen)) {
+                    (true, _) => "asking you (in its pane)",
+                    (_, true) => "working (in its pane)",
+                    _ => continue,
+                };
+                match (pr, rep) {
+                    (Some(n), _) => now.insert(n, doing.into()),
+                    (_, Some(r)) => reps.insert(r, doing.into()),
+                    _ => None,
+                };
             }
         }
-        let changed = now != self.running;
-        self.running = now;
+        let changed = now != self.running || reps != self.running_reps;
+        (self.running, self.running_reps) = (now, reps);
         changed
     }
 

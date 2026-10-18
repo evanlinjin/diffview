@@ -6,6 +6,9 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Changed
+- Todo: anything Claude is at goes to the bottom, replacements too: one Claude is working on in a
+  pane in its worktree (making changes there, say) no longer stays on top as ready to publish.
+  And a Claude Code pane counts by its folder and screen, so one started from a shell counts too.
 - A replacement's (or new PR's) drafted description, and its closing note, are sections before the
   files in the diff, as a PR's description is, not on the pane's PR tab; in the contents too.
 

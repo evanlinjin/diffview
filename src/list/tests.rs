@@ -446,6 +446,13 @@ fn drafting_a_replacement_on_the_todo_tab() {
     l.drafting.insert(first, crate::batch::Status::Done("3 turns".into()));
     let o = order(&mut l);
     assert_eq!(o[0], (true, first), "{o:?}");
+    // Claude at it again in the replacement's worktree (making changes there): to the bottom too.
+    l.running_reps.insert(first, "working (in its pane)".into());
+    let o = order(&mut l);
+    assert_eq!(o.last(), Some(&(true, first)), "{o:?}");
+    assert_eq!(l.todo.last().unwrap().busy.as_deref(), Some("working (in its pane)"));
+    l.running_reps.clear();
+    assert_eq!(order(&mut l)[0], (true, first));
 }
 
 #[test]

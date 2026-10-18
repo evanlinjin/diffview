@@ -154,6 +154,8 @@ pub struct List {
     /// What Claude is doing, by PR, in any dv (its markers: `watch_running`), and when they
     /// were last looked at.
     running: HashMap<u64, String>,
+    /// The same for replacements (and new PRs), by id: Claude at it in a pane in its worktree.
+    running_reps: HashMap<u64, String>,
     running_checked: std::time::Instant,
     /// What's not pushed in each PR worktree (`scan_unpushed`): changed files, commits beyond
     /// the PR's head, and when that head was made.
@@ -235,6 +237,7 @@ impl List {
             rank_rx: None,
             want_rank: false,
             running: HashMap::new(),
+            running_reps: HashMap::new(),
             unpushed: HashMap::new(),
             running_checked: std::time::Instant::now() - std::time::Duration::from_secs(60),
             deferred: crate::todo::load_deferred(crate::todo::deferred_path().as_deref()),
