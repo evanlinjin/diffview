@@ -416,6 +416,8 @@ pub struct App {
     msg: String,
     top: usize,
     left: usize,
+    /// The PR's title line is pinned above the code (set by `draw`).
+    pin: bool,
     /// The code block in a comment that the cursor is in (its first row), and how far it's
     /// scrolled sideways: only it, so the code beside it and the comment's text stay put.
     code_at: Option<usize>,
@@ -626,6 +628,7 @@ impl App {
             msg: String::new(),
             top: 0,
             left: 0,
+            pin: false,
             code_at: None,
             code_left: 0,
             height: 1,

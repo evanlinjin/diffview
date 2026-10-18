@@ -1,12 +1,12 @@
- ▾        PR #7 · Fix the thing                                                                                                                       OPEN @bo · main ← fix · +2 −2 in 3 files
- ▾        src/big.rs  +1 −1                                                                                                                           review: waiting on @cy
-          ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── L9–15 ─ ╭─ description ─────────────────────────────────────────────────────────╮
-  9   9   line 9                                                                                                                                   │  Fixes the thing, see new_call.                                       │
- 10  10   line 10                                                                                                                                  ╰───────────────────────────────────────────────────────────────────────╯
- 11  11   line 11                                                                                                                                  ╭─ claude's review ─────────────────────────────────────────────────────╮
- 12     -     let x = old(12);                                                                                                                     │  Looks right; one nit.                                                │
-     12◆+     let x = new_call(12);                                                                                                                ╰───────────────────────────────────────────────────────────────────────╯
- 13  13   line 13
+          PR #7 · Fix the thing                                                                                                                                    3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)
+ ▾        src/big.rs  +1 −1                                                                                                                           OPEN @bo · main ← fix · +2 −2 in 3 files
+          ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── L9–15 ─    review: waiting on @cy
+  9   9   line 9                                                                                                                                   ╭─ description ─────────────────────────────────────────────────────────╮
+ 10  10   line 10                                                                                                                                  │  Fixes the thing, see new_call.                                       │
+ 11  11   line 11                                                                                                                                  ╰───────────────────────────────────────────────────────────────────────╯
+ 12     -     let x = old(12);                                                                                                                     ╭─ claude's review ─────────────────────────────────────────────────────╮
+     12◆+     let x = new_call(12);                                                                                                                │  Looks right; one nit.                                                │
+ 13  13   line 13                                                                                                                                  ╰───────────────────────────────────────────────────────────────────────╯
  14  14   line 14
  15  15   line 15
  ▾        src/a.rs  +1 −1
@@ -26,5 +26,5 @@
 
 
 
+ NOR       pane: the PR's description and conversation (Ctrl-w t: comments; Ctrl-l goes in)                                                                                                                            1/42
 
- NOR       pane: the PR's description and conversation (Ctrl-w t: comments; Ctrl-l goes in)                                                          #7 · 3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)    1/42

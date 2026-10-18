@@ -1,4 +1,4 @@
- ▾        PR #7 · Fix the thing
+          PR #7 · Fix the thing            3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)
  ▾        src/big.rs  +1 −1
           ─────────────────────────────────────── ╭─ amy · L20 ────────────────────────────────────╮
   9   9   line 9                                  │  Why line 20?                                  │
@@ -18,7 +18,6 @@
                                                   │  Pass y here.                                  │
                                                   ╰────────────────────────────────────────────────╯
  ▾        new.rs (renamed from old.rs)  +0 −0
- ▾        img.png (binary)  +0 −0
  Claude's comment
  r        reply to Claude
  gf       go to a file:line or name in it
@@ -27,4 +26,5 @@
  Space r  resolve
  Space d  dismiss
 
- NOR   src/big.rs           #7 · 3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)    22/42
+ NOR   src/big.rs                                                                             22/42
+

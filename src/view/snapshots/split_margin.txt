@@ -1,4 +1,4 @@
- ▾        PR #7 · Fix the thing
+          PR #7 · Fix the thing                                                                                                                                                        3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)
  ▾        src/big.rs  +1 −1
           ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── L9–15 ─ ╭─ amy · L20 ──────────────────────────────────────────────────────────────────╮
   9   line 9                                                                   │  9   line 9                                                                    │  Why line 20?                                                                │
@@ -36,5 +36,5 @@
 
 
 
+ NOR       split view (Ctrl-h / Ctrl-l switch sides)                                                                                                                                                                              split    1/42
 
- NOR       split view (Ctrl-h / Ctrl-l switch sides)                                                                                                              #7 · 3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)  split    1/42

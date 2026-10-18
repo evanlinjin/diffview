@@ -94,11 +94,16 @@ impl App {
     /// The row and column under screen cell (`x`, `y`), and whether it's in the gutter (line
     /// numbers, fold arrows), as the last frame drew it.
     pub(super) fn at_screen(&self, x: usize, y: usize) -> Option<(usize, usize, bool)> {
+        let g = self.geom;
+        if self.pin && y == 0 {
+            let start = g.relw + g.gw; // the pinned title
+            return Some((0, x.saturating_sub(start), x < start));
+        }
+        let y = y - self.pin as usize;
         if y >= self.height {
             return None; // the status bar
         }
         let d = self.top + y;
-        let g = self.geom;
         if self.in_pr_tab_area(x) {
             let row = *self.pr_rows.get(self.pr_top + y)?;
             let start = g.relw + g.gw + g.ctw + 1 + 3;

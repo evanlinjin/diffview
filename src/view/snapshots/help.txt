@@ -1,4 +1,4 @@
- ▾        PR #7 · Fix the thing
+          PR #7 · Fix the thing                                3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)
           OPEN @bo · main ← fix · +2 −2 in 3 files
           review: wait keys · / search · j/k scroll · other keys close                 1–44 / 113
        ╭─ description   MOVE                                                                    ┃ ─────────────╮
@@ -46,5 +46,5 @@
                          Ctrl-w f             comments pane: a column beside the code / floating│
                                               over it                                           │
 
+ NOR                                                                                                               1/39
 
- NOR                                             #7 · 3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)    1/39

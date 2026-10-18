@@ -170,7 +170,12 @@ impl App {
 
     pub(super) fn draw(&mut self, f: &mut Frame) {
         let area = f.area();
-        let h = area.height.saturating_sub(1) as usize;
+        // The PR's title line pinned at the top, as a panel over the code and the pane.
+        self.pin = self.rows.first().is_some_and(|r| r.file == INFO && r.line.kind == Kind::File)
+            && matches!(self.drows.first(), Some(DRow::Full(0)))
+            && area.height > 4;
+        let pin = self.pin as usize;
+        let h = (area.height as usize).saturating_sub(1 + pin);
         self.height = h.max(1);
         self.width = area.width;
         let so = 3.min(h / 2);
@@ -245,6 +250,7 @@ impl App {
         if hd + so + 1 > self.top + h {
             self.top = hd + so + 1 - h;
         }
+        self.top = self.top.max(pin); // the title is above, not in, what scrolls
         if let Some(i) = on_pr.then(|| self.pr_rows.iter().position(|&r| r == self.head.row)).flatten() {
             if i < self.pr_top + so {
                 self.pr_top = i.saturating_sub(so);
@@ -381,7 +387,12 @@ impl App {
             })
             .collect();
         f.render_widget(Block::new().style(self.ui.base), area);
-        f.render_widget(Paragraph::new(lines), Rect { height: h as u16, ..area });
+        f.render_widget(Paragraph::new(lines), Rect { y: area.y + pin as u16, height: h as u16, ..area });
+        if self.pin {
+            let mut spans = vec![Span::styled(" ".repeat(relw), Style { bg: self.ui.bar, ..self.ui.header })];
+            spans.extend(self.render_row(0, s, e, (lw, gw, tw), None, self.head.row == 0, &overlay));
+            f.render_widget(Paragraph::new(Line::from(spans)), Rect { height: 1, ..area });
+        }
 
         // Link tooltip: while the cursor is on a link, show its URL just under (or over) it.
         // Not on the PR header (where dv starts): the status hint says it links there.
@@ -390,7 +401,8 @@ impl App {
             let y = match on_pr {
                 true => self.pr_rows.iter().position(|&r| r == self.head.row).unwrap_or(0).saturating_sub(self.pr_top),
                 false => hd - self.top,
-            } as u16;
+            } as u16
+                + pin as u16;
             // In the margin, the text starts after the code column, the gap and its own gutter.
             let start = match self.drows[hd] {
                 _ if on_pr || self.margin_side() => relw + self.geom.gw + self.geom.ctw + 1 + 3,
@@ -435,22 +447,9 @@ impl App {
             None if self.lsp.is_some() && !self.lsp_ready => "ra: starting  ".into(),
             None => String::new(),
         };
-        let pending = match self.pending_count() {
-            0 if self.review.is_none() => String::new(),
-            n => format!(" · {n} pending (S submits)"),
-        };
-        let claude = self.threads.iter().filter(|t| agent::claude_wrote(t)).count();
-        let review_file = self.threads.iter().filter(|t| t.claude.is_some()).count();
-        let seen = self.files.iter().filter(|f| self.viewed.get(&f.path).is_some_and(|s| s == "VIEWED")).count();
-        let on_github = self.files.iter().filter(|f| f.meta != "untracked").count(); // what "viewed" can be of
-        let threads = match (self.threads.len() - review_file, claude) {
-            (n, 0) => format!("{n} threads"),
-            (n, c) => format!("{n} threads + {c} Claude"),
-        };
-        let pr = match &self.pr {
-            Some(p) => format!("#{} · {threads} · {seen}/{on_github} viewed{pending}  ", p.number),
-            None if claude > 0 => format!("{threads}  "),
-            None => String::new(),
+        let pr = match self.pr_counts() {
+            c if c.is_empty() || self.pin => String::new(), // on the pinned title then
+            c => format!("{c}  "),
         };
         let working = match &self.claude.job {
             Some(j) => format!("Claude working {}… · ", agent::ago(j.started)),
@@ -665,9 +664,18 @@ impl App {
                     INFO => self.info_collapsed,
                     f => self.files.get(f).is_some_and(|f| self.collapsed.contains(&f.path)),
                 };
-                line_bg = ui.header.bg;
-                gstyle = ui.header;
-                (format!(" {:<w$}", if collapsed { "▸" } else { "▾" }, w = gw - 1), ui.header)
+                // The pinned title: as dark as the status bar.
+                let header = match r == 0 && self.pin {
+                    true => Style { bg: ui.bar.or(ui.header.bg), ..ui.header },
+                    false => ui.header,
+                };
+                (line_bg, gstyle) = (header.bg, header);
+                let arrow = match collapsed {
+                    _ if r == 0 && self.pin => " ", // a panel, not something to fold
+                    true => "▸",
+                    false => "▾",
+                };
+                (format!(" {arrow:<w$}", w = gw - 1), header)
             }
             Kind::Hunk => {
                 if let Some(spans) = self.hunk_divider(r, gw, tw) {
@@ -832,7 +840,15 @@ impl App {
             spans.push(Span::raw(" ".repeat(tw.saturating_sub(used))));
             return spans;
         }
-        let tag = if l.kind == Kind::File { self.header_tag(row.file) } else { None };
+        let mut tag = if l.kind == Kind::File { self.header_tag(row.file) } else { None };
+        // Pinned, the PR's title has its counts (the status bar's otherwise) before its state.
+        let counts = if r == 0 && self.pin { self.pr_counts() } else { String::new() };
+        if !counts.is_empty() {
+            tag = Some(match tag {
+                Some((t, st)) => (format!("{counts}  {t}"), st),
+                None => (counts.clone(), Style::new()),
+            });
+        }
         // The PR's state always shows: a long title is cut to make room.
         let mut used = used;
         if let Some((t, _)) = &tag
@@ -847,7 +863,11 @@ impl App {
             Some((t, st)) if used + 1 + t.chars().count() <= tw => {
                 let n = t.chars().count();
                 spans.push(Span::raw(" ".repeat(tw - used - n)));
-                spans.push(Span::styled(t, style.patch(st)));
+                // The counts plain, the state as its badge.
+                let c = if counts.is_empty() { 0 } else { counts.chars().count() + 2 };
+                let (a, b): (String, String) = (t.chars().take(c).collect(), t.chars().skip(c).collect());
+                spans.push(Span::styled(a, style.patch(ui.linenr)));
+                spans.push(Span::styled(b, style.patch(st)));
             }
             _ => spans.push(Span::raw(" ".repeat(tw.saturating_sub(used)))),
         }
@@ -905,4 +925,27 @@ fn clip(spans: Vec<Span<'static>>, w: usize) -> Vec<Span<'static>> {
     }
     out.push(Span::raw(" ".repeat(w - used)));
     out
+}
+
+impl App {
+    /// The PR's counts: threads (and Claude's), files viewed, comments pending.
+    pub(super) fn pr_counts(&self) -> String {
+        let pending = match self.pending_count() {
+            0 if self.review.is_none() => String::new(),
+            n => format!(" · {n} pending (S submits)"),
+        };
+        let claude = self.threads.iter().filter(|t| agent::claude_wrote(t)).count();
+        let review_file = self.threads.iter().filter(|t| t.claude.is_some()).count();
+        let seen = self.files.iter().filter(|f| self.viewed.get(&f.path).is_some_and(|s| s == "VIEWED")).count();
+        let on_github = self.files.iter().filter(|f| f.meta != "untracked").count(); // what "viewed" can be of
+        let threads = match (self.threads.len() - review_file, claude) {
+            (n, 0) => format!("{n} threads"),
+            (n, c) => format!("{n} threads + {c} Claude"),
+        };
+        match &self.pr {
+            Some(_) => format!("{threads} · {seen}/{on_github} viewed{pending}"),
+            None if claude > 0 => threads,
+            None => String::new(),
+        }
+    }
 }

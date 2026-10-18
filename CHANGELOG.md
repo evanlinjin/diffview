@@ -20,6 +20,10 @@ on GitHub are its section here.
   at once, while it fetches them afresh; anything that changes GitHub waits for that.
 
 ### Changed
+- The PR's title line is pinned at the top, across the code and the pane, like the status bar
+  (and in its color: the darker of the theme's status line and menu): it doesn't scroll away
+  or fold, and it has the PR's counts (threads, files viewed, pending comments), which the
+  status bar no longer repeats.
 - Comments are never inline any more: they're in the pane on the right, beside their lines, in
   split view too. It's shown when the window has room for it, else hidden, with the lines that
   have comments marked in the gutter (`●`, `◆` Claude's, `○` resolved); `Ctrl-w c` shows or

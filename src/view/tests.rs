@@ -1608,3 +1608,14 @@ fn stop_a_stuck_claude() {
     assert!(gone(&grandchild), "what it was running, killed too");
     let _ = std::fs::remove_file(&mark);
 }
+
+#[test]
+fn click_the_pinned_title() {
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut app = fixture();
+    app.goto(20, 0);
+    _ = screen(220, 30, |f| app.draw(f));
+    assert!(app.pin);
+    app.mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column: 30, row: 0, modifiers: KeyModifiers::NONE });
+    assert_eq!(app.head.row, 0);
+}

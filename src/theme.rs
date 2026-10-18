@@ -28,6 +28,9 @@ pub struct Ui {
     pub cursor: Style,
     pub cursor_select: Style,
     pub status: Style,
+    /// The pinned PR title's background: the status bar's, both the darker of it and the
+    /// headers' (`ui.menu`), so the two bars frame the view alike.
+    pub bar: Option<Color>,
     pub mode_normal: Style,
     pub mode_select: Style,
     pub popup: Style,
@@ -171,6 +174,10 @@ impl Theme {
         };
         let cursor = self.find("ui.cursor.primary.normal").or(self.find("ui.cursor.primary")).or(self.find("ui.cursor"));
         let comment = self.get("comment");
+        let bar = match (self.get("ui.statusline").bg, self.get("ui.menu").bg) {
+            (Some(s), Some(m)) if luma(m) < luma(s) => Some(m),
+            (s, m) => s.or(m),
+        };
         Ui {
             base,
             linenr: self.get("ui.linenr"),
@@ -185,7 +192,8 @@ impl Theme {
             selection: self.get("ui.selection"),
             cursor: or_reversed(cursor),
             cursor_select: or_reversed(self.find("ui.cursor.primary.select").or(cursor)),
-            status: self.get("ui.statusline"),
+            status: Style { bg: bar, ..self.get("ui.statusline") },
+            bar,
             mode_normal: self.find("ui.statusline.normal").unwrap_or(self.get("ui.statusline")),
             mode_select: self.find("ui.statusline.select").unwrap_or(self.get("ui.statusline")),
             popup: self.find("ui.popup").or(self.find("ui.menu")).unwrap_or_default(),
@@ -342,4 +350,13 @@ fn resolves_inherits_and_palette() {
     assert_eq!((text.fg, text.add_modifier), (Some(Color::Rgb(0, 0, 0)), Modifier::BOLD)); // child palette wins
     assert_eq!(blend(Color::Rgb(200, 0, 0), Color::Rgb(0, 0, 0), 0.5), Some(Color::Rgb(100, 0, 0)));
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// How light a color is (0–255), for picking the darker of two; unknown (named) ones count as
+/// mid-gray, so a theme's own RGB colors win.
+fn luma(c: Color) -> f32 {
+    match c {
+        Color::Rgb(r, g, b) => 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32,
+        _ => 128.0,
+    }
 }

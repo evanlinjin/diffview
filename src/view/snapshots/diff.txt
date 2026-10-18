@@ -1,4 +1,4 @@
- ▾        PR #7 · Fix the thing
+          PR #7 · Fix the thing            3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)
           OPEN @bo · main ← fix · +2 −2 in 3 files
           review: waiting on @cy
        ╭─ description ─────────────────────────────────────────────────────────────────────────────╮
@@ -56,5 +56,5 @@
 
 
 
+ NOR                                                                                           1/39
 
- NOR                         #7 · 3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)    1/39
