@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-10-18
+
 ### Added
 - `a` on a replacement's description or closing note asks Claude to redraft it: the
   instructions start from a quote of the lines (and which draft they're from), and you say what
@@ -340,6 +342,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.6.2]: https://github.com/evanlinjin/diffview/releases/tag/v0.6.2
 [0.6.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.6.1
 [0.6.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.6.0
 [0.5.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.5.1
