@@ -382,3 +382,17 @@ fn n_n_drafts_a_new_pr() {
     k(&mut l, 'j');
     assert!(k(&mut l, 'N').is_none());
 }
+
+#[test]
+fn unmark_all() {
+    let mut l = List::new("-wb".into());
+    let k = |l: &mut List, c| l.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+    assert!(k(&mut l, 'U').is_none() && l.msg == "nothing marked");
+    l.marked.extend([1, 22, 333]);
+    k(&mut l, 'U');
+    assert!(l.msg.starts_with("U again unmarks all 3") && l.marked.len() == 3);
+    k(&mut l, 'j'); // another key between: not
+    k(&mut l, 'U');
+    k(&mut l, 'U');
+    assert!(l.marked.is_empty() && l.msg == "unmarked 3");
+}

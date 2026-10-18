@@ -50,6 +50,7 @@ const HELP: &str = "\
   o O                  next sort order (updated, created, number, size) / reverse
   m                    mark the PR (again: unmark), for Claude to review; marks are kept, for
                        going through them a PR at a time (quitting dv list too)
+  U U                  unmark all
   a a                  Claude reviews the marked PRs (or this one) in the background, two at a
                        time, each in its worktree (<repo>-N, made if need be); cards show how
                        it's going, and claude ✓ once a PR has a review
@@ -823,6 +824,19 @@ impl List {
                 self.sel = (self.sel + 1).min(n.saturating_sub(1)); // on to the next, to mark a run
                 self.msg = format!("{} marked: a asks Claude to review them", self.marked.len());
             }
+            // All the marks off (kept between runs, they pile up): asked first.
+            KeyCode::Char('U') => {
+                if self.marked.is_empty() {
+                    return (self.msg = "nothing marked".into(), None).1;
+                }
+                if armed == Some(('U', 0)) {
+                    self.msg = format!("unmarked {}", self.marked.len());
+                    self.marked.clear();
+                    return None;
+                }
+                self.msg = format!("U again unmarks all {} marked PRs; any other key doesn't", self.marked.len());
+                self.confirm = Some(('U', 0));
+            }
             KeyCode::Char('a') => {
                 let mut prs: Vec<u64> = match self.marked.is_empty() {
                     true => self.shown().get(self.sel).map(|p| vec![p.number]).unwrap_or_default(),
@@ -1066,6 +1080,7 @@ impl List {
                 ("A A", "Claude drafts a replacement"),
                 ("M M", "merge (github-merge.py)"),
                 ("W W", "approve its workflow runs"),
+                ("U U", "unmark all"),
                 ("N N", "Claude drafts a new PR (unpublished)"),
                 ("b b", "ask for a rebase (a comment)"),
                 ("D D", remove),
@@ -1079,7 +1094,7 @@ impl List {
                     "D D" => !matches!(self.tab, Tab::Open | Tab::Todo),
                     "o O" => self.tab != Tab::Todo, // in the order of what needs you
                     "r r" | "s" | "p" => self.tab == Tab::Todo,
-                    "m" | "a a" | "A A" | "M M" | "b b" | "W W" => !reps,
+                    "m" | "a a" | "A A" | "M M" | "b b" | "W W" | "U U" => !reps,
                     _ => true,
                 })
                 .map(|(k, d)| Line::from(vec![Span::styled(format!("{k:<6}"), ui.key), Span::raw(d.to_string())]))

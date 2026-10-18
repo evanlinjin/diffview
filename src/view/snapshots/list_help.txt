@@ -1,4 +1,3 @@
- todo 0  open 3  worktrees 0  drafts 0   by updated ↓  (Tab switches)                         2 / 3
  dv list keys                                                                        any key closes
 
  j k, Up Down         move
@@ -23,6 +22,7 @@
    o O                  next sort order (updated, created, number, size) / reverse
    m                    mark the PR (again: unmark), for Claude to review; marks are kept, for
                         going through them a PR at a time (quitting dv list too)
+   U U                  unmark all
    a a                  Claude reviews the marked PRs (or this one) in the background, two at a
                         time, each in its worktree (<repo>-N, made if need be); cards show how
                         it's going, and claude ✓ once a PR has a review

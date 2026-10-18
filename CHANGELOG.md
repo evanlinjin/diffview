@@ -5,6 +5,9 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- `U U` in `dv list` unmarks every marked PR.
+
 ### Fixed
 - `dv list` missed Claude Code working in a pane: it looked for "esc to interrupt", which Claude
   Code no longer shows. It reads the spinner line now (`· Moseying… (59s · …)`, whatever the
