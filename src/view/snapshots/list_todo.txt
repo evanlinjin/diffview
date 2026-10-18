@@ -1,9 +1,9 @@
  todo 3  open 3  worktrees 0  replacements 0   rank keys
-▌ #3  Mine                                          Enter see to it (opens the PR or replacement)
-▌ 2.  → y                                           Tab   open PRs
-▌     @me   +0 −0 in 1 file                         /     filter
+▌   #3  Mine                                        Enter see to it (opens the PR or replacement)
+▌   2.  → y                                         Tab   open PRs
+▌       @me   +0 −0 in 1 file                       /     filter
 ▌                                                   R     refresh (from GitHub)
-▌     b                                             r r   Claude ranks what needs you (a run)
+▌       b                                           r r   Claude ranks what needs you (a run)
                                                     s     defer it (or bring it back)
                                                     p     post what it waits on (a comment)
                                                     m     mark

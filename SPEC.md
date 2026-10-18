@@ -269,7 +269,8 @@ open when it's done; elsewhere the terminal, and dv waits for Enter after it.
 isn't listed; `Tab` switches to the PRs with a local
 `<repo>-N` worktree, open or not, which `Enter` opens in that worktree as it was made:
 detached or on its branch) shows each PR as a card, a blank line between cards. In a window 110 columns or wider, three
-lines in two zones (within 140 columns): on the left the number, title (bold), badges and `[new]`;
+lines in two zones (within 140 columns): on the left the mark (`m`: a `●` in a column of its own,
+before the number, so marked cards line up), the number, title (bold), badges and `[new]`;
 author, size, labels; base ← branch and its worktree. On the right, a 30-column zone lining up
 from card to card: CI and the age; the review decision; Claude's part. Narrower, four lines:
 number, title (bold), draft badge, `[new]`, age; author, size, labels; CI (✓/✗/● counts, fetched

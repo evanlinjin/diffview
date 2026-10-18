@@ -89,6 +89,9 @@ const CARD_MAX: usize = 140;
 /// labels; branch and its worktree here), on the right how it stands (CI and its age; review;
 /// Claude), a column that lines up from card to card. Narrower, four lines: those, with how it
 /// stands on a line of its own. Each line is cut at its width rather than wrapped.
+/// The mark's column on a card's first line (` ● ` when marked).
+const MARK_W: usize = 3;
+
 pub(super) fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathBuf, Option<String>)>, mark: Mark) -> Vec<Line<'static>> {
     let (ui, num_w, width, usual) = (cx.ui, cx.num_w, cx.width, cx.usual);
     let row = card_row(ui, selected);
@@ -99,8 +102,8 @@ pub(super) fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathB
     let gap = || sp("   ".into(), row);
     // The selected card has a bar down its left edge.
     let bar = || sp(if selected { "▌".into() } else { " ".into() }, tint(ui.key));
-    // Under the title: past the bar, the mark, the number and its gap.
-    let indent = || sp(" ".repeat(num_w + 3), row);
+    // Under the title: past the bar, the mark's column, the number and its gap.
+    let indent = || sp(" ".repeat(MARK_W + num_w + 2), row);
 
     // What it is: number and title, badges.
     let badge = match (p.state.as_str(), p.draft) {
@@ -110,7 +113,9 @@ pub(super) fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathB
         _ => None,
     };
     let title = vec![
-        sp(format!("{}{:>w$}  ", if mark.marked { "●" } else { " " }, format!("#{}", p.number), w = num_w), tint(ui.key)),
+        // A column of its own for the mark (`m`): marked cards line up down the list.
+        sp(if mark.marked { " ● ".into() } else { "   ".into() }, tint(ui.key).add_modifier(ratatui::style::Modifier::BOLD)),
+        sp(format!("{:>w$}  ", format!("#{}", p.number), w = num_w - 1), tint(ui.key)),
         sp(p.title.clone(), row.add_modifier(ratatui::style::Modifier::BOLD)),
     ];
     // Badges stay in view: the title is what's cut for them.
@@ -256,7 +261,7 @@ pub(super) fn todo_line(rank: usize, it: &crate::todo::Item, cx: &Cards, selecte
     let st = row.patch(Style { bg: None, ..ui.key });
     let bar = Span::styled(if selected { "▌" } else { " " }, st);
     // Its place in the number's column, the arrow under the title.
-    let lead = format!(" {:>w$}  → ", format!("{rank}."), w = cx.num_w);
+    let lead = format!("{}{:>w$}  → ", " ".repeat(MARK_W), format!("{rank}."), w = cx.num_w - 1);
     // Placed by the rules since Claude ranked (new, or its needs changed): said so. Deferred:
     // when it's back.
     let says = match &it.deferred {

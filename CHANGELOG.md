@@ -5,6 +5,10 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Changed
+- `dv list`: a marked PR's `●` is in a column of its own before its number, not squeezed against
+  it, so marked cards stand out and line up.
+
 ## [0.17.0] - 2026-10-18
 
 ### Fixed
