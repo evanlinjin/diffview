@@ -8,6 +8,8 @@ one. A todo list ranks what needs you next.
 - **Diff**: unified or side-by-side (`Ctrl-w v`), syntax highlighted, changed words emphasised,
   context expandable per hunk (`+` / `-`, `Z`). Helix's cursor, motions and selections, your
   Helix theme and settings, and rust-analyzer (`gd`, `gr`, `Space k`).
+- **Drafts**: Claude drafts replacements for PRs (`A A`) or new PRs from what you ask (`N N`),
+  unpublished until you've reviewed them in dv.
 - **Files list** on the left (`Ctrl-w e`): the changed files, viewed and comment counts, a click
   to jump; the file you're in keeps its header pinned. Under it, the PR's commits: view one, or
   a range.

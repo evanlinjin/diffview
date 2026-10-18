@@ -111,6 +111,10 @@ impl App {
     /// has that this doesn't, changes not committed. Empty when it's all in step.
     pub(super) fn refresh_sync(&mut self) {
         let mut parts = vec![];
+        // A draft not published yet: its commits are all unpushed, as they should be.
+        if self.replacement.as_ref().is_some_and(|r| r.published.is_none()) {
+            return self.sync.clear();
+        }
         if let Ok((remote, branch, _)) = self.push_target() {
             let theirs = self.their_head(&remote, &branch);
             match self.unpushed(&remote, &branch) {

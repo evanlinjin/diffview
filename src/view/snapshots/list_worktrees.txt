@@ -1,8 +1,8 @@
- todo 0  open 3  worktrees 0  replacements 0   by updated ↓  ( keys
-                                                               Enter review, in its worktree
- no PR worktrees here yet: `dv N -w` (or dv list -w, then Ente Tab   replacements
-                                                               /     filter
-                                                               o O   sort / reverse
-                                                               R     refresh (from GitHub)
-                                                               m     mark
+ todo 0  open 3  worktrees 0  drafts 0   by updated ↓  keys
+                                                       Enter review, in its worktree
+ no PR worktrees here yet: `dv N -w` (or dv list -w, t Tab   replacements
+                                                       /     filter
+                                                       o O   sort / reverse
+                                                       R     refresh (from GitHub)
+                                                       m     mark
 

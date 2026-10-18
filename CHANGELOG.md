@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- `N N` in `dv list`: Claude drafts a new PR from what you write (issues by `#N`), unpublished, on
+  a branch of its own (`dv/new-K`, in `<repo>-new-K`). It's on the drafts tab (the replacements
+  tab, renamed) as `new K`: Enter reviews it in dv, `Space a` redrafts it, `S` publishes it.
+
 ## [0.19.1] - 2026-10-18
 
 ### Changed

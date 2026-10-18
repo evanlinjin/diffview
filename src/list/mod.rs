@@ -64,6 +64,9 @@ const HELP: &str = "\
                        git config dv.mergescript <path> runs your own copy), in the main
                        checkout: its worktree goes first, unless something in it is unpushed;
                        in a zellij pane of its own, or in this terminal
+  N N                  Claude drafts a new PR: your editor opens for what it should do (issues
+                       by #N, which Claude reads); on a branch of its own (dv/new-K, in
+                       <repo>-new-K), unpublished, on the drafts tab: Enter reviews it, S publishes
   W W                  approve the workflow runs waiting on the PR (GitHub holds a first-time
                        contributor's until a maintainer does): its card says '⏸ N to approve'
   D D                  worktrees tab: remove the PR's worktree (not with local changes in it;
@@ -355,6 +358,7 @@ impl List {
                         self.defer_until(key, &text);
                     }
                 }
+                Some(Do::NewPr) => self.new_pr(term),
                 Some(Do::RemoveReplacement(id)) => {
                     self.msg = crate::replace::remove(id, &self.root).unwrap_or_else(|e| format!("{e:#}"));
                     self.load_reps();
@@ -408,6 +412,21 @@ impl List {
                 self.msg = format!("{e:#}");
                 None
             }
+        }
+    }
+
+    /// `N N`: Claude drafts a new PR doing what you write (in your editor), unpublished: on its
+    /// own branch in its own worktree, on the drafts tab as it goes.
+    fn new_pr(&mut self, term: &mut DefaultTerminal) {
+        let what = "a new PR for Claude to draft: what it should do (issues by #N: Claude reads them); unpublished until you publish it";
+        let Some(task) = self.edit_text(term, what, "", false).filter(|t| !t.trim().is_empty()) else { return };
+        match crate::replace::create_new(&task, &self.root) {
+            Ok(id) => {
+                self.draft_rx.push(batch::replace(vec![id], self.root.clone(), String::new()));
+                self.load_reps();
+                self.msg = format!("Claude is drafting {}: the drafts tab shows it (Enter there reviews it, S publishes it)", crate::replace::label(id));
+            }
+            Err(e) => self.msg = format!("couldn't start a new PR: {e:#}"),
         }
     }
 
@@ -496,7 +515,7 @@ impl List {
         for (id, s) in news {
             match &s {
                 batch::Status::Done(took) => self.msg = format!("Claude drafted a replacement for #{id} ({took}): it's in the replacements tab"),
-                batch::Status::Failed(e) => self.msg = format!("Claude's replacement of #{id} failed: {e} (A A tries again)"),
+                batch::Status::Failed(e) => self.msg = format!("Claude's draft of {} failed: {e}", crate::replace::label(id)),
                 _ => {}
             }
             let done = !s.running();
@@ -713,11 +732,11 @@ impl List {
                 if armed == Some(('D', id)) {
                     return Some(Do::RemoveReplacement(id));
                 }
-                self.msg = format!("D again removes the replacement of #{id} (its worktree and record; its branch stays); any other key keeps it");
+                self.msg = format!("D again removes {} (its worktree and record; its branch stays); any other key keeps it", crate::replace::label(id));
                 self.confirm = Some(('D', id));
             }
             KeyCode::Char('m' | 'a' | 'A') if self.tab == Tab::Replacements => {
-                self.msg = "a replacement: Enter opens it in dv, D D removes it".into();
+                self.msg = "a draft: Enter opens it in dv, D D removes it (N N drafts a new PR)".into();
             }
             KeyCode::Char('D') if self.tab == Tab::Worktrees => {
                 let p = self.shown().get(self.sel).map(|p| p.number)?;
@@ -754,6 +773,13 @@ impl List {
                 }
                 self.msg = format!("b again: ask #{p}'s author for a rebase (a comment; your editor opens first); any other key doesn't");
                 self.confirm = Some(('b', p));
+            }
+            KeyCode::Char('N') => {
+                if armed == Some(('N', 0)) {
+                    return Some(Do::NewPr);
+                }
+                self.msg = "N again: Claude drafts a new PR, unpublished (your editor opens first: what it should do; issues by #N); any other key doesn't".into();
+                self.confirm = Some(('N', 0));
             }
             KeyCode::Char('W') if self.tab != Tab::Replacements => {
                 let p = self.shown().get(self.sel).map(|p| p.number)?;
@@ -825,7 +851,7 @@ impl List {
                 prs.sort();
                 let id = *prs.first()?;
                 if self.drafting.get(&id).is_some_and(batch::Status::running) || self.drafting_elsewhere.contains(&id) {
-                    return (self.msg = format!("Claude is already drafting the replacement of #{id}"), None).1;
+                    return (self.msg = format!("Claude is already drafting {}", crate::replace::label(id)), None).1;
                 }
                 if armed == Some(('A', 0)) {
                     return Some(Do::Replace(prs));
@@ -928,7 +954,7 @@ impl List {
             Span::styled("  ", hs),
             tab(format!("worktrees {}", self.local.len()), self.tab == Tab::Worktrees),
             Span::styled("  ", hs),
-            tab(format!("replacements {}", self.reps.len()), self.tab == Tab::Replacements),
+            tab(format!("drafts {}", self.reps.len()), self.tab == Tab::Replacements),
             Span::styled(rest, hs.patch(ui.stale)),
         ]);
         f.render_widget(Paragraph::new(tabs).style(hs), head);
@@ -941,7 +967,7 @@ impl List {
         let usual = bases.into_iter().max_by_key(|b| b.1).map(|b| b.0.to_owned()).unwrap_or_default();
         let cx = Cards {
             ui,
-            num_w: shown.iter().map(|p| p.number.to_string().len()).max().unwrap_or(1) + 1,
+            num_w: shown.iter().map(|p| crate::replace::shown(p.number).chars().count()).max().unwrap_or(2),
             width: area.width as usize,
             checks_loading: self.checks.is_some(),
             usual: &usual,
@@ -956,9 +982,13 @@ impl List {
                 let rep_card = self.tab == Tab::Replacements || item.is_some_and(|it| it.rep);
                 let mark = match rep_card {
                     true => {
-                        let replaces = self.rep_of.get(&p.number).map(|r| {
-                            let each: Vec<String> = r.replaces.iter().map(|o| format!("#{} (@{})", o.number, o.author)).collect();
-                            format!("replaces {}", each.join(", "))
+                        let replaces = self.rep_of.get(&p.number).map(|r| match r.replaces.is_empty() {
+                            // A new PR: what you asked of it.
+                            true => format!("asked: {}", r.task.lines().next().unwrap_or("")),
+                            false => {
+                                let each: Vec<String> = r.replaces.iter().map(|o| format!("#{} (@{})", o.number, o.author)).collect();
+                                format!("replaces {}", each.join(", "))
+                            }
                         });
                         Mark { marked: false, claude: self.draft_state(p.number, "claude"), new: false, replaces, awaiting: 0 }
                     }
@@ -1036,6 +1066,7 @@ impl List {
                 ("A A", "Claude drafts a replacement"),
                 ("M M", "merge (github-merge.py)"),
                 ("W W", "approve its workflow runs"),
+                ("N N", "Claude drafts a new PR (unpublished)"),
                 ("b b", "ask for a rebase (a comment)"),
                 ("D D", remove),
                 ("?", "all keys"),
@@ -1086,6 +1117,8 @@ impl List {
 
 enum Do {
     Quit,
+    /// `N N`: Claude drafts a new PR.
+    NewPr,
     Open(u64),
     Refresh,
     /// Remove this PR's worktree.

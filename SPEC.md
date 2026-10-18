@@ -133,7 +133,13 @@ disk: rust-analyzer can index it and `hx` can open it.
    record (`drafting`), so `dv list`, dv and `dv replace` don't start another; `dv list`
    watches the records. Drafts get the notes in the prompt and write access only to
    `replacements/` (not the notes, which every review reads). PRs into different bases can't
-   share a replacement. For several marked PRs, `A A` first has Claude suggest groups (a
+   share a replacement. **New PRs** are the same, replacing nothing: `N N` in `dv list` opens
+   your editor for what it should do (issues by `#N`, which Claude reads), then makes `dv/new-K`
+   in `<repo>-new-K` from the default branch on origin, with a record keeping your request
+   (`task`; `dv replace-info` prints it), and Claude drafts it in the background (the skill's
+   "Draft a new PR": code, commits, `title`, `body`; never pushed); it's on the drafts tab (the
+   replacements tab, renamed) as `new K`, reviewed in dv as a replacement is, and `S` publishes
+   it. For several marked PRs, `A A` first has Claude suggest groups (a
    `claude -p` that only reads them), edited in `$EDITOR`, a line each.
 4. **Later**:
    - **Reproducible release builds**, so a binary can be rebuilt bit for bit and signed ahead

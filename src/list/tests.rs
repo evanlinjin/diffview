@@ -109,7 +109,7 @@ fn filter_and_keys() {
     k(&mut l, KeyCode::Tab);
     assert_eq!(l.tab, Tab::Replacements);
     assert_eq!(shown(&l), [1]);
-    assert!(k(&mut l, KeyCode::Char('a')).is_none() && l.msg.starts_with("a replacement: Enter opens it"));
+    assert!(k(&mut l, KeyCode::Char('a')).is_none() && l.msg.starts_with("a draft: Enter opens it"));
     assert!(k(&mut l, KeyCode::Char('D')).is_none());
     assert!(matches!(k(&mut l, KeyCode::Char('D')), Some(Do::RemoveReplacement(1))));
 }
@@ -369,4 +369,16 @@ fn runs_to_approve_on_the_card() {
     let mark = |awaiting| Mark { marked: false, claude: None, new: false, replaces: None, awaiting };
     assert!(text(mark(2)).contains("⏸ 2 to approve"));
     assert!(!text(mark(0)).contains("to approve"));
+}
+
+#[test]
+fn n_n_drafts_a_new_pr() {
+    let mut l = List::new("-wb".into());
+    let k = |l: &mut List, c| l.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+    assert!(k(&mut l, 'N').is_none() && l.msg.starts_with("N again: Claude drafts a new PR"));
+    assert!(matches!(k(&mut l, 'N'), Some(Do::NewPr)));
+    // Another key between: not.
+    k(&mut l, 'N');
+    k(&mut l, 'j');
+    assert!(k(&mut l, 'N').is_none());
 }

@@ -13,6 +13,7 @@ pub(super) fn rep_card(r: &crate::replace::Record, root: &std::path::Path) -> Li
         stat.split(',').find(|p| p.contains(what)).and_then(|p| p.split_whitespace().next()?.parse().ok()).unwrap_or(0)
     };
     let title = match r.title.is_empty() {
+        true if crate::replace::is_new(r.id) => format!("(not drafted yet: {})", r.task.lines().next().unwrap_or("")),
         true => format!("(replacement of #{}, not drafted yet)", r.id),
         false => r.title.clone(),
     };
@@ -118,7 +119,7 @@ pub(super) fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathB
     let title = vec![
         // A column of its own for the mark (`m`): marked cards line up down the list.
         sp(if mark.marked { " ● ".into() } else { "   ".into() }, tint(ui.key).add_modifier(ratatui::style::Modifier::BOLD)),
-        sp(format!("{:>w$}  ", format!("#{}", p.number), w = num_w - 1), tint(ui.key)),
+        sp(format!("{:>w$}  ", crate::replace::shown(p.number), w = num_w - 1), tint(ui.key)),
         sp(p.title.clone(), row.add_modifier(ratatui::style::Modifier::BOLD)),
     ];
     // Badges stay in view: the title is what's cut for them.

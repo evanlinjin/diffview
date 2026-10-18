@@ -176,7 +176,7 @@ fn run() -> anyhow::Result<()> {
             let extra = claude::instructions("replace");
             eprintln!("Claude is drafting a replacement for #{} (dv list's replacements tab shows it)…", prs[0]);
             let took = replace::draft(&prs, &root, &extra, || {})?;
-            println!("drafted ({took}): `dv list`, replacements tab, or {}", worktree_dir_named(&root, &format!("replace-{}", prs[0]))?.display());
+            println!("drafted ({took}): `dv list`, drafts tab, or {}", worktree_dir_named(&root, &replace::name(prs[0]))?.display());
             return Ok(());
         }
         Some(cmd) => return review_file(cmd, &o),
@@ -226,7 +226,7 @@ fn pick_and_review(o: &Opts, root: &Path) -> anyhow::Result<()> {
             progress(None);
             std::env::set_current_dir(root)?;
             if let Err(e) = res {
-                list.msg = format!("replacement of #{n}: {e:#}");
+                list.msg = format!("{}: {e:#}", replace::label(n));
             }
             continue;
         }
@@ -255,7 +255,7 @@ fn pick_and_review(o: &Opts, root: &Path) -> anyhow::Result<()> {
 /// section, what it replaces and Claude's drafts.
 fn review_replacement(id: u64, root: &Path) -> anyhow::Result<()> {
     let r = replace::load(id)?;
-    let dir = worktree_dir_named(root, &format!("replace-{id}"))?;
+    let dir = worktree_dir_named(root, &replace::name(id))?;
     anyhow::ensure!(dir.exists(), "its worktree {} is gone (A A on the PR drafts it again)", dir.display());
     ensure_worktree_of(&dir, root)?;
     std::env::set_current_dir(&dir)?;

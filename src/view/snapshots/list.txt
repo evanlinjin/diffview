@@ -1,12 +1,12 @@
- todo 0  open 3  worktrees 0  replacements 0   by updated ↓  ( keys
-     #1  Fix CI                                                Enter review
-          @ann   +1 −0 in 1 file                               Tab   PRs with a worktree
-          claude ✓                                             /     filter
-          b                                                    o O   sort / reverse
-                                                               R     refresh (from GitHub)
-▌ ● #333  fix fees                                             m     mark
-▌         @cy   +333 −0 in 1 file                              a a   Claude reviews marked
-▌         CI ✓3 ✗1                                             A A   Claude drafts a replacement
-▌         b                                                    M M   merge (github-merge.py)
-                                                               W W   approve its workflow runs
+ todo 0  open 3  worktrees 0  drafts 0   by updated ↓  keys
+     #1  Fix CI                                        Enter review
+          @ann   +1 −0 in 1 file                       Tab   PRs with a worktree
+          claude ✓                                     /     filter
+          b                                            o O   sort / reverse
+                                                       R     refresh (from GitHub)
+▌ ● #333  fix fees                                     m     mark
+▌         @cy   +333 −0 in 1 file                      a a   Claude reviews marked
+▌         CI ✓3 ✗1                                     A A   Claude drafts a replacement
+▌         b                                            M M   merge (github-merge.py)
+                                                       W W   approve its workflow runs
 

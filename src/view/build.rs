@@ -128,7 +128,10 @@ impl App {
             (Some(pr), _) => Some(format!("PR #{} · {}", pr.number, pr.title)),
             (None, Some(r)) => {
                 let title = if r.title.is_empty() { "(not drafted yet)" } else { r.title.as_str() };
-                Some(format!("Replacement of #{} · {title}", r.id))
+                Some(match crate::replace::is_new(r.id) {
+                    true => format!("{} · {title}", crate::replace::label(r.id).replacen("new PR", "New PR", 1)),
+                    false => format!("Replacement of #{} · {title}", r.id),
+                })
             }
             (None, None) => (!self.claude.summary.is_empty()).then(|| "Claude's review".to_owned()),
         };

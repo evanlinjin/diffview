@@ -2,7 +2,8 @@
 //! unpublished until you've reviewed them. Each is a branch `dv/replace-N` (N: the first PR it
 //! replaces) in a worktree `<repo>-replace-N`, and a record in dv's directory,
 //! `replacements/N.json`: the PRs it replaces, its base, and Claude's drafts of its title and
-//! description and of the note closing the originals.
+//! description and of the note closing the originals. A new PR (replacing nothing: what you
+//! asked for) is the same, as `dv/new-K` in `<repo>-new-K`, its record keeping your request.
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -35,9 +36,19 @@ pub struct Record {
     pub closed: Vec<u64>,
     /// The process drafting it now, if one is (`drafting_now` checks it's still running).
     pub drafting: Option<u32>,
+    /// A new PR's: what you asked it to do (a replacement's is what it replaces).
+    pub task: String,
 }
 
 impl Record {
+    /// What to draft it again from: the PRs it replaces, or (a new PR) itself.
+    pub fn ids(&self) -> Vec<u64> {
+        match self.replaces.is_empty() {
+            true => vec![self.id],
+            false => self.replaces.iter().map(|o| o.number).collect(),
+        }
+    }
+
     /// Claude is drafting it now (from any dv): its process is still running.
     pub fn drafting_now(&self) -> bool {
         self.drafting.is_some_and(|pid| {
@@ -47,13 +58,55 @@ impl Record {
     }
 }
 
-pub fn branch(id: u64) -> String {
-    format!("dv/replace-{id}")
+/// New PRs' ids start here (`new_id`), above any PR number: new PR K is `NEW + K`.
+const NEW: u64 = 1 << 40;
+
+/// Whether `id` is a new PR's (not a replacement's).
+pub fn is_new(id: u64) -> bool {
+    id >= NEW
 }
 
-/// The replacement checked out here, by its branch.
+/// Its name: its branch's (`dv/<name>`) and its worktree's (`<repo>-<name>`).
+pub fn name(id: u64) -> String {
+    match is_new(id) {
+        true => format!("new-{}", id - NEW),
+        false => format!("replace-{id}"),
+    }
+}
+
+/// How it's said: "#N" (the PR a replacement replaces first) or "new K".
+pub fn shown(id: u64) -> String {
+    match is_new(id) {
+        true => format!("new {}", id - NEW),
+        false => format!("#{id}"),
+    }
+}
+
+/// What it is, in words: "the replacement of #N" or "new PR K".
+pub fn label(id: u64) -> String {
+    match is_new(id) {
+        true => format!("new PR {}", id - NEW),
+        false => format!("the replacement of #{id}"),
+    }
+}
+
+pub fn branch(id: u64) -> String {
+    format!("dv/{}", name(id))
+}
+
+/// The replacement (or new PR) checked out here, by its branch.
 pub fn current() -> Option<u64> {
-    crate::diff::git(&["branch", "--show-current"]).ok()?.trim().strip_prefix("dv/replace-")?.parse().ok()
+    let b = crate::diff::git(&["branch", "--show-current"]).ok()?;
+    let b = b.trim();
+    match b.strip_prefix("dv/new-") {
+        Some(k) => k.parse::<u64>().ok().map(|k| NEW + k),
+        None => b.strip_prefix("dv/replace-")?.parse().ok(),
+    }
+}
+
+/// The next new PR's id: one past the last there's a record of.
+pub fn new_id() -> u64 {
+    all().iter().map(|r| r.id).filter(|&id| is_new(id)).max().map_or(NEW + 1, |m| m + 1)
 }
 
 fn dir() -> Result<PathBuf> {
@@ -72,7 +125,7 @@ pub fn load(id: u64) -> Result<Record> {
 fn parse(id: u64, text: &str) -> Result<Record> {
     let v: Value = serde_json::from_str(text)?;
     let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
-    let replaces = v["replaces"].as_array().context("no \"replaces\"")?;
+    let replaces = v["replaces"].as_array().map(Vec::as_slice).unwrap_or(&[]);
     Ok(Record {
         id,
         replaces: replaces
@@ -87,6 +140,7 @@ fn parse(id: u64, text: &str) -> Result<Record> {
         published: v["published"].as_u64(),
         closed: v["closed"].as_array().into_iter().flatten().filter_map(Value::as_u64).collect(),
         drafting: v["drafting"].as_u64().map(|p| p as u32),
+        task: s(&v["task"]),
     })
 }
 
@@ -96,7 +150,7 @@ fn to_json(r: &Record) -> String {
     let v = json!({
         "replaces": replaces, "base": r.base, "title": r.title, "body": r.body,
         "closing_note": r.closing_note, "session": r.session, "published": r.published, "closed": r.closed,
-        "drafting": r.drafting,
+        "drafting": r.drafting, "task": r.task,
     });
     serde_json::to_string_pretty(&v).unwrap_or_default() + "\n"
 }
@@ -150,7 +204,7 @@ pub fn prepare(prs: &[u64], root: &Path) -> Result<(Record, PathBuf)> {
     if r.session.is_empty() {
         r.session = crate::claude::new_session_id();
     }
-    let dir = crate::worktree_dir_named(root, &format!("replace-{id}"))?;
+    let dir = crate::worktree_dir_named(root, &name(id))?;
     if dir.exists() {
         crate::ensure_worktree_of(&dir, root)?;
         // Carrying on: from the base as it is now, if that goes cleanly (else Claude sees why).
@@ -164,6 +218,31 @@ pub fn prepare(prs: &[u64], root: &Path) -> Result<(Record, PathBuf)> {
         };
     }
     save(&r)?;
+    Ok((r, dir))
+}
+
+/// Set up a new PR doing `task` from the repo at `root`: its record, and its branch from the
+/// repo's default branch (on origin), in its worktree. Its id.
+pub fn create_new(task: &str, root: &Path) -> Result<u64> {
+    let git = |args: &[&str]| crate::diff::git(&[&["-C", &root.to_string_lossy()], args].concat());
+    let base = git(&["rev-parse", "--abbrev-ref", "origin/HEAD"]).ok().and_then(|b| b.trim().strip_prefix("origin/").map(str::to_owned)).unwrap_or_else(|| "master".into());
+    let id = new_id();
+    let r = Record { id, base: base.clone(), session: crate::claude::new_session_id(), task: task.trim().to_owned(), ..Record::default() };
+    let dir = crate::worktree_dir_named(root, &name(id))?;
+    _ = git(&["fetch", "-q", "origin", &base]);
+    git(&["worktree", "add", "-b", &branch(id), &dir.to_string_lossy(), &format!("origin/{base}")])?;
+    save(&r)?;
+    Ok(id)
+}
+
+/// A new PR's record and worktree, to draft it (again): its branch brought up to its base.
+fn prepare_new(id: u64, root: &Path) -> Result<(Record, PathBuf)> {
+    let r = load(id)?;
+    anyhow::ensure!(!r.drafting_now(), "Claude is already drafting {}", label(id));
+    let dir = crate::worktree_dir_named(root, &name(id))?;
+    anyhow::ensure!(dir.exists(), "its worktree {} is gone", dir.display());
+    crate::ensure_worktree_of(&dir, root)?;
+    _ = rebase(&r, &dir); // carrying on: from its base as it is now, if that goes cleanly
     Ok((r, dir))
 }
 
@@ -184,17 +263,26 @@ pub fn rebase(r: &Record, dir: &Path) -> Result<()> {
 /// other files), only to its record.
 pub fn prompt(r: &Record, extra: &str) -> String {
     let prs: Vec<String> = r.replaces.iter().map(|o| format!("#{}", o.number)).collect();
+    let now = crate::claude::now();
     let notes = crate::claude::notes_path().ok().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
     let notes = match notes.trim() {
         "" => String::new(),
         n => format!("\n\nThe user's notes on this repo (read-only here; follow them):\n<notes>\n{n}\n</notes>"),
     };
-    let p = format!(
-        "Use the dv-review skill to draft a replacement for PR {} (its section 6: \"Draft a replacement\"). \
-         First run `dv replace-info`. (It's {} now.){notes}",
-        prs.join(", "),
-        crate::claude::now()
-    );
+    let p = match is_new(r.id) {
+        // What it's to do is the user's request (in `dv replace-info` too); `extra`, if any, is
+        // more, for carrying on.
+        true => format!(
+            "Use the dv-review skill to draft a new PR doing what the user asks (its section 7: \"Draft a new PR\"). \
+             First run `dv replace-info`. (It's {now} now.){notes}\n\nThe user asks:\n{}",
+            r.task
+        ),
+        false => format!(
+            "Use the dv-review skill to draft a replacement for PR {} (its section 6: \"Draft a replacement\"). \
+             First run `dv replace-info`. (It's {now} now.){notes}",
+            prs.join(", ")
+        ),
+    };
     crate::view::with_instructions(&p, extra)
 }
 
@@ -206,7 +294,10 @@ pub fn writable() -> Result<PathBuf> {
 /// Draft replacement `prs` with Claude, in its worktree, in the foreground of this thread:
 /// what it took ("12 turns, $0.40").
 pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> Result<String> {
-    let (mut r, dir) = prepare(prs, root)?;
+    let (mut r, dir) = match prs {
+        [id] if is_new(*id) => prepare_new(*id, root)?,
+        _ => prepare(prs, root)?,
+    };
     // Others (dv list, another dv) see it's under way, and don't start another.
     r.drafting = Some(std::process::id());
     save(&r)?;
@@ -315,7 +406,7 @@ pub fn close_originals(r: &mut Record, note: &str) -> Result<Vec<u64>> {
 /// Remove replacement `id`: its worktree (not with local changes) and its record. Its branch
 /// stays, in case there's something on it you want.
 pub fn remove(id: u64, root: &Path) -> Result<String> {
-    let dir = crate::worktree_dir_named(root, &format!("replace-{id}"))?;
+    let dir = crate::worktree_dir_named(root, &name(id))?;
     if dir.exists() {
         crate::ensure_worktree_of(&dir, root)?;
         crate::diff::git(&["-C", &root.to_string_lossy(), "worktree", "remove", &dir.to_string_lossy()]).map_err(|e| {
@@ -327,15 +418,21 @@ pub fn remove(id: u64, root: &Path) -> Result<String> {
     }
     _ = std::fs::remove_file(path(id)?);
     let b = branch(id);
-    Ok(format!("removed the replacement of #{id}; kept branch {b} (`git branch -D {b}` deletes it)"))
+    Ok(format!("removed {}; kept branch {b} (`git branch -D {b}` deletes it)", label(id)))
 }
 
 /// `dv replace-info`: what Claude needs to draft the replacement checked out here.
 pub fn info() -> Result<()> {
-    let id = current().context("not on a replacement's branch (dv/replace-N)")?;
+    let id = current().context("not on a replacement's branch (dv/replace-N) or a new PR's (dv/new-K)")?;
     let r = load(id)?;
     let base = crate::diff::merge_base(Some(&format!("origin/{}", r.base)))?;
-    println!("record: {}    (write title, body and closing_note here)", path(id)?.display());
+    match is_new(id) {
+        true => {
+            println!("record: {}    (write title and body here)", path(id)?.display());
+            println!("task: {}", r.task.replace('\n', "\n      "));
+        }
+        false => println!("record: {}    (write title, body and closing_note here)", path(id)?.display()),
+    }
     for o in &r.replaces {
         println!("replaces: #{} {} (@{}) {}", o.number, o.title, o.author, o.url);
     }
@@ -358,6 +455,7 @@ fn records_round_trip() {
         published: Some(20),
         closed: vec![12],
         drafting: Some(7),
+        task: String::new(),
     };
     assert_eq!(parse(12, &to_json(&r)).unwrap(), r);
     // As Claude may leave it: fields missing are empty.
@@ -375,4 +473,18 @@ fn records_round_trip() {
     // A draft from a process that's gone isn't under way.
     assert!(Record { drafting: Some(std::process::id()), ..r.clone() }.drafting_now());
     assert!(!Record { drafting: None, ..r }.drafting_now());
+}
+
+#[test]
+fn new_prs() {
+    let id = NEW + 3;
+    assert!(is_new(id) && !is_new(2390));
+    assert_eq!((name(id), branch(id), shown(id), label(id)), ("new-3".into(), "dv/new-3".into(), "new 3".into(), "new PR 3".into()));
+    assert_eq!((name(12), branch(12), shown(12)), ("replace-12".into(), "dv/replace-12".into(), "#12".into()));
+    // Its record: no PRs it replaces, its task kept; the prompt asks for a new PR doing it.
+    let r = parse(id, r#"{ "base": "master", "task": "Fix #9: the panic on empty input" }"#).unwrap();
+    assert!(r.replaces.is_empty() && r.task.starts_with("Fix #9"));
+    assert_eq!(parse(id, &to_json(&r)).unwrap(), r);
+    let p = prompt(&r, "");
+    assert!(p.contains("draft a new PR") && p.ends_with("Fix #9: the panic on empty input"), "{p}");
 }

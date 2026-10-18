@@ -532,14 +532,17 @@ impl App {
             let closed: Vec<String> = r.closed.iter().map(|n| format!("#{n}")).collect();
             status.push(line(false, false, &format!("closed {}, with the note", closed.join(", "))));
         }
+        // A new PR: what you asked for, in place of what it replaces (and no closing note).
+        let new = r.replaces.is_empty();
+        if new {
+            replaces = line(false, false, &format!("asked: {}", r.task.lines().next().unwrap_or("")));
+        }
         self.info = vec![replaces];
         self.info.extend(status);
-        self.info.extend([
-            line(true, false, "description (Claude's draft)"),
-            line(false, true, &r.body),
-            line(true, false, "closing note, for the PRs it replaces (Claude's draft)"),
-            line(false, true, &r.closing_note),
-        ]);
+        self.info.extend([line(true, false, "description (Claude's draft)"), line(false, true, &r.body)]);
+        if !new {
+            self.info.extend([line(true, false, "closing note, for the PRs it replaces (Claude's draft)"), line(false, true, &r.closing_note)]);
+        }
         self.pr_state = Some(if r.published.is_some() { ("PUBLISHED", "238636") } else { ("UNPUBLISHED", "6e7681") });
         self.replacement = Some(r);
     }

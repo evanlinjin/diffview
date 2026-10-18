@@ -202,8 +202,8 @@ impl App {
             )),
             (None, Some(r)) if r.drafting_now() => items.push(Item::new("Claude is drafting this replacement (dv shows it as it goes)", Target::Nothing)),
             (None, Some(r)) => items.push(Item::new(
-                "Redraft this replacement (Claude carries on, with your instructions)",
-                Target::ClaudeReplace(r.replaces.iter().map(|o| o.number).collect()),
+                "Redraft this (Claude carries on, with your instructions)",
+                Target::ClaudeReplace(r.ids()),
             )),
             _ => {}
         }
@@ -410,7 +410,7 @@ impl App {
                 .filter(|&r| self.rows[r].info == info)
                 .map(|r| format!("> {}", self.rows[r].line.text.trim_end()))
                 .collect();
-            let prs = self.replacement.as_ref().map(|r| r.replaces.iter().map(|o| o.number).collect()).unwrap_or_default();
+            let prs = self.replacement.as_ref().map(crate::replace::Record::ids).unwrap_or_default();
             self.select = false;
             return self.action = Some(Action::Replace(prs, Some(format!("About the {which}:\n{}\n\n", lines.join("\n")))));
         }
