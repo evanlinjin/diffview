@@ -215,6 +215,9 @@ struct CursorKey {
     thread: Option<(u64, usize)>,
     /// Row index for a PR info row (the section is at the top and only grows at its end).
     info: Option<usize>,
+    /// A section before the files (the description, a commit's message, Claude's summary): its
+    /// `Row::main` and how far into it. (By index, the PR text before it growing would move it.)
+    section: Option<(usize, usize)>,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]

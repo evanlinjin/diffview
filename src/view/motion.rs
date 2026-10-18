@@ -13,7 +13,7 @@ impl App {
         // The PR tab: back to where the cursor was in the code, and into it where it was there.
         if self.on_pr_tab() {
             if !right {
-                let p = self.code_head;
+                let p = self.code_back();
                 self.goto(p.row, p.col);
             }
             return;

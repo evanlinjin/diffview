@@ -2369,3 +2369,38 @@ fn claude_makes_changes_on_their_pr() {
     app.theirs = false;
     assert!(!menu(&mut app).iter().any(|(_, t)| matches!(t, Target::Claude(agent::Ask::Edit))));
 }
+
+#[test]
+fn back_from_the_pr_tab_after_the_conversation_grows() {
+    // The cursor was on the description (a section before the files); on the PR tab, a comment
+    // goes on the PR's conversation (`S`), and the PR text before the description grows. Ctrl-h
+    // and gn go back to the description, not into the PR text.
+    let mut app = fixture();
+    let draw = |app: &mut App| _ = screen(220, 30, |f| app.draw(f));
+    draw(&mut app);
+    let desc = app.rows.iter().position(|r| r.main == Some(DESCRIPTION) && r.line.kind != Kind::File).unwrap();
+    app.goto(desc, 0);
+    draw(&mut app);
+    app.bar_to(Bar::Pr);
+    app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
+    draw(&mut app);
+    assert!(app.on_pr_tab());
+    // The conversation gets a comment: the PR text's rows grow, the description's move down.
+    let line = |heading, md, text: &str| gh::InfoLine { heading, md, text: text.into(), marks: vec![], url: String::new() };
+    app.info.extend([line(true, false, "conversation (1)"), line(true, false, "@me · now"), line(false, true, "Posted from S.\n\nSecond paragraph.")]);
+    let keep = app.cursor_key();
+    app.rebuild(keep);
+    draw(&mut app);
+    app.key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL));
+    draw(&mut app);
+    assert!(!app.pr_row(app.head.row) && !app.in_margin(app.head.row), "Ctrl-h landed on {:?}", app.rows[app.head.row].line.text);
+    assert_eq!(app.rows[app.head.row].main, Some(DESCRIPTION));
+    // gn from the PR tab: off it (not straight back to it).
+    app.bar_to(Bar::Pr);
+    app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
+    draw(&mut app);
+    app.key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+    draw(&mut app);
+    assert_ne!(app.bar(), Bar::Pr);
+}

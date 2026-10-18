@@ -40,7 +40,7 @@ impl App {
         // Off what the other tab shows (it'd come back for it): from the PR's text, to where
         // the cursor was in the code; from a comment, to the line it's on.
         if tab != self.pane_tab && self.on_pr_tab() {
-            let p = self.code_head;
+            let p = self.code_back();
             self.goto(p.row, p.col);
         } else if tab != self.pane_tab && self.margin_side() {
             self.goto(self.line_beside(), 0);
@@ -52,6 +52,16 @@ impl App {
             Tab::Comments => "pane: comments beside their lines (gn: Claude's review, then the PR's text)",
         }
         .into();
+    }
+
+    /// Where the cursor was in the code, to go back to from the PR tab: not PR text or a comment
+    /// (should it be, the code at the top of the screen).
+    pub(super) fn code_back(&self) -> Pos {
+        let r = self.code_head.row.min(self.rows.len().saturating_sub(1));
+        match self.pr_row(r) || self.in_margin(r) {
+            false => self.code_head,
+            true => Pos { row: self.pick(self.top.max(self.pin as usize).min(self.drows.len().saturating_sub(1))), col: 0 },
+        }
     }
 
     /// The pane's tabs, on the pinned title's right end, over the pane (`x` from where it

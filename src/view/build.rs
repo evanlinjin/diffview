@@ -87,14 +87,15 @@ impl App {
     }
 
     fn key_at(&self, row: usize) -> CursorKey {
-        let Some(r) = self.rows.get(row) else { return CursorKey { line: None, thread: None, info: None } };
+        let Some(r) = self.rows.get(row) else { return CursorKey { line: None, thread: None, info: None, section: None } };
         CursorKey {
             line: self.files.get(r.file).map(|f| (f.path.clone(), r.line.old, r.line.new)),
             thread: r.thread.and_then(|t| {
                 let first = self.rows.iter().position(|r| r.thread == Some(t))?;
                 Some((self.root_id(t)?, row - first))
             }),
-            info: (r.file == INFO).then_some(row),
+            info: (r.file == INFO && r.main.is_none()).then_some(row),
+            section: r.main.and_then(|m| Some((m, row - self.rows.iter().position(|x| x.main == Some(m))?))),
         }
     }
 
@@ -106,8 +107,13 @@ impl App {
                 let t = self.rows[first].thread;
                 Some((first..=first + off).take_while(|&r| self.rows.get(r).is_some_and(|r| r.thread == t)).last().unwrap_or(first))
             })
+            .or_else(|| {
+                let (m, off) = key.section?;
+                let first = self.rows.iter().position(|r| r.main == Some(m))?;
+                Some((first..=first + off).take_while(|&r| self.rows.get(r).is_some_and(|r| r.main == Some(m))).last().unwrap_or(first))
+            })
             .or_else(|| key.line.map(|(p, old, new)| self.locate(&p, old, new)))
-            .or(key.info.filter(|&r| self.rows.get(r).is_some_and(|r| r.file == INFO)))
+            .or(key.info.filter(|&r| self.rows.get(r).is_some_and(|r| r.file == INFO && r.main.is_none())))
     }
 
     /// Rebuild rows, keeping the cursor on the same code line, thread or PR info row.

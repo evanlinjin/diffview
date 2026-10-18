@@ -6,9 +6,13 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Fixed
-- After your editor (a comment, a reply, …) closed in zellij, the focus could land on another pane
-  beside dv's, so dv's keys (`Ctrl-h`/`Ctrl-l`, `gn`, …) went there until a click: dv takes the
-  focus back now. The merge pane gives it back too when it closes.
+- On the PR tab, after the PR's text grew (posting a comment there with `S`, or a refresh while a
+  preview was up), `Ctrl-h` and `gn` went to PR text (a comment) instead of back to the code, so
+  the cursor seemed stuck in the pane: where you were in the description (or a commit's message)
+  was kept by row number, which the PR text before it moved. It's kept by section now, and going
+  back never lands on PR text or a comment.
+- In zellij, dv takes the focus back when your editor's pane closes (and the merge pane gives it
+  back when it closes), as zellij may focus a pane beside it instead.
 
 ## [0.23.1] - 2026-10-18
 
