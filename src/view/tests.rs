@@ -2254,6 +2254,7 @@ fn key_hints_at_the_bottom_of_the_contents() {
     let files_end = l.iter().position(|r| r.contains("big.rs")).unwrap();
     let commits = l.iter().position(|r| r.starts_with(" COMMITS 2")).unwrap();
     assert!(commits <= files_end + 5 && commits < keys, "{l:?}");
+    assert!(l[commits - 1].is_empty() && !l[commits - 2].is_empty(), "a blank line between the files and the commits: {l:?}");
     // Not a popup over the code as well.
     let s = screen(220, 30, |f| app.draw(f));
     assert_eq!(s.matches("window").count(), 1, "{s}");

@@ -119,10 +119,12 @@ impl App {
             0 => 0,
             n => (n + 2).min((avail / 3).max(4)),
         };
-        let h = entries.len().min(avail.saturating_sub(1 + ch));
+        // A blank line between the files and the commits.
+        let gap = usize::from(ch > 0);
+        let h = entries.len().min(avail.saturating_sub(1 + gap + ch));
         let ch = match self.commits.len() {
             0 => 0,
-            n => (n + 2).min(avail.saturating_sub(1 + h)),
+            n => (n + 2).min(avail.saturating_sub(1 + gap + h)),
         };
         // The current file in view, when it's another (the wheel scrolls the list meanwhile).
         if let Some(i) = cur.filter(|_| cur != self.files_cur).and_then(|c| entries.iter().position(|e| e.spot == c)) {
@@ -195,8 +197,8 @@ impl App {
             };
             lines.push(line);
         }
-        lines.resize(1 + h, Line::default());
-        self.commits_y = area.y + 1 + h as u16;
+        lines.resize(1 + h + gap, Line::default());
+        self.commits_y = area.y + (1 + h + gap) as u16;
         self.commits_rows = ch.saturating_sub(1);
         if ch > 0 {
             lines.extend(self.commit_lines(w, ch - 1));
