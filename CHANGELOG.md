@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- `dv list` has a **todo** tab: the PRs and replacements waiting on you, in the order to take
+  them. dv finds what's waiting (a replacement to publish or close for, a push since your
+  review, Claude answering you, your review requested, ready to merge, Claude's review new to
+  you or its comments untouched, no review from you, activity since you looked); Claude puts it
+  in order with a few words on each (why, and what next), on `R` there or by itself when its
+  last ranking is old; and does its own part first on the top three (answering your replies,
+  updating a review that's behind, or reviewing).
+
 ## [0.6.2] - 2026-10-18
 
 ### Added

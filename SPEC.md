@@ -196,6 +196,23 @@ disk: rust-analyzer can index it and `hx` can open it.
 | mouse | wheel scrolls (view, popup, picker); click moves the cursor (or folds, on a fold arrow; picks in a picker, opens on a second click); drag selects. `--no-mouse` leaves it to the terminal |
 | `q` | quit |
 
+`dv list`'s first tab, **todo**, is what needs you, in the order to take it (`todo.rs`,
+`list/todo.rs`). dv finds what's waiting on you, from its own files and one GraphQL query (your
+latest review and the commit it was on, review requests, mergeability, the head commit): a
+replacement to publish or to close the originals for, a push since your review, Claude answering
+you, your review requested, approved + mergeable + checks green, Claude's review new to you (since
+you last left the PR in dv), Claude's comments you haven't touched, no review from you (not your
+PRs, not drafts), else activity since you looked. It orders them by the most pressing of those,
+then the longest waiting; then Claude (one read-only `claude -p`, `gh pr view/diff` only, the repo's
+notes in its prompt) puts them in order with a few words on each ("why — what next", the card's
+third line), saved in dv's directory (`todo.json`) with what it ranked. Items it didn't rank (new,
+or changed) go before the first ranked one that needs you less; the header says when the ranking
+is stale. Claude ranks on `R` there, and by itself when you open the tab and its last ranking is
+missing or over 12 hours old. After a ranking, Claude does its own part on the top three that have
+one, as `a a` runs it (worktree, session): answers your replies waiting on it, updates a review
+behind the PR's head, or reviews one that has none. Enter opens the PR (a replacement, in its
+worktree); back in the list, what you saw to drops off.
+
 `dv list` (the 1000 most recently updated open PRs; a `#N` filter's Enter opens PR N even if it
 isn't listed; `Tab` switches to the PRs with a local
 `<repo>-N` worktree, open or not, which `Enter` opens in that worktree as it was made:
@@ -234,7 +251,7 @@ One crate:
 - `diff.rs`: `git diff` (untracked files too) and its parser
 - `gh.rs`: GitHub through `gh` (REST and GraphQL)
 - `claude.rs`: dv's data directory, review files, sessions, the skill
-- `list.rs`, `batch.rs`: `dv list` and its batch reviews
+- `list/`, `batch.rs`, `todo.rs`: `dv list`, its batch reviews, and what needs you (ranked)
 - `lsp.rs`, `highlight.rs`, `md.rs`, `theme.rs`: rust-analyzer, syntax, markdown, Helix themes
 - `view/`: the diff viewer (`mod.rs` state and layout; `keys`, `motion`, `select`, `mouse`,
   `render`; `review` for GitHub, `agent` for Claude Code, `git` for `Space g`, `ra`; `tests`)

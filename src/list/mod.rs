@@ -233,6 +233,7 @@ impl List {
                     Ok(by_pr) => self.prs.iter_mut().for_each(|p| p.checks = by_pr.get(&p.number).copied()),
                     Err(e) => self.msg = format!("checks: {e:#}"),
                 }
+                self.find_todo(); // green checks: ready to merge
             }
             if !event::poll(Duration::from_millis(100))? {
                 continue;
