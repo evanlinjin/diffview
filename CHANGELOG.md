@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-18
+
 ### Added
 - `dv version` (and `--version`, `-V`) prints dv's version.
 - `Space a` can check on Claude now (reads its review again, and its run's state) and, while a
@@ -324,6 +326,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.6.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.6.0
 [0.5.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.5.1
 [0.5.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.5.0
 [0.4.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.4.1
