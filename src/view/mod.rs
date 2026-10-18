@@ -461,16 +461,12 @@ pub struct App {
     to: Option<String>,
     /// The PR's commits, oldest first, under the files' list; what's shown of them (first,
     /// last; `None`: all, the whole diff), the cursor there (0: "all commits", then each),
-    /// a range being selected (`v`), whether the list's cursor is there, and its scroll.
+    /// a range being selected (`v`), and whether the list's cursor is there.
     commits: Vec<files::Commit>,
     commit_shown: Option<(usize, usize)>,
     commit_cur: usize,
     commit_anchor: Option<usize>,
     in_commits: bool,
-    commits_top: usize,
-    /// Where the commits' heading is on screen, and how many of its rows show (for clicks).
-    commits_y: u16,
-    commits_rows: usize,
     files: Vec<FileDiff>,
     /// Extra context lines per hunk: (path, hunk's first full index) → lines (can be negative).
     extra: HashMap<(String, usize), i64>,
@@ -530,8 +526,10 @@ pub struct App {
     /// Its width, when you've set it (`Ctrl-w ,` / `.` in it).
     files_w_pref: Option<usize>,
     files_w: usize,
+    /// How far the list under its heading (the contents, then the commits) is scrolled.
     files_top: usize,
-    files_entries: Vec<files::Spot>,
+    /// What each line of the list under its heading is (for clicks).
+    list_hits: Vec<files::Hit>,
     files_cur: Option<files::Spot>,
     /// `Ctrl-h` from the code's left edge: keys go to the files' list (j / k a file).
     files_focus: bool,
@@ -723,9 +721,6 @@ impl App {
             commit_cur: 0,
             commit_anchor: None,
             in_commits: false,
-            commits_top: 0,
-            commits_y: 0,
-            commits_rows: 0,
             files,
             extra: HashMap::new(),
             view_extra: HashMap::new(),
@@ -767,7 +762,7 @@ impl App {
             files_w_pref: None,
             files_w: 0,
             files_top: 0,
-            files_entries: vec![],
+            list_hits: vec![],
             files_cur: None,
             files_focus: false,
             files_sel: None,

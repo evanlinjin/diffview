@@ -17,6 +17,15 @@ pub(super) struct Commit {
     pub(super) subject: String,
 }
 
+/// What a line of the scrolling list is, for clicks: an entry (a file or a section), commit row
+/// `r` (0: "all commits"), or nothing to click (a folder, a heading, a blank).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(super) enum Hit {
+    Spot(Spot),
+    Commit(usize),
+    Nothing,
+}
+
 /// What a line of the list is: a folder, file `i`, or a section (`Row::main`).
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(super) enum Spot {
@@ -113,39 +122,14 @@ impl App {
             std::iter::once(head).chain(rows).take(area.height as usize / 2).collect()
         });
         let avail = (area.height as usize).saturating_sub(hints.len());
-        // The commits under the files: up to a third of the height (all of them when few), right
-        // after the files (more room for them when there are few files).
-        let ch = match self.commits.len() {
-            0 => 0,
-            n => (n + 2).min((avail / 3).max(4)),
-        };
-        // A blank line between the files and the commits.
-        let gap = usize::from(ch > 0);
-        let h = entries.len().min(avail.saturating_sub(1 + gap + ch));
-        let ch = match self.commits.len() {
-            0 => 0,
-            n => (n + 2).min(avail.saturating_sub(1 + gap + h)),
-        };
-        // The current file in view, when it's another (the wheel scrolls the list meanwhile).
-        if let Some(i) = cur.filter(|_| cur != self.files_cur).and_then(|c| entries.iter().position(|e| e.spot == c)) {
-            if i < self.files_top {
-                self.files_top = i;
-            }
-            if i >= self.files_top + h {
-                self.files_top = i + 1 - h;
-            }
-        }
-        self.files_cur = cur;
-        // Its own cursor in view while it has focus.
+        // Under the heading, one list that scrolls: the contents, a blank line, the commits.
+        let room = avail.saturating_sub(1);
         let sel = self.files_sel.filter(|_| self.files_focus && !self.in_commits);
-        if let Some(i) = sel.and_then(|s| entries.iter().position(|e| e.spot == s)) {
-            self.files_top = self.files_top.min(i).max((i + 1).saturating_sub(h));
-        }
-        self.files_top = self.files_top.min(entries.len().saturating_sub(h));
         let bar = Style { bg: ui.bar, ..ui.header };
-        let mut lines = vec![Line::from(Span::styled(format!("{:<w$}", format!(" CONTENTS · {} files", self.files.len())), bar))];
+        let heading = Line::from(Span::styled(format!("{:<w$}", format!(" CONTENTS · {} files", self.files.len())), bar));
         let dim = Style { fg: ui.stale.fg, ..Style::new() };
-        for e in entries.iter().skip(self.files_top).take(h) {
+        let mut rows: Vec<(Line<'static>, Hit)> = vec![];
+        for e in &entries {
             // The list's cursor (while it has focus), else where the diff is.
             let lit = |on: bool| match (sel == Some(e.spot), on) {
                 (true, _) => ui.menu_selected,
@@ -195,15 +179,29 @@ impl App {
                     ])
                 }
             };
-            lines.push(line);
+            rows.push((line, if e.spot == Spot::Folder { Hit::Nothing } else { Hit::Spot(e.spot) }));
         }
-        lines.resize(1 + h + gap, Line::default());
-        self.commits_y = area.y + (1 + h + gap) as u16;
-        self.commits_rows = ch.saturating_sub(1);
-        if ch > 0 {
-            lines.extend(self.commit_lines(w, ch - 1));
+        if !self.commits.is_empty() {
+            rows.push((Line::default(), Hit::Nothing));
+            rows.extend(self.commit_lines(w));
         }
-        // The hints at the bottom.
+        // In view: the list's cursor while it has focus (on a commit, or an entry), else where the
+        // diff is when that changes (the wheel scrolls the list meanwhile).
+        let at = |h: Hit| rows.iter().position(|r| r.1 == h);
+        let want = match (self.files_focus && self.in_commits, sel) {
+            (true, _) => at(Hit::Commit(self.commit_cur)),
+            (false, Some(s)) => at(Hit::Spot(s)),
+            _ => cur.filter(|_| cur != self.files_cur).and_then(|c| at(Hit::Spot(c))),
+        };
+        if let Some(i) = want {
+            self.files_top = self.files_top.min(i).max((i + 1).saturating_sub(room));
+        }
+        self.files_cur = cur;
+        self.files_top = self.files_top.min(rows.len().saturating_sub(room));
+        let mut lines = vec![heading];
+        self.list_hits = rows.iter().skip(self.files_top).take(room).map(|r| r.1).collect();
+        lines.extend(rows.into_iter().skip(self.files_top).take(room).map(|r| r.0));
+        // The hints, pinned at the bottom.
         lines.resize(avail, Line::default());
         lines.extend(hints);
         f.render_widget(Paragraph::new(lines), Rect { width: area.width - 1, ..area });
@@ -211,24 +209,18 @@ impl App {
         let edge = if self.files_focus { Style { fg: self.ui.key.fg, ..Style::new() } } else { self.ui.linenr };
         let divider: Vec<Line> = (0..area.height).map(|_| Line::from(Span::styled("│", edge))).collect();
         f.render_widget(Paragraph::new(divider), Rect { x: area.x + area.width - 1, width: 1, ..area });
-        self.files_entries = entries.into_iter().map(|e| e.spot).collect();
     }
 
-    /// The commits' part: its heading, then "all commits" and each commit (`h` lines of them).
-    fn commit_lines(&mut self, w: usize, h: usize) -> Vec<Line<'static>> {
+    /// The commits' part: its heading, then "all commits" and each commit.
+    fn commit_lines(&self, w: usize) -> Vec<(Line<'static>, Hit)> {
         let ui = &self.ui;
         let n = self.commits.len();
-        // The cursor in view while it's there.
-        if self.in_commits {
-            self.commits_top = self.commits_top.min(self.commit_cur).max((self.commit_cur + 1).saturating_sub(h));
-        }
-        self.commits_top = self.commits_top.min((n + 1).saturating_sub(h));
         let title = match self.commit_shown {
             Some((a, b)) if a == b => format!(" COMMITS {} of {n}", a + 1),
             Some((a, b)) => format!(" COMMITS {}–{} of {n}", a + 1, b + 1),
             None => format!(" COMMITS {n}"),
         };
-        let mut lines = vec![Line::from(Span::styled(format!("{title:<w$}"), Style { bg: ui.bar, ..ui.header }))];
+        let mut lines = vec![(Line::from(Span::styled(format!("{title:<w$}"), Style { bg: ui.bar, ..ui.header })), Hit::Nothing)];
         // Rows: 0 "all commits", r the commit r - 1.
         let shown = |r: usize| match self.commit_shown {
             None => r == 0,
@@ -237,7 +229,7 @@ impl App {
         let picking = self.commit_anchor.map(|a| (a.min(self.commit_cur), a.max(self.commit_cur)));
         let focus = self.files_focus && self.in_commits;
         let lit = ui.base.bg(ui.cursorline.or(ui.menu_selected.bg).unwrap_or(Color::DarkGray));
-        for r in (self.commits_top..=n).take(h) {
+        for r in 0..=n {
             let on = focus && r == self.commit_cur;
             let row = match (on, picking.is_some_and(|(a, b)| r >= a && r <= b), shown(r)) {
                 (true, _, _) | (_, true, _) => ui.menu_selected,
@@ -250,43 +242,34 @@ impl App {
             };
             let text = cut(&text, w.saturating_sub(2 + hash.chars().count()));
             let pad = w.saturating_sub(2 + hash.chars().count() + text.chars().count());
-            lines.push(Line::from(vec![
+            let line = Line::from(vec![
                 Span::styled(if on || shown(r) { "▌ " } else { "  " }, row.patch(Style { fg: ui.key.fg, ..Style::new() })),
                 Span::styled(hash, row.patch(Style { fg: ui.stale.fg, ..Style::new() })),
                 Span::styled(text, if shown(r) { row.add_modifier(ratatui::style::Modifier::BOLD) } else { row }),
                 Span::styled(" ".repeat(pad), row),
-            ]));
+            ]);
+            lines.push((line, Hit::Commit(r)));
         }
         lines
     }
 
-    /// A click on the list's line `y` (0 is its heading): that file, or that commit (with
-    /// Shift: the commits from the one shown to it).
+    /// A click on the list's line `y` (0 is its heading): that file or section, or that commit
+    /// (with Shift: the commits from the one shown to it).
     pub(super) fn click_file(&mut self, y: usize, shift: bool) {
-        let top = self.commits_y as usize;
-        if y > top + self.commits_rows {
-            return; // the key hints under them
-        }
-        if !self.commits.is_empty() && y > top {
-            let r = self.commits_top + y - top - 1;
-            if r <= self.commits.len() {
+        match y.checked_sub(1).and_then(|y| self.list_hits.get(y)).copied() {
+            Some(Hit::Spot(s)) => self.goto_spot(s),
+            Some(Hit::Commit(r)) => {
                 self.commit_cur = r;
-                let from = self.commit_shown.map(|(a, _)| a + 1).filter(|_| shift && r > 0);
-                self.commit_anchor = from;
+                self.commit_anchor = self.commit_shown.map(|(a, _)| a + 1).filter(|_| shift && r > 0);
                 self.pick_commits();
             }
-            return;
-        }
-        if let Some(&s) = y.checked_sub(1).and_then(|y| self.files_entries.get(self.files_top + y)) {
-            self.goto_spot(s);
+            _ => {} // a folder, a heading, the key hints
         }
     }
 
-    /// The wheel over the list's line `y`: its files or its commits scroll.
-    pub(super) fn scroll_files(&mut self, y: usize, by: isize) {
-        let top = self.commits_y as usize;
-        let t = if !self.commits.is_empty() && y >= top { &mut self.commits_top } else { &mut self.files_top };
-        *t = t.saturating_add_signed(by);
+    /// The wheel over the list: it scrolls (the key hints stay where they are).
+    pub(super) fn scroll_files(&mut self, by: isize) {
+        self.files_top = self.files_top.saturating_add_signed(by);
     }
 
     /// The PR's commits as checked out (first parents: the branch's own line), oldest first.

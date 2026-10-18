@@ -32,8 +32,8 @@ impl App {
         if x < self.files_w && self.picker.is_none() && self.popup.is_none() {
             match m.kind {
                 MouseEventKind::Down(MouseButton::Left) => self.click_file(y, m.modifiers.contains(KeyModifiers::SHIFT)),
-                MouseEventKind::ScrollDown => self.scroll_files(y, 3),
-                MouseEventKind::ScrollUp => self.scroll_files(y, -3),
+                MouseEventKind::ScrollDown => self.scroll_files(3),
+                MouseEventKind::ScrollUp => self.scroll_files(-3),
                 _ => {}
             }
             return;

@@ -8,7 +8,8 @@ on GitHub are its section here.
 ### Changed
 - With the contents list shown, the key hints (after `Space`, `g`, `Ctrl-w`…, and what the keys do
   where the cursor is) are pinned at its bottom instead of over the code, and its commits follow
-  its files right after, a blank line between.
+  its files right after, a blank line between. Under its heading, the contents and the commits
+  scroll as one list (following the cursor, or the wheel), the hints pinned below.
 
 ## [0.16.0] - 2026-10-18
 

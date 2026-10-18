@@ -2260,3 +2260,37 @@ fn key_hints_at_the_bottom_of_the_contents() {
     assert_eq!(s.matches("window").count(), 1, "{s}");
     app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
 }
+
+#[test]
+fn contents_and_commits_scroll_together() {
+    // Many commits, a short window: the contents and the commits scroll as one list, following
+    // the list's cursor; its heading stays at the top, and the key hints at the bottom.
+    let mut app = fixture();
+    app.files_pref = Some(true);
+    app.commits = (1..=40).map(|n| files::Commit { sha: format!("{n:040}"), short: format!("c{n}"), subject: format!("commit {n}") }).collect();
+    let list = |app: &mut App| -> Vec<String> {
+        let s = screen(220, 20, |f| app.draw(f));
+        s.lines().map(|l| l.chars().take(app.files_w - 1).collect::<String>().trim_end().to_owned()).collect()
+    };
+    _ = list(&mut app);
+    app.focus_list(true);
+    app.commit_cur = 31; // commit c31
+    app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL)); // hints: what follows Ctrl-w
+    let l = list(&mut app);
+    assert!(l[0].starts_with(" CONTENTS"), "{l:?}");
+    assert!(l.iter().any(|r| r.contains("c31 commit 31")), "the cursor's commit in view: {l:?}");
+    let keys = l.iter().position(|r| r.starts_with(" KEYS: window")).expect("the hints, still there");
+    assert!(!l[1..keys].iter().any(|r| r.contains("big.rs")), "scrolled past the files: {l:?}");
+    // A click on a commit there: that one.
+    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    _ = list(&mut app);
+    let y = app.list_hits.iter().position(|h| *h == files::Hit::Commit(31)).unwrap() + 1;
+    app.click_file(y, false);
+    assert_eq!(app.commit_shown, Some((30, 30)));
+    // The wheel scrolls it back up to the files.
+    app.focus_list(false);
+    app.files_focus = false;
+    app.scroll_files(-100);
+    let l = list(&mut app);
+    assert!(l[1..].iter().any(|r| r.contains("big.rs")), "{l:?}");
+}

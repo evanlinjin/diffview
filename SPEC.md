@@ -300,7 +300,9 @@ keys do where the cursor is: on a selection, a review thread, Claude's comment, 
 or PR text (nothing on plain code). With the cursor in the comment margin it sits bottom
 left instead, off the comments. With the contents list shown, these hints are pinned at its
 bottom instead (`KEYS: <what>`, a line each, cut to its width; at most half its height), not
-over the code; its commits follow its files right after, the room left between them. The status bar's left
+over the code; its commits follow its files right after (a blank line between), and under its
+heading the two scroll as one list, following the list's cursor (or where the diff is), the
+wheel scrolling it; the hints stay where they are. The status bar's left
 side (what you're on, messages, hints) wins over its right: when both don't fit, the right
 keeps only the essentials.
 
