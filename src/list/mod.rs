@@ -132,6 +132,10 @@ pub struct List {
     rank_rx: Option<Receiver<Result<crate::todo::Ranked>>>,
     /// Rank (again) once what's needed is in (`R` on the todo tab).
     want_rank: bool,
+    /// What Claude is doing, by PR, in any dv (its markers: `watch_running`), and when they
+    /// were last looked at.
+    running: HashMap<u64, String>,
+    running_checked: std::time::Instant,
     /// Todo items deferred (`s`), kept in dv's directory; the one `s` is asking how long for.
     deferred: crate::todo::Deferred,
     deferring: Option<String>,
@@ -201,6 +205,8 @@ impl List {
             ranked: crate::todo::load(),
             rank_rx: None,
             want_rank: false,
+            running: HashMap::new(),
+            running_checked: std::time::Instant::now() - std::time::Duration::from_secs(60),
             deferred: crate::todo::load_deferred(crate::todo::deferred_path().as_deref()),
             deferring: None,
             deferred_file: crate::todo::deferred_path(),
@@ -241,6 +247,9 @@ impl List {
             self.batch_news();
             self.watch_reviews();
             self.todo_news();
+            if self.watch_running() {
+                self.find_todo(); // Claude started or finished somewhere: its item moves
+            }
             // A replacement drafted, or its draft changed, from anywhere: show it.
             let changed = crate::replace::changed();
             if changed != self.reps_changed {
@@ -484,14 +493,14 @@ impl List {
         self.draft_news();
         let news: Vec<(u64, batch::Status)> = self.batch_rx.iter().flat_map(|rx| rx.try_iter()).collect();
         let mut worktrees = false;
-        let mut done = false;
+        // Any news (started, done, failed) moves its item on the todo tab.
+        let done = !news.is_empty();
         for (n, s) in news {
             let doing = self.batch_task.get(&n).map_or("reviewing", batch::Task::doing);
             match &s {
                 batch::Status::Done(took) => {
                     self.reviewed.insert(n);
                     self.new.insert(n);
-                    done = true;
                     self.msg = match doing {
                         "reviewing" => format!("Claude reviewed #{n} ({took}): Enter opens it, in its worktree from the worktrees tab"),
                         d => format!("Claude is done {d} on #{n} ({took})"),
@@ -507,7 +516,7 @@ impl List {
             self.local = crate::pr_worktrees().into_iter().map(|(n, dir, b)| (n, (dir, b))).collect();
         }
         if done {
-            self.find_todo(); // its review (or answers) changed what's waiting on you
+            self.find_todo(); // Claude at it, or done (its review, or answers, changed what's waiting)
         }
     }
 

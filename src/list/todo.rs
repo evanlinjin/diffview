@@ -20,18 +20,23 @@ impl List {
             let facts = Facts { pr: p, extra: self.extra.get(&p.number), me: &self.me, review: review.as_ref(), looked, review_changed: file.and_then(secs) };
             let (needs, claude) = todo::needs(&facts);
             if !needs.is_empty() {
-                items.push(Item { rep: false, number: p.number, needs, claude, updated: p.updated.clone(), reason: None, changed: false, deferred: None });
+                items.push(Item { rep: false, number: p.number, needs, claude, updated: p.updated.clone(), reason: None, changed: false, deferred: None, busy: None });
             }
         }
         for r in self.rep_of.values() {
             let needs = todo::rep_needs(r);
             let updated = self.reps.iter().find(|c| c.number == r.id).map_or(String::new(), |c| c.updated.clone());
             if !needs.is_empty() {
-                items.push(Item { rep: true, number: r.id, needs, claude: None, updated, reason: None, changed: false, deferred: None });
+                items.push(Item { rep: true, number: r.id, needs, claude: None, updated, reason: None, changed: false, deferred: None, busy: None });
             }
         }
         let (items, since) = todo::order(items, self.ranked.as_ref());
-        (self.todo, self.since) = (todo::defer(items, &self.deferred, crate::claude::now_secs()), since);
+        let items = todo::defer(items, &self.deferred, crate::claude::now_secs());
+        // Those Claude is at (here or in any dv): at the bottom till it's done.
+        let (mut busy, mut todo): (Vec<Item>, Vec<Item>) = items.into_iter().partition(|it| !it.rep && self.claude_doing(it.number).is_some());
+        busy.iter_mut().for_each(|it| it.busy = self.claude_doing(it.number));
+        todo.append(&mut busy);
+        (self.todo, self.since) = (todo, since);
     }
 
     /// The todo tab's items with their cards (a PR's, or a replacement's).
@@ -120,9 +125,38 @@ impl List {
         }
     }
 
-    /// What needs you now (not deferred), for the tab's count.
+    /// What needs you now (not deferred, Claude not at it), for the tab's count.
     pub(super) fn todo_now(&self) -> usize {
-        self.todo.iter().filter(|it| it.deferred.is_none()).count()
+        self.todo.iter().filter(|it| it.deferred.is_none() && it.busy.is_none()).count()
+    }
+
+    /// What Claude is doing on PR `n` now, if anything: a run from here (`a a`), or any dv's
+    /// (its marker in dv's directory, `running`).
+    pub(super) fn claude_doing(&self, n: u64) -> Option<String> {
+        match self.batch.get(&n) {
+            Some(s) if s.running() => Some(self.batch_task.get(&n).map_or("reviewing", batch::Task::doing).to_owned()),
+            _ => self.running.get(&n).cloned(),
+        }
+    }
+
+    /// Claude's runs from any dv, from their markers, every couple of seconds: only those still
+    /// at it (their process, or their zellij pane, still there). Returns whether that changed.
+    pub(super) fn watch_running(&mut self) -> bool {
+        if self.running_checked.elapsed() < std::time::Duration::from_secs(2) {
+            return false;
+        }
+        self.running_checked = std::time::Instant::now();
+        let Some(dir) = self.reviews_dir.as_ref().and_then(|d| d.parent()).map(|d| d.join("running")) else { return false };
+        let panes = std::cell::OnceCell::new(); // zellij's panes, looked up only if a run is in one
+        let alive = |pid: Option<u32>, session: Option<&str>| match (pid, session) {
+            (Some(pid), _) => std::process::Command::new("kill").args(["-0", &pid.to_string()]).stderr(std::process::Stdio::null()).status().is_ok_and(|s| s.success()),
+            (None, Some(id)) => panes.get_or_init(open_panes).iter().any(|c: &String| c.contains(id)),
+            _ => false,
+        };
+        let now = crate::claude::running(&dir, alive);
+        let changed = now != self.running;
+        self.running = now;
+        changed
     }
 
     /// `s` on the selected todo item: bring it back if it's deferred, else ask for how long.
@@ -189,4 +223,14 @@ pub(super) fn ago_secs(s: i64) -> String {
         s if s < 86400 => format!("{}h", s / 3600),
         s => format!("{}d", s / 86400),
     }
+}
+
+/// The commands of zellij's open panes (none outside zellij).
+fn open_panes() -> Vec<String> {
+    if !crate::view::in_zellij() {
+        return vec![];
+    }
+    let out = std::process::Command::new("zellij").args(["action", "list-panes", "-j", "-c"]).stdin(std::process::Stdio::null()).output();
+    let panes: serde_json::Value = out.ok().and_then(|o| serde_json::from_slice(&o.stdout).ok()).unwrap_or_default();
+    panes.as_array().into_iter().flatten().filter(|p| p["exited"] != true).filter_map(|p| p["pane_command"].as_str().map(str::to_owned)).collect()
 }

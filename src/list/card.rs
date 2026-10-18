@@ -57,6 +57,8 @@ impl List {
             Some(batch::Status::Queued) => Some(("claude: queued".into(), true)),
             Some(batch::Status::Preparing) => Some(("claude: checking out…".into(), true)),
             Some(batch::Status::Reviewing) => Some((format!("claude: {}…", self.batch_task.get(&n).map_or("reviewing", batch::Task::doing)), true)),
+            // A run from another dv (a PR's view, another dv list).
+            _ if self.running.contains_key(&n) => Some((format!("claude: {}…", self.running[&n]), true)),
             // Why, in short (the status bar said it in full): `a a` asks again.
             Some(batch::Status::Failed(e)) => Some((format!("claude failed: {}", cut(e.lines().next().unwrap_or(""), 60)), false)),
             _ if self.reviewed.contains(&n) => Some(("claude ✓".into(), true)),
@@ -258,6 +260,7 @@ pub(super) fn todo_line(rank: usize, it: &crate::todo::Item, cx: &Cards, selecte
     // Placed by the rules since Claude ranked (new, or its needs changed): said so. Deferred:
     // when it's back.
     let says = match it.deferred {
+        _ if it.busy.is_some() => format!("Claude is {}: nothing for you till it's done", it.busy.as_deref().unwrap_or("at it")),
         Some(until) => format!("deferred, back in {} (or sooner if it changes; s brings it back now) · {}", super::todo::in_secs(until - crate::claude::now_secs()), it.says()),
         None if it.changed => format!("{}  (since Claude ranked)", it.says()),
         None => it.says(),

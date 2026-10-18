@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- `dv list` shows Claude at work on a PR from any dv (a review, answers, making the changes,
+  started from the PR's view too): on its card, and on the todo tab it goes to the bottom, out of
+  the count, until Claude's done or has failed, as there's nothing for you till then.
+
 ## [0.8.1] - 2026-10-18
 
 ### Added

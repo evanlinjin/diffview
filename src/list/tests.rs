@@ -312,6 +312,16 @@ fn defer_from_the_todo_tab() {
     assert_eq!((shown(&l), l.todo_now()), (vec![2, 1], 1));
     assert!(l.todo[1].deferred.is_some_and(|u| u - crate::claude::now_secs() > 3 * 3600));
     assert!(crate::todo::load_deferred(Some(&dir.join("deferred.json"))).contains_key("pr-1"));
+    // Claude at work on #2 (here or in any dv): to the bottom, out of the count, said so.
+    l.running.insert(2, "making the changes".into());
+    l.find_todo();
+    assert_eq!((shown(&l), l.todo_now()), (vec![1, 2], 0)); // #1 deferred, #2 busy: nothing for you now
+    assert_eq!(l.todo[1].busy.as_deref(), Some("making the changes"));
+    assert_eq!(l.claude_state(2), Some(("claude: making the changes…".into(), true)));
+    // Done: back.
+    l.running.clear();
+    l.find_todo();
+    assert_eq!(shown(&l), [2, 1]); // (#1 is still deferred)
     // b b: ask for a rebase (the first b says what it'll do; anything else calls it off).
     k(&mut l, KeyCode::Char('b'));
     assert!(l.msg.starts_with("b again: ask #2's author for a rebase"), "{}", l.msg);

@@ -113,6 +113,38 @@ pub fn looked(n: u64) -> Option<i64> {
     std::fs::read_to_string(dv_dir().ok()?.join(format!("seen/pr-{n}.looked"))).ok()?.trim().parse().ok()
 }
 
+/// Claude at work on PR `n`, for `dv list` (any dv's run): a marker in dv's directory,
+/// `running/pr-N.json`, with what it's doing and how to tell it's still at it: its process, or
+/// its zellij pane (by the session in its command line).
+pub fn mark_running(n: u64, what: &str, pid: Option<u32>, session: Option<&str>) {
+    let Ok(dir) = dv_dir().map(|d| d.join("running")) else { return };
+    _ = std::fs::create_dir_all(&dir);
+    let v = serde_json::json!({ "what": what, "pid": pid, "session": session, "started": now_secs() });
+    _ = std::fs::write(dir.join(format!("pr-{n}.json")), v.to_string());
+}
+
+/// Claude's done with PR `n` (or stopped).
+pub fn clear_running(n: u64) {
+    if let Ok(d) = dv_dir() {
+        _ = std::fs::remove_file(d.join("running").join(format!("pr-{n}.json")));
+    }
+}
+
+/// What Claude is doing, by PR, from the markers in `dir` (`running/`): only those still at it
+/// (`alive` says, for a process or a pane's session).
+pub fn running(dir: &std::path::Path, alive: impl Fn(Option<u32>, Option<&str>) -> bool) -> std::collections::HashMap<u64, String> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return Default::default() };
+    entries
+        .flatten()
+        .filter_map(|e| {
+            let n: u64 = e.file_name().to_str()?.strip_prefix("pr-")?.strip_suffix(".json")?.parse().ok()?;
+            let v: Value = serde_json::from_str(&std::fs::read_to_string(e.path()).ok()?).ok()?;
+            let pid = v["pid"].as_u64().map(|p| p as u32);
+            alive(pid, v["session"].as_str()).then(|| (n, v["what"].as_str().unwrap_or("working").to_owned()))
+        })
+        .collect()
+}
+
 /// Seconds since the epoch, now.
 pub fn now_secs() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
@@ -734,4 +766,20 @@ fn skill_updates_only_forward() {
     assert_eq!(installed_by(&skill_file()), env!("CARGO_PKG_VERSION"));
     assert_eq!(installed_by("---\nname: dv-review\n---\n"), "0.0.0"); // from before the mark
     assert!(newer("0.10.0", "0.9.9") && newer("1.0.0", "0.99.0") && !newer("0.3.0", "0.3.0") && !newer("0.2.9", "0.3.0"));
+}
+
+#[test]
+fn running_markers() {
+    let dir = std::env::temp_dir().join(format!("dv-running-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("pr-7.json"), r#"{"what": "making the changes", "pid": 42, "session": null}"#).unwrap();
+    std::fs::write(dir.join("pr-8.json"), r#"{"what": "reviewing (in its pane)", "pid": null, "session": "abc"}"#).unwrap();
+    std::fs::write(dir.join("pr-9.json"), r#"{"what": "answering", "pid": 43, "session": null}"#).unwrap();
+    // Only the ones still at it: process 42 is, 43 isn't; the pane with session abc is open.
+    let alive = |pid: Option<u32>, session: Option<&str>| pid == Some(42) || session == Some("abc");
+    let r = running(&dir, alive);
+    assert_eq!(r.len(), 2);
+    assert_eq!((r[&7].as_str(), r[&8].as_str()), ("making the changes", "reviewing (in its pane)"));
+    let _ = std::fs::remove_dir_all(&dir);
 }

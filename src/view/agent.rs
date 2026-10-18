@@ -213,6 +213,9 @@ impl App {
     /// next run resumes where it left off.
     pub(super) fn stop_claude(&mut self) {
         let Some(mut j) = self.claude.job.take() else { return self.msg = "Claude isn't working on anything".into() };
+        if let Some(p) = &self.pr {
+            crate::claude::clear_running(p.number);
+        }
         // Its process group: Claude and the commands it's running (a build, the tests).
         let group = format!("-{}", j.child.id());
         _ = std::process::Command::new("kill").args(["-KILL", "--", &group]).stderr(std::process::Stdio::null()).status();
@@ -426,7 +429,14 @@ impl App {
                 .stderr(std::process::Stdio::null())
                 .status()
             {
-                Ok(s) if s.success() => (format!("Claude is {label} in the pane on the right; its comments show up here as it writes them"), true),
+                Ok(s) if s.success() => {
+                    // For dv list: at it while its pane is open (a session: when it's done
+                    // working there, only the pane knows).
+                    if let (Some(p), Some(id)) = (&self.pr, &self.claude.session) {
+                        crate::claude::mark_running(p.number, &format!("{label} (in its pane)"), None, Some(id));
+                    }
+                    (format!("Claude is {label} in the pane on the right; its comments show up here as it writes them"), true)
+                }
                 Ok(s) => (format!("zellij run failed ({s})"), false),
                 Err(e) => (format!("running zellij: {e}"), false),
             },
@@ -524,6 +534,9 @@ impl App {
             .spawn()
             .context("is Claude Code (`claude`) installed?")?;
         self.claude.log = Some(log.clone());
+        if let Some(p) = &self.pr {
+            crate::claude::mark_running(p.number, label, Some(child.id()), None); // for dv list
+        }
         Ok(ClaudeJob { child, log, label, forked, started: std::time::Instant::now() })
     }
 
@@ -533,6 +546,9 @@ impl App {
         let Some(job) = &mut self.claude.job else { return };
         let Ok(Some(st)) = job.child.try_wait() else { return };
         let Some(ClaudeJob { log, label, forked, .. }) = self.claude.job.take() else { return };
+        if let Some(p) = &self.pr {
+            crate::claude::clear_running(p.number);
+        }
         self.reload_tree(); // it may have changed code (making changes, or answering a request)
         let out: Option<serde_json::Value> = std::fs::read_to_string(&log).ok().and_then(|t| serde_json::from_str(&t).ok());
         let failed = !st.success() || out.as_ref().is_none_or(|v| v["is_error"] == true);

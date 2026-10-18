@@ -90,6 +90,9 @@ pub struct Item {
     pub changed: bool,
     /// Deferred until then (seconds; `s`): at the bottom till then, unless its needs change.
     pub deferred: Option<i64>,
+    /// What Claude is doing on it now (from any dv): nothing for you till it's done, so it's at
+    /// the bottom meanwhile.
+    pub busy: Option<String>,
 }
 
 impl Item {
@@ -470,7 +473,7 @@ mod tests {
 
     #[test]
     fn ordering() {
-        let it = |n, needs: Vec<Need>, updated: &str| Item { rep: false, number: n, needs, claude: None, updated: updated.into(), reason: None, changed: false, deferred: None };
+        let it = |n, needs: Vec<Need>, updated: &str| Item { rep: false, number: n, needs, claude: None, updated: updated.into(), reason: None, changed: false, deferred: None, busy: None };
         let items = vec![it(1, vec![Need::NoReview], "b"), it(2, vec![Need::ReviewRequested], "c"), it(3, vec![Need::NoReview], "a")];
         // Rules: the most pressing first, then the longest waiting.
         let (o, since) = order(items.clone(), None);
@@ -497,7 +500,7 @@ mod tests {
 
     #[test]
     fn deferring() {
-        let it = |n, needs: Vec<Need>| Item { rep: false, number: n, needs, claude: None, updated: String::new(), reason: None, changed: false, deferred: None };
+        let it = |n, needs: Vec<Need>| Item { rep: false, number: n, needs, claude: None, updated: String::new(), reason: None, changed: false, deferred: None, busy: None };
         let items = vec![it(1, vec![Need::ReadyToMerge]), it(2, vec![Need::NoReview])];
         let d: Deferred = [("pr-1".to_owned(), (200, items[0].needs_key()))].into();
         // Deferred: to the end, marked, until then.
