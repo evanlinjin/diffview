@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-18
+
 ### Added
 - The PR's commits, under the files' list: `Enter` on one shows just that commit, `v` then
   `Enter` a range of them, `all commits` the whole diff again (a click, or Shift-click for a
@@ -530,6 +532,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.12.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.12.0
 [0.11.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.11.0
 [0.10.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.10.0
 [0.9.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.9.1
