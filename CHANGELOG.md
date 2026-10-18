@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Fixed
+- `dv list` freezing for seconds after you come back from a PR: it looked up every worktree's
+  closed PR on GitHub, one by one, at each refresh. Those are kept now, and new ones (and the PRs
+  deferrals wait on) are looked up in the background.
+- Opening a PR from `dv list` is quicker: the selected PR is looked up on GitHub while you're on
+  its card (its comments too, the first time), so Enter doesn't wait on that.
+
 ## [0.28.0] - 2026-10-18
 
 ### Fixed

@@ -37,6 +37,7 @@ mod select;
 mod term;
 pub use term::{MOUSE, init_terminal, restore_terminal};
 pub(crate) use term::{compose_with, in_zellij};
+pub(crate) use review::prefetch_github;
 use term::*;
 #[cfg(test)]
 pub(crate) mod tests;

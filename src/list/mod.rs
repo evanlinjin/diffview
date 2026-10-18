@@ -150,6 +150,12 @@ pub struct List {
     me: String,
     extra: HashMap<u64, gh::Extra>,
     extra_rx: Option<Receiver<Extras>>,
+    /// The selected PR, looked up on GitHub in the background for Enter (`prefetch`).
+    pr_cache: PrCache,
+    /// The PR selected, since when, and whether it's been looked up.
+    prefetched: (Option<u64>, std::time::Instant, bool),
+    /// Worktrees' PRs that aren't open (not in the list), being looked up.
+    gone_rx: Option<Receiver<Vec<Listed>>>,
     todo: Vec<crate::todo::Item>,
     since: crate::todo::Since,
     ranked: Option<crate::todo::Ranked>,
@@ -183,6 +189,8 @@ pub struct List {
     /// deferrals wait on and that aren't listed.
     until_rx: Option<(String, Receiver<Result<crate::todo::Until>>)>,
     others: HashMap<u64, String>,
+    /// Those being looked up (in the background: a GitHub call each).
+    others_rx: Option<Receiver<Vec<(u64, String)>>>,
     deferred_file: Option<PathBuf>,
     /// The window is wide enough for cards in two zones (set by `draw`; cards are 3 lines then).
     wide: bool,
@@ -207,7 +215,13 @@ pub struct Pick {
     pub replacement: bool,
     /// Merge it (`M M`) instead.
     pub merge: bool,
+    /// The PR as GitHub has it, if the list looked it up just now (while it was selected): the
+    /// review needn't wait on that.
+    pub pr: Option<gh::Pr>,
 }
+
+/// PRs looked up while selected (`prefetch`), and when.
+type PrCache = std::sync::Arc<std::sync::Mutex<HashMap<u64, (std::time::Instant, gh::Pr)>>>;
 
 impl List {
     pub fn new(flags: String) -> List {
@@ -247,6 +261,9 @@ impl List {
             me: String::new(),
             extra: HashMap::new(),
             extra_rx: None,
+            gone_rx: None,
+            pr_cache: Default::default(),
+            prefetched: (None, std::time::Instant::now(), true),
             todo: vec![],
             since: Default::default(),
             ranked: crate::todo::load(),
@@ -265,6 +282,7 @@ impl List {
             deferring: None,
             until_rx: None,
             others: HashMap::new(),
+            others_rx: None,
             deferred_file: crate::todo::deferred_path(),
             wide: true,
             reviewed: HashSet::new(),
@@ -314,6 +332,9 @@ impl List {
             self.watch_reviews();
             self.todo_news();
             self.unpushed_news();
+            self.gone_news();
+            self.prefetch();
+            self.others_news();
             self.until_news();
             if self.watch_running() {
                 self.scan_unpushed(); // what it finished with may be waiting to be pushed
@@ -360,10 +381,11 @@ impl List {
                     let todo_rep = self.tab == Tab::Todo && self.todo_shown().iter().any(|(c, it)| c.number == n && it.rep);
                     let replacement = self.tab == Tab::Replacements || todo_rep;
                     let worktree = (self.tab == Tab::Worktrees).then(|| self.local.get(&n).is_some_and(|w| w.1.is_some()));
-                    return Ok(Some(Pick { number: n, worktree, replacement, merge: false }));
+                    let pr = self.pr_cache.lock().ok().and_then(|c| c.get(&n).filter(|(t, _)| t.elapsed().as_secs() < 120).map(|(_, p)| p.clone()));
+                    return Ok(Some(Pick { number: n, worktree, replacement, merge: false, pr }));
                 }
                 Some(Do::Merge(n)) => {
-                    return Ok(Some(Pick { number: n, worktree: None, replacement: false, merge: true }));
+                    return Ok(Some(Pick { number: n, worktree: None, replacement: false, merge: true, pr: None }));
                 }
                 Some(Do::Refresh) => {
                     self.refresh(term)?;
@@ -459,6 +481,28 @@ impl List {
                 None
             }
         }
+    }
+
+    /// The selected PR, looked up on GitHub in the background once it's been selected a moment
+    /// (not each one `j` passes): opening it then needn't wait on that, nor, the first time,
+    /// on its comments (most of what opening a PR takes).
+    fn prefetch(&mut self) {
+        let n = self.shown().get(self.sel).map(|p| p.number).filter(|_| self.tab != Tab::Replacements);
+        if n != self.prefetched.0 {
+            self.prefetched = (n, std::time::Instant::now(), false);
+        }
+        if self.prefetched.2 || self.prefetched.1.elapsed() < std::time::Duration::from_millis(300) {
+            return;
+        }
+        self.prefetched.2 = true;
+        let Some(n) = n else { return };
+        let cache = self.pr_cache.clone();
+        std::thread::spawn(move || {
+            if let (Ok(p), Ok(mut c)) = (gh::pr(Some(n)), cache.lock()) {
+                c.insert(n, (std::time::Instant::now(), p));
+            }
+            crate::view::prefetch_github(n);
+        });
     }
 
     /// Claude does each task on its PR in the background (`a a`, auto): what it's doing, said.
@@ -741,21 +785,33 @@ impl List {
                 if !quiet {
                     self.msg = if prs.is_empty() { "no open PRs".into() } else { String::new() };
                 }
-                // Worktrees of PRs that aren't open any more (or beyond the list): fetch those few.
+                // Worktrees of PRs that aren't open any more (or beyond the list): as looked up
+                // before, else looked up in the background (one GitHub call each, a second or so:
+                // the list doesn't wait on them).
                 let mut gone: Vec<u64> = self.local.keys().filter(|n| !prs.iter().any(|p| p.number == **n)).copied().collect();
                 gone.sort();
+                let mut missing = vec![];
                 for n in gone {
-                    let title = "(couldn't load this PR)".into();
-                    prs.push(gh::listed_one(n).unwrap_or(Listed { number: n, title, ..Listed::default() }));
+                    match self.prs.iter().find(|p| p.number == n && !p.title.is_empty()) {
+                        Some(p) => prs.push(p.clone()),
+                        None => {
+                            missing.push(n);
+                            prs.push(Listed { number: n, ..Listed::default() });
+                        }
+                    }
+                }
+                if !missing.is_empty() && self.gone_rx.is_none() {
+                    let (tx, rx) = mpsc::channel();
+                    std::thread::spawn(move || {
+                        let title = || "(couldn't load this PR)".to_owned();
+                        _ = tx.send(missing.into_iter().map(|n| gh::listed_one(n).unwrap_or(Listed { number: n, title: title(), ..Listed::default() })).collect());
+                    });
+                    self.gone_rx = Some(rx);
                 }
                 self.prs = prs;
-                // Marks on PRs that aren't open any more go.
-                // Ones not listed (closed, or beyond the list) are looked up: only a few are marked.
+                // Marks on PRs that aren't open any more go (ones not known here stay).
                 let open = |p: &Listed| p.state == "OPEN" || p.state.is_empty();
-                self.marked.retain(|n| match self.prs.iter().find(|p| p.number == *n) {
-                    Some(p) => open(p),
-                    None => gh::listed_one(*n).map_or(true, |p| open(&p)),
-                });
+                self.marked.retain(|n| self.prs.iter().find(|p| p.number == *n).is_none_or(open));
                 self.find_new();
                 self.find_todo();
                 self.sel = keep.and_then(|n| self.shown().iter().position(|p| p.number == n)).unwrap_or(0);

@@ -192,7 +192,7 @@ fn run() -> anyhow::Result<()> {
     if o.worktree && o.pr.is_none() {
         anyhow::bail!("--worktree needs a PR, e.g. `dv 123 -w`\n{USAGE}");
     }
-    let (wt, res) = review(&o, o.pr)?;
+    let (wt, res) = review(&o, o.pr, None)?;
     if res.as_ref().is_ok_and(|m| *m) {
         std::env::set_current_dir(&root)?; // out of the worktree it may remove
         let n = o.pr.context("merging needs the PR's number")?;
@@ -240,7 +240,7 @@ fn pick_and_review(o: &Opts, root: &Path) -> anyhow::Result<()> {
             }
             None => o,
         };
-        let res = review(opts, Some(n)).and_then(|(_, res)| res);
+        let res = review(opts, Some(n), pick.pr).and_then(|(_, res)| res);
         progress(None);
         std::env::set_current_dir(root)?; // a worktree review leaves us in the worktree
         match res {
@@ -272,7 +272,8 @@ fn review_replacement(id: u64, root: &Path) -> anyhow::Result<()> {
 /// Check PR `n` out as `o` says and review it. The outer error is setup (checkout, diff); the
 /// inner one is from the TUI, which the worktree note is printed after; its `true`: you asked
 /// to merge the PR (`Space g`), which is for the caller to do, out of the review.
-fn review(o: &Opts, pr_num: Option<u64>) -> anyhow::Result<(Option<PathBuf>, anyhow::Result<bool>)> {
+/// `known`: PR `pr_num` as GitHub has it, if that's just been looked up (`dv list`).
+fn review(o: &Opts, pr_num: Option<u64>, known: Option<gh::Pr>) -> anyhow::Result<(Option<PathBuf>, anyhow::Result<bool>)> {
     // A PR with a worktree already (`<repo>-N`) opens there, as it was made: its branch can't
     // be checked out here too, and that's where you were reviewing it.
     let found = pr_num.filter(|_| !o.worktree).and_then(|n| pr_worktrees().into_iter().find(|w| w.0 == n));
@@ -287,7 +288,7 @@ fn review(o: &Opts, pr_num: Option<u64>) -> anyhow::Result<(Option<PathBuf>, any
     };
     // The PR first, when it's given: its head says whether there's anything to check out.
     progress(Some("looking up the PR"));
-    let known = pr_num.and_then(|n| gh::pr(Some(n)).ok());
+    let known = known.filter(|p| Some(p.number) == pr_num).or_else(|| pr_num.and_then(|n| gh::pr(Some(n)).ok()));
     let (wt, note) = match (pr_num, o.worktree) {
         (Some(n), true) => {
             let (dir, note) = enter_worktree(n, o.branch, o.force, known.as_ref())?;

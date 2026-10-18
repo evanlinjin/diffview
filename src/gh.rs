@@ -232,7 +232,7 @@ pub fn issue_preview(url: &str) -> Result<(String, String)> {
 }
 
 /// A PR for `dv list`.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Listed {
     pub number: u64,
     pub title: String,

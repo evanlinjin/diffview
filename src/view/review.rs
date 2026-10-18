@@ -30,6 +30,14 @@ fn cache_path(n: u64) -> Option<PathBuf> {
     Some(crate::claude::dv_dir().ok()?.join("cache").join(format!("pr-{n}.json")))
 }
 
+/// For `dv list`: PR `n`'s comments and info from GitHub, kept for its first opening if
+/// nothing is (else they show at once already, fetched afresh as they do).
+pub(crate) fn prefetch_github(n: u64) {
+    if let Some(p) = cache_path(n).filter(|p| !p.exists()) {
+        _ = fetch_github(n, Some(&p));
+    }
+}
+
 /// What `fetch_github` kept, if anything.
 pub(super) fn cached_github(p: &Path) -> Option<Fetched> {
     let v: Value = serde_json::from_str(&std::fs::read_to_string(p).ok()?).ok()?;

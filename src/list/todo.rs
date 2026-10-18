@@ -306,6 +306,21 @@ impl List {
         self.unpushed_rx = Some(rx);
     }
 
+    /// The worktrees' PRs looked up (`apply_list`), when they're in: on their cards.
+    pub(super) fn gone_news(&mut self) {
+        let Some(Ok(found)) = self.gone_rx.as_ref().map(Receiver::try_recv) else { return };
+        self.gone_rx = None;
+        for p in found {
+            match self.prs.iter_mut().find(|o| o.number == p.number) {
+                Some(o) => *o = p,
+                None => self.prs.push(p),
+            }
+        }
+        let open = |p: &Listed| p.state == "OPEN" || p.state.is_empty();
+        self.marked.retain(|n| self.prs.iter().find(|p| p.number == *n).is_none_or(open));
+        self.find_todo();
+    }
+
     /// The scan's result, when it's in: on the todo tab then.
     pub(super) fn unpushed_news(&mut self) {
         let found = match self.unpushed_rx.as_ref().map(Receiver::try_recv) {
@@ -385,11 +400,20 @@ impl List {
             })
             .filter(|n| !self.prs.iter().any(|p| p.number == *n))
             .collect();
-        for n in waited {
-            if let Ok(Some(s)) = gh::pr_state(n) {
-                self.others.insert(n, s);
-            }
+        if waited.is_empty() || self.others_rx.is_some() {
+            return;
         }
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || _ = tx.send(waited.into_iter().filter_map(|n| Some((n, gh::pr_state(n).ok()??))).collect()));
+        self.others_rx = Some(rx);
+    }
+
+    /// Those PRs' states, when they're in: what deferrals wait for may have happened.
+    pub(super) fn others_news(&mut self) {
+        let Some(Ok(found)) = self.others_rx.as_ref().map(Receiver::try_recv) else { return };
+        self.others_rx = None;
+        self.others.extend(found);
+        self.find_todo();
     }
 
     /// What needs you now (not deferred, Claude not at it), for the tab's count.
