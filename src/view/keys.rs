@@ -480,6 +480,7 @@ impl App {
                         Target::GitPush => (self.msg, self.job) = ("pushing…".into(), Some(Job::Push(false))),
                         Target::GitForcePush => (self.msg, self.job) = ("force-pushing…".into(), Some(Job::Push(true))),
                         Target::GitMerge => (self.merge, self.quit) = (true, true),
+                        Target::GitTakeTheirs(sure) => self.take_theirs(sure),
                         Target::GitReady => self.mark_ready(),
                         Target::CiFixPr => self.action = Some(Action::CiFixPr),
                         Target::GitApproveRuns => self.approve_runs(),

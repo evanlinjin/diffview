@@ -6,6 +6,8 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Added
+- `Space g` can take the PR as it is on GitHub when your checkout has diverged from it (or is
+  behind): your commits that GitHub doesn't have are kept on a `dv-backup/pr-N-<sha>` branch first.
 - Ask Claude a question about the PR: `Space a` → "Ask Claude a question about this PR…". It
   answers right away, in the Claude tab (under its review, or under "questions for Claude" before
   there's one); `r` there carries the conversation on.

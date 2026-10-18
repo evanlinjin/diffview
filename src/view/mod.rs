@@ -376,6 +376,8 @@ enum Target {
     GitPush,
     /// Force-push (with a lease): HEAD doesn't contain the PR's head (a rebase or amend here).
     GitForcePush,
+    /// Take the branch as it is on GitHub (`true`: confirmed, or nothing here would be lost).
+    GitTakeTheirs(bool),
     /// End the review and merge the PR with github-merge.py.
     GitMerge,
     /// Dismiss all of Claude's outdated comments (`true`: confirmed).

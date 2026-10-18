@@ -23,10 +23,22 @@ impl App {
                 Push::Nothing => {}
                 Push::Ahead(n) => items.push(Item::new(format!("Push {n} commit(s) to {name}"), Target::GitPush)),
                 Push::Unknown => items.push(Item::new(format!("Push to {name}"), Target::GitPush)),
-                Push::Diverged => items.push(Item::new(
-                    format!("Force-push to {name} (with a lease: it has commits this doesn't, as after a rebase or amend here)"),
-                    Target::GitForcePush,
-                )),
+                Push::Diverged => {
+                    // Behind only (nothing here it doesn't have): no force-push, just its version.
+                    let theirs = self.their_head(&remote, &branch);
+                    let ours = diff::git(&["rev-list", "--count", &format!("{theirs}..HEAD")]).ok().and_then(|n| n.trim().parse::<usize>().ok()).unwrap_or(0);
+                    if ours > 0 {
+                        items.push(Item::new(
+                            format!("Force-push to {name} (with a lease: it has commits this doesn't, as after a rebase or amend here)"),
+                            Target::GitForcePush,
+                        ));
+                    }
+                    let label = match ours {
+                        0 => format!("Update to {name} as it is on GitHub (it has new commits)"),
+                        n => format!("Take {name} as it is on GitHub instead ({n} commit(s) only here are kept on a backup branch)…"),
+                    };
+                    items.push(Item::new(label, Target::GitTakeTheirs(ours == 0)));
+                }
             },
             Err(e) => items.push(Item::new(format!("Can't push: {e:#}"), Target::Nothing)),
         }
@@ -69,6 +81,43 @@ impl App {
             }
             Err(e) => format!("#{n} still a draft: {e:#}"),
         };
+    }
+
+    /// `Space g` → the branch as it is on GitHub, after a confirmation (`sure`) when there are
+    /// commits only here: they're kept on a branch first (`dv-backup/…`), then HEAD moves to
+    /// GitHub's (`reset --hard`). Not with uncommitted changes: they'd be lost.
+    pub(super) fn take_theirs(&mut self, sure: bool) {
+        self.msg = match self.try_take_theirs(sure) {
+            Ok(m) => m,
+            Err(e) => format!("not taken: {e:#}"),
+        };
+    }
+
+    fn try_take_theirs(&mut self, sure: bool) -> Result<String> {
+        let (remote, branch, name) = self.push_target()?;
+        let theirs = self.their_head(&remote, &branch);
+        anyhow::ensure!(diff::git(&["status", "--porcelain"])?.trim().is_empty(), "there are uncommitted changes (commit them first, Space g, or they'd be lost)");
+        // Not here yet: fetched (a PR's head is on its base repo too).
+        if diff::git(&["cat-file", "-e", &format!("{theirs}^{{commit}}")]).is_err() {
+            match &self.pr {
+                Some(p) => _ = diff::git(&["fetch", "-q", "origin", &format!("refs/pull/{}/head", p.number)])?,
+                None => _ = diff::git(&["fetch", "-q", &remote, &branch])?,
+            }
+        }
+        let ours: usize = diff::git(&["rev-list", "--count", &format!("{theirs}..HEAD")])?.trim().parse().unwrap_or(0);
+        if ours > 0 && !sure {
+            let items = vec![
+                Item::new("No, keep what's here", Target::Nothing),
+                Item::new(format!("Yes, take {name} from GitHub ({ours} commit(s) only here kept on a backup branch)"), Target::GitTakeTheirs(true)),
+            ];
+            self.picker = Some(Picker { title: " take GitHub's version? ", items, query: String::new(), sel: 0 });
+            return Ok(String::new());
+        }
+        let who = self.pr.as_ref().map_or(branch.replace('/', "-"), |p| format!("pr-{}", p.number));
+        let kept = take_branch(std::path::Path::new("."), &theirs, &who)?.map_or(String::new(), |b| format!("; what was only here is on {b}"));
+        self.reload_tree();
+        self.refresh_sync();
+        Ok(format!("now at {name} as it is on GitHub{kept}"))
     }
 
     /// Between the whole diff and only what isn't committed.
@@ -220,6 +269,24 @@ fn branch_target(here: &str) -> Result<(String, String)> {
 }
 
 /// How HEAD in the checkout at `dir` stands against `theirs` (the head where it's pushed).
+/// HEAD in `dir` to `theirs`, its commits that `theirs` hasn't kept on a branch first,
+/// `dv-backup/<who>-<its short sha>`: that branch's name, if there was anything to keep.
+fn take_branch(dir: &std::path::Path, theirs: &str, who: &str) -> Result<Option<String>> {
+    let d = dir.to_string_lossy().into_owned();
+    let git = |args: &[&str]| diff::git(&[&["-C", d.as_str()], args].concat());
+    let ours: usize = git(&["rev-list", "--count", &format!("{theirs}..HEAD")])?.trim().parse().unwrap_or(0);
+    let backup = match ours {
+        0 => None,
+        _ => {
+            let b = format!("dv-backup/{who}-{}", git(&["rev-parse", "--short", "HEAD"])?.trim());
+            git(&["branch", "-f", &b, "HEAD"])?;
+            Some(b)
+        }
+    };
+    git(&["reset", "-q", "--hard", theirs])?;
+    Ok(backup)
+}
+
 fn push_state(dir: &std::path::Path, theirs: &str) -> Push {
     let d = dir.to_string_lossy().into_owned();
     let git = |args: &[&str]| diff::git(&[&["-C", d.as_str()], args].concat());
@@ -265,5 +332,13 @@ fn push_or_force() {
     git(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--amend", "--allow-empty", "-m", "pr head, reworded"]);
     assert_eq!(push_state(&dir, &pr_head), Push::Diverged);
     assert_eq!(push_state(&dir, "0000000000000000000000000000000000000000"), Push::Unknown);
+    // Taking GitHub's instead: at its head, what was only here kept on a backup branch.
+    let mine = git(&["rev-parse", "--short", "HEAD"]).trim().to_owned();
+    let backup = take_branch(&dir, &pr_head, "pr-7").unwrap();
+    assert_eq!(backup.as_deref(), Some(format!("dv-backup/pr-7-{mine}").as_str()));
+    assert_eq!(git(&["rev-parse", "HEAD"]).trim(), pr_head);
+    assert_eq!(git(&["rev-parse", "--short", &backup.unwrap()]).trim(), mine);
+    // Behind only: nothing to keep.
+    assert_eq!(take_branch(&dir, &pr_head, "pr-7").unwrap(), None);
     let _ = std::fs::remove_dir_all(&dir);
 }
