@@ -298,6 +298,21 @@ impl App {
         }
     }
 
+    /// The keys while the list has focus, for its hints: the commits', or the contents'.
+    pub(super) fn list_keys(&self) -> (&'static str, &'static [(&'static str, &'static str)]) {
+        match self.in_commits {
+            true => ("commits", &[
+                ("Enter", "show it (with v: the range)"),
+                ("v", "start a range"),
+                ("m", "its whole message"),
+                ("y", "copy its hash"),
+                ("Tab", "to the contents"),
+                ("Ctrl-l", "back to the code"),
+            ]),
+            false => ("contents", &[("j k", "move"), ("Enter", "go there"), ("Tab", "to the commits"), ("Ctrl-l", "back to the code")]),
+        }
+    }
+
     /// `m` in the commits: the one under the cursor's whole message (and who, when), in a
     /// popup.
     fn commit_popup(&mut self) {
@@ -388,6 +403,13 @@ impl App {
             // Between the files and the commits, without going through every file.
             KeyCode::Tab | KeyCode::BackTab => self.focus_list(!self.in_commits),
             KeyCode::Char('m') if self.in_commits => self.commit_popup(),
+            KeyCode::Char('y') if self.in_commits => match self.commit_cur.checked_sub(1).and_then(|i| self.commits.get(i)).map(|c| c.sha.clone()) {
+                Some(sha) => {
+                    clipboard(&sha);
+                    self.msg = format!("copied {sha}");
+                }
+                None => self.msg = "y on a commit copies its hash".into(),
+            },
             KeyCode::Esc if self.commit_anchor.is_some() => self.commit_anchor = None,
             // Past the last file: on into the commits, at the one shown.
             KeyCode::Char('j') | KeyCode::Down if !ctrl && last_file && !self.commits.is_empty() => {

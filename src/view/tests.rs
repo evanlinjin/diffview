@@ -2095,6 +2095,14 @@ fn commits_under_the_files() {
     app.goto(head, 0);
     app.toggle_collapse();
     assert!(!app.rows.iter().any(|r| r.line.text.contains("Why it's done")));
+    // y in the commits: its hash, copied; the list's own keys are its hints while it has focus.
+    (app.files_focus, app.in_commits, app.commit_cur) = (true, true, 2);
+    k(&mut app, KeyCode::Char('y'));
+    assert_eq!(app.msg, format!("copied {}", app.commits[1].sha));
+    assert_eq!(app.list_keys().0, "commits");
+    // Space c on a commit's message (its section in the diff): its hash too.
+    app.goto(head, 0);
+    assert_eq!(app.cursor_ref().as_deref(), Some(app.commits[1].sha.as_str()));
     // m in the commits: its whole message in a popup (git's, here: the fixture's aren't real).
     (app.files_focus, app.in_commits, app.commit_cur) = (true, true, 1);
     k(&mut app, KeyCode::Char('m'));

@@ -496,6 +496,8 @@ impl App {
         // shown; else a popup (below).
         let keys = match self.pending {
             Some(p) => App::which(p),
+            // The list has focus: its keys.
+            None if self.files_focus && self.files_w > 0 && self.picker.is_none() && self.popup.is_none() => Some(self.list_keys()),
             None if self.picker.is_none() && self.popup.is_none() && self.prompt.is_none() => self.context_keys(),
             None => None,
         };

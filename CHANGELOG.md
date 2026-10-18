@@ -5,6 +5,10 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- `y` on a commit in the contents' commits copies its hash (`Space c` on a commit's message in the
+  diff too); while the list has focus, the key hints are its own (the commits' or the contents').
+
 ## [0.23.0] - 2026-10-18
 
 ### Added
