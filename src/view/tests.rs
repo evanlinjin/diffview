@@ -1237,8 +1237,10 @@ fn replacement_in_the_pr_section() {
     diff::git(&["-C", &clean.to_string_lossy(), "init", "-q"]).unwrap();
     app.root = clean.clone();
     let items = s(&mut app);
-    assert!(items[0].0.starts_with("Publish as a draft PR (rebased on origin/") && matches!(items[0].1, Target::Publish(false)));
-    assert!(items[1].0 == "Publish, then close #12, #15 with the closing note…" && matches!(items[1].1, Target::Publish(true)));
+    assert!(items[0].0.starts_with("Publish as a draft PR (rebased on origin/") && matches!(items[0].1, Target::Publish(false, false)));
+    assert!(matches!(items[1].1, Target::Publish(false, true))); // ready for review, not a draft
+    assert!(items[2].0 == "Publish, then close #12, #15 with the closing note…" && matches!(items[2].1, Target::Publish(true, false)));
+    assert!(matches!(items[3].1, Target::Publish(true, true)));
     std::fs::write(clean.join("x"), "").unwrap();
     let items = s(&mut app);
     assert!(items[0].0.starts_with("Commit the uncommitted changes first") && matches!(items[0].1, Target::GitCommit));
@@ -1249,10 +1251,10 @@ fn replacement_in_the_pr_section() {
     app.show_replacement(r);
     app.build();
     let items = s(&mut app);
-    assert_eq!(items[0].0, "Published as draft PR #20");
+    assert_eq!(items[0].0, "Published as PR #20");
     assert!(items[1].0 == "Close #15 with the closing note (now)…" && matches!(items[1].1, Target::CloseOriginals));
     assert_eq!(app.header_tag(INFO).unwrap().0, " PUBLISHED ");
-    let row = app.rows.iter().find(|r| r.line.text == "published as draft PR #20").unwrap();
+    let row = app.rows.iter().find(|r| r.line.text == "published as PR #20").unwrap();
     assert_eq!(row.links[0].2, "https://github.com/o/r/pull/20"); // the new PR, linked
 }
 
@@ -2188,4 +2190,17 @@ fn claude_tab_is_the_claude_view() {
     assert_eq!(app.view, View::Claude);
     app.bar_to(Bar::Comments);
     assert_eq!(app.view, View::All);
+}
+
+#[test]
+fn space_g_marks_a_draft_ready() {
+    let mut app = fixture();
+    let ready = |app: &mut App| {
+        app.git_menu();
+        app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::GitReady))
+    };
+    app.pr_state = Some(("DRAFT", "6e7681"));
+    assert!(ready(&mut app));
+    app.pr_state = Some(("OPEN", "238636"));
+    assert!(!ready(&mut app));
 }

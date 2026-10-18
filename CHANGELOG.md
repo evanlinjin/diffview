@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- `Space g` on a draft PR: mark it ready for review.
+- Todo: your draft with its checks green and nothing unpushed is a need, "mark it ready for review".
+- Publishing a replacement (`S`): "Publish ready for review (not a draft)", with or without closing
+  what it replaces.
+
 ## [0.14.0] - 2026-10-18
 
 ### Added

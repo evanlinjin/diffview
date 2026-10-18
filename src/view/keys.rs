@@ -461,9 +461,9 @@ impl App {
                         Target::Claude(ask) => self.pick_claude(ask),
                         Target::ClaudeNotes => self.edit_claude_notes(),
                         Target::ClaudeReplace(prs) => self.action = Some(Action::Replace(prs, None)),
-                        Target::Publish(close) => self.action = Some(Action::Publish(close)),
-                        Target::ReplaceRemote(name, close) => match crate::replace::set_remote(&name) {
-                            Ok(()) => self.action = Some(Action::Publish(close)),
+                        Target::Publish(close, ready) => self.action = Some(Action::Publish(close, ready)),
+                        Target::ReplaceRemote(name, close, ready) => match crate::replace::set_remote(&name) {
+                            Ok(()) => self.action = Some(Action::Publish(close, ready)),
                             Err(e) => self.msg = format!("{e:#}"),
                         },
                         Target::CloseOriginals => self.action = Some(Action::CloseOriginals),
@@ -476,6 +476,7 @@ impl App {
                         Target::GitPush => (self.msg, self.job) = ("pushing…".into(), Some(Job::Push(false))),
                         Target::GitForcePush => (self.msg, self.job) = ("force-pushing…".into(), Some(Job::Push(true))),
                         Target::GitMerge => (self.merge, self.quit) = (true, true),
+                        Target::GitReady => self.mark_ready(),
                         Target::ClaudeDismissOutdated(sure) => self.dismiss_outdated(sure),
                         Target::DescApprove(sure) => self.approve_description(sure),
                         Target::DescDiscard => self.discard_description(),

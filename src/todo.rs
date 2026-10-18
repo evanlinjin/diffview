@@ -28,6 +28,8 @@ pub enum Need {
     ReviewRequested,
     /// Approved, mergeable, checks green: merge it.
     ReadyToMerge,
+    /// Your draft, its checks green and nothing in its worktree unpushed: mark it ready for review.
+    MarkReady,
     /// It conflicts with its base: a rebase is needed (`true`: yours, so yours to do).
     Conflicts(bool),
     /// Claude's review has changed since you last looked.
@@ -51,6 +53,7 @@ impl Need {
             Need::ClaudeAnswered(_) => 75,
             Need::ReviewRequested => 70,
             Need::CloseOriginals(_) => 65,
+            Need::MarkReady => 63,
             Need::ReadyToMerge => 60,
             Need::Conflicts(_) => 55,
             Need::ClaudeReviewNew => 50,
@@ -81,6 +84,7 @@ impl Need {
             Need::ClaudeAnswered(n) => format!("Claude answered you on {n} thread{}", s(*n)),
             Need::ReviewRequested => "your review is requested".into(),
             Need::ReadyToMerge => "approved, checks green: merge it".into(),
+            Need::MarkReady => "your draft, checks green: mark it ready for review (Space g there)".into(),
             Need::Conflicts(true) => "conflicts with its base: rebase it".into(),
             Need::Conflicts(false) => "conflicts with its base: ask for a rebase (b b)".into(),
             Need::ClaudeReviewNew => "Claude's review is new to you".into(),
@@ -169,6 +173,10 @@ pub fn needs(f: &Facts) -> (Vec<Need>, Option<Task>) {
         });
     }
     let mine = !f.me.is_empty() && pr.author == f.me;
+    // Your draft, done by the look of it: nothing failing or still running, nothing unpushed.
+    if mine && pr.draft && f.unpushed == (0, 0) && pr.checks.is_some_and(|(_, fail, pending)| fail == 0 && pending == 0) {
+        out.push(Need::MarkReady);
+    }
     let head = f.extra.map_or("", |e| e.head_oid.as_str());
     let my_review = f.extra.and_then(|e| e.my_review.as_ref());
     if let Some((_, commit)) = my_review
@@ -701,6 +709,19 @@ mod tests {
         // Its changes from before that head: pushed already; what's here now is someone's.
         f.head_at = crate::gh::epoch_secs("2026-10-18T11:00:00Z");
         assert_eq!(needs(&f).0[0], Need::Unpushed(2, 0));
+        // Your draft, green and pushed: mark it ready; red, still running, or unpushed: not yet.
+        let draft = |checks| {
+            let mut p = pr(9, "me");
+            (p.draft, p.checks) = (true, checks);
+            facts(leak(p), Some(leak(extra(None, false, "h"))), None)
+        };
+        assert!(needs(&draft(Some((4, 0, 0)))).0.contains(&Need::MarkReady));
+        for checks in [Some((3, 1, 0)), Some((3, 0, 1)), None] {
+            assert!(!needs(&draft(checks)).0.contains(&Need::MarkReady), "{checks:?}");
+        }
+        let mut f = draft(Some((4, 0, 0)));
+        f.unpushed = (1, 0);
+        assert!(!needs(&f).0.contains(&Need::MarkReady));
         // Conflicting with its base: ask for a rebase (or, yours, do it).
         let mut conflicting = extra(None, false, "h");
         conflicting.mergeable = "CONFLICTING".into();

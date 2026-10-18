@@ -30,11 +30,26 @@ impl App {
             },
             Err(e) => items.push(Item::new(format!("Can't push: {e:#}"), Target::Nothing)),
         }
+        if let Some(p) = self.pr.as_ref().filter(|_| self.pr_state.is_some_and(|s| s.0 == "DRAFT")) {
+            items.push(Item::new(format!("Mark #{} ready for review (it's a draft)", p.number), Target::GitReady));
+        }
         if let Some(p) = &self.pr {
             let label = format!("Merge #{} with github-merge.py (ends this review; its worktree goes first, if nothing in it is unpushed)", p.number);
             items.push(Item::new(label, Target::GitMerge));
         }
         self.picker = Some(Picker { title: " git ", items, query: String::new(), sel: 0 });
+    }
+
+    /// `Space g` → mark the PR ready for review: on GitHub, and its state here.
+    pub(super) fn mark_ready(&mut self) {
+        let Some(n) = self.pr.as_ref().map(|p| p.number) else { return };
+        self.msg = match crate::gh::mark_ready(n) {
+            Ok(()) => {
+                self.pr_state = Some(("OPEN", "238636"));
+                format!("#{n} is ready for review")
+            }
+            Err(e) => format!("#{n} still a draft: {e:#}"),
+        };
     }
 
     /// Between the whole diff and only what isn't committed.

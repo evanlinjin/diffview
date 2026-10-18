@@ -286,9 +286,9 @@ enum Action {
     /// Have Claude draft a replacement for these PRs, after your instructions for it (starting
     /// from these, else your last ones: `a` on a draft quotes what it's about).
     Replace(Vec<u64>, Option<String>),
-    /// Publish the replacement here as a draft PR, after the editor (title, description); with
-    /// `true`, closing what it replaces comes next.
-    Publish(bool),
+    /// Publish the replacement here as a PR, after the editor (title, description): (then close
+    /// what it replaces, next; ready for review, not a draft).
+    Publish(bool, bool),
     /// Close the PRs the replacement here replaces, after the editor (the note).
     CloseOriginals,
     /// A new PR conversation comment, starting with `quote` (may be empty); `as_is`: posted
@@ -346,12 +346,12 @@ enum Target {
     ClaudeNotes,
     /// Have Claude draft (or redraft) a replacement for these PRs, in the background.
     ClaudeReplace(Vec<u64>),
-    /// Publish the replacement here as a draft PR (`true`: then close the PRs it replaces) /
-    /// close them.
-    Publish(bool),
+    /// Publish the replacement here as a PR (then close the PRs it replaces; ready for review,
+    /// not a draft) / close them.
+    Publish(bool, bool),
     CloseOriginals,
     /// Keep replacement branches on this remote (`dv.replaceRemote`), then publish (as `Publish`).
-    ReplaceRemote(String, bool),
+    ReplaceRemote(String, bool, bool),
     ClaudeFresh,
     ClaudePane,
     ClaudeCheck,
@@ -365,6 +365,8 @@ enum Target {
     GitMerge,
     /// Dismiss all of Claude's outdated comments (`true`: confirmed).
     ClaudeDismissOutdated(bool),
+    /// Mark the PR (a draft) ready for review.
+    GitReady,
     /// Post Claude's proposed description to the PR (`true`: confirmed), or drop it.
     DescApprove(bool),
     DescDiscard,
@@ -975,26 +977,27 @@ impl App {
                 agent::spawn_replace(&prs)?;
                 Ok(format!("Claude is drafting a replacement for {which} in the background: dv list's replacements tab shows it"))
             }
-            Action::Publish(close) => {
+            Action::Publish(close, ready) => {
                 let mut r = self.replacement.clone().context("not a replacement")?;
                 if crate::replace::remote().is_none() {
-                    return Ok(self.ask_replace_remote(close));
+                    return Ok(self.ask_replace_remote(close, ready));
                 }
                 let prefill = format!("{}\n\n{}", r.title.trim(), r.body.trim());
-                let what = format!("draft PR for {}: its title (first line), then its description", crate::replace::branch(r.id));
+                let kind = if ready { "PR (ready for review)" } else { "draft PR" };
+                let what = format!("{kind} for {}: its title (first line), then its description", crate::replace::branch(r.id));
                 let Some(text) = compose_with(&what, false, &prefill, true)? else { return Ok("not published".into()) };
                 let (title, body) = text.split_once('\n').map_or((text.as_str(), ""), |(t, b)| (t, b));
                 let (title, body) = (title.trim(), body.trim());
                 if title.is_empty() {
                     return Ok("not published: it needs a title (the first line)".into());
                 }
-                let res = crate::replace::publish(&mut r, &self.root, title, body);
+                let res = crate::replace::publish(&mut r, &self.root, title, body, ready);
                 keep_on_error(res.as_ref().map(drop).map_err(|e| anyhow!("{e:#}")), &text)?;
                 self.show_replacement(r);
                 if close {
                     self.action = Some(Action::CloseOriginals); // its own editor, next
                 }
-                Ok(format!("published as draft PR #{}: S closes what it replaces, with the note", res.unwrap_or(0)))
+                Ok(format!("published as {kind} #{}: S closes what it replaces, with the note", res.unwrap_or(0)))
             }
             Action::CloseOriginals => {
                 let mut r = self.replacement.clone().context("not a replacement")?;

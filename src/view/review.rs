@@ -263,7 +263,8 @@ impl App {
         self.picker = Some(Picker { title: " submit review ", items, query: String::new(), sel: 0 });
     }
 
-    /// `S` on a replacement: publish it as a draft PR, then close what it replaces.
+    /// `S` on a replacement: publish it as a PR (a draft, or ready for review), then close what
+    /// it replaces.
     fn replacement_menu(&mut self) {
         let Some(r) = &self.replacement else { return };
         let item = |label: String, target| Item::new(label, target);
@@ -276,13 +277,17 @@ impl App {
             // Only commits are published: what isn't committed would be left out.
             None if dirty => vec![item("Commit the uncommitted changes first (they'd be left out)…".into(), Target::GitCommit)],
             None => {
-                let mut v = vec![item(format!("Publish as a draft PR (rebased on origin/{}, pushed {to})…", r.base), Target::Publish(false))];
+                let mut v = vec![
+                    item(format!("Publish as a draft PR (rebased on origin/{}, pushed {to})…", r.base), Target::Publish(false, false)),
+                    item("Publish ready for review (not a draft)…".into(), Target::Publish(false, true)),
+                ];
                 if !open.is_empty() {
-                    v.push(item(format!("Publish, then close {} with the closing note…", open.join(", ")), Target::Publish(true)));
+                    v.push(item(format!("Publish, then close {} with the closing note…", open.join(", ")), Target::Publish(true, false)));
+                    v.push(item(format!("Publish ready for review, then close {}…", open.join(", ")), Target::Publish(true, true)));
                 }
                 v
             }
-            Some(n) => vec![item(format!("Published as draft PR #{n}"), Target::Nothing)],
+            Some(n) => vec![item(format!("Published as PR #{n}"), Target::Nothing)],
         };
         match (r.published, open.is_empty()) {
             (_, true) => items.push(item("  the PRs it replaces are closed".into(), Target::Nothing)),
@@ -293,12 +298,12 @@ impl App {
     }
 
     /// Which remote keeps replacement branches: asked once, then kept in `dv.replaceRemote`.
-    pub(super) fn ask_replace_remote(&mut self, close: bool) -> String {
+    pub(super) fn ask_replace_remote(&mut self, close: bool, ready: bool) -> String {
         let choices = crate::replace::remote_choices();
         if choices.is_empty() {
             return "replacement branches go to a remote of your own, not origin: add one (git remote add <name> <your fork's URL>), then S again".into();
         }
-        let items = choices.into_iter().map(|(n, url)| Item::new(format!("{n}  {url}"), Target::ReplaceRemote(n, close))).collect();
+        let items = choices.into_iter().map(|(n, url)| Item::new(format!("{n}  {url}"), Target::ReplaceRemote(n, close, ready))).collect();
         self.picker = Some(Picker { title: " which remote keeps replacement branches? ", items, query: String::new(), sel: 0 });
         "dv remembers it (git config dv.replaceRemote)".into()
     }
@@ -519,7 +524,7 @@ impl App {
         let mut status = vec![];
         if let Some(n) = r.published {
             let url = r.replaces.first().and_then(|o| Some(format!("{}/{n}", o.url.rsplit_once('/')?.0))).unwrap_or_default();
-            let mut l = line(false, false, &format!("published as draft PR #{n}"));
+            let mut l = line(false, false, &format!("published as PR #{n}"));
             l.marks.push((l.text.chars().count() - format!("#{n}").len(), l.text.chars().count(), gh::Mark::Link(url)));
             status.push(l);
         }
