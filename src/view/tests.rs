@@ -2204,3 +2204,33 @@ fn space_g_marks_a_draft_ready() {
     app.pr_state = Some(("OPEN", "238636"));
     assert!(!ready(&mut app));
 }
+
+#[test]
+fn reply_to_claudes_summary() {
+    let mut app = fixture();
+    app.claude.path = Some(std::env::temp_dir().join("dv-unused-review.json"));
+    _ = screen(220, 30, |f| app.draw(f));
+    // r on Claude's summary (on the PR tab): a reply to it, starting a thread about it.
+    let row = app.rows.iter().position(|r| r.info == Some(SUMMARY) && r.line.text.contains("Looks right")).expect("the summary");
+    app.goto(row, 0);
+    app.start_reply(true);
+    assert!(matches!(app.action.take(), Some(Action::AskConversation { url, .. }) if url == ON_SUMMARY), "{}", app.msg);
+    // With that thread there: under the summary, and r on the summary goes on in it.
+    let c = |who: &str, body: &str| gh::Comment { author: who.into(), body: body.into(), ..Default::default() };
+    app.threads.push(gh::Thread { claude: Some("c7".into()), conversation: ON_SUMMARY.into(), comments: vec![c("you", "why approve?"), c("claude", "Because it's minimal.")], ..Default::default() });
+    app.build();
+    _ = screen(220, 30, |f| app.draw(f));
+    let at = |app: &App, t: &str| app.rows.iter().position(|r| r.line.text.contains(t)).expect(t);
+    assert!(at(&app, "why approve?") > row && app.pr_row(at(&app, "why approve?")));
+    assert!(!app.rows.iter().any(|r| r.line.text.starts_with("questions about") || r.line.text.starts_with("comments on files no longer")));
+    let row = app.rows.iter().position(|r| r.info == Some(SUMMARY) && r.thread.is_none() && r.line.text.contains("Looks right")).unwrap();
+    app.goto(row, 0);
+    app.start_reply(true);
+    assert!(matches!(app.action.take(), Some(Action::ClaudeReply(k)) if k == "c7"));
+    // In the Claude view: under its summary's section, in the diff's column.
+    app.bar_to(Bar::Claude);
+    let s = screen(220, 30, |f| app.draw(f));
+    let q = at(&app, "why approve?");
+    assert_eq!(app.rows[q].main, Some(CLAUDE_REVIEW));
+    assert!(s.contains("Because it's minimal."), "{s}");
+}

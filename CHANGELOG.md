@@ -5,6 +5,10 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- `r` on Claude's review summary replies to it: your reply and Claude's answer are a thread under
+  the summary (on the PR tab, and in the Claude view), and `r` there goes on with it.
+
 ## [0.15.0] - 2026-10-18
 
 ### Added

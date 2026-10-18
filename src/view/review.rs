@@ -1096,6 +1096,16 @@ impl App {
     }
 
     pub(super) fn start_reply(&mut self, review: bool) {
+        // On Claude's review summary: go on in the thread replying to it, or start one.
+        if self.rows[self.head.row].info == Some(SUMMARY) && self.rows[self.head.row].thread.is_none() {
+            if self.claude.path.is_none() {
+                return self.msg = "no review file here (not in a git repo?)".into();
+            }
+            return self.action = Some(match self.threads.iter().find(|t| t.conversation == ON_SUMMARY).and_then(|t| t.claude.clone()) {
+                Some(k) => Action::ClaudeReply(k),
+                None => Action::AskConversation { url: ON_SUMMARY.into(), prefill: String::new() },
+            });
+        }
         if let Some((_, k)) = self.claude_at_cursor() {
             return self.action = Some(Action::ClaudeReply(k));
         }

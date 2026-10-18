@@ -211,6 +211,7 @@ impl App {
                     rows.push(summary(mk(Kind::Thread, "claude's review".into())));
                     rows.extend(self.md_rows_at(&self.claude.summary, width, mk).into_iter().map(summary));
                     rows.push(Row { edge: true, ..summary(mk(Kind::Comment, String::new())) });
+                    rows.extend(self.summary_threads(None)); // your replies to it, and Claude's answers
                 }
                 // Yours, as it goes to GitHub with the review (`S`), in full beside the strip
                 // that has its start.
@@ -225,6 +226,9 @@ impl App {
         // The Claude view: Claude's summary in full, before the files, like one.
         if self.view == View::Claude && !self.claude.summary.trim().is_empty() {
             rows.extend(self.section(CLAUDE_REVIEW, "claude's review".into(), &self.claude.summary, Some(SUMMARY)));
+            if !self.sections_folded.contains(&CLAUDE_REVIEW) {
+                rows.extend(self.summary_threads(Some(CLAUDE_REVIEW)));
+            }
         }
         // Before the files, like one: the PR's description, then the messages of the commits shown.
         if self.view == View::All {
@@ -267,6 +271,7 @@ impl App {
                 .filter(|&t| self.in_view(&self.threads[t]) && !self.files.iter().any(|f| f.path == self.threads[t].path))
                 // Questions about the conversation are under their comment, in the whole diff.
                 .filter(|&t| self.threads[t].conversation.is_empty() || self.view != View::All || self.conversation_item(&self.threads[t].conversation).is_none())
+                .filter(|&t| self.threads[t].conversation != ON_SUMMARY) // under the summary
                 .collect(),
         };
         // By file (stable: in order within one); questions about the conversation, on no file, last.
@@ -389,6 +394,16 @@ impl App {
             .or_insert_with(|| crate::md::render(text, width, &self.ui.md, &self.hl, self.repo_url()))
             .clone();
         lines.into_iter().map(|l| Row { syn: l.styles, links: l.links, nowrap: l.nowrap, ..mk(Kind::Comment, l.text) }).collect()
+    }
+
+    /// Your replies to Claude's review summary (and its answers), under it: in the pane (`main`
+    /// `None`), or in the Claude view's section.
+    fn summary_threads(&self, main: Option<usize>) -> Vec<Row> {
+        (0..self.threads.len())
+            .filter(|&t| self.threads[t].conversation == ON_SUMMARY && self.in_view(&self.threads[t]))
+            .flat_map(|t| self.thread_rows(t, INFO))
+            .map(|r| Row { main, ..r })
+            .collect()
     }
 
     /// The questions for Claude about conversation comment `info[body]` (and its answers),

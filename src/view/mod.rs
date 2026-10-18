@@ -164,6 +164,8 @@ const DRAFT: usize = usize::MAX - 2;
 const FACTS: usize = usize::MAX - 3;
 /// `Row::main` for the description's section (commit `n`'s message is `1 + n`).
 const DESCRIPTION: usize = 0;
+/// What a thread in Claude's review file that replies to its summary is on (`"conversation"`).
+const ON_SUMMARY: &str = "summary";
 /// `Row::main` for Claude's review summary, a section of its own in the Claude view.
 const CLAUDE_REVIEW: usize = usize::MAX;
 
@@ -932,7 +934,10 @@ impl App {
             }
             Action::AskConversation { url, prefill } => {
                 let p = self.claude.path.clone().context("no review file")?;
-                let what = "ask Claude about this conversation comment (it answers under it; nothing goes to GitHub)";
+                let what = match url == ON_SUMMARY {
+                    true => "a reply to Claude's review summary (it answers under it; nothing goes to GitHub)",
+                    false => "ask Claude about this conversation comment (it answers under it; nothing goes to GitHub)",
+                };
                 let Some(body) = compose_with(what, false, &prefill, false)? else { return Ok("question cancelled".into()) };
                 keep_on_error(crate::claude::add_conversation(&p, &url, &body).map(drop), &body)?;
                 self.load_claude();

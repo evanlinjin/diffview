@@ -23,7 +23,8 @@
 //! A top-level `"description"` is a new description Claude proposes for the PR (when asked):
 //! dv shows it against the current one, for the user to approve (it's posted then) or not.
 //! One with `"conversation": "<url>"` instead of `path`/`line` asks about a comment in the PR's
-//! conversation (that URL's): it's on no lines, and dv shows it under that comment.
+//! conversation (that URL's): it's on no lines, and dv shows it under that comment; with
+//! `"conversation": "summary"`, it replies to the review's summary, and shows under that.
 //!
 //! `id` names a comment for good (`c1`, `c2`, …), so replies and dismissals reach the right one
 //! however the list is edited; dv and `dv review-check` give one to any comment without.
