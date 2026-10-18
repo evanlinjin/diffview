@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-18
+
 ### Added
 - `Space g` on a draft PR: mark it ready for review.
 - Todo: your draft with its checks green and nothing unpushed is a need, "mark it ready for review".
@@ -574,6 +576,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.15.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.15.0
 [0.14.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.14.0
 [0.13.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.13.0
 [0.12.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.12.0
