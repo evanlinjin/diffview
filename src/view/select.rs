@@ -91,6 +91,11 @@ impl App {
     }
 
     pub(super) fn copy_ref(&mut self) {
+        // On a link: its URL (what Enter opens in the browser).
+        if let Some(u) = self.link_at_cursor().map(str::to_owned) {
+            clipboard(&u);
+            return self.msg = format!("copied {u}");
+        }
         match self.cursor_ref() {
             Some(r) => {
                 clipboard(&r);

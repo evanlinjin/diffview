@@ -69,7 +69,7 @@ SELECT & COPY
   v  ;  Esc            select mode / collapse / exit select mode
   y  (or Space y)      copy text
   Y                    copy as patch
-  Space c              copy a ref: file:line, or a comment's / the PR's link
+  Space c              copy: a link's URL (on one), else file:line, or a comment's / the PR's link
 
 VIEW
   + =  -               hunk context +10 / -10 lines

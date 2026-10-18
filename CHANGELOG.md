@@ -5,6 +5,10 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- `Space c` on a link copies its URL (the link's tooltip says so, and the key hints have a
+  "link" set: open, copy, preview).
+
 ### Changed
 - A merge that succeeds deletes github-merge.py's branches for the PR (`pull/N/base`,
   `pull/N/head`), which piled up a pair a merge; a failed one keeps them.

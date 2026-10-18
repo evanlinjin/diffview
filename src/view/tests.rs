@@ -542,6 +542,18 @@ fn copy_refs() {
         app.cursor_ref().unwrap()
     };
     assert_eq!(at(&mut app, "Looks good"), "https://github.com/o/r/pull/1#issuecomment-5"); // conversation comment
+    // On a link: Space c copies its URL (what Enter opens), and the hints say so.
+    app.info[1].text = "See [the docs](https://example.com/docs).".into();
+    app.build();
+    let r = app.rows.iter().position(|r| r.links.iter().any(|l| l.2 == "https://example.com/docs")).unwrap();
+    let col = app.rows[r].links.iter().find(|l| l.2 == "https://example.com/docs").unwrap().0;
+    app.goto(r, col);
+    assert_eq!(app.link_at_cursor(), Some("https://example.com/docs"));
+    assert_eq!(app.context_keys().unwrap().0, "link");
+    app.copy_ref();
+    assert_eq!(app.msg, "copied https://example.com/docs");
+    app.info[1].text = "Looks good".into();
+    app.build();
     assert_eq!(at(&mut app, "PR #1 · t"), url); // the PR header
     let second = app.rows.iter().enumerate().filter(|(_, r)| r.thread == Some(0) && r.line.text == "hi").nth(1).unwrap().0;
     app.goto(second, 0);

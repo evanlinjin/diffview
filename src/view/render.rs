@@ -131,6 +131,10 @@ impl App {
                 ("Space c", "copy file:line ref"),
             ]));
         }
+        // On a link: what can be done with it (before what the row it's in offers).
+        if self.link_at_cursor().is_some() {
+            return Some(("link", &[("Enter", "open it in the browser"), ("Space c", "copy it"), ("Space k", "preview it (an issue or PR)")]));
+        }
         if let Some(t) = row.thread {
             let t = &self.threads[t];
             return Some(match (t.claude.is_some(), agent::claude_wrote(t), t.outdated) {
@@ -544,7 +548,7 @@ impl App {
             };
             let x = ((start + self.head.col.saturating_sub(self.hscroll(self.head.row))) as u16).min(area.width.saturating_sub(20));
             let preview = if gh::issue_ref(url).is_some() { "Space k preview · " } else { "" };
-            let text = format!(" ↗ {url}  {preview}gf open ");
+            let text = format!(" ↗ {url}  {preview}gf open · Space c copy ");
             let w = (text.chars().count() as u16).min(area.width - x);
             let ty = if y + 1 < (h + pin) as u16 { y + 1 } else { y.saturating_sub(1) };
             let r = Rect { x: area.x + x, y: area.y + ty, width: w, height: 1 };

@@ -164,7 +164,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `]f [f`, `Space f` | next/prev file, file picker |
 | `/`, `n N`, `*` | search (smart case), next/prev match (as in Helix), search for the selection |
 | `y` / `Space y`, `Y` | copy text, copy as patch (via OSC 52) |
-| `Space c` | copy a ref to paste to Claude: `path:line` / `path:start-end` for the selection; on a GitHub comment its link (`…#discussion_r…`, `…#issuecomment-…`), on the PR header / description the PR's, on a Claude comment its lines |
+| `Space c` | on a link: copy its URL (what Enter opens in the browser; its tooltip and the key hints say so). Else copy a ref to paste to Claude: `path:line` / `path:start-end` for the selection; on a GitHub comment its link (`…#discussion_r…`, `…#issuecomment-…`), on the PR header / description the PR's, on a Claude comment its lines |
 | `+`/`=`, `-`, `Z` | context ±10 lines around the hunk under the cursor (hunks merge as they meet), whole file |
 | `Tab` | collapse/expand file; on a comment, fold/unfold its thread |
 | `Shift-Tab` | fold all files, or unfold all if all are folded |
