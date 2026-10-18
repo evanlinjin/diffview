@@ -10,6 +10,8 @@ pub(super) enum Ask {
     /// Make the changes the review's open comments ask for (Claude's and yours), and/or what
     /// your instructions say.
     Fix,
+    /// Propose a new description for the PR (in the review file), for you to approve.
+    Describe,
 }
 
 /// What `claude -p` may do in the background: edit files (the review, and code when asked),
@@ -22,6 +24,8 @@ const ALLOWED: &[&str] = &[
     "Bash(git show:*)",
     "Bash(git log:*)",
     "Bash(git rev-parse:*)",
+    // The PR's description and conversation, to propose a new description from.
+    "Bash(gh pr view:*)",
     // To check a change it made still builds and passes.
     "Bash(cargo check:*)",
     "Bash(cargo build:*)",
@@ -171,6 +175,14 @@ impl App {
         if self.claude_pane().is_some() {
             items.insert(0, Item::new("Show Claude's pane (its session on this PR)", Target::ClaudePane));
         }
+        // A description Claude proposed: yours to approve (posted then), take further, or drop.
+        if !self.claude.description.is_empty() {
+            items.insert(0, Item::new("Discard Claude's proposed description", Target::DescDiscard));
+            items.insert(0, Item::new("Ask Claude for more changes to the description…", Target::Claude(Ask::Describe)));
+            items.insert(0, Item::new("Approve Claude's description: it replaces the PR's on GitHub…", Target::DescApprove(false)));
+        } else if self.pr.is_some() {
+            items.push(Item::new("Ask Claude to change the PR's description (you approve it)…", Target::Claude(Ask::Describe)));
+        }
         // One that seems stuck: it can be stopped (the session stays, so the next run resumes it).
         if let Some(j) = &self.claude.job {
             items.insert(0, Item::new(format!("Stop Claude ({} for {})", j.label, ago(j.started)), Target::ClaudeStop));
@@ -248,6 +260,47 @@ impl App {
         };
     }
 
+    /// `Space a` → approve Claude's description: after a confirmation (`sure`), it replaces
+    /// the PR's on GitHub, and the proposal goes.
+    pub(super) fn approve_description(&mut self, sure: bool) {
+        let (Some(pr), Some(path)) = (self.pr.as_ref().map(|p| p.number), self.claude.path.clone()) else { return };
+        if !sure {
+            let items = vec![
+                Item::new("No, not yet", Target::Nothing),
+                Item::new(format!("Yes, replace #{pr}'s description on GitHub with Claude's"), Target::DescApprove(true)),
+            ];
+            return self.picker = Some(Picker { title: " description ", items, query: String::new(), sel: 0 });
+        }
+        let text = self.claude.description.clone();
+        self.msg = match crate::gh::set_body(pr, &text).and_then(|_| crate::claude::clear_description(&path)) {
+            Ok(()) => {
+                // What's on GitHub now, without waiting for the next fetch.
+                if let Some(b) = (0..self.info.len()).find(|&i| self.is_description(i)).map(|h| h + 1).filter(|&b| self.info.get(b).is_some_and(|l| l.md)) {
+                    self.info[b].text = text;
+                }
+                let keep = self.cursor_key();
+                self.load_claude();
+                self.rebuild(keep);
+                format!("#{pr}'s description is Claude's now")
+            }
+            Err(e) => format!("description not changed: {e:#}"),
+        };
+    }
+
+    /// `Space a` → discard Claude's proposed description.
+    pub(super) fn discard_description(&mut self) {
+        let Some(path) = self.claude.path.clone() else { return };
+        self.msg = match crate::claude::clear_description(&path) {
+            Ok(()) => {
+                let keep = self.cursor_key();
+                self.load_claude();
+                self.rebuild(keep);
+                "Claude's proposed description discarded".into()
+            }
+            Err(e) => format!("{e:#}"),
+        };
+    }
+
     /// The ids of Claude's own comments whose code has changed (not your comments for it).
     pub(super) fn outdated_claude_comments(&self) -> Vec<String> {
         self.threads.iter().filter(|t| claude_wrote(t) && t.outdated).filter_map(|t| t.claude.clone()).collect()
@@ -290,6 +343,12 @@ impl App {
                 None => review_prompt(&what),
             },
             Ask::Answer => answer_prompt(&what, self.theirs),
+            Ask::Describe => format!(
+                "Use the dv-review skill to propose a new description for {what}, as the user asks below: the whole new text, \
+                 in the review file's top-level \"description\" field (see \"Propose a description\"). Start from the proposal \
+                 already there, if there is one, else from the PR's current description. Don't change the PR on GitHub: the user \
+                 approves it in dv."
+            ),
             Ask::Fix if self.theirs && self.change_requests() == 0 => format!(
                 "Use the dv-review skill to suggest the change the user asks for below, in the dv review of {what}: \
                  it's someone else's PR, so don't edit the code; add a comment of yours there with a suggestion block."
@@ -340,6 +399,10 @@ impl App {
         }
         if self.claude.path.is_none() {
             return self.msg = "no review file here (not in a git repo?)".into();
+        }
+        // On the PR's description: Claude proposes a new one (more changes, if it has).
+        if self.section_of(self.head.row) == Some("description") {
+            return self.pick_claude(Ask::Describe);
         }
         // On a comment in the PR's conversation: a question about it, under it.
         if let Some((url, prefill)) = self.conversation_at_cursor() {
@@ -417,7 +480,8 @@ impl App {
             return self.msg = why;
         }
         match ask {
-            Ask::Review | Ask::Fix => self.action = Some(Action::ClaudeWith(ask)),
+            Ask::Describe if self.pr.is_none() => self.msg = "no PR here, so no description to change".into(),
+            Ask::Review | Ask::Fix | Ask::Describe => self.action = Some(Action::ClaudeWith(ask)),
             ask => _ = self.run_claude(ask, ""),
         }
     }
@@ -442,6 +506,7 @@ impl App {
         let label = match ask {
             Ask::Review => "reviewing",
             Ask::Answer => "answering your replies",
+            Ask::Describe => "proposing a description",
             Ask::Fix if self.theirs => "suggesting the changes",
             Ask::Fix => "making the changes",
         };

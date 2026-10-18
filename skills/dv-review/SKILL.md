@@ -166,6 +166,16 @@ the user can post:
 
 Then run `dv review-check`.
 
+## Propose a description
+
+When asked to propose a new description for the PR: write the whole new text (GitHub markdown)
+into the review file's top-level `"description"` field, keeping everything else in the file as
+it is. Start from the proposal already there if there is one (the user is asking for more
+changes to it), else from the PR's current description (`gh pr view <n> --json body`). Do what
+the user asks, and keep what they didn't ask to change. Don't edit the PR on GitHub: dv shows
+your proposal against the current text, and the user approves it there (dv posts it then), or
+asks for more.
+
 ## 6. Draft a replacement
 
 Some PRs aren't worth reviewing into shape (low-effort ones, often AI-generated): the user has

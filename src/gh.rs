@@ -95,6 +95,11 @@ fn gh(args: &[&str]) -> Result<String> {
     gh_input(args, None)
 }
 
+/// Replace PR `n`'s description with `body` (`gh pr edit`, the text on stdin).
+pub fn set_body(n: u64, body: &str) -> Result<()> {
+    gh_input(&["pr", "edit", &n.to_string(), "--body-file", "-"], Some(body)).map(drop)
+}
+
 /// Run gh, optionally feeding `input` on stdin (for `--input -` JSON bodies).
 fn gh_input(args: &[&str], input: Option<&str>) -> Result<String> {
     let mut child = Command::new("gh")

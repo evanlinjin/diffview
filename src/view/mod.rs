@@ -351,6 +351,9 @@ enum Target {
     GitMerge,
     /// Dismiss all of Claude's outdated comments (`true`: confirmed).
     ClaudeDismissOutdated(bool),
+    /// Post Claude's proposed description to the PR (`true`: confirmed), or drop it.
+    DescApprove(bool),
+    DescDiscard,
     Nothing,
 }
 
@@ -401,6 +404,8 @@ struct ClaudeState {
     summary: String,
     /// The commit the review was made against (its `head`).
     head: String,
+    /// A new description for the PR that Claude proposes (empty: none).
+    description: String,
     /// A background `claude -p` run: (process, log file, what it's doing).
     job: Option<agent::ClaudeJob>,
     /// The Claude Code session of the last background run, resumed by the next.
@@ -911,9 +916,11 @@ impl App {
             Action::ClaudeWith(ask) => {
                 // Optional (empty goes ahead) unless they're the whole request: a change with no
                 // open comments. Quitting the editor with an error (`:cq`) cancels.
-                let alone = matches!(ask, agent::Ask::Fix) && self.change_requests() == 0;
+                let alone = matches!(ask, agent::Ask::Fix) && self.change_requests() == 0 || matches!(ask, agent::Ask::Describe);
                 let what = match (ask, alone) {
                     (agent::Ask::Review, _) => "anything for Claude to look at or keep in mind in its review (optional)",
+                    (agent::Ask::Describe, _) if !self.claude.description.is_empty() => "what else to change in Claude's proposed description",
+                    (agent::Ask::Describe, _) => "what to change in the PR's description (Claude proposes a new one; you approve it)",
                     (_, true) => "what Claude should change (there are no open comments to act on)",
                     _ => "instructions for Claude, on top of the open comments (optional)",
                 };

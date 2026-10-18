@@ -410,6 +410,7 @@ impl App {
         self.threads.retain(|t| t.claude.is_none());
         self.claude.summary.clear();
         self.claude.head.clear();
+        self.claude.description.clear();
         let Some(p) = &self.claude.path else { return };
         let loaded = crate::claude::load_with_ids(p);
         self.claude.mtime = std::fs::metadata(p).and_then(|m| m.modified()).ok(); // after any id write
@@ -429,7 +430,7 @@ impl App {
                 if !self.uncommitted() && self.commit_shown.is_none() {
                     crate::claude::reanchor(&mut r.threads, &self.files);
                 }
-                (self.claude.summary, self.claude.head) = (r.summary, r.head);
+                (self.claude.summary, self.claude.head, self.claude.description) = (r.summary, r.head, r.description);
                 self.threads.extend(r.threads);
             }
             Ok(None) => {}

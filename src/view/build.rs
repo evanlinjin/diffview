@@ -233,8 +233,21 @@ impl App {
             }
             if let Some(h) = (0..self.info.len()).find(|&i| self.is_description(i)) {
                 let text = self.info.get(h + 1).filter(|l| l.md).map_or("", |l| l.text.as_str());
-                let text = if text.trim().is_empty() { "_(no description)_" } else { text };
-                rows.extend(self.section("description", "description".into(), text, Some(h + 1)));
+                match self.claude.description.is_empty() {
+                    true => {
+                        let text = if text.trim().is_empty() { "_(no description)_" } else { text };
+                        rows.extend(self.section("description", "description".into(), text, Some(h + 1)));
+                    }
+                    // Claude's proposal: what it changes, line by line (as markdown source).
+                    false => {
+                        let mk = |kind, text| Row { main: true, info: Some(h + 1), ..Row::text(INFO, kind, text) };
+                        rows.push(mk(Kind::File, "description · Claude's proposal (Space a: approve, more changes, discard)".into()));
+                        if !self.sections_folded.contains("description") {
+                            let w = self.wrap_w.saturating_sub(2).max(20);
+                            rows.extend(line_diff(&wrap(text, w), &wrap(&self.claude.description, w)).into_iter().map(|(k, t)| mk(k, t)));
+                        }
+                    }
+                }
             }
         }
         // Threads on files that have left the diff (a change reverted, a file now matching the
@@ -681,4 +694,62 @@ impl App {
         }
         self.rebuild_at(|r| r.file == fi);
     }
+}
+
+/// `text`'s lines, each cut into lines of at most `w` chars at spaces (as markdown source reads),
+/// keeping a line's indent on the lines it's cut into.
+fn wrap(text: &str, w: usize) -> Vec<String> {
+    let mut out = vec![];
+    for line in text.replace("\r\n", "\n").lines() {
+        let body = line.trim_start();
+        let indent = &line[..line.len() - body.len()];
+        let mut cur = indent.to_owned();
+        for word in body.split(' ') {
+            if cur.len() > indent.len() && cur.chars().count() + 1 + word.chars().count() > w {
+                out.push(std::mem::replace(&mut cur, indent.to_owned()));
+            } else if cur.len() > indent.len() {
+                cur.push(' ');
+            }
+            cur.push_str(word);
+        }
+        out.push(cur);
+    }
+    out
+}
+
+/// A line diff of `old` → `new`: (Ctx | Del | Add, line), from their longest common subsequence.
+// ponytail: O(n·m) table; fine for a PR description, a real diff if it's ever used on files.
+fn line_diff(old: &[String], new: &[String]) -> Vec<(Kind, String)> {
+    let (n, m) = (old.len(), new.len());
+    let mut lcs = vec![vec![0u32; m + 1]; n + 1];
+    for i in (0..n).rev() {
+        for j in (0..m).rev() {
+            lcs[i][j] = if old[i] == new[j] { lcs[i + 1][j + 1] + 1 } else { lcs[i + 1][j].max(lcs[i][j + 1]) };
+        }
+    }
+    let (mut i, mut j, mut out) = (0, 0, vec![]);
+    while i < n || j < m {
+        if i < n && j < m && old[i] == new[j] {
+            out.push((Kind::Ctx, old[i].clone()));
+            (i, j) = (i + 1, j + 1);
+        } else if i < n && (j == m || lcs[i + 1][j] >= lcs[i][j + 1]) {
+            out.push((Kind::Del, old[i].clone())); // what goes, before what comes instead
+            i += 1;
+        } else {
+            out.push((Kind::Add, new[j].clone()));
+            j += 1;
+        }
+    }
+    out
+}
+
+#[test]
+fn description_diff() {
+    let l = |s: &str| s.lines().map(str::to_owned).collect::<Vec<_>>();
+    let d = line_diff(&l("a\nb\nc"), &l("a\nB\nc\nd"));
+    let k: Vec<Kind> = d.iter().map(|x| x.0).collect();
+    assert_eq!(k, [Kind::Ctx, Kind::Del, Kind::Add, Kind::Ctx, Kind::Add]);
+    assert_eq!(wrap("  - one two", 8), ["  - one", "  two"]);
+    assert_eq!(wrap("one two three", 7), ["one two", "three"]);
+    assert!(wrap("", 7).is_empty());
 }

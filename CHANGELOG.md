@@ -8,6 +8,9 @@ on GitHub are its section here.
 ### Added
 - `a` on a comment in the PR's conversation asks Claude about it: your question (the comment
   quoted) and Claude's answer are a thread under it, on the PR tab (`r` to go on).
+- `a` on the PR's description: Claude proposes a new one, as you ask. dv shows it against the
+  current text; `Space a` approves it (it replaces the description on GitHub), asks for more
+  changes, or discards it.
 - The PR's facts on the PR tab are in a box whose title opens the PR on GitHub; each failed or
   pending check links to its run, and `checks` to the PR's checks page.
 

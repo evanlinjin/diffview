@@ -626,7 +626,7 @@ mod tests {
     }
 
     fn review(threads: Vec<Thread>, head: &str) -> crate::claude::Review {
-        crate::claude::Review { head: head.into(), summary: String::new(), threads }
+        crate::claude::Review { head: head.into(), summary: String::new(), description: String::new(), threads }
     }
 
     #[test]

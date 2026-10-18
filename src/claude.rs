@@ -20,6 +20,8 @@
 //! "old" = the base). `start_line` is optional (single-line comment). Replies are a
 //! conversation with Claude: dv appends the user's (`r`), Claude appends its answers. A comment
 //! with `"author": "user"` is one the user left for Claude (`a` in dv), which Claude answers.
+//! A top-level `"description"` is a new description Claude proposes for the PR (when asked):
+//! dv shows it against the current one, for the user to approve (it's posted then) or not.
 //! One with `"conversation": "<url>"` instead of `path`/`line` asks about a comment in the PR's
 //! conversation (that URL's): it's on no lines, and dv shows it under that comment.
 //!
@@ -43,6 +45,8 @@ const USER: &str = "user";
 pub struct Review {
     pub head: String,
     pub summary: String,
+    /// A new description Claude proposes for the PR (empty: none), for the user to approve.
+    pub description: String,
     pub threads: Vec<Thread>,
 }
 
@@ -384,7 +388,7 @@ fn parse(text: &str) -> Result<Review> {
             })
         })
         .collect::<Result<_>>()?;
-    Ok(Review { head: s(&v["head"]), summary: s(&v["summary"]), threads })
+    Ok(Review { head: s(&v["head"]), summary: s(&v["summary"]), description: s(&v["description"]), threads })
 }
 
 /// A GitHub review comment's id, from a review file's `"about"`: the id, or its link
@@ -489,6 +493,15 @@ fn push_comment(path: &std::path::Path, c: Value) -> Result<String> {
     }
     write(path, &v)?;
     Ok(id)
+}
+
+/// Drop Claude's proposed description (approved, or discarded).
+pub fn clear_description(path: &std::path::Path) -> Result<()> {
+    let mut v: Value = serde_json::from_str(&std::fs::read_to_string(path)?)?;
+    if let Some(o) = v.as_object_mut() {
+        o.remove("description");
+    }
+    write(path, &v)
 }
 
 /// Remove comment `key`.

@@ -2073,3 +2073,32 @@ fn ask_claude_about_a_conversation_comment() {
     assert_eq!(u, url);
     assert!(prefill.starts_with("About @cy's comment (https://") && prefill.contains("> Can we rename it?"), "{prefill}");
 }
+
+#[test]
+fn claude_proposes_a_description() {
+    let mut app = fixture();
+    let path = std::env::temp_dir().join(format!("dv-desc-{}.json", std::process::id()));
+    std::fs::write(&path, r#"{"description": "Fixes **the thing**, see `new_call`.\n\nAlso renames it."}"#).unwrap();
+    app.claude.path = Some(path.clone());
+    app.load_claude();
+    app.build();
+    // The description's section shows the proposal against the current text, line by line.
+    let head = app.rows.iter().position(|r| r.main && r.line.text.starts_with("description · Claude's proposal")).expect("its section");
+    let added: Vec<&str> = app.rows[head..].iter().take_while(|r| r.main).filter(|r| r.line.kind == Kind::Add).map(|r| r.line.text.as_str()).collect();
+    assert_eq!(added, ["", "Also renames it."]);
+    assert!(app.rows[head..].iter().take_while(|r| r.main).any(|r| r.line.kind == Kind::Ctx && r.line.text.starts_with("Fixes **the thing**")));
+    // Space a: approve (after a confirmation), more changes, discard; a on it asks for more.
+    app.claude_menu();
+    let items = app.picker.take().unwrap().items;
+    assert!(matches!(items[0].target, Target::DescApprove(false)) && matches!(items[2].target, Target::DescDiscard));
+    app.approve_description(false);
+    assert!(app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::DescApprove(true))));
+    app.goto(head + 1, 0);
+    app.start_ask_claude();
+    assert!(matches!(app.action.take(), Some(Action::ClaudeWith(agent::Ask::Describe))), "{}", app.msg);
+    // Discarded: gone from the file, and the description is as it was.
+    app.discard_description();
+    assert!(!std::fs::read_to_string(&path).unwrap().contains("description"));
+    assert!(app.rows.iter().any(|r| r.main && r.line.text == "description"));
+    _ = std::fs::remove_file(&path);
+}
