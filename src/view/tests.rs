@@ -1238,6 +1238,14 @@ fn replacement_in_the_pr_section() {
     let names: Vec<files::Spot> = app.file_entries().into_iter().map(|e| e.spot).take(2).collect();
     assert_eq!(names, [files::Spot::Section(DESCRIPTION), files::Spot::Section(CLOSING_NOTE)]);
     assert_eq!(app.header_tag(INFO).unwrap().0, " UNPUBLISHED ");
+    // Unpublished: one tab for Claude's comments and yours (the whole diff), then the PR's.
+    let tabs = |app: &App| app.pane_tabs().into_iter().map(|t| t.1).collect::<Vec<_>>();
+    assert_eq!(tabs(&app), [" Claude ", " PR "]);
+    assert_eq!(app.bar(), Bar::Claude);
+    app.cycle_bar(true);
+    assert_eq!(app.bar(), Bar::Pr);
+    app.cycle_bar(true);
+    assert!(app.bar() == Bar::Claude && app.view == View::All);
     let row = app.rows.iter().find(|r| r.line.text.starts_with("replaces")).unwrap();
     assert_eq!(row.links.iter().map(|l| l.2.as_str()).collect::<Vec<_>>(), ["https://github.com/o/r/pull/12", "https://github.com/o/r/pull/15"]); // each original links to it
     // Space a offers to redraft it.
@@ -1285,6 +1293,7 @@ fn replacement_in_the_pr_section() {
     assert_eq!(items[0].0, "Published as PR #20");
     assert!(items[1].0 == "Close #15 with the closing note (now)…" && matches!(items[1].1, Target::CloseOriginals));
     assert_eq!(app.header_tag(INFO).unwrap().0, " PUBLISHED ");
+    assert_eq!(app.pane_tabs().len(), 3); // others comment now
     let row = app.rows.iter().find(|r| r.line.text == "published as PR #20").unwrap();
     assert_eq!(row.links[0].2, "https://github.com/o/r/pull/20"); // the new PR, linked
 }

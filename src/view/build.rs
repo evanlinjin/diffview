@@ -235,8 +235,8 @@ impl App {
                 }
             }
         }
-        // The Claude view: Claude's summary in full, before the files, like one.
-        if self.view == View::Claude && !self.claude.summary.trim().is_empty() {
+        // The Claude view (a draft's one tab too): Claude's summary in full, before the files, like one.
+        if (self.view == View::Claude || self.unpublished()) && !self.claude.summary.trim().is_empty() {
             rows.extend(self.section(CLAUDE_REVIEW, "claude's review".into(), &self.claude.summary, Some(SUMMARY)));
             if !self.sections_folded.contains(&CLAUDE_REVIEW) {
                 rows.extend(self.summary_threads(Some(CLAUDE_REVIEW)));

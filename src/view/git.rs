@@ -114,7 +114,7 @@ impl App {
     pub(super) fn refresh_sync(&mut self) {
         let mut parts = vec![];
         // A draft not published yet: its commits are all unpushed, as they should be.
-        if self.replacement.as_ref().is_some_and(|r| r.published.is_none()) {
+        if self.unpublished() {
             return self.sync.clear();
         }
         if let Ok((remote, branch, _)) = self.push_target() {

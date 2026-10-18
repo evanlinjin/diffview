@@ -68,8 +68,13 @@ impl App {
     /// starts): each one's label and its columns.
     pub(super) fn pane_tabs(&self) -> Vec<(Bar, &'static str, std::ops::Range<usize>)> {
         let mut x = 1;
-        [(Bar::Comments, " Comments "), (Bar::Claude, " Claude "), (Bar::Pr, " PR ")]
-            .into_iter()
+        // A draft no one else has seen: only Claude's comments and yours, so one tab for both.
+        let tabs: &[_] = match self.unpublished() {
+            true => &[(Bar::Claude, " Claude "), (Bar::Pr, " PR ")],
+            false => &[(Bar::Comments, " Comments "), (Bar::Claude, " Claude "), (Bar::Pr, " PR ")],
+        };
+        tabs.iter()
+            .copied()
             .map(|(b, l)| {
                 x += l.len();
                 (b, l, x - l.len()..x)
@@ -80,6 +85,7 @@ impl App {
     /// The tab that's lit: the PR's text, Claude's review (the Claude view), or the comments.
     pub(super) fn bar(&self) -> Bar {
         match (self.pane_tab, self.view) {
+            (Tab::Comments, _) if self.unpublished() => Bar::Claude,
             (_, View::Claude) => Bar::Claude,
             (Tab::Pr, _) => Bar::Pr,
             _ => Bar::Comments,
@@ -89,7 +95,8 @@ impl App {
     /// To tab `b` (a click on it, `gn` / `gp`): each tab its view: Claude's, the Claude view
     /// beside its comments; the comments' and the PR's, the whole diff.
     pub(super) fn bar_to(&mut self, b: Bar) {
-        let v = if b == Bar::Claude { View::Claude } else { View::All };
+        // In a draft, Claude's tab is the whole diff: every comment there is Claude's or yours.
+        let v = if b == Bar::Claude && !self.unpublished() { View::Claude } else { View::All };
         if v != self.view {
             self.toggle_view(if v == View::All { self.view } else { v });
         }
@@ -102,9 +109,14 @@ impl App {
 
     /// `gn` / `gp`: the next / previous tab, round.
     pub(super) fn cycle_bar(&mut self, fwd: bool) {
-        let tabs = [Bar::Comments, Bar::Claude, Bar::Pr];
+        let tabs: Vec<Bar> = self.pane_tabs().into_iter().map(|t| t.0).collect();
         let i = tabs.iter().position(|&b| b == self.bar()).unwrap_or(0);
-        self.bar_to(tabs[(i + if fwd { 1 } else { 2 }) % 3]);
+        self.bar_to(tabs[(i + if fwd { 1 } else { tabs.len() - 1 }) % tabs.len()]);
+    }
+
+    /// A replacement (or new PR) not published yet: Claude's draft, seen by no one else.
+    pub(super) fn unpublished(&self) -> bool {
+        self.replacement.as_ref().is_some_and(|r| r.published.is_none())
     }
 
     /// The first row of the code block or table (in a comment) that row `r` is a line of.
