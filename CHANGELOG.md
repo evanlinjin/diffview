@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.24.2] - 2026-10-18
+
 ### Changed
 - `dv list`'s mouse: a click selects a card and a double-click opens it (a click on the selected
   one opened it, which a wheel turn could make a surprise); a click on a tab switches to it. Its
@@ -735,6 +737,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.24.2]: https://github.com/evanlinjin/diffview/releases/tag/v0.24.2
 [0.24.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.24.1
 [0.24.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.24.0
 [0.23.3]: https://github.com/evanlinjin/diffview/releases/tag/v0.23.3
