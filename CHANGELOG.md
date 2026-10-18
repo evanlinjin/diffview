@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-18
+
 ### Added
 - `a` on a GitHub review comment asks Claude about it ("what do you think about this?"): your
   editor has it quoted, and Claude answers on that thread's lines.
@@ -489,6 +491,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.9.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.9.0
 [0.8.6]: https://github.com/evanlinjin/diffview/releases/tag/v0.8.6
 [0.8.5]: https://github.com/evanlinjin/diffview/releases/tag/v0.8.5
 [0.8.4]: https://github.com/evanlinjin/diffview/releases/tag/v0.8.4
