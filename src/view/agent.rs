@@ -187,13 +187,18 @@ impl App {
             )),
             _ => {}
         }
-        self.picker = Some(Picker { title: " claude ", items, query: String::new(), sel: if n > 0 { 1 } else { 0 } });
+        // Preselected: answering your replies if any wait, else the review (never Stop: Enter
+        // out of habit mustn't end a run).
+        let want = |t: &Target| matches!(t, Target::Claude(a) if matches!((a, n > 0), (Ask::Answer, true) | (Ask::Review, false)));
+        let sel = items.iter().position(|i| want(&i.target)).unwrap_or(0);
+        self.picker = Some(Picker { title: " claude ", items, query: String::new(), sel });
     }
 
     /// `Space a` → check now: the review file read again (as if it had changed), and the
     /// background run's state, rather than waiting for dv to notice.
     pub(super) fn check_claude(&mut self) {
-        self.claude.mtime = None; // read it, changed or not
+        // Read it, changed or not (or gone: `None` would look unchanged then).
+        self.claude.mtime = Some(std::time::SystemTime::UNIX_EPOCH);
         self.watch_claude();
         self.poll_claude();
         if let Some(j) = &self.claude.job {
@@ -207,11 +212,14 @@ impl App {
     /// next run resumes where it left off.
     pub(super) fn stop_claude(&mut self) {
         let Some(mut j) = self.claude.job.take() else { return self.msg = "Claude isn't working on anything".into() };
+        // Its process group: Claude and the commands it's running (a build, the tests).
+        let group = format!("-{}", j.child.id());
+        _ = std::process::Command::new("kill").args(["-KILL", "--", &group]).stderr(std::process::Stdio::null()).status();
         _ = j.child.kill();
         _ = j.child.wait();
         self.claude.again = false;
         self.reload_tree(); // what it changed before it stopped
-        self.msg = format!("stopped Claude ({} for {}); its log: {}", j.label, ago(j.started), j.log.display());
+        self.msg = format!("stopped Claude ({} for {}); its log: {} (and .err)", j.label, ago(j.started), j.log.display());
     }
 
     /// Forget the PR's Claude session, so the next run starts a new one: when it has got
@@ -487,6 +495,7 @@ impl App {
     /// It runs in the PR's session (or, `forked`, a fork of it), so Claude keeps the review's
     /// context across runs.
     fn spawn_claude(&mut self, prompt: &str, label: &'static str, forked: bool) -> Result<ClaudeJob> {
+        use std::os::unix::process::CommandExt;
         // One log per run, so a follow-up run doesn't wipe the one a message points to.
         self.claude.runs += 1;
         let log = std::env::temp_dir().join(format!("dv-claude-{}-{}.log", std::process::id(), self.claude.runs));
@@ -499,6 +508,7 @@ impl App {
             .stdin(std::process::Stdio::null())
             .stdout(std::fs::File::create(&log)?)
             .stderr(std::fs::File::create(&err)?)
+            .process_group(0) // so stopping it stops what it's running too
             .spawn()
             .context("is Claude Code (`claude`) installed?")?;
         self.claude.log = Some(log.clone());
@@ -652,14 +662,15 @@ fn path_for_claude() -> std::ffi::OsString {
     std::env::join_paths(own.into_iter().chain(rest)).unwrap_or_default()
 }
 
-/// How long since `t`, for the status bar: "40s", "3m".
-/// `XDG_DATA_HOME=…` if dv has it set: where its review files are.
+/// `XDG_DATA_HOME=…` as dv has it (set, or its default): where its review files are, whatever
+/// the pane's environment says.
 fn data_env() -> Option<std::ffi::OsString> {
     let mut v = std::ffi::OsString::from("XDG_DATA_HOME=");
-    v.push(std::env::var_os("XDG_DATA_HOME")?);
+    v.push(crate::claude::data_home().ok()?.parent()?);
     Some(v)
 }
 
+/// How long since `t`, for the status bar: "40s", "3m".
 pub(super) fn ago(t: std::time::Instant) -> String {
     match t.elapsed().as_secs() {
         s if s < 60 => format!("{s}s"),

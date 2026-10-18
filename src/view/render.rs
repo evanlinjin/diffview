@@ -257,10 +257,14 @@ impl App {
         // Where the margin starts (floating: over the code's right end).
         let mx = width.saturating_sub(mw).saturating_sub(gw + 1);
         self.geom = mouse::Geom { relw, gw, ghw, half, ctw: if float { mx } else { ctw }, picker: None };
+        let code_line = matches!(self.rows[self.head.row].line.kind, Kind::Ctx | Kind::Add | Kind::Del);
+        let on_pr = self.on_pr_tab();
         let cur_w = match self.drows[self.hd()] {
+            _ if on_pr => mtw, // `hd` is where the cursor was in the code
             DRow::Pair(..) => htw_l.min(htw_r),
             DRow::Margin(..) if self.margin_side() => mtw,
-            DRow::Margin(Some(_), Some(_), _) => htw_l.min(htw_r),
+            // Split view beside the pane: a line is one half, paired or not.
+            DRow::Margin(..) if self.split && code_line => htw_l.min(htw_r),
             DRow::Margin(..) => ctw,
             DRow::Full(_) => tw,
         };
@@ -284,6 +288,7 @@ impl App {
                 follow(&mut self.code_left, w)
             }
             (None, Some(_)) => {}
+            (None, None) if on_pr => {} // the code's offset isn't the PR text's
             (None, None) => follow(&mut self.left, cur_w),
         }
 
@@ -388,9 +393,10 @@ impl App {
             } as u16;
             // In the margin, the text starts after the code column, the gap and its own gutter.
             let start = match self.drows[hd] {
-                DRow::Margin(..) if self.margin_side() => relw + self.geom.gw + self.geom.ctw + 1 + 3,
+                _ if on_pr || self.margin_side() => relw + self.geom.gw + self.geom.ctw + 1 + 3,
                 DRow::Pair(..) | DRow::Margin(Some(_), Some(_), _) if self.right => relw + half + 1 + ghw,
                 DRow::Pair(..) => relw + ghw,
+                DRow::Margin(Some(_), Some(_), _) if self.split => relw + ghw,
                 DRow::Margin(Some(l), None, _) if self.split && self.rows[l].line.kind == Kind::Del => relw + ghw,
                 DRow::Margin(None, Some(_), _) if self.split => relw + half + 1 + ghw,
                 _ => relw + gw,

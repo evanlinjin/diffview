@@ -36,6 +36,10 @@ on GitHub are its section here.
   or on its branch, as asked), and the base fetch when the PR's base commit is already here.
 
 ### Fixed
+- `Space a` while Claude is working preselects what it did before, not "Stop Claude": Enter out
+  of habit no longer ends the run. Stopping it also stops the commands it was running.
+- `Ctrl-w t` from a comment puts the cursor on the line it's on, not the top of the diff; and
+  where the cursor was in the code (`Ctrl-h` from the PR tab) survives the review reloading.
 - Typing in a picker or menu lists what has the text as typed first: `Space a`, `check` picks
   "Check Claude's review now", not "Edit Claude's notes" (whose letters come in that order).
 - A long code line in a comment (a suggestion) no longer runs over the right edge of its box:

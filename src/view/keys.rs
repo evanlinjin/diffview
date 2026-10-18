@@ -315,10 +315,14 @@ impl App {
             }
             (CTRL_W, 't') => {
                 let tab = if self.pane_tab == Tab::Pr { Tab::Comments } else { Tab::Pr };
-                // Off what the other tab shows (it'd come back for it).
-                if self.margin_side() {
+                // Off what the other tab shows (it'd come back for it): from the PR's text, to
+                // where the cursor was in the code; from a comment, to the line it's on.
+                if self.on_pr_tab() {
                     let p = self.code_head;
                     self.goto(p.row, p.col);
+                } else if self.margin_side() {
+                    let r = (0..self.head.row).rev().find(|&r| !self.in_margin(r)).unwrap_or(0);
+                    self.goto(r, 0);
                 }
                 (self.pane_tab, self.margin_pref) = (tab, Some(true));
                 self.layout();
@@ -391,16 +395,16 @@ impl App {
         let Some(p) = &self.picker else { return vec![] };
         let q = p.query.to_lowercase();
         let text = |it: &Item| std::iter::once(&it.label).chain(&it.detail).map(|s| s.to_lowercase()).collect::<Vec<_>>().join(" ");
-        let mut m: Vec<usize> = (0..p.items.len())
-            .filter(|&i| {
+        let mut m: Vec<(bool, usize)> = (0..p.items.len())
+            .filter_map(|i| {
                 let text = text(&p.items[i]);
                 let mut chars = text.chars();
-                q.chars().all(|c| chars.any(|x| x == c))
+                // What has the query as typed comes first ("check": "Check …", not "Edit Claude's notes").
+                q.chars().all(|c| chars.any(|x| x == c)).then(|| (!text.contains(&q), i))
             })
             .collect();
-        // What has the query as typed comes first ("check": "Check …", not "Edit Claude's notes").
-        m.sort_by_key(|&i| !text(&p.items[i]).contains(&q));
-        m
+        m.sort();
+        m.into_iter().map(|(_, i)| i).collect()
     }
 
     pub(super) fn picker_key(&mut self, k: KeyEvent) {

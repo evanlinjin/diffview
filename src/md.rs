@@ -406,7 +406,7 @@ impl R<'_> {
         }
     }
 
-    /// A grid sized to fit: columns shrink (widest first) and long cells end in "…".
+    /// A grid sized to fit: columns shrink (widest first, to `TABLE_COL_MIN`) and cells wrap.
     fn table(&mut self, t: Table) {
         let cols = t.rows.iter().map(Vec::len).max().unwrap_or(0);
         if cols == 0 {

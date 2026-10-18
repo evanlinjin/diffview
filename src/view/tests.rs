@@ -824,6 +824,11 @@ fn pr_text_on_the_pane_tab() {
     app.goto_comment(0, 0);
     draw(&mut app);
     assert_eq!(app.pane_tab, Tab::Comments);
+    // Ctrl-w t from it: the PR tab, the cursor on the line the comment is on (not the top).
+    ctrl(&mut app, 'w');
+    key(&mut app, 't');
+    draw(&mut app);
+    assert_eq!((app.pane_tab, app.head.row), (Tab::Pr, line12));
     // Hidden, the PR text is back at the top of the diff.
     let mut app = fixture();
     draw(&mut app);
@@ -1561,14 +1566,27 @@ fn comments_pane() {
 #[test]
 fn stop_a_stuck_claude() {
     let mut app = fixture();
-    let child = std::process::Command::new("sleep").arg("30").spawn().unwrap();
+    use std::os::unix::process::CommandExt;
+    // As dv runs Claude: in a group of its own, here with a command of its own running.
+    let mark = std::env::temp_dir().join(format!("dv-stuck-{}.pid", std::process::id()));
+    let child = std::process::Command::new("sh")
+        .args(["-c", &format!("sleep 30 & echo $! > {}; wait", mark.display())])
+        .process_group(0)
+        .spawn()
+        .unwrap();
     let pid = child.id();
+    while std::fs::read_to_string(&mark).map_or(true, |s| s.trim().is_empty()) {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let grandchild = std::fs::read_to_string(&mark).unwrap().trim().to_owned();
     app.claude.job = Some(agent::ClaudeJob { child, log: "/nonexistent/run.json".into(), label: "reviewing", forked: false, started: std::time::Instant::now() });
     // The menu offers to stop it, first; checking says it's still at it.
     app.claude.path = Some(std::env::temp_dir().join(format!("dv-stuck-{}.json", std::process::id())));
     app.claude_menu();
-    let items = app.picker.take().unwrap().items;
+    let p = app.picker.take().unwrap();
+    let items = p.items;
     assert!(matches!(items[0].target, Target::ClaudeStop) && items[0].label.starts_with("Stop Claude (reviewing for "));
+    assert!(matches!(items[p.sel].target, Target::Claude(agent::Ask::Review)), "Enter doesn't stop it");
     assert!(items.iter().any(|i| matches!(i.target, Target::ClaudeCheck)));
     // Typed, a word picks what has it, not what has its letters in order ("Edit Claude's notes").
     app.claude_menu();
@@ -1581,5 +1599,12 @@ fn stop_a_stuck_claude() {
     assert!(app.claude.job.is_none() && app.msg.starts_with("stopped Claude (reviewing for "));
     app.check_claude();
     assert!(app.msg.starts_with("Claude hasn't written a review yet"), "{}", app.msg);
-    assert!(!std::path::Path::new(&format!("/proc/{pid}")).exists() || std::fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|s| s.contains(") Z")), "killed");
+    let gone = |pid: &str| !std::path::Path::new(&format!("/proc/{pid}")).exists() || std::fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|s| s.contains(") Z"));
+    assert!(gone(&pid.to_string()), "killed");
+    let t = std::time::Instant::now();
+    while !gone(&grandchild) && t.elapsed().as_secs() < 2 {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(gone(&grandchild), "what it was running, killed too");
+    let _ = std::fs::remove_file(&mark);
 }

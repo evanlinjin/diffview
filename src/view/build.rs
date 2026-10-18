@@ -83,30 +83,41 @@ impl App {
     }
 
     pub(super) fn cursor_key(&self) -> CursorKey {
-        let r = &self.rows[self.head.row];
+        self.key_at(self.head.row)
+    }
+
+    fn key_at(&self, row: usize) -> CursorKey {
+        let Some(r) = self.rows.get(row) else { return CursorKey { line: None, thread: None, info: None } };
         CursorKey {
             line: self.files.get(r.file).map(|f| (f.path.clone(), r.line.old, r.line.new)),
             thread: r.thread.and_then(|t| {
                 let first = self.rows.iter().position(|r| r.thread == Some(t))?;
-                Some((self.root_id(t)?, self.head.row - first))
+                Some((self.root_id(t)?, row - first))
             }),
-            info: (r.file == INFO).then_some(self.head.row),
+            info: (r.file == INFO).then_some(row),
         }
     }
 
-    /// Rebuild rows, keeping the cursor on the same code line, thread or PR info row.
-    pub(super) fn rebuild(&mut self, keep: CursorKey) {
-        self.build();
-        let row = keep
-            .thread
+    /// The row `key` is on now.
+    fn find_key(&self, key: CursorKey) -> Option<usize> {
+        key.thread
             .and_then(|(id, off)| {
                 let first = self.rows.iter().position(|r| r.thread.and_then(|t| self.root_id(t)) == Some(id))?;
                 let t = self.rows[first].thread;
                 Some((first..=first + off).take_while(|&r| self.rows.get(r).is_some_and(|r| r.thread == t)).last().unwrap_or(first))
             })
-            .or_else(|| keep.line.map(|(p, old, new)| self.locate(&p, old, new)))
-            .or(keep.info.filter(|&r| self.rows.get(r).is_some_and(|r| r.file == INFO)))
-            .unwrap_or(0);
+            .or_else(|| key.line.map(|(p, old, new)| self.locate(&p, old, new)))
+            .or(key.info.filter(|&r| self.rows.get(r).is_some_and(|r| r.file == INFO)))
+    }
+
+    /// Rebuild rows, keeping the cursor on the same code line, thread or PR info row (and
+    /// where it was in the code and on the PR tab, for `Ctrl-h` / `Ctrl-l`).
+    pub(super) fn rebuild(&mut self, keep: CursorKey) {
+        let (code, pr) = (self.key_at(self.code_head.row), self.pr_head.map(|r| self.key_at(r)));
+        self.build();
+        self.code_head.row = self.find_key(code).unwrap_or(0);
+        self.pr_head = pr.and_then(|k| self.find_key(k));
+        let row = self.find_key(keep).unwrap_or(0);
         self.select = false;
         self.goto(row, self.head.col);
     }
@@ -287,12 +298,12 @@ impl App {
         lines.into_iter().map(|l| Row { syn: l.styles, links: l.links, nowrap: l.nowrap, ..mk(Kind::Comment, l.text) }).collect()
     }
 
-    /// Color a PR info line by its marks: badges, pass/fail colors, links.
     /// The width PR text wraps to: the pane's, when it's shown (the text is there).
     pub(super) fn info_w(&self) -> usize {
         if self.margin_active { self.margin_w - 3 - 2 } else { self.wrap_w }
     }
 
+    /// Color a PR info line by its marks: badges, pass/fail colors, links.
     pub(super) fn info_row(&self, l: &gh::InfoLine, mut row: Row) -> Row {
         let ui = &self.ui;
         row.syn = vec![None; l.text.chars().count()];
