@@ -63,7 +63,7 @@ pub(super) fn interactive(prog: &str, args: &[String], name: &str) -> std::io::R
         return std::process::Command::new(prog).args(args).status();
     }
     let cwd = std::env::current_dir()?;
-    std::process::Command::new("zellij")
+    let st = std::process::Command::new("zellij")
         .args(zellij_run())
         .args(["--close-on-exit", "--block-until-exit", "--name", name])
         // `zellij run` doesn't need dv's terminal; sharing it, it would take dv's keystrokes
@@ -76,7 +76,22 @@ pub(super) fn interactive(prog: &str, args: &[String], name: &str) -> std::io::R
         .arg("--")
         .arg(prog)
         .args(args)
-        .status()
+        .status();
+    // Its pane gone, zellij focuses one beside it, not always dv's: your keys would go there.
+    focus_dv();
+    st
+}
+
+/// zellij's focus back on dv's pane (`$ZELLIJ_PANE_ID`), when it may have gone to another.
+pub(crate) fn focus_dv() {
+    if let Some(id) = std::env::var("ZELLIJ_PANE_ID").ok().filter(|_| in_zellij()) {
+        _ = std::process::Command::new("zellij")
+            .args(["action", "focus-pane-id", &format!("terminal_{id}")])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
 }
 
 /// Like `compose`, with `prefill` above the cursor (e.g. a quote). Leaving only the prefill

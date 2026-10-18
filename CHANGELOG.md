@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Fixed
+- After your editor (a comment, a reply, …) closed in zellij, the focus could land on another pane
+  beside dv's, so dv's keys (`Ctrl-h`/`Ctrl-l`, `gn`, …) went there until a click: dv takes the
+  focus back now. The merge pane gives it back too when it closes.
+
 ## [0.23.1] - 2026-10-18
 
 ### Added

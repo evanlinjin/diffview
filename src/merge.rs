@@ -76,8 +76,11 @@ fn script_branches(n: u64) -> Vec<String> {
 /// branches for PR `n`), else once you've read what it said (Enter; the branches stay, to look
 /// into).
 fn pane_argv(argv: &[String], n: u64) -> Vec<String> {
+    // Done (either way), the focus back on dv's pane: zellij would pick one beside this.
+    // (Not from tests: they'd move your focus, run from a zellij pane.)
+    let back = std::env::var("ZELLIJ_PANE_ID").ok().filter(|_| !cfg!(test)).map_or(String::new(), |id| format!("zellij action focus-pane-id terminal_{id} 2>/dev/null; "));
     let wait = format!(
-        r#""$@"; st=$?; if [ $st -eq 0 ]; then git branch -q -D {} 2>/dev/null; else printf '\ngithub-merge.py stopped (exit %s). Enter closes this pane.\n' "$st"; read _; fi; exit $st"#,
+        r#""$@"; st=$?; if [ $st -eq 0 ]; then git branch -q -D {} 2>/dev/null; else printf '\ngithub-merge.py stopped (exit %s). Enter closes this pane.\n' "$st"; read _; fi; {back}exit $st"#,
         script_branches(n).join(" ")
     );
     ["sh".to_owned(), "-c".to_owned(), wait, "sh".to_owned()].into_iter().chain(argv.iter().cloned()).collect()
