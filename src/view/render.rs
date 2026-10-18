@@ -785,7 +785,7 @@ impl App {
             spans.push(Span::styled(" ", if self.select { ui.cursor_select } else { ui.cursor }));
         }
         // A code line cut by its box: `‹` / `›` where there's more (not over the cursor).
-        if row.code && part.is_some() && spans.len() > g {
+        if row.nowrap && part.is_some() && spans.len() > g {
             let more = Style::new().fg(ui.linenr.fg.unwrap_or(Color::DarkGray));
             let mark = |sp: &mut Span<'static>, c: &str, at: usize| {
                 if !(cursor_here && self.head.col == at) {

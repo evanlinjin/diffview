@@ -10,10 +10,10 @@ impl App {
         if self.margin_row(r) { tw } else { tw.min(self.wrap_w + 2) }
     }
 
-    /// The first row of the code block (in a comment) that row `r` is a line of.
+    /// The first row of the code block or table (in a comment) that row `r` is a line of.
     pub(super) fn code_block(&self, r: usize) -> Option<usize> {
-        let row = self.rows.get(r).filter(|x| x.code)?;
-        let same = |x: &Row| x.code && x.thread == row.thread && x.info == row.info;
+        let row = self.rows.get(r).filter(|x| x.nowrap)?;
+        let same = |x: &Row| x.nowrap && x.thread == row.thread && x.info == row.info;
         Some((0..r).rev().take_while(|&i| same(&self.rows[i])).last().unwrap_or(r))
     }
 

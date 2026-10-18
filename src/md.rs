@@ -23,8 +23,9 @@ pub struct MdLine {
     pub text: String,
     pub styles: Vec<Option<Style>>,
     pub links: Vec<(usize, usize, String)>,
-    /// A code block's line: it doesn't wrap (shown scrolled sideways where it's too wide).
-    pub code: bool,
+    /// A code block's or a table's line: it doesn't wrap (shown scrolled sideways where it's
+    /// too wide).
+    pub nowrap: bool,
 }
 
 #[derive(Clone)]
@@ -210,7 +211,7 @@ impl R<'_> {
                     }).collect();
                     self.line(self.prefix(true), cells);
                     if let Some(l) = self.out.last_mut() {
-                        l.code = true;
+                        l.nowrap = true;
                     }
                 }
                 self.blank();
@@ -395,7 +396,7 @@ impl R<'_> {
             text: all.iter().map(|c| c.ch).collect(),
             styles: all.iter().map(|c| c.st).collect(),
             links,
-            code: false,
+            nowrap: false,
         });
     }
 
@@ -412,10 +413,12 @@ impl R<'_> {
             return;
         }
         let mut w: Vec<usize> = (0..cols).map(|c| t.rows.iter().filter_map(|r| r.get(c)).map(|c| width(c)).max().unwrap_or(0).max(1)).collect();
+        // Columns narrowed to fit, but not past where their text stops reading: a table wider
+        // than that is scrolled sideways instead.
         let avail = self.width.saturating_sub(self.prefix(true).len() + 3 * cols + 1);
         while w.iter().sum::<usize>() > avail {
             let (i, &m) = w.iter().enumerate().max_by_key(|(_, w)| **w).unwrap();
-            if m <= 3 {
+            if m <= TABLE_COL_MIN {
                 break;
             }
             w[i] -= 1;
@@ -425,34 +428,66 @@ impl R<'_> {
             let mid: Vec<String> = w.iter().map(|w| "─".repeat(w + 2)).collect();
             dim(&format!("{l}{}{r}", mid.join(m)))
         };
+        let start = self.out.len();
         self.line(self.prefix(true), rule("┌", "┬", "┐"));
         for (ri, row) in t.rows.iter().enumerate() {
-            let mut cells = dim("│");
-            for (c, width) in w.iter().enumerate() {
-                let mut cell: Vec<Cell> = row.get(c).cloned().unwrap_or_default();
-                if self::width(&cell) > *width {
-                    while self::width(&cell) > width - 1 {
-                        cell.pop();
+            // Each cell wrapped to its column, as GitHub does; the row as tall as its tallest.
+            let wrapped: Vec<Vec<Vec<Cell>>> = w
+                .iter()
+                .enumerate()
+                .map(|(c, &width)| {
+                    let mut cell: Vec<Cell> = row.get(c).cloned().unwrap_or_default();
+                    if ri < t.head {
+                        cell.iter_mut().for_each(|x| x.st = Some(x.st.unwrap_or_default().add_modifier(Modifier::BOLD)));
                     }
-                    cell.push(Cell { ch: '…', st: Some(self.s.dim), link: None });
+                    wrap_cells(cell, width)
+                })
+                .collect();
+            for k in 0..wrapped.iter().map(Vec::len).max().unwrap_or(1) {
+                let mut cells = dim("│");
+                for (lines, width) in wrapped.iter().zip(&w) {
+                    let cell = lines.get(k).cloned().unwrap_or_default();
+                    let pad = width.saturating_sub(self::width(&cell));
+                    cells.push(Cell { ch: ' ', st: None, link: None });
+                    cells.extend(cell);
+                    cells.extend(std::iter::repeat_n(Cell { ch: ' ', st: None, link: None }, pad + 1));
+                    cells.extend(dim("│"));
                 }
-                if ri < t.head {
-                    cell.iter_mut().for_each(|x| x.st = Some(x.st.unwrap_or_default().add_modifier(Modifier::BOLD)));
-                }
-                let pad = width - self::width(&cell);
-                cells.push(Cell { ch: ' ', st: None, link: None });
-                cells.extend(cell);
-                cells.extend(std::iter::repeat_n(Cell { ch: ' ', st: None, link: None }, pad + 1));
-                cells.extend(dim("│"));
+                self.line(self.prefix(true), cells);
             }
-            self.line(self.prefix(true), cells);
             if ri + 1 == t.head {
                 self.line(self.prefix(true), rule("├", "┼", "┤"));
             }
         }
         self.line(self.prefix(true), rule("└", "┴", "┘"));
+        self.out[start..].iter_mut().for_each(|l| l.nowrap = true);
     }
 }
+
+/// `cell` in lines `w` wide, broken after a space where it can be, else mid-word.
+fn wrap_cells(cell: Vec<Cell>, w: usize) -> Vec<Vec<Cell>> {
+    let mut out = vec![];
+    let mut line: Vec<Cell> = vec![];
+    for c in cell {
+        line.push(c);
+        if width(&line) > w {
+            let at = match line.iter().rposition(|c| c.ch == ' ') {
+                Some(i) if i > 0 => i + 1,
+                _ => line.len() - 1,
+            };
+            let rest = line.split_off(at);
+            while line.last().is_some_and(|c| c.ch == ' ') {
+                line.pop();
+            }
+            out.push(std::mem::replace(&mut line, rest));
+        }
+    }
+    out.push(line);
+    out
+}
+
+/// The narrowest a table's column is made to fit the width (narrower ones keep theirs).
+const TABLE_COL_MIN: usize = 20;
 
 /// Display width in terminal columns (emoji are 2 wide).
 fn width(cells: &[Cell]) -> usize {
@@ -532,6 +567,15 @@ fn renders_like_github() {
     let e = text("| a | b |\n|---|---|\n| ok :x: | 1 |");
     assert_eq!(e[3], "│ ok ❌ │ 1 │");
     assert_eq!(e[1], "│ a     │ b │");
+    // Too wide to fit: narrowed only so far, then left wider than the box (scrolled sideways).
+    let long = "x".repeat(40);
+    let w = r(&format!("| a | b | c |\n|---|---|---|\n| {long} | {long} | {long} |"));
+    assert!(w.iter().all(|l| l.nowrap) && w[3].text.chars().count() > 60 && w[3].text.contains(&"x".repeat(20)));
+    // Cells wrap within their column, at spaces where they can.
+    let t = text(&format!("| a | b |\n|---|---|\n| {} | ok |", "word ".repeat(12).trim_end()));
+    assert_eq!(t.len(), 6, "{t:#?}");
+    assert!(t[3].starts_with("│ word word") && t[3].ends_with("│ ok │") && t[4].ends_with("│    │"), "{t:#?}");
+    assert!(r("```\nx\n```\n\nplain").iter().map(|l| l.nowrap).eq([true, false, false]));
 
     let auto = r("Fixes #12, by @amy: https://x.y/z.");
     assert_eq!(auto[0].text, "Fixes #12, by @amy: https://x.y/z.");

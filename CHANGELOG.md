@@ -42,6 +42,8 @@ on GitHub are its section here.
   it's cut there, with `›` (and `‹`) where there's more, and the cursor moving along it
   scrolls that code block sideways, on its own: the code beside it and the comment's text
   stay put.
+- Tables in comments wrap their cells' text, as GitHub does, rather than cutting it to `…`;
+  one too wide even so (columns 20 wide) scrolls sideways like a code block.
 - Claude's zellij pane gets dv's `XDG_DATA_HOME`, so it writes its review where dv looks for it.
 - PRs with more than 100 review threads, 100 comments in a thread, or 100 files: dv loads them
   all (it stopped at 100, so later threads were missing and their files' "Viewed" marks too).

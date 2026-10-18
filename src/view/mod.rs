@@ -165,13 +165,13 @@ struct Row {
     info: Option<usize>,
     /// The bottom edge of a comment's box (an empty row, drawn as a border).
     edge: bool,
-    /// A line of a code block in a comment: cut at the box's edge, scrolled sideways.
-    code: bool,
+    /// A line of a code block or table in a comment: cut at the box's edge, scrolled sideways.
+    nowrap: bool,
 }
 
 impl Row {
     fn new(file: usize, line: DLine) -> Row {
-        Row { file, line, thread: None, syn: vec![], links: vec![], info: None, edge: false, code: false }
+        Row { file, line, thread: None, syn: vec![], links: vec![], info: None, edge: false, nowrap: false }
     }
 
     /// A row of plain text (headers, comments, PR info).
