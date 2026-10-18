@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Fixed
+- github-merge.py's GitHub requests went unauthenticated (60 an hour, then "rate limit
+  exceeded"): dv gives it your `gh` token (`user.ghtoken`, from `gh auth token`) when you haven't
+  set one, for that run only, fetched as it starts rather than written into its command.
+
 ## [0.23.2] - 2026-10-18
 
 ### Fixed

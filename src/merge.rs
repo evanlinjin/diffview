@@ -52,19 +52,44 @@ fn nothing_to_lose(dir: &std::path::Path, n: u64) -> Result<()> {
     Ok(())
 }
 
-/// The command that merges PR `n`: the script, in the main checkout, told the repo (as
-/// `githubmerge.repository`, for this run only) if you haven't set it.
+/// The command that merges PR `n`: the script, in the main checkout, told for this run only
+/// (git's `GIT_CONFIG_*`) what you haven't set: the repo (`githubmerge.repository`), and a token
+/// for GitHub's API (`user.ghtoken`, from `gh auth token`: without one, GitHub allows 60 requests
+/// an hour). The token is fetched by the command as it starts, not written into it (a zellij
+/// pane shows its command).
 fn command(n: u64) -> Result<(PathBuf, Vec<String>)> {
     let (main, _) = crate::worktree_dir(n)?;
-    // dv's PATH: a zellij pane gets zellij's environment, not dv's (python3 may not be on it).
-    let mut argv = vec!["env".to_owned(), format!("PATH={}", std::env::var("PATH").unwrap_or_default())];
-    let set = crate::diff::git(&["-C", &main.to_string_lossy(), "config", "--get", "githubmerge.repository"]).is_ok();
-    if !set {
+    let unset = |k: &str| crate::diff::git(&["-C", &main.to_string_lossy(), "config", "--get", k]).is_err();
+    let mut config: Vec<(&str, String)> = vec![];
+    if unset("githubmerge.repository") {
         let repo = crate::gh::repo_name().context("which GitHub repo this is (for githubmerge.repository)")?;
-        argv.extend(["GIT_CONFIG_COUNT=1".into(), "GIT_CONFIG_KEY_0=githubmerge.repository".into(), format!("GIT_CONFIG_VALUE_0={repo}")]);
+        config.push(("githubmerge.repository", format!("'{}'", repo.replace('\'', ""))));
     }
+    if unset("user.ghtoken")
+        && let Some(gh) = on_path("gh")
+    {
+        config.push(("user.ghtoken", format!("\"$('{}' auth token 2>/dev/null)\"", gh.display())));
+    }
+    let set = config_prefix(&config);
+    // dv's PATH: a zellij pane gets zellij's environment, not dv's (python3 may not be on it).
+    let mut argv = vec!["sh".to_owned(), "-c".to_owned(), format!("{set}exec \"$@\""), "sh".to_owned()];
+    argv.extend(["env".to_owned(), format!("PATH={}", std::env::var("PATH").unwrap_or_default())]);
     argv.extend(["python3".into(), script()?.to_string_lossy().into_owned(), n.to_string()]);
     Ok((main, argv))
+}
+
+/// Shell that gives a command git config `pairs` (key, shell word for its value), for its run.
+fn config_prefix(pairs: &[(&str, String)]) -> String {
+    let mut set = format!("export GIT_CONFIG_COUNT={}; ", pairs.len());
+    for (i, (k, v)) in pairs.iter().enumerate() {
+        set += &format!("export GIT_CONFIG_KEY_{i}={k} GIT_CONFIG_VALUE_{i}={v}; ");
+    }
+    set
+}
+
+/// Where program `name` is on dv's PATH.
+fn on_path(name: &str) -> Option<PathBuf> {
+    std::env::split_paths(&std::env::var_os("PATH")?).map(|d| d.join(name)).find(|p| p.is_file())
 }
 
 /// The branches github-merge.py makes for PR `n` (and leaves behind: base and head).
@@ -206,4 +231,26 @@ fn merge_pane_closes_on_success() {
     let (code, said) = run(&["sh", "-c", "exit 3"], "\n");
     assert_eq!(code, Some(3));
     assert!(said.contains("stopped (exit 3). Enter closes this pane."), "{said}");
+}
+
+#[test]
+fn merge_command_authenticates() {
+    // The token's fetched by the command as it runs (not in it), into user.ghtoken for the
+    // script; the script then sees both config values git gives it.
+    let dir = std::env::temp_dir().join(format!("dv-merge-config-{}", std::process::id()));
+    _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let fake = dir.join("gh");
+    std::fs::write(&fake, "#!/bin/sh\necho tok123\n").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let set = config_prefix(&[("githubmerge.repository", "'o/r'".into()), ("user.ghtoken", format!("\"$('{}' auth token 2>/dev/null)\"", fake.display()))]);
+    let out = std::process::Command::new("sh")
+        .args(["-c", &format!("{set}exec \"$@\""), "sh", "sh", "-c", "git config --get user.ghtoken; git config --get githubmerge.repository"])
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "tok123\no/r\n");
+    assert!(!set.contains("tok123")); // the command has the way to it, not the token
+    _ = std::fs::remove_dir_all(&dir);
 }

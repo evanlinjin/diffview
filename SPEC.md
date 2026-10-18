@@ -272,7 +272,7 @@ unsigned commits where the base requires signed ones (a ruleset, or classic bran
 as one GraphQL query tells (if it can't, the script runs as it would). dv builds the script in
 (`vendor/github-merge/`, pinned to an upstream commit; a test checks its SHA-256) and writes it to
 its data directory when it isn't exactly that, so a merge downloads nothing; `git config
-dv.mergescript <path>` runs yours instead. It runs in the main checkout, as `python3 <script> N`,
+dv.mergescript <path>` runs yours instead. It runs in the main checkout, as `python3 <script> N`, with git config for that run only (`GIT_CONFIG_*`) for what you haven't set: `githubmerge.repository`, and `user.ghtoken` from `gh auth token` (fetched as it starts, not written in its command), so its GitHub requests are authenticated (60 an hour without);
 with `githubmerge.repository` set for that run (`GIT_CONFIG_*`) if you haven't set it. The script
 checks out the base branch, which the PR's worktree would be in the way of, so that goes first:
 only if it has no local changes (untracked files count) and no commits beyond the PR's head on
