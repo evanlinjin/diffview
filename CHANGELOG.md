@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.23.1] - 2026-10-18
+
 ### Added
 - `y` on a commit in the contents' commits copies its hash (`Space c` on a commit's message in the
   diff too); while the list has focus, the key hints are its own (the commits' or the contents').
@@ -697,6 +699,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.23.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.23.1
 [0.23.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.23.0
 [0.22.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.22.0
 [0.21.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.21.1
