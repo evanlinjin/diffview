@@ -6,6 +6,8 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Added
+- Todo: failing CI is a need ("2 checks failing: fix them" on yours; "see why, tell the author"
+  on others', not on their drafts).
 - Whether a PR's commits are signed: the PR tab's status box says so (`commits: ✓ all 3 signed`,
   or which aren't, and whether the base requires signed commits); unsigned commits are marked
   `✗` in the contents' commits; and on the todo tab, unsigned commits where the base requires

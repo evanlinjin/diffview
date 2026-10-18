@@ -214,7 +214,8 @@ done once Claude Code there stops working, its pane still open), a push since yo
 review, Claude answering
 you, your review requested, approved + mergeable + checks green, your draft with its checks green
 and nothing unpushed (mark it ready for review: `Space g` in it), unsigned commits where its base
-requires signed ones (not someone else's draft), conflicts with its base (ask for
+requires signed ones (not someone else's draft), failing checks (yours to fix, or the author's;
+not someone else's draft), conflicts with its base (ask for
 a rebase: `b b` in `dv list` posts a comment saying so, after your editor, then defers the item
 until it changes), Claude's review new to you (since
 you last left the PR in dv), Claude's comments you haven't touched, no review from you (not your
