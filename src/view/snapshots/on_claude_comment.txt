@@ -1,16 +1,16 @@
           PR #7 · Fix the thing  @bo · main ← amy  Comments  PR                                  gn
- ▾        src/big.rs  +1 −1  · 2 comments        ▎╭─ review summary ───────────────────────────────╮
-          ───────────────────────────────────────▎│ you     Nearly there.                          │
-  9   9   line 9                                 ▎│ claude  Looks right; one nit.                  │
- 10  10   line 10                                ▎╰────────────────────────────────────────────────╯
- 11  11   line 11                                ▎╭─ amy · L20 ────────────────────────────────────╮
- 12     -     let x = old(12);                   ▎│  Why line 20?                                  │
-     12 +     let x = new_call(12);              ▎├─ you ──────────────────────────────────────────┤
- 13  13   line 13                                ▎│  Because.                                      │
- 14  14   line 14                                ▎╰────────────────────────────────────────────────╯
- 15  15   line 15                                ▎╭─ ◆ claude · L12 ───────────────────────────────╮
-                                                 ▎│  [nit]                                         │
-                                                 ▎│  Name it new_value; see src/a.rs:2.            │
+ ▾        description                            ▎╭─ review summary ───────────────────────────────╮
+          Fixes the thing, see new_call.         ▎│ you     Nearly there.                          │
+ ▾        src/big.rs  +1 −1  · 2 comments        ▎│ claude  Looks right; one nit.                  │
+          ───────────────────────────────────────▎╰────────────────────────────────────────────────╯
+  9   9   line 9                                 ▎╭─ amy · L20 ────────────────────────────────────╮
+ 10  10   line 10                                ▎│  Why line 20?                                  │
+ 11  11   line 11                                ▎├─ you ──────────────────────────────────────────┤
+ 12     -     let x = old(12);                   ▎│  Because.                                      │
+     12 +     let x = new_call(12);              ▎╰────────────────────────────────────────────────╯
+ 13  13   line 13                                ▎╭─ ◆ claude · L12 ───────────────────────────────╮
+ 14  14   line 14                                ▎│  [nit]                                         │
+ 15  15   line 15                                ▎│  Name it new_value; see src/a.rs:2.            │
                                                  ▎╰────────────────────────────────────────────────╯
  ▾        src/a.rs  +1 −1  · 1 comment
           ── fn main ──────────────────────────────────────────────────────────────────────── L1–3 ─
@@ -27,4 +27,4 @@
  Space r  resolve
  Space d  dismiss
 
- NOR   src/big.rs                3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)    25/45
+ NOR   src/big.rs                3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)    24/44

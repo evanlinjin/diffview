@@ -166,6 +166,10 @@ impl App {
                 // In the pane (when it's shown), wrapped to its width.
                 let width = self.info_w();
                 for (ii, l) in self.info.iter().enumerate() {
+                    // The description has a section of its own in the diff's column (below).
+                    if self.is_description(ii) || ii.checked_sub(1).is_some_and(|h| self.is_description(h)) {
+                        continue;
+                    }
                     match (l.heading, l.md) {
                         // An author line belongs to the body after it, so `C` there quotes it.
                         (true, _) => {
@@ -201,6 +205,18 @@ impl App {
                     rows.extend(self.md_rows_at(&self.summary_draft, width, mk).into_iter().map(draft));
                     rows.push(Row { edge: true, ..draft(mk(Kind::Comment, String::new())) });
                 }
+            }
+        }
+        // Before the files, like one: the one commit shown's message, and the PR's description.
+        if self.view == View::All {
+            let commit = self.commit_shown.filter(|(a, b)| a == b).zip(self.commit_msg.clone());
+            if let Some(((a, _), msg)) = commit {
+                rows.extend(self.section("commit", format!("commit {}", self.commits[a].short), &msg, None));
+            }
+            if let Some(h) = (0..self.info.len()).find(|&i| self.is_description(i)) {
+                let text = self.info.get(h + 1).filter(|l| l.md).map_or("", |l| l.text.as_str());
+                let text = if text.trim().is_empty() { "_(no description)_" } else { text };
+                rows.extend(self.section("description", "description".into(), text, Some(h + 1)));
             }
         }
         // Threads on files that have left the diff (a change reverted, a file now matching the
@@ -330,6 +346,28 @@ impl App {
     }
 
     /// The width comments and PR text wrap to: the pane's, when it's shown (they're there).
+    /// `info[i]` is the description's heading.
+    pub(super) fn is_description(&self, i: usize) -> bool {
+        self.info.get(i).is_some_and(|l| l.heading && l.text == "description")
+    }
+
+    /// A section of PR text in the diff's column: a header like a file's (`name` folds it),
+    /// then `text` rendered to the code's width (`info`: the `info` line it is, for `C`).
+    fn section(&self, name: &'static str, title: String, text: &str, info: Option<usize>) -> Vec<Row> {
+        let mk = |kind, text| Row { main: true, info, ..Row::text(INFO, kind, text) };
+        let mut rows = vec![mk(Kind::File, title)];
+        if !self.sections_folded.contains(name) {
+            rows.extend(self.md_rows_at(text, self.wrap_w, mk).into_iter().map(|r| Row { main: true, info, ..r }));
+        }
+        rows
+    }
+
+    /// Which section row `r` is in (its name), if it's one.
+    pub(super) fn section_of(&self, r: usize) -> Option<&'static str> {
+        let row = self.rows.get(r).filter(|row| row.main)?;
+        Some(if row.info.is_some() { "description" } else { "commit" })
+    }
+
     pub(super) fn info_w(&self) -> usize {
         if self.margin_active { self.margin_w - 3 - 2 - self.pane_pad() } else { self.wrap_w }
     }
@@ -489,7 +527,7 @@ impl App {
     pub(super) fn box_part(&self, r: usize) -> Option<BoxPart> {
         let key = |r: &Row| match (r.thread, r.info) {
             (Some(t), _) => Some((Some(t), None)),
-            (None, Some(i)) if r.file == INFO => Some((None, Some(i))),
+            (None, Some(i)) if r.file == INFO && !r.main => Some((None, Some(i))), // a section's text: plain, as code
             _ => None,
         };
         let row = &self.rows[r];
@@ -584,6 +622,12 @@ impl App {
 
     pub(super) fn toggle_collapse(&mut self) {
         let fi = self.rows[self.head.row].file;
+        if let Some(name) = self.section_of(self.head.row) {
+            if !self.sections_folded.remove(name) {
+                self.sections_folded.insert(name);
+            }
+            return self.rebuild_at(move |r| r.main && r.line.kind == Kind::File && (r.info.is_some() == (name == "description")));
+        }
         if fi == INFO {
             self.info_collapsed = !self.info_collapsed;
             return self.rebuild_at(|_| true);

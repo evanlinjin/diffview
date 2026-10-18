@@ -80,7 +80,8 @@ VIEW
   Ctrl-w v             toggle split (side-by-side) view
   Ctrl-w n             relative line numbers on / off (kept for next time)
   Ctrl-w e             the changed files' list on the left, on / off (a click goes to one)
-                       and the PR's commits under it: Enter shows one, v … Enter a range
+                       and the PR's commits under it: Enter shows one, v … Enter a range,
+                       m its whole message
   Ctrl-w h  Ctrl-w l   pane left / right: files, old / new side, comments (or Ctrl-h Ctrl-l)
   Ctrl-w c             show / hide the comments pane (╎ ● mark their lines)
   Ctrl-w f             comments pane: a column beside the code / floating over it
@@ -181,11 +182,14 @@ struct Row {
     edge: bool,
     /// A line of a code block or table in a comment: cut at the box's edge, scrolled sideways.
     nowrap: bool,
+    /// PR text in the diff's column, as a section of its own (the description, the commit
+    /// shown's message), not on the pane's PR tab.
+    main: bool,
 }
 
 impl Row {
     fn new(file: usize, line: DLine) -> Row {
-        Row { file, line, thread: None, syn: vec![], links: vec![], info: None, edge: false, nowrap: false }
+        Row { file, line, thread: None, syn: vec![], links: vec![], info: None, edge: false, nowrap: false, main: false }
     }
 
     /// A row of plain text (headers, comments, PR info).
@@ -534,6 +538,10 @@ pub struct App {
     threads: Vec<Thread>,
     info: Vec<gh::InfoLine>,
     info_collapsed: bool,
+    /// The description's and the commit message's sections, folded (by name).
+    sections_folded: HashSet<&'static str>,
+    /// The message of the one commit shown (`commit_shown`), as its section's text.
+    commit_msg: Option<String>,
     hl: Highlighter,
     ui: Ui,
     /// Highlighted files by (path, new side?), filled lazily as rows are drawn.
@@ -745,6 +753,8 @@ impl App {
             threads: vec![],
             info: vec![],
             info_collapsed: false,
+            sections_folded: HashSet::new(),
+            commit_msg: None,
             wrap_w: 100,
             hl: Highlighter::new(&Theme::ansi()),
             ui: Theme::ansi().ui(),

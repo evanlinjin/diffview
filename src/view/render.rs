@@ -782,6 +782,7 @@ impl App {
         let (gutter, style) = match l.kind {
             Kind::File => {
                 let collapsed = match row.file {
+                    INFO if row.main => self.section_of(r).is_some_and(|s| self.sections_folded.contains(s)),
                     INFO => self.info_collapsed,
                     f => self.files.get(f).is_some_and(|f| self.collapsed.contains(&f.path)),
                 };
@@ -964,7 +965,7 @@ impl App {
             spans.push(Span::raw(" ".repeat(tw.saturating_sub(used))));
             return spans;
         }
-        let mut tag = if l.kind == Kind::File { self.header_tag(row.file) } else { None };
+        let mut tag = if l.kind == Kind::File && !row.main { self.header_tag(row.file) } else { None };
         // Pinned, the PR's title has its counts before its state, when they fit beside all of
         // it (`bar_counts`; else they stay on the status bar).
         let counts = match r == 0 && self.bar_counts {

@@ -1,21 +1,20 @@
           PR #7 · Fix the thing  @bo · main ← amy:fix
           OPEN @bo · main ← fix · +2 −2 in 3 files
           re threads                                                             1 / 4
-       ╭─ de >                                                                         ────────────╮
-       │  Fi src/big.rs:12  [nit] @claude                                                          │
+       ╭─ cl >                                                                         ────────────╮
+       │  Lo src/big.rs:12  [nit] @claude                                                          │
        ╰────   Name it new_value; see src/a.rs:2.                                      ────────────╯
-       ╭─ cl                                                                           ────────────╮
-       │  Lo src/big.rs:20  1 reply · @amy                                                         │
-       ╰────   Why line 20?                                                            ────────────╯
        ╭─ yo                                                                           ────────────╮
-       │  Ne src/a.rs:2  [pending] @you                                                            │
-       ╰────   Pass y here.                                                            ────────────╯
- ▾        sr
-          ── src/a.rs:1  [resolved] @amy                                               ───── L9–15 ─
-  9   9   li   Old news.
- 10  10   li
+       │  Ne src/big.rs:20  1 reply · @amy                                                         │
+       ╰────   Why line 20?                                                            ────────────╯
+ ▾        de
+          Fi src/a.rs:2  [pending] @you
+ ▾        sr   Pass y here.
+          ──                                                                           ───── L9–15 ─
+  9   9   li src/a.rs:1  [resolved] @amy
+ 10  10   li   Old news.
  11  11   li
- 12     -     let x = old(12);
+ 12     -
      12 +     let x = new_call(12);                                                                ◆
  13  13   line 13
  14  14   line 14
@@ -27,4 +26,5 @@
       2 +     new_call(x);                                                                         ●
   3   3   }
  ▾        new.rs (renamed from old.rs)  +0 −0
- NOR                              3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)    1/42
+ ▾        img.png (binary)  +0 −0
+ NOR                              3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)    1/41

@@ -118,11 +118,12 @@ impl App {
         let last = self.drows.len() as isize - 1;
         let mut target = (self.hd() as isize + d).clamp(0, last) as usize;
         // On the code side, step over spacer rows (margin only, no code); in the margin, over
-        // rows with no comment beside the code.
+        // every row with no comment beside the code (headers too: j / k stay in the pane).
+        let margin = self.margin_side();
         let skip = |t: usize| match self.drows[t] {
-            DRow::Margin(None, None, _) => !self.margin_side(),
-            DRow::Margin(_, _, None) => self.margin_side(),
-            _ => false,
+            DRow::Margin(None, None, _) => !margin,
+            DRow::Margin(_, _, Some(_)) => false,
+            _ => margin,
         };
         let step = if d < 0 { -1 } else { 1 };
         while skip(target) && (0..=last).contains(&(target as isize + step)) {

@@ -793,6 +793,7 @@ fn pr_text_on_the_pane_tab() {
     let draw = |app: &mut App| _ = screen(220, 30, |f| app.draw(f));
     let mut app = fixture();
     let long: String = (1..=60).map(|n| format!("para {n}\n\n")).collect();
+    app.info[2].text = "@cy · commented".into(); // a comment on the PR (the description has its own section)
     app.info[3].text = long;
     draw(&mut app);
     // Shown: the PR text isn't in the diff (but its header line); it's on the PR tab.
@@ -1639,7 +1640,7 @@ fn pinned_title_and_status_bar_frame_the_content() {
     let l: Vec<&str> = s.lines().collect();
     assert!(app.pin && l[0].contains("PR #7") && l[11].starts_with(" NOR"), "{s}");
     // The row above the status bar is content, not covered by it (the diff runs on past it).
-    assert!(l[10].contains("Nearly there."), "{s}");
+    assert!(l[10].contains("Fixes the thing"), "{s}"); // the description: its section, before the files
 }
 
 #[test]
@@ -1753,6 +1754,7 @@ fn gg_in_the_pane() {
     k(&mut app, 'e');
     assert_eq!(app.head.row, *comments.last().unwrap());
     // In the PR tab's text: to its top, scrolled there.
+    app.info[2].text = "@cy · commented".into();
     app.info[3].text = (1..=60).map(|n| format!("para {n}\n\n")).collect();
     app.build();
     k(&mut app, 'g');
@@ -2017,4 +2019,33 @@ fn commits_under_the_files() {
     // k from "all commits" back up into the files.
     k(&mut app, KeyCode::Char('k'));
     assert!(!app.in_commits && app.files_focus);
+    // One commit shown: its message is a section before the files, like the description;
+    // Tab on its header folds it.
+    (app.commit_shown, app.commit_msg) = (Some((1, 1)), Some("commit 2\n\nWhy it's done this way.".into()));
+    app.build();
+    let head = app.rows.iter().position(|r| r.main && r.line.text == "commit c2").expect("its section");
+    let desc = app.rows.iter().position(|r| r.main && r.line.text == "description").expect("the description's");
+    assert!(head < desc && app.rows[head + 1..desc].iter().any(|r| r.line.text.contains("Why it's done")));
+    assert!(!app.pr_row(head + 1));
+    app.goto(head, 0);
+    app.toggle_collapse();
+    assert!(!app.rows.iter().any(|r| r.line.text.contains("Why it's done")));
+    // m in the commits: its whole message in a popup (git's, here: the fixture's aren't real).
+    (app.files_focus, app.in_commits, app.commit_cur) = (true, true, 1);
+    k(&mut app, KeyCode::Char('m'));
+    assert!(app.popup.as_ref().is_some_and(|p| p.0.starts_with(" commit c1")));
+}
+
+#[test]
+fn up_from_the_first_comment_stays_in_the_pane() {
+    let mut app = fixture();
+    _ = screen(220, 30, |f| app.draw(f));
+    app.goto_comment(0, 0);
+    _ = screen(220, 30, |f| app.draw(f));
+    assert!(app.margin_side());
+    let k = |app: &mut App| app.key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
+    (0..10).for_each(|_| k(&mut app));
+    assert!(app.margin_side(), "k left the pane, onto row {}", app.head.row);
+    (0..200).for_each(|_| app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)));
+    assert!(app.margin_side(), "j left the pane");
 }

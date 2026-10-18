@@ -8,7 +8,14 @@ on GitHub are its section here.
 ### Added
 - The PR's commits, under the files' list: `Enter` on one shows just that commit, `v` then
   `Enter` a range of them, `all commits` the whole diff again (a click, or Shift-click for a
-  range, too). Comments show when what's shown ends at the PR's last commit.
+  range, too). Comments show when what's shown ends at the PR's last commit. `m` there shows
+  a commit's whole message in a popup.
+- The PR's description is a section before the files, like a file (`Tab` folds it), no longer on
+  the pane's PR tab; one commit shown, its message is another, above it.
+
+### Fixed
+- `j` / `k` in the comments pane stay there, past the first and last comments (they went into the
+  code).
 
 ## [0.11.0] - 2026-10-18
 

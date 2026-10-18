@@ -1,15 +1,17 @@
           PR #7 · Fix the thing  @bo · main ← amy:fix                                    3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)  Comments  PR                                                         gn
- ▾        src/big.rs  +1 −1  · 2 comments                                                                                                         │    OPEN @bo · main ← fix · +2 −2 in 3 files
-          ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── L9–15 ─│    review: waiting on @cy
-  9   9   line 9                                                                                                                                  │ ╭─ description ────────────────────────────────────────────────────────╮
- 10  10   line 10                                                                                                                                 │ │  Fixes the thing, see new_call.                                      │
- 11  11   line 11                                                                                                                                 │ ╰──────────────────────────────────────────────────────────────────────╯
- 12     -     let x = old(12);                                                                                                                    │ ╭─ claude's review ────────────────────────────────────────────────────╮
-     12 +     let x = new_call(12);                                                                                                              ◆│ │  Looks right; one nit.                                               │
- 13  13   line 13                                                                                                                                 │ ╰──────────────────────────────────────────────────────────────────────╯
- 14  14   line 14                                                                                                                                 │ ╭─ your review (pending) ──────────────────────────────────────────────╮
- 15  15   line 15                                                                                                                                 │ │  Nearly there.                                                       │
- ▾        src/a.rs  +1 −1  · 1 comment                                                                                                            │ ╰──────────────────────────────────────────────────────────────────────╯
+ ▾        description                                                                                                                             │    OPEN @bo · main ← fix · +2 −2 in 3 files
+          Fixes the thing, see new_call.                                                                                                          │    review: waiting on @cy
+ ▾        src/big.rs  +1 −1  · 2 comments                                                                                                         │ ╭─ claude's review ────────────────────────────────────────────────────╮
+          ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── L9–15 ─│ │  Looks right; one nit.                                               │
+  9   9   line 9                                                                                                                                  │ ╰──────────────────────────────────────────────────────────────────────╯
+ 10  10   line 10                                                                                                                                 │ ╭─ your review (pending) ──────────────────────────────────────────────╮
+ 11  11   line 11                                                                                                                                 │ │  Nearly there.                                                       │
+ 12     -     let x = old(12);                                                                                                                    │ ╰──────────────────────────────────────────────────────────────────────╯
+     12 +     let x = new_call(12);                                                                                                              ◆│
+ 13  13   line 13                                                                                                                                 │
+ 14  14   line 14                                                                                                                                 │
+ 15  15   line 15                                                                                                                                 │
+ ▾        src/a.rs  +1 −1  · 1 comment                                                                                                            │
           ── fn main ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── L1–3 ─│
   1   1   fn main() {                                                                                                                            ○│
   2     -     old();                                                                                                                              │
@@ -25,6 +27,4 @@
                                                                                                                                                   │
                                                                                                                                                   │
                                                                                                                                                   │
-                                                                                                                                                  │
-                                                                                                                                                  │
- NOR       pane: the PR's description and conversation (gn: comments; Ctrl-l goes in)                                                                                                                                  1/45
+ NOR       pane: the PR's description and conversation (gn: comments; Ctrl-l goes in)                                                                                                                                  1/44

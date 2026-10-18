@@ -234,6 +234,23 @@ impl App {
         }
     }
 
+    /// `m` in the commits: the one under the cursor's whole message (and who, when), in a
+    /// popup.
+    fn commit_popup(&mut self) {
+        let Some(c) = self.commit_cur.checked_sub(1).and_then(|i| self.commits.get(i)) else {
+            return self.msg = "m on a commit shows its message".into();
+        };
+        let text = diff::git(&["log", "-1", "--format=%an <%ae> · %ad%n%n%B", "--date=format:%Y-%m-%d %H:%M", &c.sha]).unwrap_or_else(|e| format!("{e:#}"));
+        let mut lines: Vec<Line<'static>> = text.trim_end().lines().map(|l| Line::raw(l.to_owned())).collect();
+        if let Some(l) = lines.first_mut() {
+            *l = Line::styled(l.to_string(), self.ui.linenr);
+        }
+        if let Some(l) = lines.get_mut(2) {
+            *l = Line::styled(l.to_string(), Style::new().add_modifier(ratatui::style::Modifier::BOLD));
+        }
+        self.popup = Some((format!(" commit {}  j/k scroll ", c.short), lines, 0));
+    }
+
     /// Showing commits before the PR's last: its comments (on the head's lines) don't fit them.
     pub(super) fn before_head(&self) -> bool {
         self.commit_shown.is_some_and(|(_, b)| b + 1 < self.commits.len())
@@ -266,6 +283,8 @@ impl App {
             Some((a, b)) => (if a == 0 { self.full_base.clone() } else { self.commits[a - 1].sha.clone() }, Some(self.commits[b].sha.clone())),
         };
         (self.base, self.to, self.commit_shown) = (base, to, sel);
+        // One alone: its message, a section before the files.
+        self.commit_msg = sel.filter(|(a, b)| a == b).and_then(|(a, _)| diff::git(&["log", "-1", "--format=%B", &self.commits[a].sha]).ok());
         self.extra.clear(); // per-hunk context: the hunks are different ones now
         self.hl_cache.clear(); // both sides may be other versions
         self.msg = match (self.reload(false), self.commits_label()) {
@@ -293,6 +312,7 @@ impl App {
             KeyCode::Char('k') | KeyCode::Up if !ctrl && self.in_commits => self.commit_cur -= 1,
             KeyCode::Char('v') if self.in_commits => self.commit_anchor = if self.commit_anchor.is_some() { None } else { Some(self.commit_cur) },
             KeyCode::Enter if self.in_commits => self.pick_commits(),
+            KeyCode::Char('m') if self.in_commits => self.commit_popup(),
             KeyCode::Esc if self.commit_anchor.is_some() => self.commit_anchor = None,
             // Past the last file: on into the commits, at the one shown.
             KeyCode::Char('j') | KeyCode::Down if !ctrl && last_file && !self.commits.is_empty() => {
