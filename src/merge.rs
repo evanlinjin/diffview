@@ -56,7 +56,8 @@ fn nothing_to_lose(dir: &std::path::Path, n: u64) -> Result<()> {
 /// `githubmerge.repository`, for this run only) if you haven't set it.
 fn command(n: u64) -> Result<(PathBuf, Vec<String>)> {
     let (main, _) = crate::worktree_dir(n)?;
-    let mut argv = vec!["env".to_owned()];
+    // dv's PATH: a zellij pane gets zellij's environment, not dv's (python3 may not be on it).
+    let mut argv = vec!["env".to_owned(), format!("PATH={}", std::env::var("PATH").unwrap_or_default())];
     let set = crate::diff::git(&["-C", &main.to_string_lossy(), "config", "--get", "githubmerge.repository"]).is_ok();
     if !set {
         let repo = crate::gh::repo_name().context("which GitHub repo this is (for githubmerge.repository)")?;
@@ -70,6 +71,10 @@ fn command(n: u64) -> Result<(PathBuf, Vec<String>)> {
 /// beside this one when `pane` (it stays open when the script's done, for you to read), else in
 /// this terminal (dv waits for Enter after it). Returns what to tell you.
 pub fn merge(n: u64, pane: bool) -> Result<String> {
+    // The script switches branches in the main checkout: changes there would stop it partway.
+    let (main, _) = crate::worktree_dir(n)?;
+    let dirty = crate::diff::git(&["-C", &main.to_string_lossy(), "status", "--porcelain", "--untracked-files=no"])?;
+    anyhow::ensure!(dirty.trim().is_empty(), "{} has local changes, which the merge script's checkouts would trip over: commit or stash them first", main.display());
     let removed = clear_worktree(n)?;
     let (main, argv) = command(n)?;
     let first = removed.map_or(String::new(), |r| format!("{r}; "));
