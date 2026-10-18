@@ -226,7 +226,13 @@ and nothing unpushed (mark it ready for review: `Space g` in it), unsigned commi
 requires signed ones (not someone else's draft), failing checks (yours to fix, or the author's;
 not someone else's draft; on yours, a draft too, Claude's part is to fix them: `a a` has it read
 the failed runs' logs, `gh run view --log-failed`, and fix the cause in the PR's worktree on its
-branch, uncommitted, for you to check and push; not while changes wait to be pushed), workflow runs awaiting a maintainer's approval (`W W`; its card says
+branch, uncommitted, for you to check and push; not while changes wait to be pushed; `Space a` in
+the PR does the same; when it finds it isn't the PR's doing, a flaky test, CI itself, the base, it
+changes nothing and writes `ci/pr-N.json` in dv's directory, `{"head", "why", "task"}`: then the
+need says so, Claude's part is done at that head, and `N N` on it, or `Space a` in the PR, starts
+a new PR fixing CI from its task, after your editor; `C` in `dv list` turns auto CI on, kept in
+git config `dv.autoCI` and shown on the top bar: then on your PRs Claude starts on failing CI by
+itself and a draft with its checks green is marked ready for review, each once a head), workflow runs awaiting a maintainer's approval (`W W`; its card says
 `⏸ N to approve`), conflicts with its base (ask for
 a rebase: `b b` in `dv list` posts a comment saying so, after your editor, then defers the item
 until it changes), Claude's review new to you (since

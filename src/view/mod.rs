@@ -296,6 +296,8 @@ enum Action {
     /// Publish the replacement here as a draft PR, after the editor (title, description): (then
     /// close what it replaces, next).
     Publish(bool),
+    /// A new PR fixing CI for Claude to draft, after the editor (from Claude's note on this PR).
+    CiFixPr,
     /// Close the PRs the replacement here replaces, after the editor (the note).
     CloseOriginals,
     /// A new PR conversation comment, starting with `quote` (may be empty); `as_is`: posted
@@ -373,6 +375,8 @@ enum Target {
     ClaudeDismissOutdated(bool),
     /// Mark the PR (a draft) ready for review.
     GitReady,
+    /// Have Claude draft a new PR fixing CI, from its note on this PR (after your editor).
+    CiFixPr,
     /// Approve the workflow runs waiting on the PR's head.
     GitApproveRuns,
     /// Post Claude's proposed description to the PR (`true`: confirmed), or drop it.
@@ -473,6 +477,8 @@ pub struct App {
     unsigned: Vec<String>,
     /// Workflow runs on its head waiting for a maintainer's approval (from its info).
     awaiting: usize,
+    /// Its checks failing, as GitHub said last.
+    failing: usize,
     commit_shown: Option<(usize, usize)>,
     commit_cur: usize,
     commit_anchor: Option<usize>,
@@ -729,6 +735,7 @@ impl App {
             commits: vec![],
             unsigned: vec![],
             awaiting: 0,
+            failing: 0,
             commit_shown: None,
             commit_cur: 0,
             commit_anchor: None,
@@ -1015,6 +1022,16 @@ impl App {
                 let then = if originals { ": S closes what it replaces, with the note" } else { "" };
                 // Ready for review only once CI passes: `Space g` there, which checks.
                 Ok(format!("published as {kind} #{}{then} (ready for review once CI passes: Space g)", res.unwrap_or(0)))
+            }
+            Action::CiFixPr => {
+                let n = self.pr.as_ref().map_or(0, |p| p.number);
+                let c = self.ci_note(n).context("no fix in mind for CI any more")?;
+                let prefill = format!("Fix CI: it fails on #{n}, not through #{n}'s doing ({}).\n\n{}\n", c.why, c.task);
+                let what = "a new PR fixing CI, for Claude to draft: what it should do; unpublished until you publish it";
+                let Some(task) = compose_with(what, false, &prefill, true)?.filter(|t| !t.trim().is_empty()) else { return Ok("not asked".into()) };
+                let id = crate::replace::create_new(&task, &self.root)?;
+                agent::spawn_replace(&[id])?;
+                Ok(format!("Claude is drafting {} in the background: dv list's drafts tab shows it", crate::replace::label(id)))
             }
             Action::CloseOriginals => {
                 let mut r = self.replacement.clone().context("not a replacement")?;

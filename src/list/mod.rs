@@ -54,6 +54,9 @@ const HELP: &str = "\
   m                    mark the PR (again: unmark), for Claude to review; marks are kept, for
                        going through them a PR at a time (quitting dv list too)
   U U                  unmark all
+  C                    auto CI on / off (shown on the top bar; kept in git config dv.autoCI):
+                       on your PRs, Claude fixes CI as it fails (you push), and a draft is
+                       marked ready for review once CI passes
   a a                  Claude reviews the marked PRs (or this one) in the background, two at a
                        time, each in its worktree (<repo>-N, made if need be); cards show how
                        it's going, and claude ✓ once a PR has a review
@@ -157,6 +160,10 @@ pub struct List {
     /// The same for replacements (and new PRs), by id: Claude at it in a pane in its worktree.
     running_reps: HashMap<u64, String>,
     running_checked: std::time::Instant,
+    /// Auto CI (`C`, kept in git config `dv.autoCI`): on your PRs, Claude fixes CI as it fails,
+    /// and a draft is marked ready for review once it passes. What it's done, once each: (PR, head).
+    auto_ci: bool,
+    auto_done: HashSet<(u64, String)>,
     /// What's not pushed in each PR worktree (`scan_unpushed`): changed files, commits beyond
     /// the PR's head, and when that head was made.
     unpushed: HashMap<u64, (usize, usize, Option<i64>)>,
@@ -240,6 +247,8 @@ impl List {
             running_reps: HashMap::new(),
             unpushed: HashMap::new(),
             running_checked: std::time::Instant::now() - std::time::Duration::from_secs(60),
+            auto_ci: crate::diff::git(&["config", "--get", "dv.autoCI"]).is_ok_and(|v| v.trim() == "true"),
+            auto_done: HashSet::new(),
             deferred: crate::todo::load_deferred(crate::todo::deferred_path().as_deref()),
             deferring: None,
             until_rx: None,
@@ -450,7 +459,14 @@ impl List {
     /// own branch in its own worktree, on the drafts tab as it goes.
     fn new_pr(&mut self, term: &mut DefaultTerminal) {
         let what = "a new PR for Claude to draft: what it should do (issues by #N: Claude reads them); unpublished until you publish it";
-        let Some(task) = self.edit_text(term, what, "", false).filter(|t| !t.trim().is_empty()) else { return };
+        // On a todo item whose CI fails through no fault of its own: the fix Claude had in mind.
+        let n = self.shown().get(self.sel).map(|p| p.number).filter(|_| self.tab == Tab::Todo);
+        let note = |n: u64| crate::claude::ci_note_at(&self.reviews_dir.as_ref()?.parent()?.join("ci").join(format!("pr-{n}.json")));
+        let prefill = match n.and_then(|n| Some((n, note(n)?))) {
+            Some((n, c)) if !c.task.is_empty() => format!("Fix CI: it fails on #{n}, not through #{n}'s doing ({}).\n\n{}\n", c.why, c.task),
+            _ => String::new(),
+        };
+        let Some(task) = self.edit_text(term, what, &prefill, false).filter(|t| !t.trim().is_empty()) else { return };
         match crate::replace::create_new(&task, &self.root) {
             Ok(id) => {
                 self.draft_rx.push(batch::replace(vec![id], self.root.clone(), String::new()));
@@ -895,6 +911,16 @@ impl List {
                 self.sel = (self.sel + 1).min(n.saturating_sub(1)); // on to the next, to mark a run
                 self.msg = format!("{} marked: a asks Claude to review them", self.marked.len());
             }
+            // Auto CI on / off: Claude runs, and drafts marked ready, without you.
+            KeyCode::Char('C') => {
+                self.auto_ci = !self.auto_ci;
+                _ = crate::diff::git(&["config", "dv.autoCI", if self.auto_ci { "true" } else { "false" }]);
+                self.msg = match self.auto_ci {
+                    true => "auto CI on: on your PRs, Claude fixes CI as it fails (you push), and drafts are marked ready for review once it passes".into(),
+                    false => "auto CI off: a a has Claude fix CI, Space g in a PR marks it ready".into(),
+                };
+                self.find_todo();
+            }
             // All the marks off (kept between runs, they pile up): asked first.
             KeyCode::Char('U') => {
                 if self.marked.is_empty() {
@@ -1027,12 +1053,14 @@ impl List {
         f.render_widget(Paragraph::new("").style(ui.base), area);
 
         let head = Rect { height: 1.min(area.height), ..area };
-        let hs = ui.base.patch(ui.header);
+        // As the PR view's title bar: the darker of the status bar's and the headers' background.
+        let hs = ui.base.patch(Style { bg: ui.bar, ..ui.header });
         let arrow = if self.rev { '↑' } else { '↓' };
         // Tabs: the current one bold, with counts.
         let open = self.prs.iter().filter(|p| p.state == "OPEN" || p.state.is_empty()).count();
         // As the PR view's tabs: the one shown lit, the others dim.
-        let tab = |name: String, on: bool| Span::styled(format!(" {name} "), if on { ui.menu_selected } else { hs.patch(ui.stale) });
+        let dim = hs.remove_modifier(ratatui::style::Modifier::BOLD).patch(Style { fg: ui.linenr.fg, ..Style::new() });
+        let tab = |name: String, on: bool| Span::styled(format!(" {name} "), if on { ui.menu_selected } else { dim });
         // What you'd judge a ranking by: how old the last is, what it cost, what's changed since.
         let ranking = match (&self.rank_rx, &self.ranked) {
             (Some(_), _) => "Claude is ranking…".to_owned(),
@@ -1059,7 +1087,13 @@ impl List {
             spans.extend([s, Span::styled(" ", hs)]);
             x += w + 1;
         }
-        spans.push(Span::styled(rest, hs.patch(ui.stale)));
+        spans.push(Span::styled(rest, dim));
+        // Auto CI, lit when on: it starts Claude runs, and changes PRs on GitHub.
+        let auto = match self.auto_ci {
+            true => Span::styled(" auto CI ", ui.menu_selected),
+            false => Span::styled("auto CI off (C)", dim),
+        };
+        spans.extend([Span::styled("   ", dim), auto]);
         let tabs = Line::from(spans);
         f.render_widget(Paragraph::new(tabs).style(hs), head);
         let pos = if shown.is_empty() { "0 / 0 ".into() } else { format!("{} / {} ", sel + 1, shown.len()) };
@@ -1175,6 +1209,7 @@ impl List {
                 ("W W", "approve its workflow runs"),
                 ("U U", "unmark all"),
                 ("N N", "Claude drafts a new PR (unpublished)"),
+                ("C", "auto CI on / off"),
                 ("b b", "ask for a rebase (a comment)"),
                 ("D D", remove),
                 ("?", "all keys"),
@@ -1208,7 +1243,8 @@ impl List {
             let r = Rect { x: (area.width - w) / 2, y: (area.height - h) / 2, width: w, height: h };
             f.render_widget(Clear, r);
             f.render_widget(Block::new().style(ui.base.patch(ui.popup)), r);
-            let hs = ui.base.patch(ui.header);
+            // As the PR view's title bar: the darker of the status bar's and the headers' background.
+        let hs = ui.base.patch(Style { bg: ui.bar, ..ui.header });
             f.render_widget(Paragraph::new(" dv list keys").style(hs), Rect { height: 1, ..r });
             f.render_widget(Paragraph::new("any key closes ").alignment(Alignment::Right).style(hs), Rect { height: 1, ..r });
             let body: Vec<Line> = lines

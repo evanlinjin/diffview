@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- Auto CI, `C` in `dv list` (shown on its top bar, kept in git config `dv.autoCI`): on your PRs,
+  Claude starts fixing CI as soon as it fails, and a draft is marked ready for review once CI passes.
+- `Space a` in a PR of yours with failing CI: Claude fixes it, as `a a` does from the todo tab.
+- When Claude finds failing CI isn't the PR's doing (a flaky test, CI itself, the base), it says so
+  on the todo card and offers a new PR fixing CI (`N N` on it, or `Space a` in the PR).
+
+### Fixed
+- `dv list`'s top bar is as dark as the PR view's, its other tabs dimmed the same way.
+
 ## [0.26.0] - 2026-10-18
 
 ### Changed

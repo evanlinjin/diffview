@@ -36,6 +36,9 @@ pub enum Need {
     ApproveRuns(usize),
     /// This many of its checks fail (`true`: yours, so yours to fix).
     ChecksFailing(usize, bool),
+    /// Your PR's checks fail, and Claude found it isn't the PR's doing (a flaky test, CI
+    /// itself, the base): why, and whether a PR of its own would fix it (`N N` drafts it).
+    CiNotThisPr(String, bool),
     /// This many of its commits aren't signed, and its base requires signed commits: GitHub
     /// won't take a merge of it (`true`: yours, so yours to sign).
     Unsigned(usize, bool),
@@ -65,7 +68,7 @@ impl Need {
             Need::Conflicts(_) => 55,
             Need::ApproveRuns(_) => 66,
             Need::Unsigned(..) => 54,
-            Need::ChecksFailing(..) => 52,
+            Need::ChecksFailing(..) | Need::CiNotThisPr(..) => 52,
             Need::ClaudeReviewNew => 50,
             Need::ClaudeComments(_) => 40,
             Need::NoReview => 30,
@@ -80,6 +83,7 @@ impl Need {
         Some(match self {
             Need::ApproveRuns(n) => format!("⏸ {n} run{} to approve (W W)", s(*n)),
             Need::ChecksFailing(n, _) => format!("✗ {n} check{} failing", s(*n)),
+            Need::CiNotThisPr(..) => "✗ CI failing (not this PR)".into(),
             Need::Unsigned(n, _) => format!("{n} unsigned commit{}", s(*n)),
             Need::Conflicts(_) => "conflicts".into(),
             _ => return None,
@@ -112,6 +116,8 @@ impl Need {
             Need::ApproveRuns(n) => format!("{n} workflow run{} awaiting approval: approve {} (W W)", s(*n), if *n == 1 { "it" } else { "them" }),
             Need::ChecksFailing(n, true) => format!("{n} check{} failing: fix {}", s(*n), if *n == 1 { "it" } else { "them" }),
             Need::ChecksFailing(n, false) => format!("{n} check{} failing: see why, tell the author", s(*n)),
+            Need::CiNotThisPr(why, true) => format!("CI fails, not this PR's doing (Claude: {why}): N N drafts a PR fixing it"),
+            Need::CiNotThisPr(why, false) => format!("CI fails, not this PR's doing (Claude: {why}): rerun it, or look into it"),
             Need::Unsigned(n, true) => format!("{n} of your commits unsigned, and its base requires signed ones: sign them, force-push"),
             Need::Unsigned(n, false) => format!("{n} commit{} unsigned, and its base requires signed ones: ask the author to sign them", s(*n)),
             Need::Conflicts(false) => "conflicts with its base: ask for a rebase (b b)".into(),
@@ -191,6 +197,8 @@ pub struct Facts<'a> {
     pub unpushed: (usize, usize),
     /// When the PR's head commit was made (seconds): Claude's changes after it aren't pushed.
     pub head_at: Option<i64>,
+    /// Claude's word that its failing CI isn't its doing, if it's looked.
+    pub ci_note: Option<&'a crate::claude::CiNote>,
 }
 
 /// What PR `f` needs from you, and what Claude should do on it first.
@@ -214,8 +222,14 @@ pub fn needs(f: &Facts) -> (Vec<Need>, Option<Task>) {
         out.push(Need::ApproveRuns(e.awaiting));
     }
     // CI failing: nothing merges until it passes. (Someone else's draft isn't up for it yet.)
+    // On yours, Claude may have found it isn't the PR's doing (at its head now).
+    let head = f.extra.map_or("", |e| e.head_oid.as_str());
+    let not_this = f.ci_note.filter(|c| mine && !head.is_empty() && c.head == head);
     if let Some((_, fail, _)) = pr.checks.filter(|c| c.1 > 0 && (!pr.draft || mine)) {
-        out.push(Need::ChecksFailing(fail, mine));
+        out.push(match not_this {
+            Some(c) => Need::CiNotThisPr(c.why.clone(), !c.task.is_empty()),
+            None => Need::ChecksFailing(fail, mine),
+        });
     }
     // Commits GitHub would refuse on its base: nothing merges until they're signed. (Someone
     // else's draft isn't up for merging yet.)
@@ -226,7 +240,6 @@ pub fn needs(f: &Facts) -> (Vec<Need>, Option<Task>) {
     if mine && pr.draft && f.unpushed == (0, 0) && pr.checks.is_some_and(|(_, fail, pending)| fail == 0 && pending == 0) {
         out.push(Need::MarkReady);
     }
-    let head = f.extra.map_or("", |e| e.head_oid.as_str());
     let my_review = f.extra.and_then(|e| e.my_review.as_ref());
     if let Some((_, commit)) = my_review
         && !mine
@@ -274,7 +287,7 @@ pub fn needs(f: &Facts) -> (Vec<Need>, Option<Task>) {
     let claude = match f.review {
         // Your PR's CI failing (a draft too: a published replacement's, say): Claude looks into
         // it and fixes it here, for you to push. Not again while its changes wait on you.
-        _ if mine && f.unpushed == (0, 0) && pr.checks.is_some_and(|c| c.1 > 0) => Some(Task::FixChecks),
+        _ if mine && f.unpushed == (0, 0) && not_this.is_none() && pr.checks.is_some_and(|c| c.1 > 0) => Some(Task::FixChecks),
         _ if pr.draft => None,
         Some(_) if waiting > 0 => Some(Task::Answer { theirs: !mine }),
         Some(r) if !r.head.is_empty() && !head.is_empty() && r.head != head => Some(Task::Update(r.head.clone())),
@@ -722,7 +735,7 @@ mod tests {
             signatures_required: false,
             awaiting: 0,
         };
-        let facts = |p: &'static Listed, e: Option<&'static Extra>, r: Option<&'static crate::claude::Review>| Facts { pr: p, extra: e, me: "me", review: r, looked: Some(LOOKED), review_changed: Some(50), unpushed: (0, 0), head_at: None };
+        let facts = |p: &'static Listed, e: Option<&'static Extra>, r: Option<&'static crate::claude::Review>| Facts { pr: p, extra: e, me: "me", review: r, looked: Some(LOOKED), review_changed: Some(50), unpushed: (0, 0), head_at: None, ci_note: None };
         // Nothing from you, no Claude review: you, and Claude reviews it.
         let (n, c) = needs(&facts(leak(pr(1, "amy")), Some(leak(extra(None, false, "h1"))), None));
         assert_eq!((n, c), (vec![Need::NoReview], Some(Task::Review)));
@@ -818,6 +831,19 @@ mod tests {
         assert_eq!(fix("me", (0, 0)), Some(Task::FixChecks));
         assert_eq!(fix("me", (1, 0)), None);
         assert_eq!(fix("amy", (0, 0)), None);
+        // Claude found it isn't the PR's doing, at its head: no fixing it again; at an older
+        // head, it looks again.
+        let mut p = pr(11, "me");
+        p.checks = Some((5, 2, 0));
+        let note = |head: &str| crate::claude::CiNote { head: head.into(), why: "flaky".into(), task: "pin the toolchain".into() };
+        let (here, old) = (note("h"), note("old"));
+        let mut f = facts(leak(p), Some(leak(extra(None, false, "h"))), None);
+        f.ci_note = Some(&here);
+        let (n, c) = needs(&f);
+        assert!(n.contains(&Need::CiNotThisPr("flaky".into(), true)) && c != Some(Task::FixChecks), "{n:?} {c:?}");
+        assert!(Need::CiNotThisPr("flaky".into(), true).says().ends_with("N N drafts a PR fixing it"));
+        f.ci_note = Some(&old);
+        assert_eq!(needs(&f).1, Some(Task::FixChecks));
         // Workflow runs waiting for a maintainer's approval: a need, yours to do (W W).
         let mut e = extra(None, false, "h");
         e.awaiting = 2;

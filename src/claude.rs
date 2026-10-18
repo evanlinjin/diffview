@@ -108,6 +108,26 @@ pub fn path(pr: Option<u64>) -> Result<PathBuf> {
     Ok(dv_dir()?.join("reviews").join(format!("{name}.json")))
 }
 
+/// Claude's word that PR `n`'s failing CI isn't the PR's doing (a flaky test, CI itself, the
+/// base): `ci/pr-N.json` in dv's directory, which Claude writes. At which head it looked, why,
+/// and what a PR of its own fixing CI would do (empty: nothing in the repo would).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CiNote {
+    pub head: String,
+    pub why: String,
+    pub task: String,
+}
+
+pub fn ci_note_path(n: u64) -> Result<PathBuf> {
+    Ok(dv_dir()?.join("ci").join(format!("pr-{n}.json")))
+}
+
+pub fn ci_note_at(p: &std::path::Path) -> Option<CiNote> {
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(p).ok()?).ok()?;
+    let s = |k: &str| v[k].as_str().unwrap_or("").trim().to_owned();
+    Some(CiNote { head: s("head"), why: s("why"), task: s("task") })
+}
+
 /// Notes Claude keeps about the repo across reviews (conventions, recurring issues, the
 /// user's review preferences): `notes.md` in dv's directory, shared by all worktrees.
 pub fn notes_path() -> Result<PathBuf> {

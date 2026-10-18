@@ -9,7 +9,7 @@ pub(super) const STALE: &str = "showing the PR as dv last saw it; refreshing fro
 const GITHUB_POLL: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// The PR's review threads and its info, as `fetch_github` got them.
-pub(super) type Fetched = (Result<gh::Review>, Result<(Vec<gh::InfoLine>, String, String, String, gh::State, Vec<String>, usize)>);
+pub(super) type Fetched = (Result<gh::Review>, Result<gh::Info>);
 
 /// Both at once (each is a ~1s GitHub round-trip), kept in `cache` when both came.
 fn fetch_github(n: u64, cache: Option<&Path>) -> Fetched {
@@ -658,8 +658,8 @@ impl App {
             Err(e) => self.msg = format!("loading comments: {e:#}"),
         }
         match info {
-            Ok((lines, title, head, url, state, unsigned, awaiting)) => {
-                self.awaiting = awaiting;
+            Ok((lines, title, head, url, state, unsigned, (awaiting, failing))) => {
+                (self.awaiting, self.failing) = (awaiting, failing);
                 (self.info, self.pr_state) = (lines, Some(state));
                 // GitHub's word on its commits' signatures, for the contents' commits.
                 for c in &mut self.commits {

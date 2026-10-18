@@ -15,6 +15,8 @@ pub(super) enum Ask {
     /// On someone else's PR: make the changes (as `Fix` does on yours), here, for you to push
     /// to their branch, rather than suggest them.
     Edit,
+    /// Your PR's CI fails: find out why from the failed runs' logs, and fix it here.
+    FixChecks,
 }
 
 /// What `claude -p` may do in the background: edit files (the review, and code when asked),
@@ -185,6 +187,15 @@ impl App {
             };
             let what = if open == 0 { "a change (you say what)".to_owned() } else { format!("the changes ({open} open comments)") };
             items.push(Item::new(format!("Ask Claude to make {what} here, as commits ({push})"), Target::Claude(Ask::Edit)));
+        }
+        // Your PR's CI failing: Claude finds out why; or found it isn't the PR's doing, and had
+        // a fix of its own in mind, a new PR's.
+        if let Some(n) = self.pr.as_ref().map(|p| p.number).filter(|_| self.failing > 0 && !self.theirs) {
+            let s = if self.failing == 1 { "" } else { "s" };
+            items.push(Item::new(format!("Ask Claude to fix the failing CI ({} check{s}: it reads the failed runs' logs; you push)", self.failing), Target::Claude(Ask::FixChecks)));
+            if let Some(c) = self.ci_note(n).filter(|c| !c.task.is_empty()) {
+                items.insert(0, Item::new(format!("Have Claude draft a PR fixing CI (not this PR's doing: {})…", c.why), Target::CiFixPr));
+            }
         }
         items.extend([
             Item::new(notes, Target::ClaudeNotes),
@@ -379,6 +390,7 @@ impl App {
                 None => review_prompt(&what),
             },
             Ask::Answer => answer_prompt(&what, self.theirs),
+            Ask::FixChecks => fix_checks_prompt(self.pr.as_ref().map_or(0, |p| p.number)),
             Ask::Describe => format!(
                 "Use the dv-review skill to propose a new description for {what}, as the user asks below: the whole new text, \
                  in the review file's top-level \"description\" field (see \"Propose a description\"). Start from the proposal \
@@ -406,6 +418,12 @@ impl App {
         };
         // Claude Code knows the date but not the time, and makes one up for `created`.
         with_instructions(&format!("{prompt} (It's {} now.)", crate::claude::now()), extra)
+    }
+
+    /// Claude's note that PR `n`'s failing CI isn't its doing, written at its head now.
+    pub(super) fn ci_note(&self, n: u64) -> Option<crate::claude::CiNote> {
+        let head = &self.pr.as_ref()?.head_oid;
+        crate::claude::ci_note_at(&crate::claude::ci_note_path(n).ok()?).filter(|c| !head.is_empty() && &c.head == head)
     }
 
     /// Open Claude's notes on the repo in hx (they're plain markdown; you can write them too).
@@ -563,6 +581,7 @@ impl App {
             Ask::Fix if self.theirs => "suggesting the changes",
             Ask::Edit => "making the changes",
             Ask::Fix => "making the changes",
+            Ask::FixChecks => "fixing CI",
         };
         // Claude already open on this PR in a pane: put the request there, rather than open
         // another. Pasted, not sent: what the pane is showing (a permission prompt, your own
@@ -893,13 +912,18 @@ pub(crate) fn answer_prompt(what: &str, theirs: bool) -> String {
     }
 }
 
-/// Claude's prompt for fixing `what`'s failing CI.
-pub(crate) fn fix_checks_prompt(what: &str) -> String {
+/// Claude's prompt for fixing PR `n`'s failing CI.
+pub(crate) fn fix_checks_prompt(n: u64) -> String {
+    let note = crate::claude::ci_note_path(n).map(|p| p.display().to_string()).unwrap_or_else(|_| "ci/pr-N.json in dv's directory".into());
     format!(
-        "CI fails on {what}. See which checks fail (`gh pr checks`) and why (`gh run view <run id> --log-failed`), \
+        "CI fails on PR #{n}. See which checks fail (`gh pr checks`) and why (`gh run view <run id> --log-failed`), \
          then fix the cause in the code here, and check the fix (build, tests). Don't commit or push: the user \
-         reviews and pushes it. If it isn't the code's fault (a flaky test, CI itself), change nothing and say \
-         so. First run `dv review-info`: if the notes it lists exist, read them and follow them."
+         reviews and pushes it. If it isn't this PR's fault (a flaky test, CI itself, something already broken on \
+         its base branch), change nothing here; instead write {note} as JSON: \
+         {{\"head\": \"<git rev-parse HEAD>\", \"why\": \"<one line: what fails and why it isn't this PR>\", \
+         \"task\": \"<what a separate PR fixing it should do, a few lines; empty if nothing in the repo would fix \
+         it>\"}}: the user can have a PR drafted from it. First run `dv review-info`: if the notes it lists exist, \
+         read them and follow them."
     )
 }
 

@@ -58,7 +58,7 @@ impl Task {
             Task::Review => crate::view::review_prompt(&what),
             Task::Update(old) => crate::view::update_prompt(&what, old),
             Task::Answer { theirs } => crate::view::answer_prompt(&what, *theirs),
-            Task::FixChecks => crate::view::fix_checks_prompt(&what),
+            Task::FixChecks => crate::view::fix_checks_prompt(n),
         }
     }
 }

@@ -908,12 +908,15 @@ pub fn info_json(n: u64) -> Result<Value> {
     Ok(v)
 }
 
-/// The PR section's lines, its title, head, URL and state, and its commits GitHub has no
-/// valid signature on.
-pub fn parse_info(v: &Value) -> (Vec<InfoLine>, String, String, String, State, Vec<String>, usize) {
+pub type Info = (Vec<InfoLine>, String, String, String, State, Vec<String>, (usize, usize));
+
+/// The PR section's lines, its title, head, URL and state, its commits GitHub has no valid
+/// signature on, and (workflow runs awaiting approval, checks failing).
+pub fn parse_info(v: &Value) -> Info {
     let s = |k: &str| v[k].as_str().unwrap_or("").to_owned();
     let unsigned = v["dvCommits"].as_array().into_iter().flatten().filter(|c| c["signed"] != true).filter_map(|c| c["oid"].as_str().map(str::to_owned)).collect();
-    (info_lines(v), s("title"), s("headRefOid"), s("url"), state(v), unsigned, v["dvAwaiting"].as_u64().unwrap_or(0) as usize)
+    let failing = v["statusCheckRollup"].as_array().into_iter().flatten().filter(|c| verdict(c) == '✗').count();
+    (info_lines(v), s("title"), s("headRefOid"), s("url"), state(v), unsigned, (v["dvAwaiting"].as_u64().unwrap_or(0) as usize, failing))
 }
 
 /// A PR's state as GitHub shows it, with its color: DRAFT, OPEN, MERGED or CLOSED.
@@ -1289,6 +1292,6 @@ fn signed_commits_in_the_pr_info() {
 fn workflow_runs_awaiting_approval() {
     let v = json!({ "dvAwaiting": 2, "headRefOid": "abc" });
     assert!(info_lines(&v).iter().any(|l| l.text == "⏸ 2 workflow runs awaiting approval (Space g approves)"));
-    assert_eq!(parse_info(&v).6, 2);
+    assert_eq!(parse_info(&v).6, (2, 0));
     assert!(!info_lines(&json!({})).iter().any(|l| l.text.contains("awaiting approval")));
 }

@@ -18,7 +18,8 @@ impl List {
             let review = file.as_ref().and_then(|f| crate::claude::load(f).ok().flatten());
             let looked = seen.as_ref().and_then(|s| std::fs::read_to_string(s.join(format!("pr-{}.looked", p.number))).ok()?.trim().parse().ok());
             let (f, c, head_at) = self.unpushed.get(&p.number).copied().unwrap_or((0, 0, None));
-            let facts = Facts { pr: p, extra: self.extra.get(&p.number), me: &self.me, review: review.as_ref(), looked, review_changed: file.and_then(secs), unpushed: (f, c), head_at };
+            let ci_note = dir.as_ref().and_then(|d| crate::claude::ci_note_at(&d.parent()?.join("ci").join(format!("pr-{}.json", p.number))));
+            let facts = Facts { pr: p, extra: self.extra.get(&p.number), me: &self.me, review: review.as_ref(), looked, review_changed: file.and_then(secs), unpushed: (f, c), head_at, ci_note: ci_note.as_ref() };
             let (needs, claude) = todo::needs(&facts);
             if !needs.is_empty() {
                 items.push(Item { rep: false, number: p.number, needs, claude, updated: p.updated.clone(), reason: None, changed: false, deferred: None, busy: None, waits: None });
@@ -73,6 +74,39 @@ impl List {
         ready.append(&mut todo);
         ready.append(&mut busy);
         (self.todo, self.since) = (ready, since);
+        self.auto_ci();
+    }
+
+    /// Auto CI: on your PRs, Claude at failing CI (as `a a` would have it), and green drafts
+    /// marked ready for review; each once a head, and not where Claude's already at it.
+    fn auto_ci(&mut self) {
+        if !self.auto_ci {
+            return;
+        }
+        let (mut fix, mut ready) = (vec![], vec![]);
+        for it in self.todo.iter().filter(|it| !it.rep && it.busy.is_none()) {
+            let Some(head) = self.extra.get(&it.number).map(|e| e.head_oid.clone()).filter(|h| !h.is_empty()) else { continue };
+            let idle = !self.batch.get(&it.number).is_some_and(batch::Status::running);
+            if it.claude == Some(batch::Task::FixChecks) && idle && self.auto_done.insert((it.number, head.clone())) {
+                fix.push((it.number, true, batch::Task::FixChecks));
+            } else if it.needs.contains(&todo::Need::MarkReady) && self.auto_done.insert((it.number, head)) {
+                ready.push(it.number);
+            }
+        }
+        let mut said = vec![];
+        if !fix.is_empty() {
+            said.push(format!("Claude is fixing CI on {}", fix.iter().map(|f| format!("#{}", f.0)).collect::<Vec<_>>().join(", ")));
+            fix.iter().for_each(|(n, _, t)| _ = self.batch_task.insert(*n, t.clone()));
+            self.batch_rx.push(batch::start(fix, self.root.clone(), String::new()));
+        }
+        if !ready.is_empty() {
+            said.push(format!("marking {} ready for review (CI passed)", ready.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(", ")));
+            // The list's next look at GitHub shows them so (`mark_ready` checks CI again first).
+            std::thread::spawn(move || ready.into_iter().for_each(|n| _ = crate::gh::mark_ready(n)));
+        }
+        if !said.is_empty() {
+            self.msg = format!("auto CI: {}", said.join("; "));
+        }
     }
 
     /// The todo tab's items with their cards (a PR's, or a replacement's).

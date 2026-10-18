@@ -1493,7 +1493,7 @@ fn github_changes_shown_when_idle() {
     newer[0].comments.push(reply);
     let fetched = |threads: Vec<Thread>| -> review::Fetched {
         let r = gh::Review { pr_id: "PR".into(), mine: true, me: "you".into(), pending: None, pending_body: String::new(), threads, viewed: Default::default() };
-        (Ok(r), Ok((app_info(), "Fix the thing".into(), "abc".into(), String::new(), ("OPEN", "238636"), vec![], 0)))
+        (Ok(r), Ok((app_info(), "Fix the thing".into(), "abc".into(), String::new(), ("OPEN", "238636"), vec![], (0, 0))))
     };
     let replies = |app: &App| app.threads.iter().flat_map(|t| &t.comments).filter(|c| c.body == "Fair.").count();
     // Mid-way through something (here a picker): it waits. (What's shown came from the cache.)
