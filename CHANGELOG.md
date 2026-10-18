@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Changed
+- Comment marks are at the code's right edge, beside the pane, shown or not: `│` down the lines a
+  comment is about and a dot at its last (`●`, `◆` Claude's, `○` resolved or outdated), so a
+  comment on several lines shows them all. In split view, on its side.
+
 ## [0.8.0] - 2026-10-18
 
 ### Added

@@ -311,7 +311,7 @@ impl App {
                 }
                 self.msg = match show {
                     true => "comments shown (Ctrl-w c hides them)",
-                    false => "comments hidden: their lines are marked in the gutter (Ctrl-w c shows them)",
+                    false => "comments hidden: their lines are marked at the code's right edge (Ctrl-w c shows them)",
                 }
                 .into();
             }

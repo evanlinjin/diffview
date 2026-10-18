@@ -194,6 +194,7 @@ impl App {
             i += 1;
         }
         self.margin_anchor = anchors;
+        self.marks = self.find_marks();
         self.pr_rows = pr_tab;
         let mut d: Vec<DRow> = vec![];
         if !self.comments_in_pane() {
@@ -351,6 +352,29 @@ impl App {
         // From its first line itself (not a removed line or a hunk header just above it).
         let first = (first..=last).find(|&r| self.rows[r].thread.is_none() && no(&self.rows[r]).is_some()).unwrap_or(last);
         Some((first, last))
+    }
+
+    /// The comment marks for the code's right edge (see `App::marks`): over a comment's lines
+    /// `│`, at its last a dot; open comments over resolved / outdated ones, a dot over a line.
+    fn find_marks(&self) -> HashMap<(usize, bool), u8> {
+        let mut marks: HashMap<(usize, bool), u8> = HashMap::new();
+        for &t in self.margin_anchor.keys() {
+            let Some((first, last)) = self.code_span(t) else { continue };
+            let th = &self.threads[t];
+            let open = !th.stale();
+            let dot = match (open, agent::claude_wrote(th)) {
+                (false, _) => MARK_STALE_DOT,
+                (true, true) => MARK_CLAUDE_DOT,
+                (true, false) => MARK_DOT,
+            };
+            let no = |r: usize| if th.left { self.rows[r].line.old } else { self.rows[r].line.new };
+            for r in (first..=last).filter(|&r| self.rows[r].thread.is_none() && no(r).is_some()) {
+                let m = if r == last { dot } else if open { MARK_LINE } else { MARK_STALE_LINE };
+                let e = marks.entry((r, th.left)).or_default();
+                *e = (*e).max(m);
+            }
+        }
+        marks
     }
 
     /// The row to put the cursor on for screen row `d`, preferring the current side.

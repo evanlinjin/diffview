@@ -78,7 +78,7 @@ VIEW
   Ctrl-w v             toggle split (side-by-side) view
   Ctrl-w n             relative line numbers on / off (kept for next time)
   Ctrl-w h  Ctrl-w l   split view: old / new side; margin: code / comments (or Ctrl-h Ctrl-l)
-  Ctrl-w c             show / hide the comments pane (hidden: ● marks their lines)
+  Ctrl-w c             show / hide the comments pane (│ ● mark their lines)
   Ctrl-w f             comments pane: a column beside the code / floating over it
   Ctrl-w ,  Ctrl-w .   comments pane narrower / wider (Ctrl-w = its usual width)
   Ctrl-w a             Claude view: only Claude's review and the code it's about
@@ -142,6 +142,13 @@ const CTRL_W: char = '\u{17}';
 const HL_MAX_BYTES: usize = 1 << 20;
 /// `Row::file` for the PR info section at the top.
 const INFO: usize = usize::MAX - 1;
+/// Comment marks at the code's right edge, by rank (the highest wins where they meet).
+pub(super) const MARK_STALE_LINE: u8 = 1;
+pub(super) const MARK_LINE: u8 = 2;
+pub(super) const MARK_STALE_DOT: u8 = 3;
+pub(super) const MARK_CLAUDE_DOT: u8 = 4;
+pub(super) const MARK_DOT: u8 = 5;
+
 /// `Row::info` for Claude's review summary (it isn't one of `info`'s lines).
 const SUMMARY: usize = usize::MAX;
 /// `Row::info` for the text of your pending review, in the pending view.
@@ -466,6 +473,10 @@ pub struct App {
     pr_head: Option<usize>,
     /// In margin mode: each thread's code line (the one it's about), as laid out.
     margin_anchor: HashMap<usize, usize>,
+    /// The marks at the code's right edge, by (row, the old side), from `layout`: a comment's
+    /// lines get `│`, its last line (where it's anchored) a dot. Ranked, the highest shown:
+    /// see `MARKS`.
+    marks: HashMap<(usize, bool), u8>,
     /// Where things were drawn last, for mouse clicks.
     geom: mouse::Geom,
     /// Screen rows, and the screen row of each row (`top` and scrolling count screen rows).
@@ -665,6 +676,7 @@ impl App {
             code_head: Pos { row: 0, col: 0 },
             pr_head: None,
             margin_anchor: HashMap::new(),
+            marks: HashMap::new(),
             geom: Default::default(),
             drows: vec![],
             d_of: vec![],

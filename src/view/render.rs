@@ -293,6 +293,8 @@ impl App {
             DRow::Full(_) if pr_tab && !float => ctw, // beside the PR tab's column
             DRow::Full(_) => tw,
         };
+        // A code line's last column is for comment marks.
+        let cur_w = if code_line && !self.margin_side() && !on_pr { cur_w.saturating_sub(1) } else { cur_w };
         // The cursor kept in view: in a comment's code block by scrolling only that block (to
         // its box's edge, as `render_row` cuts it); elsewhere in a comment there's nothing to
         // scroll; in the diff by `left`.
@@ -712,17 +714,21 @@ impl App {
         Some(spans)
     }
 
-    /// The gutter mark for code row `r` when comments are about it: `◆` Claude's, `●` others',
-    /// `○` when all of them are resolved or outdated.
-    fn comment_mark(&self, r: usize) -> Option<(char, Style)> {
-        let ts: Vec<&Thread> = self.margin_anchor.iter().filter(|&(_, &c)| c == r).map(|(&t, _)| &self.threads[t]).collect();
-        let open: Vec<&&Thread> = ts.iter().filter(|t| !t.stale()).collect();
-        match (ts.is_empty(), open.iter().any(|t| !agent::claude_wrote(t)), open.is_empty()) {
-            (true, ..) => None,
-            (_, _, true) => Some(('○', self.ui.stale)),
-            (_, true, _) => Some(('●', self.ui.thread)),
-            _ => Some(('◆', self.ui.thread)),
-        }
+    /// The comment mark at the right edge of code row `r` (`side`: which half of a split row):
+    /// `│` over a comment's lines, a dot at its last, `●` others', `◆` Claude's, `○` resolved or
+    /// outdated (`App::marks`).
+    fn comment_mark(&self, r: usize, side: Option<bool>) -> Option<(char, Style)> {
+        let rank = match side {
+            Some(right) => self.marks.get(&(r, !right)).copied(),
+            None => self.marks.get(&(r, false)).copied().max(self.marks.get(&(r, true)).copied()),
+        }?;
+        Some(match rank {
+            MARK_DOT => ('●', self.ui.thread),
+            MARK_CLAUDE_DOT => ('◆', self.ui.thread),
+            MARK_STALE_DOT => ('○', self.ui.stale),
+            MARK_LINE => ('│', self.ui.thread),
+            _ => ('│', self.ui.stale),
+        })
     }
 
     /// One row's spans, padded to the gutter + `tw` width. `side`: None = full width, else
@@ -833,16 +839,12 @@ impl App {
                 self.hl_cache.get(&k)?.get(n as usize - 1)
             }),
         };
-        // A line with comments on it: marked in the gutter (between its number and its +/−).
-        let mark = matches!(l.kind, Kind::Ctx | Kind::Add | Kind::Del).then(|| self.comment_mark(r)).flatten();
-        let mut spans = match mark {
-            Some((c, st)) => {
-                let at = gutter.chars().count().saturating_sub(3);
-                let (a, b): (String, String) = (gutter.chars().take(at).collect(), gutter.chars().skip(at + 1).collect());
-                vec![Span::styled(a, gstyle), Span::styled(c.to_string(), gstyle.patch(st)), Span::styled(b, gstyle)]
-            }
-            None => vec![Span::styled(gutter, gstyle)],
-        };
+        // A code line keeps its last column for comment marks (`│` over a comment's lines, a dot
+        // at its last), at the edge beside the pane.
+        let code_row = matches!(l.kind, Kind::Ctx | Kind::Add | Kind::Del);
+        let mark = code_row.then(|| self.comment_mark(r, side)).flatten();
+        let tw = if code_row { tw.saturating_sub(1) } else { tw };
+        let mut spans = vec![Span::styled(gutter, gstyle)];
         let g = spans.len(); // the gutter's spans; the text's follow
         let mut n = 0;
         // A context line shows on both sides of a split row; the cursor goes on the current side.
@@ -955,6 +957,12 @@ impl App {
                 spans.push(Span::styled(b, style.patch(st)));
             }
             _ => spans.push(Span::raw(" ".repeat(tw.saturating_sub(used)))),
+        }
+        if code_row {
+            spans.push(match mark {
+                Some((c, st)) => Span::styled(c.to_string(), st),
+                None => Span::raw(" "),
+            });
         }
         if let Some(bg) = line_bg {
             for sp in &mut spans {

@@ -16,15 +16,15 @@
  10  10   line 10                                                                               ┃
  11  11   line 11       DIFF                                                                    ┃
  12     -     let x =    ]g [g                next / prev hunk (change)                         ┃
-     12◆+     let x =    ]f [f, Space f       next / prev file, file picker                     ┃
+     12 +     let x =    ]f [f, Space f       next / prev file, file picker                     ┃                      ◆
  13  13   line 13        ]c [c                next / prev comment thread                        ┃
  14  14   line 14        ]a [a                next / prev Claude comment (wraps around)         │
  15  15   line 15        ]p [p                next / prev comment of your pending review (wraps │
  ▾        src/a.rs  +1                        around)                                           │
           ── fn main ─   /  n N  *            search, next / prev match, search selection       │ ─────────────── L1–3 ─
-  1   1○  fn main() {                                                                           │
+  1   1   fn main() {                                                                           │                      ○
   2     -     old();    SELECT & COPY                                                           │
-      2●+     new_call   x                    select line (repeat to extend)                    │
+      2 +     new_call   x                    select line (repeat to extend)                    │                      ●
   3   3   }              v  ;  Esc            select mode / collapse / exit select mode         │
  ▾        new.rs (rena   y  (or Space y)      copy text                                         │
  ▾        img.png (bin   Y                    copy as patch                                     │
@@ -43,8 +43,8 @@
                                               time)                                             │
                          Ctrl-w h  Ctrl-w l   split view: old / new side; margin: code /        │
                                               comments (or Ctrl-h Ctrl-l)                       │
-                         Ctrl-w c             show / hide the comments pane (hidden: ● marks    │
-                                              their lines)                                      │
+                         Ctrl-w c             show / hide the comments pane (│ ● mark their     │
+                                              lines)                                            │
 
 
  NOR                                                                                                               1/42

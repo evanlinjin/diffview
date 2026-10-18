@@ -1761,3 +1761,26 @@ fn gg_in_the_pane() {
     k(&mut app, 'g');
     assert_eq!(app.head.row, 0);
 }
+
+#[test]
+fn comment_marks_at_the_right_edge() {
+    // Claude's comment on lines 10–12 (new side): │ on 10 and 11, ◆ on 12, at the code's edge.
+    let mut app = fixture();
+    app.threads[0].start_line = Some(10);
+    app.build();
+    let s = screen(220, 30, |f| app.draw(f));
+    let edge = |n: u32| {
+        let line = s.lines().find(|l| l.starts_with(&format!(" {n:>2}  {n:>2} ")) || l.starts_with(&format!("     {n:>2} "))).unwrap();
+        line.chars().nth(app.geom.relw + app.geom.gw + app.geom.ctw - 1).unwrap()
+    };
+    assert_eq!((edge(9), edge(10), edge(11), edge(12)), (' ', '│', '│', '◆'), "{s}");
+    // Nothing in the old gutter spot any more.
+    assert!(!s.lines().any(|l| l.contains("12◆+")));
+    // Split view: on the new side's edge, not the old side's.
+    app.toggle_split();
+    let s = screen(240, 30, |f| app.draw(f));
+    let row = s.lines().find(|l| l.contains("new_call(12)")).unwrap();
+    let half = app.geom.relw + app.geom.half;
+    let (old, new): (String, String) = (row.chars().take(half).collect(), row.chars().skip(half).collect());
+    assert!(!old.contains('◆') && new.contains('◆'), "{row}");
+}
