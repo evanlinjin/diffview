@@ -23,12 +23,9 @@
    m                    mark the PR (again: unmark), for Claude to review; marks are kept, for
                         going through them a PR at a time (quitting dv list too)
    U U                  unmark all
-   C                    auto on / off (shown on the top bar; kept in git config dv.auto):
-                        Claude does its part on what needs you as it comes in (fixes your
-                        CI, reviews, updates its reviews, answers you), your drafts are marked
-                        ready for review once CI passes, a published replacement's originals
-                        are closed with its note once its CI passes, and the todo list is ranked ag
-                        as it changes (at most every 15 minutes)
+   C                    auto on / off (top bar; git config dv.auto): Claude does its part as
+                        things come in, CI-green drafts go ready, replacements close what they
+                        replace, the todo list is ranked again
    a a                  Claude reviews the marked PRs (or this one) in the background, two at a
                         time, each in its worktree (<repo>-N, made if need be); cards show how
                         it's going, and claude ✓ once a PR has a review
@@ -57,4 +54,7 @@
                         deferred one brings it back. p posts what it waits on as a comment
                         (Waiting on: #N is merged.), which dv reads back for everyone: a
                         comment like that (by you or anyone with write access) defers the PR
+                        till then, until a later Unblocked
+   r r                  todo: Claude ranks what needs you (one Claude run: the header says what
+                        the last cost and what's changed since, to judge if it's worth it)
 

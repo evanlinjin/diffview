@@ -56,12 +56,9 @@ const HELP: &str = "\
   m                    mark the PR (again: unmark), for Claude to review; marks are kept, for
                        going through them a PR at a time (quitting dv list too)
   U U                  unmark all
-  C                    auto on / off (shown on the top bar; kept in git config dv.auto):
-                       Claude does its part on what needs you as it comes in (fixes your
-                       CI, reviews, updates its reviews, answers you), your drafts are marked
-                       ready for review once CI passes, a published replacement's originals
-                       are closed with its note once its CI passes, and the todo list is ranked again
-                       as it changes (at most every 15 minutes)
+  C                    auto on / off (top bar; git config dv.auto): Claude does its part as
+                       things come in, CI-green drafts go ready, replacements close what they
+                       replace, the todo list is ranked again
   a a                  Claude reviews the marked PRs (or this one) in the background, two at a
                        time, each in its worktree (<repo>-N, made if need be); cards show how
                        it's going, and claude ✓ once a PR has a review
@@ -170,6 +167,8 @@ pub struct List {
     /// each: (PR, head, what).
     auto: bool,
     auto_done: HashSet<(u64, String, &'static str)>,
+    /// When auto last had Claude rank the list.
+    auto_ranked: Option<std::time::Instant>,
     /// What's not pushed in each PR worktree (`scan_unpushed`): changed files, commits beyond
     /// the PR's head, and when that head was made.
     unpushed: Unpushed,
@@ -261,6 +260,7 @@ impl List {
             running_checked: std::time::Instant::now() - std::time::Duration::from_secs(60),
             auto: crate::diff::git(&["config", "--get", "dv.auto"]).is_ok_and(|v| v.trim() == "true"),
             auto_done: HashSet::new(),
+            auto_ranked: None,
             deferred: crate::todo::load_deferred(crate::todo::deferred_path().as_deref()),
             deferring: None,
             until_rx: None,
@@ -374,23 +374,11 @@ impl List {
                     let which = prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(" ");
                     let what = format!("instructions for Claude's reviews of {which} (optional)");
                     let Some(extra) = self.instructions(term, "review", &what) else { continue };
-                    // A worktree as it was made; a new one as dv list's flags say (-b: on the PR's branch).
-                    let on_branch = |n| self.local.get(&n).map_or(self.flags.contains('b'), |w| w.1.is_some());
                     // From the todo tab, what's due on each (answers, an update, a review).
-                    let task = |n| if self.tab == Tab::Todo { self.todo_task(n) } else { batch::Task::Review };
-                    // Fixing CI makes changes to push: on the PR's branch, always.
-                    let prs: Vec<(u64, bool, batch::Task)> = prs.into_iter().map(|n| (n, task(n))).map(|(n, t)| (n, on_branch(n) || t == batch::Task::FixChecks, t)).collect();
+                    let prs: Vec<(u64, batch::Task)> = prs.into_iter().map(|n| (n, if self.tab == Tab::Todo { self.todo_task(n) } else { batch::Task::Review })).collect();
                     let with = if extra.is_empty() { "" } else { ", with your instructions" };
-                    let doing: Vec<String> = prs.iter().map(|(n, _, t)| format!("{} #{n}", t.doing())).collect();
-                    self.msg = format!("Claude is {}{with}, {} at a time", doing.join(", "), batch::AT_ONCE);
+                    self.msg = format!("Claude is {}{with}, {} at a time", self.start_batch(prs, extra), batch::AT_ONCE);
                     self.marked.clear();
-                    prs.iter().for_each(|(n, _, t)| _ = self.batch_task.insert(*n, t.clone()));
-                    // Fixing CI afresh: its last word that it isn't the PR's doing goes (it says
-                    // so again, if it still finds that).
-                    for (n, ..) in prs.iter().filter(|p| p.2 == batch::Task::FixChecks) {
-                        crate::claude::ci_note_path(*n).map(std::fs::remove_file).ok();
-                    }
-                    self.batch_rx.push(batch::start(prs, self.root.clone(), extra));
                 }
                 // One PR: its replacement. Several: Claude suggests how to group them first.
                 Some(Do::Replace(prs)) if prs.len() == 1 => self.draft_groups(term, Ok(vec![(prs, String::new())])),
@@ -471,6 +459,27 @@ impl List {
                 None
             }
         }
+    }
+
+    /// Claude does each task on its PR in the background (`a a`, auto): what it's doing, said.
+    pub(super) fn start_batch(&mut self, prs: Vec<(u64, batch::Task)>, extra: String) -> String {
+        // A worktree as it was made; a new one as dv list's flags say (-b: on the PR's branch).
+        // Fixing CI makes changes to push: on the PR's branch, always.
+        let on_branch = |n| self.local.get(&n).map_or(self.flags.contains('b'), |w| w.1.is_some());
+        let prs: Vec<(u64, bool, batch::Task)> = prs.into_iter().map(|(n, t)| (n, on_branch(n) || t == batch::Task::FixChecks, t)).collect();
+        let doing: Vec<String> = prs.iter().map(|(n, _, t)| format!("{} #{n}", t.doing())).collect();
+        for (n, _, t) in &prs {
+            self.batch_task.insert(*n, t.clone());
+            // Queued now, not once its news comes: what looks at it next sees it under way.
+            self.batch.insert(*n, batch::Status::Queued);
+            // Fixing CI afresh: its last word that it isn't the PR's doing goes (it says so
+            // again, if it still finds that).
+            if *t == batch::Task::FixChecks {
+                crate::claude::ci_note_path(*n).map(std::fs::remove_file).ok();
+            }
+        }
+        self.batch_rx.push(batch::start(prs, self.root.clone(), extra));
+        doing.join(", ")
     }
 
     /// `N N`: Claude drafts a new PR doing what you write (in your editor), unpublished: on its

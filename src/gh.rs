@@ -103,13 +103,19 @@ pub fn body(n: u64) -> Result<String> {
     Ok(v["body"].as_str().unwrap_or("").replace("\r\n", "\n"))
 }
 
-/// Mark draft PR `n` ready for review (`gh pr ready`): only once CI passes, nothing failing
-/// or still running (a PR with no checks has nothing to wait for).
-pub fn mark_ready(n: u64) -> Result<()> {
+/// PR `n`'s CI checks on GitHub now: (passed, failed, pending).
+pub fn checks(n: u64) -> Result<(usize, usize, usize)> {
     let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", "statusCheckRollup"])?)?;
     let checks = v["statusCheckRollup"].as_array().map(Vec::as_slice).unwrap_or(&[]);
     let count = |m| checks.iter().filter(|c| verdict(c) == m).count();
-    match (count('✗'), count('●')) {
+    Ok((count('✓'), count('✗'), count('●')))
+}
+
+/// Mark draft PR `n` ready for review (`gh pr ready`): only once CI passes, nothing failing
+/// or still running (a PR with no checks has nothing to wait for).
+pub fn mark_ready(n: u64) -> Result<()> {
+    let (_, fail, pending) = checks(n)?;
+    match (fail, pending) {
         (0, 0) => gh(&["pr", "ready", &n.to_string()]).map(drop),
         (0, k) => bail!("CI is still running ({k} check{} pending): ready once it passes", if k == 1 { "" } else { "s" }),
         (k, _) => bail!("CI fails ({k} check{} failed): fix it first (dv list: a a has Claude look)", if k == 1 { "" } else { "s" }),

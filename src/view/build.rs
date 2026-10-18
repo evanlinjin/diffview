@@ -245,7 +245,11 @@ impl App {
         }
         // Claude's draft comment for closing the PR: first, as what you'd do next.
         if self.view == View::All && !self.claude.closing.trim().is_empty() {
-            rows.extend(self.section(CLOSING_PR, "closing comment · Claude's draft (Space a: close the PR with it, more changes, discard)".into(), &self.claude.closing, None));
+            let what = match self.pr_state.is_some_and(|s| matches!(s.0, "OPEN" | "DRAFT")) {
+                true => "closing comment · Claude's draft (Space a: close the PR with it, more changes, discard)",
+                false => "closing comment · Claude's draft (the PR isn't open: Space a discards it)",
+            };
+            rows.extend(self.section(CLOSING_PR, what.into(), &self.claude.closing, None));
         }
         // Before the files, like one: the PR's description, then the messages of the commits shown.
         if self.view == View::All {

@@ -215,9 +215,13 @@ impl App {
             items.push(Item::new("Ask Claude to change the PR's description (you approve it)…", Target::Claude(Ask::Describe)));
         }
         // Closing it: Claude drafts the comment; you edit it, then close with it (or don't).
+        // (Closed or merged meanwhile: the draft can only go.)
         let open = self.pr_state.is_some_and(|s| matches!(s.0, "OPEN" | "DRAFT"));
-        if !self.claude.closing.is_empty() && open {
+        let drafted = !self.claude.closing.trim().is_empty();
+        if drafted {
             items.insert(0, Item::new("Discard Claude's closing comment", Target::CloseDiscard));
+        }
+        if drafted && open {
             items.insert(0, Item::new("Ask Claude for changes to the closing comment…", Target::Claude(Ask::Close)));
             items.insert(0, Item::new("Close the PR with Claude's comment (your editor first)…", Target::ClosePr));
         } else if self.pr.is_some() && open {
@@ -345,7 +349,6 @@ impl App {
         };
     }
 
-    /// `Space a` → discard Claude's proposed description.
     /// `Space a` → close the PR with Claude's comment: in your editor first (an empty one, or
     /// `:cq`, closes nothing), then posted, and the PR closed.
     pub(super) fn close_pr(&mut self) -> Result<String> {
@@ -364,6 +367,7 @@ impl App {
         Ok(format!("#{n} closed, with your comment"))
     }
 
+    /// `Space a` → discard Claude's closing comment.
     pub(super) fn discard_closing(&mut self) {
         let Some(path) = self.claude.path.clone() else { return };
         self.msg = match crate::claude::clear_closing(&path) {
@@ -377,6 +381,7 @@ impl App {
         };
     }
 
+    /// `Space a` → discard Claude's proposed description.
     pub(super) fn discard_description(&mut self) {
         let Some(path) = self.claude.path.clone() else { return };
         self.msg = match crate::claude::clear_description(&path) {

@@ -201,6 +201,12 @@ pub struct Facts<'a> {
     pub ci_note: Option<&'a crate::claude::CiNote>,
 }
 
+/// Checks that have all passed: some, none failing or still running (none at all: CI hasn't
+/// started).
+pub fn green(checks: Option<(usize, usize, usize)>) -> bool {
+    checks.is_some_and(|(pass, fail, pending)| pass > 0 && fail == 0 && pending == 0)
+}
+
 /// What PR `f` needs from you, and what Claude should do on it first.
 pub fn needs(f: &Facts) -> (Vec<Need>, Option<Task>) {
     let (pr, mut out) = (f.pr, vec![]);
@@ -238,7 +244,7 @@ pub fn needs(f: &Facts) -> (Vec<Need>, Option<Task>) {
     }
     // Your draft, done by the look of it: checks passed, nothing failing or still running (none
     // at all: CI hasn't started yet), nothing unpushed.
-    if mine && pr.draft && f.unpushed == (0, 0) && pr.checks.is_some_and(|(pass, fail, pending)| pass > 0 && fail == 0 && pending == 0) {
+    if mine && pr.draft && f.unpushed == (0, 0) && green(pr.checks) {
         out.push(Need::MarkReady);
     }
     let my_review = f.extra.and_then(|e| e.my_review.as_ref());

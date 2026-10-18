@@ -2226,10 +2226,15 @@ fn claude_drafts_a_closing_comment() {
     assert!(!std::fs::read_to_string(&path).unwrap().contains("closing") && !app.rows.iter().any(|r| r.main == Some(CLOSING_PR)));
     app.claude_menu();
     assert!(app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::Claude(agent::Ask::Close))));
-    // Closed already: not offered.
+    // Closed already: not offered; a draft left over can only be discarded.
     app.pr_state = Some(("CLOSED", "da3633"));
     app.claude_menu();
     assert!(!app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::Claude(agent::Ask::Close))));
+    std::fs::write(&path, r#"{"closing": "Thanks!"}"#).unwrap();
+    app.load_claude();
+    app.claude_menu();
+    let items = app.picker.take().unwrap().items;
+    assert!(matches!(items[0].target, Target::CloseDiscard) && !items.iter().any(|i| matches!(i.target, Target::ClosePr)));
     _ = std::fs::remove_file(&path);
 }
 

@@ -80,74 +80,103 @@ impl List {
     }
 
     /// Auto (`C`): Claude does its part on each item, as `a a` would have it (fixing your CI,
-    /// reviewing, updating its review, answering you), each once a head; green drafts of yours
-    /// are marked ready for review; and what needs you is ranked again as it changes. Not what
-    /// you've put aside or wait on, not where Claude's at it already.
+    /// reviewing, updating its review, answering you), each once a head (an answer, once a
+    /// change to its review file); green drafts of yours are marked ready for review; a
+    /// published replacement, green, closes what it replaces; and what needs you is ranked again
+    /// as it changes. Not what you've put aside or wait on, not where Claude's at it already.
     fn auto_run(&mut self) {
         if !self.auto {
             return;
         }
+        let todo: Vec<Item> = self.todo.iter().filter(|it| it.busy.is_none() && it.deferred.is_none() && it.waits.is_none()).cloned().collect();
+        // A published replacement, green, nothing of it unpushed: what it replaces is closed,
+        // with its closing note (their items aren't Claude's to review any more, then).
+        let mut close = vec![];
+        for it in todo.iter().filter(|it| it.rep && it.needs.iter().any(|n| matches!(n, todo::Need::CloseOriginals(_)))) {
+            let Some(r) = self.rep_of.get(&it.number) else { continue };
+            let Some(p) = r.published.and_then(|n| self.prs.iter().find(|p| p.number == n)) else { continue };
+            if !p.checks_head.is_empty() && todo::green(p.checks) && self.auto_done.insert((it.number, p.checks_head.clone(), "close")) {
+                close.push(r.clone());
+            }
+        }
+        let closing: HashSet<u64> = close.iter().flat_map(|r| r.replaces.iter().map(|o| o.number)).collect();
         let (mut run, mut ready) = (vec![], vec![]);
-        // One batch of Claude's at a time: the cap on how many run at once holds (the rest wait
-        // for a later look).
+        // One batch of Claude's at a time, of at most as many as run at once: the cap holds, and
+        // the rest wait for a later look (most pressing first, in the todo's order).
         let batch_busy = self.batch.values().any(batch::Status::running);
-        for it in self.todo.iter().filter(|it| !it.rep && it.busy.is_none() && it.deferred.is_none() && it.waits.is_none()) {
+        for it in todo.iter().filter(|it| !it.rep && !closing.contains(&it.number)) {
             let Some(p) = self.prs.iter().find(|p| p.number == it.number) else { continue };
             let Some(head) = self.extra.get(&it.number).map(|e| e.head_oid.clone()).filter(|h| !h.is_empty()) else { continue };
             // CI's state is about the head the rest knows of (else it's another commit's).
             let ci_here = head == p.checks_head;
             match it.claude.clone() {
-                Some(t) if !batch_busy && (t != batch::Task::FixChecks || ci_here) && self.auto_done.insert((it.number, head.clone(), t.doing())) => {
-                    let branch = t == batch::Task::FixChecks || self.local.get(&it.number).map_or(self.flags.contains('b'), |w| w.1.is_some());
-                    run.push((it.number, branch, t));
+                Some(t) if !batch_busy && run.len() < batch::AT_ONCE && (t != batch::Task::FixChecks || ci_here) => {
+                    // Answers: once each change to the review file (your new replies), not a head.
+                    let at = match t {
+                        batch::Task::Answer { .. } => format!("{head}@{}", self.review_mtime(it.number)),
+                        _ => head,
+                    };
+                    if self.auto_done.insert((it.number, at, t.doing())) {
+                        run.push((it.number, t));
+                    }
                 }
                 _ if ci_here && it.needs.contains(&todo::Need::MarkReady) && self.auto_done.insert((it.number, head, "ready")) => ready.push(it.number),
                 _ => {}
             }
         }
-        // A published replacement, its CI passed: what it replaces closed, with its closing note.
-        let mut close = vec![];
-        for it in self.todo.iter().filter(|it| it.rep && it.busy.is_none() && it.deferred.is_none() && it.waits.is_none()) {
-            let Some(r) = self.rep_of.get(&it.number).filter(|_| it.needs.iter().any(|n| matches!(n, todo::Need::CloseOriginals(_)))) else { continue };
-            let Some(p) = r.published.and_then(|n| self.prs.iter().find(|p| p.number == n)) else { continue };
-            let green = !p.checks_head.is_empty() && p.checks.is_some_and(|(pass, fail, pending)| pass > 0 && fail == 0 && pending == 0);
-            if green && self.auto_done.insert((it.number, p.checks_head.clone(), "close")) {
-                close.push(r.clone());
-            }
-        }
         let mut said = vec![];
-        for mut r in close {
-            let (note, n) = (crate::replace::note(&r), r.published.unwrap_or(0));
-            said.push(match crate::replace::close_originals(&mut r, &note) {
-                Ok(done) => format!("closed {} (replaced by #{n}, its CI passed)", done.iter().map(|o| format!("#{o}")).collect::<Vec<_>>().join(", ")),
-                Err(e) => format!("closing what #{n} replaces: {e:#}"),
-            });
-            self.load_reps();
-        }
         if !run.is_empty() {
-            said.push(format!("Claude is {}", run.iter().map(|(n, _, t)| format!("{} #{n}", t.doing())).collect::<Vec<_>>().join(", ")));
-            run.iter().for_each(|(n, _, t)| _ = self.batch_task.insert(*n, t.clone()));
-            for (n, ..) in run.iter().filter(|r| r.2 == batch::Task::FixChecks) {
-                crate::claude::ci_note_path(*n).map(std::fs::remove_file).ok();
-            }
-            self.batch_rx.push(batch::start(run, self.root.clone(), String::new()));
+            said.push(format!("Claude is {}", self.start_batch(run, String::new())));
         }
-        // `mark_ready` checks CI again first; the list's next look at GitHub shows them so. Said
-        // either way (not tried again at this head: you'd be told each time).
+        // `mark_ready` and the closing check CI again first. Said either way (not tried again
+        // at this head: you'd be told each time).
         for n in ready {
             said.push(match crate::gh::mark_ready(n) {
                 Ok(()) => format!("#{n} marked ready for review (CI passed)"),
                 Err(e) => format!("#{n} not marked ready: {e:#}"),
             });
         }
-        // Ranked again once something's new or changed, at most every quarter hour (a run each).
-        let stale = self.ranked.as_ref().is_none_or(|r| crate::claude::now_secs() - r.at > 15 * 60 && self.since.new + self.since.changed > 0);
-        if stale && self.rank_rx.is_none() && !self.want_rank && !self.todo.is_empty() {
+        for mut r in close {
+            let n = r.published.unwrap_or(0);
+            let note = crate::replace::note(&r);
+            let res = self.rep_pushed(&r).and_then(|()| crate::replace::close_originals(&mut r, &note));
+            said.push(match res {
+                Ok(done) => format!("closed {} (replaced by #{n}, its CI passed)", done.iter().map(|o| format!("#{o}")).collect::<Vec<_>>().join(", ")),
+                Err(e) => format!("not closing what #{n} replaces: {e:#}"),
+            });
+            self.load_reps();
+        }
+        // Ranked again once something's new or changed, at most every quarter hour (a run each,
+        // tried or not: a failing one isn't run over and over).
+        let due = self.auto_ranked.is_none_or(|t| t.elapsed() > std::time::Duration::from_secs(15 * 60));
+        let changed = self.ranked.is_none() || self.since.new + self.since.changed > 0;
+        if due && changed && self.rank_rx.is_none() && !self.want_rank && !self.todo.is_empty() {
+            self.auto_ranked = Some(std::time::Instant::now());
             self.rank_now();
         }
         if !said.is_empty() {
             self.msg = format!("auto: {}", said.join("; "));
         }
+    }
+
+    /// When Claude's review file for PR `n` last changed (seconds; 0: none).
+    fn review_mtime(&self, n: u64) -> u64 {
+        let f = self.reviews_dir.as_ref().map(|d| d.join(format!("pr-{n}.json")));
+        let t = f.and_then(|f| std::fs::metadata(f).ok()?.modified().ok());
+        t.and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs())
+    }
+
+    /// Replacement `r`'s branch as published: nothing in its worktree left out (uncommitted, or
+    /// commits not pushed), and its PR's CI passing on GitHub now.
+    fn rep_pushed(&self, r: &crate::replace::Record) -> anyhow::Result<()> {
+        let dir = crate::worktree_dir_named(&self.root, &crate::replace::name(r.id))?;
+        let d = dir.to_string_lossy().into_owned();
+        let git = |args: &[&str]| crate::diff::git(&[&["-C", d.as_str()], args].concat()).unwrap_or_default();
+        anyhow::ensure!(git(&["status", "--porcelain"]).trim().is_empty(), "its worktree has uncommitted changes");
+        anyhow::ensure!(git(&["rev-list", "--count", "@{upstream}..HEAD"]).trim() == "0", "its worktree has commits not pushed");
+        let n = r.published.unwrap_or(0);
+        anyhow::ensure!(todo::green(Some(crate::gh::checks(n)?)), "#{n}'s CI isn't all green on GitHub now");
+        Ok(())
     }
 
     /// The todo tab's items with their cards (a PR's, or a replacement's).
@@ -300,7 +329,7 @@ impl List {
             todo::Until::Time(t) => crate::claude::now_secs() >= *t,
             todo::Until::Merged(n) => state(*n).is_some_and(|s| s == "MERGED"),
             todo::Until::Closed(n) => state(*n).is_some_and(|s| s == "MERGED" || s == "CLOSED"),
-            todo::Until::Green => pr.and_then(|p| p.checks).is_some_and(|(pass, fail, pending)| pass > 0 && fail == 0 && pending == 0),
+            todo::Until::Green => todo::green(pr.and_then(|p| p.checks)),
             todo::Until::Approved(None) => pr.is_some_and(|p| p.decision == "APPROVED") || reviews.iter().any(|r| r.1 == "APPROVED"),
             todo::Until::Approved(Some(who)) => reviews.iter().any(|r| &r.0 == who && r.1 == "APPROVED"),
             todo::Until::Reviewed(who) => reviews.iter().any(|r| &r.0 == who),
