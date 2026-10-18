@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-18
+
 ### Added
 - Todo: failing CI is a need ("2 checks failing: fix them" on yours; "see why, tell the author"
   on others', not on their drafts).
@@ -621,6 +623,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.18.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.18.0
 [0.17.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.17.1
 [0.17.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.17.0
 [0.16.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.16.0
