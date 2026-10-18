@@ -10,6 +10,7 @@ fn filter_and_keys() {
         branch: "b".into(),
         state: "OPEN".into(),
         updated: updated.into(),
+        created: updated.into(),
         additions: number,
         files: 1,
         ..Listed::default()
@@ -21,7 +22,9 @@ fn filter_and_keys() {
     let k = |l: &mut List, c| l.key(KeyEvent::new(c, KeyModifiers::NONE));
     let shown = |l: &List| l.shown().iter().map(|p| p.number).collect::<Vec<_>>();
     let filter = |l: &mut List, q: &str| (l.query = q.into(), shown(l)).1;
-    assert_eq!(shown(&l), [1, 333, 22]); // most recently updated first
+    assert_eq!(shown(&l), [1, 333, 22]); // newest first
+    assert!(matches!(l.order, Order::Created)); // by default
+    l.order = Order::Updated; // what the rest goes on from (`o` steps from it)
     assert_eq!(filter(&mut l, "fix"), [1, 333]); // smart case
     assert_eq!(filter(&mut l, "Fix"), [1]);
     assert_eq!(filter(&mut l, "is:draft"), [22]);

@@ -1,4 +1,4 @@
-  todo 0   open 3   worktrees 0   drafts 0     by upda keys
+  todo 0   open 3   worktrees 0   drafts 0     by crea keys
                                                        Enter review it, in its worktree
  no replacements yet: A A on a PR (or marked ones) has Tab   what needs you
                                                        /     filter

@@ -1,4 +1,4 @@
-  todo 0   open 3   worktrees 0   drafts 0     by upda keys
+  todo 0   open 3   worktrees 0   drafts 0     by crea keys
      #1  Fix CI                                        Enter review
           @ann   +1 −0 in 1 file                       Tab   PRs with a worktree
           claude ✓                                     /     filter

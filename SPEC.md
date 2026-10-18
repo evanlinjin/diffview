@@ -311,7 +311,7 @@ number, title (bold), draft badge, `[new]`, age; author, size, labels; CI (✓/�
 in the background since they're slow), review decision and Claude's part, in columns; base ←
 branch and its worktree. The selected card keeps its colors on a quiet background (the theme's
 cursor line), with a bar down its left edge. `j k`, `gg ge`, `Ctrl-d Ctrl-u` move;
-`o` cycles the order (updated / created / number / size, newest or biggest first), `O`
+`o` cycles the order (created, the default / number / size / updated, newest or biggest first), `O`
 reverses it. `/` edits the filter (Enter keeps, Esc clears): space-separated terms that must
 all match, GitHub-search style, `-` negating one: `author:` `label:` `base:` `branch:`
 (substring), `is:draft`, `review:approved|changes|required|none`, `ci:pass|fail|pending|none`,

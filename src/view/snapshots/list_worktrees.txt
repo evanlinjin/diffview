@@ -1,4 +1,4 @@
-  todo 0   open 3   worktrees 0   drafts 0     by upda keys
+  todo 0   open 3   worktrees 0   drafts 0     by crea keys
                                                        Enter review, in its worktree
  no PR worktrees here yet: `dv N -w` (or dv list -w, t Tab   replacements
                                                        /     filter

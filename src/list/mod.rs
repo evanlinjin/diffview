@@ -50,7 +50,7 @@ const HELP: &str = "\
                          is:draft  review:approved|changes|required|none
                          ci:pass|fail|pending|none     -term excludes
   Esc                  clear the filter
-  o O                  next sort order (updated, created, number, size) / reverse
+  o O                  next sort order (created, the default; number, size, updated) / reverse
   m                    mark the PR (again: unmark), for Claude to review; marks are kept, for
                        going through them a PR at a time (quitting dv list too)
   U U                  unmark all
@@ -216,7 +216,7 @@ impl List {
             filtering: false,
             pending_g: false,
             help: false,
-            order: Order::Updated,
+            order: Order::Created,
             rev: false,
             checks: None,
             fresh: None,

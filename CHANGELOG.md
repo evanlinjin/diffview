@@ -13,6 +13,7 @@ on GitHub are its section here.
   on the todo card and offers a new PR fixing CI (`N N` on it, or `Space a` in the PR).
 
 ### Changed
+- `dv list` sorts by created by default (newest first), not updated: `o` still cycles.
 - An unpublished replacement or new PR has no PR tab: what it replaces (or what you asked for)
   heads its description, in the diff. Published, the tab is back.
 
