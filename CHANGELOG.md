@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.23.2] - 2026-10-18
+
 ### Fixed
 - On the PR tab, after the PR's text grew (posting a comment there with `S`, or a refresh while a
   preview was up), `Ctrl-h` and `gn` went to PR text (a comment) instead of back to the code, so
@@ -708,6 +710,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.23.2]: https://github.com/evanlinjin/diffview/releases/tag/v0.23.2
 [0.23.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.23.1
 [0.23.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.23.0
 [0.22.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.22.0
