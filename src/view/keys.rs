@@ -261,8 +261,9 @@ impl App {
         let thread = |rows: &[Row], r: usize| rows[r].thread.is_some() && (r == 0 || rows[r - 1].thread != rows[r].thread);
         let so = 3.min(self.height / 2);
         match (p, c) {
-            ('g', 'g') => self.goto(0, 0),
-            ('g', 'e') => self.goto(self.rows.len() - 1, 0),
+            // In the pane, its own top / end (the first and last comment, or the PR's text).
+            ('g', 'g') => self.goto(self.pane_rows().first().copied().unwrap_or(0), 0),
+            ('g', 'e') => self.goto(self.pane_rows().last().copied().unwrap_or(self.rows.len() - 1), 0),
             ('g', 'h') => self.goto(self.head.row, 0),
             ('g', 'l') => self.goto(self.head.row, usize::MAX),
             ('m', 'm') => self.match_bracket(),

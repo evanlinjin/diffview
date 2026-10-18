@@ -11,6 +11,12 @@ on GitHub are its section here.
   column that lines up from card to card, within 140 columns; three lines each. Narrower, the
   four stacked lines as before.
 
+### Fixed
+- Reviews show in the PR's conversation (in time order with its comments): their text, and
+  approvals and change requests even without text. A plain review's text was nowhere before.
+- `gg` / `ge` in the comments pane go to its own top / end (the first / last comment, or the PR
+  tab's), not the diff's.
+
 ## [0.7.1] - 2026-10-18
 
 ### Changed

@@ -731,7 +731,7 @@ impl InfoLine {
 }
 
 const INFO_FIELDS: &str = "headRefOid,title,author,state,isDraft,url,baseRefName,headRefName,additions,deletions,\
-changedFiles,labels,reviewDecision,reviewRequests,latestReviews,statusCheckRollup,body,comments";
+changedFiles,labels,reviewDecision,reviewRequests,latestReviews,statusCheckRollup,body,comments,reviews";
 
 /// PR info lines, plus the current (title, head commit, url) so a refresh picks up new pushes.
 /// GitHub's answer, as JSON (dv caches it; `parse_info` reads it).
@@ -859,12 +859,26 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
     let body = s(&v["body"]).replace("\r\n", "\n");
     out.push(markdown(body)); // empty: the view shows a placeholder
 
-    let comments = list(&v["comments"]);
-    out.push(heading(format!("conversation ({})", comments.len())));
-    for c in &comments {
-        let h = heading(format!("@{} · {}", s(&c["author"]["login"]), ago(&s(&c["createdAt"]))));
-        out.push(InfoLine { url: s(&c["url"]), ..h });
-        out.push(markdown(s(&c["body"]).replace("\r\n", "\n")));
+    // The conversation: comments, and reviews with something to read (their text, or a
+    // verdict: a plain review's inline comments are threads on the code), in time order:
+    // (when, who, what they did, link, text).
+    let mut said: Vec<(String, String, &str, String, String)> =
+        list(&v["comments"]).iter().map(|c| (s(&c["createdAt"]), s(&c["author"]["login"]), "", s(&c["url"]), s(&c["body"]))).collect();
+    for r in list(&v["reviews"]) {
+        let what = match s(&r["state"]).as_str() {
+            "APPROVED" => "approved · ",
+            "CHANGES_REQUESTED" => "requested changes · ",
+            "DISMISSED" => "reviewed (dismissed) · ",
+            "COMMENTED" if !s(&r["body"]).trim().is_empty() => "reviewed · ",
+            _ => continue, // pending, or nothing to read here
+        };
+        said.push((s(&r["submittedAt"]), s(&r["author"]["login"]), what, s(&v["url"]), s(&r["body"])));
+    }
+    said.sort_by(|a, b| a.0.cmp(&b.0)); // ISO times sort as text
+    out.push(heading(format!("conversation ({})", said.len())));
+    for (at, who, what, url, body) in said {
+        out.push(InfoLine { url, ..heading(format!("@{who} · {what}{}", ago(&at))) });
+        out.push(markdown(body.replace("\r\n", "\n")));
     }
     out
 }
@@ -1008,4 +1022,26 @@ fn review_pages() {
     let ids: Vec<Vec<u64>> = r.threads.iter().map(|t| t.comments.iter().map(|c| c.id).collect()).collect();
     assert_eq!(ids, [vec![1, 2], vec![3]]);
     assert_eq!(r.viewed.len(), 2);
+}
+
+#[test]
+fn reviews_in_the_conversation() {
+    let v = serde_json::json!({
+        "url": "https://github.com/o/r/pull/1", "body": "",
+        "comments": [{ "author": { "login": "amy" }, "body": "first", "createdAt": "2026-01-01T00:00:00Z", "url": "c1" }],
+        "reviews": [
+            { "author": { "login": "me" }, "state": "COMMENTED", "body": "looks close", "submittedAt": "2026-01-03T00:00:00Z" },
+            { "author": { "login": "bo" }, "state": "APPROVED", "body": "", "submittedAt": "2026-01-02T00:00:00Z" },
+            { "author": { "login": "cy" }, "state": "COMMENTED", "body": "", "submittedAt": "2026-01-04T00:00:00Z" },
+            { "author": { "login": "me" }, "state": "PENDING", "body": "draft", "submittedAt": "" },
+        ],
+    });
+    let lines = info_lines(&v);
+    let text: Vec<&str> = lines.iter().map(|l| l.text.as_str()).collect();
+    let at = text.iter().position(|t| t.starts_with("conversation")).unwrap();
+    assert_eq!(text[at], "conversation (3)"); // the empty plain review and the pending one aren't
+    let rest = &text[at + 1..];
+    assert!(rest[0].starts_with("@amy · ") && rest[1] == "first");
+    assert!(rest[2].starts_with("@bo · approved · ") && rest[3].is_empty());
+    assert!(rest[4].starts_with("@me · reviewed · ") && rest[5] == "looks close");
 }

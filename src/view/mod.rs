@@ -48,7 +48,7 @@ MOVE
   f t F T <c>          find char
   gw                   jump labels
   mm                   matching bracket
-  gg ge                top / end
+  gg ge                top / end (in the comments pane: its first / last)
   Ctrl-d Ctrl-u        half page down / up
   Ctrl-e Ctrl-y        scroll 5 lines
   zz zt zb             cursor line to center / top / bottom

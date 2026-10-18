@@ -8,7 +8,7 @@
        │  Looks right;   f t F T <c>          find char                                         ┃              │
        ╰──────────────   gw                   jump labels                                       ┃ ─────────────╯
        ╭─ your review    mm                   matching bracket                                  ┃ ─────────────╮
-       │  Nearly there   gg ge                top / end                                         ┃              │
+       │  Nearly there   gg ge                top / end (in the comments pane: its first / last)┃              │
        ╰──────────────   Ctrl-d Ctrl-u        half page down / up                               ┃ ─────────────╯
  ▾        src/big.rs     Ctrl-e Ctrl-y        scroll 5 lines                                    ┃
           ────────────   zz zt zb             cursor line to center / top / bottom              ┃ ────────────── L9–15 ─

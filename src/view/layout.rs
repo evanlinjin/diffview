@@ -10,6 +10,16 @@ impl App {
         if self.margin_row(r) { tw } else { tw.min(self.wrap_w + 2) }
     }
 
+    /// The rows the cursor's pane has, in order, when it's in the pane: the PR tab's, or the
+    /// comments'; nothing when it's in the code.
+    pub(super) fn pane_rows(&self) -> Vec<usize> {
+        match (self.on_pr_tab(), self.margin_side()) {
+            (true, _) => self.pr_rows.clone(),
+            (false, true) => (0..self.rows.len()).filter(|&r| self.in_margin(r)).collect(),
+            _ => vec![],
+        }
+    }
+
     /// The code line the comment under the cursor is beside.
     pub(super) fn line_beside(&self) -> usize {
         (0..self.head.row).rev().find(|&r| !self.in_margin(r)).unwrap_or(0)

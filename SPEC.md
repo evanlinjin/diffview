@@ -146,7 +146,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `f t F T <c>` | find char |
 | `gw` | jump labels on visible words (uses your `jump-label-alphabet`) |
 | `mm` | matching bracket (counted through one version of the whole file; grows the hunk if the match is hidden) |
-| `gg ge`, `Ctrl-d Ctrl-u`, `Ctrl-e Ctrl-y` | top / end, half page, scroll 5 lines |
+| `gg ge`, `Ctrl-d Ctrl-u`, `Ctrl-e Ctrl-y` | top / end (in the comments pane, its own: the first / last comment, or the PR tab's top / end), half page, scroll 5 lines |
 | `zz zt zb` | put the cursor line at center / top / bottom |
 | `x` | select line (repeat to extend) |
 | `v`, `;`, `Esc` | select mode / collapse selection / exit select mode |

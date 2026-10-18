@@ -1717,3 +1717,39 @@ fn wheel_scrolls_what_is_under_it() {
     draw(&mut app);
     assert!(app.pr_top > pr_top, "pr {pr_top} → {}", app.pr_top);
 }
+
+#[test]
+fn gg_in_the_pane() {
+    let k = |app: &mut App, c: char| app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+    let draw = |app: &mut App| _ = screen(220, 20, |f| app.draw(f));
+    // In the comments: gg to the first, ge to the last (not the diff's top / end).
+    let mut app = fixture();
+    draw(&mut app);
+    app.goto_comment(1, 0);
+    draw(&mut app);
+    let comments: Vec<usize> = (0..app.rows.len()).filter(|&r| app.in_margin(r)).collect();
+    k(&mut app, 'g');
+    k(&mut app, 'g');
+    assert_eq!(app.head.row, comments[0]);
+    k(&mut app, 'g');
+    k(&mut app, 'e');
+    assert_eq!(app.head.row, *comments.last().unwrap());
+    // In the PR tab's text: to its top, scrolled there.
+    app.info[3].text = (1..=60).map(|n| format!("para {n}\n\n")).collect();
+    app.build();
+    k(&mut app, 'g');
+    k(&mut app, 'n');
+    app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
+    (0..40).for_each(|_| k(&mut app, 'j'));
+    draw(&mut app);
+    assert!(app.on_pr_tab() && app.pr_top > 0);
+    k(&mut app, 'g');
+    k(&mut app, 'g');
+    draw(&mut app);
+    assert_eq!((app.head.row, app.pr_top), (app.pr_rows[0], 0));
+    // In the code: the diff's top, as before.
+    app.key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL));
+    k(&mut app, 'g');
+    k(&mut app, 'g');
+    assert_eq!(app.head.row, 0);
+}
