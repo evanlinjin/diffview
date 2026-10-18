@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- Ask Claude a question about the PR: `Space a` → "Ask Claude a question about this PR…". It
+  answers right away, in the Claude tab (under its review, or under "questions for Claude" before
+  there's one); `r` there carries the conversation on.
+
 ### Changed
 - Claude's panes float in dv's tab again (hidden until you show them), and close once Claude's
   done there: no pile of them. The session stays, so the next ask resumes it.

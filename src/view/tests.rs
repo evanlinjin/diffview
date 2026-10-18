@@ -2507,3 +2507,22 @@ fn claude_input_box_empty_or_not() {
     assert!(!agent::input_empty(&screen("❯ force push it")));
     assert!(!agent::input_empty("no box here")); // not found: not taken for empty
 }
+
+#[test]
+fn a_question_about_the_pr_before_any_review() {
+    // Space a → a question about the PR: with no review yet, it still shows in the Claude tab,
+    // under "questions for Claude".
+    let mut app = fixture();
+    let path = std::env::temp_dir().join(format!("dv-question-{}.json", std::process::id()));
+    std::fs::write(&path, "{}").unwrap();
+    app.claude.path = Some(path.clone());
+    app.claude_menu();
+    assert!(app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::ClaudeQuestion)));
+    crate::claude::add_conversation(&path, ON_SUMMARY, "Why a new trait?").unwrap();
+    app.load_claude();
+    app.toggle_view(View::Claude);
+    let head = app.rows.iter().position(|r| r.main == Some(CLAUDE_REVIEW)).expect("its section");
+    assert_eq!(app.rows[head].line.text, "questions for Claude");
+    assert!(app.rows[head..].iter().any(|r| r.line.text.contains("Why a new trait?")));
+    _ = std::fs::remove_file(&path);
+}

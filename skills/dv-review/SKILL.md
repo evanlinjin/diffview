@@ -106,8 +106,9 @@ comment with that `id`, and its thread), and answer what the user asks about it.
 `"conversation": "<url>"` (and no `path` or `line`) asks about a comment in the PR's conversation,
 at that URL (quoted in it; `gh pr view <n> --comments` has the rest): answer it the same way, with
 a reply; it has no lines, so don't add any. One with `"conversation": "summary"` is the user
-replying to your review summary: answer it the same way (and if they've changed your mind,
-update the `summary` too, saying so in your reply).
+replying to your review summary, or asking about the PR in general (there may be no review yet:
+read the PR to answer): answer it the same way (and if they've changed your mind, update the
+`summary` too, saying so in your reply).
 
 When asked to answer them: read the file, and for every comment whose last word (its last
 reply, or the comment itself if it has none) is from `"user"` and isn't `"resolved": true`:

@@ -460,6 +460,10 @@ impl App {
                         }
                         Target::Claude(ask) => self.pick_claude(ask),
                         Target::ClaudeNotes => self.edit_claude_notes(),
+                        Target::ClaudeQuestion => {
+                            self.bar_to(Bar::Claude); // where it's answered
+                            self.action = Some(Action::AskConversation { url: ON_SUMMARY.into(), prefill: String::new() });
+                        }
                         Target::ClaudeReplace(prs) => self.action = Some(Action::Replace(prs, None)),
                         Target::Publish(close) => self.action = Some(Action::Publish(close)),
                         Target::ReplaceRemote(name, close) => match crate::replace::set_remote(&name) {

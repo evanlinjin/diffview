@@ -237,8 +237,12 @@ impl App {
             }
         }
         // The Claude view (a draft's one tab too): Claude's summary in full, before the files, like one.
-        if (self.view == View::Claude || self.unpublished()) && !self.claude.summary.trim().is_empty() {
-            rows.extend(self.section(CLAUDE_REVIEW, "claude's review".into(), &self.claude.summary, Some(SUMMARY)));
+        // With no review yet, your questions about the PR (and Claude's answers) all the same.
+        let questions = self.threads.iter().any(|t| t.conversation == ON_SUMMARY && self.in_view(t));
+        let summary = !self.claude.summary.trim().is_empty();
+        if (self.view == View::Claude || self.unpublished()) && (summary || questions) {
+            let title = if summary { "claude's review" } else { "questions for Claude" };
+            rows.extend(self.section(CLAUDE_REVIEW, title.into(), &self.claude.summary, Some(SUMMARY)));
             if !self.sections_folded.contains(&CLAUDE_REVIEW) {
                 rows.extend(self.summary_threads(Some(CLAUDE_REVIEW)));
             }

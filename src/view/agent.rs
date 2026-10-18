@@ -199,6 +199,7 @@ impl App {
                 items.insert(0, Item::new(format!("Have Claude draft a PR fixing CI (not this PR's doing: {})…", c.why), Target::CiFixPr));
             }
         }
+        items.push(Item::new("Ask Claude a question about this PR… (it answers in the Claude tab)", Target::ClaudeQuestion));
         items.extend([
             Item::new(notes, Target::ClaudeNotes),
             Item::new("Check Claude's review now (dv watches it; this reads it again)", Target::ClaudeCheck),

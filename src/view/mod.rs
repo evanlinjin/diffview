@@ -358,6 +358,8 @@ enum Target {
     Comment(usize, usize),
     Claude(agent::Ask),
     ClaudeNotes,
+    /// Ask Claude a question about the PR (a thread under its summary, in the Claude tab).
+    ClaudeQuestion,
     /// Have Claude draft (or redraft) a replacement for these PRs, in the background.
     ClaudeReplace(Vec<u64>),
     /// Publish the replacement here as a draft PR (then close the PRs it replaces) / close them.
@@ -965,7 +967,7 @@ impl App {
             Action::AskConversation { url, prefill } => {
                 let p = self.claude.path.clone().context("no review file")?;
                 let what = match url == ON_SUMMARY {
-                    true => "a reply to Claude's review summary (it answers under it; nothing goes to GitHub)",
+                    true => "a question for Claude about the PR, or a reply to its review (it answers in the Claude tab; nothing goes to GitHub)",
                     false => "ask Claude about this conversation comment (it answers under it; nothing goes to GitHub)",
                 };
                 let Some(body) = compose_with(what, false, &prefill, false)? else { return Ok("question cancelled".into()) };
