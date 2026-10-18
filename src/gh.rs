@@ -257,6 +257,16 @@ pub struct Listed {
     pub checks_head: String,
 }
 
+impl Listed {
+    /// Open, as far as the list knows (no state: one made up here, as in tests).
+    pub fn open(&self) -> bool {
+        self.state == "OPEN" || self.state.is_empty()
+    }
+}
+
+/// The state of a PR the list hasn't looked up yet (`Listed::state`): not open, as far as it knows.
+pub const LOOKING: &str = "…";
+
 const LISTED: &str = "number,title,author,baseRefName,headRefName,isDraft,state,createdAt,updatedAt,additions,deletions,changedFiles,reviewDecision,labels";
 
 fn listed(p: &Value) -> Listed {

@@ -15,7 +15,7 @@ impl List {
             Some(t.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs() as i64)
         };
         let mut items = vec![];
-        for p in self.prs.iter().filter(|p| p.state == "OPEN" || p.state.is_empty()) {
+        for p in self.prs.iter().filter(|p| p.open()) {
             let file = dir.as_ref().map(|d| d.join(format!("pr-{}.json", p.number)));
             let review = file.as_ref().and_then(|f| crate::claude::load(f).ok().flatten());
             let looked = seen.as_ref().and_then(|s| std::fs::read_to_string(s.join(format!("pr-{}.looked", p.number))).ok()?.trim().parse().ok());
@@ -308,16 +308,36 @@ impl List {
 
     /// The worktrees' PRs looked up (`apply_list`), when they're in: on their cards.
     pub(super) fn gone_news(&mut self) {
-        let Some(Ok(found)) = self.gone_rx.as_ref().map(Receiver::try_recv) else { return };
-        self.gone_rx = None;
-        for p in found {
-            match self.prs.iter_mut().find(|o| o.number == p.number) {
-                Some(o) => *o = p,
-                None => self.prs.push(p),
+        let mut found = vec![];
+        self.gone_rx.retain(|rx| match rx.try_recv() {
+            Ok(f) => {
+                found.extend(f);
+                false
+            }
+            Err(mpsc::TryRecvError::Empty) => true,
+            Err(mpsc::TryRecvError::Disconnected) => false,
+        });
+        if self.gone_rx.is_empty() {
+            self.gone_pending.clear(); // a lookup that died: asked again next time
+        }
+        if found.is_empty() {
+            return;
+        }
+        for (n, p) in found {
+            self.gone_pending.remove(&n);
+            // Not wanted any more (its worktree removed, its mark gone): left out.
+            let Some(o) = self.prs.iter_mut().find(|o| o.number == n) else { continue };
+            match p {
+                Some(p) => {
+                    self.gone.insert(n, p.clone());
+                    let (checks, head) = (o.checks, std::mem::take(&mut o.checks_head));
+                    *o = Listed { checks, checks_head: head, ..p };
+                }
+                // Not to be had: said so, and asked again on the next refresh.
+                None => o.title = "(couldn't load this PR)".into(),
             }
         }
-        let open = |p: &Listed| p.state == "OPEN" || p.state.is_empty();
-        self.marked.retain(|n| self.prs.iter().find(|p| p.number == *n).is_none_or(open));
+        self.prune_marks();
         self.find_todo();
     }
 
@@ -398,20 +418,34 @@ impl List {
                 Some(todo::Until::Merged(n) | todo::Until::Closed(n)) => Some(n),
                 _ => None,
             })
-            .filter(|n| !self.prs.iter().any(|p| p.number == *n))
+            .filter(|n| !self.prs.iter().any(|p| p.number == *n) && !self.others_pending.contains(n))
             .collect();
-        if waited.is_empty() || self.others_rx.is_some() {
+        if waited.is_empty() {
             return;
         }
+        self.others_pending.extend(&waited);
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || _ = tx.send(waited.into_iter().filter_map(|n| Some((n, gh::pr_state(n).ok()??))).collect()));
-        self.others_rx = Some(rx);
+        self.others_rx.push(rx);
     }
 
     /// Those PRs' states, when they're in: what deferrals wait for may have happened.
     pub(super) fn others_news(&mut self) {
-        let Some(Ok(found)) = self.others_rx.as_ref().map(Receiver::try_recv) else { return };
-        self.others_rx = None;
+        let mut found = vec![];
+        self.others_rx.retain(|rx| match rx.try_recv() {
+            Ok(f) => {
+                found.extend(f);
+                false
+            }
+            Err(mpsc::TryRecvError::Empty) => true,
+            Err(mpsc::TryRecvError::Disconnected) => false,
+        });
+        if self.others_rx.is_empty() {
+            self.others_pending.clear(); // done, or a lookup that died: asked again next time
+        }
+        if found.is_empty() {
+            return;
+        }
         self.others.extend(found);
         self.find_todo();
     }

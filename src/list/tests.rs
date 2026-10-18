@@ -491,3 +491,23 @@ fn a_a_retries_a_ci_fix() {
     l.todo = vec![item(vec![ci, Need::ClaudeChanged(1, 0)], None)];
     assert_eq!(l.todo_task(7), batch::Task::Review);
 }
+
+#[test]
+fn closed_worktree_prs_looked_up_in_the_background() {
+    // A worktree's PR not in the list shows as being looked up (not open: not on the open tab
+    // nor the todo), then as GitHub has it; a closed one's mark goes, a failed lookup says so.
+    let mut l = List::new("-wb".into());
+    let looking = |n| Listed { number: n, title: "(looking it up…)".into(), state: gh::LOOKING.into(), ..Listed::default() };
+    l.prs = vec![looking(3), looking(9)];
+    l.marked = HashSet::from([3, 9]);
+    l.gone_pending = HashSet::from([3, 9]);
+    assert!(l.shown().is_empty()); // the open tab
+    let (tx, rx) = mpsc::channel();
+    tx.send(vec![(3, Some(Listed { number: 3, title: "old fix".into(), state: "MERGED".into(), ..Listed::default() })), (9, None)]).unwrap();
+    l.gone_rx.push(rx);
+    l.gone_news();
+    assert_eq!((l.prs[0].title.as_str(), l.prs[1].title.as_str()), ("old fix", "(couldn't load this PR)"));
+    assert!(l.gone.contains_key(&3) && !l.gone.contains_key(&9)); // 9 is asked again next time
+    assert_eq!(l.marked, HashSet::from([9])); // merged: its mark goes; unknown: kept
+    assert!(l.gone_rx.is_empty() && l.gone_pending.is_empty());
+}

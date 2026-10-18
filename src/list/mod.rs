@@ -23,6 +23,8 @@ use todo::ago_secs;
 #[cfg(test)]
 mod tests;
 
+/// PRs looked up on GitHub, by number (`None`: not to be had).
+type Lookups = Vec<(u64, Option<Listed>)>;
 /// By PR, in its worktree: (changed files, commits beyond the PR's head, when that head was made).
 type Unpushed = HashMap<u64, (usize, usize, Option<i64>)>;
 type Checks = anyhow::Result<gh::ListChecks>;
@@ -154,8 +156,11 @@ pub struct List {
     pr_cache: PrCache,
     /// The PR selected, since when, and whether it's been looked up.
     prefetched: (Option<u64>, std::time::Instant, bool),
-    /// Worktrees' PRs that aren't open (not in the list), being looked up.
-    gone_rx: Option<Receiver<Vec<Listed>>>,
+    /// PRs not in the list that it needs (worktrees', marked ones): as looked up (`gone_news`;
+    /// ones not open kept, as they stay so), the lookups under way, and for which.
+    gone: HashMap<u64, Listed>,
+    gone_rx: Vec<Receiver<Lookups>>,
+    gone_pending: HashSet<u64>,
     todo: Vec<crate::todo::Item>,
     since: crate::todo::Since,
     ranked: Option<crate::todo::Ranked>,
@@ -190,7 +195,8 @@ pub struct List {
     until_rx: Option<(String, Receiver<Result<crate::todo::Until>>)>,
     others: HashMap<u64, String>,
     /// Those being looked up (in the background: a GitHub call each).
-    others_rx: Option<Receiver<Vec<(u64, String)>>>,
+    others_rx: Vec<Receiver<Vec<(u64, String)>>>,
+    others_pending: HashSet<u64>,
     deferred_file: Option<PathBuf>,
     /// The window is wide enough for cards in two zones (set by `draw`; cards are 3 lines then).
     wide: bool,
@@ -261,7 +267,9 @@ impl List {
             me: String::new(),
             extra: HashMap::new(),
             extra_rx: None,
-            gone_rx: None,
+            gone: HashMap::new(),
+            gone_rx: vec![],
+            gone_pending: HashSet::new(),
             pr_cache: Default::default(),
             prefetched: (None, std::time::Instant::now(), true),
             todo: vec![],
@@ -282,7 +290,8 @@ impl List {
             deferring: None,
             until_rx: None,
             others: HashMap::new(),
-            others_rx: None,
+            others_rx: vec![],
+            others_pending: HashSet::new(),
             deferred_file: crate::todo::deferred_path(),
             wide: true,
             reviewed: HashSet::new(),
@@ -298,6 +307,7 @@ impl List {
     pub fn run(&mut self, term: &mut DefaultTerminal) -> Result<Option<Pick>> {
         // As saved: another dv list of this repo may have changed them meanwhile.
         self.marked = load_marks();
+        self.prefetched = (None, std::time::Instant::now(), true); // what's selected is looked up again
         self.marked_saved = self.marked.clone();
         // From GitHub again in the background while it's open (and now, back from a PR: you may
         // have changed it).
@@ -381,7 +391,8 @@ impl List {
                     let todo_rep = self.tab == Tab::Todo && self.todo_shown().iter().any(|(c, it)| c.number == n && it.rep);
                     let replacement = self.tab == Tab::Replacements || todo_rep;
                     let worktree = (self.tab == Tab::Worktrees).then(|| self.local.get(&n).is_some_and(|w| w.1.is_some()));
-                    let pr = self.pr_cache.lock().ok().and_then(|c| c.get(&n).filter(|(t, _)| t.elapsed().as_secs() < 120).map(|(_, p)| p.clone()));
+                    // Used once: after the review it may have moved on (a push), so it's looked up again.
+                    let pr = self.pr_cache.lock().ok().and_then(|mut c| c.remove(&n)).filter(|(t, _)| t.elapsed().as_secs() < 120).map(|(_, p)| p);
                     return Ok(Some(Pick { number: n, worktree, replacement, merge: false, pr }));
                 }
                 Some(Do::Merge(n)) => {
@@ -437,7 +448,7 @@ impl List {
                         Ok(m) => {
                             self.local.remove(&n);
                             // Listed only for its worktree (closed, merged): gone with it.
-                            self.prs.retain(|p| p.number != n || p.state == "OPEN" || p.state.is_empty());
+                            self.prs.retain(|p| p.number != n || p.open());
                             self.sel = self.sel.min(self.shown().len().saturating_sub(1));
                             m
                         }
@@ -483,11 +494,18 @@ impl List {
         }
     }
 
+    /// Marks on PRs closed or merged go (ones not looked up yet stay).
+    pub(super) fn prune_marks(&mut self) {
+        self.marked.retain(|n| self.prs.iter().find(|p| p.number == *n).is_none_or(|p| !matches!(p.state.as_str(), "CLOSED" | "MERGED")));
+    }
+
     /// The selected PR, looked up on GitHub in the background once it's been selected a moment
     /// (not each one `j` passes): opening it then needn't wait on that, nor, the first time,
     /// on its comments (most of what opening a PR takes).
     fn prefetch(&mut self) {
-        let n = self.shown().get(self.sel).map(|p| p.number).filter(|_| self.tab != Tab::Replacements);
+        // Not a replacement (its number is its own, not a PR's).
+        let rep = |n: u64| self.tab == Tab::Todo && self.todo_shown().iter().any(|(c, it)| c.number == n && it.rep);
+        let n = self.shown().get(self.sel).map(|p| p.number).filter(|&n| self.tab != Tab::Replacements && !rep(n));
         if n != self.prefetched.0 {
             self.prefetched = (n, std::time::Instant::now(), false);
         }
@@ -496,6 +514,10 @@ impl List {
         }
         self.prefetched.2 = true;
         let Some(n) = n else { return };
+        // Looked up a moment ago already (back on it).
+        if self.pr_cache.lock().is_ok_and(|c| c.get(&n).is_some_and(|(t, _)| t.elapsed().as_secs() < 120)) {
+            return;
+        }
         let cache = self.pr_cache.clone();
         std::thread::spawn(move || {
             if let (Ok(p), Ok(mut c)) = (gh::pr(Some(n)), cache.lock()) {
@@ -785,33 +807,31 @@ impl List {
                 if !quiet {
                     self.msg = if prs.is_empty() { "no open PRs".into() } else { String::new() };
                 }
-                // Worktrees of PRs that aren't open any more (or beyond the list): as looked up
-                // before, else looked up in the background (one GitHub call each, a second or so:
-                // the list doesn't wait on them).
-                let mut gone: Vec<u64> = self.local.keys().filter(|n| !prs.iter().any(|p| p.number == **n)).copied().collect();
-                gone.sort();
+                // PRs of worktrees or marks that aren't in the list (not open any more, or beyond
+                // it): closed ones as looked up before, else looked up in the background (a
+                // GitHub call each, a second or so: the list doesn't wait on them).
+                let mut wanted: Vec<u64> = self.local.keys().chain(&self.marked).filter(|n| !prs.iter().any(|p| p.number == **n)).copied().collect();
+                wanted.sort();
+                wanted.dedup();
                 let mut missing = vec![];
-                for n in gone {
-                    match self.prs.iter().find(|p| p.number == n && !p.title.is_empty()) {
+                for n in wanted {
+                    match self.gone.get(&n).filter(|p| !p.open()) {
                         Some(p) => prs.push(p.clone()),
                         None => {
-                            missing.push(n);
-                            prs.push(Listed { number: n, ..Listed::default() });
+                            if self.gone_pending.insert(n) {
+                                missing.push(n);
+                            }
+                            prs.push(Listed { number: n, title: "(looking it up…)".into(), state: gh::LOOKING.into(), ..Listed::default() });
                         }
                     }
                 }
-                if !missing.is_empty() && self.gone_rx.is_none() {
+                if !missing.is_empty() {
                     let (tx, rx) = mpsc::channel();
-                    std::thread::spawn(move || {
-                        let title = || "(couldn't load this PR)".to_owned();
-                        _ = tx.send(missing.into_iter().map(|n| gh::listed_one(n).unwrap_or(Listed { number: n, title: title(), ..Listed::default() })).collect());
-                    });
-                    self.gone_rx = Some(rx);
+                    std::thread::spawn(move || _ = tx.send(missing.into_iter().map(|n| (n, gh::listed_one(n).ok())).collect()));
+                    self.gone_rx.push(rx);
                 }
                 self.prs = prs;
-                // Marks on PRs that aren't open any more go (ones not known here stay).
-                let open = |p: &Listed| p.state == "OPEN" || p.state.is_empty();
-                self.marked.retain(|n| self.prs.iter().find(|p| p.number == *n).is_none_or(open));
+                self.prune_marks();
                 self.find_new();
                 self.find_todo();
                 self.sel = keep.and_then(|n| self.shown().iter().position(|p| p.number == n)).unwrap_or(0);
@@ -824,7 +844,7 @@ impl List {
     fn shown(&self) -> Vec<&Listed> {
         let in_tab = |p: &&Listed| match self.tab {
             Tab::Worktrees => self.local.contains_key(&p.number),
-            _ => p.state == "OPEN" || p.state.is_empty(),
+            _ => p.open(),
         };
         let all: Vec<&Listed> = match self.tab {
             Tab::Replacements => self.reps.iter().collect(),
@@ -1143,7 +1163,7 @@ impl List {
         let hs = ui.base.patch(Style { bg: ui.bar, ..ui.header });
         let arrow = if self.rev { '↑' } else { '↓' };
         // Tabs: the current one bold, with counts.
-        let open = self.prs.iter().filter(|p| p.state == "OPEN" || p.state.is_empty()).count();
+        let open = self.prs.iter().filter(|p| p.open()).count();
         // As the PR view's tabs: the one shown lit, the others dim.
         let dim = hs.remove_modifier(ratatui::style::Modifier::BOLD).patch(Style { fg: ui.linenr.fg, ..Style::new() });
         let tab = |name: String, on: bool| Span::styled(format!(" {name} "), if on { ui.menu_selected } else { dim });
