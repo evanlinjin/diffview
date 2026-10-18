@@ -516,6 +516,19 @@ impl List {
                 };
             }
         }
+        // A pane dv started that's done (it was at it, and isn't, nor asking you, two looks
+        // running): closed, its run over (its session stays, for the next ask to resume).
+        let done: Vec<u64> = self.stopped.iter().filter(|n| !now.contains_key(n)).copied().collect();
+        self.stopped = self.running.keys().filter(|n| !now.contains_key(n)).copied().collect();
+        for n in &done {
+            let marker = std::fs::read_to_string(dir.join(format!("pr-{n}.json"))).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok());
+            let Some(session) = marker.as_ref().and_then(|m| m["session"].as_str()) else { continue };
+            if let Some(p) = panes.get_or_init(open_panes).iter().find(|p| p.1.contains(session)) {
+                if crate::view::close_done_pane(p.0) {
+                    crate::claude::clear_running(*n);
+                }
+            }
+        }
         let changed = now != self.running || reps != self.running_reps;
         (self.running, self.running_reps) = (now, reps);
         changed

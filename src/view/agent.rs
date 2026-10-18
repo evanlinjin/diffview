@@ -658,23 +658,14 @@ impl App {
         }
         let mut path_env = std::ffi::OsString::from("PATH=");
         path_env.push(path_for_claude());
-        // Claude's tab (see `claude_tab`), in zellij.
-        let claude_tab = in_zellij().then(|| self.claude_tab());
-        let (msg, asked) = match claude_tab {
+        let (msg, asked) = match in_zellij() {
             // A real session in a pane (the PR's, as the background runs use): watch it, approve
             // what it asks, talk to it.
-            // In Claude's tab, unfocused, beside the others (`Space a` → show it);
-            // dv says when it's asking you something.
-            Some((tab, id)) => match {
-                let mut z = std::process::Command::new("zellij");
-                match id {
-                    // Not `--stacked`: zellij can't stack a pane run from outside its tab ("Must
-                    // have client id or pane id to stack pane").
-                    Some(t) => z.args(["run", "--tab-id", &t.to_string(), "--no-focus", "--name", &format!("claude: {label}"), "--cwd"]),
-                    None => z.args(["action", "new-tab", "--no-focus", "--name", &tab, "--cwd"]),
-                };
-                z
-            }
+            // Floating and unfocused: hidden while zellij's floating panes are (`Space a` →
+            // show it, or zellij's own toggle); dv says when it's asking you something, and
+            // closes it once Claude's done there (`close_done_pane`).
+            true => match std::process::Command::new("zellij")
+                .args(["run", "--floating", "--no-focus", "--name", &format!("claude: {label}"), "--cwd"])
                 .arg(&self.root)
                 .args(["--", "env"])
                 .arg(path_env) // the pane gets zellij's environment, not dv's
@@ -693,12 +684,12 @@ impl App {
                     if let (Some(p), Some(id)) = (&self.pr, &self.claude.session) {
                         crate::claude::mark_running(p.number, &format!("{label} (in its pane)"), None, Some(id));
                     }
-                    (format!("Claude is {label} in a pane in zellij's {tab} tab (Space a shows it); its comments show up here as it writes them"), true)
+                    (format!("Claude is {label} in a hidden pane (Space a shows it; it closes when Claude's done); its comments show up here as it writes them"), true)
                 }
                 Ok(s) => (format!("zellij run failed ({s})"), false),
                 Err(e) => (format!("running zellij: {e}"), false),
             },
-            None => match self.spawn_claude(&prompt, label, false) {
+            false => match self.spawn_claude(&prompt, label, false) {
                 Ok(job) => {
                     self.claude.job = Some(job);
                     (format!("Claude is {label} in the background…"), true)
@@ -762,7 +753,17 @@ impl App {
         }
         self.claude.asking = asking_now;
         // Claude Code says how to stop it while it's working.
-        self.claude.pane_busy = screen.as_deref().is_some_and(working);
+        let was_busy = std::mem::replace(&mut self.claude.pane_busy, screen.as_deref().is_some_and(working));
+        // Done there (it was working, and isn't, nor asking you, two looks running): its pane
+        // closes; the session stays, for the next ask to resume.
+        let idle = !self.claude.pane_busy && !asking_now;
+        let done = std::mem::replace(&mut self.claude.pane_stopped, was_busy && idle) && idle;
+        if done && self.claude_pane().is_some_and(close_done_pane) {
+            if let Some(p) = &self.pr {
+                crate::claude::clear_running(p.number);
+            }
+            self.msg = "Claude's done: its pane closed (Space a asks it more, in the same session)".into();
+        }
     }
 
     /// What Claude is doing here, for the pinned title: a run in the background, or its pane
@@ -783,18 +784,6 @@ impl App {
             let cmd = p["pane_command"].as_str().filter(|c| p["exited"] != true && c.contains(id.as_str()))?;
             Some((p["id"].as_u64()?, cmd.to_owned(), p["tab_id"].as_u64()?))
         })
-    }
-
-    /// The zellij tab Claude's panes go in: one per repo, `claude: <repo>`, side by side, out
-    /// of dv's way (a tab's floating panes show and hide all together, and each PR opened in
-    /// dv's tab would add one). Its name, and its id if it's open.
-    fn claude_tab(&self) -> (String, Option<u64>) {
-        let common = diff::git(&["-C", &self.root.to_string_lossy(), "rev-parse", "--path-format=absolute", "--git-common-dir"]).unwrap_or_default();
-        let common = Path::new(common.trim());
-        let main = if common.file_name().is_some_and(|f| f == ".git") { common.parent().unwrap_or(common) } else { common };
-        let name = format!("claude: {}", main.file_name().map_or("repo".into(), |n| n.to_string_lossy()));
-        let id = zellij_panes().iter().find(|p| p["tab_name"].as_str() == Some(name.as_str())).and_then(|p| p["tab_id"].as_u64());
-        (name, id)
     }
 
     /// The PR's Claude Code session in this checkout: resume it if Claude Code has it, else
@@ -925,8 +914,20 @@ fn offer_to_pane(pane: u64, prompt: &str) -> Result<bool> {
     Ok(true)
 }
 
-/// Bring Claude's pane `pane` up: in another tab (Claude's, `claude_tab`), that tab; in dv's
-/// own (an older dv's floating one), the pane focused. Not focused in another tab: zellij
+/// Close Claude's pane `pane`, done (`working` / `asking` say so): not one you're in. Whether
+/// it closed.
+pub(crate) fn close_done_pane(pane: u64) -> bool {
+    let focused = zellij_panes().iter().any(|p| p["id"].as_u64() == Some(pane) && p["is_plugin"] != true && p["is_focused"] == true);
+    !focused
+        && std::process::Command::new("zellij")
+            .args(["action", "close-pane", "-p", &format!("terminal_{pane}")])
+            .stdin(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+}
+
+/// Bring Claude's pane `pane` up: in another tab (an older dv's Claude tab), that tab; in dv's
+/// own, the pane focused. Not focused in another tab: zellij
 /// (0.45) can panic doing that, taking the session down ("Cannot focus pane … as it is not
 /// selectable").
 fn show_pane(pane: u64) -> Result<()> {

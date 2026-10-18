@@ -97,9 +97,11 @@ disk: rust-analyzer can index it and `hx` can open it.
    from) and `C` posts it as your PR comment, as your words (not a quote); `Space r` resolves it in the file, `Space d` dismisses it. `Space a` runs
    Claude Code from dv (review / update the review, answer your waiting replies, or make the
    changes its open comments ask for, after optional instructions of yours in `$EDITOR`): in a
-   zellij pane as an interactive session, in a tab of Claude's panes for the repo, `claude: <repo>`
-   (made when there's none), opened there without focus, out of dv's way (`Space a` →
-   "Show Claude's pane" goes to it; dv says when it's
+   zellij floating pane as an interactive session, opened without focus, so hidden while
+   zellij's floating panes are (`Space a` → "Show Claude's pane" brings it up), and closed once
+   Claude's done there (it was working, and two looks running it's neither working nor asking
+   you; not while you're in it; by dv or `dv list`, whichever sees it), its session kept for the
+   next ask to resume; dv says when it's
    asking you something, a permission prompt, checking its screen every 3s), else `claude -p` in the background
    (`acceptEdits`, Bash limited to `dv review-*` and read-only git), with "Claude working…"
    in the status bar and its log path if it fails. Comments get stable `id`s (assigned by dv on

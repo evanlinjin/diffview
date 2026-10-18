@@ -5,11 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Changed
+- Claude's panes float in dv's tab again (hidden until you show them), and close once Claude's
+  done there: no pile of them. The session stays, so the next ask resumes it.
+
 ### Fixed
-- zellij crashing after Claude opened in its tab: dv focused Claude's pane there, which zellij
-  (0.45) can panic on ("Cannot focus pane … as it is not selectable"), taking the session down.
-  dv now only switches to Claude's tab, and no longer stacks panes there, which zellij refuses
-  from outside the tab.
+- zellij crashing after Claude opened in its own tab: dv focused Claude's pane there, which
+  zellij (0.45) can panic on ("Cannot focus pane … as it is not selectable"), taking the session
+  down. That tab is gone (Claude's panes float in dv's tab again).
 
 ## [0.28.1] - 2026-10-18
 
