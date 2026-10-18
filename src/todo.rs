@@ -15,6 +15,9 @@ pub enum Need {
     Publish,
     /// A published replacement whose originals (this many) are still open: close them.
     CloseOriginals(usize),
+    /// Work in its worktree that isn't on GitHub (yours, or Claude's): this many changed files,
+    /// and commits beyond the PR's head. Check it, commit it, push it (`Space g`).
+    Unpushed(usize, usize),
     /// You reviewed it, and its author has pushed since.
     PushedSinceReview,
     /// Claude has answered you on this many of its review's threads.
@@ -40,6 +43,7 @@ impl Need {
     pub fn weight(&self) -> u8 {
         match self {
             Need::Publish => 90,
+            Need::Unpushed(..) => 85,
             Need::PushedSinceReview => 80,
             Need::ClaudeAnswered(_) => 75,
             Need::ReviewRequested => 70,
@@ -59,6 +63,14 @@ impl Need {
         match self {
             Need::Publish => "replacement drafted: publish it".into(),
             Need::CloseOriginals(n) => format!("published: close the {n} PR{} it replaces", s(*n)),
+            Need::Unpushed(files, commits) => {
+                let what = match (files, commits) {
+                    (0, c) => format!("{c} commit{} the PR doesn't have", s(*c)),
+                    (f, 0) => format!("{f} uncommitted file{}", s(*f)),
+                    (f, c) => format!("{f} uncommitted file{} and {c} commit{} the PR doesn't have", s(*f), s(*c)),
+                };
+                format!("in its worktree: {what} (Space g there)")
+            }
             Need::PushedSinceReview => "pushed since your review".into(),
             Need::ClaudeAnswered(n) => format!("Claude answered you on {n} thread{}", s(*n)),
             Need::ReviewRequested => "your review is requested".into(),
@@ -125,11 +137,16 @@ pub struct Facts<'a> {
     /// When you last left it in dv, and when Claude's review last changed (seconds).
     pub looked: Option<i64>,
     pub review_changed: Option<i64>,
+    /// In its worktree, what isn't on GitHub: (changed files, commits beyond the PR's head).
+    pub unpushed: (usize, usize),
 }
 
 /// What PR `f` needs from you, and what Claude should do on it first.
 pub fn needs(f: &Facts) -> (Vec<Need>, Option<Task>) {
     let (pr, mut out) = (f.pr, vec![]);
+    if f.unpushed != (0, 0) {
+        out.push(Need::Unpushed(f.unpushed.0, f.unpushed.1));
+    }
     let mine = !f.me.is_empty() && pr.author == f.me;
     let head = f.extra.map_or("", |e| e.head_oid.as_str());
     let my_review = f.extra.and_then(|e| e.my_review.as_ref());
@@ -423,7 +440,7 @@ mod tests {
             mergeable: "MERGEABLE".into(),
             head_oid: head.into(),
         };
-        let facts = |p: &'static Listed, e: Option<&'static Extra>, r: Option<&'static crate::claude::Review>| Facts { pr: p, extra: e, me: "me", review: r, looked: Some(LOOKED), review_changed: Some(50) };
+        let facts = |p: &'static Listed, e: Option<&'static Extra>, r: Option<&'static crate::claude::Review>| Facts { pr: p, extra: e, me: "me", review: r, looked: Some(LOOKED), review_changed: Some(50), unpushed: (0, 0) };
         // Nothing from you, no Claude review: you, and Claude reviews it.
         let (n, c) = needs(&facts(leak(pr(1, "amy")), Some(leak(extra(None, false, "h1"))), None));
         assert_eq!((n, c), (vec![Need::NoReview], Some(Task::Review)));
@@ -450,6 +467,11 @@ mod tests {
         p.updated = "2026-12-01T00:00:00Z".into();
         let (n, _) = needs(&facts(leak(p), Some(leak(extra(None, false, "h"))), None));
         assert_eq!(n, vec![Need::NewActivity]);
+        // Work in its worktree not pushed: first.
+        let mut f = facts(leak(pr(8, "me")), Some(leak(extra(None, false, "h"))), None);
+        f.unpushed = (2, 1);
+        assert_eq!(needs(&f).0, vec![Need::Unpushed(2, 1)]);
+        assert_eq!(Need::Unpushed(2, 1).says(), "in its worktree: 2 uncommitted files and 1 commit the PR doesn't have (Space g there)");
         // Conflicting with its base: ask for a rebase (or, yours, do it).
         let mut conflicting = extra(None, false, "h");
         conflicting.mergeable = "CONFLICTING".into();

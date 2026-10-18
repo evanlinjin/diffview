@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- The todo tab lists a PR whose worktree has work that isn't on GitHub (uncommitted files, or
+  commits the PR doesn't have: yours, or Claude's after making changes), near the top, with
+  `Space g` there to push it. Before, it could drop off the list while the work sat there.
+
 ## [0.8.6] - 2026-10-18
 
 ### Fixed

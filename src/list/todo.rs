@@ -17,7 +17,8 @@ impl List {
             let file = dir.as_ref().map(|d| d.join(format!("pr-{}.json", p.number)));
             let review = file.as_ref().and_then(|f| crate::claude::load(f).ok().flatten());
             let looked = seen.as_ref().and_then(|s| std::fs::read_to_string(s.join(format!("pr-{}.looked", p.number))).ok()?.trim().parse().ok());
-            let facts = Facts { pr: p, extra: self.extra.get(&p.number), me: &self.me, review: review.as_ref(), looked, review_changed: file.and_then(secs) };
+            let unpushed = self.unpushed.get(&p.number).copied().unwrap_or((0, 0));
+            let facts = Facts { pr: p, extra: self.extra.get(&p.number), me: &self.me, review: review.as_ref(), looked, review_changed: file.and_then(secs), unpushed };
             let (needs, claude) = todo::needs(&facts);
             if !needs.is_empty() {
                 items.push(Item { rep: false, number: p.number, needs, claude, updated: p.updated.clone(), reason: None, changed: false, deferred: None, busy: None });
@@ -104,7 +105,10 @@ impl List {
         if let Some(Ok(res)) = self.extra_rx.as_ref().map(Receiver::try_recv) {
             self.extra_rx = None;
             match res {
-                Ok((me, extra)) => (self.me, self.extra) = (me, extra),
+                Ok((me, extra)) => {
+                    (self.me, self.extra) = (me, extra);
+                    self.scan_unpushed(); // against the PRs' heads, now they're known
+                }
                 Err(e) => self.msg = format!("what needs you: {e:#}"),
             }
             self.find_todo();
@@ -123,6 +127,33 @@ impl List {
             }
             Err(e) => self.msg = format!("ranking: {e:#} (r r tries again)"),
         }
+    }
+
+    /// What's in each PR worktree that isn't on GitHub: (changed files, untracked ones too;
+    /// commits beyond the PR's head). Looked at on refresh, back from a PR, and when Claude's
+    /// done somewhere (two git calls a worktree: not every frame).
+    pub(super) fn scan_unpushed(&mut self) {
+        self.unpushed = self
+            .local
+            .iter()
+            .filter_map(|(&n, (dir, _))| {
+                let d = dir.to_string_lossy().into_owned();
+                let git = |args: &[&str]| crate::diff::git(&[&["-C", d.as_str()], args].concat()).ok();
+                let files = git(&["status", "--porcelain"])?.lines().count();
+                // Beyond the PR's head (as GitHub has it), if that's here; else its upstream's.
+                let head = self.extra.get(&n).map(|e| e.head_oid.clone()).filter(|h| git(&["cat-file", "-e", &format!("{h}^{{commit}}")]).is_some());
+                let theirs = head.unwrap_or_else(|| "@{upstream}".into());
+                // Still at what dv checked out, the PR moving on since (a force-push): behind,
+                // not work of yours.
+                let here = git(&["rev-parse", "HEAD"]).unwrap_or_default();
+                let stale = crate::last_checkout(n).is_some_and(|c| c == here.trim());
+                let commits = match stale {
+                    true => 0,
+                    false => git(&["rev-list", "--count", &format!("{theirs}..HEAD")]).and_then(|c| c.trim().parse().ok()).unwrap_or(0),
+                };
+                (files + commits > 0).then_some((n, (files, commits)))
+            })
+            .collect();
     }
 
     /// What needs you now (not deferred, Claude not at it), for the tab's count.

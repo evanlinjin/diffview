@@ -433,7 +433,7 @@ fn checkout_record(n: u64) -> Option<PathBuf> {
 }
 
 /// The commit dv last checked PR `n` out at, here or in its worktree.
-fn last_checkout(n: u64) -> Option<String> {
+pub(crate) fn last_checkout(n: u64) -> Option<String> {
     Some(std::fs::read_to_string(checkout_record(n)?).ok()?.trim().to_owned())
 }
 

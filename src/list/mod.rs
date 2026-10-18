@@ -136,6 +136,8 @@ pub struct List {
     /// were last looked at.
     running: HashMap<u64, String>,
     running_checked: std::time::Instant,
+    /// What's not pushed in each PR worktree (`scan_unpushed`).
+    unpushed: HashMap<u64, (usize, usize)>,
     /// Todo items deferred (`s`), kept in dv's directory; the one `s` is asking how long for.
     deferred: crate::todo::Deferred,
     deferring: Option<String>,
@@ -206,6 +208,7 @@ impl List {
             rank_rx: None,
             want_rank: false,
             running: HashMap::new(),
+            unpushed: HashMap::new(),
             running_checked: std::time::Instant::now() - std::time::Duration::from_secs(60),
             deferred: crate::todo::load_deferred(crate::todo::deferred_path().as_deref()),
             deferring: None,
@@ -233,6 +236,7 @@ impl List {
         }
         self.find_new(); // back from a PR: that one's seen now
         self.load_reps();
+        self.scan_unpushed(); // and what you (or Claude) left there unpushed
         self.find_todo(); // and what you did there may have seen to it
         loop {
             if self.marked != self.marked_saved {
@@ -248,6 +252,7 @@ impl List {
             self.watch_reviews();
             self.todo_news();
             if self.watch_running() {
+                self.scan_unpushed(); // what it finished with may be waiting to be pushed
                 self.find_todo(); // Claude started or finished somewhere: its item moves
             }
             // A replacement drafted, or its draft changed, from anywhere: show it.
@@ -517,6 +522,7 @@ impl List {
             self.local = crate::pr_worktrees().into_iter().map(|(n, dir, b)| (n, (dir, b))).collect();
         }
         if done {
+            self.scan_unpushed();
             self.find_todo(); // Claude at it, or done (its review, or answers, changed what's waiting)
         }
     }
@@ -555,6 +561,7 @@ impl List {
         term.draw(|f| self.draw(f))?;
         let keep = self.shown().get(self.sel).map(|p| p.number);
         self.local = crate::pr_worktrees().into_iter().map(|(n, dir, b)| (n, (dir, b))).collect();
+        self.scan_unpushed();
         self.reviewed = crate::batch::reviewed();
         self.load_reps();
         match gh::list() {
