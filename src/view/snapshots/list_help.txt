@@ -1,12 +1,12 @@
  todo 0  open 3  worktrees 0  replacements 0   by updated ↓  (Tab switches)                   2 / 3
-   #1 Fix CI                                                                                2026-03
-      @ann · +1 −0 in 1 file · b                                                           claude ✓
-●#333 fix fees                                                                              2026-02
-      @cy · ✓3 ✗1 · +333 −0 in 1 file · b
-  #22 Add docs   DRAFT                                                                [new] 2026-01
-      @bo · ✓ approved · +22 −0 in 1 file  docs  · b
+    #1  Fix CI                                                                              2026-03
+        @ann   +1 −0 in 1 file
+        claude ✓
+        b
 
-
+▌●#333  fix fees                                                                            2026-02
+▌       @cy   +333 −0 in 1 file
+▌       CI ✓3 ✗1
  dv list keys                                                                        any key closes
 
  j k, Up Down         move

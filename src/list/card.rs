@@ -75,18 +75,35 @@ pub(super) struct Cards<'a> {
     pub(super) usual: &'a str,
 }
 
-/// A PR as two lines: number, title, state / draft badge and age; then who, CI, review, size,
-/// labels, branches and its worktree, most useful first so a narrow screen cuts the least useful.
-pub(super) fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathBuf, Option<String>)>, mark: Mark) -> [Line<'static>; 2] {
+/// A PR as four lines, related things together: its number and title (with a draft / closed
+/// badge, `[new]`, and its age at the right); who and how big (and labels); how it stands (CI,
+/// review, Claude), in columns that line up from card to card; where its code is (branch, and
+/// its worktree here). Each line is cut at the width rather than wrapped.
+pub(super) fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathBuf, Option<String>)>, mark: Mark) -> Vec<Line<'static>> {
     let (ui, num_w, width, usual) = (cx.ui, cx.num_w, cx.width, cx.usual);
-    let row = if selected { ui.base.patch(ui.menu_selected) } else { ui.base };
-    // On the selected card the text takes the highlight's colors, to stay readable (labels
-    // keep theirs).
-    let tint = |st: Style| if selected { row } else { row.patch(st) };
+    let row = card_row(ui, selected);
+    // Text keeps its colors on the selected card too (only the background shows it).
+    let tint = |st: Style| row.patch(Style { bg: None, ..st });
     let dim = tint(ui.stale);
     let sp = |t: String, st| Span::styled(t, st);
+    // The selected card has a bar down its left edge.
+    let bar = || sp(if selected { "▌".into() } else { " ".into() }, tint(ui.key));
+    // Under the title: past the bar, the mark, the number and its gap.
+    let indent = || [bar(), sp(" ".repeat(num_w + 3), row)];
+    // A line of the card: its spans cut to the width, the highlight run to the edge.
+    let line = |mut spans: Vec<Span<'static>>| {
+        let mut used: usize = spans.iter().map(Span::width).sum();
+        while used > width && spans.len() > 1 {
+            used -= spans.pop().map_or(0, |s| s.width());
+        }
+        if used < width {
+            spans.push(sp(" ".repeat(width - used), row));
+        }
+        Line::from(spans).style(row)
+    };
+
+    // Number and title; badges, [new] and the age at the right.
     let age = format!("{} ", gh::ago(&p.updated));
-    // Closed / merged (only in the worktrees tab), else draft, as GitHub colors them.
     let badge = match (p.state.as_str(), p.draft) {
         ("MERGED", _) => Some(("MERGED", "8957e5")),
         ("CLOSED", _) => Some(("CLOSED", "da3633")),
@@ -94,80 +111,105 @@ pub(super) fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathB
         _ => None,
     };
     let new = if mark.new { "[new] " } else { "" };
-    let room = width.saturating_sub(num_w + 3 + badge.map_or(0, |b| b.0.len() + 4) + new.len() + age.len()).max(10);
+    let room = width.saturating_sub(num_w + 4 + badge.map_or(0, |b| b.0.len() + 4) + new.len() + age.len()).max(10);
     let mut top = vec![
-        sp(format!("{}{:>num_w$} ", if mark.marked { "●" } else { " " }, format!("#{}", p.number)), tint(ui.key)),
-        sp(cut(&p.title, room), row),
+        bar(),
+        sp(format!("{}{:>w$}  ", if mark.marked { "●" } else { " " }, format!("#{}", p.number), w = num_w), tint(ui.key)),
+        sp(cut(&p.title, room), row.add_modifier(ratatui::style::Modifier::BOLD)),
     ];
     if let Some((text, color)) = badge {
         top.extend([sp("  ".into(), row), sp(format!(" {text} "), crate::view::chip(color))]);
     }
-    // At the right end, before the age.
     let used: usize = top.iter().map(Span::width).sum();
     top.push(sp(" ".repeat(width.saturating_sub(used + new.len() + age.len())), row));
     top.extend([sp(new.into(), tint(ui.key).add_modifier(ratatui::style::Modifier::BOLD)), sp(age, dim)]);
 
-    let sep = || sp(" · ".into(), dim);
+    // Who, and how big; labels.
+    let gap = || sp("   ".into(), row);
     let who = mark.replaces.clone().unwrap_or_else(|| format!("@{}", p.author));
-    let mut bottom = vec![sp(" ".repeat(num_w + 2), row), sp(who, dim)];
-    match p.checks {
-        Some((0, 0, 0)) => {}
-        Some((pass, fail, pending)) => {
-            let counts = [(pass, '✓', ui.plus), (fail, '✗', ui.error), (pending, '●', ui.warning)];
-            for (k, &(n, mark, st)) in counts.iter().filter(|c| c.0 > 0).enumerate() {
-                bottom.extend([sp(if k == 0 { " · " } else { " " }.into(), dim), sp(format!("{mark}{n}"), tint(st))]);
-            }
-        }
-        None if cx.checks_loading && mark.replaces.is_none() => bottom.extend([sep(), sp("checks…".into(), dim)]),
-        None => {}
-    }
-    match p.decision.as_str() {
-        "APPROVED" => bottom.extend([sep(), sp("✓ approved".into(), tint(ui.plus))]),
-        "CHANGES_REQUESTED" => bottom.extend([sep(), sp("✗ changes requested".into(), tint(ui.error))]),
-        _ => {}
-    }
-    bottom.extend([
-        sep(),
+    let mut people = indent().to_vec();
+    people.extend([sp(who, dim), gap()]);
+    people.extend([
         sp(format!("+{}", p.additions), tint(ui.plus)),
         sp(" ".into(), row),
         sp(format!("−{}", p.deletions), tint(ui.minus)),
         sp(format!(" in {} file{}", p.files, if p.files == 1 { "" } else { "s" }), dim),
     ]);
-    for (name, color) in &p.labels {
-        bottom.extend([sp(" ".into(), row), sp(format!(" {name} "), crate::view::chip(color))]);
+    for (k, (name, color)) in p.labels.iter().enumerate() {
+        people.extend([sp(if k == 0 { "   " } else { " " }.into(), row), sp(format!(" {name} "), crate::view::chip(color))]);
     }
-    let branch = match p.base == usual {
-        true => cut(&p.branch, 32),
-        false => format!("{} ← {}", p.base, cut(&p.branch, 32)),
+
+    // How it stands, in columns: CI, review, Claude.
+    // A column takes its width only when it has something (else what's after it moves up).
+    let col = |spans: Vec<Span<'static>>, w: usize| {
+        let used: usize = spans.iter().map(Span::width).sum();
+        let mut v = spans;
+        if used > 0 {
+            v.push(sp(" ".repeat(w.saturating_sub(used).max(3)), row));
+        }
+        v
     };
-    bottom.extend([sep(), sp(branch, dim)]);
+    let ci: Vec<Span<'static>> = match p.checks {
+        Some((0, 0, 0)) => vec![],
+        Some((pass, fail, pending)) => {
+            let mut v = vec![sp("CI ".into(), dim)];
+            let counts = [(pass, '✓', ui.plus), (fail, '✗', ui.error), (pending, '●', ui.warning)];
+            for (k, &(n, m, st)) in counts.iter().filter(|c| c.0 > 0).enumerate() {
+                v.extend([sp(if k == 0 { "" } else { " " }.into(), row), sp(format!("{m}{n}"), tint(st))]);
+            }
+            v
+        }
+        None if cx.checks_loading && mark.replaces.is_none() => vec![sp("CI …".into(), dim)],
+        None => vec![],
+    };
+    let review = match p.decision.as_str() {
+        "APPROVED" => vec![sp("review ".into(), dim), sp("✓ approved".into(), tint(ui.plus))],
+        "CHANGES_REQUESTED" => vec![sp("review ".into(), dim), sp("✗ changes requested".into(), tint(ui.error))],
+        "REVIEW_REQUIRED" => vec![sp("review needed".into(), dim)],
+        _ => vec![],
+    };
+    let claude = mark.claude.map(|(text, ok)| sp(text, tint(if ok { ui.key } else { ui.error })));
+    let mut status = indent().to_vec();
+    status.extend(col(ci, 16));
+    status.extend(col(review, 26));
+    status.extend(claude);
+
+    // Where its code is.
+    let branch = match p.base == usual {
+        true => cut(&p.branch, 48),
+        false => format!("{} ← {}", p.base, cut(&p.branch, 40)),
+    };
+    let mut place = indent().to_vec();
+    place.push(sp(branch, dim));
     if let Some((dir, branch)) = local {
         let name = dir.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned());
         let on = branch.as_deref().map_or("detached".to_owned(), |b| format!("on {}", cut(b, 24)));
-        bottom.extend([sep(), sp(format!("⌂ {name} ({on})"), tint(ui.key))]);
+        place.extend([gap(), sp(format!("⌂ {name} ({on})"), tint(ui.key))]);
     }
-    // Claude's part at the right end, where it stands out (under the age), the rest cut to
-    // make room; the highlight runs to the edge.
-    let claude = mark.claude.map(|(text, ok)| sp(format!("{text} "), tint(if ok { ui.key } else { ui.error })));
-    let room = width.saturating_sub(claude.as_ref().map_or(0, |c| c.width() + 1));
-    let mut used: usize = bottom.iter().map(Span::width).sum();
-    while (used > room || bottom.last().is_some_and(|s| s.content == " · ")) && bottom.len() > 1 {
-        used -= bottom.pop().map_or(0, |s| s.width());
-    }
-    bottom.push(sp(" ".repeat(width.saturating_sub(used + claude.as_ref().map_or(0, Span::width))), row));
-    bottom.extend(claude);
-    [Line::from(top).style(row), Line::from(bottom).style(row)]
+    vec![line(top), line(people), line(status), line(place)]
 }
 
-/// A todo card's third line: its place, and what needs you (Claude's word, or the needs).
+/// A todo card's reason line, under the title: its place in the order, and what needs you
+/// (Claude's word, or the needs).
 pub(super) fn todo_line(rank: usize, it: &crate::todo::Item, cx: &Cards, selected: bool) -> Line<'static> {
     let ui = cx.ui;
-    let row = if selected { ui.base.patch(ui.menu_selected) } else { ui.base };
-    let st = if selected { row } else { row.patch(ui.key) };
-    let lead = format!("{:>w$}. ", rank, w = cx.num_w + 1);
+    let row = card_row(ui, selected);
+    let st = row.patch(Style { bg: None, ..ui.key });
+    let bar = Span::styled(if selected { "▌" } else { " " }, st);
+    // Its place in the number's column, the arrow under the title.
+    let lead = format!(" {:>w$}  → ", format!("{rank}."), w = cx.num_w);
     let says = cut(&it.says(), cx.width.saturating_sub(lead.chars().count() + 1));
-    let pad = cx.width.saturating_sub(lead.chars().count() + says.chars().count());
-    Line::from(vec![Span::styled(lead, st), Span::styled(says, st), Span::styled(" ".repeat(pad), row)]).style(row)
+    let pad = cx.width.saturating_sub(1 + lead.chars().count() + says.chars().count());
+    Line::from(vec![bar, Span::styled(lead, st), Span::styled(says, st), Span::styled(" ".repeat(pad), row)]).style(row)
+}
+
+/// A card's background: the window's, or on the selected one a quiet tint (the theme's cursor
+/// line, as in the diff view; else its menu selection's background), its text keeping its colors.
+fn card_row(ui: &Ui, selected: bool) -> Style {
+    match selected {
+        true => ui.base.bg(ui.cursorline.or(ui.menu_selected.bg).unwrap_or(ratatui::style::Color::DarkGray)),
+        false => ui.base,
+    }
 }
 
 /// `s` cut to `n` chars, ending in `…` if it was longer.

@@ -738,9 +738,10 @@ impl List {
         ratatui::crossterm::terminal::size().map_or(10, |(_, h)| h.saturating_sub(2) as usize / self.card_rows())
     }
 
-    /// A card's rows: 2, and on the todo tab a third, for what needs you.
+    /// A card's rows: 4 and a blank one between cards; on the todo tab, one more, for what
+    /// needs you.
     fn card_rows(&self) -> usize {
-        if self.tab == Tab::Todo { 3 } else { 2 }
+        if self.tab == Tab::Todo { 6 } else { 5 }
     }
 
     fn draw(&mut self, f: &mut Frame) {
@@ -814,10 +815,11 @@ impl List {
                     false => Mark { marked: self.marked.contains(&p.number), claude: self.claude_state(p.number), new: self.new.contains(&p.number), replaces: None },
                 };
                 let local = if rep_card { None } else { self.local.get(&p.number) };
-                let mut lines = card(p, &cx, i == sel, local, mark).to_vec();
+                let mut lines = card(p, &cx, i == sel, local, mark);
                 if let Some(it) = item {
-                    lines.push(todo_line(i + 1, it, &cx, i == sel));
+                    lines.insert(1, todo_line(i + 1, it, &cx, i == sel)); // under the title
                 }
+                lines.push(Line::raw("")); // room between cards
                 lines
             })
             .collect();

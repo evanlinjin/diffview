@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Changed
+- `dv list` cards are easier to read: four lines and a gap between cards, related things
+  together (title; who and how big; CI, review and Claude, in columns; branch and worktree),
+  fewer separators. The selected card keeps its colors, on a quiet background (the theme's cursor
+  line) with a bar down its left edge. On the todo tab, the reason is under the title.
+
 ## [0.7.0] - 2026-10-18
 
 ### Added

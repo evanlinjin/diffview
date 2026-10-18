@@ -118,32 +118,34 @@ fn filter_and_keys() {
 fn selected_card_readable() {
     use ratatui::style::Color;
     let mut ui = crate::theme::Theme::load().ui();
-    (ui.menu_selected, ui.stale) = (Style::new().fg(Color::Black).bg(Color::Cyan), Style::new().fg(Color::Gray));
+    (ui.menu_selected, ui.stale, ui.cursorline) = (Style::new().fg(Color::Black).bg(Color::Cyan), Style::new().fg(Color::Gray), Some(Color::Blue));
     let cx = Cards { ui: &ui, num_w: 5, width: 120, checks_loading: false, usual: "main" };
-    let p = Listed { number: 1, title: "t".into(), author: "amy".into(), labels: vec![("bug".into(), "d73a4a".into())], ..Listed::default() };
+    let p = Listed { number: 1, title: "t".into(), author: "amy".into(), checks: Some((3, 1, 0)), labels: vec![("bug".into(), "d73a4a".into())], ..Listed::default() };
     let mark = || Mark { marked: false, claude: Some(("claude ✓".into(), true)), new: true, replaces: None };
-    let [top, bottom] = card(&p, &cx, true, None, mark());
-    for line in [&top, &bottom] {
+    let card_of = |selected, cx: &Cards| card(&p, cx, selected, None, mark());
+    // Four lines: title; who and size; CI, review and Claude; branch.
+    let lines = card_of(true, &cx);
+    assert_eq!(lines.len(), 4);
+    for line in &lines {
         assert_eq!(line.width(), 120); // the highlight runs to the edge
-        // The highlight's own text color throughout, but for the label chip.
-        assert!(line.spans.iter().filter(|s| s.content != " bug ").all(|s| s.style.fg == Some(Color::Black)), "{line:?}");
+        // The selected card: a quiet background (the cursor line's), a bar down its left edge…
+        assert_eq!(line.spans[0].content, "▌");
+        assert!(line.spans.iter().filter(|s| s.content != " bug ").all(|s| s.style.bg == Some(Color::Blue)), "{line:?}");
     }
-    let [_, bottom] = card(&p, &cx, false, None, mark());
-    assert!(bottom.spans.iter().any(|s| s.style.fg == Some(Color::Gray))); // unselected: its colors
+    // …and its text keeps its colors (not the menu highlight's).
+    assert!(lines[1].spans.iter().any(|s| s.style.fg == Some(Color::Gray)) && !lines.iter().flat_map(|l| &l.spans).any(|s| s.style.fg == Some(Color::Black)));
+    let lines = card_of(false, &cx);
+    assert!(lines.iter().all(|l| l.spans[0].content == " ")); // no bar
     // [new] at the right end of the top line, before the age.
-    let [top, _] = card(&p, &cx, false, None, mark());
-    assert_eq!(top.width(), 120);
-    assert_eq!(top.spans[top.spans.len() - 2].content, "[new] ");
-    let [top, _] = card(&p, &cx, false, None, Mark { new: false, ..mark() });
-    assert!(!top.spans.iter().any(|s| s.content.contains("[new]")));
-    // Claude's part at the right end, even when the rest has to be cut for it.
-    assert_eq!(bottom.spans.last().unwrap().content, "claude ✓ ");
+    assert_eq!(lines[0].spans[lines[0].spans.len() - 2].content, "[new] ");
+    assert!(!card(&p, &cx, false, None, Mark { new: false, ..mark() })[0].spans.iter().any(|s| s.content.contains("[new]")));
+    // How it stands: CI, then Claude, on a line of its own.
+    let status: String = lines[2].spans.iter().map(|s| s.content.as_ref()).collect();
+    assert!(status.contains("CI ✓3 ✗1") && status.contains("claude ✓"), "{status}");
+    // Narrow: each line cut at the width.
     let narrow = Cards { width: 30, ..cx };
-    let p = Listed { branch: "a-very-long-branch-name-indeed".into(), ..p };
-    let [_, bottom] = card(&p, &narrow, false, None, mark());
-    assert_eq!(bottom.width(), 30);
-    assert_eq!(bottom.spans.last().unwrap().content, "claude ✓ ");
-    assert!(!bottom.spans.iter().rev().nth(2).is_some_and(|s| s.content == " · ")); // no separator left dangling
+    let p = Listed { branch: "a-very-long-branch-name-indeed-and-then-some".into(), ..p };
+    assert!(card(&p, &narrow, false, None, mark()).iter().all(|l| l.width() == 30));
 }
 
 #[test]
