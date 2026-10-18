@@ -668,10 +668,7 @@ impl App {
             if let Some((path, line)) = file_ref(text, col) {
                 return self.goto_file_line(&path, line);
             }
-            // Code's color (it may be bold too, in bold text or a heading).
-            let raw = self.ui.md.raw.fg;
-            let in_code = raw.is_some() && self.rows[self.head.row].syn.get(col).is_some_and(|s| s.and_then(|s| s.fg) == raw);
-            return match ident_at(text, col, in_code) {
+            return match self.name_at_cursor() {
                 Some(name) => self.goto_definition(&name),
                 None => self.msg = "no link, file:line or name under the cursor".into(),
             };
@@ -718,6 +715,19 @@ impl App {
     /// Where `name` is defined (by a grep for `fn name`, `class name` and the like, in the files
     /// on disk), the diff's files first: there, or a picker of them.
     /// ponytail: a grep, not the language server; good enough for names in comments.
+    /// The name under the cursor in text (a comment, the PR's): in `code`, or one that looks
+    /// like code (`snake_case`, `CamelCase`, `a::b`).
+    pub(super) fn name_at_cursor(&self) -> Option<String> {
+        let text = &self.rows[self.head.row].line.text;
+        // After `w` the cursor is on the space after the word: the selection's start is on it.
+        let on_space = text.chars().nth(self.head.col).is_none_or(char::is_whitespace);
+        let col = if on_space && self.anchor.row == self.head.row { self.anchor.col } else { self.head.col };
+        // Code's color (it may be bold too, in bold text or a heading).
+        let raw = self.ui.md.raw.fg;
+        let in_code = raw.is_some() && self.rows[self.head.row].syn.get(col).is_some_and(|s| s.and_then(|s| s.fg) == raw);
+        ident_at(text, col, in_code)
+    }
+
     pub(super) fn goto_definition(&mut self, name: &str) {
         // POSIX classes, not \b / \s: those are GNU-only.
         let pat = format!("(^|[^[:alnum:]_])({DEF_WORDS})[[:space:]]+{name}([^[:alnum:]_]|$)");

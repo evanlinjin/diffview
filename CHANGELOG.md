@@ -5,6 +5,17 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- `gd` / `gr` / `gy` / `gi` on a name in a comment or the PR's text (`_reveal_next_spk`): found by
+  rust-analyzer's symbol search, then its references or implementations from there; without
+  rust-analyzer, `gd` finds the definition by text, as `gf` does.
+
+### Fixed
+- `gw` labels the PR tab's text too.
+- Between the code and the comments pane: `Ctrl-l` from a line goes to the comment about it, and
+  `Ctrl-h` from a comment to the line it's about (not whatever happens to sit beside its box);
+  word motions (`w`, `e`, `b`) carry on along the code or the pane, not across into the other.
+
 ## [0.8.4] - 2026-10-18
 
 ### Fixed

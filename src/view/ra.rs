@@ -4,6 +4,10 @@ use super::*;
 impl App {
     pub(super) fn lsp_request(&mut self, method: &str, req: Req) {
         let row = &self.rows[self.head.row];
+        // In text (a comment, the PR's): the name under the cursor, found by name.
+        if matches!(row.line.kind, Kind::Comment | Kind::Thread) || row.file == INFO {
+            return self.lsp_by_name(method);
+        }
         let (Some(n), Some(f)) = (row.line.new, self.files.get(row.file)) else {
             self.msg = "not on a new-side line".into();
             return;
@@ -33,6 +37,30 @@ impl App {
                 }
                 Err(e) => self.msg = format!("rust-analyzer: {e}"),
             },
+        }
+    }
+
+    /// `gd` / `gy` / `gi` / `gr` on a name in text: rust-analyzer's symbol search for it (its
+    /// exact matches), then, for references / implementations, those of what it found. Without
+    /// rust-analyzer (or while it starts), the definition by text search, as `gf` finds it.
+    fn lsp_by_name(&mut self, method: &str) {
+        let Some(name) = self.name_at_cursor() else { return self.msg = "no name under the cursor".into() };
+        let then = match method.rsplit('/').next() {
+            Some("references") => Some("textDocument/references"),
+            Some("implementation") => Some("textDocument/implementation"),
+            _ => None, // the definition (a type's is itself)
+        };
+        match &mut self.lsp {
+            Some(l) if self.lsp_ready => match l.request("workspace/symbol", json!({ "query": name })) {
+                Ok(id) => {
+                    self.msg = format!("finding {name}…");
+                    self.inflight.insert(id, Req::Symbol { name, then });
+                }
+                Err(e) => self.msg = format!("rust-analyzer: {e}"),
+            },
+            _ if then.is_none() => self.goto_definition(&name),
+            None => self.msg = "rust-analyzer is not running (gf finds the definition by text)".into(),
+            Some(_) => self.msg = "rust-analyzer is starting… (gf finds the definition by text meanwhile)".into(),
         }
     }
 
@@ -79,6 +107,31 @@ impl App {
                         t => self.popup = Some((" hover  j/k scroll ".into(), self.hover_lines(&t), 0)),
                     },
                     Req::Goto => self.show_locations(lsp::locations(res)),
+                    Req::Symbol { name, then } => {
+                        // Its exact matches (the search is fuzzy), as locations.
+                        let found: Vec<Value> = res.as_array().into_iter().flatten().filter(|s| s["name"] == name.as_str()).map(|s| s["location"].clone()).collect();
+                        let locs = lsp::locations(&Value::Array(found));
+                        match (then, locs.first()) {
+                            (_, None) => self.goto_definition(&name), // not a symbol it knows: by text
+                            (None, _) => self.show_locations(locs),
+                            (Some(method), Some(at)) => {
+                                let mut params = json!({
+                                    "textDocument": { "uri": lsp::uri(&at.path) },
+                                    "position": { "line": at.line, "character": at.character },
+                                });
+                                if method.ends_with("references") {
+                                    params["context"] = json!({ "includeDeclaration": true });
+                                }
+                                match l.request(method, params) {
+                                    Ok(id) => {
+                                        self.msg = format!("finding {} of {name}…", if method.ends_with("references") { "references" } else { "implementations" });
+                                        self.inflight.insert(id, Req::Goto);
+                                    }
+                                    Err(e) => self.msg = format!("rust-analyzer: {e}"),
+                                }
+                            }
+                        }
+                    }
                 }
             }
             _ => {}

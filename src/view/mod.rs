@@ -90,7 +90,7 @@ VIEW
                        under it is defined (Ctrl-o comes back)
 
 RUST-ANALYZER
-  gd gr gy gi          definition / references / type / impl
+  gd gr gy gi          definition / references / type / impl (on a name in a comment too)
   Space k              hover; on an issue/PR link: preview it
 
 ON SELECTED LINES
@@ -373,6 +373,9 @@ enum Req {
     Init,
     Goto,
     Hover,
+    /// A name from text (a comment, the PR's): where it's defined, by rust-analyzer's symbol
+    /// search; then `then` (references, implementations) from there, if that's what was asked.
+    Symbol { name: String, then: Option<&'static str> },
 }
 
 /// Claude's review for this PR/branch, and the background `claude -p` runs that write it.
@@ -1047,6 +1050,10 @@ impl App {
     /// Rows on screen, each once (a context line shows on both sides but counts once).
     fn visible_rows(&self) -> Vec<usize> {
         let mut out = vec![];
+        // The PR tab's text, on screen beside the code (scrolled on its own).
+        if self.margin_active && self.pane_tab == Tab::Pr {
+            out.extend(self.pr_rows.iter().skip(self.pr_top).take(self.height).copied());
+        }
         for d in &self.drows[self.top.min(self.drows.len())..(self.top + self.height).min(self.drows.len())] {
             match *d {
                 DRow::Full(r) => out.push(r),

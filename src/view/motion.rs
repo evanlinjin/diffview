@@ -21,6 +21,19 @@ impl App {
         }
         let hd = self.hd();
         let into_margin = self.margin_active && right && (!self.split || self.right) && !self.margin_side();
+        // By what a comment is about, not where its box happens to sit (boxes stack down the
+        // pane): from a comment to its line, and from a line to the comment about it.
+        if self.margin_side() && !right
+            && let Some(&line) = self.rows[self.head.row].thread.and_then(|t| self.margin_anchor.get(&t))
+        {
+            return self.goto(line, 0);
+        }
+        if into_margin
+            && let Some(t) = self.lit_thread()
+            && let Some(r) = self.rows.iter().position(|r| r.thread == Some(t))
+        {
+            return self.goto(r, 0);
+        }
         if into_margin || self.margin_side() && !right {
             let at = |d: usize| match self.drows[d] {
                 DRow::Margin(_, _, c) if right => c,
@@ -44,6 +57,21 @@ impl App {
                 let col = self.head.col;
                 self.goto(row, col);
             }
+    }
+
+    /// The next (`fwd`) or previous row after `row` on the same side as it: the code, the
+    /// comments pane, or the PR tab (they're interleaved in `rows`, but not on screen), for word
+    /// motions to carry on along a line of text rather than jump across.
+    fn next_row_here(&self, row: usize, fwd: bool) -> Option<usize> {
+        // (in the pane, on the PR tab); rows that aren't drawn where they'd be (comments with the
+        // pane hidden, PR text off its tab) aren't on any side.
+        let side = |r: usize| {
+            let off = (self.rows[r].thread.is_some() && !self.in_pane(r)) || (self.pr_row(r) && self.pane_tab != Tab::Pr);
+            (!off).then(|| (self.in_pane(r), self.pr_row(r)))
+        };
+        let here = side(row);
+        let mut rs: Box<dyn Iterator<Item = usize>> = if fwd { Box::new(row + 1..self.rows.len()) } else { Box::new((0..row).rev()) };
+        rs.find(|&r| side(r).is_some() && side(r) == here)
     }
 
     /// Move the head; outside select mode the anchor follows.
@@ -111,8 +139,8 @@ impl App {
         let cl = |j: usize| class(chars[j]);
         if m.eq_ignore_ascii_case(&'b') {
             if i == 0 || n == 0 {
-                if row > 0 {
-                    let p = Pos { row: row - 1, col: self.len(row - 1).saturating_sub(1) };
+                if let Some(r) = self.next_row_here(row, false) {
+                    let p = Pos { row: r, col: self.len(r).saturating_sub(1) };
                     self.sel(p, p);
                 }
                 return;
@@ -130,8 +158,8 @@ impl App {
             return;
         }
         if i + 1 >= n {
-            if row + 1 < self.rows.len() {
-                let p = Pos { row: row + 1, col: 0 };
+            if let Some(r) = self.next_row_here(row, true) {
+                let p = Pos { row: r, col: 0 };
                 self.sel(p, p);
             }
             return;
@@ -377,7 +405,7 @@ impl App {
             }
             let chars = self.chars(row);
             let class = |c: char| if c.is_whitespace() { 0 } else if c.is_alphanumeric() || c == '_' { 1 } else { 2 };
-            let mut i = self.left;
+            let mut i = self.hscroll(row); // where its text starts on screen
             while i < chars.len() {
                 let (c, start) = (class(chars[i]), i);
                 while i < chars.len() && class(chars[i]) == c {
@@ -388,6 +416,7 @@ impl App {
                 }
             }
         }
+        words.sort_by_key(|w| w.0); // the PR tab's rows are first in `rows`, wherever they show
         let split = words.partition_point(|w| w.0 <= self.head);
         let (back, fwd) = words.split_at(split);
         let (mut fwd, mut back) = (fwd.iter(), back.iter().rev());

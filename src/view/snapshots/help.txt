@@ -1,6 +1,6 @@
           PR #7 · Fix the thing  @bo · main ← amy:fix          3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)
           OPEN @bo · main ← fix · +2 −2 in 3 files
-          review: wait keys · / search · j/k scroll · other keys close                 1–44 / 118
+          review: wait keys · / search · j/k scroll · other keys close                 1–44 / 119
        ╭─ description   MOVE                                                                    ┃ ─────────────╮
        │  Fixes the th   h j k l, arrows      move (counts: 5j)                                 ┃              │
        ╰──────────────   w b e  W B E         word motions (select)                             ┃ ─────────────╯
@@ -17,7 +17,7 @@
  11  11   line 11       DIFF                                                                    ┃
  12     -     let x =    ]g [g                next / prev hunk (change)                         ┃
      12 +     let x =    ]f [f, Space f       next / prev file, file picker                     ┃                      ◆
- 13  13   line 13        ]c [c                next / prev comment thread                        ┃
+ 13  13   line 13        ]c [c                next / prev comment thread                        │
  14  14   line 14        ]u [u                next / prev unresolved one (wraps around)         │
  15  15   line 15        ]a [a                next / prev Claude comment (wraps around)         │
  ▾        src/a.rs  +1   ]p [p                next / prev comment of your pending review (wraps │

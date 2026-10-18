@@ -1804,3 +1804,42 @@ fn comment_marks_at_the_right_edge() {
     let (old, new): (String, String) = (row.chars().take(half).collect(), row.chars().skip(half).collect());
     assert!(!old.contains('◆') && new.contains('◆'), "{row}");
 }
+
+#[test]
+fn between_the_code_and_the_pane() {
+    let k = |app: &mut App, c: char| app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+    let ctrl = |app: &mut App, c: char| app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL));
+    let draw = |app: &mut App| _ = screen(220, 40, |f| app.draw(f));
+    let mut app = fixture();
+    draw(&mut app);
+    // Claude's comment is about new line 12; its box may sit lower in the pane.
+    let line12 = app.rows.iter().position(|r| r.line.kind == Kind::Add && r.line.new == Some(12)).unwrap();
+    // Ctrl-l from that line: the comment about it; Ctrl-h from the comment: back to its line.
+    app.goto(line12, 0);
+    draw(&mut app);
+    ctrl(&mut app, 'l');
+    assert_eq!(app.rows[app.head.row].thread, Some(0));
+    draw(&mut app);
+    ctrl(&mut app, 'h');
+    assert_eq!(app.head.row, line12);
+    // w at the end of a code line carries on in the code, not into the comment after it in `rows`.
+    let len = app.len(line12);
+    app.goto(line12, len - 1);
+    k(&mut app, 'w');
+    assert!(app.rows[app.head.row].thread.is_none() && !app.in_pane(app.head.row), "{:?}", app.rows[app.head.row].line.text);
+    // gw labels the PR tab's text too, beside the code.
+    k(&mut app, 'g');
+    k(&mut app, 'n');
+    draw(&mut app);
+    k(&mut app, 'g');
+    k(&mut app, 'w');
+    assert!(app.labels.iter().any(|l| app.pr_row(l.0.row)), "no labels on the PR tab");
+    app.labels.clear();
+    // gr on a name in text, without rust-analyzer: said so (gd would find it by text, as gf).
+    app.goto(app.rows.iter().position(|r| r.line.text.contains("new_value")).unwrap(), 0);
+    let col = app.rows[app.head.row].line.text.find("new_value").unwrap();
+    app.goto(app.head.row, col);
+    k(&mut app, 'g');
+    k(&mut app, 'r');
+    assert!(app.msg.starts_with("rust-analyzer is not running"), "{}", app.msg);
+}
