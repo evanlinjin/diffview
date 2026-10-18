@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-18
+
 ### Added
 - `Ctrl-h` / `Ctrl-l` go through all the panes: the files' list, the old and new sides, the
   comments. In the files' list, `j` / `k` go file to file.
@@ -516,6 +518,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.11.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.11.0
 [0.10.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.10.0
 [0.9.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.9.1
 [0.9.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.9.0
