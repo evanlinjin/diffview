@@ -447,3 +447,21 @@ fn drafting_a_replacement_on_the_todo_tab() {
     let o = order(&mut l);
     assert_eq!(o[0], (true, first), "{o:?}");
 }
+
+#[test]
+fn active_tab_lit() {
+    // The tab shown is drawn lit (the menu's selection colors), the others not.
+    let mut l = List::new("".into());
+    l.prs = vec![Listed { number: 1, title: "t".into(), state: "OPEN".into(), ..Listed::default() }];
+    l.tab = Tab::Open;
+    let backend = ratatui::backend::TestBackend::new(100, 10);
+    let mut term = ratatui::Terminal::new(backend).unwrap();
+    term.draw(|f| l.draw(f)).unwrap();
+    let buf = term.backend().buffer().clone();
+    let (open, _) = l.tab_hits.iter().find(|(_, t)| *t == Tab::Open).cloned().unwrap();
+    let (todo, _) = l.tab_hits.iter().find(|(_, t)| *t == Tab::Todo).cloned().unwrap();
+    let lit = l.ui.menu_selected.bg;
+    assert!(lit.is_some(), "the theme has a selection background");
+    assert_eq!(buf[(open.start + 1, 0)].bg, lit.unwrap(), "the tab shown isn't lit");
+    assert_ne!(buf[(todo.start + 1, 0)].bg, lit.unwrap());
+}

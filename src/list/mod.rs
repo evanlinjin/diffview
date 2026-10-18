@@ -1059,7 +1059,10 @@ impl List {
         let tabs = Line::from(spans);
         f.render_widget(Paragraph::new(tabs).style(hs), head);
         let pos = if shown.is_empty() { "0 / 0 ".into() } else { format!("{} / {} ", sel + 1, shown.len()) };
-        f.render_widget(Paragraph::new(pos).alignment(Alignment::Right).style(hs), head);
+        // Only where it goes (at the right end): over the whole line, its style would take the
+        // lit tab's.
+        let w = (pos.chars().count() as u16).min(head.width);
+        f.render_widget(Paragraph::new(pos).style(hs), Rect { x: head.right() - w, width: w, ..head });
 
         // The base most PRs target goes without saying; others show as "base ← branch".
         let mut bases: HashMap<&str, usize> = HashMap::new();

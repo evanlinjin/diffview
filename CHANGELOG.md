@@ -5,6 +5,10 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Fixed
+- `dv list`: the tab shown wasn't lit (the position at the header's right end, drawn over the whole
+  line, took its colors).
+
 ### Changed
 - Todo: a PR whose replacement Claude is drafting goes to the bottom ("drafting a replacement"),
   as a PR Claude's reviewing does; once drafted, the replacement, ready for you to review, goes
