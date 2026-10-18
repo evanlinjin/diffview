@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-10-18
+
 ### Fixed
 - A PR whose branch is checked out in another worktree already (a published replacement's, in
   its own worktree) couldn't be opened on its branch (`-b`, `dv list -b`): git won't check a
@@ -628,6 +630,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.18.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.18.1
 [0.18.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.18.0
 [0.17.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.17.1
 [0.17.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.17.0
