@@ -8,6 +8,8 @@ impl List {
     pub(super) fn find_todo(&mut self) {
         let dir = self.reviews_dir.clone();
         let seen = dir.as_ref().and_then(|d| d.parent()).map(|d| d.join("seen"));
+        // Claude's CI notes (as `crate::claude::ci_note_path`, without a git run per PR).
+        let ci = dir.as_ref().and_then(|d| d.parent()).map(|d| d.join("ci"));
         let secs = |p: std::path::PathBuf| -> Option<i64> {
             let t = std::fs::metadata(p).ok()?.modified().ok()?;
             Some(t.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs() as i64)
@@ -18,7 +20,7 @@ impl List {
             let review = file.as_ref().and_then(|f| crate::claude::load(f).ok().flatten());
             let looked = seen.as_ref().and_then(|s| std::fs::read_to_string(s.join(format!("pr-{}.looked", p.number))).ok()?.trim().parse().ok());
             let (f, c, head_at) = self.unpushed.get(&p.number).copied().unwrap_or((0, 0, None));
-            let ci_note = crate::claude::ci_note_path(p.number).ok().and_then(|f| crate::claude::ci_note_at(&f));
+            let ci_note = ci.as_ref().and_then(|d| crate::claude::ci_note_at(&d.join(format!("pr-{}.json", p.number))));
             let facts = Facts { pr: p, extra: self.extra.get(&p.number), me: &self.me, review: review.as_ref(), looked, review_changed: file.and_then(secs), unpushed: (f, c), head_at, ci_note: ci_note.as_ref() };
             let (needs, claude) = todo::needs(&facts);
             if !needs.is_empty() {
@@ -210,29 +212,52 @@ impl List {
     /// commits beyond the PR's head). Looked at on refresh, back from a PR, and when Claude's
     /// done somewhere (two git calls a worktree: not every frame).
     pub(super) fn scan_unpushed(&mut self) {
-        self.unpushed = self
-            .local
-            .iter()
-            .filter_map(|(&n, (dir, _))| {
-                let d = dir.to_string_lossy().into_owned();
-                let git = |args: &[&str]| crate::diff::git(&[&["-C", d.as_str()], args].concat()).ok();
-                let files = git(&["status", "--porcelain"])?.lines().count();
-                // Beyond the PR's head (as GitHub has it), if that's here; else its upstream's.
-                let head = self.extra.get(&n).map(|e| e.head_oid.clone()).filter(|h| git(&["cat-file", "-e", &format!("{h}^{{commit}}")]).is_some());
-                let theirs = head.unwrap_or_else(|| "@{upstream}".into());
-                // Still at what dv checked out, the PR moving on since (a force-push): behind,
-                // not work of yours.
-                let here = git(&["rev-parse", "HEAD"]).unwrap_or_default();
-                let stale = crate::last_checkout(n).is_some_and(|c| c == here.trim());
-                let commits = match stale {
-                    true => 0,
-                    false => git(&["rev-list", "--count", &format!("{theirs}..HEAD")]).and_then(|c| c.trim().parse().ok()).unwrap_or(0),
-                };
-                // When the PR's head was made: Claude's changes after it are what's waiting.
-                let at = git(&["log", "-1", "--format=%ct", &theirs]).and_then(|t| t.trim().parse().ok());
-                (files + commits > 0).then_some((n, (files, commits, at)))
-            })
-            .collect();
+        if self.unpushed_rx.is_some() {
+            self.rescan = true; // after the one under way
+            return;
+        }
+        let local: Vec<(u64, String)> = self.local.iter().map(|(&n, (dir, _))| (n, dir.to_string_lossy().into_owned())).collect();
+        let heads: HashMap<u64, String> = self.extra.iter().map(|(&n, e)| (n, e.head_oid.clone())).collect();
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let found = local
+                .into_iter()
+                .filter_map(|(n, d)| {
+                    let git = |args: &[&str]| crate::diff::git(&[&["-C", d.as_str()], args].concat()).ok();
+                    let files = git(&["status", "--porcelain"])?.lines().count();
+                    // Beyond the PR's head (as GitHub has it), if that's here; else its upstream's.
+                    let head = heads.get(&n).cloned().filter(|h| git(&["cat-file", "-e", &format!("{h}^{{commit}}")]).is_some());
+                    let theirs = head.unwrap_or_else(|| "@{upstream}".into());
+                    // Still at what dv checked out, the PR moving on since (a force-push): behind,
+                    // not work of yours.
+                    let here = git(&["rev-parse", "HEAD"]).unwrap_or_default();
+                    let stale = crate::last_checkout(n).is_some_and(|c| c == here.trim());
+                    let commits = match stale {
+                        true => 0,
+                        false => git(&["rev-list", "--count", &format!("{theirs}..HEAD")]).and_then(|c| c.trim().parse().ok()).unwrap_or(0),
+                    };
+                    // When the PR's head was made: Claude's changes after it are what's waiting.
+                    let at = git(&["log", "-1", "--format=%ct", &theirs]).and_then(|t| t.trim().parse().ok());
+                    (files + commits > 0).then_some((n, (files, commits, at)))
+                })
+                .collect();
+            _ = tx.send(found);
+        });
+        self.unpushed_rx = Some(rx);
+    }
+
+    /// The scan's result, when it's in: on the todo tab then.
+    pub(super) fn unpushed_news(&mut self) {
+        let found = match self.unpushed_rx.as_ref().map(Receiver::try_recv) {
+            Some(Ok(found)) => found,
+            Some(Err(mpsc::TryRecvError::Disconnected)) => return self.unpushed_rx = None, // it died: the next asks again
+            _ => return,
+        };
+        (self.unpushed, self.unpushed_rx) = (found, None);
+        self.find_todo();
+        if std::mem::take(&mut self.rescan) {
+            self.scan_unpushed();
+        }
     }
 
     /// Whether what deferral condition `c` waits for has happened, for item `it`.

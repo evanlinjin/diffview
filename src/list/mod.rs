@@ -23,6 +23,8 @@ use todo::ago_secs;
 #[cfg(test)]
 mod tests;
 
+/// By PR, in its worktree: (changed files, commits beyond the PR's head, when that head was made).
+type Unpushed = HashMap<u64, (usize, usize, Option<i64>)>;
 type Checks = anyhow::Result<gh::ListChecks>;
 /// The open PRs, as fetched (in the background).
 type Fetched = Result<Vec<Listed>>;
@@ -166,7 +168,11 @@ pub struct List {
     auto_done: HashSet<(u64, String)>,
     /// What's not pushed in each PR worktree (`scan_unpushed`): changed files, commits beyond
     /// the PR's head, and when that head was made.
-    unpushed: HashMap<u64, (usize, usize, Option<i64>)>,
+    unpushed: Unpushed,
+    /// That scan, under way (in the background: a few git runs a worktree add up), and whether
+    /// to scan again when it's done (asked for meanwhile).
+    unpushed_rx: Option<Receiver<Unpushed>>,
+    rescan: bool,
     /// Todo items deferred (`s`), kept in dv's directory; the one `s` is asking how long for.
     deferred: crate::todo::Deferred,
     deferring: Option<String>,
@@ -246,6 +252,8 @@ impl List {
             running: HashMap::new(),
             running_reps: HashMap::new(),
             unpushed: HashMap::new(),
+            unpushed_rx: None,
+            rescan: false,
             running_checked: std::time::Instant::now() - std::time::Duration::from_secs(60),
             auto_ci: crate::diff::git(&["config", "--get", "dv.autoCI"]).is_ok_and(|v| v.trim() == "true"),
             auto_done: HashSet::new(),
@@ -301,6 +309,7 @@ impl List {
             self.batch_news();
             self.watch_reviews();
             self.todo_news();
+            self.unpushed_news();
             self.until_news();
             if self.watch_running() {
                 self.scan_unpushed(); // what it finished with may be waiting to be pushed

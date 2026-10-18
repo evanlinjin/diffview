@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Fixed
+- `dv list` lagging: it ran git for dv's directory each time it wanted it (hundreds of times a
+  refresh), and looked for unpushed work in every worktree while you waited; now git's asked once,
+  and the worktrees are looked at in the background.
+
 ## [0.27.0] - 2026-10-18
 
 ### Added

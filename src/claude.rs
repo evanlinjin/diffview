@@ -55,7 +55,21 @@ pub struct Review {
 /// after the main checkout's path so its worktrees share it. Moves an older `.git/dv` here the
 /// first time.
 pub fn dv_dir() -> Result<PathBuf> {
-    let common = PathBuf::from(diff::git(&["rev-parse", "--path-format=absolute", "--git-common-dir"])?.trim());
+    // The repo's git dir, by working directory: asked of git once each (dv list wants this
+    // directory many times a second, and a git run each time added up).
+    static COMMON: std::sync::Mutex<Vec<(PathBuf, PathBuf)>> = std::sync::Mutex::new(Vec::new());
+    let cwd = std::env::current_dir()?;
+    let known = COMMON.lock().ok().and_then(|c| c.iter().find(|k| k.0 == cwd).map(|k| k.1.clone()));
+    let common = match known {
+        Some(c) => c,
+        None => {
+            let c = PathBuf::from(diff::git(&["rev-parse", "--path-format=absolute", "--git-common-dir"])?.trim());
+            if let Ok(mut k) = COMMON.lock() {
+                k.push((cwd, c.clone()));
+            }
+            c
+        }
+    };
     let dir = data_home()?.join(repo_key(&common));
     let old = common.join("dv");
     if old.is_dir() && !dir.exists() {
