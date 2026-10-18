@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- On someone else's PR, `Space a` can have Claude make the changes too (not only suggest them):
+  as commits in your checkout, for you to push to their branch with `Space g`. The menu says
+  whether they allow maintainer edits (else the commits stay with you).
+
 ## [0.20.0] - 2026-10-18
 
 ### Added

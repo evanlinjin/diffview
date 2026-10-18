@@ -24,6 +24,8 @@ pub struct Pr {
     pub cross_repo: bool,
     /// The repo its branch is in, `owner/name` (a fork's, or this one).
     pub head_repo: String,
+    /// Its author lets maintainers push to its branch (on a fork: GitHub's checkbox).
+    pub maintainer_can_modify: bool,
 }
 
 /// Review threads plus the viewer's pending review on the PR, if any.
@@ -155,7 +157,7 @@ pub fn checkout(n: u64, force: bool, detach: bool) -> Result<()> {
 /// The PR `n`, or the PR for the current branch.
 pub fn pr(n: Option<u64>) -> Result<Pr> {
     let n = n.map(|n| n.to_string());
-    let mut args = vec!["pr", "view", "--json", "number,title,baseRefName,headRefOid,baseRefOid,headRefName,headRepositoryOwner,author,isCrossRepository,headRepository"];
+    let mut args = vec!["pr", "view", "--json", "number,title,baseRefName,headRefOid,baseRefOid,headRefName,headRepositoryOwner,author,isCrossRepository,headRepository,maintainerCanModify"];
     args.extend(n.as_deref());
     let v: Value = serde_json::from_str(&gh(&args)?)?;
     Ok(Pr {
@@ -171,6 +173,7 @@ pub fn pr(n: Option<u64>) -> Result<Pr> {
         author: v["author"]["login"].as_str().unwrap_or("").to_owned(),
         cross_repo: v["isCrossRepository"].as_bool().unwrap_or(false),
         head_repo: v["headRepository"]["nameWithOwner"].as_str().unwrap_or("").to_owned(),
+        maintainer_can_modify: v["maintainerCanModify"] == true,
     })
 }
 

@@ -12,6 +12,9 @@ pub(super) enum Ask {
     Fix,
     /// Propose a new description for the PR (in the review file), for you to approve.
     Describe,
+    /// On someone else's PR: make the changes (as `Fix` does on yours), here, for you to push
+    /// to their branch, rather than suggest them.
+    Edit,
 }
 
 /// What `claude -p` may do in the background: edit files (the review, and code when asked),
@@ -169,9 +172,21 @@ impl App {
                 },
                 Target::Claude(Ask::Fix),
             ),
+        ];
+        // Someone else's PR: Claude can make the changes all the same, here, for you to push to
+        // their branch (when they let maintainers: else they stay here).
+        if self.theirs {
+            let push = match self.pr.as_ref().is_some_and(|p| p.maintainer_can_modify || !p.cross_repo) {
+                true => "Space g pushes them to their branch",
+                false => "they don't allow maintainer edits: the commits stay here",
+            };
+            let what = if open == 0 { "a change (you say what)".to_owned() } else { format!("the changes ({open} open comments)") };
+            items.push(Item::new(format!("Ask Claude to make {what} here, as commits ({push})"), Target::Claude(Ask::Edit)));
+        }
+        items.extend([
             Item::new(notes, Target::ClaudeNotes),
             Item::new("Check Claude's review now (dv watches it; this reads it again)", Target::ClaudeCheck),
-        ];
+        ]);
         if self.claude_pane().is_some() {
             items.insert(0, Item::new("Show Claude's pane (its session on this PR)", Target::ClaudePane));
         }
@@ -374,11 +389,12 @@ impl App {
                 "Use the dv-review skill to suggest the changes the open comments in the dv review of {what} ask for \
                  (see \"Suggest the changes\"): it's someone else's PR, so don't edit the code."
             ),
-            Ask::Fix if self.change_requests() == 0 => format!(
+            // Making them (yours, or someone else's when you ask Claude to all the same).
+            Ask::Fix | Ask::Edit if self.change_requests() == 0 => format!(
                 "Make the change the user asks for below, in {what}. First run `dv review-info`: if the notes it lists \
                  exist, read them and follow them (they're the dv-review skill's notes on this repo)."
             ),
-            Ask::Fix => format!(
+            Ask::Fix | Ask::Edit => format!(
                 "Use the dv-review skill to make the changes the open comments in the dv review of {what} ask for \
                  (your own, and the user's: those with \"author\": \"user\"; every one that isn't resolved or outdated), \
                  replying on each with what you changed and resolving the ones you addressed."
@@ -508,13 +524,13 @@ impl App {
     /// where they're the request); answering replies just goes. Anything that would stop Claude
     /// taking it is checked first, so what you write isn't lost.
     pub(super) fn pick_claude(&mut self, ask: Ask) {
-        let needs_files = !matches!(ask, Ask::Fix) || self.change_requests() > 0;
+        let needs_files = !matches!(ask, Ask::Fix | Ask::Edit) || self.change_requests() > 0;
         if let Some(why) = self.claude_blocked(needs_files) {
             return self.msg = why;
         }
         match ask {
             Ask::Describe if self.pr.is_none() => self.msg = "no PR here, so no description to change".into(),
-            Ask::Review | Ask::Fix | Ask::Describe => self.action = Some(Action::ClaudeWith(ask)),
+            Ask::Review | Ask::Fix | Ask::Edit | Ask::Describe => self.action = Some(Action::ClaudeWith(ask)),
             ask => _ = self.run_claude(ask, ""),
         }
     }
@@ -527,11 +543,11 @@ impl App {
             return false;
         }
         let requests = self.change_requests();
-        if matches!(ask, Ask::Fix) && requests == 0 && extra.trim().is_empty() {
+        if matches!(ask, Ask::Fix | Ask::Edit) && requests == 0 && extra.trim().is_empty() {
             self.msg = "nothing to change: no open comments, and no instructions written".into();
             return false;
         }
-        if let Some(why) = self.claude_blocked(!matches!(ask, Ask::Fix) || requests > 0) {
+        if let Some(why) = self.claude_blocked(!matches!(ask, Ask::Fix | Ask::Edit) || requests > 0) {
             self.msg = why;
             return false;
         }
@@ -541,6 +557,7 @@ impl App {
             Ask::Answer => "answering your replies",
             Ask::Describe => "proposing a description",
             Ask::Fix if self.theirs => "suggesting the changes",
+            Ask::Edit => "making the changes",
             Ask::Fix => "making the changes",
         };
         // Claude already open on this PR in a pane: put the request there, rather than open

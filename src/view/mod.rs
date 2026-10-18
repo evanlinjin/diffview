@@ -951,7 +951,7 @@ impl App {
             Action::ClaudeWith(ask) => {
                 // Optional (empty goes ahead) unless they're the whole request: a change with no
                 // open comments. Quitting the editor with an error (`:cq`) cancels.
-                let alone = matches!(ask, agent::Ask::Fix) && self.change_requests() == 0 || matches!(ask, agent::Ask::Describe);
+                let alone = matches!(ask, agent::Ask::Fix | agent::Ask::Edit) && self.change_requests() == 0 || matches!(ask, agent::Ask::Describe);
                 let what = match (ask, alone) {
                     (agent::Ask::Review, _) => "anything for Claude to look at or keep in mind in its review (optional)",
                     (agent::Ask::Describe, _) if !self.claude.description.is_empty() => "what else to change in Claude's proposed description",

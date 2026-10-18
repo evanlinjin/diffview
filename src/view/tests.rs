@@ -2306,3 +2306,34 @@ fn contents_and_commits_scroll_together() {
     let l = list(&mut app);
     assert!(l[1..].iter().any(|r| r.contains("big.rs")), "{l:?}");
 }
+
+#[test]
+fn claude_makes_changes_on_their_pr() {
+    // Someone else's PR: Claude can suggest the changes, or make them here all the same (for you
+    // to push to their branch, when they let maintainers).
+    let mut app = fixture();
+    app.claude.path = Some(std::env::temp_dir().join("dv-unused-review.json"));
+    app.theirs = true;
+    if let Some(p) = &mut app.pr {
+        (p.cross_repo, p.maintainer_can_modify) = (true, true);
+    }
+    let menu = |app: &mut App| {
+        app.claude_menu();
+        app.picker.take().unwrap().items.into_iter().map(|i| (i.label, i.target)).collect::<Vec<_>>()
+    };
+    let items = menu(&mut app);
+    assert!(items.iter().any(|(l, t)| l.starts_with("Ask Claude to suggest") && matches!(t, Target::Claude(agent::Ask::Fix))));
+    let (label, _) = items.iter().find(|(_, t)| matches!(t, Target::Claude(agent::Ask::Edit))).expect("make them");
+    assert!(label.contains("Space g pushes them to their branch"), "{label}");
+    // The prompt makes them (no "don't edit the code").
+    let p = app.claude_prompt(agent::Ask::Edit, "rename it");
+    assert!(p.contains("make the change") && !p.contains("don't edit"), "{p}");
+    // They don't allow maintainer edits: said so.
+    if let Some(p) = &mut app.pr {
+        p.maintainer_can_modify = false;
+    }
+    assert!(menu(&mut app).iter().any(|(l, _)| l.contains("they don't allow maintainer edits")));
+    // Your own PR: only "make the changes", as before.
+    app.theirs = false;
+    assert!(!menu(&mut app).iter().any(|(_, t)| matches!(t, Target::Claude(agent::Ask::Edit))));
+}
