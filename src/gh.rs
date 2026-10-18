@@ -247,6 +247,8 @@ pub struct Listed {
     pub labels: Vec<(String, String)>,
     /// (passed, failed, pending), filled in by `list_checks` (slow, so fetched separately).
     pub checks: Option<(usize, usize, usize)>,
+    /// The commit `checks` are on (the PR's head when they were fetched).
+    pub checks_head: String,
 }
 
 const LISTED: &str = "number,title,author,baseRefName,headRefName,isDraft,state,createdAt,updatedAt,additions,deletions,changedFiles,reviewDecision,labels";
@@ -270,6 +272,7 @@ fn listed(p: &Value) -> Listed {
         decision: s(&p["reviewDecision"]),
         labels: p["labels"].as_array().into_iter().flatten().map(|l| (s(&l["name"]), s(&l["color"]))).collect(),
         checks: None,
+        checks_head: String::new(),
     }
 }
 
@@ -392,16 +395,20 @@ pub fn repo_name() -> Result<String> {
     Ok(gh(&["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"])?.trim().to_owned())
 }
 
-/// CI check counts for the PRs `list` returns: number → (passed, failed, pending).
-pub fn list_checks() -> Result<std::collections::HashMap<u64, (usize, usize, usize)>> {
-    let v: Value = serde_json::from_str(&gh(&["pr", "list", "--limit", &LIST_MAX.to_string(), "--json", "number,statusCheckRollup"])?)?;
+pub type ListChecks = std::collections::HashMap<u64, ((usize, usize, usize), String)>;
+
+/// CI check counts for the PRs `list` returns: number → ((passed, failed, pending), the head
+/// they're on).
+pub fn list_checks() -> Result<ListChecks> {
+    let v: Value = serde_json::from_str(&gh(&["pr", "list", "--limit", &LIST_MAX.to_string(), "--json", "number,headRefOid,statusCheckRollup"])?)?;
     let prs = v.as_array().context("gh pr list")?;
     Ok(prs
         .iter()
         .map(|p| {
             let checks = p["statusCheckRollup"].as_array().map(Vec::as_slice).unwrap_or(&[]);
             let count = |m| checks.iter().filter(|c| verdict(c) == m).count();
-            (p["number"].as_u64().unwrap_or(0), (count('✓'), count('✗'), count('●')))
+            let head = p["headRefOid"].as_str().unwrap_or("").to_owned();
+            (p["number"].as_u64().unwrap_or(0), ((count('✓'), count('✗'), count('●')), head))
         })
         .collect())
 }

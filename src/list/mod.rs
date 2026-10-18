@@ -23,7 +23,7 @@ use todo::ago_secs;
 #[cfg(test)]
 mod tests;
 
-type Checks = anyhow::Result<HashMap<u64, (usize, usize, usize)>>;
+type Checks = anyhow::Result<gh::ListChecks>;
 /// The open PRs, as fetched (in the background).
 type Fetched = Result<Vec<Listed>>;
 
@@ -324,7 +324,7 @@ impl List {
             if let Some(Ok(res)) = self.checks.as_ref().map(Receiver::try_recv) {
                 self.checks = None;
                 match res {
-                    Ok(by_pr) => self.prs.iter_mut().for_each(|p| p.checks = by_pr.get(&p.number).copied()),
+                    Ok(mut by_pr) => self.prs.iter_mut().for_each(|p| (p.checks, p.checks_head) = by_pr.remove(&p.number).map_or((None, String::new()), |(c, h)| (Some(c), h))),
                     Err(e) => self.msg = format!("checks: {e:#}"),
                 }
                 self.find_todo(); // green checks: ready to merge
@@ -375,7 +375,7 @@ impl List {
                     // Fixing CI afresh: its last word that it isn't the PR's doing goes (it says
                     // so again, if it still finds that).
                     for (n, ..) in prs.iter().filter(|p| p.2 == batch::Task::FixChecks) {
-                        self.ci_note_file(*n).map(std::fs::remove_file);
+                        crate::claude::ci_note_path(*n).map(std::fs::remove_file).ok();
                     }
                     self.batch_rx.push(batch::start(prs, self.root.clone(), extra));
                 }
@@ -466,14 +466,15 @@ impl List {
         let what = "a new PR for Claude to draft: what it should do (issues by #N: Claude reads them); unpublished until you publish it";
         // On a todo item whose CI fails through no fault of its own: the fix Claude had in mind.
         let n = self.shown().get(self.sel).map(|p| p.number).filter(|_| self.tab == Tab::Todo);
-        let note = |n: u64| crate::claude::ci_note_at(&self.ci_note_file(n)?);
-        let prefill = match n.and_then(|n| Some((n, note(n)?))) {
-            Some((n, c)) if !c.task.is_empty() => format!("Fix CI: it fails on #{n}, not through #{n}'s doing ({}).\n\n{}\n", c.why, c.task),
-            _ => String::new(),
-        };
+        let head = |n: u64| self.extra.get(&n).map(|e| e.head_oid.clone());
+        let note = n.and_then(|n| Some((n, crate::claude::ci_note(n, &head(n)?)?))).filter(|(_, c)| !c.task.is_empty());
+        let prefill = note.as_ref().map_or(String::new(), |(n, c)| c.prefill(*n));
         let Some(task) = self.edit_text(term, what, &prefill, false).filter(|t| !t.trim().is_empty()) else { return };
         match crate::replace::create_new(&task, &self.root) {
             Ok(id) => {
+                if let Some((n, _)) = note {
+                    crate::claude::ci_fix_drafted(n); // not offered again
+                }
                 self.draft_rx.push(batch::replace(vec![id], self.root.clone(), String::new()));
                 self.load_reps();
                 self.msg = format!("Claude is drafting {}: the drafts tab shows it (Enter there reviews it, S publishes it)", crate::replace::label(id));
@@ -704,7 +705,9 @@ impl List {
             Ok(mut prs) => {
                 if quiet {
                     for p in &mut prs {
-                        p.checks = self.prs.iter().find(|o| o.number == p.number).and_then(|o| o.checks);
+                        if let Some(o) = self.prs.iter().find(|o| o.number == p.number) {
+                            (p.checks, p.checks_head) = (o.checks, o.checks_head.clone());
+                        }
                     }
                 }
                 let (tx, rx) = mpsc::channel();
@@ -1248,8 +1251,7 @@ impl List {
             let r = Rect { x: (area.width - w) / 2, y: (area.height - h) / 2, width: w, height: h };
             f.render_widget(Clear, r);
             f.render_widget(Block::new().style(ui.base.patch(ui.popup)), r);
-            // As the PR view's title bar: the darker of the status bar's and the headers' background.
-        let hs = ui.base.patch(Style { bg: ui.bar, ..ui.header });
+            let hs = ui.base.patch(ui.header);
             f.render_widget(Paragraph::new(" dv list keys").style(hs), Rect { height: 1, ..r });
             f.render_widget(Paragraph::new("any key closes ").alignment(Alignment::Right).style(hs), Rect { height: 1, ..r });
             let body: Vec<Line> = lines

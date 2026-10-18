@@ -1026,10 +1026,11 @@ impl App {
             Action::CiFixPr => {
                 let n = self.pr.as_ref().map_or(0, |p| p.number);
                 let c = self.ci_note(n).context("no fix in mind for CI any more")?;
-                let prefill = format!("Fix CI: it fails on #{n}, not through #{n}'s doing ({}).\n\n{}\n", c.why, c.task);
+                let prefill = c.prefill(n);
                 let what = "a new PR fixing CI, for Claude to draft: what it should do; unpublished until you publish it";
                 let Some(task) = compose_with(what, false, &prefill, true)?.filter(|t| !t.trim().is_empty()) else { return Ok("not asked".into()) };
                 let id = crate::replace::create_new(&task, &self.root)?;
+                crate::claude::ci_fix_drafted(n); // not offered again
                 agent::spawn_replace(&[id])?;
                 Ok(format!("Claude is drafting {} in the background: dv list's drafts tab shows it", crate::replace::label(id)))
             }

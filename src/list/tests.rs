@@ -475,3 +475,19 @@ fn active_tab_lit() {
     assert_eq!(buf[(open.start + 1, 0)].bg, lit.unwrap(), "the tab shown isn't lit");
     assert_ne!(buf[(todo.start + 1, 0)].bg, lit.unwrap());
 }
+
+#[test]
+fn a_a_retries_a_ci_fix() {
+    // Claude found CI failing isn't the PR's doing: a a has it try again, unless it has you to
+    // answer, or changes of its wait to be pushed.
+    use crate::todo::{Item, Need};
+    let mut l = List::new("-wb".into());
+    let item = |needs: Vec<Need>, claude| Item { rep: false, number: 7, needs, claude, updated: String::new(), reason: None, changed: false, deferred: None, busy: None, waits: None };
+    let ci = Need::CiNotThisPr("flaky".into(), true);
+    l.todo = vec![item(vec![ci.clone()], Some(batch::Task::Review))];
+    assert_eq!(l.todo_task(7), batch::Task::FixChecks);
+    l.todo = vec![item(vec![ci.clone()], Some(batch::Task::Answer { theirs: false }))];
+    assert_eq!(l.todo_task(7), batch::Task::Answer { theirs: false });
+    l.todo = vec![item(vec![ci, Need::ClaudeChanged(1, 0)], None)];
+    assert_eq!(l.todo_task(7), batch::Task::Review);
+}

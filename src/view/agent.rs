@@ -422,8 +422,7 @@ impl App {
 
     /// Claude's note that PR `n`'s failing CI isn't its doing, written at its head now.
     pub(super) fn ci_note(&self, n: u64) -> Option<crate::claude::CiNote> {
-        let head = &self.pr.as_ref()?.head_oid;
-        crate::claude::ci_note_at(&crate::claude::ci_note_path(n).ok()?).filter(|c| !head.is_empty() && &c.head == head)
+        crate::claude::ci_note(n, &self.pr.as_ref()?.head_oid)
     }
 
     /// Open Claude's notes on the repo in hx (they're plain markdown; you can write them too).
@@ -573,6 +572,11 @@ impl App {
             self.msg = why;
             return false;
         }
+        // Fixing CI afresh: Claude's last word that it isn't the PR's doing goes (it says so
+        // again, if it still finds that).
+        if let (Ask::FixChecks, Some(p)) = (ask, &self.pr) {
+            crate::claude::ci_note_path(p.number).map(std::fs::remove_file).ok();
+        }
         let prompt = self.claude_prompt(ask, extra);
         let label = match ask {
             Ask::Review => "reviewing",
@@ -597,13 +601,14 @@ impl App {
         }
         let mut path_env = std::ffi::OsString::from("PATH=");
         path_env.push(path_for_claude());
-        let (msg, asked) = match in_zellij() {
+        // Claude's tab (see `claude_tab`), in zellij.
+        let claude_tab = in_zellij().then(|| self.claude_tab());
+        let (msg, asked) = match claude_tab {
             // A real session in a pane (the PR's, as the background runs use): watch it, approve
             // what it asks, talk to it.
             // In Claude's tab, unfocused, stacked with the others (`Space a` → show it);
             // dv says when it's asking you something.
-            true => match {
-                let (tab, id) = self.claude_tab();
+            Some((tab, id)) => match {
                 let mut z = std::process::Command::new("zellij");
                 match id {
                     Some(t) => z.args(["run", "--tab-id", &t.to_string(), "--stacked", "--no-focus", "--name", &format!("claude: {label}"), "--cwd"]),
@@ -629,13 +634,12 @@ impl App {
                     if let (Some(p), Some(id)) = (&self.pr, &self.claude.session) {
                         crate::claude::mark_running(p.number, &format!("{label} (in its pane)"), None, Some(id));
                     }
-                    let (tab, _) = self.claude_tab();
                     (format!("Claude is {label} in a pane in zellij's {tab} tab (Space a shows it); its comments show up here as it writes them"), true)
                 }
                 Ok(s) => (format!("zellij run failed ({s})"), false),
                 Err(e) => (format!("running zellij: {e}"), false),
             },
-            false => match self.spawn_claude(&prompt, label, false) {
+            None => match self.spawn_claude(&prompt, label, false) {
                 Ok(job) => {
                     self.claude.job = Some(job);
                     (format!("Claude is {label} in the background…"), true)

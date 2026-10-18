@@ -128,6 +128,27 @@ pub fn ci_note_at(p: &std::path::Path) -> Option<CiNote> {
     Some(CiNote { head: s("head"), why: s("why"), task: s("task") })
 }
 
+/// PR `n`'s note, if Claude wrote it at `head` (the PR's head now): older ones are about
+/// other commits.
+pub fn ci_note(n: u64, head: &str) -> Option<CiNote> {
+    ci_note_at(&ci_note_path(n).ok()?).filter(|c| !head.is_empty() && c.head == head)
+}
+
+/// A PR fixing CI is drafted from PR `n`'s note: its task goes, so it isn't offered again.
+pub fn ci_fix_drafted(n: u64) {
+    let Ok(p) = ci_note_path(n) else { return };
+    let Some(mut v) = std::fs::read_to_string(&p).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()) else { return };
+    v["task"] = "".into();
+    _ = std::fs::write(&p, v.to_string());
+}
+
+impl CiNote {
+    /// What to ask for in a new PR fixing CI, from this note on PR `n`.
+    pub fn prefill(&self, n: u64) -> String {
+        format!("Fix CI: it fails on #{n}, not through #{n}'s doing ({}).\n\n{}\n", self.why, self.task)
+    }
+}
+
 /// Notes Claude keeps about the repo across reviews (conventions, recurring issues, the
 /// user's review preferences): `notes.md` in dv's directory, shared by all worktrees.
 pub fn notes_path() -> Result<PathBuf> {

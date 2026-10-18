@@ -18,7 +18,7 @@ impl List {
             let review = file.as_ref().and_then(|f| crate::claude::load(f).ok().flatten());
             let looked = seen.as_ref().and_then(|s| std::fs::read_to_string(s.join(format!("pr-{}.looked", p.number))).ok()?.trim().parse().ok());
             let (f, c, head_at) = self.unpushed.get(&p.number).copied().unwrap_or((0, 0, None));
-            let ci_note = self.ci_note_file(p.number).and_then(|f| crate::claude::ci_note_at(&f));
+            let ci_note = crate::claude::ci_note_path(p.number).ok().and_then(|f| crate::claude::ci_note_at(&f));
             let facts = Facts { pr: p, extra: self.extra.get(&p.number), me: &self.me, review: review.as_ref(), looked, review_changed: file.and_then(secs), unpushed: (f, c), head_at, ci_note: ci_note.as_ref() };
             let (needs, claude) = todo::needs(&facts);
             if !needs.is_empty() {
@@ -77,11 +77,6 @@ impl List {
         self.auto_ci();
     }
 
-    /// Where Claude notes that PR `n`'s failing CI isn't its doing (`crate::claude::CiNote`).
-    pub(super) fn ci_note_file(&self, n: u64) -> Option<std::path::PathBuf> {
-        Some(self.reviews_dir.as_ref()?.parent()?.join("ci").join(format!("pr-{n}.json")))
-    }
-
     /// Auto CI: on your PRs, Claude at failing CI (as `a a` would have it), and green drafts
     /// marked ready for review; each once a head, and not where Claude's already at it.
     fn auto_ci(&mut self) {
@@ -89,10 +84,15 @@ impl List {
             return;
         }
         let (mut fix, mut ready) = (vec![], vec![]);
-        for it in self.todo.iter().filter(|it| !it.rep && it.busy.is_none()) {
-            let Some(head) = self.extra.get(&it.number).map(|e| e.head_oid.clone()).filter(|h| !h.is_empty()) else { continue };
-            let idle = !self.batch.get(&it.number).is_some_and(batch::Status::running);
-            if it.claude == Some(batch::Task::FixChecks) && idle && self.auto_done.insert((it.number, head.clone())) {
+        // One batch of Claude's at a time: the cap on how many run at once holds (the rest wait
+        // for a later look).
+        let batch_busy = self.batch.values().any(batch::Status::running);
+        // Not what you've put aside or are waiting on; not where Claude's at it already.
+        for it in self.todo.iter().filter(|it| !it.rep && it.busy.is_none() && it.deferred.is_none() && it.waits.is_none()) {
+            // Its checks are on the head the rest knows of (else they're another commit's).
+            let Some(p) = self.prs.iter().find(|p| p.number == it.number) else { continue };
+            let Some(head) = self.extra.get(&it.number).map(|e| e.head_oid.clone()).filter(|h| !h.is_empty() && *h == p.checks_head) else { continue };
+            if it.claude == Some(batch::Task::FixChecks) && !batch_busy && self.auto_done.insert((it.number, head.clone())) {
                 fix.push((it.number, true, batch::Task::FixChecks));
             } else if it.needs.contains(&todo::Need::MarkReady) && self.auto_done.insert((it.number, head)) {
                 ready.push(it.number);
@@ -104,10 +104,13 @@ impl List {
             fix.iter().for_each(|(n, _, t)| _ = self.batch_task.insert(*n, t.clone()));
             self.batch_rx.push(batch::start(fix, self.root.clone(), String::new()));
         }
-        if !ready.is_empty() {
-            said.push(format!("marking {} ready for review (CI passed)", ready.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(", ")));
-            // The list's next look at GitHub shows them so (`mark_ready` checks CI again first).
-            std::thread::spawn(move || ready.into_iter().for_each(|n| _ = crate::gh::mark_ready(n)));
+        // `mark_ready` checks CI again first; the list's next look at GitHub shows them so. Said
+        // either way (not tried again at this head: you'd be told each time).
+        for n in ready {
+            said.push(match crate::gh::mark_ready(n) {
+                Ok(()) => format!("#{n} marked ready for review (CI passed)"),
+                Err(e) => format!("#{n} not marked ready: {e:#}"),
+            });
         }
         if !said.is_empty() {
             self.msg = format!("auto CI: {}", said.join("; "));
@@ -412,8 +415,14 @@ impl List {
     /// What Claude would do on PR `n` from the todo tab (`a a`): what's due there, else review.
     pub(super) fn todo_task(&self, n: u64) -> batch::Task {
         let it = self.todo.iter().find(|it| !it.rep && it.number == n);
-        // Claude found its failing CI isn't its doing: `a a` has it look again all the same.
-        if it.is_some_and(|it| it.needs.iter().any(|n| matches!(n, todo::Need::CiNotThisPr(..)))) {
+        // Claude found its failing CI isn't its doing: `a a` has it look again all the same;
+        // not over answering you or updating its review, nor over changes waiting to be pushed.
+        let retry = it.is_some_and(|it| {
+            it.needs.iter().any(|n| matches!(n, todo::Need::CiNotThisPr(..)))
+                && !it.needs.iter().any(|n| matches!(n, todo::Need::Unpushed(..) | todo::Need::ClaudeChanged(..)))
+                && !matches!(it.claude, Some(batch::Task::Answer { .. } | batch::Task::Update(_)))
+        });
+        if retry {
             return batch::Task::FixChecks;
         }
         it.and_then(|it| it.claude.clone()).unwrap_or(batch::Task::Review)

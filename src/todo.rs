@@ -236,8 +236,9 @@ pub fn needs(f: &Facts) -> (Vec<Need>, Option<Task>) {
     if let Some(e) = f.extra.filter(|e| e.signatures_required && e.unsigned > 0 && (!pr.draft || mine)) {
         out.push(Need::Unsigned(e.unsigned, mine));
     }
-    // Your draft, done by the look of it: nothing failing or still running, nothing unpushed.
-    if mine && pr.draft && f.unpushed == (0, 0) && pr.checks.is_some_and(|(_, fail, pending)| fail == 0 && pending == 0) {
+    // Your draft, done by the look of it: checks passed, nothing failing or still running (none
+    // at all: CI hasn't started yet), nothing unpushed.
+    if mine && pr.draft && f.unpushed == (0, 0) && pr.checks.is_some_and(|(pass, fail, pending)| pass > 0 && fail == 0 && pending == 0) {
         out.push(Need::MarkReady);
     }
     let my_review = f.extra.and_then(|e| e.my_review.as_ref());
@@ -787,7 +788,7 @@ mod tests {
             facts(leak(p), Some(leak(extra(None, false, "h"))), None)
         };
         assert!(needs(&draft(Some((4, 0, 0)))).0.contains(&Need::MarkReady));
-        for checks in [Some((3, 1, 0)), Some((3, 0, 1)), None] {
+        for checks in [Some((3, 1, 0)), Some((3, 0, 1)), Some((0, 0, 0)), None] {
             assert!(!needs(&draft(checks)).0.contains(&Need::MarkReady), "{checks:?}");
         }
         let mut f = draft(Some((4, 0, 0)));
