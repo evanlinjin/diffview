@@ -30,6 +30,10 @@ impl App {
             },
             Err(e) => items.push(Item::new(format!("Can't push: {e:#}"), Target::Nothing)),
         }
+        if self.awaiting > 0 {
+            let s = if self.awaiting == 1 { "" } else { "s" };
+            items.insert(0, Item::new(format!("Approve its {} workflow run{s} (waiting for a maintainer: a first-time contributor's, say)", self.awaiting), Target::GitApproveRuns));
+        }
         if let Some(p) = self.pr.as_ref().filter(|_| self.pr_state.is_some_and(|s| s.0 == "DRAFT")) {
             items.push(Item::new(format!("Mark #{} ready for review (it's a draft)", p.number), Target::GitReady));
         }
@@ -38,6 +42,19 @@ impl App {
             items.push(Item::new(label, Target::GitMerge));
         }
         self.picker = Some(Picker { title: " git ", items, query: String::new(), sel: 0 });
+    }
+
+    /// `Space g` → approve the workflow runs waiting on the PR's head, so they run.
+    pub(super) fn approve_runs(&mut self) {
+        let Some(head) = self.pr.as_ref().map(|p| p.head_oid.clone()) else { return };
+        self.msg = match crate::gh::approve_runs(&head) {
+            Ok(0) => "no workflow runs waiting for approval (any more)".into(),
+            Ok(k) => {
+                self.awaiting = 0;
+                format!("approved {k} workflow run{}: they run now (CI shows them as they do)", if k == 1 { "" } else { "s" })
+            }
+            Err(e) => format!("not approved: {e:#}"),
+        };
     }
 
     /// `Space g` → mark the PR ready for review: on GitHub, and its state here.

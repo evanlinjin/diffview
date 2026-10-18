@@ -369,6 +369,8 @@ enum Target {
     ClaudeDismissOutdated(bool),
     /// Mark the PR (a draft) ready for review.
     GitReady,
+    /// Approve the workflow runs waiting on the PR's head.
+    GitApproveRuns,
     /// Post Claude's proposed description to the PR (`true`: confirmed), or drop it.
     DescApprove(bool),
     DescDiscard,
@@ -465,6 +467,8 @@ pub struct App {
     commits: Vec<files::Commit>,
     /// The PR's commits GitHub has no valid signature on (from its info).
     unsigned: Vec<String>,
+    /// Workflow runs on its head waiting for a maintainer's approval (from its info).
+    awaiting: usize,
     commit_shown: Option<(usize, usize)>,
     commit_cur: usize,
     commit_anchor: Option<usize>,
@@ -720,6 +724,7 @@ impl App {
             to: None,
             commits: vec![],
             unsigned: vec![],
+            awaiting: 0,
             commit_shown: None,
             commit_cur: 0,
             commit_anchor: None,

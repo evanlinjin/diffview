@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- Workflow runs GitHub holds for a maintainer's approval (a first-time contributor's PR): the
+  PR's status box says so (`⏸ 2 workflow runs awaiting approval`), its `dv list` card too
+  (`⏸ 3 to approve`), and the todo tab has it as a need. `Space g` → approve in the PR, or `W W`
+  in `dv list`, approves them, so they run.
+
 ## [0.18.1] - 2026-10-18
 
 ### Fixed

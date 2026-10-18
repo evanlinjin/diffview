@@ -309,6 +309,8 @@ pub struct Extra {
     /// Its commits without a signature GitHub verifies, and whether its base requires one.
     pub unsigned: usize,
     pub signatures_required: bool,
+    /// Workflow runs on its head waiting for a maintainer's approval.
+    pub awaiting: usize,
 }
 
 /// You (your login), and `Extra` for the open PRs (the most recently updated, as `list` lists
@@ -337,6 +339,12 @@ pub fn list_extra() -> Result<(String, std::collections::HashMap<u64, Extra>)> {
             None => break,
         }
     }
+    // Workflow runs waiting for approval, by the PR whose head they're on.
+    if let Ok(w) = awaiting_approval(None) {
+        for e in all.values_mut() {
+            e.awaiting = w.get(&e.head_oid).map_or(0, Vec::len);
+        }
+    }
     Ok((me, all))
 }
 
@@ -358,6 +366,7 @@ fn extra(p: &Value, me: &str) -> Extra {
         base: s(&p["baseRefName"]),
         unsigned: nodes("commits").iter().filter(|c| c["commit"]["signature"]["isValid"] != true).count(),
         signatures_required: requires_signatures(p),
+        awaiting: 0, // from the workflow runs, after (`list_extra`)
     }
 }
 
@@ -786,6 +795,32 @@ impl InfoLine {
     }
 }
 
+/// Workflow runs waiting for a maintainer to approve them (a first-time contributor's PR, say):
+/// head commit → their run ids. Only those for `sha`, if given.
+pub fn awaiting_approval(sha: Option<&str>) -> Result<std::collections::HashMap<String, Vec<u64>>> {
+    let mut ep = "repos/{owner}/{repo}/actions/runs?status=action_required&per_page=100".to_owned();
+    if let Some(s) = sha {
+        ep += &format!("&head_sha={s}");
+    }
+    let v: Value = serde_json::from_str(&gh(&["api", &ep])?)?;
+    let mut out: std::collections::HashMap<String, Vec<u64>> = Default::default();
+    for r in v["workflow_runs"].as_array().into_iter().flatten() {
+        if let (Some(sha), Some(id)) = (r["head_sha"].as_str(), r["id"].as_u64()) {
+            out.entry(sha.to_owned()).or_default().push(id);
+        }
+    }
+    Ok(out)
+}
+
+/// Approve the workflow runs waiting on PR head `sha`, so they run: how many were.
+pub fn approve_runs(sha: &str) -> Result<usize> {
+    let ids = awaiting_approval(Some(sha))?.remove(sha).unwrap_or_default();
+    for id in &ids {
+        gh(&["api", "-X", "POST", &format!("repos/{{owner}}/{{repo}}/actions/runs/{id}/approve")])?;
+    }
+    Ok(ids.len())
+}
+
 /// The signatures on a PR's commits, as GitHub has them.
 pub struct Signatures {
     /// Its last 100 commits (oldest first): (oid, signed: a signature GitHub verifies).
@@ -841,6 +876,12 @@ pub fn info_json(n: u64) -> Result<Value> {
     let mut v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", INFO_FIELDS])?)?;
     // Whether its commits are signed, and whether its base wants them to be (`gh pr view` says
     // neither): with the rest, so the cache has them too.
+    // Workflow runs on its head waiting for approval (`gh pr view` doesn't say).
+    if let Some(sha) = v["headRefOid"].as_str().map(str::to_owned)
+        && let Ok(w) = awaiting_approval(Some(&sha))
+    {
+        v["dvAwaiting"] = w.get(&sha).map_or(0, Vec::len).into();
+    }
     if let Ok(s) = signatures(n) {
         v["dvCommits"] = s.commits.into_iter().map(|(oid, signed)| json!({ "oid": oid, "signed": signed })).collect();
         v["dvCommitsTotal"] = s.total.into();
@@ -851,10 +892,10 @@ pub fn info_json(n: u64) -> Result<Value> {
 
 /// The PR section's lines, its title, head, URL and state, and its commits GitHub has no
 /// valid signature on.
-pub fn parse_info(v: &Value) -> (Vec<InfoLine>, String, String, String, State, Vec<String>) {
+pub fn parse_info(v: &Value) -> (Vec<InfoLine>, String, String, String, State, Vec<String>, usize) {
     let s = |k: &str| v[k].as_str().unwrap_or("").to_owned();
     let unsigned = v["dvCommits"].as_array().into_iter().flatten().filter(|c| c["signed"] != true).filter_map(|c| c["oid"].as_str().map(str::to_owned)).collect();
-    (info_lines(v), s("title"), s("headRefOid"), s("url"), state(v), unsigned)
+    (info_lines(v), s("title"), s("headRefOid"), s("url"), state(v), unsigned, v["dvAwaiting"].as_u64().unwrap_or(0) as usize)
 }
 
 /// A PR's state as GitHub shows it, with its color: DRAFT, OPEN, MERGED or CLOSED.
@@ -963,6 +1004,16 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         }
     }
 
+    // Workflow runs that won't run until a maintainer approves them.
+    match v["dvAwaiting"].as_u64().unwrap_or(0) {
+        0 => {}
+        k => {
+            let mut l = InfoLine::new(false, false);
+            let s = if k == 1 { "" } else { "s" };
+            l.put(&format!("⏸ {k} workflow run{s} awaiting approval"), Some(Mark::Pending)).put(" (Space g approves)", Some(Mark::Dim));
+            out.push(l);
+        }
+    }
     // Its commits signed, or which aren't (and whether its base requires them to be).
     if let Some(cs) = v["dvCommits"].as_array().filter(|c| !c.is_empty()) {
         let unsigned: Vec<String> = cs.iter().filter(|c| c["signed"] != true).map(|c| s(&c["oid"]).chars().take(8).collect()).collect();
@@ -1214,4 +1265,12 @@ fn signed_commits_in_the_pr_info() {
     // The unsigned commits, for the contents' commits.
     let x = json!({ "dvCommits": [{ "oid": "aa", "signed": true }, { "oid": "bb", "signed": false }] });
     assert_eq!(parse_info(&x).5, ["bb"]);
+}
+
+#[test]
+fn workflow_runs_awaiting_approval() {
+    let v = json!({ "dvAwaiting": 2, "headRefOid": "abc" });
+    assert!(info_lines(&v).iter().any(|l| l.text == "⏸ 2 workflow runs awaiting approval (Space g approves)"));
+    assert_eq!(parse_info(&v).6, 2);
+    assert!(!info_lines(&json!({})).iter().any(|l| l.text.contains("awaiting approval")));
 }

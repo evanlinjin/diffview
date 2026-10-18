@@ -121,7 +121,7 @@ fn selected_card_readable() {
     (ui.menu_selected, ui.stale, ui.cursorline) = (Style::new().fg(Color::Black).bg(Color::Cyan), Style::new().fg(Color::Gray), Some(Color::Blue));
     let cx = Cards { ui: &ui, num_w: 5, width: 120, checks_loading: false, usual: "main" };
     let p = Listed { number: 1, title: "t".into(), author: "amy".into(), checks: Some((3, 1, 0)), labels: vec![("bug".into(), "d73a4a".into())], ..Listed::default() };
-    let mark = || Mark { marked: false, claude: Some(("claude ✓".into(), true)), new: true, replaces: None };
+    let mark = || Mark { marked: false, claude: Some(("claude ✓".into(), true)), new: true, replaces: None, awaiting: 0 };
     let card_of = |selected, cx: &Cards| card(&p, cx, selected, None, mark());
     // Wide: three lines in two zones, what it is on the left, how it stands on the right.
     let lines = card_of(true, &cx);
@@ -352,10 +352,21 @@ fn claude_failure_readable_on_a_wide_card() {
     let cx = Cards { ui: &ui, num_w: 5, width: 260, checks_loading: false, usual: "main" };
     let p = Listed { number: 1, title: "t".into(), author: "amy".into(), updated: "2026-01-01T00:00:00Z".into(), ..Listed::default() };
     let why = "claude failed: failed to run the worktree's hook · fatal: 'bdk-2335' is already checked out at '/home/x/bdk-2335'";
-    let mark = Mark { marked: false, claude: Some((why.into(), false)), new: false, replaces: None };
+    let mark = Mark { marked: false, claude: Some((why.into(), false)), new: false, replaces: None, awaiting: 0 };
     let lines = card(&p, &cx, false, None, mark);
     let text = |l: &Line| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
     assert!(text(&lines[2]).contains(why), "{}", text(&lines[2]));
     assert!(text(&lines[0]).trim_end().len() < 140, "the age stays at the zone's end: {}", text(&lines[0]));
     assert!(lines.iter().all(|l| l.width() == 260));
+}
+
+#[test]
+fn runs_to_approve_on_the_card() {
+    let ui = crate::theme::Theme::load().ui();
+    let cx = Cards { ui: &ui, num_w: 5, width: 120, checks_loading: false, usual: "main" };
+    let p = Listed { number: 1, title: "t".into(), author: "amy".into(), ..Listed::default() };
+    let text = |m: Mark| card(&p, &cx, false, None, m).iter().map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>()).collect::<Vec<_>>().join("\n");
+    let mark = |awaiting| Mark { marked: false, claude: None, new: false, replaces: None, awaiting };
+    assert!(text(mark(2)).contains("⏸ 2 to approve"));
+    assert!(!text(mark(0)).contains("to approve"));
 }

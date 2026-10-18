@@ -64,6 +64,8 @@ const HELP: &str = "\
                        git config dv.mergescript <path> runs your own copy), in the main
                        checkout: its worktree goes first, unless something in it is unpushed;
                        in a zellij pane of its own, or in this terminal
+  W W                  approve the workflow runs waiting on the PR (GitHub holds a first-time
+                       contributor's until a maintainer does): its card says '⏸ N to approve'
   D D                  worktrees tab: remove the PR's worktree (not with local changes in it;
                        its branch stays); replacements tab: remove the replacement (the same)
   R                    refresh (from GitHub; no Claude)
@@ -753,6 +755,28 @@ impl List {
                 self.msg = format!("b again: ask #{p}'s author for a rebase (a comment; your editor opens first); any other key doesn't");
                 self.confirm = Some(('b', p));
             }
+            KeyCode::Char('W') if self.tab != Tab::Replacements => {
+                let p = self.shown().get(self.sel).map(|p| p.number)?;
+                let Some(head) = self.extra.get(&p).filter(|e| e.awaiting > 0).map(|e| e.head_oid.clone()) else {
+                    self.msg = format!("#{p} has no workflow runs waiting for approval");
+                    return None;
+                };
+                if armed == Some(('W', p)) {
+                    self.msg = match crate::gh::approve_runs(&head) {
+                        Ok(k) => {
+                            if let Some(e) = self.extra.get_mut(&p) {
+                                e.awaiting = 0;
+                            }
+                            self.find_todo();
+                            format!("approved {k} workflow run{} on #{p}: they run now", if k == 1 { "" } else { "s" })
+                        }
+                        Err(e) => format!("not approved: {e:#}"),
+                    };
+                    return None;
+                }
+                self.msg = format!("W again: approve the workflow runs waiting on #{p} (they run then); any other key doesn't");
+                self.confirm = Some(('W', p));
+            }
             KeyCode::Char('M') if self.tab != Tab::Replacements => {
                 let p = self.shown().get(self.sel).map(|p| p.number)?;
                 if armed == Some(('M', p)) {
@@ -936,7 +960,7 @@ impl List {
                             let each: Vec<String> = r.replaces.iter().map(|o| format!("#{} (@{})", o.number, o.author)).collect();
                             format!("replaces {}", each.join(", "))
                         });
-                        Mark { marked: false, claude: self.draft_state(p.number, "claude"), new: false, replaces }
+                        Mark { marked: false, claude: self.draft_state(p.number, "claude"), new: false, replaces, awaiting: 0 }
                     }
                     false => {
                         // On the todo tab, what Claude could do there (`a a`), when it isn't at it.
@@ -946,7 +970,8 @@ impl List {
                             (None, Some(c)) => Some((format!("claude {c}"), true)),
                             (s, None) => s,
                         };
-                        Mark { marked: self.marked.contains(&p.number), claude, new: self.new.contains(&p.number), replaces: None }
+                        let awaiting = self.extra.get(&p.number).map_or(0, |e| e.awaiting);
+                        Mark { marked: self.marked.contains(&p.number), claude, new: self.new.contains(&p.number), replaces: None, awaiting }
                     }
                 };
                 let local = if rep_card { None } else { self.local.get(&p.number) };
@@ -1010,6 +1035,7 @@ impl List {
                 ("a a", if self.tab == Tab::Todo { "Claude does its part (marked)" } else { "Claude reviews marked" }),
                 ("A A", "Claude drafts a replacement"),
                 ("M M", "merge (github-merge.py)"),
+                ("W W", "approve its workflow runs"),
                 ("b b", "ask for a rebase (a comment)"),
                 ("D D", remove),
                 ("?", "all keys"),
@@ -1022,7 +1048,7 @@ impl List {
                     "D D" => !matches!(self.tab, Tab::Open | Tab::Todo),
                     "o O" => self.tab != Tab::Todo, // in the order of what needs you
                     "r r" | "s" | "p" => self.tab == Tab::Todo,
-                    "m" | "a a" | "A A" | "M M" | "b b" => !reps,
+                    "m" | "a a" | "A A" | "M M" | "b b" | "W W" => !reps,
                     _ => true,
                 })
                 .map(|(k, d)| Line::from(vec![Span::styled(format!("{k:<6}"), ui.key), Span::raw(d.to_string())]))

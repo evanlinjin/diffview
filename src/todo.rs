@@ -32,6 +32,8 @@ pub enum Need {
     MarkReady,
     /// It conflicts with its base: a rebase is needed (`true`: yours, so yours to do).
     Conflicts(bool),
+    /// This many workflow runs on it wait for a maintainer to approve them: no CI until then.
+    ApproveRuns(usize),
     /// This many of its checks fail (`true`: yours, so yours to fix).
     ChecksFailing(usize, bool),
     /// This many of its commits aren't signed, and its base requires signed commits: GitHub
@@ -61,6 +63,7 @@ impl Need {
             Need::MarkReady => 63,
             Need::ReadyToMerge => 60,
             Need::Conflicts(_) => 55,
+            Need::ApproveRuns(_) => 66,
             Need::Unsigned(..) => 54,
             Need::ChecksFailing(..) => 52,
             Need::ClaudeReviewNew => 50,
@@ -93,6 +96,7 @@ impl Need {
             Need::ReadyToMerge => "approved, checks green: merge it".into(),
             Need::MarkReady => "your draft, checks green: mark it ready for review (Space g there)".into(),
             Need::Conflicts(true) => "conflicts with its base: rebase it".into(),
+            Need::ApproveRuns(n) => format!("{n} workflow run{} awaiting approval: approve {} (W W)", s(*n), if *n == 1 { "it" } else { "them" }),
             Need::ChecksFailing(n, true) => format!("{n} check{} failing: fix {}", s(*n), if *n == 1 { "it" } else { "them" }),
             Need::ChecksFailing(n, false) => format!("{n} check{} failing: see why, tell the author", s(*n)),
             Need::Unsigned(n, true) => format!("{n} of your commits unsigned, and its base requires signed ones: sign them, force-push"),
@@ -184,6 +188,10 @@ pub fn needs(f: &Facts) -> (Vec<Need>, Option<Task>) {
         });
     }
     let mine = !f.me.is_empty() && pr.author == f.me;
+    // Workflow runs waiting for a maintainer: CI doesn't run until then.
+    if let Some(e) = f.extra.filter(|e| e.awaiting > 0) {
+        out.push(Need::ApproveRuns(e.awaiting));
+    }
     // CI failing: nothing merges until it passes. (Someone else's draft isn't up for it yet.)
     if let Some((_, fail, _)) = pr.checks.filter(|c| c.1 > 0 && (!pr.draft || mine)) {
         out.push(Need::ChecksFailing(fail, mine));
@@ -688,6 +696,7 @@ mod tests {
             base: "main".into(),
             unsigned: 0,
             signatures_required: false,
+            awaiting: 0,
         };
         let facts = |p: &'static Listed, e: Option<&'static Extra>, r: Option<&'static crate::claude::Review>| Facts { pr: p, extra: e, me: "me", review: r, looked: Some(LOOKED), review_changed: Some(50), unpushed: (0, 0), head_at: None };
         // Nothing from you, no Claude review: you, and Claude reviews it.
@@ -774,6 +783,11 @@ mod tests {
         assert!(ci("me", true).contains(&Need::ChecksFailing(2, true)));
         assert!(!ci("amy", true).iter().any(|n| matches!(n, Need::ChecksFailing(..))));
         assert_eq!(Need::ChecksFailing(2, true).says(), "2 checks failing: fix them");
+        // Workflow runs waiting for a maintainer's approval: a need, yours to do (W W).
+        let mut e = extra(None, false, "h");
+        e.awaiting = 2;
+        assert!(needs(&facts(leak(pr(13, "amy")), Some(leak(e)), None)).0.contains(&Need::ApproveRuns(2)));
+        assert_eq!(Need::ApproveRuns(1).says(), "1 workflow run awaiting approval: approve it (W W)");
         // Conflicting with its base: ask for a rebase (or, yours, do it).
         let mut conflicting = extra(None, false, "h");
         conflicting.mergeable = "CONFLICTING".into();

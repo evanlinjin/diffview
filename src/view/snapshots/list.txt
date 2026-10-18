@@ -8,5 +8,5 @@
 ▌         @cy   +333 −0 in 1 file                              a a   Claude reviews marked
 ▌         CI ✓3 ✗1                                             A A   Claude drafts a replacement
 ▌         b                                                    M M   merge (github-merge.py)
-                                                               b b   ask for a rebase (a comment)
+                                                               W W   approve its workflow runs
 

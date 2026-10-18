@@ -38,6 +38,8 @@ pub(super) struct Mark {
     pub(super) replaces: Option<String>,
     pub(super) marked: bool,
     pub(super) claude: Option<(String, bool)>,
+    /// Workflow runs on it waiting for a maintainer's approval.
+    pub(super) awaiting: usize,
 }
 
 impl List {
@@ -165,6 +167,11 @@ pub(super) fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathB
         }
         None if cx.checks_loading && mark.replaces.is_none() => vec![sp("CI …".into(), dim)],
         None => vec![],
+    };
+    // Runs that won't start until approved: said first (`W W` approves them).
+    let ci = match mark.awaiting {
+        0 => ci,
+        n => [vec![sp(format!("⏸ {n} to approve"), tint(ui.warning))], if ci.is_empty() { vec![] } else { vec![sp(" ".into(), row)] }, ci].concat(),
     };
     let review = match p.decision.as_str() {
         "APPROVED" => vec![sp("✓ approved".into(), tint(ui.plus))],
