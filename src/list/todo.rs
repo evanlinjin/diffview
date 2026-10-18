@@ -18,7 +18,7 @@ impl List {
             let review = file.as_ref().and_then(|f| crate::claude::load(f).ok().flatten());
             let looked = seen.as_ref().and_then(|s| std::fs::read_to_string(s.join(format!("pr-{}.looked", p.number))).ok()?.trim().parse().ok());
             let (f, c, head_at) = self.unpushed.get(&p.number).copied().unwrap_or((0, 0, None));
-            let ci_note = dir.as_ref().and_then(|d| crate::claude::ci_note_at(&d.parent()?.join("ci").join(format!("pr-{}.json", p.number))));
+            let ci_note = self.ci_note_file(p.number).and_then(|f| crate::claude::ci_note_at(&f));
             let facts = Facts { pr: p, extra: self.extra.get(&p.number), me: &self.me, review: review.as_ref(), looked, review_changed: file.and_then(secs), unpushed: (f, c), head_at, ci_note: ci_note.as_ref() };
             let (needs, claude) = todo::needs(&facts);
             if !needs.is_empty() {
@@ -75,6 +75,11 @@ impl List {
         ready.append(&mut busy);
         (self.todo, self.since) = (ready, since);
         self.auto_ci();
+    }
+
+    /// Where Claude notes that PR `n`'s failing CI isn't its doing (`crate::claude::CiNote`).
+    pub(super) fn ci_note_file(&self, n: u64) -> Option<std::path::PathBuf> {
+        Some(self.reviews_dir.as_ref()?.parent()?.join("ci").join(format!("pr-{n}.json")))
     }
 
     /// Auto CI: on your PRs, Claude at failing CI (as `a a` would have it), and green drafts
@@ -406,7 +411,12 @@ impl List {
 
     /// What Claude would do on PR `n` from the todo tab (`a a`): what's due there, else review.
     pub(super) fn todo_task(&self, n: u64) -> batch::Task {
-        self.todo.iter().find(|it| !it.rep && it.number == n).and_then(|it| it.claude.clone()).unwrap_or(batch::Task::Review)
+        let it = self.todo.iter().find(|it| !it.rep && it.number == n);
+        // Claude found its failing CI isn't its doing: `a a` has it look again all the same.
+        if it.is_some_and(|it| it.needs.iter().any(|n| matches!(n, todo::Need::CiNotThisPr(..)))) {
+            return batch::Task::FixChecks;
+        }
+        it.and_then(|it| it.claude.clone()).unwrap_or(batch::Task::Review)
     }
 }
 

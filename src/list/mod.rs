@@ -372,6 +372,11 @@ impl List {
                     self.msg = format!("Claude is {}{with}, {} at a time", doing.join(", "), batch::AT_ONCE);
                     self.marked.clear();
                     prs.iter().for_each(|(n, _, t)| _ = self.batch_task.insert(*n, t.clone()));
+                    // Fixing CI afresh: its last word that it isn't the PR's doing goes (it says
+                    // so again, if it still finds that).
+                    for (n, ..) in prs.iter().filter(|p| p.2 == batch::Task::FixChecks) {
+                        self.ci_note_file(*n).map(std::fs::remove_file);
+                    }
                     self.batch_rx.push(batch::start(prs, self.root.clone(), extra));
                 }
                 // One PR: its replacement. Several: Claude suggests how to group them first.
@@ -461,7 +466,7 @@ impl List {
         let what = "a new PR for Claude to draft: what it should do (issues by #N: Claude reads them); unpublished until you publish it";
         // On a todo item whose CI fails through no fault of its own: the fix Claude had in mind.
         let n = self.shown().get(self.sel).map(|p| p.number).filter(|_| self.tab == Tab::Todo);
-        let note = |n: u64| crate::claude::ci_note_at(&self.reviews_dir.as_ref()?.parent()?.join("ci").join(format!("pr-{n}.json")));
+        let note = |n: u64| crate::claude::ci_note_at(&self.ci_note_file(n)?);
         let prefill = match n.and_then(|n| Some((n, note(n)?))) {
             Some((n, c)) if !c.task.is_empty() => format!("Fix CI: it fails on #{n}, not through #{n}'s doing ({}).\n\n{}\n", c.why, c.task),
             _ => String::new(),

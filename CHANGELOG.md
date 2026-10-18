@@ -10,7 +10,8 @@ on GitHub are its section here.
   Claude starts fixing CI as soon as it fails, and a draft is marked ready for review once CI passes.
 - `Space a` in a PR of yours with failing CI: Claude fixes it, as `a a` does from the todo tab.
 - When Claude finds failing CI isn't the PR's doing (a flaky test, CI itself, the base), it says so
-  on the todo card and offers a new PR fixing CI (`N N` on it, or `Space a` in the PR).
+  on the todo card and offers a new PR fixing CI (`N N` on it, or `Space a` in the PR); `a a` there
+  has it try again all the same.
 
 ### Changed
 - `dv list` sorts by created by default (newest first), not updated: `o` still cycles.

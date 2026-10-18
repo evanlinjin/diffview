@@ -230,7 +230,8 @@ branch, uncommitted, for you to check and push; not while changes wait to be pus
 the PR does the same; when it finds it isn't the PR's doing, a flaky test, CI itself, the base, it
 changes nothing and writes `ci/pr-N.json` in dv's directory, `{"head", "why", "task"}`: then the
 need says so, Claude's part is done at that head, and `N N` on it, or `Space a` in the PR, starts
-a new PR fixing CI from its task, after your editor; `C` in `dv list` turns auto CI on, kept in
+a new PR fixing CI from its task, after your editor, and `a a` has Claude try again all the same
+(the note goes; it writes it again if it still finds so); `C` in `dv list` turns auto CI on, kept in
 git config `dv.autoCI` and shown on the top bar: then on your PRs Claude starts on failing CI by
 itself and a draft with its checks green is marked ready for review, each once a head), workflow runs awaiting a maintainer's approval (`W W`; its card says
 `⏸ N to approve`), conflicts with its base (ask for

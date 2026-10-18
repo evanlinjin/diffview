@@ -116,8 +116,8 @@ impl Need {
             Need::ApproveRuns(n) => format!("{n} workflow run{} awaiting approval: approve {} (W W)", s(*n), if *n == 1 { "it" } else { "them" }),
             Need::ChecksFailing(n, true) => format!("{n} check{} failing: fix {}", s(*n), if *n == 1 { "it" } else { "them" }),
             Need::ChecksFailing(n, false) => format!("{n} check{} failing: see why, tell the author", s(*n)),
-            Need::CiNotThisPr(why, true) => format!("CI fails, not this PR's doing (Claude: {why}): N N drafts a PR fixing it"),
-            Need::CiNotThisPr(why, false) => format!("CI fails, not this PR's doing (Claude: {why}): rerun it, or look into it"),
+            Need::CiNotThisPr(why, true) => format!("CI fails, not this PR's doing (Claude: {why}): N N drafts a PR fixing it, a a has it try again"),
+            Need::CiNotThisPr(why, false) => format!("CI fails, not this PR's doing (Claude: {why}): rerun it, or a a has it try again"),
             Need::Unsigned(n, true) => format!("{n} of your commits unsigned, and its base requires signed ones: sign them, force-push"),
             Need::Unsigned(n, false) => format!("{n} commit{} unsigned, and its base requires signed ones: ask the author to sign them", s(*n)),
             Need::Conflicts(false) => "conflicts with its base: ask for a rebase (b b)".into(),
@@ -841,7 +841,7 @@ mod tests {
         f.ci_note = Some(&here);
         let (n, c) = needs(&f);
         assert!(n.contains(&Need::CiNotThisPr("flaky".into(), true)) && c != Some(Task::FixChecks), "{n:?} {c:?}");
-        assert!(Need::CiNotThisPr("flaky".into(), true).says().ends_with("N N drafts a PR fixing it"));
+        assert!(Need::CiNotThisPr("flaky".into(), true).says().ends_with("N N drafts a PR fixing it, a a has it try again"));
         f.ci_note = Some(&old);
         assert_eq!(needs(&f).1, Some(Task::FixChecks));
         // Workflow runs waiting for a maintainer's approval: a need, yours to do (W W).
