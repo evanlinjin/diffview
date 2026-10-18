@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 mod agent;
-pub(crate) use agent::{REPLACE_TOOLS, claude_command, review_prompt, with_instructions};
+pub(crate) use agent::{REPLACE_TOOLS, answer_prompt, claude_command, claude_wrote, review_prompt, turn, update_prompt, with_instructions};
 mod build;
 use build::*;
 mod git;

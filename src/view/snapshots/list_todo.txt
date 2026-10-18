@@ -1,0 +1,12 @@
+ todo 3  open 3  worktrees 0  replacements 0   rank keys
+ #1 Fix fees                                        Enter see to it (opens the PR or replacement)
+    @amy · +0 −0 in 1 file · b                      Tab   open PRs
+  1. a fee bug — review it                          /     filter
+ #3 Mine                                            R     refresh, and Claude re-ranks
+    @me · +0 −0 in 1 file · b                       m     mark
+  2. y                                              a a   Claude reviews marked
+ #2 Docs                                            A A   Claude drafts a replacement
+    @bo · +0 −0 in 1 file · b                       ?     all keys
+  3. z                                              q     quit
+
+

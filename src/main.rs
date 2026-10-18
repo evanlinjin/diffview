@@ -8,6 +8,7 @@ mod lsp;
 mod md;
 mod replace;
 mod theme;
+mod todo;
 mod view;
 
 use anyhow::Context;

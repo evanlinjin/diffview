@@ -113,6 +113,11 @@ pub fn looked(n: u64) -> Option<i64> {
     std::fs::read_to_string(dv_dir().ok()?.join(format!("seen/pr-{n}.looked"))).ok()?.trim().parse().ok()
 }
 
+/// Seconds since the epoch, now.
+pub fn now_secs() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
+}
+
 /// You're leaving PR `n`: what's on it now has been seen.
 pub fn set_looked(n: u64) -> Result<()> {
     let p = dv_dir()?.join(format!("seen/pr-{n}.looked"));

@@ -39,7 +39,7 @@ pub struct Review {
     pub viewed: std::collections::HashMap<String, String>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Thread {
     /// GraphQL node id (for replies and resolving).
     pub id: String,
@@ -61,7 +61,7 @@ pub struct Thread {
     pub severity: String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Comment {
     pub id: u64,
     /// GraphQL node id (for editing).
@@ -264,6 +264,57 @@ pub fn brief(n: u64) -> Result<(String, String, String, String)> {
 pub fn listed_one(n: u64) -> Result<Listed> {
     let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", LISTED])?)?;
     Ok(listed(&v))
+}
+
+/// What `dv list`'s todo tab needs to know about a PR beyond its card: your latest review
+/// (its state and the commit it was on), whether your review is requested, whether it merges
+/// cleanly, and its head commit.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Extra {
+    pub my_review: Option<(String, String)>,
+    pub requested: bool,
+    /// MERGEABLE, CONFLICTING or UNKNOWN.
+    pub mergeable: String,
+    pub head_oid: String,
+}
+
+/// You (your login), and `Extra` for the open PRs (the most recently updated, as `list` lists
+/// them): number → extra. One GraphQL query (`gh pr list` leaves reviews' commits out).
+pub fn list_extra() -> Result<(String, std::collections::HashMap<u64, Extra>)> {
+    let (mut me, mut all, mut after) = (String::new(), std::collections::HashMap::new(), None::<String>);
+    // A page at a time (100), as many as `list` lists.
+    while all.len() < LIST_MAX {
+        let from = after.as_ref().map_or(String::new(), |c| format!(", after: \"{c}\""));
+        let q = format!(
+            "query($owner: String!, $name: String!) {{ viewer {{ login }} repository(owner: $owner, name: $name) {{
+               pullRequests(states: OPEN, first: 100{from}, orderBy: {{ field: UPDATED_AT, direction: DESC }}) {{ {PAGE} nodes {{
+                 number headRefOid mergeable
+                 reviewRequests(first: 30) {{ nodes {{ requestedReviewer {{ ... on User {{ login }} }} }} }}
+                 latestReviews(first: 50) {{ nodes {{ author {{ login }} state commit {{ oid }} }} }} }} }} }} }}"
+        );
+        let v: Value = serde_json::from_str(&gh(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-f", &format!("query={q}")])?)?;
+        me = v["data"]["viewer"]["login"].as_str().unwrap_or("").to_owned();
+        let list = &v["data"]["repository"]["pullRequests"];
+        let prs = list["nodes"].as_array().context("gh api graphql: pull requests")?;
+        all.extend(prs.iter().map(|p| (p["number"].as_u64().unwrap_or(0), extra(p, &me))));
+        match next_page(list) {
+            Some(c) => after = Some(c),
+            None => break,
+        }
+    }
+    Ok((me, all))
+}
+
+fn extra(p: &Value, me: &str) -> Extra {
+    let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
+    let nodes = |k: &str| p[k]["nodes"].as_array().cloned().unwrap_or_default();
+    let my_review = nodes("latestReviews").into_iter().find(|r| r["author"]["login"] == me).map(|r| (s(&r["state"]), s(&r["commit"]["oid"])));
+    Extra {
+        my_review,
+        requested: nodes("reviewRequests").iter().any(|r| r["requestedReviewer"]["login"] == me),
+        mergeable: s(&p["mergeable"]),
+        head_oid: s(&p["headRefOid"]),
+    }
 }
 
 /// CI check counts for the PRs `list` returns: number → (passed, failed, pending).

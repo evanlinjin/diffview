@@ -19,25 +19,56 @@ pub enum Status {
     Failed(String),
 }
 
+/// What Claude does on a PR: review it (or update the review it has: the prompt says to), update
+/// the review from the commit it reviewed, or answer your replies in it (`theirs`: someone else's
+/// PR, so suggestions, not edits).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Task {
+    Review,
+    Update(String),
+    Answer { theirs: bool },
+}
+
+impl Task {
+    /// For the cards and messages: "reviewing", "updating its review", "answering".
+    pub fn doing(&self) -> &'static str {
+        match self {
+            Task::Review => "reviewing",
+            Task::Update(_) => "updating its review",
+            Task::Answer { .. } => "answering",
+        }
+    }
+
+    fn prompt(&self, n: u64) -> String {
+        let what = format!("PR #{n}");
+        match self {
+            Task::Review => crate::view::review_prompt(&what),
+            Task::Update(old) => crate::view::update_prompt(&what, old),
+            Task::Answer { theirs } => crate::view::answer_prompt(&what, *theirs),
+        }
+    }
+}
+
 impl Status {
     pub fn running(&self) -> bool {
         matches!(self, Status::Queued | Status::Preparing | Status::Reviewing)
     }
 }
 
-/// Review `prs` (PR number, and whether its worktree is on the PR's branch) from the repo at
-/// `root`, with the user's `extra` instructions (if any); progress comes back on the receiver.
-pub fn start(prs: Vec<(u64, bool)>, root: PathBuf, extra: String) -> Receiver<(u64, Status)> {
+/// Claude does `task` on each of `prs` (PR number, whether its worktree is on the PR's branch,
+/// the task) from the repo at `root`, with the user's `extra` instructions (if any); progress
+/// comes back on the receiver.
+pub fn start(prs: Vec<(u64, bool, Task)>, root: PathBuf, extra: String) -> Receiver<(u64, Status)> {
     let (tx, rx) = mpsc::channel();
-    for &(n, _) in &prs {
+    for &(n, ..) in &prs {
         _ = tx.send((n, Status::Queued));
     }
     let queue = Arc::new(Mutex::new(VecDeque::from(prs)));
     for _ in 0..AT_ONCE {
         let (queue, tx, root, extra) = (queue.clone(), tx.clone(), root.clone(), extra.clone());
         std::thread::spawn(move || {
-            while let Some((n, branch)) = queue.lock().ok().and_then(|mut q| q.pop_front()) {
-                let status = review(n, branch, &root, &extra, &tx).unwrap_or_else(|e| Status::Failed(format!("{e:#}")));
+            while let Some((n, branch, task)) = queue.lock().ok().and_then(|mut q| q.pop_front()) {
+                let status = run(n, branch, &task, &root, &extra, &tx).unwrap_or_else(|e| Status::Failed(format!("{e:#}")));
                 _ = tx.send((n, status));
             }
         });
@@ -45,7 +76,7 @@ pub fn start(prs: Vec<(u64, bool)>, root: PathBuf, extra: String) -> Receiver<(u
     rx
 }
 
-fn review(n: u64, branch: bool, root: &Path, extra: &str, tx: &Sender<(u64, Status)>) -> anyhow::Result<Status> {
+fn run(n: u64, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sender<(u64, Status)>) -> anyhow::Result<Status> {
     use anyhow::Context;
     _ = tx.send((n, Status::Preparing));
     // The worktree, checked out at the PR (by a dv of its own: that changes directory).
@@ -72,7 +103,7 @@ fn review(n: u64, branch: bool, root: &Path, extra: &str, tx: &Sender<(u64, Stat
         }
     };
     _ = tx.send((n, Status::Reviewing));
-    let prompt = format!("{} (It's {} now.)", crate::view::review_prompt(&format!("PR #{n}")), crate::claude::now());
+    let prompt = format!("{} (It's {} now.)", task.prompt(n), crate::claude::now());
     let prompt = crate::view::with_instructions(&prompt, extra);
     let log = std::env::temp_dir().join(format!("dv-claude-batch-{}-{n}.log", std::process::id()));
     let st = crate::view::claude_command(&prompt, &dir, &session, &[], None)

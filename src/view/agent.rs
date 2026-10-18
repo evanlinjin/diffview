@@ -54,13 +54,13 @@ pub(super) struct ClaudeJob {
 }
 
 /// Whether thread `t` is Claude's own comment (from its review file), not one you left for it.
-pub(super) fn claude_wrote(t: &Thread) -> bool {
+pub(crate) fn claude_wrote(t: &Thread) -> bool {
     t.claude.is_some() && t.comments.first().is_some_and(|c| c.author == crate::claude::AUTHOR)
 }
 
 /// Whose turn it is on an open thread of the review file: Claude's (`[waiting]`: you had the
 /// last word), or yours once Claude has answered you (`[answered]`).
-pub(super) fn turn(t: &Thread) -> Option<&'static str> {
+pub(crate) fn turn(t: &Thread) -> Option<&'static str> {
     let last = t.comments.last().filter(|_| t.claude.is_some() && !t.resolved)?;
     match last.author == "you" {
         true => Some("[waiting] "),
@@ -275,20 +275,10 @@ impl App {
         };
         let prompt = match ask {
             Ask::Review => match self.reviewed_before() {
-                Some(old) => format!(
-                    "Use the dv-review skill to update your dv review of {what}: review only what changed since you \
-                     reviewed {old} (`git diff {old}`), and keep the comments that still apply."
-                ),
+                Some(old) => update_prompt(&what, old),
                 None => review_prompt(&what),
             },
-            Ask::Answer if self.theirs => format!(
-                "Use the dv-review skill to answer my replies (and the comments I left for you) in the dv review of {what}. \
-                 It's someone else's PR, so don't edit the code: where I ask for a change, suggest it instead (see \
-                 \"Suggest the changes\")."
-            ),
-            Ask::Answer => format!(
-                "Use the dv-review skill to answer my replies (and the comments I left for you) in the dv review of {what}."
-            ),
+            Ask::Answer => answer_prompt(&what, self.theirs),
             Ask::Fix if self.theirs && self.change_requests() == 0 => format!(
                 "Use the dv-review skill to suggest the change the user asks for below, in the dv review of {what}: \
                  it's someone else's PR, so don't edit the code; add a comment of yours there with a suggestion block."
@@ -652,6 +642,27 @@ pub(super) fn claude_dirs() -> Vec<std::ffi::OsString> {
 }
 
 /// Asking Claude to review `what` ("PR #12").
+/// Claude's prompt for updating its review of `what` after new commits on top of `old`.
+pub(crate) fn update_prompt(what: &str, old: &str) -> String {
+    format!(
+        "Use the dv-review skill to update your dv review of {what}: review only what changed since you reviewed {old} \
+         (`git diff {old}`), and keep the comments that still apply."
+    )
+}
+
+/// Claude's prompt for answering your replies in its review of `what` (`theirs`: someone
+/// else's PR, so suggestions, not edits).
+pub(crate) fn answer_prompt(what: &str, theirs: bool) -> String {
+    let base = format!("Use the dv-review skill to answer my replies (and the comments I left for you) in the dv review of {what}.");
+    match theirs {
+        true => format!(
+            "{base} It's someone else's PR, so don't edit the code: where I ask for a change, suggest it instead (see \
+             \"Suggest the changes\")."
+        ),
+        false => base,
+    }
+}
+
 pub(crate) fn review_prompt(what: &str) -> String {
     format!("Use the dv-review skill to review {what} for dv. If there's already a review, update it.")
 }

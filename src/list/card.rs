@@ -56,7 +56,7 @@ impl List {
         match self.batch.get(&n) {
             Some(batch::Status::Queued) => Some(("claude: queued".into(), true)),
             Some(batch::Status::Preparing) => Some(("claude: checking out…".into(), true)),
-            Some(batch::Status::Reviewing) => Some(("claude: reviewing…".into(), true)),
+            Some(batch::Status::Reviewing) => Some((format!("claude: {}…", self.batch_task.get(&n).map_or("reviewing", batch::Task::doing)), true)),
             // Why, in short (the status bar said it in full): `a a` asks again.
             Some(batch::Status::Failed(e)) => Some((format!("claude failed: {}", cut(e.lines().next().unwrap_or(""), 60)), false)),
             _ if self.reviewed.contains(&n) => Some(("claude ✓".into(), true)),
@@ -157,6 +157,17 @@ pub(super) fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathB
     bottom.push(sp(" ".repeat(width.saturating_sub(used + claude.as_ref().map_or(0, Span::width))), row));
     bottom.extend(claude);
     [Line::from(top).style(row), Line::from(bottom).style(row)]
+}
+
+/// A todo card's third line: its place, and what needs you (Claude's word, or the needs).
+pub(super) fn todo_line(rank: usize, it: &crate::todo::Item, cx: &Cards, selected: bool) -> Line<'static> {
+    let ui = cx.ui;
+    let row = if selected { ui.base.patch(ui.menu_selected) } else { ui.base };
+    let st = if selected { row } else { row.patch(ui.key) };
+    let lead = format!("{:>w$}. ", rank, w = cx.num_w + 1);
+    let says = cut(&it.says(), cx.width.saturating_sub(lead.chars().count() + 1));
+    let pad = cx.width.saturating_sub(lead.chars().count() + says.chars().count());
+    Line::from(vec![Span::styled(lead, st), Span::styled(says, st), Span::styled(" ".repeat(pad), row)]).style(row)
 }
 
 /// `s` cut to `n` chars, ending in `…` if it was longer.

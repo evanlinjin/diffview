@@ -1,6 +1,6 @@
-//! `dv list`: the repo's open PRs, (`Tab`) the ones with a local worktree, and the replacements
-//! Claude has drafted (unpublished); `Enter` reviews one, and quitting that review comes back
-//! here.
+//! `dv list`: what needs you (ranked, `todo.rs`), the repo's open PRs, (`Tab`) the ones with a
+//! local worktree, and the replacements Claude has drafted (unpublished); `Enter` reviews one,
+//! and quitting that review comes back here.
 use crate::gh::{self, Listed};
 use crate::theme::{Theme, Ui};
 use anyhow::{Context, Result};
@@ -18,17 +18,26 @@ use std::time::Duration;
 
 mod card;
 use card::*;
+mod todo;
+use todo::ago_secs;
 #[cfg(test)]
 mod tests;
 
 type Checks = anyhow::Result<HashMap<u64, (usize, usize, usize)>>;
+/// You, and what GitHub says of each PR beyond its card (`gh::list_extra`).
+type Extras = anyhow::Result<(String, HashMap<u64, gh::Extra>)>;
 
 const HELP: &str = "\
   j k, Up Down         move
   gg ge                first / last PR
   Ctrl-d Ctrl-u        half a page down / up
-  Tab                  open PRs / PRs with a local worktree (<repo>-N, as dv N -w makes) /
-                       replacements (Claude's drafts, unpublished)
+  Tab                  todo (what needs you, ranked) / open PRs / PRs with a local worktree
+                       (<repo>-N, as dv N -w makes) / replacements (Claude's drafts, unpublished)
+                       On todo: a PR or replacement waiting on you (Claude's review or answers,
+                       your review requested or none yet, pushed since you reviewed, ready to
+                       merge, a replacement to publish or close for), in the order Claude puts
+                       them, with why and what next; Claude first does its part on the top
+                       three (a review, an update to one, answers to your replies)
   Enter                review the PR (with dv list's flags; from the worktrees tab, in its
                        worktree as it was made); q there comes back here
   /                    filter (Enter keeps it, Esc clears it); terms must all match:
@@ -49,7 +58,8 @@ const HELP: &str = "\
                        replacement each group), which you edit; then your instructions
   D D                  worktrees tab: remove the PR's worktree (not with local changes in it;
                        its branch stays); replacements tab: remove the replacement (the same)
-  R                    refresh
+  R                    refresh (on todo: and Claude ranks it again; it does by itself when
+                       its last ranking is over 12 hours old)
   ?                    this help
   q, Ctrl-c            quit";
 
@@ -95,7 +105,21 @@ pub struct List {
     marked_saved: HashSet<u64>,
     /// Claude's reviews from here (`a`): how each is going, and the news on its way.
     batch: HashMap<u64, batch::Status>,
-    batch_rx: Option<Receiver<(u64, batch::Status)>>,
+    batch_rx: Vec<Receiver<(u64, batch::Status)>>,
+    /// What each of those is (a review, an update to one, answers), for the cards.
+    batch_task: HashMap<u64, batch::Task>,
+    /// The todo tab: you (your login) and what GitHub says beyond the cards (on its way, like
+    /// `checks`); what needs you, in order, and whether Claude's ranking of it is stale; the
+    /// last ranking, and the next on its way (`R` there, or by itself when it's old).
+    me: String,
+    extra: HashMap<u64, gh::Extra>,
+    extra_rx: Option<Receiver<Extras>>,
+    todo: Vec<crate::todo::Item>,
+    todo_stale: bool,
+    ranked: Option<crate::todo::Ranked>,
+    rank_rx: Option<Receiver<Result<crate::todo::Ranked>>>,
+    /// Rank (again) once what's needed is in (`R` on the todo tab).
+    want_rank: bool,
     /// PRs Claude has a review of, and when its reviews directory last changed: a review
     /// written from a PR's view (or still being, in Claude's pane) shows up as it lands.
     reviewed: HashSet<u64>,
@@ -147,7 +171,16 @@ impl List {
             marked: HashSet::new(),
             marked_saved: HashSet::new(),
             batch: HashMap::new(),
-            batch_rx: None,
+            batch_rx: vec![],
+            batch_task: HashMap::new(),
+            me: String::new(),
+            extra: HashMap::new(),
+            extra_rx: None,
+            todo: vec![],
+            todo_stale: true,
+            ranked: crate::todo::load(),
+            rank_rx: None,
+            want_rank: false,
             reviewed: HashSet::new(),
             reviews_dir: crate::claude::dv_dir().ok().map(|d| d.join("reviews")),
             reviews_mtime: None,
@@ -170,6 +203,7 @@ impl List {
         }
         self.find_new(); // back from a PR: that one's seen now
         self.load_reps();
+        self.find_todo(); // and what you did there may have seen to it
         loop {
             if self.marked != self.marked_saved {
                 // On what's saved now: another dv list of this repo may have marked some too.
@@ -182,6 +216,7 @@ impl List {
             term.draw(|f| self.draw(f))?;
             self.batch_news();
             self.watch_reviews();
+            self.todo_news();
             // A replacement drafted, or its draft changed, from anywhere: show it.
             let changed = crate::replace::changed();
             if changed != self.reps_changed {
@@ -214,11 +249,17 @@ impl List {
             match self.key(k) {
                 Some(Do::Quit) => return Ok(None),
                 Some(Do::Open(n)) => {
-                    let replacement = self.tab == Tab::Replacements;
+                    let todo_rep = self.tab == Tab::Todo && self.todo_shown().iter().any(|(c, it)| c.number == n && it.rep);
+                    let replacement = self.tab == Tab::Replacements || todo_rep;
                     let worktree = (self.tab == Tab::Worktrees).then(|| self.local.get(&n).is_some_and(|w| w.1.is_some()));
                     return Ok(Some(Pick { number: n, worktree, replacement }));
                 }
-                Some(Do::Refresh) => self.refresh(term)?,
+                Some(Do::Refresh) => {
+                    self.refresh(term)?;
+                    if self.tab == Tab::Todo {
+                        self.want_rank = true; // and Claude ranks it afresh, once GitHub's part is in
+                    }
+                }
                 Some(Do::Review(prs)) => {
                     // Instructions for every one of these reviews, if you have any. In zellij the
                     // editor gets a pane beside the list; elsewhere it takes the terminal.
@@ -226,11 +267,12 @@ impl List {
                     let what = format!("instructions for Claude's reviews of {which} (optional)");
                     let Some(extra) = self.instructions(term, "review", &what) else { continue };
                     let on_branch = |n| self.local.get(&n).is_some_and(|w| w.1.is_some());
-                    let prs: Vec<(u64, bool)> = prs.into_iter().map(|n| (n, on_branch(n))).collect();
+                    let prs: Vec<(u64, bool, batch::Task)> = prs.into_iter().map(|n| (n, on_branch(n), batch::Task::Review)).collect();
                     let with = if extra.is_empty() { "" } else { ", with your instructions" };
                     self.msg = format!("Claude is reviewing {} PR(s){with}, {} at a time", prs.len(), batch::AT_ONCE);
                     self.marked.clear();
-                    self.batch_rx = Some(batch::start(prs, self.root.clone(), extra));
+                    prs.iter().for_each(|(n, _, t)| _ = self.batch_task.insert(*n, t.clone()));
+                    self.batch_rx.push(batch::start(prs, self.root.clone(), extra));
                 }
                 // One PR: its replacement. Several: Claude suggests how to group them first.
                 Some(Do::Replace(prs)) if prs.len() == 1 => self.draft_groups(term, Ok(vec![(prs, String::new())])),
@@ -388,17 +430,22 @@ impl List {
     /// How Claude's reviews are going: each card shows it; one finished counts as reviewed.
     fn batch_news(&mut self) {
         self.draft_news();
-        let Some(rx) = &self.batch_rx else { return };
-        let news: Vec<(u64, batch::Status)> = rx.try_iter().collect();
+        let news: Vec<(u64, batch::Status)> = self.batch_rx.iter().flat_map(|rx| rx.try_iter()).collect();
         let mut worktrees = false;
+        let mut done = false;
         for (n, s) in news {
+            let doing = self.batch_task.get(&n).map_or("reviewing", batch::Task::doing);
             match &s {
                 batch::Status::Done(took) => {
                     self.reviewed.insert(n);
                     self.new.insert(n);
-                    self.msg = format!("Claude reviewed #{n} ({took}): Enter opens it, in its worktree from the worktrees tab");
+                    done = true;
+                    self.msg = match doing {
+                        "reviewing" => format!("Claude reviewed #{n} ({took}): Enter opens it, in its worktree from the worktrees tab"),
+                        d => format!("Claude is done {d} on #{n} ({took})"),
+                    };
                 }
-                batch::Status::Failed(e) => self.msg = format!("Claude's review of #{n} failed: {e} (a a asks again)"),
+                batch::Status::Failed(e) => self.msg = format!("Claude's {doing} on #{n} failed: {e} (a a asks again)"),
                 batch::Status::Reviewing => worktrees = true, // its worktree is ready
                 _ => {}
             }
@@ -406,6 +453,9 @@ impl List {
         }
         if worktrees {
             self.local = crate::pr_worktrees().into_iter().map(|(n, dir, b)| (n, (dir, b))).collect();
+        }
+        if done {
+            self.find_todo(); // its review (or answers) changed what's waiting on you
         }
     }
 
@@ -450,6 +500,9 @@ impl List {
                 let (tx, rx) = mpsc::channel();
                 std::thread::spawn(move || tx.send(gh::list_checks()));
                 self.checks = Some(rx);
+                let (tx, rx) = mpsc::channel();
+                std::thread::spawn(move || tx.send(gh::list_extra()));
+                self.extra_rx = Some(rx);
                 self.msg = if prs.is_empty() { "no open PRs".into() } else { String::new() };
                 // Worktrees of PRs that aren't open any more (or beyond the list): fetch those few.
                 let mut gone: Vec<u64> = self.local.keys().filter(|n| !prs.iter().any(|p| p.number == **n)).copied().collect();
@@ -467,6 +520,7 @@ impl List {
                     None => gh::listed_one(*n).map_or(true, |p| open(&p)),
                 });
                 self.find_new();
+                self.find_todo();
                 self.sel = keep.and_then(|n| self.shown().iter().position(|p| p.number == n)).unwrap_or(0);
             }
             Err(e) => self.msg = format!("{e:#}"),
@@ -482,9 +536,13 @@ impl List {
         };
         let all: Vec<&Listed> = match self.tab {
             Tab::Replacements => self.reps.iter().collect(),
+            Tab::Todo => self.todo_shown().into_iter().map(|(card, _)| card).collect(),
             _ => self.prs.iter().filter(in_tab).collect(),
         };
         let mut prs: Vec<&Listed> = all.into_iter().filter(|p| self.query.split_whitespace().all(|t| term(p, t))).collect();
+        if self.tab == Tab::Todo {
+            return prs; // in the order of what needs you most
+        }
         prs.sort_by(|a, b| {
             let o = match self.order {
                 Order::Updated => b.updated.cmp(&a.updated), // ISO times sort as text
@@ -612,8 +670,13 @@ impl List {
                 self.confirm = Some(('A', 0));
             }
             KeyCode::Char('?') => self.help = true,
-            KeyCode::Tab => (self.tab, self.sel, self.top) = (self.tab.next(), 0, 0),
-            KeyCode::BackTab => (self.tab, self.sel, self.top) = (self.tab.next().next(), 0, 0),
+            KeyCode::Tab | KeyCode::BackTab => {
+                let tab = if k.code == KeyCode::Tab { self.tab.next() } else { self.tab.prev() };
+                (self.tab, self.sel, self.top) = (tab, 0, 0);
+                if tab == Tab::Todo {
+                    self.maybe_rank(false); // if the last ranking is old (or there's none)
+                }
+            }
             KeyCode::Char('/') => self.filtering = true, // edits the current filter
             KeyCode::Char('o') => self.sort(self.order.next(), self.rev),
             KeyCode::Char('O') => self.sort(self.order, !self.rev),
@@ -638,7 +701,7 @@ impl List {
             MouseEventKind::ScrollDown => self.sel = (self.sel + 1).min(n.saturating_sub(1)),
             MouseEventKind::ScrollUp => self.sel = self.sel.saturating_sub(1),
             MouseEventKind::Down(MouseButton::Left) if !self.help && m.row >= 1 => {
-                let i = self.top + (m.row as usize - 1) / 2; // cards start under the header, 2 rows each
+                let i = self.top + (m.row as usize - 1) / self.card_rows(); // cards start under the header
                 if i < n {
                     if i == self.sel {
                         return true;
@@ -651,14 +714,20 @@ impl List {
         false
     }
 
-    /// Cards on screen (2 rows each, between the header and the status bar).
+    /// Cards on screen (between the header and the status bar).
     fn height(&self) -> usize {
-        ratatui::crossterm::terminal::size().map_or(10, |(_, h)| h.saturating_sub(2) as usize / 2)
+        ratatui::crossterm::terminal::size().map_or(10, |(_, h)| h.saturating_sub(2) as usize / self.card_rows())
+    }
+
+    /// A card's rows: 2, and on the todo tab a third, for what needs you.
+    fn card_rows(&self) -> usize {
+        if self.tab == Tab::Todo { 3 } else { 2 }
     }
 
     fn draw(&mut self, f: &mut Frame) {
         let area = f.area();
-        let h = area.height.saturating_sub(2) as usize / 2;
+        let rows = self.card_rows();
+        let h = area.height.saturating_sub(2) as usize / rows;
         let sel = self.sel.min(self.shown().len().saturating_sub(1));
         // Keep the selection on screen.
         (self.sel, self.top) = (sel, self.top.min(sel).max((sel + 1).saturating_sub(h)));
@@ -671,14 +740,26 @@ impl List {
         // Tabs: the current one bold, with counts.
         let open = self.prs.iter().filter(|p| p.state == "OPEN" || p.state.is_empty()).count();
         let tab = |name: String, on: bool| Span::styled(name, if on { hs.add_modifier(ratatui::style::Modifier::BOLD | ratatui::style::Modifier::UNDERLINED) } else { hs.patch(ui.stale) });
+        let ranking = match (&self.rank_rx, &self.ranked, self.todo_stale) {
+            (Some(_), ..) => "Claude is ranking…".to_owned(),
+            (None, Some(r), false) => format!("ranked by Claude {} ago  (R re-ranks)", ago_secs(crate::claude::now_secs() - r.at)),
+            (None, Some(_), true) => "changed since Claude ranked it  (R re-ranks)".to_owned(),
+            (None, None, _) => "not ranked by Claude yet  (R ranks)".to_owned(),
+        };
+        let rest = match self.tab {
+            Tab::Todo => format!("   {ranking}"),
+            _ => format!("   by {} {arrow}  (Tab switches)", self.order.name()),
+        };
         let tabs = Line::from(vec![
             Span::styled(" ", hs),
+            tab(format!("todo {}", self.todo.len()), self.tab == Tab::Todo),
+            Span::styled("  ", hs),
             tab(format!("open {open}{}", if self.prs.len() >= gh::LIST_MAX { "+" } else { "" }), self.tab == Tab::Open),
             Span::styled("  ", hs),
             tab(format!("worktrees {}", self.local.len()), self.tab == Tab::Worktrees),
             Span::styled("  ", hs),
             tab(format!("replacements {}", self.reps.len()), self.tab == Tab::Replacements),
-            Span::styled(format!("   by {} {arrow}  (Tab switches)", self.order.name()), hs.patch(ui.stale)),
+            Span::styled(rest, hs.patch(ui.stale)),
         ]);
         f.render_widget(Paragraph::new(tabs).style(hs), head);
         let pos = if shown.is_empty() { "0 / 0 ".into() } else { format!("{} / {} ", sel + 1, shown.len()) };
@@ -701,18 +782,24 @@ impl List {
             .skip(self.top)
             .take(h)
             .flat_map(|(i, p)| {
-                let mark = match self.tab {
-                    Tab::Replacements => {
+                let item = (self.tab == Tab::Todo).then(|| self.todo_shown().into_iter().find(|(c, _)| std::ptr::eq(*c, *p)).map(|x| x.1)).flatten();
+                let rep_card = self.tab == Tab::Replacements || item.is_some_and(|it| it.rep);
+                let mark = match rep_card {
+                    true => {
                         let replaces = self.rep_of.get(&p.number).map(|r| {
                             let each: Vec<String> = r.replaces.iter().map(|o| format!("#{} (@{})", o.number, o.author)).collect();
                             format!("replaces {}", each.join(", "))
                         });
                         Mark { marked: false, claude: self.draft_state(p.number, "claude"), new: false, replaces }
                     }
-                    _ => Mark { marked: self.marked.contains(&p.number), claude: self.claude_state(p.number), new: self.new.contains(&p.number), replaces: None },
+                    false => Mark { marked: self.marked.contains(&p.number), claude: self.claude_state(p.number), new: self.new.contains(&p.number), replaces: None },
                 };
-                let local = if self.tab == Tab::Replacements { None } else { self.local.get(&p.number) };
-                card(p, &cx, i == sel, local, mark)
+                let local = if rep_card { None } else { self.local.get(&p.number) };
+                let mut lines = card(p, &cx, i == sel, local, mark).to_vec();
+                if let Some(it) = item {
+                    lines.push(todo_line(i + 1, it, &cx, i == sel));
+                }
+                lines
             })
             .collect();
         let typed = self.query.trim().trim_start_matches('#').parse::<u64>().ok();
@@ -725,7 +812,7 @@ impl List {
         if shown.is_empty() {
             f.render_widget(Paragraph::new(none).style(ui.base.patch(ui.stale)), Rect { y: area.y + 2, height: 1, ..area });
         }
-        f.render_widget(Paragraph::new(lines), Rect { y: area.y + 1, height: (h * 2) as u16, ..area });
+        f.render_widget(Paragraph::new(lines), Rect { y: area.y + 1, height: (h * rows) as u16, ..area });
 
         let status = Rect { y: area.bottom().saturating_sub(1), height: 1.min(area.height), ..area };
         let bar = ui.base.patch(ui.status);
@@ -741,15 +828,17 @@ impl List {
         if !self.help && !self.filtering {
             // The keys for this tab, bottom right, as dv's diff view shows them.
             let enter = match self.tab {
+                Tab::Todo => "see to it (opens the PR or replacement)".to_owned(),
                 Tab::Worktrees => "review, in its worktree".to_owned(),
                 Tab::Replacements => "review it, in its worktree".to_owned(),
                 Tab::Open if self.flags.is_empty() => "review".to_owned(),
                 Tab::Open => format!("review (dv N {})", self.flags),
             };
             let tab = match self.tab {
+                Tab::Todo => "open PRs",
                 Tab::Open => "PRs with a worktree",
                 Tab::Worktrees => "replacements",
-                Tab::Replacements => "open PRs",
+                Tab::Replacements => "what needs you",
             };
             let remove = if self.tab == Tab::Replacements { "remove replacement" } else { "remove worktree" };
             let keys = [
@@ -757,7 +846,7 @@ impl List {
                 ("Tab", tab),
                 ("/", "filter"),
                 ("o O", "sort / reverse"),
-                ("R", "refresh"),
+                ("R", if self.tab == Tab::Todo { "refresh, and Claude re-ranks" } else { "refresh" }),
                 ("m", "mark"),
                 ("a a", "Claude reviews marked"),
                 ("A A", "Claude drafts a replacement"),
@@ -769,7 +858,8 @@ impl List {
             let lines: Vec<Line> = keys
                 .iter()
                 .filter(|(k, _)| match *k {
-                    "D D" => self.tab != Tab::Open,
+                    "D D" => !matches!(self.tab, Tab::Open | Tab::Todo),
+                    "o O" => self.tab != Tab::Todo, // in the order of what needs you
                     "m" | "a a" | "A A" => !reps,
                     _ => true,
                 })
@@ -858,6 +948,8 @@ fn write_marks(p: &std::path::Path, marked: &HashSet<u64>) -> Result<()> {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Tab {
+    /// What needs you, ranked.
+    Todo,
     Open,
     Worktrees,
     Replacements,
@@ -866,10 +958,15 @@ enum Tab {
 impl Tab {
     fn next(self) -> Tab {
         match self {
+            Tab::Todo => Tab::Open,
             Tab::Open => Tab::Worktrees,
             Tab::Worktrees => Tab::Replacements,
-            Tab::Replacements => Tab::Open,
+            Tab::Replacements => Tab::Todo,
         }
+    }
+
+    fn prev(self) -> Tab {
+        self.next().next().next()
     }
 }
 

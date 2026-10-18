@@ -216,3 +216,47 @@ fn reviews_from_a_pr_view_show_up() {
     assert_eq!(l.claude_state(7), Some(("claude ✓".into(), true)));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn todo_tab() {
+    use crate::view::tests::{screen, snapshot};
+    let pr = |number, title: &str, author: &str| Listed {
+        number,
+        title: title.into(),
+        author: author.into(),
+        base: "master".into(),
+        branch: "b".into(),
+        state: "OPEN".into(),
+        updated: format!("2026-0{}", number % 9),
+        files: 1,
+        ..Listed::default()
+    };
+    let dir = std::env::temp_dir().join(format!("dv-todo-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("reviews")).unwrap();
+    let mut l = List::new("".into());
+    (l.reviews_dir, l.ranked) = (Some(dir.join("reviews")), None);
+    l.prs = vec![pr(1, "Fix fees", "amy"), pr(2, "Docs", "bo"), pr(3, "Mine", "me")];
+    l.me = "me".into();
+    let extra = |requested| gh::Extra { requested, mergeable: "MERGEABLE".into(), head_oid: "h".into(), ..Default::default() };
+    l.extra = HashMap::from([(1, extra(false)), (2, extra(true)), (3, extra(false))]);
+    // #3: Claude answered you there.
+    let review = r#"{"head": "h", "summary": "ok", "comments": [{"path": "a.rs", "line": 1, "body": "x",
+        "replies": [{"author": "user", "body": "why?"}, {"author": "claude", "body": "because"}]}]}"#;
+    std::fs::write(dir.join("reviews/pr-3.json"), review).unwrap();
+    l.find_todo();
+    l.tab = Tab::Todo;
+    let shown = |l: &List| l.shown().iter().map(|p| p.number).collect::<Vec<_>>();
+    // Answered (75) before requested (70) before no review (30); yours with nothing else isn't on it.
+    assert_eq!(shown(&l), [3, 2, 1]);
+    assert_eq!(l.todo[0].says(), "Claude answered you on 1 thread · Claude's review is new to you");
+    // Claude's part: a review where there's none (#1, #2), nothing on #3 (up to date, nothing waiting).
+    assert!(l.todo.iter().all(|it| (it.number == 3) == it.claude.is_none()));
+    // Claude's ranking: its order and words, kept while nothing's changed.
+    let fp = crate::todo::fingerprint(&l.todo);
+    l.ranked = Some(crate::todo::Ranked { at: crate::claude::now_secs(), fingerprint: fp, items: vec![("pr-1".into(), "a fee bug — review it".into()), ("pr-3".into(), "y".into()), ("pr-2".into(), "z".into())] });
+    l.find_todo();
+    assert_eq!((shown(&l), l.todo_stale), (vec![1, 3, 2], false));
+    snapshot("list_todo", &screen(100, 12, |f| l.draw(f)));
+    let _ = std::fs::remove_dir_all(&dir);
+}
