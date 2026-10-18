@@ -52,6 +52,15 @@ impl App {
                 }
                 // On the pinned title, over the pane: its tabs.
                 let pane = self.geom.relw + self.geom.gw + self.geom.ctw;
+                // On the summaries over the comments: them in full, on the PR tab.
+                let sy = y.wrapping_sub(self.pin as usize);
+                if self.margin_active && self.pane_tab == Tab::Comments && x >= pane && sy < self.strip_h {
+                    self.pane_to(Tab::Pr);
+                    if let Some(&r) = self.pr_rows.iter().find(|&&r| matches!(self.rows[r].info, Some(SUMMARY) | Some(DRAFT))) {
+                        self.goto(r, 0);
+                    }
+                    return;
+                }
                 if self.pin && y == 0 && self.margin_active && x >= pane {
                     if let Some((tab, ..)) = self.pane_tabs().into_iter().find(|t| t.2.contains(&(x - pane))) {
                         self.pane_to(tab);

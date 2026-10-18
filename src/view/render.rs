@@ -251,8 +251,16 @@ impl App {
         // Scroll the code to the cursor (on the PR tab: to where it was in the code), and the PR
         // tab to it there.
         let hd = if on_pr { self.d_of[self.code_head.row.min(self.rows.len() - 1)] } else { self.hd() };
-        if hd < self.top + so {
-            self.top = hd.saturating_sub(so);
+        // The review's summaries over the top of the comments tab: a comment the cursor is on
+        // stays below them.
+        let strip = match margin && !pr_tab {
+            true => self.summary_strip(mw - self.pane_pad()),
+            false => vec![],
+        };
+        self.strip_h = strip.len();
+        let under = if self.margin_side() { strip.len() } else { 0 };
+        if hd < self.top + so + under {
+            self.top = hd.saturating_sub(so + under);
         }
         if hd + so + 1 > self.top + h {
             self.top = hd + so + 1 - h;
@@ -418,6 +426,13 @@ impl App {
                             }
                         }
                     }
+                }
+                // The summaries, over the pane's top rows (what's beside the code there scrolls
+                // under them).
+                if let Some(line) = strip.get(y) {
+                    spans = clip(spans, relw + gw + mx);
+                    spans.push(sep.clone());
+                    spans.extend(raise(pane_cell(line.clone())));
                 }
                 // The PR tab: its own rows, scrolled on their own, over the right of every line.
                 if pr_tab {
@@ -1014,5 +1029,44 @@ impl App {
             None if claude > 0 => threads,
             None => String::new(),
         }
+    }
+
+    /// The review's summaries (yours, pending, and Claude's) for the top of the comments tab,
+    /// `w` wide: two lines of each at most (the PR tab has them in full; a click goes there).
+    pub(super) fn summary_strip(&self, w: usize) -> Vec<Vec<Span<'static>>> {
+        let items = [("you", &self.summary_draft), ("claude", &self.claude.summary)];
+        let items: Vec<_> = items.into_iter().filter(|(_, t)| !t.trim().is_empty()).collect();
+        if items.is_empty() || w < 20 {
+            return vec![];
+        }
+        let edge = Style { fg: self.ui.linenr.fg, ..Style::new() };
+        let rule = |l: &str, title: &str, r: char| {
+            let fill = w.saturating_sub(title.chars().count() + l.chars().count() + 1);
+            vec![Span::styled(format!("{l}{title}{}{r}", "─".repeat(fill)), edge)]
+        };
+        let mut out = vec![rule("╭─", " review summary ", '╮')];
+        let label_w = 8; // "claude  "
+        for (who, text) in items {
+            let lines = crate::md::render(text, w.saturating_sub(4 + label_w), &self.ui.md, &self.hl, None);
+            let lines: Vec<_> = lines.into_iter().filter(|l| !l.text.trim().is_empty()).collect();
+            for (i, l) in lines.iter().take(2).enumerate() {
+                let more = i == 1 && lines.len() > 2;
+                let label = if i == 0 { format!("{who:<label_w$}") } else { " ".repeat(label_w) };
+                let who_st = if who == "claude" { self.ui.key } else { self.ui.pending };
+                let mut row = vec![Span::styled("│ ", edge), Span::styled(label, who_st)];
+                for (c, st) in l.text.chars().zip(l.styles.iter().chain(std::iter::repeat(&None))) {
+                    row.push(Span::styled(c.to_string(), st.unwrap_or_default()));
+                }
+                if more {
+                    row.push(Span::styled("…", edge));
+                }
+                let used: usize = row.iter().map(|s| s.width()).sum();
+                row.push(Span::raw(" ".repeat(w.saturating_sub(used + 1))));
+                row.push(Span::styled("│", edge));
+                out.push(row);
+            }
+        }
+        out.push(rule("╰", "", '╯'));
+        out
     }
 }

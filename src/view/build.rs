@@ -187,6 +187,14 @@ impl App {
                     rows.extend(self.md_rows_at(&self.claude.summary, width, mk).into_iter().map(summary));
                     rows.push(Row { edge: true, ..summary(mk(Kind::Comment, String::new())) });
                 }
+                // Yours, as it goes to GitHub with the review (`S`), in full beside the strip
+                // that has its start.
+                if !self.summary_draft.trim().is_empty() {
+                    let draft = |r: Row| Row { info: Some(DRAFT), ..r };
+                    rows.push(draft(mk(Kind::Thread, "your review (pending)".into())));
+                    rows.extend(self.md_rows_at(&self.summary_draft, width, mk).into_iter().map(draft));
+                    rows.push(Row { edge: true, ..draft(mk(Kind::Comment, String::new())) });
+                }
             }
         }
         // Threads on files that have left the diff (a change reverted, a file now matching the

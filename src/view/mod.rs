@@ -420,6 +420,8 @@ pub struct App {
     /// they're on the status bar); set by `draw`.
     pin: bool,
     bar_counts: bool,
+    /// How many of the pane's top rows the review's summaries cover (set by `draw`).
+    strip_h: usize,
     /// The code block in a comment that the cursor is in (its first row), and how far it's
     /// scrolled sideways: only it, so the code beside it and the comment's text stay put.
     code_at: Option<usize>,
@@ -632,6 +634,7 @@ impl App {
             left: 0,
             pin: false,
             bar_counts: false,
+            strip_h: 0,
             code_at: None,
             code_left: 0,
             height: 1,

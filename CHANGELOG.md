@@ -8,6 +8,9 @@ on GitHub are its section here.
 ### Changed
 - The comments pane is set off from the code: as a column, by a dim line (file headers stop
   at it); floating, by the theme's popup color.
+- The review's summaries, yours (pending) and Claude's, sit at the top of the comments tab, two
+  lines of each, beside the comments they sum up; the comments start below them, and scroll
+  under them. A click on them goes to them in full, on the PR tab (where yours now is too).
 
 ## [0.6.0] - 2026-10-18
 

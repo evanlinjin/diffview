@@ -186,7 +186,10 @@ impl App {
         }
         // The margin: comments wait in `pending` for a free row beside code.
         let mut pending: std::collections::VecDeque<usize> = Default::default();
-        let mut free = 0; // the first screen row whose margin is free
+        // The first screen row whose margin is free: at the top, below the review's summaries
+        // (over the pane's top rows, `summary_strip`) and the pinned title.
+        let title = usize::from(self.rows.first().is_some_and(|r| r.file == INFO && r.line.kind == Kind::File));
+        let mut free = title + self.summary_strip(self.margin_w.saturating_sub(self.pane_pad())).len();
         let flush = |d: &mut Vec<DRow>, pending: &mut std::collections::VecDeque<usize>| {
             d.extend(pending.drain(..).map(|c| DRow::Margin(None, None, Some(c))));
         };
@@ -200,12 +203,12 @@ impl App {
                     // get spacer rows first, so they stay with their file.
                     flush(&mut d, &mut pending);
                     d.push(DRow::Full(r));
-                    free = d.len();
+                    free = free.max(d.len()); // (not back up under the summaries, at the top)
                     (None, None)
                 }
             };
             if l.is_some() || r.is_some() {
-                let c = pending.pop_front();
+                let c = if d.len() >= free { pending.pop_front() } else { None };
                 d.push(DRow::Margin(l, r, c));
                 if c.is_some() {
                     free = d.len();

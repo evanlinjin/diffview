@@ -1485,6 +1485,7 @@ fn github_cache_reads_back() {
 #[test]
 fn long_code_cut_at_the_box_edge() {
     let mut app = fixture();
+    (app.summary_draft, app.claude.summary) = (String::new(), String::new()); // no strip over it
     app.threads[1].comments[0].body = format!("```\n{}\n```", "x".repeat(300));
     app.build();
     let s = screen(220, 45, |f| app.draw(f));
@@ -1616,7 +1617,7 @@ fn pinned_title_and_status_bar_frame_the_content() {
     let l: Vec<&str> = s.lines().collect();
     assert!(app.pin && l[0].contains("PR #7") && l[11].starts_with(" NOR"), "{s}");
     // The row above the status bar is content, not covered by it (the diff runs on past it).
-    assert!(l[10].contains("L9–15"), "{s}");
+    assert!(l[10].contains("Nearly there."), "{s}");
 }
 
 #[test]
@@ -1638,6 +1639,24 @@ fn comments_in_a_tiny_window() {
     // Too narrow for the pane beside anything: going to a comment floats it over the code.
     let mut app = fixture();
     app.goto_comment(0, 0);
-    let s = screen(50, 20, |f| app.draw(f));
+    let s = screen(50, 40, |f| app.draw(f));
     assert!(app.margin_active && app.margin_float && s.contains("new_value"), "{s}");
+}
+
+#[test]
+fn review_summaries_over_the_comments() {
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut app = fixture();
+    let s = screen(220, 45, |f| app.draw(f));
+    assert!(app.strip_h == 4 && s.contains("review summary") && s.contains("Nearly there.") && s.contains("Looks right"), "{s}");
+    // The cursor on a comment scrolled up under them: it's kept below them.
+    app.goto_comment(1, 0);
+    app.top = app.hd();
+    _ = screen(220, 45, |f| app.draw(f));
+    assert!(app.hd() >= app.top + app.strip_h);
+    // A click on them: the PR tab, at them in full.
+    let x = (app.geom.relw + app.geom.gw + app.geom.ctw + 5) as u16;
+    app.mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column: x, row: 2, modifiers: KeyModifiers::NONE });
+    assert_eq!(app.pane_tab, Tab::Pr);
+    assert!(matches!(app.rows[app.head.row].info, Some(SUMMARY) | Some(DRAFT)));
 }
