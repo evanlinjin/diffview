@@ -5,6 +5,10 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Fixed
+- `dv list`: why Claude failed was cut to 60 characters (and the card's 30-column zone): its
+  card says all of it now, the review and Claude lines running on to the window's edge.
+
 ### Changed
 - `dv list`: a marked PR's `●` is in a column of its own before its number, not squeezed against
   it, so marked cards stand out and line up.

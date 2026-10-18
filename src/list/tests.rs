@@ -343,3 +343,19 @@ fn defer_from_the_todo_tab() {
     assert_eq!((shown(&l), l.todo_now()), (vec![1, 2], 2));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn claude_failure_readable_on_a_wide_card() {
+    // Wide window: why Claude failed runs on past the right zone, to the window's edge, all of
+    // its lines; the first line's age still ends the zone.
+    let ui = crate::theme::Theme::load().ui();
+    let cx = Cards { ui: &ui, num_w: 5, width: 260, checks_loading: false, usual: "main" };
+    let p = Listed { number: 1, title: "t".into(), author: "amy".into(), updated: "2026-01-01T00:00:00Z".into(), ..Listed::default() };
+    let why = "claude failed: failed to run the worktree's hook · fatal: 'bdk-2335' is already checked out at '/home/x/bdk-2335'";
+    let mark = Mark { marked: false, claude: Some((why.into(), false)), new: false, replaces: None };
+    let lines = card(&p, &cx, false, None, mark);
+    let text = |l: &Line| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
+    assert!(text(&lines[2]).contains(why), "{}", text(&lines[2]));
+    assert!(text(&lines[0]).trim_end().len() < 140, "the age stays at the zone's end: {}", text(&lines[0]));
+    assert!(lines.iter().all(|l| l.width() == 260));
+}

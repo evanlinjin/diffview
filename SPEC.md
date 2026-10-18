@@ -272,7 +272,8 @@ detached or on its branch) shows each PR as a card, a blank line between cards. 
 lines in two zones (within 140 columns): on the left the mark (`m`: a `●` in a column of its own,
 before the number, so marked cards line up), the number, title (bold), badges and `[new]`;
 author, size, labels; base ← branch and its worktree. On the right, a 30-column zone lining up
-from card to card: CI and the age; the review decision; Claude's part. Narrower, four lines:
+from card to card: CI and the age; the review decision; Claude's part (those two may run on to
+the window's edge: why Claude failed, in full). Narrower, four lines:
 number, title (bold), draft badge, `[new]`, age; author, size, labels; CI (✓/✗/● counts, fetched
 in the background since they're slow), review decision and Claude's part, in columns; base ←
 branch and its worktree. The selected card keeps its colors on a quiet background (the theme's

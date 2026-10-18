@@ -60,7 +60,8 @@ impl List {
             // A run from another dv (a PR's view, another dv list).
             _ if self.running.contains_key(&n) => Some((format!("claude: {}…", self.running[&n]), true)),
             // Why, in short (the status bar said it in full): `a a` asks again.
-            Some(batch::Status::Failed(e)) => Some((format!("claude failed: {}", cut(e.lines().next().unwrap_or(""), 60)), false)),
+            // All of it (the card cuts it where the window ends).
+            Some(batch::Status::Failed(e)) => Some((format!("claude failed: {}", e.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" · ")), false)),
             _ if self.reviewed.contains(&n) => Some(("claude ✓".into(), true)),
             _ => None,
         }
@@ -183,10 +184,13 @@ pub(super) fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathB
         let content = width.min(CARD_MAX);
         let left_w = content - 1 - RIGHT; // past the bar
         // The left zone (cut to fit, the title making room for its badges), then the right one.
-        let zones = |left: Vec<Span<'static>>, right: Vec<Span<'static>>| {
+        // The right zone lines up from card to card; what's in it may run on to the window's edge
+        // (a review's who and whom, why Claude failed), but not on the first line, whose age
+        // ends the zone.
+        let zones = |left: Vec<Span<'static>>, right: Vec<Span<'static>>, run_on: bool| {
             let mut v = vec![bar()];
             v.extend(fit(left, left_w, row));
-            v.extend(fit(right, RIGHT, row));
+            v.extend(fit(right, if run_on { width.saturating_sub(1 + left_w).max(RIGHT) } else { RIGHT }, row));
             full(v)
         };
         let tags_w: usize = tags.iter().map(Span::width).sum();
@@ -196,7 +200,7 @@ pub(super) fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathB
         let age_w = age.width();
         let mut stand = fit(ci, RIGHT.saturating_sub(age_w + 1), row);
         stand.push(age);
-        return vec![zones(top, stand), zones(people, review), zones(place, claude)];
+        return vec![zones(top, stand, false), zones(people, review, true), zones(place, claude, true)];
     }
 
     // Narrow: four lines.
