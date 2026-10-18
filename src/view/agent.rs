@@ -663,12 +663,14 @@ impl App {
         let (msg, asked) = match claude_tab {
             // A real session in a pane (the PR's, as the background runs use): watch it, approve
             // what it asks, talk to it.
-            // In Claude's tab, unfocused, stacked with the others (`Space a` → show it);
+            // In Claude's tab, unfocused, beside the others (`Space a` → show it);
             // dv says when it's asking you something.
             Some((tab, id)) => match {
                 let mut z = std::process::Command::new("zellij");
                 match id {
-                    Some(t) => z.args(["run", "--tab-id", &t.to_string(), "--stacked", "--no-focus", "--name", &format!("claude: {label}"), "--cwd"]),
+                    // Not `--stacked`: zellij can't stack a pane run from outside its tab ("Must
+                    // have client id or pane id to stack pane").
+                    Some(t) => z.args(["run", "--tab-id", &t.to_string(), "--no-focus", "--name", &format!("claude: {label}"), "--cwd"]),
                     None => z.args(["action", "new-tab", "--no-focus", "--name", &tab, "--cwd"]),
                 };
                 z
@@ -735,12 +737,10 @@ impl App {
         self.claude_pane_cmd().map(|p| p.0)
     }
 
-    /// `Space a` → show Claude's pane: its tab, the pane focused (expanded in its stack).
+    /// `Space a` → show Claude's pane (`show_pane`).
     pub(super) fn show_claude_pane(&mut self) {
-        let Some((pane, _, tab)) = self.claude_pane_cmd() else { return self.msg = "Claude's pane is closed".into() };
-        let z = |args: &[&str]| std::process::Command::new("zellij").arg("action").args(args).status().is_ok_and(|s| s.success());
-        let ok = z(&["go-to-tab-by-id", &tab.to_string()]) && z(&["focus-pane-id", &format!("terminal_{pane}")]);
-        if !ok {
+        let Some((pane, ..)) = self.claude_pane_cmd() else { return self.msg = "Claude's pane is closed".into() };
+        if show_pane(pane).is_err() {
             self.msg = "zellij couldn't show Claude's pane".into();
         }
     }
@@ -785,7 +785,7 @@ impl App {
         })
     }
 
-    /// The zellij tab Claude's panes go in: one per repo, `claude: <repo>`, stacked there, out
+    /// The zellij tab Claude's panes go in: one per repo, `claude: <repo>`, side by side, out
     /// of dv's way (a tab's floating panes show and hide all together, and each PR opened in
     /// dv's tab would add one). Its name, and its id if it's open.
     fn claude_tab(&self) -> (String, Option<u64>) {
@@ -921,12 +921,25 @@ fn offer_to_pane(pane: u64, prompt: &str) -> Result<bool> {
         return Ok(false);
     }
     zellij(&["action", "paste", "-p", &id, prompt])?;
-    // Its tab first (Claude's: see `claude_tab`).
-    if let Some(tab) = zellij_panes().iter().find(|p| p["id"].as_u64() == Some(pane) && p["is_plugin"] != true).and_then(|p| p["tab_id"].as_u64()) {
-        zellij(&["action", "go-to-tab-by-id", &tab.to_string()])?;
-    }
-    zellij(&["action", "focus-pane-id", &id])?;
+    show_pane(pane)?;
     Ok(true)
+}
+
+/// Bring Claude's pane `pane` up: in another tab (Claude's, `claude_tab`), that tab; in dv's
+/// own (an older dv's floating one), the pane focused. Not focused in another tab: zellij
+/// (0.45) can panic doing that, taking the session down ("Cannot focus pane … as it is not
+/// selectable").
+fn show_pane(pane: u64) -> Result<()> {
+    let panes = zellij_panes();
+    let tab = |id: u64| panes.iter().find(|p| p["id"].as_u64() == Some(id) && p["is_plugin"] != true).and_then(|p| p["tab_id"].as_u64());
+    let own = std::env::var("ZELLIJ_PANE_ID").ok().and_then(|id| id.parse().ok()).and_then(tab);
+    let args = match tab(pane) {
+        Some(t) if Some(t) != own => vec!["go-to-tab-by-id".to_owned(), t.to_string()],
+        _ => vec!["focus-pane-id".to_owned(), format!("terminal_{pane}")],
+    };
+    let st = std::process::Command::new("zellij").arg("action").args(&args).stdin(std::process::Stdio::null()).status()?;
+    anyhow::ensure!(st.success(), "zellij {} failed ({st})", args[0]);
+    Ok(())
 }
 
 /// Whether a Claude Code pane's screen shows it working: its spinner line, a word and how long

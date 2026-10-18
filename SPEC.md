@@ -98,7 +98,7 @@ disk: rust-analyzer can index it and `hx` can open it.
    Claude Code from dv (review / update the review, answer your waiting replies, or make the
    changes its open comments ask for, after optional instructions of yours in `$EDITOR`): in a
    zellij pane as an interactive session, in a tab of Claude's panes for the repo, `claude: <repo>`
-   (made when there's none), stacked there and opened without focus, out of dv's way (`Space a` →
+   (made when there's none), opened there without focus, out of dv's way (`Space a` →
    "Show Claude's pane" goes to it; dv says when it's
    asking you something, a permission prompt, checking its screen every 3s), else `claude -p` in the background
    (`acceptEdits`, Bash limited to `dv review-*` and read-only git), with "Claude working…"

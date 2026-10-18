@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Fixed
+- zellij crashing after Claude opened in its tab: dv focused Claude's pane there, which zellij
+  (0.45) can panic on ("Cannot focus pane … as it is not selectable"), taking the session down.
+  dv now only switches to Claude's tab, and no longer stacks panes there, which zellij refuses
+  from outside the tab.
+
 ## [0.28.1] - 2026-10-18
 
 ### Fixed
