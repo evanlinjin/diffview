@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-10-18
+
 ### Added
 - Auto CI, `C` in `dv list` (shown on its top bar, kept in git config `dv.autoCI`): on your PRs,
   Claude starts fixing CI as soon as it fails, and a draft is marked ready for review once CI passes.
@@ -791,6 +793,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.27.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.27.0
 [0.26.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.26.0
 [0.25.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.25.0
 [0.24.3]: https://github.com/evanlinjin/diffview/releases/tag/v0.24.3
