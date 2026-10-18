@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Fixed
+- In a dv that had been running across an install (a new dv in its place), drafting a
+  replacement, or a review's worktree for `a a`, failed with "No such file or directory": dv ran
+  another of itself by its old path, gone. It runs the new one now.
+
 ## [0.24.2] - 2026-10-18
 
 ### Changed

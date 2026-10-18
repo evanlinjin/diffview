@@ -461,6 +461,21 @@ fn checkout_record(n: u64) -> Option<PathBuf> {
     claude::dv_dir().ok().map(|d| d.join("checkouts").join(format!("pr-{n}")))
 }
 
+/// This dv's binary, to run another of: as it is now. Replaced while dv runs (an install),
+/// Linux gives the old one's path with " (deleted)" on it, which isn't there to run: the new
+/// one at its path then (else `dv` on PATH).
+pub(crate) fn self_exe() -> PathBuf {
+    std::env::current_exe().map_or_else(|_| PathBuf::from("dv"), runnable)
+}
+
+/// `p` (this binary's path, as Linux gives it) as one there is to run.
+fn runnable(p: PathBuf) -> PathBuf {
+    if p.exists() {
+        return p;
+    }
+    p.to_str().and_then(|s| s.strip_suffix(" (deleted)")).map(PathBuf::from).filter(|p| p.exists()).unwrap_or_else(|| PathBuf::from("dv"))
+}
+
 /// The commit dv last checked PR `n` out at, here or in its worktree.
 pub(crate) fn last_checkout(n: u64) -> Option<String> {
     Some(std::fs::read_to_string(checkout_record(n)?).ok()?.trim().to_owned())
@@ -666,4 +681,18 @@ fn branch_checked_out_elsewhere() {
     assert_eq!(checked_out_at(list, "dv/replace-2345"), Some(PathBuf::from("/r/bdk-replace-2345")));
     assert_eq!(checked_out_at(list, "dv/replace"), None); // the whole name, not a prefix
     assert_eq!(checked_out_at(list, "fix"), None);
+}
+
+#[test]
+fn self_exe_after_an_install() {
+    // As a running dv sees itself: here, the test binary, which is there.
+    assert!(self_exe().exists());
+    // Replaced by an install meanwhile: the path Linux gives isn't there; the new one at it is.
+    let dir = std::env::temp_dir().join(format!("dv-self-exe-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let bin = dir.join("dv");
+    std::fs::write(&bin, "").unwrap();
+    assert_eq!(runnable(dir.join("dv (deleted)")), bin);
+    assert_eq!(runnable(dir.join("gone (deleted)")), PathBuf::from("dv")); // nothing there: PATH's
+    _ = std::fs::remove_dir_all(&dir);
 }

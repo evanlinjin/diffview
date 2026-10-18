@@ -89,7 +89,7 @@ fn run(n: u64, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sender<
     use anyhow::Context;
     _ = tx.send((n, Status::Preparing));
     // The worktree, checked out at the PR (by a dv of its own: that changes directory).
-    let mut prep = std::process::Command::new(std::env::current_exe()?);
+    let mut prep = std::process::Command::new(crate::self_exe());
     prep.args(["prepare-worktree", &n.to_string()]).current_dir(root);
     if branch {
         prep.arg("-b");

@@ -840,7 +840,7 @@ pub(crate) fn asking(screen: &str) -> bool {
 pub(super) fn spawn_replace(prs: &[u64]) -> Result<()> {
     use std::os::unix::process::CommandExt;
     let log = std::env::temp_dir().join(format!("dv-replace-{}.log", prs[0]));
-    std::process::Command::new(std::env::current_exe()?)
+    std::process::Command::new(crate::self_exe())
         .arg("replace")
         .args(prs.iter().map(u64::to_string))
         .stdin(std::process::Stdio::null())
@@ -917,7 +917,7 @@ pub(crate) fn claude_command(prompt: &str, dir: &Path, session: &[String], more:
 /// be found (dv may have been started by its full path, or from a shell whose PATH a zellij
 /// pane doesn't get) and be this version.
 fn path_for_claude() -> std::ffi::OsString {
-    let own = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf));
+    let own = crate::self_exe().parent().map(Path::to_path_buf).filter(|d| !d.as_os_str().is_empty());
     let rest = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect::<Vec<_>>()).unwrap_or_default();
     std::env::join_paths(own.into_iter().chain(rest)).unwrap_or_default()
 }
