@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-18
+
 ### Added
 - The pinned PR title says, as badges that always show, when Claude is working here (in the
   background, or in its pane, or asking you something there) and when the checkout is out of
@@ -555,6 +557,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.13.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.13.0
 [0.12.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.12.0
 [0.11.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.11.0
 [0.10.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.10.0
