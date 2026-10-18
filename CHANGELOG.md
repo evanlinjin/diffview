@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.8.6] - 2026-10-18
+
 ### Fixed
 - The mouse wheel over the comments pane stops at its end: on the comments tab once the last
   comment is on screen (it scrolled on through the code), on the PR tab at the end of its text
@@ -462,6 +464,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.8.6]: https://github.com/evanlinjin/diffview/releases/tag/v0.8.6
 [0.8.5]: https://github.com/evanlinjin/diffview/releases/tag/v0.8.5
 [0.8.4]: https://github.com/evanlinjin/diffview/releases/tag/v0.8.4
 [0.8.3]: https://github.com/evanlinjin/diffview/releases/tag/v0.8.3
