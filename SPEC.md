@@ -206,7 +206,10 @@ disk: rust-analyzer can index it and `hx` can open it.
 latest review and the commit it was on, review requests, mergeability, the head commit): a
 replacement to publish or to close the originals for, work in its worktree that isn't on GitHub
 (uncommitted files, untracked too, and commits the PR doesn't have, but not a checkout the PR has
-merely moved past: looked at on refresh, back from a PR and when Claude's done), a push since your
+merely moved past: looked at on refresh, back from a PR and when Claude's done; when Claude made
+it, saying what it `Changed:` in its review file after the PR's head commit, it's its own need,
+first: "Claude made changes, not pushed … check them, push them"; a run in a zellij pane counts as
+done once Claude Code there stops working, its pane still open), a push since your
 review, Claude answering
 you, your review requested, approved + mergeable + checks green, conflicts with its base (ask for
 a rebase: `b b` in `dv list` posts a comment saying so, after your editor, then defers the item

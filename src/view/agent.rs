@@ -636,7 +636,7 @@ impl App {
         }
         self.claude.asking = asking_now;
         // Claude Code says how to stop it while it's working.
-        self.claude.pane_busy = screen.is_some_and(|s| s.contains("esc to interrupt"));
+        self.claude.pane_busy = screen.as_deref().is_some_and(working);
     }
 
     /// What Claude is doing here, for the pinned title: a run in the background, or its pane
@@ -789,9 +789,14 @@ fn offer_to_pane(pane: u64, prompt: &str) -> Result<bool> {
     Ok(true)
 }
 
+/// Whether a Claude Code pane's screen shows it working (it says how to stop it then).
+pub(crate) fn working(screen: &str) -> bool {
+    screen.contains("esc to interrupt")
+}
+
 /// Whether a Claude Code pane's screen shows it asking you something: a permission prompt, or
 /// (in a folder it hasn't seen) whether you trust it. Typing in then would answer it.
-pub(super) fn asking(screen: &str) -> bool {
+pub(crate) fn asking(screen: &str) -> bool {
     ["Do you want", "Would you like", "❯ 1.", "trust this folder"].iter().any(|p| screen.contains(p))
 }
 

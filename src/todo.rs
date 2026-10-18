@@ -18,6 +18,8 @@ pub enum Need {
     /// Work in its worktree that isn't on GitHub (yours, or Claude's): this many changed files,
     /// and commits beyond the PR's head. Check it, commit it, push it (`Space g`).
     Unpushed(usize, usize),
+    /// The same, made by Claude (it asked to make changes, and has): check them, push them.
+    ClaudeChanged(usize, usize),
     /// You reviewed it, and its author has pushed since.
     PushedSinceReview,
     /// Claude has answered you on this many of its review's threads.
@@ -43,6 +45,7 @@ impl Need {
     pub fn weight(&self) -> u8 {
         match self {
             Need::Publish => 90,
+            Need::ClaudeChanged(..) => 88,
             Need::Unpushed(..) => 85,
             Need::PushedSinceReview => 80,
             Need::ClaudeAnswered(_) => 75,
@@ -63,13 +66,16 @@ impl Need {
         match self {
             Need::Publish => "replacement drafted: publish it".into(),
             Need::CloseOriginals(n) => format!("published: close the {n} PR{} it replaces", s(*n)),
-            Need::Unpushed(files, commits) => {
+            Need::Unpushed(files, commits) | Need::ClaudeChanged(files, commits) => {
                 let what = match (files, commits) {
                     (0, c) => format!("{c} commit{} the PR doesn't have", s(*c)),
                     (f, 0) => format!("{f} uncommitted file{}", s(*f)),
                     (f, c) => format!("{f} uncommitted file{} and {c} commit{} the PR doesn't have", s(*f), s(*c)),
                 };
-                format!("in its worktree: {what} (Space g there)")
+                match self {
+                    Need::ClaudeChanged(..) => format!("Claude made changes, not pushed: {what}; check them, push them (Space g there)"),
+                    _ => format!("in its worktree: {what} (Space g there)"),
+                }
             }
             Need::PushedSinceReview => "pushed since your review".into(),
             Need::ClaudeAnswered(n) => format!("Claude answered you on {n} thread{}", s(*n)),
@@ -143,13 +149,24 @@ pub struct Facts<'a> {
     pub review_changed: Option<i64>,
     /// In its worktree, what isn't on GitHub: (changed files, commits beyond the PR's head).
     pub unpushed: (usize, usize),
+    /// When the PR's head commit was made (seconds): Claude's changes after it aren't pushed.
+    pub head_at: Option<i64>,
 }
 
 /// What PR `f` needs from you, and what Claude should do on it first.
 pub fn needs(f: &Facts) -> (Vec<Need>, Option<Task>) {
     let (pr, mut out) = (f.pr, vec![]);
     if f.unpushed != (0, 0) {
-        out.push(Need::Unpushed(f.unpushed.0, f.unpushed.1));
+        // Claude's doing (it says what it "Changed:" since the PR's head), or anyone's.
+        let claude = f.review.is_some_and(|r| {
+            r.threads.iter().flat_map(|t| &t.comments).any(|c| {
+                c.author == crate::claude::AUTHOR && c.body.starts_with("Changed:") && crate::gh::epoch_secs(&c.created).is_some_and(|t| f.head_at.is_none_or(|h| t > h))
+            })
+        });
+        out.push(match claude {
+            true => Need::ClaudeChanged(f.unpushed.0, f.unpushed.1),
+            false => Need::Unpushed(f.unpushed.0, f.unpushed.1),
+        });
     }
     let mine = !f.me.is_empty() && pr.author == f.me;
     let head = f.extra.map_or("", |e| e.head_oid.as_str());
@@ -639,7 +656,7 @@ mod tests {
             mergeable: "MERGEABLE".into(),
             head_oid: head.into(),
         };
-        let facts = |p: &'static Listed, e: Option<&'static Extra>, r: Option<&'static crate::claude::Review>| Facts { pr: p, extra: e, me: "me", review: r, looked: Some(LOOKED), review_changed: Some(50), unpushed: (0, 0) };
+        let facts = |p: &'static Listed, e: Option<&'static Extra>, r: Option<&'static crate::claude::Review>| Facts { pr: p, extra: e, me: "me", review: r, looked: Some(LOOKED), review_changed: Some(50), unpushed: (0, 0), head_at: None };
         // Nothing from you, no Claude review: you, and Claude reviews it.
         let (n, c) = needs(&facts(leak(pr(1, "amy")), Some(leak(extra(None, false, "h1"))), None));
         assert_eq!((n, c), (vec![Need::NoReview], Some(Task::Review)));
@@ -671,6 +688,19 @@ mod tests {
         f.unpushed = (2, 1);
         assert_eq!(needs(&f).0, vec![Need::Unpushed(2, 1)]);
         assert_eq!(Need::Unpushed(2, 1).says(), "in its worktree: 2 uncommitted files and 1 commit the PR doesn't have (Space g there)");
+        // Claude said what it "Changed:" after the PR's head was made: Claude's, to check and push.
+        let mut t = Thread { claude: Some("c1".into()), ..Default::default() };
+        t.comments = vec![crate::gh::Comment { author: crate::claude::AUTHOR.into(), body: "Changed: renamed it".into(), created: "2026-10-18T10:00:00Z".into(), ..Default::default() }];
+        let r = leak(crate::claude::Review { head: String::new(), summary: String::new(), description: String::new(), threads: vec![t] });
+        let mut f = facts(leak(pr(8, "me")), Some(leak(extra(None, false, "h"))), Some(r));
+        f.unpushed = (2, 0);
+        f.head_at = crate::gh::epoch_secs("2026-10-18T09:00:00Z");
+        assert_eq!(needs(&f).0[0], Need::ClaudeChanged(2, 0));
+        assert!(Need::ClaudeChanged(2, 0).says().starts_with("Claude made changes, not pushed: 2 uncommitted files"));
+        assert!(Need::ClaudeChanged(2, 0).weight() > Need::Unpushed(2, 0).weight());
+        // Its changes from before that head: pushed already; what's here now is someone's.
+        f.head_at = crate::gh::epoch_secs("2026-10-18T11:00:00Z");
+        assert_eq!(needs(&f).0[0], Need::Unpushed(2, 0));
         // Conflicting with its base: ask for a rebase (or, yours, do it).
         let mut conflicting = extra(None, false, "h");
         conflicting.mergeable = "CONFLICTING".into();

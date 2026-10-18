@@ -17,8 +17,8 @@ impl List {
             let file = dir.as_ref().map(|d| d.join(format!("pr-{}.json", p.number)));
             let review = file.as_ref().and_then(|f| crate::claude::load(f).ok().flatten());
             let looked = seen.as_ref().and_then(|s| std::fs::read_to_string(s.join(format!("pr-{}.looked", p.number))).ok()?.trim().parse().ok());
-            let unpushed = self.unpushed.get(&p.number).copied().unwrap_or((0, 0));
-            let facts = Facts { pr: p, extra: self.extra.get(&p.number), me: &self.me, review: review.as_ref(), looked, review_changed: file.and_then(secs), unpushed };
+            let (f, c, head_at) = self.unpushed.get(&p.number).copied().unwrap_or((0, 0, None));
+            let facts = Facts { pr: p, extra: self.extra.get(&p.number), me: &self.me, review: review.as_ref(), looked, review_changed: file.and_then(secs), unpushed: (f, c), head_at };
             let (needs, claude) = todo::needs(&facts);
             if !needs.is_empty() {
                 items.push(Item { rep: false, number: p.number, needs, claude, updated: p.updated.clone(), reason: None, changed: false, deferred: None, busy: None, waits: None });
@@ -177,7 +177,9 @@ impl List {
                     true => 0,
                     false => git(&["rev-list", "--count", &format!("{theirs}..HEAD")]).and_then(|c| c.trim().parse().ok()).unwrap_or(0),
                 };
-                (files + commits > 0).then_some((n, (files, commits)))
+                // When the PR's head was made: Claude's changes after it are what's waiting.
+                let at = git(&["log", "-1", "--format=%ct", &theirs]).and_then(|t| t.trim().parse().ok());
+                (files + commits > 0).then_some((n, (files, commits, at)))
             })
             .collect();
     }
@@ -277,9 +279,14 @@ impl List {
         self.running_checked = std::time::Instant::now();
         let Some(dir) = self.reviews_dir.as_ref().and_then(|d| d.parent()).map(|d| d.join("running")) else { return false };
         let panes = std::cell::OnceCell::new(); // zellij's panes, looked up only if a run is in one
+        // A run in a pane is at it while Claude Code works there (or asks you something), not
+        // just while its pane is open: done, it waits there idle.
         let alive = |pid: Option<u32>, session: Option<&str>| match (pid, session) {
             (Some(pid), _) => std::process::Command::new("kill").args(["-0", &pid.to_string()]).stderr(std::process::Stdio::null()).status().is_ok_and(|s| s.success()),
-            (None, Some(id)) => panes.get_or_init(open_panes).iter().any(|c: &String| c.contains(id)),
+            (None, Some(id)) => panes.get_or_init(open_panes).iter().find(|(_, c): &&(u64, String)| c.contains(id)).is_some_and(|(p, _)| {
+                let screen = pane_screen(*p);
+                crate::view::working(&screen) || crate::view::asking(&screen)
+            }),
             _ => false,
         };
         let now = crate::claude::running(&dir, alive);
@@ -343,12 +350,24 @@ pub(super) fn ago_secs(s: i64) -> String {
     }
 }
 
-/// The commands of zellij's open panes (none outside zellij).
-fn open_panes() -> Vec<String> {
+/// zellij's open panes: their ids and commands (none outside zellij).
+fn open_panes() -> Vec<(u64, String)> {
     if !crate::view::in_zellij() {
         return vec![];
     }
     let out = std::process::Command::new("zellij").args(["action", "list-panes", "-j", "-c"]).stdin(std::process::Stdio::null()).output();
     let panes: serde_json::Value = out.ok().and_then(|o| serde_json::from_slice(&o.stdout).ok()).unwrap_or_default();
-    panes.as_array().into_iter().flatten().filter(|p| p["exited"] != true).filter_map(|p| p["pane_command"].as_str().map(str::to_owned)).collect()
+    panes
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|p| p["exited"] != true && p["is_plugin"] != true)
+        .filter_map(|p| Some((p["id"].as_u64()?, p["pane_command"].as_str()?.to_owned())))
+        .collect()
+}
+
+/// What zellij pane `id` shows.
+fn pane_screen(id: u64) -> String {
+    let out = std::process::Command::new("zellij").args(["action", "dump-screen", "-p", &format!("terminal_{id}")]).stdin(std::process::Stdio::null()).output();
+    out.map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default()
 }

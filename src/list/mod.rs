@@ -140,8 +140,9 @@ pub struct List {
     /// were last looked at.
     running: HashMap<u64, String>,
     running_checked: std::time::Instant,
-    /// What's not pushed in each PR worktree (`scan_unpushed`).
-    unpushed: HashMap<u64, (usize, usize)>,
+    /// What's not pushed in each PR worktree (`scan_unpushed`): changed files, commits beyond
+    /// the PR's head, and when that head was made.
+    unpushed: HashMap<u64, (usize, usize, Option<i64>)>,
     /// Todo items deferred (`s`), kept in dv's directory; the one `s` is asking how long for.
     deferred: crate::todo::Deferred,
     deferring: Option<String>,

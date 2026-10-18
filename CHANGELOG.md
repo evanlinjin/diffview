@@ -6,6 +6,10 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Added
+- Todo: "Claude made changes, not pushed: … check them, push them" is a need of its own, at the
+  top: work in a PR's worktree that Claude made (it said what it `Changed:`) since the PR's head.
+  A Claude run in a zellij pane counts as done once Claude stops working there, not when its pane
+  closes.
 - The comments pane has a `Claude` tab, between `Comments` and `PR`: the Claude view (`Ctrl-w a`)
   as a tab you can see. `gn` / `gp` go round the three; `Comments` is the whole diff again.
 - In the Claude view, Claude's review summary is in full, before the files (`Tab` folds it).
