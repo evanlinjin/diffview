@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-18
+
 ### Added
 - The changed files' list on the left (`Ctrl-w e`, kept for the next run): files under their
   folders, the one you're in marked, `✓` when viewed, `·N` its open comments; a click goes to
@@ -508,6 +510,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.10.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.10.0
 [0.9.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.9.1
 [0.9.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.9.0
 [0.8.6]: https://github.com/evanlinjin/diffview/releases/tag/v0.8.6
