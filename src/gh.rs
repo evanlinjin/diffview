@@ -450,9 +450,19 @@ fn next_page(list: &Value) -> Option<String> {
 /// 304 Not Modified, which doesn't count against the rate limit. New comments, replies, reviews
 /// and pushes change it; edits and resolving a thread don't.
 pub fn pr_etag(n: u64, etag: &str) -> Result<Option<String>> {
-    let path = format!("repos/{{owner}}/{{repo}}/pulls/{n}");
+    etag_of(&format!("repos/{{owner}}/{{repo}}/pulls/{n}"), etag)
+}
+
+/// The open PRs' ETag (as `list` lists them: most recently updated first), if it has changed
+/// from `etag`, as `pr_etag`: a push, comment, review, new or closed PR changes it; CI doesn't.
+pub fn list_etag(etag: &str) -> Result<Option<String>> {
+    etag_of("repos/{owner}/{repo}/pulls?state=open&sort=updated&direction=desc&per_page=100", etag)
+}
+
+/// API `path`'s ETag, if it has changed from `etag` (`None`: 304 Not Modified, free).
+fn etag_of(path: &str, etag: &str) -> Result<Option<String>> {
     let header = format!("If-None-Match: {etag}");
-    let mut args = vec!["api", "-i", &path];
+    let mut args = vec!["api", "-i", path];
     if !etag.is_empty() {
         args.extend(["-H", &header]);
     }

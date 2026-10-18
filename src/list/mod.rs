@@ -24,6 +24,9 @@ use todo::ago_secs;
 mod tests;
 
 type Checks = anyhow::Result<HashMap<u64, (usize, usize, usize)>>;
+/// The open PRs, as fetched (in the background).
+type Fetched = Result<Vec<Listed>>;
+
 /// You, and what GitHub says of each PR beyond its card (`gh::list_extra`).
 type Extras = anyhow::Result<(String, HashMap<u64, gh::Extra>)>;
 
@@ -102,6 +105,8 @@ pub struct List {
     rev: bool,
     /// CI check counts, still on their way (they take a few seconds for a busy repo).
     checks: Option<Receiver<Checks>>,
+    /// The PRs fetched again in the background (`watch_github`), to show without a wait.
+    fresh: Option<(mpsc::Sender<Fetched>, Receiver<Fetched>)>,
     /// PR worktrees: number → (dir, branch or `None` when detached).
     local: HashMap<u64, (PathBuf, Option<String>)>,
     /// The tab showing.
@@ -199,6 +204,7 @@ impl List {
             order: Order::Updated,
             rev: false,
             checks: None,
+            fresh: None,
             local: HashMap::new(),
             tab: Tab::Open,
             reps: vec![],
@@ -245,6 +251,15 @@ impl List {
         // As saved: another dv list of this repo may have changed them meanwhile.
         self.marked = load_marks();
         self.marked_saved = self.marked.clone();
+        // From GitHub again in the background while it's open (and now, back from a PR: you may
+        // have changed it).
+        match &self.fresh {
+            None => self.watch_github(),
+            Some((tx, _)) => {
+                let tx = tx.clone();
+                std::thread::spawn(move || _ = tx.send(gh::list()));
+            }
+        }
         if self.prs.is_empty() {
             self.refresh(term)?;
             if !self.marked.is_empty() && self.msg.is_empty() {
@@ -282,6 +297,10 @@ impl List {
             if let Some(Ok(res)) = self.group_rx.as_ref().map(Receiver::try_recv) {
                 self.group_rx = None;
                 self.draft_groups(term, res);
+            }
+            // Quietly: what you're reading stays (an error just waits for the next try).
+            if let Some(Ok(Ok(prs))) = self.fresh.as_ref().map(|(_, rx)| rx.try_recv()) {
+                self.apply_list(Ok(prs), true);
             }
             if let Some(Ok(res)) = self.checks.as_ref().map(Receiver::try_recv) {
                 self.checks = None;
@@ -608,21 +627,61 @@ impl List {
     fn refresh(&mut self, term: &mut DefaultTerminal) -> Result<()> {
         self.msg = "loading PRs…".into();
         term.draw(|f| self.draw(f))?;
+        self.apply_list(gh::list(), false);
+        Ok(())
+    }
+
+    /// Watch GitHub in the background for as long as dv runs: the open PRs' ETag every 30s (a
+    /// 304 is free), fetching them again when it changes; and every 5 minutes regardless (CI
+    /// doesn't change it). What's fetched shows as it comes (`apply_list`).
+    fn watch_github(&mut self) {
+        let (tx, rx) = mpsc::channel();
+        let sender = tx.clone();
+        std::thread::spawn(move || {
+            let mut etag = gh::list_etag("").ok().flatten().unwrap_or_default();
+            let mut fetched = std::time::Instant::now();
+            loop {
+                std::thread::sleep(Duration::from_secs(30));
+                let changed = match gh::list_etag(&etag) {
+                    Ok(Some(e)) => (etag = e, true).1,
+                    _ => false,
+                };
+                if changed || fetched.elapsed() >= Duration::from_secs(300) {
+                    fetched = std::time::Instant::now();
+                    if sender.send(gh::list()).is_err() {
+                        return; // dv list is done
+                    }
+                }
+            }
+        });
+        self.fresh = Some((tx, rx));
+    }
+
+    /// The PRs as fetched: on the cards, keeping the selected one selected. `quiet` (in the
+    /// background): no message, and the CI counts kept until the new ones come.
+    fn apply_list(&mut self, res: Result<Vec<Listed>>, quiet: bool) {
         let keep = self.shown().get(self.sel).map(|p| p.number);
         self.local = crate::pr_worktrees().into_iter().map(|(n, dir, b)| (n, (dir, b))).collect();
         self.scan_unpushed();
         self.find_others();
         self.reviewed = crate::batch::reviewed();
         self.load_reps();
-        match gh::list() {
+        match res {
             Ok(mut prs) => {
+                if quiet {
+                    for p in &mut prs {
+                        p.checks = self.prs.iter().find(|o| o.number == p.number).and_then(|o| o.checks);
+                    }
+                }
                 let (tx, rx) = mpsc::channel();
                 std::thread::spawn(move || tx.send(gh::list_checks()));
                 self.checks = Some(rx);
                 let (tx, rx) = mpsc::channel();
                 std::thread::spawn(move || tx.send(gh::list_extra()));
                 self.extra_rx = Some(rx);
-                self.msg = if prs.is_empty() { "no open PRs".into() } else { String::new() };
+                if !quiet {
+                    self.msg = if prs.is_empty() { "no open PRs".into() } else { String::new() };
+                }
                 // Worktrees of PRs that aren't open any more (or beyond the list): fetch those few.
                 let mut gone: Vec<u64> = self.local.keys().filter(|n| !prs.iter().any(|p| p.number == **n)).copied().collect();
                 gone.sort();
@@ -644,7 +703,6 @@ impl List {
             }
             Err(e) => self.msg = format!("{e:#}"),
         }
-        Ok(())
     }
 
     /// The tab's PRs matching every filter term, in the chosen order.

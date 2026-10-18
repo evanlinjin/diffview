@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- `dv list` keeps up with GitHub by itself: it checks the open PRs' ETag every 30 seconds (free
+  when nothing changed) and fetches them again when it changes, every 5 minutes regardless (for
+  CI), and on coming back from a PR; in the background, the cards updating in place.
+
 ## [0.23.3] - 2026-10-18
 
 ### Fixed

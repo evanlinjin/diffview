@@ -284,7 +284,11 @@ failed one keeps them, to look into); elsewhere the terminal, and dv waits for E
 `dv list` (the 1000 most recently updated open PRs; a `#N` filter's Enter opens PR N even if it
 isn't listed; `Tab` switches to the PRs with a local
 `<repo>-N` worktree, open or not, which `Enter` opens in that worktree as it was made:
-detached or on its branch) shows each PR as a card, a blank line between cards. In a window 110 columns or wider, three
+detached or on its branch) shows each PR as a card, a blank line between cards. It keeps up
+with GitHub in the background: the open PRs' ETag every 30s (a 304 is free), fetching them
+again when it changes (a push, comment, review, new or closed PR) and every 5 minutes regardless
+(for CI), and again on coming back from a PR; the cards change in place (the selected one stays
+selected, CI counts kept until the new ones come). `R` fetches now. In a window 110 columns or wider, three
 lines in two zones (within 140 columns): on the left the mark (`m`: a `●` in a column of its own,
 before the number, so marked cards line up), the number, title (bold), badges and `[new]`;
 author, size, labels; base ← branch and its worktree. On the right, a 30-column zone lining up
