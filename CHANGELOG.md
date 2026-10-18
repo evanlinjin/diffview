@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.23.3] - 2026-10-18
+
 ### Fixed
 - github-merge.py's GitHub requests went unauthenticated (60 an hour, then "rate limit
   exceeded"): dv gives it your `gh` token (`user.ghtoken`, from `gh auth token`) when you haven't
@@ -715,6 +717,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.23.3]: https://github.com/evanlinjin/diffview/releases/tag/v0.23.3
 [0.23.2]: https://github.com/evanlinjin/diffview/releases/tag/v0.23.2
 [0.23.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.23.1
 [0.23.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.23.0
