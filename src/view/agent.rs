@@ -417,6 +417,16 @@ impl App {
         if self.claude.path.is_none() {
             return self.msg = "no review file here (not in a git repo?)".into();
         }
+        // On Claude's review summary: a reply to it, about what's selected there (quoted).
+        let row = &self.rows[self.head.row];
+        if row.info == Some(SUMMARY) && row.thread.is_none() {
+            let prefill = match self.selected_quote() {
+                Some(q) => format!("About this part of your review:\n{q}"),
+                None => String::new(),
+            };
+            self.select = false;
+            return self.action = Some(Action::AskConversation { url: ON_SUMMARY.into(), prefill });
+        }
         // On the PR's description: Claude proposes a new one (more changes, if it has).
         if self.section_of(self.head.row) == Some(DESCRIPTION) {
             return self.pick_claude(Ask::Describe);
@@ -454,8 +464,14 @@ impl App {
         let text = self.info.get(body).filter(|l| l.md)?;
         let head = self.info.get(body.checked_sub(1)?).filter(|h| h.heading && !h.url.is_empty() && h.text.starts_with('@'))?;
         let who = head.text.split(" · ").next().unwrap_or("");
-        let quote: String = text.text.lines().map(|l| format!("> {l}\n")).collect();
-        Some((head.url.clone(), format!("About {who}'s comment ({}):\n{quote}\n", head.url)))
+        // What's selected of it, else all of it.
+        let quote = self.selected_quote().unwrap_or_else(|| super::quote(&text.text));
+        Some((head.url.clone(), format!("About {who}'s comment ({}):\n{quote}", head.url)))
+    }
+
+    /// The selected text, quoted (`> `), when there's a selection.
+    fn selected_quote(&self) -> Option<String> {
+        (self.select || self.anchor != self.head).then(|| super::quote(self.selection_text(false).trim_end())).filter(|q| !q.is_empty())
     }
 
     /// Which of a replacement's drafts row `r` is a line of: "description" or "closing note".

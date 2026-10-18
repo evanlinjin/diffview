@@ -2215,6 +2215,13 @@ fn reply_to_claudes_summary() {
     app.goto(row, 0);
     app.start_reply(true);
     assert!(matches!(app.action.take(), Some(Action::AskConversation { url, .. }) if url == ON_SUMMARY), "{}", app.msg);
+    // a on it, with part of it selected: a reply about that part, quoting it.
+    app.goto(row, 0);
+    app.anchor = Pos { row, col: 0 };
+    app.head = Pos { row, col: "Looks right".len() - 1 };
+    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+    let Some(Action::AskConversation { url, prefill }) = app.action.take() else { panic!("no reply: {}", app.msg) };
+    assert_eq!((url.as_str(), prefill.as_str()), (ON_SUMMARY, "About this part of your review:\n> Looks right\n\n"));
     // With that thread there: under the summary, and r on the summary goes on in it.
     let c = |who: &str, body: &str| gh::Comment { author: who.into(), body: body.into(), ..Default::default() };
     app.threads.push(gh::Thread { claude: Some("c7".into()), conversation: ON_SUMMARY.into(), comments: vec![c("you", "why approve?"), c("claude", "Because it's minimal.")], ..Default::default() });

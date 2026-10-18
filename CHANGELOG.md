@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Fixed
+- `a` on Claude's review summary (a selection in it, say) said it only works on code lines: it
+  replies to the summary now, quoting what's selected. On a conversation comment, `a` quotes
+  what's selected of it too (else all of it).
+
 ### Changed
 - With the contents list shown, the key hints (after `Space`, `g`, `Ctrl-w`…, and what the keys do
   where the cursor is) are pinned at its bottom instead of over the code, and its commits follow
