@@ -161,6 +161,9 @@ impl App {
         if row.info == Some(SUMMARY) {
             return Some(("Claude's review", &[("c", "add to your review summary"), ("C", "post it as your PR comment")]));
         }
+        if self.replacement_draft(self.head.row).is_some() {
+            return Some(("Claude's draft", &[("a", "ask Claude to redraft this (quoted)")]));
+        }
         if row.info == Some(DRAFT) {
             return Some(("your review", &[("S", "edit it and submit"), ("C", "new conversation comment"), ("Space c", "copy link")]));
         }

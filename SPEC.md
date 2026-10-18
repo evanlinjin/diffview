@@ -185,7 +185,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `]n [n`, `Space n` | next/prev thread tagged `[new]` (comments you haven't seen, not your own: seen once the cursor leaves the thread or has stayed on it for 3 s, remembered in dv's directory, `seen/`), and a picker of them |
 | `]p [p` | next/prev comment of your pending review (replies too), wrapping around; opens folded files and threads |
 | `]a [a` | next/prev Claude comment, wrapping around; folded files and threads are opened on the way |
-| `a` | on code lines: a comment for Claude (in the review file, `"author": "user"`), which Claude answers right away; `r` continues the thread |
+| `a` | on code lines: a comment for Claude (in the review file, `"author": "user"`), which Claude answers right away; `r` continues the thread. On a replacement's description or closing note: a redraft, its instructions starting from a quote of those lines ("About the closing note: > …") |
 | `r` on a Claude comment | reply to Claude: saved in the review file, then Claude answers right away in the background (`claude -p`, resuming the last run's session; replies made meanwhile get one more run) |
 | `c` / `C` on a Claude comment | copy it into your pending review / post it now; dismissed from the file once posted |
 | `R` | refresh: re-run `git diff`, re-fetch threads + PR info |

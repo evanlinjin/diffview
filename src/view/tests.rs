@@ -1212,6 +1212,19 @@ fn replacement_in_the_pr_section() {
     app.claude.path = Some(std::env::temp_dir().join("dv-no-such-review.json"));
     app.claude_menu();
     assert!(app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::ClaudeReplace(ref p) if p == &[12, 15])));
+    // a on a draft: a redraft, starting from a quote of what it's about.
+    let note = app.rows.iter().position(|r| r.line.text == "Thanks! Handled in {replacement}.").unwrap();
+    app.goto(note, 0);
+    assert_eq!(app.context_keys().unwrap().0, "Claude's draft");
+    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+    match app.action.take() {
+        Some(Action::Replace(prs, Some(q))) => assert!(prs == [12, 15] && q == "About the closing note:\n> Thanks! Handled in {replacement}.\n\n", "{q:?}"),
+        _ => panic!("a on the closing note asks for a redraft"),
+    }
+    let body = app.rows.iter().position(|r| r.line.text == "Replaces #12 and #15.").unwrap();
+    app.goto(body, 0);
+    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+    assert!(matches!(app.action.take(), Some(Action::Replace(_, Some(q))) if q.starts_with("About the description:")));
     // S: publish first; closing what it replaces comes after.
     let s = |app: &mut App| {
         app.review_menu();

@@ -325,6 +325,18 @@ impl App {
     /// `a`: leave a comment for Claude on the selected lines (or the cursor's), in the review
     /// file; Claude answers right away, as it does replies. Nothing goes to GitHub.
     pub(super) fn start_ask_claude(&mut self) {
+        // On a replacement's drafts: a redraft, with what it's about quoted.
+        if let Some(which) = self.replacement_draft(self.head.row) {
+            let (s, e) = self.ordered();
+            let info = self.rows[self.head.row].info;
+            let lines: Vec<String> = (s.row..=e.row)
+                .filter(|&r| self.rows[r].info == info)
+                .map(|r| format!("> {}", self.rows[r].line.text.trim_end()))
+                .collect();
+            let prs = self.replacement.as_ref().map(|r| r.replaces.iter().map(|o| o.number).collect()).unwrap_or_default();
+            self.select = false;
+            return self.action = Some(Action::Replace(prs, Some(format!("About the {which}:\n{}\n\n", lines.join("\n")))));
+        }
         if self.claude.path.is_none() {
             return self.msg = "no review file here (not in a git repo?)".into();
         }
@@ -343,6 +355,15 @@ impl App {
             Some(code) => self.action = Some(Action::AskClaude { anchor, code }),
             None => self.msg = "those lines aren't in this diff".into(),
         }
+    }
+
+    /// Which of a replacement's drafts row `r` is a line of: "description" or "closing note".
+    pub(super) fn replacement_draft(&self, r: usize) -> Option<&'static str> {
+        self.replacement.as_ref()?;
+        let row = &self.rows[r];
+        let i = row.info.filter(|_| row.file == INFO)?;
+        let heading = self.info.get(i.checked_sub(1)?).filter(|h| h.heading && self.info[i].md)?;
+        [("description", "description"), ("closing note", "closing note")].into_iter().find(|(h, _)| heading.text.starts_with(h)).map(|x| x.1)
     }
 
     /// From the `Space a` menu. Reviewing and making the changes first ask for your own

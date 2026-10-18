@@ -1,6 +1,6 @@
           PR #7 · Fix the thing  @bo · main ← amy:fix          3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)
           OPEN @bo · main ← fix · +2 −2 in 3 files
-          review: wait keys · / search · j/k scroll · other keys close                 1–44 / 113
+          review: wait keys · / search · j/k scroll · other keys close                 1–44 / 115
        ╭─ description   MOVE                                                                    ┃ ─────────────╮
        │  Fixes the th   h j k l, arrows      move (counts: 5j)                                 ┃              │
        ╰──────────────   w b e  W B E         word motions (select)                             ┃ ─────────────╯

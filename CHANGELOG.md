@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- `a` on a replacement's description or closing note asks Claude to redraft it: the
+  instructions start from a quote of the lines (and which draft they're from), and you say what
+  to change.
+
 ## [0.6.1] - 2026-10-18
 
 ### Changed
