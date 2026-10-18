@@ -227,7 +227,10 @@ open when it's done; elsewhere the terminal, and dv waits for Enter after it.
 `dv list` (the 1000 most recently updated open PRs; a `#N` filter's Enter opens PR N even if it
 isn't listed; `Tab` switches to the PRs with a local
 `<repo>-N` worktree, open or not, which `Enter` opens in that worktree as it was made:
-detached or on its branch) shows each PR as a card of four lines, a blank one between cards:
+detached or on its branch) shows each PR as a card, a blank line between cards. In a window 110 columns or wider, three
+lines in two zones (within 140 columns): on the left the number, title (bold), badges and `[new]`;
+author, size, labels; base ← branch and its worktree. On the right, a 30-column zone lining up
+from card to card: CI and the age; the review decision; Claude's part. Narrower, four lines:
 number, title (bold), draft badge, `[new]`, age; author, size, labels; CI (✓/✗/● counts, fetched
 in the background since they're slow), review decision and Claude's part, in columns; base ←
 branch and its worktree. The selected card keeps its colors on a quiet background (the theme's

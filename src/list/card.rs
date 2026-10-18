@@ -75,10 +75,18 @@ pub(super) struct Cards<'a> {
     pub(super) usual: &'a str,
 }
 
-/// A PR as four lines, related things together: its number and title (with a draft / closed
-/// badge, `[new]`, and its age at the right); who and how big (and labels); how it stands (CI,
-/// review, Claude), in columns that line up from card to card; where its code is (branch, and
-/// its worktree here). Each line is cut at the width rather than wrapped.
+/// Wide enough for a card's two zones: what it is on the left, how it stands on the right.
+pub(super) const TWO_ZONES: usize = 110;
+/// The right zone's width, and the most a card's content spans (wider, the right zone would
+/// drift away from what it's about).
+const RIGHT: usize = 30;
+const CARD_MAX: usize = 140;
+
+/// A PR's card, related things together. Wide (`TWO_ZONES`), three lines in two zones: on the
+/// left what it is (number and title, with a draft / closed badge and `[new]`; who and how big,
+/// labels; branch and its worktree here), on the right how it stands (CI and its age; review;
+/// Claude), a column that lines up from card to card. Narrower, four lines: those, with how it
+/// stands on a line of its own. Each line is cut at its width rather than wrapped.
 pub(super) fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathBuf, Option<String>)>, mark: Mark) -> Vec<Line<'static>> {
     let (ui, num_w, width, usual) = (cx.ui, cx.num_w, cx.width, cx.usual);
     let row = card_row(ui, selected);
@@ -86,49 +94,35 @@ pub(super) fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathB
     let tint = |st: Style| row.patch(Style { bg: None, ..st });
     let dim = tint(ui.stale);
     let sp = |t: String, st| Span::styled(t, st);
+    let gap = || sp("   ".into(), row);
     // The selected card has a bar down its left edge.
     let bar = || sp(if selected { "▌".into() } else { " ".into() }, tint(ui.key));
     // Under the title: past the bar, the mark, the number and its gap.
-    let indent = || [bar(), sp(" ".repeat(num_w + 3), row)];
-    // A line of the card: its spans cut to the width, the highlight run to the edge.
-    let line = |mut spans: Vec<Span<'static>>| {
-        let mut used: usize = spans.iter().map(Span::width).sum();
-        while used > width && spans.len() > 1 {
-            used -= spans.pop().map_or(0, |s| s.width());
-        }
-        if used < width {
-            spans.push(sp(" ".repeat(width - used), row));
-        }
-        Line::from(spans).style(row)
-    };
+    let indent = || sp(" ".repeat(num_w + 3), row);
 
-    // Number and title; badges, [new] and the age at the right.
-    let age = format!("{} ", gh::ago(&p.updated));
+    // What it is: number and title, badges.
     let badge = match (p.state.as_str(), p.draft) {
         ("MERGED", _) => Some(("MERGED", "8957e5")),
         ("CLOSED", _) => Some(("CLOSED", "da3633")),
         (_, true) => Some(("DRAFT", "6e7681")),
         _ => None,
     };
-    let new = if mark.new { "[new] " } else { "" };
-    let room = width.saturating_sub(num_w + 4 + badge.map_or(0, |b| b.0.len() + 4) + new.len() + age.len()).max(10);
-    let mut top = vec![
-        bar(),
+    let title = vec![
         sp(format!("{}{:>w$}  ", if mark.marked { "●" } else { " " }, format!("#{}", p.number), w = num_w), tint(ui.key)),
-        sp(cut(&p.title, room), row.add_modifier(ratatui::style::Modifier::BOLD)),
+        sp(p.title.clone(), row.add_modifier(ratatui::style::Modifier::BOLD)),
     ];
+    // Badges stay in view: the title is what's cut for them.
+    let mut tags = vec![];
     if let Some((text, color)) = badge {
-        top.extend([sp("  ".into(), row), sp(format!(" {text} "), crate::view::chip(color))]);
+        tags.extend([sp("  ".into(), row), sp(format!(" {text} "), crate::view::chip(color))]);
     }
-    let used: usize = top.iter().map(Span::width).sum();
-    top.push(sp(" ".repeat(width.saturating_sub(used + new.len() + age.len())), row));
-    top.extend([sp(new.into(), tint(ui.key).add_modifier(ratatui::style::Modifier::BOLD)), sp(age, dim)]);
-
+    if mark.new {
+        tags.extend([sp("  ".into(), row), sp("[new]".into(), tint(ui.key).add_modifier(ratatui::style::Modifier::BOLD))]);
+    }
+    let age = sp(gh::ago(&p.updated), dim);
     // Who, and how big; labels.
-    let gap = || sp("   ".into(), row);
     let who = mark.replaces.clone().unwrap_or_else(|| format!("@{}", p.author));
-    let mut people = indent().to_vec();
-    people.extend([sp(who, dim), gap()]);
+    let mut people = vec![indent(), sp(who, dim), gap()];
     people.extend([
         sp(format!("+{}", p.additions), tint(ui.plus)),
         sp(" ".into(), row),
@@ -138,17 +132,19 @@ pub(super) fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathB
     for (k, (name, color)) in p.labels.iter().enumerate() {
         people.extend([sp(if k == 0 { "   " } else { " " }.into(), row), sp(format!(" {name} "), crate::view::chip(color))]);
     }
-
-    // How it stands, in columns: CI, review, Claude.
-    // A column takes its width only when it has something (else what's after it moves up).
-    let col = |spans: Vec<Span<'static>>, w: usize| {
-        let used: usize = spans.iter().map(Span::width).sum();
-        let mut v = spans;
-        if used > 0 {
-            v.push(sp(" ".repeat(w.saturating_sub(used).max(3)), row));
-        }
-        v
+    // Where its code is.
+    let branch = match p.base == usual {
+        true => p.branch.clone(),
+        false => format!("{} ← {}", p.base, p.branch),
     };
+    let mut place = vec![indent(), sp(branch, dim)];
+    if let Some((dir, branch)) = local {
+        let name = dir.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned());
+        let on = branch.as_deref().map_or("detached".to_owned(), |b| format!("on {}", cut(b, 24)));
+        place.extend([gap(), sp(format!("⌂ {name} ({on})"), tint(ui.key))]);
+    }
+
+    // How it stands: CI, review, Claude.
     let ci: Vec<Span<'static>> = match p.checks {
         Some((0, 0, 0)) => vec![],
         Some((pass, fail, pending)) => {
@@ -163,30 +159,91 @@ pub(super) fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathB
         None => vec![],
     };
     let review = match p.decision.as_str() {
-        "APPROVED" => vec![sp("review ".into(), dim), sp("✓ approved".into(), tint(ui.plus))],
-        "CHANGES_REQUESTED" => vec![sp("review ".into(), dim), sp("✗ changes requested".into(), tint(ui.error))],
+        "APPROVED" => vec![sp("✓ approved".into(), tint(ui.plus))],
+        "CHANGES_REQUESTED" => vec![sp("✗ changes requested".into(), tint(ui.error))],
         "REVIEW_REQUIRED" => vec![sp("review needed".into(), dim)],
         _ => vec![],
     };
-    let claude = mark.claude.map(|(text, ok)| sp(text, tint(if ok { ui.key } else { ui.error })));
-    let mut status = indent().to_vec();
-    status.extend(col(ci, 16));
-    status.extend(col(review, 26));
-    status.extend(claude);
-
-    // Where its code is.
-    let branch = match p.base == usual {
-        true => cut(&p.branch, 48),
-        false => format!("{} ← {}", p.base, cut(&p.branch, 40)),
+    let claude: Vec<Span<'static>> = mark.claude.map(|(text, ok)| sp(text, tint(if ok { ui.key } else { ui.error }))).into_iter().collect();
+    // The line out to the window's edge (the highlight with it).
+    let full = |mut spans: Vec<Span<'static>>| {
+        let used: usize = spans.iter().map(Span::width).sum();
+        spans.push(sp(" ".repeat(width.saturating_sub(used)), row));
+        Line::from(spans).style(row)
     };
-    let mut place = indent().to_vec();
-    place.push(sp(branch, dim));
-    if let Some((dir, branch)) = local {
-        let name = dir.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned());
-        let on = branch.as_deref().map_or("detached".to_owned(), |b| format!("on {}", cut(b, 24)));
-        place.extend([gap(), sp(format!("⌂ {name} ({on})"), tint(ui.key))]);
+
+    if width >= TWO_ZONES {
+        let content = width.min(CARD_MAX);
+        let left_w = content - 1 - RIGHT; // past the bar
+        // The left zone (cut to fit, the title making room for its badges), then the right one.
+        let zones = |left: Vec<Span<'static>>, right: Vec<Span<'static>>| {
+            let mut v = vec![bar()];
+            v.extend(fit(left, left_w, row));
+            v.extend(fit(right, RIGHT, row));
+            full(v)
+        };
+        let tags_w: usize = tags.iter().map(Span::width).sum();
+        let mut top = cut_spans(title, left_w.saturating_sub(tags_w));
+        top.extend(tags);
+        // CI on the left of the zone, the age at its right end.
+        let age_w = age.width();
+        let mut stand = fit(ci, RIGHT.saturating_sub(age_w + 1), row);
+        stand.push(age);
+        return vec![zones(top, stand), zones(people, review), zones(place, claude)];
     }
+
+    // Narrow: four lines.
+    let line = |mut spans: Vec<Span<'static>>| {
+        spans.insert(0, bar());
+        full(fit(spans, width, row))
+    };
+    let age = sp(format!("  {} ", age.content), age.style);
+    let tags_w: usize = tags.iter().map(Span::width).sum();
+    let mut top = cut_spans(title, width.saturating_sub(1 + tags_w + age.width()));
+    top.extend(tags);
+    let used: usize = top.iter().map(Span::width).sum::<usize>() + 1;
+    top.push(sp(" ".repeat(width.saturating_sub(used + age.width())), row));
+    top.push(age);
+    let mut status = vec![indent()];
+    for (part, w) in [(ci, 16usize), (review, 26)] {
+        let used: usize = part.iter().map(Span::width).sum();
+        if used > 0 {
+            status.extend(part);
+            status.push(sp(" ".repeat(w.saturating_sub(used).max(3)), row));
+        }
+    }
+    status.extend(claude);
     vec![line(top), line(people), line(status), line(place)]
+}
+
+/// `spans` in exactly `w` columns: cut to it, or padded.
+fn fit(spans: Vec<Span<'static>>, w: usize, pad: Style) -> Vec<Span<'static>> {
+    let mut out = cut_spans(spans, w);
+    let used: usize = out.iter().map(Span::width).sum();
+    if used < w {
+        out.push(Span::styled(" ".repeat(w - used), pad));
+    }
+    out
+}
+
+/// `spans` in at most `w` columns, the last one that doesn't fit ending in `…`.
+fn cut_spans(spans: Vec<Span<'static>>, w: usize) -> Vec<Span<'static>> {
+    let mut out = vec![];
+    let mut used = 0;
+    for sp in spans {
+        let n = sp.width();
+        if used + n <= w {
+            used += n;
+            out.push(sp);
+            continue;
+        }
+        let room = w - used;
+        if room > 0 {
+            out.push(Span::styled(cut(&sp.content, room), sp.style));
+        }
+        break;
+    }
+    out
 }
 
 /// A todo card's reason line, under the title: its place in the order, and what needs you

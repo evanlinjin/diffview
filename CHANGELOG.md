@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Changed
+- `dv list` cards in a wide window (110+ columns) have two zones: what the PR is on the left
+  (title, who and how big, branch), how it stands on the right (CI and its age, review, Claude), a
+  column that lines up from card to card, within 140 columns; three lines each. Narrower, the
+  four stacked lines as before.
+
 ## [0.7.1] - 2026-10-18
 
 ### Changed

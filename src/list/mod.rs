@@ -124,6 +124,8 @@ pub struct List {
     rank_rx: Option<Receiver<Result<crate::todo::Ranked>>>,
     /// Rank (again) once what's needed is in (`R` on the todo tab).
     want_rank: bool,
+    /// The window is wide enough for cards in two zones (set by `draw`; cards are 3 lines then).
+    wide: bool,
     /// PRs Claude has a review of, and when its reviews directory last changed: a review
     /// written from a PR's view (or still being, in Claude's pane) shows up as it lands.
     reviewed: HashSet<u64>,
@@ -187,6 +189,7 @@ impl List {
             ranked: crate::todo::load(),
             rank_rx: None,
             want_rank: false,
+            wide: true,
             reviewed: HashSet::new(),
             reviews_dir: crate::claude::dv_dir().ok().map(|d| d.join("reviews")),
             reviews_mtime: None,
@@ -738,14 +741,16 @@ impl List {
         ratatui::crossterm::terminal::size().map_or(10, |(_, h)| h.saturating_sub(2) as usize / self.card_rows())
     }
 
-    /// A card's rows: 4 and a blank one between cards; on the todo tab, one more, for what
-    /// needs you.
+    /// A card's rows: 3 in a wide window (two zones), else 4, and a blank one between cards; on
+    /// the todo tab, one more, for what needs you.
     fn card_rows(&self) -> usize {
-        if self.tab == Tab::Todo { 6 } else { 5 }
+        let lines = if self.wide { 3 } else { 4 };
+        lines + usize::from(self.tab == Tab::Todo) + 1
     }
 
     fn draw(&mut self, f: &mut Frame) {
         let area = f.area();
+        self.wide = area.width as usize >= TWO_ZONES;
         let rows = self.card_rows();
         let h = area.height.saturating_sub(2) as usize / rows;
         let sel = self.sel.min(self.shown().len().saturating_sub(1));

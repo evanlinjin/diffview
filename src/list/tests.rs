@@ -123,9 +123,9 @@ fn selected_card_readable() {
     let p = Listed { number: 1, title: "t".into(), author: "amy".into(), checks: Some((3, 1, 0)), labels: vec![("bug".into(), "d73a4a".into())], ..Listed::default() };
     let mark = || Mark { marked: false, claude: Some(("claude ✓".into(), true)), new: true, replaces: None };
     let card_of = |selected, cx: &Cards| card(&p, cx, selected, None, mark());
-    // Four lines: title; who and size; CI, review and Claude; branch.
+    // Wide: three lines in two zones, what it is on the left, how it stands on the right.
     let lines = card_of(true, &cx);
-    assert_eq!(lines.len(), 4);
+    assert_eq!(lines.len(), 3);
     for line in &lines {
         assert_eq!(line.width(), 120); // the highlight runs to the edge
         // The selected card: a quiet background (the cursor line's), a bar down its left edge…
@@ -134,18 +134,24 @@ fn selected_card_readable() {
     }
     // …and its text keeps its colors (not the menu highlight's).
     assert!(lines[1].spans.iter().any(|s| s.style.fg == Some(Color::Gray)) && !lines.iter().flat_map(|l| &l.spans).any(|s| s.style.fg == Some(Color::Black)));
+    let text = |l: &Line| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
     let lines = card_of(false, &cx);
     assert!(lines.iter().all(|l| l.spans[0].content == " ")); // no bar
-    // [new] at the right end of the top line, before the age.
-    assert_eq!(lines[0].spans[lines[0].spans.len() - 2].content, "[new] ");
-    assert!(!card(&p, &cx, false, None, Mark { new: false, ..mark() })[0].spans.iter().any(|s| s.content.contains("[new]")));
-    // How it stands: CI, then Claude, on a line of its own.
-    let status: String = lines[2].spans.iter().map(|s| s.content.as_ref()).collect();
-    assert!(status.contains("CI ✓3 ✗1") && status.contains("claude ✓"), "{status}");
-    // Narrow: each line cut at the width.
-    let narrow = Cards { width: 30, ..cx };
-    let p = Listed { branch: "a-very-long-branch-name-indeed-and-then-some".into(), ..p };
-    assert!(card(&p, &narrow, false, None, mark()).iter().all(|l| l.width() == 30));
+    // The right zone starts at the same column on every line (CI and age; review; Claude), and
+    // [new] follows the title.
+    let at = |l: &Line, what: &str| text(l).find(what).map(|b| text(l)[..b].chars().count());
+    let right = at(&lines[0], "CI ✓3 ✗1").unwrap();
+    assert_eq!(at(&lines[2], "claude ✓"), Some(right));
+    assert!(text(&lines[0]).contains("t  [new]"));
+    assert!(!text(&card(&p, &cx, false, None, Mark { new: false, ..mark() })[0]).contains("[new]"));
+    // Narrow: four lines, how it stands on its own (the third), each cut at the width.
+    let narrow = Cards { width: 80, ..cx };
+    let lines = card(&p, &narrow, false, None, mark());
+    assert_eq!(lines.len(), 4);
+    assert!(text(&lines[2]).contains("CI ✓3 ✗1") && text(&lines[2]).contains("claude ✓"));
+    let p = Listed { branch: "a-very-long-branch-name-indeed-and-then-some-more-and-more-and-more".into(), ..p };
+    assert!(card(&p, &Cards { width: 30, ..cx }, false, None, mark()).iter().all(|l| l.width() == 30));
+    assert!(card(&p, &cx, false, None, mark()).iter().all(|l| l.width() == 120));
 }
 
 #[test]
