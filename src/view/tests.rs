@@ -1920,13 +1920,14 @@ fn files_list_and_pinned_file_header() {
     app.files_pref = Some(true);
     let s = screen(220, 20, |f| app.draw(f));
     let lines: Vec<&str> = s.lines().collect();
-    // The list on the left: its heading, each folder once, the files under them, with their
-    // open comments (big.rs: two).
-    assert!(app.files_w > 0 && lines[0].starts_with(" FILES 4"), "{s}");
+    // The list on the left: its heading, the description (a section before the files), each
+    // folder once, the files under them, with their open comments (big.rs: two).
+    assert!(app.files_w > 0 && lines[0].starts_with(" CONTENTS · 4 files"), "{s}");
     let col = |l: &str| l.chars().take(app.files_w - 1).collect::<String>();
-    let list: Vec<String> = lines[1..6].iter().map(|l| col(l).trim_end().to_owned()).collect();
-    assert_eq!(list[0].trim(), "src/");
-    assert!(list[1].contains("big.rs") && list[1].ends_with("·2"), "{list:?}");
+    let list: Vec<String> = lines[1..7].iter().map(|l| col(l).trim_end().to_owned()).collect();
+    assert_eq!(list[0].trim_start_matches('▌').trim(), "≡ description");
+    assert_eq!(list[1].trim(), "src/");
+    assert!(list[2].contains("big.rs") && list[2].ends_with("·2"), "{list:?}");
     assert!(list.iter().filter(|l| l.trim() == "src/").count() == 1);
     // A click on a.rs: there.
     let a = list.iter().position(|l| l.contains("a.rs")).unwrap() + 1;
@@ -1945,12 +1946,12 @@ fn files_list_and_pinned_file_header() {
     let file = |app: &App| app.files[app.rows[app.head.row].file].path.clone();
     ctrl(&mut app, 'h');
     assert!(app.files_focus);
-    let before = app.current_file().unwrap();
+    let Some(files::Spot::File(before)) = app.current_spot() else { panic!() };
     app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
-    assert_eq!(app.current_file(), Some(before + 1));
+    assert_eq!(app.current_spot(), Some(files::Spot::File(before + 1)));
     assert_eq!(app.rows[app.head.row].line.kind, Kind::File);
     app.key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
-    assert_eq!(app.current_file(), Some(before));
+    assert_eq!(app.current_spot(), Some(files::Spot::File(before)));
     ctrl(&mut app, 'l');
     assert!(!app.files_focus);
     app.goto(big, 0);
@@ -2031,14 +2032,17 @@ fn commits_under_the_files() {
     app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
     k(&mut app, KeyCode::Char('k'));
     assert!(!app.in_commits && app.files_focus);
-    // One commit shown: its message is a section before the files, like the description;
-    // Tab on its header folds it.
-    (app.commit_shown, app.commit_msg) = (Some((1, 1)), Some("commit 2\n\nWhy it's done this way.".into()));
+    // Commits shown: each one's message is a section before the files, after the description;
+    // they're in the list too; Tab on a header folds it.
+    (app.commit_shown, app.commit_msgs) = (Some((0, 1)), vec!["commit 1".into(), "commit 2\n\nWhy it's done this way.".into()]);
     app.build();
-    let head = app.rows.iter().position(|r| r.main && r.line.text == "commit c2").expect("its section");
-    let desc = app.rows.iter().position(|r| r.main && r.line.text == "description").expect("the description's");
-    assert!(head < desc && app.rows[head + 1..desc].iter().any(|r| r.line.text.contains("Why it's done")));
+    let desc = app.rows.iter().position(|r| r.main.is_some() && r.line.text == "description").expect("the description's");
+    let c1 = app.rows.iter().position(|r| r.main.is_some() && r.line.text == "commit c1").expect("c1's section");
+    let head = app.rows.iter().position(|r| r.main.is_some() && r.line.text == "commit c2").expect("c2's section");
+    assert!(desc < c1 && c1 < head && app.rows[head + 1..].iter().take_while(|r| r.main.is_some()).any(|r| r.line.text.contains("Why it's done")));
     assert!(!app.pr_row(head + 1));
+    let spots: Vec<files::Spot> = app.file_entries().into_iter().map(|e| e.spot).take(3).collect();
+    assert_eq!(spots, [files::Spot::Section(DESCRIPTION), files::Spot::Section(1), files::Spot::Section(2)]);
     app.goto(head, 0);
     app.toggle_collapse();
     assert!(!app.rows.iter().any(|r| r.line.text.contains("Why it's done")));
@@ -2095,10 +2099,10 @@ fn claude_proposes_a_description() {
     app.load_claude();
     app.build();
     // The description's section shows the proposal against the current text, line by line.
-    let head = app.rows.iter().position(|r| r.main && r.line.text.starts_with("description · Claude's proposal")).expect("its section");
-    let added: Vec<&str> = app.rows[head..].iter().take_while(|r| r.main).filter(|r| r.line.kind == Kind::Add).map(|r| r.line.text.as_str()).collect();
+    let head = app.rows.iter().position(|r| r.main.is_some() && r.line.text.starts_with("description · Claude's proposal")).expect("its section");
+    let added: Vec<&str> = app.rows[head..].iter().take_while(|r| r.main.is_some()).filter(|r| r.line.kind == Kind::Add).map(|r| r.line.text.as_str()).collect();
     assert_eq!(added, ["", "Also renames it."]);
-    assert!(app.rows[head..].iter().take_while(|r| r.main).any(|r| r.line.kind == Kind::Ctx && r.line.text.starts_with("Fixes **the thing**")));
+    assert!(app.rows[head..].iter().take_while(|r| r.main.is_some()).any(|r| r.line.kind == Kind::Ctx && r.line.text.starts_with("Fixes **the thing**")));
     // Space a: approve (after a confirmation), more changes, discard; a on it asks for more.
     app.claude_menu();
     let items = app.picker.take().unwrap().items;
@@ -2111,6 +2115,6 @@ fn claude_proposes_a_description() {
     // Discarded: gone from the file, and the description is as it was.
     app.discard_description();
     assert!(!std::fs::read_to_string(&path).unwrap().contains("description"));
-    assert!(app.rows.iter().any(|r| r.main && r.line.text == "description"));
+    assert!(app.rows.iter().any(|r| r.main.is_some() && r.line.text == "description"));
     _ = std::fs::remove_file(&path);
 }

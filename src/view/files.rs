@@ -1,6 +1,7 @@
-//! The changed files down the left (`Ctrl-w e`): each under its folder, with what's open on it
-//! (comments) and whether it's viewed; the one you're in lit. A click goes to a file. Under
-//! them, the PR's commits: one, or a range (`v`), shown instead of the whole diff.
+//! What the diff shows, down the left (`Ctrl-w e`), as contents: the PR's description and the
+//! messages of the commits shown, then the changed files, each under its folder, with what's
+//! open on it (comments) and whether it's viewed; the one you're in lit. A click goes there.
+//! Under them, the PR's commits: one, or a range (`v`), shown instead of the whole diff.
 use super::*;
 
 /// Windows this wide show the list unless you've hidden it (`Ctrl-w e`, kept like the pane's).
@@ -16,9 +17,16 @@ pub(super) struct Commit {
     pub(super) subject: String,
 }
 
-/// One line of the list: a folder (`None`), or file `i`.
+/// What a line of the list is: a folder, file `i`, or a section (`Row::main`).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(super) enum Spot {
+    Folder,
+    File(usize),
+    Section(usize),
+}
+
 pub(super) struct Entry {
-    pub(super) file: Option<usize>,
+    pub(super) spot: Spot,
     text: String,
 }
 
@@ -40,32 +48,50 @@ impl App {
         self.save_pane("files_width", w.map_or(Value::Null, Value::from));
     }
 
-    /// The list's lines: each folder once, its files under it.
+    /// The list's lines: the sections (as their headers say), then each folder once, its files
+    /// under it.
     pub(super) fn file_entries(&self) -> Vec<Entry> {
-        let mut out = vec![];
+        let mut out: Vec<Entry> = self
+            .rows
+            .iter()
+            .filter(|r| r.line.kind == Kind::File)
+            .filter_map(|r| {
+                let id = r.main?;
+                let text = match self.commits.get(id.wrapping_sub(1)) {
+                    _ if id == DESCRIPTION => "description".to_owned(),
+                    Some(c) => format!("{} {}", c.short, c.subject),
+                    None => r.line.text.clone(),
+                };
+                let text = if id == DESCRIPTION && !self.claude.description.is_empty() { format!("{text} (Claude's proposal)") } else { text };
+                Some(Entry { spot: Spot::Section(id), text })
+            })
+            .collect();
         let mut dir = None;
         for (i, f) in self.files.iter().enumerate() {
             let (d, name) = f.path.rsplit_once('/').map_or(("", f.path.as_str()), |(d, n)| (d, n));
             if dir != Some(d) {
                 if !d.is_empty() {
-                    out.push(Entry { file: None, text: format!("{d}/") });
+                    out.push(Entry { spot: Spot::Folder, text: format!("{d}/") });
                 }
                 dir = Some(d);
             }
-            out.push(Entry { file: Some(i), text: name.to_owned() });
+            out.push(Entry { spot: Spot::File(i), text: name.to_owned() });
         }
         out
     }
 
-    /// The file the cursor is in (or, on the PR's text, the top of the screen is).
-    pub(super) fn current_file(&self) -> Option<usize> {
-        let in_file = |r: usize| Some(self.rows.get(r)?.file).filter(|&f| f < self.files.len());
-        in_file(self.head.row).or_else(|| {
+    /// Where the cursor is, as the list has it (or, on the PR's text, the top of the screen).
+    pub(super) fn current_spot(&self) -> Option<Spot> {
+        let at = |r: usize| {
+            let row = self.rows.get(r)?;
+            row.main.map(Spot::Section).or_else(|| (row.file < self.files.len()).then_some(Spot::File(row.file)))
+        };
+        at(self.head.row).or_else(|| {
             let r = match *self.drows.get(self.top)? {
                 DRow::Full(r) => r,
                 DRow::Pair(l, r) | DRow::Margin(l, r, _) => l.or(r)?,
             };
-            in_file(r)
+            at(r)
         })
     }
 
@@ -73,7 +99,7 @@ impl App {
         let ui = &self.ui;
         let w = area.width as usize - 1; // the divider
         let entries = self.file_entries();
-        let cur = self.current_file();
+        let cur = self.current_spot();
         // The commits under the files: up to a third of the height (all of them when few).
         let ch = match self.commits.len() {
             0 => 0,
@@ -81,7 +107,7 @@ impl App {
         };
         let h = (area.height as usize).saturating_sub(1 + ch);
         // The current file in view, when it's another (the wheel scrolls the list meanwhile).
-        if let Some(i) = cur.filter(|_| cur != self.files_cur).and_then(|c| entries.iter().position(|e| e.file == Some(c))) {
+        if let Some(i) = cur.filter(|_| cur != self.files_cur).and_then(|c| entries.iter().position(|e| e.spot == c)) {
             if i < self.files_top {
                 self.files_top = i;
             }
@@ -92,22 +118,38 @@ impl App {
         self.files_cur = cur;
         self.files_top = self.files_top.min(entries.len().saturating_sub(h));
         let bar = Style { bg: ui.bar, ..ui.header };
-        let mut lines = vec![Line::from(Span::styled(format!("{:<w$}", format!(" FILES {}", self.files.len())), bar))];
+        let mut lines = vec![Line::from(Span::styled(format!("{:<w$}", format!(" CONTENTS · {} files", self.files.len())), bar))];
         let dim = Style { fg: ui.stale.fg, ..Style::new() };
         for e in entries.iter().skip(self.files_top).take(h) {
-            let line = match e.file {
+            let lit = |on: bool| match (on, self.files_focus) {
+                (true, true) => ui.menu_selected,
+                (true, false) => ui.base.bg(ui.cursorline.or(ui.menu_selected.bg).unwrap_or(Color::DarkGray)),
+                _ => ui.base,
+            };
+            let line = match e.spot {
+                // A section: its name, in the headings' color.
+                Spot::Section(_) => {
+                    let on = cur == Some(e.spot);
+                    let row = lit(on);
+                    let name = cut(&e.text, w.saturating_sub(3));
+                    let pad = w.saturating_sub(3 + name.chars().count());
+                    Line::from(vec![
+                        Span::styled(if on { "▌" } else { " " }, row.patch(Style { fg: ui.key.fg, ..Style::new() })),
+                        Span::styled("≡ ", row.patch(Style { fg: ui.stale.fg, ..Style::new() })),
+                        Span::styled(name, row.patch(Style { fg: ui.heading.fg, ..Style::new() })),
+                        Span::styled(" ".repeat(pad), row),
+                    ])
+                }
                 // A folder: dimmed, its start cut when it's long (the end says the most).
-                None => {
+                Spot::Folder => {
                     let n = e.text.chars().count();
                     let t = if n + 1 > w { format!("…{}", e.text.chars().skip(n + 2 - w).collect::<String>()) } else { e.text.clone() };
                     Line::from(Span::styled(format!(" {t:<width$}", width = w - 1), dim))
                 }
-                Some(i) => {
+                Spot::File(i) => {
                     let file = &self.files[i];
-                    let on = cur == Some(i);
-                    let row = if on && self.files_focus {
-                        ui.menu_selected
-                    } else if on { ui.base.bg(ui.cursorline.or(ui.menu_selected.bg).unwrap_or(Color::DarkGray)) } else { ui.base };
+                    let on = cur == Some(e.spot);
+                    let row = lit(on);
                     let open = self.threads.iter().filter(|t| t.path == file.path && !t.stale() && self.in_view(t)).count();
                     let viewed = self.viewed.get(&file.path).is_some_and(|s| s == "VIEWED");
                     let right = match open {
@@ -140,7 +182,7 @@ impl App {
         let edge = if self.files_focus { Style { fg: self.ui.key.fg, ..Style::new() } } else { self.ui.linenr };
         let divider: Vec<Line> = (0..area.height).map(|_| Line::from(Span::styled("│", edge))).collect();
         f.render_widget(Paragraph::new(divider), Rect { x: area.x + area.width - 1, width: 1, ..area });
-        self.files_entries = entries.into_iter().map(|e| e.file).collect();
+        self.files_entries = entries.into_iter().map(|e| e.spot).collect();
     }
 
     /// The commits' part: its heading, then "all commits" and each commit (`h` lines of them).
@@ -203,8 +245,8 @@ impl App {
             }
             return;
         }
-        if let Some(Some(i)) = y.checked_sub(1).and_then(|y| self.files_entries.get(self.files_top + y)).copied() {
-            self.goto_file(i);
+        if let Some(&s) = y.checked_sub(1).and_then(|y| self.files_entries.get(self.files_top + y)) {
+            self.goto_spot(s);
         }
     }
 
@@ -283,8 +325,9 @@ impl App {
             Some((a, b)) => (if a == 0 { self.full_base.clone() } else { self.commits[a - 1].sha.clone() }, Some(self.commits[b].sha.clone())),
         };
         (self.base, self.to, self.commit_shown) = (base, to, sel);
-        // One alone: its message, a section before the files.
-        self.commit_msg = sel.filter(|(a, b)| a == b).and_then(|(a, _)| diff::git(&["log", "-1", "--format=%B", &self.commits[a].sha]).ok());
+        // Their messages, each a section before the files.
+        // ponytail: one git per commit shown; a single `git log` if long ranges feel slow.
+        self.commit_msgs = sel.map_or(vec![], |(a, b)| (a..=b).map(|i| diff::git(&["log", "-1", "--format=%B", &self.commits[i].sha]).unwrap_or_default()).collect());
         self.extra.clear(); // per-hunk context: the hunks are different ones now
         self.hl_cache.clear(); // both sides may be other versions
         self.msg = match (self.reload(false), self.commits_label()) {
@@ -299,12 +342,16 @@ impl App {
     /// Enter or Esc back to the code. Others leave the list too, and act as usual (`false`).
     pub(super) fn files_key(&mut self, k: KeyEvent) -> bool {
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+        // Through what the list has (sections, then files), in its order.
+        let spots: Vec<Spot> = self.file_entries().into_iter().map(|e| e.spot).filter(|&s| s != Spot::Folder).collect();
+        let at = self.current_spot().and_then(|c| spots.iter().position(|&s| s == c));
         let step = |app: &mut App, d: isize| {
-            let n = app.files.len() as isize;
-            let i = app.current_file().map_or(0, |c| (c as isize + d).clamp(0, n - 1));
-            app.goto_file(i as usize);
+            let i = at.map_or(0, |i| (i as isize + d).clamp(0, spots.len() as isize - 1) as usize);
+            if let Some(&s) = spots.get(i) {
+                app.goto_spot(s);
+            }
         };
-        let last_file = self.current_file().is_some_and(|c| c + 1 == self.files.len()) || self.files.is_empty();
+        let last_file = at.is_some_and(|i| i + 1 == spots.len()) || spots.is_empty();
         match k.code {
             // In the commits: j / k move, v marks a range's start, Enter shows it.
             KeyCode::Char('j') | KeyCode::Down if !ctrl && self.in_commits => self.commit_cur = (self.commit_cur + 1).min(self.commits.len()),
@@ -332,6 +379,20 @@ impl App {
             }
         }
         true
+    }
+
+    /// To a line of the list: a file, or a section's header (at the top).
+    fn goto_spot(&mut self, s: Spot) {
+        match s {
+            Spot::File(i) => self.goto_file(i),
+            Spot::Section(id) => {
+                if let Some(r) = self.rows.iter().position(|r| r.main == Some(id) && r.line.kind == Kind::File) {
+                    self.goto(r, 0);
+                    self.top = self.d_of[r].max(self.pin as usize);
+                }
+            }
+            Spot::Folder => {}
+        }
     }
 
     /// File `i`, unfolded, its header at the top.

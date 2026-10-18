@@ -8,6 +8,9 @@ on GitHub are its section here.
 ### Added
 - `a` on a comment in the PR's conversation asks Claude about it: your question (the comment
   quoted) and Claude's answer are a thread under it, on the PR tab (`r` to go on).
+- Commits shown: each one's message is a section before the files (one for every commit in a
+  range), after the description. The files' list is now the diff's contents (`CONTENTS`): the
+  description and the messages first, then the files; `j` / `k` and clicks go to them too.
 - `Ctrl-w j` / `Ctrl-w k` go straight to the commits / the files in the files' list, and `Tab`
   there goes between them (no more stepping through every file to reach the commits).
 - `a` on the PR's description: Claude proposes a new one, as you ask. dv shows it against the

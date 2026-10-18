@@ -294,7 +294,7 @@ impl App {
     /// PR text (the PR section but its header line), on the pane's PR tab while it's shown.
     pub(super) fn pr_row(&self, r: usize) -> bool {
         let row = &self.rows[r];
-        self.margin_active && row.file == INFO && row.line.kind != Kind::File && !row.main
+        self.margin_active && row.file == INFO && row.line.kind != Kind::File && row.main.is_none()
     }
 
     /// Comments on files are in the pane: it's shown, on that tab.

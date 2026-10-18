@@ -79,7 +79,7 @@ VIEW
   Shift-Tab            fold / unfold all files
   Ctrl-w v             toggle split (side-by-side) view
   Ctrl-w n             relative line numbers on / off (kept for next time)
-  Ctrl-w e             the changed files' list on the left, on / off (a click goes to one)
+  Ctrl-w e             the contents on the left (description, messages, files), on / off
                        and the PR's commits under it: Enter shows one, v … Enter a range,
                        m its whole message; Ctrl-w j / Ctrl-w k (or Tab there) go to the
                        commits / the files
@@ -162,6 +162,8 @@ const SUMMARY: usize = usize::MAX;
 const DRAFT: usize = usize::MAX - 2;
 /// `Row::info` for the PR's facts (author, branches, size, reviews, checks), boxed together.
 const FACTS: usize = usize::MAX - 3;
+/// `Row::main` for the description's section (commit `n`'s message is `1 + n`).
+const DESCRIPTION: usize = 0;
 
 /// Position in the view: row index into `rows`, char index into the row's text.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -185,14 +187,14 @@ struct Row {
     edge: bool,
     /// A line of a code block or table in a comment: cut at the box's edge, scrolled sideways.
     nowrap: bool,
-    /// PR text in the diff's column, as a section of its own (the description, the commit
-    /// shown's message), not on the pane's PR tab.
-    main: bool,
+    /// PR text in the diff's column, as a section of its own, not on the pane's PR tab: which
+    /// (`DESCRIPTION`, or `1 + n`: commit `n`'s message).
+    main: Option<usize>,
 }
 
 impl Row {
     fn new(file: usize, line: DLine) -> Row {
-        Row { file, line, thread: None, syn: vec![], links: vec![], info: None, edge: false, nowrap: false, main: false }
+        Row { file, line, thread: None, syn: vec![], links: vec![], info: None, edge: false, nowrap: false, main: None }
     }
 
     /// A row of plain text (headers, comments, PR info).
@@ -511,8 +513,8 @@ pub struct App {
     files_w_pref: Option<usize>,
     files_w: usize,
     files_top: usize,
-    files_entries: Vec<Option<usize>>,
-    files_cur: Option<usize>,
+    files_entries: Vec<files::Spot>,
+    files_cur: Option<files::Spot>,
     /// `Ctrl-h` from the code's left edge: keys go to the files' list (j / k a file).
     files_focus: bool,
     /// Where those three are kept between runs (`pane.json`, any repo), once set by their keys.
@@ -548,10 +550,10 @@ pub struct App {
     threads: Vec<Thread>,
     info: Vec<gh::InfoLine>,
     info_collapsed: bool,
-    /// The description's and the commit message's sections, folded (by name).
-    sections_folded: HashSet<&'static str>,
-    /// The message of the one commit shown (`commit_shown`), as its section's text.
-    commit_msg: Option<String>,
+    /// The description's and the commit messages' sections, folded (by `Row::main`).
+    sections_folded: HashSet<usize>,
+    /// The messages of the commits shown (`commit_shown`), each its section's text.
+    commit_msgs: Vec<String>,
     hl: Highlighter,
     ui: Ui,
     /// Highlighted files by (path, new side?), filled lazily as rows are drawn.
@@ -764,7 +766,7 @@ impl App {
             info: vec![],
             info_collapsed: false,
             sections_folded: HashSet::new(),
-            commit_msg: None,
+            commit_msgs: vec![],
             wrap_w: 100,
             hl: Highlighter::new(&Theme::ansi()),
             ui: Theme::ansi().ui(),

@@ -42,8 +42,8 @@
                          Ctrl-w v             toggle split (side-by-side) view                  │
                          Ctrl-w n             relative line numbers on / off (kept for next     │
                                               time)                                             │
-                         Ctrl-w e             the changed files' list on the left, on / off (a  │
-                                              click goes to one)                                │
+                         Ctrl-w e             the contents on the left (description, messages,  │
+                                              files), on / off                                  │
                                               and the PR's commits under it: Enter shows one, v │
 
 

@@ -225,28 +225,30 @@ impl App {
                 }
             }
         }
-        // Before the files, like one: the one commit shown's message, and the PR's description.
+        // Before the files, like one: the PR's description, then the messages of the commits shown.
         if self.view == View::All {
-            let commit = self.commit_shown.filter(|(a, b)| a == b).zip(self.commit_msg.clone());
-            if let Some(((a, _), msg)) = commit {
-                rows.extend(self.section("commit", format!("commit {}", self.commits[a].short), &msg, None));
-            }
             if let Some(h) = (0..self.info.len()).find(|&i| self.is_description(i)) {
                 let text = self.info.get(h + 1).filter(|l| l.md).map_or("", |l| l.text.as_str());
                 match self.claude.description.is_empty() {
                     true => {
                         let text = if text.trim().is_empty() { "_(no description)_" } else { text };
-                        rows.extend(self.section("description", "description".into(), text, Some(h + 1)));
+                        rows.extend(self.section(DESCRIPTION, "description".into(), text, Some(h + 1)));
                     }
                     // Claude's proposal: what it changes, line by line (as markdown source).
                     false => {
-                        let mk = |kind, text| Row { main: true, info: Some(h + 1), ..Row::text(INFO, kind, text) };
+                        let mk = |kind, text| Row { main: Some(DESCRIPTION), info: Some(h + 1), ..Row::text(INFO, kind, text) };
                         rows.push(mk(Kind::File, "description · Claude's proposal (Space a: approve, more changes, discard)".into()));
-                        if !self.sections_folded.contains("description") {
+                        if !self.sections_folded.contains(&DESCRIPTION) {
                             let w = self.wrap_w.saturating_sub(2).max(20);
                             rows.extend(line_diff(&wrap(text, w), &wrap(&self.claude.description, w)).into_iter().map(|(k, t)| mk(k, t)));
                         }
                     }
+                }
+            }
+            if let Some((a, _)) = self.commit_shown {
+                for (k, msg) in self.commit_msgs.iter().enumerate() {
+                    let Some(c) = self.commits.get(a + k) else { break };
+                    rows.extend(self.section(1 + a + k, format!("commit {}", c.short), msg, None));
                 }
             }
         }
@@ -400,19 +402,18 @@ impl App {
 
     /// A section of PR text in the diff's column: a header like a file's (`name` folds it),
     /// then `text` rendered to the code's width (`info`: the `info` line it is, for `C`).
-    fn section(&self, name: &'static str, title: String, text: &str, info: Option<usize>) -> Vec<Row> {
-        let mk = |kind, text| Row { main: true, info, ..Row::text(INFO, kind, text) };
+    fn section(&self, id: usize, title: String, text: &str, info: Option<usize>) -> Vec<Row> {
+        let mk = |kind, text| Row { main: Some(id), info, ..Row::text(INFO, kind, text) };
         let mut rows = vec![mk(Kind::File, title)];
-        if !self.sections_folded.contains(name) {
-            rows.extend(self.md_rows_at(text, self.wrap_w, mk).into_iter().map(|r| Row { main: true, info, ..r }));
+        if !self.sections_folded.contains(&id) {
+            rows.extend(self.md_rows_at(text, self.wrap_w, mk).into_iter().map(|r| Row { main: Some(id), info, ..r }));
         }
         rows
     }
 
-    /// Which section row `r` is in (its name), if it's one.
-    pub(super) fn section_of(&self, r: usize) -> Option<&'static str> {
-        let row = self.rows.get(r).filter(|row| row.main)?;
-        Some(if row.info.is_some() { "description" } else { "commit" })
+    /// Which section row `r` is in (`Row::main`), if it's one.
+    pub(super) fn section_of(&self, r: usize) -> Option<usize> {
+        self.rows.get(r)?.main
     }
 
     pub(super) fn info_w(&self) -> usize {
@@ -574,7 +575,7 @@ impl App {
     pub(super) fn box_part(&self, r: usize) -> Option<BoxPart> {
         let key = |r: &Row| match (r.thread, r.info) {
             (Some(t), _) => Some((Some(t), None)),
-            (None, Some(i)) if r.file == INFO && !r.main => Some((None, Some(i))), // a section's text: plain, as code
+            (None, Some(i)) if r.file == INFO && r.main.is_none() => Some((None, Some(i))), // a section's text: plain, as code
             _ => None,
         };
         let row = &self.rows[r];
@@ -669,11 +670,11 @@ impl App {
 
     pub(super) fn toggle_collapse(&mut self) {
         let fi = self.rows[self.head.row].file;
-        if let Some(name) = self.section_of(self.head.row) {
-            if !self.sections_folded.remove(name) {
-                self.sections_folded.insert(name);
+        if let Some(id) = self.section_of(self.head.row) {
+            if !self.sections_folded.remove(&id) {
+                self.sections_folded.insert(id);
             }
-            return self.rebuild_at(move |r| r.main && r.line.kind == Kind::File && (r.info.is_some() == (name == "description")));
+            return self.rebuild_at(move |r| r.main == Some(id) && r.line.kind == Kind::File);
         }
         if fi == INFO {
             self.info_collapsed = !self.info_collapsed;
