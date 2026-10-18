@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-10-18
+
 ### Added
 - `N N` in `dv list`: Claude drafts a new PR from what you write (issues by `#N`), unpublished, on
   a branch of its own (`dv/new-K`, in `<repo>-new-K`). It's on the drafts tab (the replacements
@@ -650,6 +652,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.20.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.20.0
 [0.19.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.19.1
 [0.19.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.19.0
 [0.18.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.18.1
