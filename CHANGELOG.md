@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-10-18
+
 ### Changed
 - github-merge.py's zellij pane closes by itself when the merge succeeds; when it fails (or you
   reject it) it says so and waits for Enter, so you can read why.
@@ -674,6 +676,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.22.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.22.0
 [0.21.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.21.1
 [0.21.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.21.0
 [0.20.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.20.0
