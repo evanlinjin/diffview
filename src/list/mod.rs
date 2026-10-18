@@ -299,6 +299,7 @@ impl List {
             if changed != self.reps_changed {
                 self.reps_changed = changed;
                 self.load_reps();
+                self.find_todo(); // drafting (in any dv), or drafted: where they go on it
             }
             if let Some(Ok(res)) = self.group_rx.as_ref().map(Receiver::try_recv) {
                 self.group_rx = None;
@@ -549,6 +550,7 @@ impl List {
             if done || !self.rep_of.contains_key(&id) {
                 self.load_reps(); // its record exists from Preparing on; its drafts once done
             }
+            self.find_todo(); // drafting: its PRs to the bottom; drafted: the replacement on top
         }
     }
 

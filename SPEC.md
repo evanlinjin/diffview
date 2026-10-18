@@ -244,7 +244,9 @@ session). Enter opens the PR (a replacement, in its worktree); back in the list,
 drops off. A PR Claude is at (from any dv: a PR's view writes a marker, `running/pr-N.json` in
 dv's directory, with its process or its zellij pane's session, read every couple of seconds while
 that's alive) says so on its card everywhere ("claude: making the changes…"), and on the todo tab
-goes to the bottom, out of the count, until Claude's done: there's nothing for you till then. `s` defers an item, then `1` an hour, `4` four hours, `d` a day or `w` a week, or `u` until
+goes to the bottom, out of the count, until Claude's done: there's nothing for you till then. So
+does a PR whose replacement Claude is drafting ("drafting a replacement"); once drafted, the
+replacement, ready for you to review, goes first. `s` defers an item, then `1` an hour, `4` four hours, `d` a day or `w` a week, or `u` until
 something happens, written in your editor: another PR merged or closed, its checks green, an
 approval (from someone, or anyone), someone's review, a time. dv reads the usual phrasings ("#2380
 is merged", "CI is green", "@amy approves", "3 days") itself, and has Claude put the rest as one of

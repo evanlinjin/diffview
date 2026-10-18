@@ -59,11 +59,16 @@ impl List {
         let (mut waiting, mut rest): (Vec<Item>, Vec<Item>) = items.into_iter().partition(|it| it.waits.is_some());
         rest.append(&mut waiting);
         let items = rest;
-        // Those Claude is at (here or in any dv): at the bottom till it's done.
-        let (mut busy, mut todo): (Vec<Item>, Vec<Item>) = items.into_iter().partition(|it| !it.rep && self.claude_doing(it.number).is_some());
-        busy.iter_mut().for_each(|it| it.busy = self.claude_doing(it.number));
-        todo.append(&mut busy);
-        (self.todo, self.since) = (todo, since);
+        // Those Claude is at (here or in any dv; drafting their replacement too): at the bottom
+        // till it's done.
+        let doing = |n: u64| self.claude_doing(n).or_else(|| self.drafting_replacement(n).then(|| "drafting a replacement".to_owned()));
+        let (mut busy, todo): (Vec<Item>, Vec<Item>) = items.into_iter().partition(|it| !it.rep && doing(it.number).is_some());
+        busy.iter_mut().for_each(|it| it.busy = doing(it.number));
+        // A replacement drafted, ready for you to review: first.
+        let (mut ready, mut todo): (Vec<Item>, Vec<Item>) = todo.into_iter().partition(|it| it.rep && it.needs.contains(&todo::Need::Publish));
+        ready.append(&mut todo);
+        ready.append(&mut busy);
+        (self.todo, self.since) = (ready, since);
     }
 
     /// The todo tab's items with their cards (a PR's, or a replacement's).
@@ -263,6 +268,13 @@ impl List {
 
     /// What Claude is doing on PR `n` now, if anything: a run from here (`a a`), or any dv's
     /// (its marker in dv's directory, `running`).
+    /// Claude is drafting a replacement of PR `n` (here, or in another dv).
+    pub(super) fn drafting_replacement(&self, n: u64) -> bool {
+        self.rep_of.values().filter(|r| r.id == n || r.replaces.iter().any(|o| o.number == n)).any(|r| {
+            self.drafting.get(&r.id).is_some_and(batch::Status::running) || self.drafting_elsewhere.contains(&r.id)
+        })
+    }
+
     pub(super) fn claude_doing(&self, n: u64) -> Option<String> {
         match self.batch.get(&n) {
             Some(s) if s.running() => Some(self.batch_task.get(&n).map_or("reviewing", batch::Task::doing).to_owned()),

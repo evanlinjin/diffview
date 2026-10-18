@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Changed
+- Todo: a PR whose replacement Claude is drafting goes to the bottom ("drafting a replacement"),
+  as a PR Claude's reviewing does; once drafted, the replacement, ready for you to review, goes
+  first.
+
 ### Fixed
 - In a dv that had been running across an install (a new dv in its place), drafting a
   replacement, or a review's worktree for `a a`, failed with "No such file or directory": dv ran

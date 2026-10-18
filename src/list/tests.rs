@@ -419,3 +419,31 @@ fn mouse_in_the_list() {
     click(&mut l, x.start + 1, 0);
     assert_eq!(l.tab, Tab::Worktrees);
 }
+
+#[test]
+fn drafting_a_replacement_on_the_todo_tab() {
+    let pr = |number, author: &str| Listed { number, title: "t".into(), author: author.into(), state: "OPEN".into(), updated: format!("2026-0{number}"), files: 1, ..Listed::default() };
+    let mut l = List::new("".into());
+    (l.ranked, l.deferred, l.deferred_file) = (None, Default::default(), None);
+    l.prs = vec![pr(1, "amy"), pr(2, "bo"), pr(3, "cy")];
+    l.me = "me".into();
+    let extra = || gh::Extra { requested: true, mergeable: "MERGEABLE".into(), head_oid: "h".into(), ..Default::default() };
+    l.extra = HashMap::from([(1, extra()), (2, extra()), (3, extra())]);
+    let order = |l: &mut List| {
+        l.find_todo();
+        l.todo.iter().map(|it| (it.rep, it.number)).collect::<Vec<_>>()
+    };
+    let first = order(&mut l)[0].1;
+    // Claude drafting #first's replacement: #first goes to the bottom, saying so.
+    let original = crate::replace::Original { number: first, ..Default::default() };
+    l.rep_of.insert(first, crate::replace::Record { id: first, replaces: vec![original], ..Default::default() });
+    l.drafting.insert(first, crate::batch::Status::Reviewing);
+    let o = order(&mut l);
+    assert_eq!(o.last(), Some(&(false, first)), "{o:?}");
+    assert_eq!(l.todo.last().unwrap().busy.as_deref(), Some("drafting a replacement"));
+    // Drafted: the replacement, ready for you to review, on top.
+    l.rep_of.get_mut(&first).unwrap().title = "Do it properly".into();
+    l.drafting.insert(first, crate::batch::Status::Done("3 turns".into()));
+    let o = order(&mut l);
+    assert_eq!(o[0], (true, first), "{o:?}");
+}
