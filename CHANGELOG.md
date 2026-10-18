@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- `Ctrl-h` / `Ctrl-l` go through all the panes: the files' list, the old and new sides, the
+  comments. In the files' list, `j` / `k` go file to file.
+- The pane that has focus shows it: its edge in the key color.
+- `Ctrl-w ,` / `.` / `=` resize the pane you're in (the files' list too), and `Ctrl-w q` hides it.
+
 ## [0.10.0] - 2026-10-18
 
 ### Added

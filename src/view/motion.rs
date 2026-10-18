@@ -6,6 +6,10 @@ impl App {
     /// the margin, from the code (its new side) into the margin (the comment beside it, else
     /// the nearest one) and back (the code line beside it, else the nearest above).
     pub(super) fn side(&mut self, right: bool) {
+        if self.files_focus {
+            self.files_focus = !right;
+            return;
+        }
         // The PR tab: back to where the cursor was in the code, and into it where it was there.
         if self.on_pr_tab() {
             if !right {
@@ -13,6 +17,11 @@ impl App {
                 self.goto(p.row, p.col);
             }
             return;
+        }
+        // The code's left edge: on into the files' list.
+        if !right && self.files_w > 0 && !self.margin_side() && (!self.split || !self.right) {
+            self.files_focus = true;
+            return self.msg = "files: j / k a file, Ctrl-l (or Enter) back to the code".into();
         }
         if self.margin_active && self.pane_tab == Tab::Pr && right && (!self.split || self.right) && !self.pr_rows.is_empty() {
             let back = self.pr_head.filter(|r| self.pr_rows.contains(r));

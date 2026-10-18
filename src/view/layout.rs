@@ -98,6 +98,7 @@ impl App {
             self.settings.relative = r;
         }
         self.files_pref = v["files"].as_bool();
+        self.files_w_pref = v["files_width"].as_u64().map(|w| w as usize);
     }
 
     pub(super) fn pane_json(&self) -> Value {

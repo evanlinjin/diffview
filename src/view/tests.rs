@@ -1937,4 +1937,41 @@ fn files_list_and_pinned_file_header() {
     let s = screen(220, 20, |f| app.draw(f));
     let top = s.lines().nth(1).unwrap(); // under the pinned PR title
     assert!(top.chars().skip(app.files_w).collect::<String>().contains("src/big.rs"), "{s}");
+    // Ctrl-h from the code into the list: j / k go file to file, Ctrl-l back; Ctrl-l again
+    // into the comments, Ctrl-h back to the code.
+    let ctrl = |app: &mut App, c: char| app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL));
+    let file = |app: &App| app.files[app.rows[app.head.row].file].path.clone();
+    ctrl(&mut app, 'h');
+    assert!(app.files_focus);
+    let before = app.current_file().unwrap();
+    app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    assert_eq!(app.current_file(), Some(before + 1));
+    assert_eq!(app.rows[app.head.row].line.kind, Kind::File);
+    app.key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
+    assert_eq!(app.current_file(), Some(before));
+    ctrl(&mut app, 'l');
+    assert!(!app.files_focus);
+    app.goto(big, 0);
+    _ = screen(220, 20, |f| app.draw(f));
+    ctrl(&mut app, 'l');
+    assert!(app.margin_side(), "not in the comments");
+    ctrl(&mut app, 'h');
+    assert!(!app.margin_side() && !app.files_focus && file(&app) == "src/big.rs");
+    ctrl(&mut app, 'h');
+    assert!(app.files_focus);
+    // Ctrl-w , / . / = resize the list while it has focus (the comments pane stays), Ctrl-w q
+    // hides it and the code has focus again.
+    let w = |app: &mut App, c: char| {
+        ctrl(app, 'w');
+        app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+        _ = screen(220, 20, |f| app.draw(f));
+    };
+    _ = screen(220, 20, |f| app.draw(f));
+    let fw = app.files_w;
+    w(&mut app, '.');
+    assert!(app.files_focus && app.files_w == fw + 4 && app.margin_w_pref.is_none(), "{fw} → {}", app.files_w);
+    w(&mut app, '=');
+    assert_eq!(app.files_w, fw);
+    w(&mut app, 'q');
+    assert!(app.files_w == 0 && !app.files_focus);
 }

@@ -95,6 +95,9 @@ impl App {
             }
             return;
         }
+        if self.files_focus && self.files_w > 0 && self.pending.is_none() && self.files_key(k) {
+            return;
+        }
         let ch = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
         let c = match k.code {
             KeyCode::Char(c) => c,
@@ -245,13 +248,14 @@ impl App {
                 ("e", "the files' list on / off"),
                 ("c", "show / hide the comments pane"),
                 ("f", "comments pane: a column / floating over the code"),
-                (",", "narrower comments pane"),
-                (".", "wider comments pane"),
-                ("=", "comments pane at its usual width"),
+                (",", "narrower pane (the one you're in, else comments)"),
+                (".", "wider pane"),
+                ("=", "the pane at its usual width"),
+                ("q", "hide the pane you're in (files / comments)"),
                 ("a", "Claude view: just Claude's review"),
                 ("p", "pending view: just your pending review"),
-                ("h", "old side / back to the code"),
-                ("l", "new side / into the comments"),
+                ("h", "the pane to the left"),
+                ("l", "the pane to the right"),
             ]),
             'm' => ("match", &[("m", "matching bracket")]),
             _ => return None,
@@ -340,6 +344,11 @@ impl App {
                 }
                 .into();
             }
+            (CTRL_W, ',') | (CTRL_W, '.') if self.files_focus => self.resize_files(if c == '.' { 4 } else { -4 }),
+            (CTRL_W, '=') if self.files_focus => self.resize_files(0),
+            (CTRL_W, 'q') if self.files_focus => self.toggle_files(),
+            (CTRL_W, 'q') if self.margin_side() || self.on_pr_tab() => self.pending_key(CTRL_W, 'c'),
+            (CTRL_W, 'q') => self.msg = "the code stays; Ctrl-w q hides the files' list or comments pane you're in".into(),
             (CTRL_W, ',') | (CTRL_W, '.') => {
                 let w = self.margin_w as isize + if c == '.' { MARGIN_STEP } else { -MARGIN_STEP };
                 let w = w.max(MARGIN_NARROW as isize) as usize;

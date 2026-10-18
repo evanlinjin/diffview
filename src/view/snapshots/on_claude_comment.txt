@@ -1,25 +1,25 @@
           PR #7 · Fix the thing  @bo · main ← amy  Comments  PR                                  gn
- ▾        src/big.rs  +1 −1  · 2 comments         ╭─ review summary ───────────────────────────────╮
-          ─────────────────────────────────────── │ you     Nearly there.                          │
-  9   9   line 9                                  │ claude  Looks right; one nit.                  │
- 10  10   line 10                                 ╰────────────────────────────────────────────────╯
- 11  11   line 11                                 ╭─ amy · L20 ────────────────────────────────────╮
- 12     -     let x = old(12);                    │  Why line 20?                                  │
-     12 +     let x = new_call(12);               ├─ you ──────────────────────────────────────────┤
- 13  13   line 13                                 │  Because.                                      │
- 14  14   line 14                                 ╰────────────────────────────────────────────────╯
- 15  15   line 15                                 ╭─ ◆ claude · L12 ───────────────────────────────╮
-                                                  │  [nit]                                         │
-                                                  │  Name it new_value; see src/a.rs:2.            │
-                                                  ╰────────────────────────────────────────────────╯
+ ▾        src/big.rs  +1 −1  · 2 comments        ▎╭─ review summary ───────────────────────────────╮
+          ───────────────────────────────────────▎│ you     Nearly there.                          │
+  9   9   line 9                                 ▎│ claude  Looks right; one nit.                  │
+ 10  10   line 10                                ▎╰────────────────────────────────────────────────╯
+ 11  11   line 11                                ▎╭─ amy · L20 ────────────────────────────────────╮
+ 12     -     let x = old(12);                   ▎│  Why line 20?                                  │
+     12 +     let x = new_call(12);              ▎├─ you ──────────────────────────────────────────┤
+ 13  13   line 13                                ▎│  Because.                                      │
+ 14  14   line 14                                ▎╰────────────────────────────────────────────────╯
+ 15  15   line 15                                ▎╭─ ◆ claude · L12 ───────────────────────────────╮
+                                                 ▎│  [nit]                                         │
+                                                 ▎│  Name it new_value; see src/a.rs:2.            │
+                                                 ▎╰────────────────────────────────────────────────╯
  ▾        src/a.rs  +1 −1  · 1 comment
           ── fn main ──────────────────────────────────────────────────────────────────────── L1–3 ─
-  1   1   fn main() {                              ▸ amy · L1 · 1 comment
-  2     -     old();                               ┃ [resolved]
-      2 +     new_call(x);                        ╭─ you · L2 ─────────────────────────────────────╮
-  3   3   }                                       │  [pending]                                     │
-                                                  │  Pass y here.                                  │
- Claude's comment                                 ╰────────────────────────────────────────────────╯
+  1   1   fn main() {                            ▎ ▸ amy · L1 · 1 comment
+  2     -     old();                             ▎ ┃ [resolved]
+      2 +     new_call(x);                       ▎╭─ you · L2 ─────────────────────────────────────╮
+  3   3   }                                      ▎│  [pending]                                     │
+                                                 ▎│  Pass y here.                                  │
+ Claude's comment                                ▎╰────────────────────────────────────────────────╯
  r        reply to Claude                   0
  gf       go to a file:line or name in it
  c        copy to your review

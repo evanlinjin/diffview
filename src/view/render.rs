@@ -360,9 +360,12 @@ impl App {
         // Where the pane meets the code: as a column, a dim line between them; floating, the
         // pane in the popup color (on the rows it covers), with no line.
         let raised = self.ui.popup.bg.or(self.ui.bar);
-        let sep = match float {
-            false => Span::styled("│", Style { fg: self.ui.linenr.fg, ..Style::new() }),
-            true => Span::styled(" ", Style { bg: raised, ..Style::new() }),
+        // In the key color while the cursor's in the pane: which side has focus.
+        let sep = match (float, self.margin_side() || self.on_pr_tab()) {
+            (false, false) => Span::styled("│", Style { fg: self.ui.linenr.fg, ..Style::new() }),
+            (false, true) => Span::styled("│", Style { fg: self.ui.key.fg, ..Style::new() }),
+            (true, false) => Span::styled(" ", Style { bg: raised, ..Style::new() }),
+            (true, true) => Span::styled("▎", Style { fg: self.ui.key.fg, bg: raised, ..Style::new() }),
         };
         let base_bg = self.ui.base.bg;
         let raise = |v: Vec<Span<'static>>| match (float, raised) {

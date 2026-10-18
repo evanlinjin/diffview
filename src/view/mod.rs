@@ -80,10 +80,11 @@ VIEW
   Ctrl-w v             toggle split (side-by-side) view
   Ctrl-w n             relative line numbers on / off (kept for next time)
   Ctrl-w e             the changed files' list on the left, on / off (a click goes to one)
-  Ctrl-w h  Ctrl-w l   split view: old / new side; margin: code / comments (or Ctrl-h Ctrl-l)
+  Ctrl-w h  Ctrl-w l   pane left / right: files, old / new side, comments (or Ctrl-h Ctrl-l)
   Ctrl-w c             show / hide the comments pane (╎ ● mark their lines)
   Ctrl-w f             comments pane: a column beside the code / floating over it
-  Ctrl-w ,  Ctrl-w .   comments pane narrower / wider (Ctrl-w = its usual width)
+  Ctrl-w ,  Ctrl-w .   the pane you're in narrower / wider (Ctrl-w = usual width)
+  Ctrl-w q             hide the pane you're in (files' list or comments)
   Ctrl-w a             Claude view: only Claude's review and the code it's about
   Ctrl-w p             pending view: only your pending review and the code it's about
   Enter                open hx at cursor (on a link: open it)
@@ -477,10 +478,14 @@ pub struct App {
     /// The files' list (`Ctrl-w e`): shown or not as you set it (else by the window's width),
     /// its width and first line as drawn, and the file of each of its lines (for clicks).
     files_pref: Option<bool>,
+    /// Its width, when you've set it (`Ctrl-w ,` / `.` in it).
+    files_w_pref: Option<usize>,
     files_w: usize,
     files_top: usize,
     files_entries: Vec<Option<usize>>,
     files_cur: Option<usize>,
+    /// `Ctrl-h` from the code's left edge: keys go to the files' list (j / k a file).
+    files_focus: bool,
     /// Where those three are kept between runs (`pane.json`, any repo), once set by their keys.
     pane_file: Option<PathBuf>,
     /// It floats now (set by `draw`).
@@ -691,10 +696,12 @@ impl App {
             margin_float_pref: None,
             pane_file: None,
             files_pref: None,
+            files_w_pref: None,
             files_w: 0,
             files_top: 0,
             files_entries: vec![],
             files_cur: None,
+            files_focus: false,
             margin_float: false,
             pane_tab: Tab::Comments,
             pr_rows: vec![],
