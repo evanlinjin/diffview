@@ -285,7 +285,7 @@ failed one keeps them, to look into); elsewhere the terminal, and dv waits for E
 isn't listed; `Tab` switches to the PRs with a local
 `<repo>-N` worktree, open or not, which `Enter` opens in that worktree as it was made:
 detached or on its branch) shows each PR as a card, a blank line between cards. It keeps up
-with GitHub in the background: the open PRs' ETag every 30s (a 304 is free), fetching them
+with GitHub in the background: the open PRs' ETag every 5s, as a PR does (a 304 is free), fetching them
 again when it changes (a push, comment, review, new or closed PR) and every 5 minutes regardless
 (for CI), and again on coming back from a PR; the cards change in place (the selected one stays
 selected, CI counts kept until the new ones come). `R` fetches now. In a window 110 columns or wider, three

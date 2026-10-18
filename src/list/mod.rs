@@ -631,9 +631,10 @@ impl List {
         Ok(())
     }
 
-    /// Watch GitHub in the background for as long as dv runs: the open PRs' ETag every 30s (a
-    /// 304 is free), fetching them again when it changes; and every 5 minutes regardless (CI
-    /// doesn't change it). What's fetched shows as it comes (`apply_list`).
+    /// Watch GitHub in the background for as long as dv runs: the open PRs' ETag every 5s, as
+    /// the PR view does (a 304 doesn't count against the rate limit), fetching them again when it
+    /// changes; and every 5 minutes regardless (CI doesn't change it). What's fetched shows as it
+    /// comes (`apply_list`).
     fn watch_github(&mut self) {
         let (tx, rx) = mpsc::channel();
         let sender = tx.clone();
@@ -641,7 +642,7 @@ impl List {
             let mut etag = gh::list_etag("").ok().flatten().unwrap_or_default();
             let mut fetched = std::time::Instant::now();
             loop {
-                std::thread::sleep(Duration::from_secs(30));
+                std::thread::sleep(Duration::from_secs(5));
                 let changed = match gh::list_etag(&etag) {
                     Ok(Some(e)) => (etag = e, true).1,
                     _ => false,

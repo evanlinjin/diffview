@@ -5,6 +5,10 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Changed
+- `dv list` checks GitHub every 5 seconds, not 30 (as the PR view does): a check that finds
+  nothing new is free.
+
 ## [0.24.0] - 2026-10-18
 
 ### Added
