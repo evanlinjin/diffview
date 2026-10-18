@@ -89,6 +89,10 @@ const HELP: &str = "\
   q, Ctrl-c            quit";
 
 pub struct List {
+    /// The tabs' columns on the header (for clicks), and the last click on a card (when, which:
+    /// a second soon after on the same one opens it).
+    tab_hits: Vec<(std::ops::Range<u16>, Tab)>,
+    last_click: Option<(std::time::Instant, usize)>,
     prs: Vec<Listed>,
     ui: Ui,
     /// Flags each PR opens with, for the status bar (e.g. "-wb").
@@ -192,6 +196,8 @@ impl List {
         let ui = Theme::load().ui();
         let (query, msg) = (String::new(), String::new());
         List {
+            tab_hits: vec![],
+            last_click: None,
             prs: vec![],
             ui,
             flags,
@@ -316,7 +322,7 @@ impl List {
             let k = match event::read()? {
                 Event::Key(k) if k.kind == KeyEventKind::Press => k,
                 Event::Mouse(m) => match self.mouse(m) {
-                    // A click on the selected card opens it, as Enter.
+                    // A double-click on a card opens it, as Enter.
                     true => KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
                     false => continue,
                 },
@@ -960,19 +966,30 @@ impl List {
 
     /// The wheel moves the selection; a click selects a card, and on the selected one opens it
     /// (`true`: open).
+    /// A click selects a card, a double-click opens it (`true`: as Enter); a click on a tab
+    /// switches to it; the wheel moves the selection.
     fn mouse(&mut self, m: event::MouseEvent) -> bool {
         use event::{MouseButton, MouseEventKind};
         let n = self.shown().len();
         match m.kind {
             MouseEventKind::ScrollDown => self.sel = (self.sel + 1).min(n.saturating_sub(1)),
             MouseEventKind::ScrollUp => self.sel = self.sel.saturating_sub(1),
-            MouseEventKind::Down(MouseButton::Left) if !self.help && m.row >= 1 => {
+            MouseEventKind::Down(MouseButton::Left) if !self.help && m.row == 0 => {
+                if let Some(&(_, tab)) = self.tab_hits.iter().find(|(x, _)| x.contains(&m.column)) {
+                    (self.tab, self.sel, self.top) = (tab, 0, 0);
+                }
+            }
+            MouseEventKind::Down(MouseButton::Left) if !self.help => {
                 let i = self.top + (m.row as usize - 1) / self.card_rows(); // cards start under the header
-                if i < n {
-                    if i == self.sel {
-                        return true;
-                    }
-                    self.sel = i;
+                if i >= n {
+                    return false;
+                }
+                let double = self.last_click.is_some_and(|(at, j)| j == i && at.elapsed() < Duration::from_millis(400));
+                self.last_click = Some((std::time::Instant::now(), i));
+                self.sel = i;
+                if double {
+                    self.last_click = None;
+                    return true;
                 }
             }
             _ => {}
@@ -1008,7 +1025,8 @@ impl List {
         let arrow = if self.rev { '↑' } else { '↓' };
         // Tabs: the current one bold, with counts.
         let open = self.prs.iter().filter(|p| p.state == "OPEN" || p.state.is_empty()).count();
-        let tab = |name: String, on: bool| Span::styled(name, if on { hs.add_modifier(ratatui::style::Modifier::BOLD | ratatui::style::Modifier::UNDERLINED) } else { hs.patch(ui.stale) });
+        // As the PR view's tabs: the one shown lit, the others dim.
+        let tab = |name: String, on: bool| Span::styled(format!(" {name} "), if on { ui.menu_selected } else { hs.patch(ui.stale) });
         // What you'd judge a ranking by: how old the last is, what it cost, what's changed since.
         let ranking = match (&self.rank_rx, &self.ranked) {
             (Some(_), _) => "Claude is ranking…".to_owned(),
@@ -1019,17 +1037,24 @@ impl List {
             Tab::Todo => format!("   {ranking}"),
             _ => format!("   by {} {arrow}  (Tab switches)", self.order.name()),
         };
-        let tabs = Line::from(vec![
-            Span::styled(" ", hs),
-            tab(format!("todo {}", self.todo_now()), self.tab == Tab::Todo),
-            Span::styled("  ", hs),
-            tab(format!("open {open}{}", if self.prs.len() >= gh::LIST_MAX { "+" } else { "" }), self.tab == Tab::Open),
-            Span::styled("  ", hs),
-            tab(format!("worktrees {}", self.local.len()), self.tab == Tab::Worktrees),
-            Span::styled("  ", hs),
-            tab(format!("drafts {}", self.reps.len()), self.tab == Tab::Replacements),
-            Span::styled(rest, hs.patch(ui.stale)),
-        ]);
+        let names = [
+            (Tab::Todo, format!("todo {}", self.todo_now())),
+            (Tab::Open, format!("open {open}{}", if self.prs.len() >= gh::LIST_MAX { "+" } else { "" })),
+            (Tab::Worktrees, format!("worktrees {}", self.local.len())),
+            (Tab::Replacements, format!("drafts {}", self.reps.len())),
+        ];
+        let mut spans = vec![Span::styled(" ", hs)];
+        let mut hits = vec![];
+        let mut x = 1u16;
+        for (t, name) in names {
+            let s = tab(name, self.tab == t);
+            let w = s.width() as u16;
+            hits.push((x..x + w, t));
+            spans.extend([s, Span::styled(" ", hs)]);
+            x += w + 1;
+        }
+        spans.push(Span::styled(rest, hs.patch(ui.stale)));
+        let tabs = Line::from(spans);
         f.render_widget(Paragraph::new(tabs).style(hs), head);
         let pos = if shown.is_empty() { "0 / 0 ".into() } else { format!("{} / {} ", sel + 1, shown.len()) };
         f.render_widget(Paragraph::new(pos).alignment(Alignment::Right).style(hs), head);
@@ -1186,6 +1211,7 @@ impl List {
                 .collect();
             f.render_widget(Paragraph::new(body), Rect { x: r.x + 1, y: r.y + 2, width: r.width.saturating_sub(2), height: h.saturating_sub(3) });
         }
+        self.tab_hits = hits; // where the tabs are, for clicks
     }
 }
 

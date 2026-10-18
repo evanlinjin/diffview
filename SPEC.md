@@ -304,7 +304,9 @@ all match, GitHub-search style, `-` negating one: `author:` `label:` `base:` `br
 (substring), `is:draft`, `review:approved|changes|required|none`, `ci:pass|fail|pending|none`,
 anything else is text in the number, title, author, branch or labels (smart case). E.g.
 `ci:fail -is:draft -author:dependabot`. `Enter` reviews the PR as `dv <N> <flags>` would, `R`
-refreshes, `q` quits. `m` marks PRs (`U U` unmarks them all; kept in dv's directory, `marked.json`, so they outlast opening a PR and `dv list`
+refreshes, `q` quits. The mouse: a click selects a card, a double-click opens it, a click on a
+tab switches to it, the wheel moves the selection; the tabs as the PR view's (the one shown lit).
+`m` marks PRs (`U U` unmarks them all; kept in dv's directory, `marked.json`, so they outlast opening a PR and `dv list`
 itself; closed PRs' marks go) and `a a` has Claude review them (or the selected one) in
 the background (after your editor, for optional instructions to every one of those reviews, starting
 from your last review instructions in this repo, as `Space a` → review does; `:cq` cancels), two at a time, each in its `<repo>-N` worktree (made if need be; one on the

@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Changed
+- `dv list`'s mouse: a click selects a card and a double-click opens it (a click on the selected
+  one opened it, which a wheel turn could make a surprise); a click on a tab switches to it. Its
+  tabs look as the PR view's do: the one shown lit, the others dim.
+
 ## [0.24.1] - 2026-10-18
 
 ### Changed

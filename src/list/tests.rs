@@ -396,3 +396,26 @@ fn unmark_all() {
     k(&mut l, 'U');
     assert!(l.marked.is_empty() && l.msg == "unmarked 3");
 }
+
+#[test]
+fn mouse_in_the_list() {
+    use crate::view::tests::screen;
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let pr = |number, title: &str| Listed { number, title: title.into(), author: "a".into(), base: "master".into(), state: "OPEN".into(), files: 1, ..Listed::default() };
+    let mut l = List::new("".into());
+    l.prs = vec![pr(1, "one"), pr(2, "two"), pr(3, "three")];
+    l.tab = Tab::Open;
+    _ = screen(120, 20, |f| l.draw(f));
+    let click = |l: &mut List, column: u16, row: u16| l.mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column, row, modifiers: KeyModifiers::NONE });
+    // A click selects a card (the second: under the header, a card's rows down); it doesn't open
+    // it, even when it's the one selected; a second click soon after does.
+    let second = 1 + l.card_rows() as u16;
+    assert!(!click(&mut l, 10, second) && l.sel == 1);
+    l.last_click = None; // (as if a while ago)
+    assert!(!click(&mut l, 10, second), "a single click on the selected card opened it");
+    assert!(click(&mut l, 10, second), "a double-click didn't open it");
+    // A click on a tab: that tab.
+    let (x, _) = l.tab_hits.iter().find(|(_, t)| *t == Tab::Worktrees).cloned().unwrap();
+    click(&mut l, x.start + 1, 0);
+    assert_eq!(l.tab, Tab::Worktrees);
+}
