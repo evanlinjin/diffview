@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.28.1] - 2026-10-18
+
 ### Fixed
 - `dv list` freezing for seconds after you come back from a PR: it looked up every worktree's
   closed PR on GitHub, one by one, at each refresh. Those are kept now, and new ones (and the PRs
@@ -824,6 +826,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.28.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.28.1
 [0.28.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.28.0
 [0.27.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.27.1
 [0.27.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.27.0
