@@ -56,6 +56,10 @@ const HELP: &str = "\
                        <repo>-replace-N, unpublished, for you to review first (replacements
                        tab); for marked PRs, it first suggests which go together (one
                        replacement each group), which you edit; then your instructions
+  M M                  merge the PR with github-merge.py (Bitcoin Core's script, built into dv;
+                       git config dv.mergescript <path> runs your own copy), in the main
+                       checkout: its worktree goes first, unless something in it is unpushed;
+                       in a zellij pane of its own, or in this terminal
   D D                  worktrees tab: remove the PR's worktree (not with local changes in it;
                        its branch stays); replacements tab: remove the replacement (the same)
   R                    refresh (on todo: and Claude ranks it again; it does by itself when
@@ -139,6 +143,8 @@ pub struct Pick {
     pub worktree: Option<bool>,
     /// It's a replacement (`number` is its own): it opens in its worktree.
     pub replacement: bool,
+    /// Merge it (`M M`) instead.
+    pub merge: bool,
 }
 
 impl List {
@@ -253,7 +259,10 @@ impl List {
                     let todo_rep = self.tab == Tab::Todo && self.todo_shown().iter().any(|(c, it)| c.number == n && it.rep);
                     let replacement = self.tab == Tab::Replacements || todo_rep;
                     let worktree = (self.tab == Tab::Worktrees).then(|| self.local.get(&n).is_some_and(|w| w.1.is_some()));
-                    return Ok(Some(Pick { number: n, worktree, replacement }));
+                    return Ok(Some(Pick { number: n, worktree, replacement, merge: false }));
+                }
+                Some(Do::Merge(n)) => {
+                    return Ok(Some(Pick { number: n, worktree: None, replacement: false, merge: true }));
                 }
                 Some(Do::Refresh) => {
                     self.refresh(term)?;
@@ -621,6 +630,15 @@ impl List {
                 self.msg = format!("D again removes {} (its branch stays); any other key keeps it", dir.display());
                 self.confirm = Some(('D', p));
             }
+            KeyCode::Char('M') if self.tab != Tab::Replacements => {
+                let p = self.shown().get(self.sel).map(|p| p.number)?;
+                if armed == Some(('M', p)) {
+                    return Some(Do::Merge(p));
+                }
+                let wt = if self.local.contains_key(&p) { " (its worktree goes first, if nothing in it is unpushed)" } else { "" };
+                self.msg = format!("M again: merge #{p} with github-merge.py{wt}; any other key doesn't");
+                self.confirm = Some(('M', p));
+            }
             KeyCode::Char('m') => {
                 let (p, state) = self.shown().get(self.sel).map(|p| (p.number, p.state.clone()))?;
                 if !matches!(state.as_str(), "OPEN" | "") && !self.marked.contains(&p) {
@@ -851,6 +869,7 @@ impl List {
                 ("m", "mark"),
                 ("a a", "Claude reviews marked"),
                 ("A A", "Claude drafts a replacement"),
+                ("M M", "merge (github-merge.py)"),
                 ("D D", remove),
                 ("?", "all keys"),
                 ("q", "quit"),
@@ -861,7 +880,7 @@ impl List {
                 .filter(|(k, _)| match *k {
                     "D D" => !matches!(self.tab, Tab::Open | Tab::Todo),
                     "o O" => self.tab != Tab::Todo, // in the order of what needs you
-                    "m" | "a a" | "A A" => !reps,
+                    "m" | "a a" | "A A" | "M M" => !reps,
                     _ => true,
                 })
                 .map(|(k, d)| Line::from(vec![Span::styled(format!("{k:<6}"), ui.key), Span::raw(d.to_string())]))
@@ -909,6 +928,8 @@ enum Do {
     Replace(Vec<u64>),
     /// Remove this replacement (its worktree and record).
     RemoveReplacement(u64),
+    /// Merge this PR with github-merge.py.
+    Merge(u64),
 }
 
 fn marks_path() -> Option<PathBuf> {

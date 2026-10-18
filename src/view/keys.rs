@@ -445,6 +445,7 @@ impl App {
                         Target::GitView => self.toggle_uncommitted(),
                         Target::GitCommit => self.action = Some(Action::Commit(self.commit_draft())),
                         Target::GitPush => (self.msg, self.job) = ("pushing…".into(), Some(Job::Push)),
+                        Target::GitMerge => (self.merge, self.quit) = (true, true),
                         Target::ClaudeDismissOutdated(sure) => self.dismiss_outdated(sure),
                         Target::Nothing => {}
                     }

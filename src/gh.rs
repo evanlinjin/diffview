@@ -317,6 +317,11 @@ fn extra(p: &Value, me: &str) -> Extra {
     }
 }
 
+/// This repo on GitHub, as `owner/name`.
+pub fn repo_name() -> Result<String> {
+    Ok(gh(&["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"])?.trim().to_owned())
+}
+
 /// CI check counts for the PRs `list` returns: number → (passed, failed, pending).
 pub fn list_checks() -> Result<std::collections::HashMap<u64, (usize, usize, usize)>> {
     let v: Value = serde_json::from_str(&gh(&["pr", "list", "--limit", &LIST_MAX.to_string(), "--json", "number,statusCheckRollup"])?)?;

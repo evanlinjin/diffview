@@ -7,6 +7,6 @@
       @bo · ✓ approved · +22 −0 in 1 file  docs  · b            m     mark
                                                                 a a   Claude reviews marked
                                                                 A A   Claude drafts a replacement
+                                                                M M   merge (github-merge.py)
                                                                 ?     all keys
-                                                                q     quit
 

@@ -6,6 +6,13 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Added
+- Merging with Bitcoin Core's `github-merge.py`: `M M` on a PR in `dv list`, or `Space g` →
+  merge in its review. The script is built into dv (pinned to an upstream commit, its SHA-256
+  checked by a test; `vendor/github-merge/`), so nothing is downloaded to merge; `git config
+  dv.mergescript <path>` runs your own copy instead. It runs in the main checkout, in a zellij
+  pane of its own or in the terminal; the PR's worktree goes first, and only if nothing in it is
+  unpushed (no local changes, no commits beyond the PR's head). `githubmerge.repository` is
+  passed for that run if you haven't set it.
 - `dv list` has a **todo** tab: the PRs and replacements waiting on you, in the order to take
   them. dv finds what's waiting (a replacement to publish or close for, a push since your
   review, Claude answering you, your review requested, ready to merge, Claude's review new to

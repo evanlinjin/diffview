@@ -26,6 +26,10 @@ impl App {
             },
             Err(e) => items.push(Item::new(format!("Can't push: {e:#}"), Target::Nothing)),
         }
+        if let Some(p) = &self.pr {
+            let label = format!("Merge #{} with github-merge.py (ends this review; its worktree goes first, if nothing in it is unpushed)", p.number);
+            items.push(Item::new(label, Target::GitMerge));
+        }
         self.picker = Some(Picker { title: " git ", items, query: String::new(), sel: 0 });
     }
 

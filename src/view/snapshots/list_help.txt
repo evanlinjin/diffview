@@ -7,8 +7,6 @@
       @bo · ✓ approved · +22 −0 in 1 file  docs  · b
 
 
-
-
  dv list keys                                                                        any key closes
 
  j k, Up Down         move
@@ -39,14 +37,16 @@
                         <repo>-replace-N, unpublished, for you to review first (replacements
                         tab); for marked PRs, it first suggests which go together (one
                         replacement each group), which you edit; then your instructions
+   M M                  merge the PR with github-merge.py (Bitcoin Core's script, built into dv;
+                        git config dv.mergescript <path> runs your own copy), in the main
+                        checkout: its worktree goes first, unless something in it is unpushed;
+                        in a zellij pane of its own, or in this terminal
    D D                  worktrees tab: remove the PR's worktree (not with local changes in it;
                         its branch stays); replacements tab: remove the replacement (the same)
    R                    refresh (on todo: and Claude ranks it again; it does by itself when
                         its last ranking is over 12 hours old)
    ?                    this help
    q, Ctrl-c            quit
-
-
 
 
 

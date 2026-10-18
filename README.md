@@ -49,7 +49,8 @@ dv list -w        # pick from the open PRs; Enter reviews one (here: in a worktr
                   # (your editor opens first, for instructions to all of them; your last
                   # review instructions are there to start from);
                   # [new]: something on GitHub or from Claude since you last left it;
-                  # A A has Claude draft a replacement (below); filter by #N to open a PR
+                  # A A has Claude draft a replacement (below); filter by #N to open a PR;
+                  # M M merges one with Bitcoin Core's github-merge.py (built in)
                   # that isn't listed
 dv replace 2258   # Claude drafts a replacement for PR 2258, unpublished (below)
 ```

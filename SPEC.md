@@ -213,6 +213,17 @@ one, as `a a` runs it (worktree, session): answers your replies waiting on it, u
 behind the PR's head, or reviews one that has none. Enter opens the PR (a replacement, in its
 worktree); back in the list, what you saw to drops off.
 
+Merging: `M M` on a PR in `dv list`, or `Space g` → merge in its review (which ends the review
+first), runs Bitcoin Core's `github-merge.py` (`merge.rs`). dv builds the script in
+(`vendor/github-merge/`, pinned to an upstream commit; a test checks its SHA-256) and writes it to
+its data directory when it isn't exactly that, so a merge downloads nothing; `git config
+dv.mergescript <path>` runs yours instead. It runs in the main checkout, as `python3 <script> N`,
+with `githubmerge.repository` set for that run (`GIT_CONFIG_*`) if you haven't set it. The script
+checks out the base branch, which the PR's worktree would be in the way of, so that goes first:
+only if it has no local changes (untracked files count) and no commits beyond the PR's head on
+GitHub; else dv stops and says what's there. In zellij the script gets a pane of its own, left
+open when it's done; elsewhere the terminal, and dv waits for Enter after it.
+
 `dv list` (the 1000 most recently updated open PRs; a `#N` filter's Enter opens PR N even if it
 isn't listed; `Tab` switches to the PRs with a local
 `<repo>-N` worktree, open or not, which `Enter` opens in that worktree as it was made:

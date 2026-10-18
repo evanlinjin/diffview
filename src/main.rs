@@ -6,6 +6,7 @@ mod highlight;
 mod list;
 mod lsp;
 mod md;
+mod merge;
 mod replace;
 mod theme;
 mod todo;
@@ -188,13 +189,19 @@ fn run() -> anyhow::Result<()> {
         anyhow::bail!("--worktree needs a PR, e.g. `dv 123 -w`\n{USAGE}");
     }
     let (wt, res) = review(&o, o.pr)?;
+    if res.as_ref().is_ok_and(|m| *m) {
+        std::env::set_current_dir(&root)?; // out of the worktree it may remove
+        let n = o.pr.context("merging needs the PR's number")?;
+        eprintln!("{}", merge::merge(n, false)?);
+        return Ok(());
+    }
     if let Some(dir) = wt {
         match diff::git(&["branch", "--show-current"]).map(|b| b.trim().to_owned()) {
             Ok(b) if !b.is_empty() => eprintln!("PR checked out in {} on branch {b}", dir.display()),
             _ => eprintln!("PR checked out in {}", dir.display()),
         }
     }
-    res
+    res.map(drop)
 }
 
 /// `dv list`: review the picked PR with `o`'s flags, then back to the list, until `q` there.
@@ -206,6 +213,11 @@ fn pick_and_review(o: &Opts, root: &Path) -> anyhow::Result<()> {
         view::restore_terminal();
         let Some(pick) = picked? else { return Ok(()) };
         let n = pick.number;
+        if pick.merge {
+            list.msg = merge::merge(n, view::in_zellij()).unwrap_or_else(|e| format!("not merged: {e:#}"));
+            std::env::set_current_dir(root)?;
+            continue;
+        }
         if pick.replacement {
             let res = review_replacement(n, root);
             progress(None);
@@ -227,8 +239,11 @@ fn pick_and_review(o: &Opts, root: &Path) -> anyhow::Result<()> {
         let res = review(opts, Some(n)).and_then(|(_, res)| res);
         progress(None);
         std::env::set_current_dir(root)?; // a worktree review leaves us in the worktree
-        if let Err(e) = res {
-            list.msg = format!("PR #{n}: {e:#}");
+        match res {
+            Err(e) => list.msg = format!("PR #{n}: {e:#}"),
+            // `Space g` → merge, from the review.
+            Ok(true) => list.msg = merge::merge(n, view::in_zellij()).unwrap_or_else(|e| format!("not merged: {e:#}")),
+            Ok(false) => {}
         }
     }
 }
@@ -251,8 +266,9 @@ fn review_replacement(id: u64, root: &Path) -> anyhow::Result<()> {
 }
 
 /// Check PR `n` out as `o` says and review it. The outer error is setup (checkout, diff); the
-/// inner one is from the TUI, which the worktree note is printed after.
-fn review(o: &Opts, pr_num: Option<u64>) -> anyhow::Result<(Option<PathBuf>, anyhow::Result<()>)> {
+/// inner one is from the TUI, which the worktree note is printed after; its `true`: you asked
+/// to merge the PR (`Space g`), which is for the caller to do, out of the review.
+fn review(o: &Opts, pr_num: Option<u64>) -> anyhow::Result<(Option<PathBuf>, anyhow::Result<bool>)> {
     // A PR with a worktree already (`<repo>-N`) opens there, as it was made: its branch can't
     // be checked out here too, and that's where you were reviewing it.
     let found = pr_num.filter(|_| !o.worktree).and_then(|n| pr_worktrees().into_iter().find(|w| w.0 == n));
@@ -292,7 +308,7 @@ fn review(o: &Opts, pr_num: Option<u64>) -> anyhow::Result<(Option<PathBuf>, any
     let mut term = view::init_terminal();
     let res = app.run(&mut term);
     view::restore_terminal();
-    Ok((wt, res))
+    Ok((wt, res.map(|_| app.merge)))
 }
 
 /// The commit the diff starts from: the merge-base with the given base, else the PR's base
@@ -421,7 +437,7 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
 }
 
 /// The main checkout's root (found from inside a worktree too) and PR `n`'s worktree next to it.
-fn worktree_dir(n: u64) -> anyhow::Result<(PathBuf, PathBuf)> {
+pub(crate) fn worktree_dir(n: u64) -> anyhow::Result<(PathBuf, PathBuf)> {
     let main = main_checkout(Path::new("."))?;
     Ok((main, worktree_dir_named(Path::new("."), &n.to_string())?))
 }

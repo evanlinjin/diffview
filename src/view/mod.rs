@@ -321,6 +321,8 @@ enum Target {
     GitView,
     GitCommit,
     GitPush,
+    /// End the review and merge the PR with github-merge.py.
+    GitMerge,
     /// Dismiss all of Claude's outdated comments (`true`: confirmed).
     ClaudeDismissOutdated(bool),
     Nothing,
@@ -473,6 +475,8 @@ pub struct App {
     /// Helix `cursorline` / relative `line-number`.
     settings: Settings,
     quit: bool,
+    /// `Space g` → merge: the review ends, then dv merges the PR (`merge.rs`).
+    pub merge: bool,
     pr: Option<Pr>,
     threads: Vec<Thread>,
     info: Vec<gh::InfoLine>,
@@ -666,6 +670,7 @@ impl App {
             emph: HashMap::new(),
             settings: Settings::default(),
             quit: false,
+            merge: false,
             pr: None,
             threads: vec![],
             info: vec![],

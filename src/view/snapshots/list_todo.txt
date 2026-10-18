@@ -6,7 +6,7 @@
     @me · +0 −0 in 1 file · b                       m     mark
   2. y                                              a a   Claude reviews marked
  #2 Docs                                            A A   Claude drafts a replacement
-    @bo · +0 −0 in 1 file · b                       ?     all keys
-  3. z                                              q     quit
-
+    @bo · +0 −0 in 1 file · b                       M M   merge (github-merge.py)
+  3. z                                              ?     all keys
+                                                    q     quit
 
