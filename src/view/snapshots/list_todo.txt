@@ -5,8 +5,8 @@
 ▌                                                   R     refresh (from GitHub)
 ▌     b                                             r r   Claude ranks what needs you (a run)
                                                     s     defer it (or bring it back)
+                                                    p     post what it waits on (a comment)
                                                     m     mark
                                                     a a   Claude does its part (marked)
                                                     A A   Claude drafts a replacement
-                                                    M M   merge (github-merge.py)
 

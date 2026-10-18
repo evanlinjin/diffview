@@ -277,6 +277,9 @@ pub struct Extra {
     pub my_review: Option<(String, String)>,
     /// Everyone's latest review: (login, state).
     pub reviews: Vec<(String, String)>,
+    /// The conversation's last comments by people with write access (or you), oldest first:
+    /// (login, body), for what the PR waits on.
+    pub said: Vec<(String, String)>,
     pub requested: bool,
     /// MERGEABLE, CONFLICTING or UNKNOWN.
     pub mergeable: String,
@@ -295,7 +298,8 @@ pub fn list_extra() -> Result<(String, std::collections::HashMap<u64, Extra>)> {
                pullRequests(states: OPEN, first: 100{from}, orderBy: {{ field: UPDATED_AT, direction: DESC }}) {{ {PAGE} nodes {{
                  number headRefOid mergeable
                  reviewRequests(first: 30) {{ nodes {{ requestedReviewer {{ ... on User {{ login }} }} }} }}
-                 latestReviews(first: 50) {{ nodes {{ author {{ login }} state commit {{ oid }} }} }} }} }} }} }}"
+                 latestReviews(first: 50) {{ nodes {{ author {{ login }} state commit {{ oid }} }} }}
+                 comments(last: 20) {{ nodes {{ author {{ login }} authorAssociation body }} }} }} }} }} }}"
         );
         let v: Value = serde_json::from_str(&gh(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-f", &format!("query={q}")])?)?;
         me = v["data"]["viewer"]["login"].as_str().unwrap_or("").to_owned();
@@ -317,6 +321,11 @@ fn extra(p: &Value, me: &str) -> Extra {
     Extra {
         my_review,
         reviews: nodes("latestReviews").iter().map(|r| (s(&r["author"]["login"]), s(&r["state"]))).collect(),
+        said: nodes("comments")
+            .iter()
+            .filter(|c| c["author"]["login"] == me || matches!(c["authorAssociation"].as_str(), Some("OWNER" | "MEMBER" | "COLLABORATOR")))
+            .map(|c| (s(&c["author"]["login"]), s(&c["body"])))
+            .collect(),
         requested: nodes("reviewRequests").iter().any(|r| r["requestedReviewer"]["login"] == me),
         mergeable: s(&p["mergeable"]),
         head_oid: s(&p["headRefOid"]),

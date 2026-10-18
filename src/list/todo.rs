@@ -21,14 +21,14 @@ impl List {
             let facts = Facts { pr: p, extra: self.extra.get(&p.number), me: &self.me, review: review.as_ref(), looked, review_changed: file.and_then(secs), unpushed };
             let (needs, claude) = todo::needs(&facts);
             if !needs.is_empty() {
-                items.push(Item { rep: false, number: p.number, needs, claude, updated: p.updated.clone(), reason: None, changed: false, deferred: None, busy: None });
+                items.push(Item { rep: false, number: p.number, needs, claude, updated: p.updated.clone(), reason: None, changed: false, deferred: None, busy: None, waits: None });
             }
         }
         for r in self.rep_of.values() {
             let needs = todo::rep_needs(r);
             let updated = self.reps.iter().find(|c| c.number == r.id).map_or(String::new(), |c| c.updated.clone());
             if !needs.is_empty() {
-                items.push(Item { rep: true, number: r.id, needs, claude: None, updated, reason: None, changed: false, deferred: None, busy: None });
+                items.push(Item { rep: true, number: r.id, needs, claude: None, updated, reason: None, changed: false, deferred: None, busy: None, waits: None });
             }
         }
         let (items, since) = todo::order(items, self.ranked.as_ref());
@@ -47,7 +47,18 @@ impl List {
         if !met.is_empty() {
             _ = todo::save_deferred(self.deferred_file.as_deref(), &self.deferred);
         }
-        let items = todo::defer(items, &self.deferred, now, |it, c| self.happened(it, c));
+        let mut items = todo::defer(items, &self.deferred, now, |it, c| self.happened(it, c));
+        // What a PR's conversation says it waits on (a trusted comment), not happened yet: to
+        // the bottom too, for everyone.
+        for it in items.iter_mut().filter(|it| !it.rep && it.deferred.is_none()) {
+            let said = self.extra.get(&it.number).map(|e| e.said.as_slice()).unwrap_or(&[]);
+            // A comment's word, else what Claude saw in the conversation when it ranked.
+            let claude = self.ranked.as_ref().and_then(|r| r.waits.get(&it.key())).map(|c| (c.clone(), String::new()));
+            it.waits = todo::waiting_on(said, now).or(claude).filter(|(c, _)| !self.happened(it, c));
+        }
+        let (mut waiting, mut rest): (Vec<Item>, Vec<Item>) = items.into_iter().partition(|it| it.waits.is_some());
+        rest.append(&mut waiting);
+        let items = rest;
         // Those Claude is at (here or in any dv): at the bottom till it's done.
         let (mut busy, mut todo): (Vec<Item>, Vec<Item>) = items.into_iter().partition(|it| !it.rep && self.claude_doing(it.number).is_some());
         busy.iter_mut().for_each(|it| it.busy = self.claude_doing(it.number));
@@ -245,7 +256,7 @@ impl List {
 
     /// What needs you now (not deferred, Claude not at it), for the tab's count.
     pub(super) fn todo_now(&self) -> usize {
-        self.todo.iter().filter(|it| it.deferred.is_none() && it.busy.is_none()).count()
+        self.todo.iter().filter(|it| it.deferred.is_none() && it.busy.is_none() && it.waits.is_none()).count()
     }
 
     /// What Claude is doing on PR `n` now, if anything: a run from here (`a a`), or any dv's

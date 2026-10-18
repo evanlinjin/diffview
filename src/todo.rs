@@ -106,6 +106,9 @@ pub struct Item {
     /// What Claude is doing on it now (from any dv): nothing for you till it's done, so it's at
     /// the bottom meanwhile.
     pub busy: Option<String>,
+    /// What it waits on, as its conversation says (and who said it), not happened yet: at the
+    /// bottom meanwhile, for everyone whose dv reads it.
+    pub waits: Option<(Until, String)>,
 }
 
 impl Item {
@@ -228,6 +231,8 @@ pub struct Ranked {
     pub fingerprint: String,
     /// (key, "reason — next"), in order.
     pub items: Vec<(String, String)>,
+    /// What Claude saw each waits on, in its conversation (by key).
+    pub waits: std::collections::HashMap<String, Until>,
 }
 
 /// What a ranking was of: each item and its needs. When today's differs, the ranking is stale.
@@ -386,6 +391,29 @@ impl Until {
     }
 }
 
+/// What a PR's conversation says it waits on: the newest line of a trusted comment (`said`,
+/// oldest first) that starts "Waiting on", "Blocked on/by", "Depends on" or "Deferred until",
+/// and who said it; a later "Unblocked" (or "No longer waiting") ends it. `#N` alone means that
+/// PR merged.
+pub fn waiting_on(said: &[(String, String)], now: i64) -> Option<(Until, String)> {
+    const LEADS: [&str; 8] = ["waiting on", "waiting for", "blocked on", "blocked by", "depends on", "deferred until", "defer until", "until"];
+    for (who, body) in said.iter().rev() {
+        for line in body.lines().rev() {
+            let l = line.trim().trim_start_matches(['>', '*', '-', ' ']).to_lowercase();
+            if l.starts_with("unblocked") || l.starts_with("no longer waiting") {
+                return None;
+            }
+            let Some(rest) = LEADS.iter().find_map(|p| l.strip_prefix(p)) else { continue };
+            let rest = rest.trim_start_matches([':', ' ']);
+            let bare = rest.trim_end_matches(['.', ' ', ')']).trim_start_matches('#').parse::<u64>().ok();
+            if let Some(c) = bare.map(Until::Merged).or_else(|| Until::parse(rest, now)) {
+                return Some((c, who.clone()));
+            }
+        }
+    }
+    None
+}
+
 /// A deferral (`s`): till when (`i64::MAX` for one waiting on `cond`), the item's needs then (it
 /// comes back early when they change), and what it waits for, if not a time.
 #[derive(Clone, Debug, PartialEq)]
@@ -480,14 +508,16 @@ pub fn interpret(text: String, root: std::path::PathBuf) -> Receiver<Result<Unti
 pub fn load() -> Option<Ranked> {
     let v: Value = serde_json::from_str(&std::fs::read_to_string(path()?).ok()?).ok()?;
     let items = v["items"].as_array()?.iter().map(|i| (i["key"].as_str().unwrap_or("").to_owned(), i["says"].as_str().unwrap_or("").to_owned())).collect();
-    Some(Ranked { at: v["at"].as_i64().unwrap_or(0), cost: v["cost"].as_f64().unwrap_or(0.0), fingerprint: v["fingerprint"].as_str().unwrap_or("").to_owned(), items })
+    let waits = v["waits"].as_object().into_iter().flatten().filter_map(|(k, w)| Some((k.clone(), Until::from_json(w)?))).collect();
+    Some(Ranked { at: v["at"].as_i64().unwrap_or(0), cost: v["cost"].as_f64().unwrap_or(0.0), fingerprint: v["fingerprint"].as_str().unwrap_or("").to_owned(), items, waits })
 }
 
 fn save(r: &Ranked) -> Result<()> {
     let items: Vec<Value> = r.items.iter().map(|(k, s)| json!({ "key": k, "says": s })).collect();
     let p = path().context("no dv directory")?;
     std::fs::create_dir_all(p.parent().unwrap_or(&p))?;
-    Ok(std::fs::write(p, json!({ "at": r.at, "cost": r.cost, "fingerprint": r.fingerprint, "items": items }).to_string())?)
+    let waits: serde_json::Map<String, Value> = r.waits.iter().map(|(k, w)| (k.clone(), w.to_json())).collect();
+    Ok(std::fs::write(p, json!({ "at": r.at, "cost": r.cost, "fingerprint": r.fingerprint, "items": items, "waits": waits }).to_string())?)
 }
 
 /// A line about item `it` for Claude's ranking: what it is and what it needs.
@@ -516,7 +546,7 @@ pub fn about(it: &Item, pr: &Listed, summary: &str) -> String {
 pub fn rank(lines: Vec<String>, fingerprint: String, root: std::path::PathBuf) -> Receiver<Result<Ranked>> {
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
-        let res = ask(&lines, &root).map(|(items, cost)| Ranked { at: crate::claude::now_secs(), cost, fingerprint, items });
+        let res = ask(&lines, &root).map(|((items, waits), cost)| Ranked { at: crate::claude::now_secs(), cost, fingerprint, items, waits });
         if let Ok(r) = &res {
             _ = save(r);
         }
@@ -525,7 +555,10 @@ pub fn rank(lines: Vec<String>, fingerprint: String, root: std::path::PathBuf) -
     rx
 }
 
-fn ask(lines: &[String], root: &std::path::Path) -> Result<(Vec<(String, String)>, f64)> {
+type Order = (Vec<(String, String)>, std::collections::HashMap<String, Until>);
+
+/// Claude's order and the waits it saw, and what it cost.
+fn ask(lines: &[String], root: &std::path::Path) -> Result<(Order, f64)> {
     let notes = crate::claude::notes_path().ok().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
     let notes = match notes.trim() {
         "" => String::new(),
@@ -537,8 +570,11 @@ fn ask(lines: &[String], root: &std::path::Path) -> Result<(Vec<(String, String)
          Put them in the order I should take them, most important first. Judge what matters: fixes for bugs and \
          security over refactors and features; contributors who've waited longest; quick ones first among equals; \
          a PR that blocks others before them. Read a PR (`gh pr view N`) only where its line isn't enough to judge. \
-         Change nothing. Reply with only a JSON array, every key exactly once, no other text: \
-         [{{\"key\": \"pr-12\", \"reason\": \"why it's here, a few words\", \"next\": \"what I should do, a few words\"}}]",
+         Change nothing. If a PR's conversation (`gh pr view N --comments`, where you read it) says it's waiting on \
+         something dv can watch for, add \"waits_on\", one of: {{\"merged\": N}}, {{\"closed\": N}}, {{\"green\": true}}, \
+         {{\"approved\": \"login\"}}, {{\"reviewed\": \"login\"}}. Reply with only a JSON array, every key exactly once, \
+         no other text: [{{\"key\": \"pr-12\", \"reason\": \"why it's here, a few words\", \"next\": \"what I should do, \
+         a few words\"}}]",
         lines.join("\n")
     );
     let tools = ["Bash(gh pr view:*)", "Bash(gh pr diff:*)"];
@@ -548,13 +584,14 @@ fn ask(lines: &[String], root: &std::path::Path) -> Result<(Vec<(String, String)
     Ok((parse(v["result"].as_str().unwrap_or(""))?, v["total_cost_usd"].as_f64().unwrap_or(0.0)))
 }
 
-/// The order in Claude's answer (a JSON array, maybe with words around it): (key, "reason — next").
-fn parse(answer: &str) -> Result<Vec<(String, String)>> {
+/// The order in Claude's answer (a JSON array, maybe with words around it): (key, "reason — next"),
+/// and what it saw any wait on.
+fn parse(answer: &str) -> Result<Order> {
     let json = answer.get(answer.find('[').context("no ranking in Claude's answer")?..=answer.rfind(']').context("no ranking")?).unwrap_or("");
     let v: Value = serde_json::from_str(json)?;
     let s = |v: &Value| v.as_str().unwrap_or("").trim().to_owned();
-    Ok(v.as_array()
-        .context("no ranking")?
+    let all = v.as_array().context("no ranking")?;
+    let order = all
         .iter()
         .map(|i| {
             let (reason, next) = (s(&i["reason"]), s(&i["next"]));
@@ -562,7 +599,9 @@ fn parse(answer: &str) -> Result<Vec<(String, String)>> {
             (s(&i["key"]), says)
         })
         .filter(|(k, _)| !k.is_empty())
-        .collect())
+        .collect();
+    let waits = all.iter().filter_map(|i| Some((s(&i["key"]), Until::from_json(i.get("waits_on")?)?))).collect();
+    Ok((order, waits))
 }
 
 #[cfg(test)]
@@ -595,6 +634,7 @@ mod tests {
         let extra = |mine: Option<(&str, &str)>, requested, head: &str| Extra {
             my_review: mine.map(|(s, c)| (s.into(), c.into())),
             reviews: vec![],
+            said: vec![],
             requested,
             mergeable: "MERGEABLE".into(),
             head_oid: head.into(),
@@ -654,7 +694,7 @@ mod tests {
 
     #[test]
     fn ordering() {
-        let it = |n, needs: Vec<Need>, updated: &str| Item { rep: false, number: n, needs, claude: None, updated: updated.into(), reason: None, changed: false, deferred: None, busy: None };
+        let it = |n, needs: Vec<Need>, updated: &str| Item { rep: false, number: n, needs, claude: None, updated: updated.into(), reason: None, changed: false, deferred: None, busy: None, waits: None };
         let items = vec![it(1, vec![Need::NoReview], "b"), it(2, vec![Need::ReviewRequested], "c"), it(3, vec![Need::NoReview], "a")];
         // Rules: the most pressing first, then the longest waiting.
         let (o, since) = order(items.clone(), None);
@@ -662,7 +702,7 @@ mod tests {
         assert!(o.iter().all(|i| !i.changed)); // nothing to have changed since
         assert_eq!(o.iter().map(|i| i.number).collect::<Vec<_>>(), [2, 3, 1]);
         // Claude's order, with its word; a new one goes before the first that needs you less.
-        let ranked = Ranked { at: 1, cost: 0.1, fingerprint: fingerprint(&items), items: vec![("pr-1".into(), "small fix — merge".into()), ("pr-3".into(), "x".into())] };
+        let ranked = Ranked { at: 1, cost: 0.1, fingerprint: fingerprint(&items), waits: Default::default(), items: vec![("pr-1".into(), "small fix — merge".into()), ("pr-3".into(), "x".into())] };
         let (o, since) = order(items.clone(), Some(&ranked));
         assert_eq!(since, Since::default()); // it's of the same three (pr-2 left out of Claude's answer goes by the rules)
         assert_eq!(o.iter().map(|i| i.number).collect::<Vec<_>>(), [2, 1, 3]);
@@ -675,12 +715,31 @@ mod tests {
         assert_eq!(since, Since { new: 1, changed: 1, gone: 1 });
         assert_eq!(o.iter().filter(|i| i.changed).map(|i| i.number).collect::<Vec<_>>().len(), 2);
         // Claude's answer, words around it.
-        let p = parse("Here: [{\"key\": \"pr-2\", \"reason\": \"bug fix\", \"next\": \"review it\"}, {\"key\": \"rep-12\", \"reason\": \"ready\"}]").unwrap();
+        let (p, waits) = parse("Here: [{\"key\": \"pr-2\", \"reason\": \"bug fix\", \"next\": \"review it\"}, {\"key\": \"rep-12\", \"reason\": \"ready\", \"waits_on\": {\"merged\": 2380}}]").unwrap();
         assert_eq!(p, [("pr-2".to_owned(), "bug fix — review it".to_owned()), ("rep-12".to_owned(), "ready".to_owned())]);
+        assert_eq!(waits.get("rep-12"), Some(&Until::Merged(2380))); // what it saw the conversation say
     }
 
     fn items_needs() -> String {
         Need::ReadyToMerge.weight().to_string()
+    }
+
+    #[test]
+    fn waiting_on_from_comments() {
+        let c = |who: &str, body: &str| (who.to_owned(), body.to_owned());
+        let now = 0;
+        assert_eq!(waiting_on(&[c("bo", "Looks good.\n\nBlocked on #2380.")], now), Some((Until::Merged(2380), "bo".into())));
+        assert_eq!(waiting_on(&[c("me", "Waiting on: CI to pass")], now), Some((Until::Green, "me".into())));
+        assert_eq!(waiting_on(&[c("me", "waiting on @amy approves it")], now), Some((Until::Approved(Some("amy".into())), "me".into())));
+        assert_eq!(waiting_on(&[c("me", "Depends on #12 merged")], now), Some((Until::Merged(12), "me".into())));
+        // The newest says; a later Unblocked ends it; other talk isn't a wait.
+        assert_eq!(waiting_on(&[c("me", "Blocked on #1"), c("bo", "Blocked on #2")], now).map(|w| w.0), Some(Until::Merged(2)));
+        assert_eq!(waiting_on(&[c("me", "Blocked on #1"), c("me", "Unblocked: #1 is in")], now), None);
+        assert_eq!(waiting_on(&[c("me", "I'm waiting to see what amy thinks")], now), None);
+        // What `p` posts reads back as itself.
+        for u in [Until::Merged(2380), Until::Green, Until::Approved(Some("amy".into())), Until::Reviewed("bo".into()), Until::Closed(7)] {
+            assert_eq!(waiting_on(&[c("me", &format!("Waiting on: {}.", u.says()))], now).map(|w| w.0), Some(u));
+        }
     }
 
     #[test]
@@ -707,7 +766,7 @@ mod tests {
 
     #[test]
     fn deferring() {
-        let it = |n, needs: Vec<Need>| Item { rep: false, number: n, needs, claude: None, updated: String::new(), reason: None, changed: false, deferred: None, busy: None };
+        let it = |n, needs: Vec<Need>| Item { rep: false, number: n, needs, claude: None, updated: String::new(), reason: None, changed: false, deferred: None, busy: None, waits: None };
         let items = vec![it(1, vec![Need::ReadyToMerge]), it(2, vec![Need::NoReview])];
         let d: Deferred = [("pr-1".to_owned(), Deferral { until: 200, needs: items[0].needs_key(), cond: None })].into();
         // Deferred: to the end, marked, until then.

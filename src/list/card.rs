@@ -261,6 +261,11 @@ pub(super) fn todo_line(rank: usize, it: &crate::todo::Item, cx: &Cards, selecte
     // when it's back.
     let says = match &it.deferred {
         _ if it.busy.is_some() => format!("Claude is {}: nothing for you till it's done", it.busy.as_deref().unwrap_or("at it")),
+        _ if it.waits.is_some() => {
+            let (c, who) = it.waits.as_ref().map(|(c, w)| (c.says(), w.clone())).unwrap_or_default();
+            let from = if who.is_empty() { "as Claude read the PR's conversation".to_owned() } else { format!("@{who} said, on the PR") };
+            format!("waiting until {c} ({from}) · {}", it.says())
+        }
         Some(d) => {
             let when = d.cond.as_ref().map_or_else(|| format!("in {}", crate::todo::in_secs(d.until - crate::claude::now_secs())), |c| format!("until {}", c.says()));
             format!("deferred, back {when} (or sooner if it changes; s brings it back now) · {}", it.says())

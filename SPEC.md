@@ -223,8 +223,17 @@ session). Enter opens the PR (a replacement, in its worktree); back in the list,
 drops off. A PR Claude is at (from any dv: a PR's view writes a marker, `running/pr-N.json` in
 dv's directory, with its process or its zellij pane's session, read every couple of seconds while
 that's alive) says so on its card everywhere ("claude: making the changes…"), and on the todo tab
-goes to the bottom, out of the count, until Claude's done: there's nothing for you till then. `s` defers an item, then `1` an hour, `4` four hours, `d` a day or `w` a week (any
-other key: not): it goes to the bottom, out of the count ("deferred, back in 4h"), until then, or
+goes to the bottom, out of the count, until Claude's done: there's nothing for you till then. `s` defers an item, then `1` an hour, `4` four hours, `d` a day or `w` a week, or `u` until
+something happens, written in your editor: another PR merged or closed, its checks green, an
+approval (from someone, or anyone), someone's review, a time. dv reads the usual phrasings ("#2380
+is merged", "CI is green", "@amy approves", "3 days") itself, and has Claude put the rest as one of
+those (one small run with no tools; if it can't, nothing's deferred); dv then watches for it from
+what it fetches anyway, and the item's back once it's happened, the status bar saying so. `p` posts
+what an item waits on as a comment on its PR ("Waiting on: #2380 is merged."), and such a comment,
+by you or anyone with write access, defers the PR on everyone's todo tab ("Waiting on", "Blocked
+on/by", "Depends on", "Deferred until"; `#N` alone means merged; a later "Unblocked" ends it), as
+does a wait Claude saw in a PR's conversation when it ranked (`waits_on`). Any other key after `s`:
+not deferred. A time deferral: it goes to the bottom, out of the count ("deferred, back in 4h"), until then, or
 until what it needs changes (its needs are kept with it: new activity is new information); `s` on
 it brings it back. Deferrals are kept in dv's directory (`deferred.json`). Deferred items aren't
 ranked.

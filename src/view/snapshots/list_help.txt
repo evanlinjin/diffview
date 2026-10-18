@@ -1,8 +1,6 @@
  todo 0  open 3  worktrees 0  replacements 0   by updated ↓  (Tab switches)                   2 / 3
     #1  Fix CI                                                                              2026-03
         @ann   +1 −0 in 1 file
-        claude ✓
-        b
  dv list keys                                                                        any key closes
 
  j k, Up Down         move
@@ -44,15 +42,17 @@
    D D                  worktrees tab: remove the PR's worktree (not with local changes in it;
                         its branch stays); replacements tab: remove the replacement (the same)
    R                    refresh (from GitHub; no Claude)
-   s                    todo: defer the item (then 1 an hour, 4 four hours, d a day, w a week):
+   s                    todo: defer the item (then 1 an hour, 4 four hours, d a day, w a week,
+                        or u until something happens: #N merged, CI green, an approval, ...):
                         to the bottom till then, or till what it needs changes; s on a
-                        deferred one brings it back
+                        deferred one brings it back. p posts what it waits on as a comment
+                        (Waiting on: #N is merged.), which dv reads back for everyone: a
+                        comment like that (by you or anyone with write access) defers the PR
+                        till then, until a later Unblocked
    r r                  todo: Claude ranks what needs you (one Claude run: the header says what
                         the last cost and what's changed since, to judge if it's worth it)
    ?                    this help
    q, Ctrl-c            quit
-
-
 
 
 

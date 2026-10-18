@@ -269,7 +269,7 @@ fn todo_tab() {
     assert!(l.rank_rx.is_none() && l.msg.starts_with("r again: Claude ranks the 3 PR(s) that need you, one run (never ranked before)"), "{}", l.msg);
     k(&mut l, KeyCode::Char('j')); // anything else calls it off
     assert!(l.confirm.is_none());
-    l.ranked = Some(crate::todo::Ranked { at: crate::claude::now_secs(), cost: 0.38, fingerprint: fp, items: vec![("pr-1".into(), "a fee bug — review it".into()), ("pr-3".into(), "y".into()), ("pr-2".into(), "z".into())] });
+    l.ranked = Some(crate::todo::Ranked { at: crate::claude::now_secs(), cost: 0.38, fingerprint: fp, waits: Default::default(), items: vec![("pr-1".into(), "a fee bug — review it".into()), ("pr-3".into(), "y".into()), ("pr-2".into(), "z".into())] });
     l.find_todo();
     assert_eq!((shown(&l), l.since), (vec![1, 3, 2], crate::todo::Since::default()));
     assert!(l.since_text().contains("nothing's changed since"));
@@ -322,6 +322,15 @@ fn defer_from_the_todo_tab() {
     l.running.clear();
     l.find_todo();
     assert_eq!(shown(&l), [2, 1]); // (#1 is still deferred)
+    // A trusted comment on #2 says it's blocked on #9: at the bottom, out of the count, for
+    // everyone; back once #9's merged.
+    l.extra.get_mut(&2).unwrap().said = vec![("bo".into(), "Blocked on #9.".into())];
+    l.find_todo();
+    assert_eq!(l.todo.last().map(|it| (it.number, it.waits.clone())), Some((2, Some((crate::todo::Until::Merged(9), "bo".into())))));
+    l.others.insert(9, "MERGED".into());
+    l.find_todo();
+    assert!(l.todo.iter().all(|it| it.waits.is_none()));
+    l.extra.get_mut(&2).unwrap().said.clear();
     // b b: ask for a rebase (the first b says what it'll do; anything else calls it off).
     k(&mut l, KeyCode::Char('b'));
     assert!(l.msg.starts_with("b again: ask #2's author for a rebase"), "{}", l.msg);

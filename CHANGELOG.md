@@ -6,6 +6,16 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Added
+- Deferring until something happens: `s` then `u` on the todo tab, in your words ("#2380 is
+  merged", "CI is green", "@amy approves", "Monday"). dv reads the usual phrasings itself, and
+  Claude the rest (one small run); then dv watches for it, and the item's back when it's
+  happened.
+- A PR comment saying what it waits on defers it on everyone's todo tab: "Waiting on #2380",
+  "Blocked on #2380", "Depends on: CI to pass", by you or anyone with write access (a later
+  "Unblocked" ends it). `p` posts yours from a deferral, and Claude notes such waits it reads in
+  the conversation when it ranks.
+
+### Added
 - The todo tab lists a PR whose worktree has work that isn't on GitHub (uncommitted files, or
   commits the PR doesn't have: yours, or Claude's after making changes), near the top, with
   `Space g` there to push it. Before, it could drop off the list while the work sat there.

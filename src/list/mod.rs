@@ -67,9 +67,13 @@ const HELP: &str = "\
   D D                  worktrees tab: remove the PR's worktree (not with local changes in it;
                        its branch stays); replacements tab: remove the replacement (the same)
   R                    refresh (from GitHub; no Claude)
-  s                    todo: defer the item (then 1 an hour, 4 four hours, d a day, w a week):
+  s                    todo: defer the item (then 1 an hour, 4 four hours, d a day, w a week,
+                       or u until something happens: #N merged, CI green, an approval, ...):
                        to the bottom till then, or till what it needs changes; s on a
-                       deferred one brings it back
+                       deferred one brings it back. p posts what it waits on as a comment
+                       (Waiting on: #N is merged.), which dv reads back for everyone: a
+                       comment like that (by you or anyone with write access) defers the PR
+                       till then, until a later Unblocked
   r r                  todo: Claude ranks what needs you (one Claude run: the header says what
                        the last cost and what's changed since, to judge if it's worth it)
   ?                    this help
@@ -333,6 +337,15 @@ impl List {
                     self.group_rx = Some(batch::group(prs, self.root.clone()));
                 }
                 Some(Do::AskRebase(n)) => self.ask_rebase(term, n),
+                Some(Do::PostWait(n, text)) => {
+                    let what = format!("comment on #{n} saying what it waits on (dv reads it back, yours and others')");
+                    if let Some(body) = self.edit_text(term, &what, &text, false) {
+                        self.msg = match gh::conversation_comment(&gh::Pr { number: n, ..Default::default() }, &body) {
+                            Ok(()) => format!("posted on #{n}: {}", body.lines().next().unwrap_or("")),
+                            Err(e) => format!("not posted: {e:#}"),
+                        };
+                    }
+                }
                 Some(Do::DeferUntil(key)) => {
                     let what = "defer it until… (e.g. #2380 is merged, CI is green, @amy approves, 3 days, monday)";
                     if let Some(text) = self.edit_text(term, what, "", false) {
@@ -713,6 +726,13 @@ impl List {
                 self.confirm = Some(('D', p));
             }
             KeyCode::Char('s') if self.tab == Tab::Todo => self.defer_key(),
+            KeyCode::Char('p') if self.tab == Tab::Todo => {
+                let it = self.todo_shown().get(self.sel).map(|(_, it)| (*it).clone())?;
+                match it.deferred.and_then(|d| d.cond).filter(|_| !it.rep) {
+                    Some(c) => return Some(Do::PostWait(it.number, format!("Waiting on: {}.", c.says()))),
+                    None => self.msg = "p posts what an item is deferred until (s then u) on its PR: this one isn't".into(),
+                }
+            }
             KeyCode::Char('r') if self.tab == Tab::Todo => {
                 if self.rank_rx.is_some() {
                     return (self.msg = "Claude is ranking already".into(), None).1;
@@ -984,6 +1004,7 @@ impl List {
                 ("R", "refresh (from GitHub)"),
                 ("r r", "Claude ranks what needs you (a run)"),
                 ("s", "defer it (or bring it back)"),
+                ("p", "post what it waits on (a comment)"),
                 ("m", "mark"),
                 ("a a", if self.tab == Tab::Todo { "Claude does its part (marked)" } else { "Claude reviews marked" }),
                 ("A A", "Claude drafts a replacement"),
@@ -999,7 +1020,7 @@ impl List {
                 .filter(|(k, _)| match *k {
                     "D D" => !matches!(self.tab, Tab::Open | Tab::Todo),
                     "o O" => self.tab != Tab::Todo, // in the order of what needs you
-                    "r r" | "s" => self.tab == Tab::Todo,
+                    "r r" | "s" | "p" => self.tab == Tab::Todo,
                     "m" | "a a" | "A A" | "M M" | "b b" => !reps,
                     _ => true,
                 })
@@ -1054,6 +1075,8 @@ enum Do {
     AskRebase(u64),
     /// Defer this todo item (its key) until something happens, written in your editor.
     DeferUntil(String),
+    /// Post on this PR what it's deferred until, for everyone (and their dv) to see.
+    PostWait(u64, String),
 }
 
 fn marks_path() -> Option<PathBuf> {
