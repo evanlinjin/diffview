@@ -67,9 +67,17 @@ fn command(n: u64) -> Result<(PathBuf, Vec<String>)> {
     Ok((main, argv))
 }
 
+/// `argv` for a pane that closes when it's done: at once if it succeeded, else once you've read
+/// what it said (Enter).
+fn pane_argv(argv: &[String]) -> Vec<String> {
+    let wait = r#""$@"; st=$?; if [ $st -ne 0 ]; then printf '\ngithub-merge.py stopped (exit %s). Enter closes this pane.\n' "$st"; read _; fi; exit $st"#;
+    ["sh", "-c", wait, "sh"].into_iter().map(str::to_owned).chain(argv.iter().cloned()).collect()
+}
+
 /// Merge PR `n`: its worktree removed first (if it's safe to), then the script, in a zellij pane
-/// beside this one when `pane` (it stays open when the script's done, for you to read), else in
-/// this terminal (dv waits for Enter after it). Returns what to tell you.
+/// beside this one when `pane` (it closes when the script succeeds; failing, it waits for Enter,
+/// for you to read why), else in this terminal (dv waits for Enter after it). Returns what to
+/// tell you.
 pub fn merge(n: u64, pane: bool) -> Result<String> {
     // As GitHub has it now (the list may be older): merged or closed, there's nothing to merge,
     // and the script would only fail on the merge ref GitHub has dropped.
@@ -90,10 +98,10 @@ pub fn merge(n: u64, pane: bool) -> Result<String> {
     let first = removed.map_or(String::new(), |r| format!("{r}; "));
     if pane {
         let st = std::process::Command::new("zellij")
-            .args(["run", "--name", &format!("github-merge.py #{n}"), "--cwd"])
+            .args(["run", "--close-on-exit", "--name", &format!("github-merge.py #{n}"), "--cwd"])
             .arg(&main)
             .arg("--")
-            .args(&argv)
+            .args(pane_argv(&argv))
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -146,4 +154,24 @@ fn worktree_only_goes_when_nothing_would_be_lost() {
     git(&wt, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "mine"]);
     assert!(format!("{:#}", nothing_to_lose(&wt, 7).unwrap_err()).contains("1 commit(s) that aren't on the PR"));
     let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn merge_pane_closes_on_success() {
+    // The wrapped command's status comes through; a failure waits for Enter before closing.
+    let run = |cmd: &[&str], input: &str| {
+        let argv: Vec<String> = cmd.iter().map(|s| s.to_string()).collect();
+        let a = pane_argv(&argv);
+        let mut c = std::process::Command::new(&a[0]);
+        c.args(&a[1..]).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped());
+        let mut child = c.spawn().unwrap();
+        use std::io::Write;
+        child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        (out.status.code(), String::from_utf8_lossy(&out.stdout).into_owned())
+    };
+    assert_eq!(run(&["true"], ""), (Some(0), String::new()));
+    let (code, said) = run(&["sh", "-c", "exit 3"], "\n");
+    assert_eq!(code, Some(3));
+    assert!(said.contains("stopped (exit 3). Enter closes this pane."), "{said}");
 }

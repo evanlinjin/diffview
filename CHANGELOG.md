@@ -6,6 +6,8 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Changed
+- github-merge.py's zellij pane closes by itself when the merge succeeds; when it fails (or you
+  reject it) it says so and waits for Enter, so you can read why.
 - Claude's review summary (and your replies to it) is the `Claude` tab's alone: no longer on the
   PR tab, nor in the summary box over the comments (which has your pending review's text). With
   no PR (a branch Claude reviewed), it's still at the top, as before.
