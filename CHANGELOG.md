@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Fixed
+- A PR whose branch is checked out in another worktree already (a published replacement's, in
+  its own worktree) couldn't be opened on its branch (`-b`, `dv list -b`): git won't check a
+  branch out twice. It opens in that worktree now, as it is.
+
 ## [0.18.0] - 2026-10-18
 
 ### Added

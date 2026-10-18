@@ -493,6 +493,15 @@ fn at_head(p: &gh::Pr, detach: bool) -> bool {
 /// of this repo; git refuses to update one with local changes.
 fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> anyhow::Result<(PathBuf, Option<String>)> {
     let (_, dir) = worktree_dir(n)?;
+    // On its branch (-b), when that branch is checked out in another worktree already (a
+    // replacement's own, say): there, as it is (git won't check one branch out twice).
+    if let Some(p) = known.filter(|_| branch)
+        && let Some(other) = worktree_on_branch(&p.head_branch, &p.head_oid).filter(|d| *d != dir)
+    {
+        std::env::set_current_dir(&other)?;
+        let note = format!("#{n}'s branch {} is checked out in {}: opened there", p.head_branch, other.display());
+        return Ok((other, Some(note)));
+    }
     let existed = dir.exists();
     if existed {
         ensure_ours(&dir)?;
@@ -578,6 +587,23 @@ fn common_dir(d: &Path) -> anyhow::Result<String> {
 }
 
 /// Only ever touch a dir that's a worktree of this repo.
+/// The worktree of this repo that has `branch` checked out, if one does and it's the PR's
+/// (its history and the PR head's `oid` one line: either contains the other).
+fn worktree_on_branch(branch: &str, oid: &str) -> Option<PathBuf> {
+    let list = diff::git(&["worktree", "list", "--porcelain"]).ok()?;
+    let dir = checked_out_at(&list, branch)?;
+    let d = dir.to_string_lossy().into_owned();
+    let git = |args: &[&str]| diff::git(&[&["-C", d.as_str()], args].concat()).is_ok();
+    let ours = !oid.is_empty() && (git(&["merge-base", "--is-ancestor", oid, "HEAD"]) || git(&["merge-base", "--is-ancestor", "HEAD", oid]));
+    ours.then_some(dir)
+}
+
+/// From `git worktree list --porcelain`: the worktree with `branch` checked out.
+fn checked_out_at(list: &str, branch: &str) -> Option<PathBuf> {
+    let want = format!("branch refs/heads/{branch}");
+    list.split("\n\n").find(|w| w.lines().any(|l| l == want)).and_then(|w| w.lines().find_map(|l| l.strip_prefix("worktree "))).map(PathBuf::from)
+}
+
 fn ensure_ours(dir: &Path) -> anyhow::Result<()> {
     ensure_worktree_of(dir, Path::new("."))
 }
@@ -632,4 +658,12 @@ fn args() {
     assert_eq!(p("review-check").unwrap().cmd, Some("review-check"));
     let r = p("replace 12 15").unwrap();
     assert_eq!((r.cmd, r.pr, r.more), (Some("replace"), Some(12), vec![15]));
+}
+
+#[test]
+fn branch_checked_out_elsewhere() {
+    let list = "worktree /r/bdk\nHEAD 1111\nbranch refs/heads/master\n\nworktree /r/bdk-2390\nHEAD 2222\ndetached\n\nworktree /r/bdk-replace-2345\nHEAD 8e81\nbranch refs/heads/dv/replace-2345\n";
+    assert_eq!(checked_out_at(list, "dv/replace-2345"), Some(PathBuf::from("/r/bdk-replace-2345")));
+    assert_eq!(checked_out_at(list, "dv/replace"), None); // the whole name, not a prefix
+    assert_eq!(checked_out_at(list, "fix"), None);
 }

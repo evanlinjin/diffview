@@ -5,7 +5,8 @@ dv              # working tree vs merge-base(origin/HEAD)
 dv <base>       # working tree vs merge-base(<base>)
 dv --pr 123     # gh pr checkout 123 first (-f: reset the local PR branch to the PR head)
 dv --pr 123 -w  # check it out in a worktree next to the repo (<repo>-123), detached; reused later
-dv --pr 123 -w -b  # same, on the PR's branch (tracking it, for pushing)
+dv --pr 123 -w -b  # same, on the PR's branch (tracking it, for pushing); a branch already
+                   # checked out in another worktree (a replacement's own): opened there
 dv 123 -wb         # shorthand: a bare number is a PR; short flags combine (-p N = --pr N)
 dv 123 --rm        # remove that worktree (-f if it has local changes; a -b branch is kept)
 dv list -wb        # pick from the open PRs; Enter reviews one with these flags, q comes back
