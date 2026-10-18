@@ -43,7 +43,7 @@
                                               time)                                             │
                          Ctrl-w h  Ctrl-w l   split view: old / new side; margin: code /        │
                                               comments (or Ctrl-h Ctrl-l)                       │
-                         Ctrl-w c             show / hide the comments pane (│ ● mark their     │
+                         Ctrl-w c             show / hide the comments pane (╎ ● mark their     │
                                               lines)                                            │
 
 

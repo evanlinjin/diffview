@@ -1764,7 +1764,7 @@ fn gg_in_the_pane() {
 
 #[test]
 fn comment_marks_at_the_right_edge() {
-    // Claude's comment on lines 10–12 (new side): │ on 10 and 11, ◆ on 12, at the code's edge.
+    // Claude's comment on lines 10–12 (new side): ╎ on 10 and 11, ◆ on 12, at the code's edge.
     let mut app = fixture();
     app.threads[0].start_line = Some(10);
     app.build();
@@ -1773,7 +1773,7 @@ fn comment_marks_at_the_right_edge() {
         let line = s.lines().find(|l| l.starts_with(&format!(" {n:>2}  {n:>2} ")) || l.starts_with(&format!("     {n:>2} "))).unwrap();
         line.chars().nth(app.geom.relw + app.geom.gw + app.geom.ctw - 1).unwrap()
     };
-    assert_eq!((edge(9), edge(10), edge(11), edge(12)), (' ', '│', '│', '◆'), "{s}");
+    assert_eq!((edge(9), edge(10), edge(11), edge(12)), (' ', '╎', '╎', '◆'), "{s}");
     // Nothing in the old gutter spot any more.
     assert!(!s.lines().any(|l| l.contains("12◆+")));
     // Split view: on the new side's edge, not the old side's.

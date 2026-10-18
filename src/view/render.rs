@@ -715,7 +715,7 @@ impl App {
     }
 
     /// The comment mark at the right edge of code row `r` (`side`: which half of a split row):
-    /// `│` over a comment's lines, a dot at its last, `●` others', `◆` Claude's, `○` resolved or
+    /// `╎` over a comment's lines, a dot at its last, `●` others', `◆` Claude's, `○` resolved or
     /// outdated (`App::marks`).
     fn comment_mark(&self, r: usize, side: Option<bool>) -> Option<(char, Style)> {
         let rank = match side {
@@ -726,8 +726,8 @@ impl App {
             MARK_DOT => ('●', self.ui.thread),
             MARK_CLAUDE_DOT => ('◆', self.ui.thread),
             MARK_STALE_DOT => ('○', self.ui.stale),
-            MARK_LINE => ('│', self.ui.thread),
-            _ => ('│', self.ui.stale),
+            MARK_LINE => ('╎', self.ui.thread),
+            _ => ('╎', self.ui.stale),
         })
     }
 
@@ -839,7 +839,7 @@ impl App {
                 self.hl_cache.get(&k)?.get(n as usize - 1)
             }),
         };
-        // A code line keeps its last column for comment marks (`│` over a comment's lines, a dot
+        // A code line keeps its last column for comment marks (`╎` over a comment's lines, a dot
         // at its last), at the edge beside the pane.
         let code_row = matches!(l.kind, Kind::Ctx | Kind::Add | Kind::Del);
         let mark = code_row.then(|| self.comment_mark(r, side)).flatten();

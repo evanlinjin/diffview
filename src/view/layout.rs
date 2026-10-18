@@ -355,7 +355,7 @@ impl App {
     }
 
     /// The comment marks for the code's right edge (see `App::marks`): over a comment's lines
-    /// `│`, at its last a dot; open comments over resolved / outdated ones, a dot over a line.
+    /// `╎`, at its last a dot; open comments over resolved / outdated ones, a dot over a line.
     fn find_marks(&self) -> HashMap<(usize, bool), u8> {
         let mut marks: HashMap<(usize, bool), u8> = HashMap::new();
         for &t in self.margin_anchor.keys() {

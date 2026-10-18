@@ -78,7 +78,7 @@ VIEW
   Ctrl-w v             toggle split (side-by-side) view
   Ctrl-w n             relative line numbers on / off (kept for next time)
   Ctrl-w h  Ctrl-w l   split view: old / new side; margin: code / comments (or Ctrl-h Ctrl-l)
-  Ctrl-w c             show / hide the comments pane (│ ● mark their lines)
+  Ctrl-w c             show / hide the comments pane (╎ ● mark their lines)
   Ctrl-w f             comments pane: a column beside the code / floating over it
   Ctrl-w ,  Ctrl-w .   comments pane narrower / wider (Ctrl-w = its usual width)
   Ctrl-w a             Claude view: only Claude's review and the code it's about
@@ -474,7 +474,7 @@ pub struct App {
     /// In margin mode: each thread's code line (the one it's about), as laid out.
     margin_anchor: HashMap<usize, usize>,
     /// The marks at the code's right edge, by (row, the old side), from `layout`: a comment's
-    /// lines get `│`, its last line (where it's anchored) a dot. Ranked, the highest shown:
+    /// lines get `╎`, its last line (where it's anchored) a dot. Ranked, the highest shown:
     /// see `MARKS`.
     marks: HashMap<(usize, bool), u8>,
     /// Where things were drawn last, for mouse clicks.
