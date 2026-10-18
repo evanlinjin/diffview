@@ -97,6 +97,7 @@ impl App {
         if let Some(r) = v["relative"].as_bool() {
             self.settings.relative = r;
         }
+        self.files_pref = v["files"].as_bool();
     }
 
     pub(super) fn pane_json(&self) -> Value {

@@ -242,6 +242,7 @@ impl App {
             CTRL_W => ("window", &[
                 ("v", "toggle split view"),
                 ("n", "relative line numbers on / off"),
+                ("e", "the files' list on / off"),
                 ("c", "show / hide the comments pane"),
                 ("f", "comments pane: a column / floating over the code"),
                 (",", "narrower comments pane"),
@@ -317,6 +318,7 @@ impl App {
                 .into();
             }
             ('g', 'n') | ('g', 'p') => self.pane_to(if self.pane_tab == Tab::Pr { Tab::Comments } else { Tab::Pr }),
+            (CTRL_W, 'e') => self.toggle_files(),
             (CTRL_W, 'n') => {
                 let on = !self.settings.relative;
                 self.settings.relative = on;

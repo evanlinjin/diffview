@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- The changed files' list on the left (`Ctrl-w e`, kept for the next run): files under their
+  folders, the one you're in marked, `✓` when viewed, `·N` its open comments; a click goes to
+  one. Shown by default from 150 columns.
+- The file you're in keeps its header pinned at the top of the code as you scroll through it.
+
 ## [0.9.1] - 2026-10-18
 
 ### Fixed

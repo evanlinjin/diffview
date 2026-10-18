@@ -27,6 +27,18 @@ pub(super) struct PickerGeom {
 impl App {
     pub(super) fn mouse(&mut self, m: MouseEvent) {
         let (x, y) = (m.column as usize, m.row as usize);
+        // The files' list on the left: a click goes to a file, the wheel scrolls it; the rest is
+        // laid out beside it.
+        if x < self.files_w && self.picker.is_none() && self.popup.is_none() {
+            match m.kind {
+                MouseEventKind::Down(MouseButton::Left) => self.click_file(y),
+                MouseEventKind::ScrollDown => self.files_top += 3,
+                MouseEventKind::ScrollUp => self.files_top = self.files_top.saturating_sub(3),
+                _ => {}
+            }
+            return;
+        }
+        let x = if self.picker.is_some() || self.popup.is_some() { x } else { x.saturating_sub(self.files_w) };
         match m.kind {
             MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => {
                 let down = m.kind == MouseEventKind::ScrollDown;

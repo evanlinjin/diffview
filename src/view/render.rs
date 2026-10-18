@@ -172,7 +172,11 @@ impl App {
     }
 
     pub(super) fn draw(&mut self, f: &mut Frame) {
-        let area = f.area();
+        // The changed files' list on the left (`Ctrl-w e`), the rest beside it.
+        let full = f.area();
+        let sw = self.files_width(full.width as usize);
+        self.files_w = sw;
+        let area = Rect { x: full.x + sw as u16, width: full.width - sw as u16, ..full };
         // The PR's title line pinned at the top, as a panel over the code and the pane.
         self.pin = self.rows.first().is_some_and(|r| r.file == INFO && r.line.kind == Kind::File)
             && matches!(self.drows.first(), Some(DRow::Full(0)))
@@ -382,6 +386,19 @@ impl App {
             out.extend(clip(v, mw - pad));
             out
         };
+        // The file the top of the screen is in, its header scrolled off: pinned over its code.
+        let sticky = (|| {
+            let d = self.top.min(self.drows.len().checked_sub(1)?);
+            let r = match self.drows[d] {
+                DRow::Full(r) => r,
+                DRow::Pair(l, r) | DRow::Margin(l, r, _) => l.or(r)?,
+            };
+            let file = self.rows[r].file;
+            (file < self.files.len()).then_some(())?;
+            let head = self.rows.iter().position(|x| x.file == file && x.line.kind == Kind::File)?;
+            (self.d_of[head] < self.top).then_some(head)
+        })();
+        let code_cols = relw + gw + if margin { mx } else { tw };
         let rows_shown = if pr_tab { h } else { (self.top + h).min(self.drows.len()).saturating_sub(self.top) };
         let lines: Vec<Line> = (0..rows_shown)
             .map(|y| {
@@ -448,11 +465,22 @@ impl App {
                         None => spans.extend(raise(vec![Span::raw(" ".repeat(mw))])),
                     }
                 }
+                // The top line: the pinned file header over the code (the pane's part kept).
+                if let (0, Some(hr)) = (y, sticky) {
+                    let mut head = vec![Span::styled(" ".repeat(relw), self.ui.header)];
+                    head.extend(self.render_row(hr, s, e, (lw, gw, code_cols - relw - gw), None, false, &overlay));
+                    let mut out = clip(head, code_cols);
+                    out.extend(skip_cols(spans, code_cols));
+                    spans = out;
+                }
                 Line::from(spans)
             })
             .collect();
-        f.render_widget(Block::new().style(self.ui.base), area);
+        f.render_widget(Block::new().style(self.ui.base), full);
         f.render_widget(Paragraph::new(lines), Rect { y: area.y + pin as u16, height: h as u16, ..area });
+        if sw > 0 {
+            self.draw_files(f, Rect { x: full.x, y: full.y, width: sw as u16, height: (h + pin) as u16 });
+        }
         if self.pin {
             let bar = Style { bg: self.ui.bar, ..self.ui.header };
             let mut spans = vec![Span::styled(" ".repeat(relw), bar)];
@@ -506,7 +534,7 @@ impl App {
             f.render_widget(Paragraph::new(text).style(self.ui.base.patch(self.ui.popup)), r);
         }
 
-        let status = Rect { y: area.y + (h + pin) as u16, height: 1, ..area };
+        let status = Rect { y: area.y + (h + pin) as u16, height: 1, ..full };
         let left = match &self.prompt {
             Some(q) => Line::from(format!("/{q}")),
             None => {
@@ -552,7 +580,7 @@ impl App {
         // keeps only the essentials, and the left is cut with an ellipsis.
         let essential = format!("{view}{count}{pend}  {}/{} ", self.head.row + 1, self.rows.len());
         let extras = format!("{ra}{working}{pr}");
-        let width = area.width as usize;
+        let width = full.width as usize;
         let right = match left.width() + extras.chars().count() + essential.chars().count() < width {
             true => format!("{extras}{essential}"),
             false => essential,
@@ -624,7 +652,7 @@ impl App {
                 .collect();
             let w = (lines.iter().map(Line::width).max().unwrap_or(10) as u16 + 4).max(title.len() as u16 + 4).min(area.width);
             let ph = (lines.len() as u16 + 2).min(h as u16);
-            let x = if self.margin_side() { 0 } else { area.width - w };
+            let x = if self.margin_side() { area.x } else { area.x + area.width - w };
             let r = Rect { x, y: ((h + pin) as u16).saturating_sub(ph), width: w, height: ph }; // above the status bar
             let inner = self.popup_frame(f, r, title, "");
             f.render_widget(Paragraph::new(lines), inner);
@@ -1024,6 +1052,31 @@ fn clip(spans: Vec<Span<'static>>, w: usize) -> Vec<Span<'static>> {
         break;
     }
     out.push(Span::raw(" ".repeat(w - used)));
+    out
+}
+
+/// `spans` without their first `n` columns.
+fn skip_cols(spans: Vec<Span<'static>>, n: usize) -> Vec<Span<'static>> {
+    let mut left = n;
+    let mut out = vec![];
+    for sp in spans {
+        if left == 0 {
+            out.push(sp);
+            continue;
+        }
+        let mut text = String::new();
+        for c in sp.content.chars() {
+            let cw = Span::raw(c.to_string()).width();
+            if left >= cw && left > 0 {
+                left -= cw;
+            } else {
+                text.push(c);
+            }
+        }
+        if !text.is_empty() {
+            out.push(Span::styled(text, sp.style));
+        }
+    }
     out
 }
 

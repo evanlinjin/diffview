@@ -1348,6 +1348,7 @@ fn fixture() -> App {
     let body: String = (1..=24).map(|n| if n == 12 { "-    let x = old(12);\n+    let x = new_call(12);\n".to_owned() } else { format!(" line {n}\n") }).collect();
     let text = format!("diff --git a/src/big.rs b/src/big.rs\nindex 1..2 100644\n--- a/src/big.rs\n+++ b/src/big.rs\n@@ -1,24 +1,24 @@ fn big\n{body}{}", diff::SAMPLE);
     let mut app = App::with("base".into(), diff::parse(&text));
+    app.files_pref = Some(false); // the files' list has its own test; the rest as laid out without it
     app.pr = Some(gh::Pr { number: 7, node_id: "PR".into(), title: "Fix the thing".into(), base: "main".into(), head_oid: "abc".into(), url: String::new(), author: "bo".into(), head_branch: "fix".into(), head_owner: "amy".into(), cross_repo: true, ..Default::default() });
     let line = |heading, md, text: &str| gh::InfoLine { heading, md, text: text.into(), marks: vec![], url: String::new() };
     app.info = vec![line(false, false, "OPEN @bo · main ← fix · +2 −2 in 3 files"), line(false, false, "review: waiting on @cy"), line(true, false, "description"), line(false, true, "Fixes **the thing**, see `new_call`.")];
@@ -1908,4 +1909,32 @@ fn comments_in_folded_files_and_empty_reviews() {
     app.build();
     let r = app.rows.iter().position(|r| r.line.text == "(no comment)").unwrap();
     assert_eq!(app.box_part(r + 1), Some(BoxPart::Bottom));
+}
+
+#[test]
+fn files_list_and_pinned_file_header() {
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut app = fixture();
+    app.files_pref = Some(true);
+    let s = screen(220, 20, |f| app.draw(f));
+    let lines: Vec<&str> = s.lines().collect();
+    // The list on the left: its heading, each folder once, the files under them, with their
+    // open comments (big.rs: two).
+    assert!(app.files_w > 0 && lines[0].starts_with(" FILES 4"), "{s}");
+    let col = |l: &str| l.chars().take(app.files_w - 1).collect::<String>();
+    let list: Vec<String> = lines[1..6].iter().map(|l| col(l).trim_end().to_owned()).collect();
+    assert_eq!(list[0].trim(), "src/");
+    assert!(list[1].contains("big.rs") && list[1].ends_with("·2"), "{list:?}");
+    assert!(list.iter().filter(|l| l.trim() == "src/").count() == 1);
+    // A click on a.rs: there.
+    let a = list.iter().position(|l| l.contains("a.rs")).unwrap() + 1;
+    app.mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column: 3, row: a as u16, modifiers: KeyModifiers::NONE });
+    assert_eq!(app.files[app.rows[app.head.row].file].path, "src/a.rs");
+    // Scrolled into big.rs, past its header: the header's pinned over the code's top line.
+    let big = app.rows.iter().position(|r| r.line.kind == Kind::Add && r.line.new == Some(12)).unwrap();
+    app.goto(big, 0);
+    app.top = app.hd() - 3;
+    let s = screen(220, 20, |f| app.draw(f));
+    let top = s.lines().nth(1).unwrap(); // under the pinned PR title
+    assert!(top.chars().skip(app.files_w).collect::<String>().contains("src/big.rs"), "{s}");
 }

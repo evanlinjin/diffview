@@ -1,6 +1,6 @@
           PR #7 · Fix the thing  @bo · main ← amy:fix          3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)
           OPEN @bo · main ← fix · +2 −2 in 3 files
-          review: wait keys · / search · j/k scroll · other keys close                 1–44 / 119
+          review: wait keys · / search · j/k scroll · other keys close                 1–44 / 121
        ╭─ description   MOVE                                                                    ┃ ─────────────╮
        │  Fixes the th   h j k l, arrows      move (counts: 5j)                                 ┃              │
        ╰──────────────   w b e  W B E         word motions (select)                             ┃ ─────────────╯
@@ -42,9 +42,9 @@
                          Ctrl-w v             toggle split (side-by-side) view                  │
                          Ctrl-w n             relative line numbers on / off (kept for next     │
                                               time)                                             │
+                         Ctrl-w e             the changed files' list on the left, on / off (a  │
+                                              click goes to one)                                │
                          Ctrl-w h  Ctrl-w l   split view: old / new side; margin: code /        │
-                                              comments (or Ctrl-h Ctrl-l)                       │
-                         Ctrl-w c             show / hide the comments pane (╎ ● mark their     │
 
 
  NOR                                                                                                               1/42

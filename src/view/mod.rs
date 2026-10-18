@@ -24,6 +24,7 @@ mod agent;
 pub(crate) use agent::{REPLACE_TOOLS, answer_prompt, claude_command, claude_wrote, review_prompt, turn, update_prompt, with_instructions};
 mod build;
 use build::*;
+mod files;
 mod git;
 mod keys;
 mod layout;
@@ -78,6 +79,7 @@ VIEW
   Shift-Tab            fold / unfold all files
   Ctrl-w v             toggle split (side-by-side) view
   Ctrl-w n             relative line numbers on / off (kept for next time)
+  Ctrl-w e             the changed files' list on the left, on / off (a click goes to one)
   Ctrl-w h  Ctrl-w l   split view: old / new side; margin: code / comments (or Ctrl-h Ctrl-l)
   Ctrl-w c             show / hide the comments pane (╎ ● mark their lines)
   Ctrl-w f             comments pane: a column beside the code / floating over it
@@ -468,6 +470,13 @@ pub struct App {
     /// (`Ctrl-w f`), as set; until then (`None`), from the window (narrow ones: floating).
     margin_w_pref: Option<usize>,
     margin_float_pref: Option<bool>,
+    /// The files' list (`Ctrl-w e`): shown or not as you set it (else by the window's width),
+    /// its width and first line as drawn, and the file of each of its lines (for clicks).
+    files_pref: Option<bool>,
+    files_w: usize,
+    files_top: usize,
+    files_entries: Vec<Option<usize>>,
+    files_cur: Option<usize>,
     /// Where those three are kept between runs (`pane.json`, any repo), once set by their keys.
     pane_file: Option<PathBuf>,
     /// It floats now (set by `draw`).
@@ -677,6 +686,11 @@ impl App {
             margin_w_pref: None,
             margin_float_pref: None,
             pane_file: None,
+            files_pref: None,
+            files_w: 0,
+            files_top: 0,
+            files_entries: vec![],
+            files_cur: None,
             margin_float: false,
             pane_tab: Tab::Comments,
             pr_rows: vec![],
