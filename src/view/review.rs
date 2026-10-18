@@ -834,6 +834,13 @@ impl App {
         self.next_comment(fwd, items, "nothing new: you've seen every comment");
     }
 
+    /// `]u` / `[u`: the next / previous unresolved thread (GitHub's or Claude's; outdated ones too,
+    /// which still want resolving).
+    pub(super) fn next_unresolved(&mut self, fwd: bool) {
+        let items = (0..self.threads.len()).filter(|&t| !self.threads[t].resolved).map(|t| (t, 0)).collect();
+        self.next_comment(fwd, items, "no unresolved comments");
+    }
+
     /// `]p` / `[p`: the next / previous comment of your pending review (replies too).
     pub(super) fn next_pending(&mut self, fwd: bool) {
         let threads = &self.threads;

@@ -58,6 +58,7 @@ DIFF
   ]g [g                next / prev hunk (change)
   ]f [f, Space f       next / prev file, file picker
   ]c [c                next / prev comment thread
+  ]u [u                next / prev unresolved one (wraps around)
   ]a [a                next / prev Claude comment (wraps around)
   ]p [p                next / prev comment of your pending review (wraps around)
   /  n N  *            search, next / prev match, search selection

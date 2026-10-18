@@ -1763,6 +1763,26 @@ fn gg_in_the_pane() {
 }
 
 #[test]
+fn next_unresolved() {
+    // The fixture's threads: big.rs 12 (open), big.rs 20 (open), a.rs 2 (open), a.rs 1 (resolved).
+    let mut app = fixture();
+    app.threads[1].resolved = true;
+    let k = |app: &mut App, a: char, b: char| {
+        app.key(KeyEvent::new(KeyCode::Char(a), KeyModifiers::NONE));
+        app.key(KeyEvent::new(KeyCode::Char(b), KeyModifiers::NONE));
+    };
+    let on = |app: &App| app.rows[app.head.row].thread;
+    k(&mut app, ']', 'u');
+    assert_eq!(on(&app), Some(0));
+    k(&mut app, ']', 'u'); // past the resolved one on big.rs 20
+    assert_eq!(on(&app), Some(2));
+    k(&mut app, ']', 'u'); // wraps around
+    assert_eq!(on(&app), Some(0));
+    k(&mut app, '[', 'u');
+    assert_eq!(on(&app), Some(2));
+}
+
+#[test]
 fn comment_marks_at_the_right_edge() {
     // Claude's comment on lines 10–12 (new side): ╎ on 10 and 11, ◆ on 12, at the code's edge.
     let mut app = fixture();

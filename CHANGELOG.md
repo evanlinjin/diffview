@@ -5,6 +5,9 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- `]u` / `[u`: the next / previous unresolved comment thread (wrapping around).
+
 ### Changed
 - Comment marks are at the code's right edge, beside the pane, shown or not: `╎` down the lines a
   comment is about and a dot at its last (`●`, `◆` Claude's, `○` resolved or outdated), so a
