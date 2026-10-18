@@ -1940,6 +1940,21 @@ fn files_list_and_pinned_file_header() {
     let s = screen(220, 20, |f| app.draw(f));
     let top = s.lines().nth(1).unwrap(); // under the pinned PR title
     assert!(top.chars().skip(app.files_w).collect::<String>().contains("src/big.rs"), "{s}");
+    // Popups (help, here) are over the whole window, the list too: as wide as without it.
+    let help_w = |app: &mut App| {
+        app.key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
+        _ = screen(220, 20, |f| app.draw(f));
+        let s = screen(220, 20, |f| app.draw(f));
+        app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        let top = s.lines().find(|l| l.contains(" keys ")).expect(&s).to_owned();
+        (top.find(" keys ").unwrap(), app.width)
+    };
+    let with = help_w(&mut app);
+    app.files_pref = Some(false);
+    let without = help_w(&mut app);
+    app.files_pref = Some(true);
+    _ = screen(220, 20, |f| app.draw(f));
+    assert_eq!(with, without, "the help is narrower, or elsewhere, with the list shown");
     // Ctrl-h from the code into the list: j / k go file to file, Ctrl-l back; Ctrl-l again
     // into the comments, Ctrl-h back to the code.
     let ctrl = |app: &mut App, c: char| app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL));

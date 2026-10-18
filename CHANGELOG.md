@@ -19,6 +19,10 @@ on GitHub are its section here.
 - The PR's facts on the PR tab are in a box whose title opens the PR on GitHub; each failed or
   pending check links to its run, and `checks` to the PR's checks page.
 
+### Fixed
+- Pickers and popups (`?`, hover, a commit's message, the menus) are over the whole window
+  again, the contents list too: they were as narrow as the code beside it.
+
 ## [0.12.0] - 2026-10-18
 
 ### Added

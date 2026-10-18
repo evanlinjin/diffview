@@ -188,7 +188,7 @@ impl App {
         let pin = self.pin as usize;
         let h = (area.height as usize).saturating_sub(1 + pin);
         self.height = h.max(1);
-        self.width = area.width;
+        self.width = full.width; // pickers and popups: over the whole window, the contents too
         let so = 3.min(h / 2);
 
         let maxno = self.rows.iter().filter_map(|r| r.line.old.max(r.line.new)).max().unwrap_or(0);
@@ -606,9 +606,9 @@ impl App {
             let per = 1 + p.items.iter().map(|i| i.detail.len()).max().unwrap_or(0);
             let gap = (per > 1) as usize; // a blank line between cards
             let item_h = per + gap;
-            let w = (area.width * 3 / 4).max(20).min(area.width);
-            let ph = ((m.len() * item_h) as u16 + 3).min(area.height.saturating_sub(4)).max(3);
-            let r = Rect { x: (area.width - w) / 2, y: 2.min(area.height), width: w, height: ph.min(area.height) };
+            let w = (full.width * 3 / 4).max(20).min(full.width);
+            let ph = ((m.len() * item_h) as u16 + 3).min(full.height.saturating_sub(4)).max(3);
+            let r = Rect { x: full.x + (full.width - w) / 2, y: 2.min(full.height), width: w, height: ph.min(full.height) };
             let vis = ((ph as usize).saturating_sub(3) / item_h).max(1);
             let off = sel.saturating_sub(vis.saturating_sub(1));
             let mut lines = vec![Line::from(format!("> {}", p.query))];
@@ -670,12 +670,12 @@ impl App {
         if let Some((title, text, scroll)) = self.popup.clone() {
             // As wide as the text (hover is wrapped to fit 100; help may be two columns), and the title.
             let text_w = text.iter().map(Line::width).max().unwrap_or(0).max(title.chars().count() + 1);
-            let w = (text_w as u16 + 3).max(30).min(area.width.saturating_sub(4));
+            let w = (text_w as u16 + 3).max(30).min(full.width.saturating_sub(4));
             // ponytail: wrapped height estimated from line widths (char wrap, not word wrap).
             let cw = w.saturating_sub(3).max(1) as usize;
             let total: usize = text.iter().map(|l| l.width().div_ceil(cw).max(1)).sum();
-            let h = (total as u16 + 2).min(area.height.saturating_sub(4)).max(3);
-            let r = Rect { x: (area.width - w) / 2, y: 2.min(area.height), width: w, height: h.min(area.height) };
+            let h = (total as u16 + 2).min(full.height.saturating_sub(4)).max(3);
+            let r = Rect { x: full.x + (full.width - w) / 2, y: 2.min(full.height), width: w, height: h.min(full.height) };
             let vis = h.saturating_sub(2) as usize;
             // Don't scroll past the end.
             let scroll = scroll.min(total.saturating_sub(vis) as u16);
