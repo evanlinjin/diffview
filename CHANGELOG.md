@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Changed
+- Todo: a card Claude has ranked says, before Claude's words, what holds the PR up on GitHub:
+  `[⏸ 3 runs to approve (W W) · ✗ 2 checks failing · 1 unsigned commit · conflicts]` (Claude's
+  ranking may be older than they are, and only the rule order said them before).
+
 ## [0.19.0] - 2026-10-18
 
 ### Added

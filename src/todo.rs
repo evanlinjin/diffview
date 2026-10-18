@@ -73,6 +73,19 @@ impl Need {
         }
     }
 
+    /// What holds the PR up, in a word or two, beside Claude's reason on its card: the state
+    /// of things on GitHub (none for what Claude's reason already covers).
+    pub fn tag(&self) -> Option<String> {
+        let s = |n: usize| if n == 1 { "" } else { "s" };
+        Some(match self {
+            Need::ApproveRuns(n) => format!("⏸ {n} run{} to approve (W W)", s(*n)),
+            Need::ChecksFailing(n, _) => format!("✗ {n} check{} failing", s(*n)),
+            Need::Unsigned(n, _) => format!("{n} unsigned commit{}", s(*n)),
+            Need::Conflicts(_) => "conflicts".into(),
+            _ => return None,
+        })
+    }
+
     /// In a few words, for the card (and for Claude, ranking).
     pub fn says(&self) -> String {
         let s = |n: usize| if n == 1 { "" } else { "s" };
@@ -150,9 +163,17 @@ impl Item {
         self.needs.iter().map(Need::weight).max().unwrap_or(0)
     }
 
-    /// What the card says: Claude's word if it ranked it, else the needs.
+    /// What the card says: Claude's word if it ranked it, else the needs. With Claude's word,
+    /// what holds the PR up first, in short (runs to approve, checks failing, …): its ranking may
+    /// be older than they are.
     pub fn says(&self) -> String {
-        self.reason.clone().unwrap_or_else(|| self.needs.iter().map(Need::says).collect::<Vec<_>>().join(" · "))
+        match &self.reason {
+            Some(r) => {
+                let tags: Vec<String> = self.needs.iter().filter_map(Need::tag).collect();
+                if tags.is_empty() { r.clone() } else { format!("[{}] {r}", tags.join(" · ")) }
+            }
+            None => self.needs.iter().map(Need::says).collect::<Vec<_>>().join(" · "),
+        }
     }
 }
 
@@ -788,6 +809,10 @@ mod tests {
         e.awaiting = 2;
         assert!(needs(&facts(leak(pr(13, "amy")), Some(leak(e)), None)).0.contains(&Need::ApproveRuns(2)));
         assert_eq!(Need::ApproveRuns(1).says(), "1 workflow run awaiting approval: approve it (W W)");
+        // With Claude's reason on the card, what holds the PR up goes first, in short.
+        let it = Item { rep: false, number: 1, needs: vec![Need::ApproveRuns(3), Need::ChecksFailing(2, false), Need::NoReview], claude: None, updated: String::new(), reason: Some("bug fix — review".into()), changed: false, deferred: None, busy: None, waits: None };
+        assert_eq!(it.says(), "[⏸ 3 runs to approve (W W) · ✗ 2 checks failing] bug fix — review");
+        assert_eq!(Item { reason: None, ..it.clone() }.says().split(" · ").count(), 3);
         // Conflicting with its base: ask for a rebase (or, yours, do it).
         let mut conflicting = extra(None, false, "h");
         conflicting.mergeable = "CONFLICTING".into();

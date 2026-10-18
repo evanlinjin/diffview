@@ -224,7 +224,8 @@ you last left the PR in dv), Claude's comments you haven't touched, no review fr
 PRs, not drafts), else activity since you looked. It orders them by the most pressing of those,
 then the longest waiting; then Claude (one read-only `claude -p`, `gh pr view/diff` only, the repo's
 notes in its prompt) puts them in order with a few words on each ("why — what next", the card's
-third line), saved in dv's directory (`todo.json`) with what it ranked. Items it didn't rank (new,
+third line; what holds the PR up on GitHub before them, in short, as its ranking may be older:
+`[⏸ 3 runs to approve (W W) · ✗ 2 checks failing · 1 unsigned commit · conflicts]`), saved in dv's directory (`todo.json`) with what it ranked. Items it didn't rank (new,
 or changed) go before the first ranked one that needs you less, their cards saying "since Claude
 ranked". Claude ranks only when you ask, as it costs a run: `r r` there (`R` refreshes from GitHub
 alone). To judge whether that's worth it, the header says how old the last ranking is, what it
