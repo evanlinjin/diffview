@@ -70,6 +70,7 @@ impl App {
                 let id = r.main?;
                 let text = match self.commits.get(id.wrapping_sub(1)) {
                     _ if id == DESCRIPTION => "description".to_owned(),
+                    _ if id == CLOSING_NOTE => "closing note".to_owned(),
                     Some(c) => format!("{} {}", c.short, c.subject),
                     None => r.line.text.clone(),
                 };

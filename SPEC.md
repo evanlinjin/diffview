@@ -121,7 +121,8 @@ disk: rust-analyzer can index it and `hx` can open it.
    them and runs Claude (`claude -p`, the skill's section 6, with `dv replace-info`; allowed
    to read PRs and issues with `gh` and to `git add` / `git commit`, never to push). Drafting
    again resumes the session. dv on a replacement's branch shows, in the PR section, what it
-   replaces (linked), the drafts, and `UNPUBLISHED` on the header line, and shows it again
+   replaces (linked) and `UNPUBLISHED` on the header line, its drafts of the description and the
+   closing note as sections before the files (as a PR's description is; `a` there redrafts), and shows it again
    when the record changes. `S` there publishes it, or publishes then closes the originals
    (editor: title on the first line, then the description; not with uncommitted changes:
    committing is offered instead; fetch and rebase onto `origin/<base>`, aborted on conflict;

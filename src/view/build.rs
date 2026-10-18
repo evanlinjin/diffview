@@ -178,7 +178,7 @@ impl App {
                 let url = self.pr.as_ref().map(|p| p.url.clone()).filter(|u| !u.is_empty());
                 for (ii, l) in self.info.iter().enumerate() {
                     // The description has a section of its own in the diff's column (below).
-                    if self.is_description(ii) || ii.checked_sub(1).is_some_and(|h| self.is_description(h)) {
+                    if self.in_section(ii) {
                         continue;
                     }
                     match (l.heading, l.md) {
@@ -246,10 +246,14 @@ impl App {
         if self.view == View::All {
             if let Some(h) = (0..self.info.len()).find(|&i| self.is_description(i)) {
                 let text = self.info.get(h + 1).filter(|l| l.md).map_or("", |l| l.text.as_str());
-                match self.claude.description.is_empty() {
+                match self.claude.description.is_empty() || self.pr.is_none() {
                     true => {
-                        let text = if text.trim().is_empty() { "_(no description)_" } else { text };
-                        rows.extend(self.section(DESCRIPTION, "description".into(), text, Some(h + 1)));
+                        let text = match (text.trim().is_empty(), self.replacement.is_some()) {
+                            (true, true) => "_(not drafted yet)_",
+                            (true, false) => "_(no description)_",
+                            _ => text,
+                        };
+                        rows.extend(self.section(DESCRIPTION, self.info[h].text.clone(), text, Some(h + 1)));
                     }
                     // Claude's proposal: what it changes, line by line (as markdown source).
                     false => {
@@ -266,6 +270,12 @@ impl App {
                         }
                     }
                 }
+            }
+            // A replacement's closing note (for the PRs it replaces), after its description.
+            if let Some(h) = (0..self.info.len()).find(|&i| self.is_closing_note(i)) {
+                let text = self.info.get(h + 1).filter(|l| l.md).map_or("", |l| l.text.as_str());
+                let text = if text.trim().is_empty() { "_(not drafted yet)_" } else { text };
+                rows.extend(self.section(CLOSING_NOTE, self.info[h].text.clone(), text, Some(h + 1)));
             }
             if let Some((a, _)) = self.commit_shown {
                 for (k, msg) in self.commit_msgs.iter().enumerate() {
@@ -435,7 +445,19 @@ impl App {
 
     /// `info[i]` is the description's heading.
     pub(super) fn is_description(&self, i: usize) -> bool {
-        self.info.get(i).is_some_and(|l| l.heading && l.text == "description")
+        // A replacement's: "description (Claude's draft)".
+        self.info.get(i).is_some_and(|l| l.heading && (l.text == "description" || self.replacement.is_some() && l.text.starts_with("description")))
+    }
+
+    /// `info[i]` is a replacement's closing note's heading.
+    pub(super) fn is_closing_note(&self, i: usize) -> bool {
+        self.replacement.is_some() && self.info.get(i).is_some_and(|l| l.heading && l.text.starts_with("closing note"))
+    }
+
+    /// `info[i]` is text with a section of its own before the files (a heading, or its body).
+    fn in_section(&self, i: usize) -> bool {
+        let heading = |i: usize| self.is_description(i) || self.is_closing_note(i);
+        heading(i) || i.checked_sub(1).is_some_and(heading)
     }
 
     /// A section of PR text in the diff's column: a header like a file's (`name` folds it),

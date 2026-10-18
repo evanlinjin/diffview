@@ -1227,6 +1227,16 @@ fn replacement_in_the_pr_section() {
     assert_eq!(texts[0], "Replacement of #12 · Fix it properly");
     assert!(texts.contains(&"replaces #12 fix (@bot), #15 fix again (@bot)"));
     assert!(texts.contains(&"Replaces #12 and #15.") && texts.contains(&"Thanks! Handled in {replacement}."));
+    // Its description and closing note: sections before the files, in the diff (as a PR's
+    // description is), not on the pane's PR tab; and in the contents.
+    app.margin_active = true;
+    app.build();
+    let at = |app: &App, t: &str| app.rows.iter().position(|r| r.line.text == t).unwrap();
+    let (desc, note) = (at(&app, "Replaces #12 and #15."), at(&app, "Thanks! Handled in {replacement}."));
+    assert!(app.rows[desc].main == Some(DESCRIPTION) && app.rows[note].main == Some(CLOSING_NOTE));
+    assert!(!app.pr_row(desc) && !app.pr_row(note) && desc < note);
+    let names: Vec<files::Spot> = app.file_entries().into_iter().map(|e| e.spot).take(2).collect();
+    assert_eq!(names, [files::Spot::Section(DESCRIPTION), files::Spot::Section(CLOSING_NOTE)]);
     assert_eq!(app.header_tag(INFO).unwrap().0, " UNPUBLISHED ");
     let row = app.rows.iter().find(|r| r.line.text.starts_with("replaces")).unwrap();
     assert_eq!(row.links.iter().map(|l| l.2.as_str()).collect::<Vec<_>>(), ["https://github.com/o/r/pull/12", "https://github.com/o/r/pull/15"]); // each original links to it

@@ -5,6 +5,10 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Changed
+- A replacement's (or new PR's) drafted description, and its closing note, are sections before the
+  files in the diff, as a PR's description is, not on the pane's PR tab; in the contents too.
+
 ## [0.24.3] - 2026-10-18
 
 ### Changed

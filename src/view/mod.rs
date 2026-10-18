@@ -168,6 +168,8 @@ const DESCRIPTION: usize = 0;
 const ON_SUMMARY: &str = "summary";
 /// `Row::main` for Claude's review summary, a section of its own in the Claude view.
 const CLAUDE_REVIEW: usize = usize::MAX;
+/// `Row::main` for a replacement's closing note (Claude's draft), a section like its description.
+const CLOSING_NOTE: usize = usize::MAX - 1;
 
 /// Position in the view: row index into `rows`, char index into the row's text.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
