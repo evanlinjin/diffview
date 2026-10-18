@@ -1,6 +1,6 @@
           PR #7 · Fix the thing  @bo · main ← amy:fix          3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)
        ╭─ status ──────────────────────────────────────────────────────────────────────────────────────────────╮
-       │  OPEN @bo · m keys · / search · j/k scroll · other keys close                 1–44 / 125              │
+       │  OPEN @bo · m keys · / search · j/k scroll · other keys close                 1–44 / 127              │
        │  review: wait  MOVE                                                                    ┃              │
        ╰──────────────   h j k l, arrows      move (counts: 5j)                                 ┃ ─────────────╯
        ╭─ claude's rev   w b e  W B E         word motions (select)                             ┃ ─────────────╮
@@ -16,7 +16,7 @@
   9   9   line 9                                                                                ┃
  10  10   line 10       DIFF                                                                    ┃
  11  11   line 11        ]g [g                next / prev hunk (change)                         ┃
- 12     -     let x =    ]f [f, Space f       next / prev file, file picker                     ┃
+ 12     -     let x =    ]f [f, Space f       next / prev file, file picker                     │
      12 +     let x =    ]c [c                next / prev comment thread                        │                      ◆
  13  13   line 13        ]u [u                next / prev unresolved one (wraps around)         │
  14  14   line 14        ]a [a                next / prev Claude comment (wraps around)         │

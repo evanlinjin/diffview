@@ -312,6 +312,8 @@ impl App {
             KeyCode::Char('k') | KeyCode::Up if !ctrl && self.in_commits => self.commit_cur -= 1,
             KeyCode::Char('v') if self.in_commits => self.commit_anchor = if self.commit_anchor.is_some() { None } else { Some(self.commit_cur) },
             KeyCode::Enter if self.in_commits => self.pick_commits(),
+            // Between the files and the commits, without going through every file.
+            KeyCode::Tab | KeyCode::BackTab => self.focus_list(!self.in_commits),
             KeyCode::Char('m') if self.in_commits => self.commit_popup(),
             KeyCode::Esc if self.commit_anchor.is_some() => self.commit_anchor = None,
             // Past the last file: on into the commits, at the one shown.
@@ -341,6 +343,18 @@ impl App {
         if let Some(r) = self.rows.iter().position(|r| r.file == i && r.line.kind == Kind::File) {
             self.goto(r, 0);
             self.top = self.d_of[r].max(self.pin as usize);
+        }
+    }
+
+    /// Into the list: its commits (`Ctrl-w j`, at the one shown), or its files (`Ctrl-w k`).
+    pub(super) fn focus_list(&mut self, commits: bool) {
+        if self.files_w == 0 {
+            return self.msg = "the files' list is hidden (Ctrl-w e shows it)".into();
+        }
+        self.files_focus = true;
+        self.in_commits = commits && !self.commits.is_empty();
+        if self.in_commits {
+            self.commit_cur = self.commit_shown.map_or(0, |(a, _)| a + 1);
         }
     }
 

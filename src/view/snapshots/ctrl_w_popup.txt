@@ -10,20 +10,20 @@
        │  Nearly there.                                                                            │
        ╰───────────────────────────────────────────────────────────────────────────────────────────╯
  ▾        description
-          Fixes the thing, see new_call.
- ▾        src/big.rs  +1 −1  · 2 comments
-          ─────────────────────────────────── window
-  9   9   line 9                              v  toggle split view
- 10  10   line 10                             n  relative line numbers on / off
- 11  11   line 11                             e  the files' list on / off
- 12     -     let x = old(12);                c  show / hide the comments pane
-     12 +     let x = new_call(12);           f  comments pane: a column / floating over the code
- 13  13   line 13                             ,  narrower pane (the one you're in, else comments)
- 14  14   line 14                             .  wider pane
- 15  15   line 15                             =  the pane at its usual width
- ▾        src/a.rs  +1 −1  · 1 comment        q  hide the pane you're in (files / comments)
-          ── fn main ──────────────────────── a  Claude view: just Claude's review
-  1   1   fn main() {                         p  pending view: just your pending review
+          Fixes the thing, see new_call.      window
+ ▾        src/big.rs  +1 −1  · 2 comments     v  toggle split view
+          ─────────────────────────────────── n  relative line numbers on / off
+  9   9   line 9                              e  the files' list on / off
+ 10  10   line 10                             c  show / hide the comments pane
+ 11  11   line 11                             f  comments pane: a column / floating over the code
+ 12     -     let x = old(12);                ,  narrower pane (the one you're in, else comments)
+     12 +     let x = new_call(12);           .  wider pane
+ 13  13   line 13                             =  the pane at its usual width
+ 14  14   line 14                             q  hide the pane you're in (files / comments)
+ 15  15   line 15                             a  Claude view: just Claude's review
+ ▾        src/a.rs  +1 −1  · 1 comment        p  pending view: just your pending review
+          ── fn main ──────────────────────── j  the commits (in the files' list)
+  1   1   fn main() {                         k  the files (in the files' list)
   2     -     old();                          h  the pane to the left
       2 +     new_call(x);                    l  the pane to the right
   3   3   }

@@ -81,7 +81,8 @@ VIEW
   Ctrl-w n             relative line numbers on / off (kept for next time)
   Ctrl-w e             the changed files' list on the left, on / off (a click goes to one)
                        and the PR's commits under it: Enter shows one, v … Enter a range,
-                       m its whole message
+                       m its whole message; Ctrl-w j / Ctrl-w k (or Tab there) go to the
+                       commits / the files
   Ctrl-w h  Ctrl-w l   pane left / right: files, old / new side, comments (or Ctrl-h Ctrl-l)
   Ctrl-w c             show / hide the comments pane (╎ ● mark their lines)
   Ctrl-w f             comments pane: a column beside the code / floating over it

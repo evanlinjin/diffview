@@ -2019,6 +2019,18 @@ fn commits_under_the_files() {
     // k from "all commits" back up into the files.
     k(&mut app, KeyCode::Char('k'));
     assert!(!app.in_commits && app.files_focus);
+    // Tab between the files and the commits; Ctrl-w j / k from anywhere.
+    k(&mut app, KeyCode::Tab);
+    assert!(app.in_commits && app.files_focus);
+    k(&mut app, KeyCode::Tab);
+    assert!(!app.in_commits);
+    app.files_focus = false;
+    app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
+    k(&mut app, KeyCode::Char('j'));
+    assert!(app.in_commits && app.files_focus);
+    app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
+    k(&mut app, KeyCode::Char('k'));
+    assert!(!app.in_commits && app.files_focus);
     // One commit shown: its message is a section before the files, like the description;
     // Tab on its header folds it.
     (app.commit_shown, app.commit_msg) = (Some((1, 1)), Some("commit 2\n\nWhy it's done this way.".into()));

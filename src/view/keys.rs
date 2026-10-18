@@ -254,6 +254,8 @@ impl App {
                 ("q", "hide the pane you're in (files / comments)"),
                 ("a", "Claude view: just Claude's review"),
                 ("p", "pending view: just your pending review"),
+                ("j", "the commits (in the files' list)"),
+                ("k", "the files (in the files' list)"),
                 ("h", "the pane to the left"),
                 ("l", "the pane to the right"),
             ]),
@@ -360,6 +362,8 @@ impl App {
                 self.margin_w_pref = None;
                 self.save_pane("width", Value::Null);
             }
+            (CTRL_W, 'j') => self.focus_list(true),
+            (CTRL_W, 'k') => self.focus_list(false),
             (CTRL_W, 'h') => self.side(false),
             (CTRL_W, 'l') => self.side(true),
             (']', 'f') => self.next_kind(true, file),
