@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Fixed
+- Right after dv pushed, posted Claude's description, marked the PR ready or approved its runs,
+  a GitHub fetch already under way could bring back the PR as it was before for a moment (the
+  old description, an `↑1 unpushed` badge): it's dropped now.
+- Publishing a new PR said "S closes what it replaces": it replaces nothing.
+
 ## [0.21.0] - 2026-10-18
 
 ### Added

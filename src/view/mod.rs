@@ -1003,11 +1003,13 @@ impl App {
                 }
                 let res = crate::replace::publish(&mut r, &self.root, title, body, ready);
                 keep_on_error(res.as_ref().map(drop).map_err(|e| anyhow!("{e:#}")), &text)?;
+                let originals = !r.replaces.is_empty(); // a new PR replaces nothing
                 self.show_replacement(r);
                 if close {
                     self.action = Some(Action::CloseOriginals); // its own editor, next
                 }
-                Ok(format!("published as {kind} #{}: S closes what it replaces, with the note", res.unwrap_or(0)))
+                let then = if originals { ": S closes what it replaces, with the note" } else { "" };
+                Ok(format!("published as {kind} #{}{then}", res.unwrap_or(0)))
             }
             Action::CloseOriginals => {
                 let mut r = self.replacement.clone().context("not a replacement")?;

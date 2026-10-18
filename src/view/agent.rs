@@ -305,6 +305,7 @@ impl App {
         if let Err(e) = crate::gh::set_body(pr, &text) {
             return self.msg = format!("description not changed: {e:#}");
         }
+        self.github_changed();
         // What's on GitHub now, without waiting for the next fetch.
         if let Some(b) = body {
             self.info[b].text = text;

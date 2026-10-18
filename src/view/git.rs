@@ -51,6 +51,7 @@ impl App {
             Ok(0) => "no workflow runs waiting for approval (any more)".into(),
             Ok(k) => {
                 self.awaiting = 0;
+                self.github_changed();
                 format!("approved {k} workflow run{}: they run now (CI shows them as they do)", if k == 1 { "" } else { "s" })
             }
             Err(e) => format!("not approved: {e:#}"),
@@ -63,6 +64,7 @@ impl App {
         self.msg = match crate::gh::mark_ready(n) {
             Ok(()) => {
                 self.pr_state = Some(("OPEN", "238636"));
+                self.github_changed();
                 format!("#{n} is ready for review")
             }
             Err(e) => format!("#{n} still a draft: {e:#}"),
