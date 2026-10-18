@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-10-18
+
 ### Added
 - Workflow runs GitHub holds for a maintainer's approval (a first-time contributor's PR): the
   PR's status box says so (`⏸ 2 workflow runs awaiting approval`), its `dv list` card too
@@ -636,6 +638,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.19.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.19.0
 [0.18.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.18.1
 [0.18.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.18.0
 [0.17.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.17.1
