@@ -170,6 +170,8 @@ const ON_SUMMARY: &str = "summary";
 const CLAUDE_REVIEW: usize = usize::MAX;
 /// `Row::main` for a replacement's closing note (Claude's draft), a section like its description.
 const CLOSING_NOTE: usize = usize::MAX - 1;
+/// `Row::main` for the comment Claude drafted for closing the PR, a section before the rest.
+const CLOSING_PR: usize = usize::MAX - 2;
 
 /// Position in the view: row index into `rows`, char index into the row's text.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -298,6 +300,8 @@ enum Action {
     Publish(bool),
     /// A new PR fixing CI for Claude to draft, after the editor (from Claude's note on this PR).
     CiFixPr,
+    /// Close the PR with Claude's draft comment, after the editor.
+    ClosePr,
     /// Close the PRs the replacement here replaces, after the editor (the note).
     CloseOriginals,
     /// A new PR conversation comment, starting with `quote` (may be empty); `as_is`: posted
@@ -382,6 +386,9 @@ enum Target {
     /// Post Claude's proposed description to the PR (`true`: confirmed), or drop it.
     DescApprove(bool),
     DescDiscard,
+    /// Close the PR with Claude's draft comment (after your editor) / drop the draft.
+    ClosePr,
+    CloseDiscard,
     Nothing,
 }
 
@@ -434,6 +441,8 @@ struct ClaudeState {
     head: String,
     /// A new description for the PR that Claude proposes (empty: none).
     description: String,
+    /// A comment Claude drafted for closing the PR (empty: none).
+    closing: String,
     /// A background `claude -p` run: (process, log file, what it's doing).
     job: Option<agent::ClaudeJob>,
     /// The Claude Code session of the last background run, resumed by the next.
@@ -967,6 +976,8 @@ impl App {
                     (agent::Ask::Review, _) => "anything for Claude to look at or keep in mind in its review (optional)",
                     (agent::Ask::Describe, _) if !self.claude.description.is_empty() => "what else to change in Claude's proposed description",
                     (agent::Ask::Describe, _) => "what to change in the PR's description (Claude proposes a new one; you approve it)",
+                    (agent::Ask::Close, _) if !self.claude.closing.is_empty() => "what to change in Claude's closing comment",
+                    (agent::Ask::Close, _) => "why close it, and anything the comment should say (optional: Claude drafts it; you edit it before it goes)",
                     (_, true) => "what Claude should change (there are no open comments to act on)",
                     _ => "instructions for Claude, on top of the open comments (optional)",
                 };
@@ -1023,6 +1034,7 @@ impl App {
                 // Ready for review only once CI passes: `Space g` there, which checks.
                 Ok(format!("published as {kind} #{}{then} (ready for review once CI passes: Space g)", res.unwrap_or(0)))
             }
+            Action::ClosePr => self.close_pr(),
             Action::CiFixPr => {
                 let n = self.pr.as_ref().map_or(0, |p| p.number);
                 let c = self.ci_note(n).context("no fix in mind for CI any more")?;

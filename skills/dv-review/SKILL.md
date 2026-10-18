@@ -178,6 +178,17 @@ the user asks, and keep what they didn't ask to change. Don't edit the PR on Git
 your proposal against the current text, and the user approves it there (dv posts it then), or
 asks for more.
 
+## Draft a closing comment
+
+When asked to draft a comment closing the PR: write it (GitHub markdown) into the review file's
+top-level `"closing"` field, keeping everything else in the file as it is. Start from the draft
+already there if there is one (the user is asking for changes to it). Read what you need first:
+the PR, its conversation (`gh pr view <n> --comments`), your review, and what the user says about
+why. Say plainly why it's being closed, crediting what was good in it; point to what replaces it
+(an issue, another PR) if there is something; if the author could take it further, say how. Keep
+it short and kind: it's someone's work. Don't close the PR or comment on GitHub: the user edits
+your draft and closes the PR with it in dv.
+
 ## 6. Draft a replacement
 
 Some PRs aren't worth reviewing into shape (low-effort ones, often AI-generated): the user has

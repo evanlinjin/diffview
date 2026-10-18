@@ -17,6 +17,8 @@ pub(super) enum Ask {
     Edit,
     /// Your PR's CI fails: find out why from the failed runs' logs, and fix it here.
     FixChecks,
+    /// Draft a comment closing the PR (in the review file), for you to close it with.
+    Close,
 }
 
 /// What `claude -p` may do in the background: edit files (the review, and code when asked),
@@ -212,6 +214,15 @@ impl App {
         } else if self.pr.is_some() {
             items.push(Item::new("Ask Claude to change the PR's description (you approve it)…", Target::Claude(Ask::Describe)));
         }
+        // Closing it: Claude drafts the comment; you edit it, then close with it (or don't).
+        let open = self.pr_state.is_some_and(|s| matches!(s.0, "OPEN" | "DRAFT"));
+        if !self.claude.closing.is_empty() && open {
+            items.insert(0, Item::new("Discard Claude's closing comment", Target::CloseDiscard));
+            items.insert(0, Item::new("Ask Claude for changes to the closing comment…", Target::Claude(Ask::Close)));
+            items.insert(0, Item::new("Close the PR with Claude's comment (your editor first)…", Target::ClosePr));
+        } else if self.pr.is_some() && open {
+            items.push(Item::new("Ask Claude to draft a comment closing the PR (you edit it, then close)…", Target::Claude(Ask::Close)));
+        }
         // One that seems stuck: it can be stopped (the session stays, so the next run resumes it).
         if let Some(j) = &self.claude.job {
             items.insert(0, Item::new(format!("Stop Claude ({} for {})", j.label, ago(j.started)), Target::ClaudeStop));
@@ -335,6 +346,37 @@ impl App {
     }
 
     /// `Space a` → discard Claude's proposed description.
+    /// `Space a` → close the PR with Claude's comment: in your editor first (an empty one, or
+    /// `:cq`, closes nothing), then posted, and the PR closed.
+    pub(super) fn close_pr(&mut self) -> Result<String> {
+        let (Some(n), Some(path)) = (self.pr.as_ref().map(|p| p.number), self.claude.path.clone()) else { return Ok(String::new()) };
+        let what = format!("comment closing #{n} (posted on its conversation, then it's closed; empty closes nothing)");
+        let Some(text) = compose_with(&what, false, self.claude.closing.trim(), true)?.filter(|t| !t.trim().is_empty()) else {
+            return Ok(format!("#{n} not closed"));
+        };
+        keep_on_error(crate::gh::close_with(n, text.trim()), &text)?;
+        _ = crate::claude::clear_closing(&path);
+        self.pr_state = Some(("CLOSED", "da3633"));
+        self.github_changed();
+        let keep = self.cursor_key();
+        self.load_claude();
+        self.rebuild(keep);
+        Ok(format!("#{n} closed, with your comment"))
+    }
+
+    pub(super) fn discard_closing(&mut self) {
+        let Some(path) = self.claude.path.clone() else { return };
+        self.msg = match crate::claude::clear_closing(&path) {
+            Ok(()) => {
+                let keep = self.cursor_key();
+                self.load_claude();
+                self.rebuild(keep);
+                "Claude's closing comment discarded".into()
+            }
+            Err(e) => format!("{e:#}"),
+        };
+    }
+
     pub(super) fn discard_description(&mut self) {
         let Some(path) = self.claude.path.clone() else { return };
         self.msg = match crate::claude::clear_description(&path) {
@@ -391,6 +433,11 @@ impl App {
             },
             Ask::Answer => answer_prompt(&what, self.theirs),
             Ask::FixChecks => fix_checks_prompt(self.pr.as_ref().map_or(0, |p| p.number)),
+            Ask::Close => format!(
+                "Use the dv-review skill to draft a comment closing {what}, as the user asks below, in the review file's \
+                 top-level \"closing\" field (see \"Draft a closing comment\"). Start from the draft already there, if there \
+                 is one. Don't close the PR or comment on GitHub: the user closes it in dv."
+            ),
             Ask::Describe => format!(
                 "Use the dv-review skill to propose a new description for {what}, as the user asks below: the whole new text, \
                  in the review file's top-level \"description\" field (see \"Propose a description\"). Start from the proposal \
@@ -467,6 +514,10 @@ impl App {
         // On the PR's description: Claude proposes a new one (more changes, if it has).
         if self.section_of(self.head.row) == Some(DESCRIPTION) {
             return self.pick_claude(Ask::Describe);
+        }
+        // On Claude's closing comment: changes to it.
+        if self.section_of(self.head.row) == Some(CLOSING_PR) {
+            return self.pick_claude(Ask::Close);
         }
         // On a comment in the PR's conversation: a question about it, under it.
         if let Some((url, prefill)) = self.conversation_at_cursor() {
@@ -550,8 +601,8 @@ impl App {
             return self.msg = why;
         }
         match ask {
-            Ask::Describe if self.pr.is_none() => self.msg = "no PR here, so no description to change".into(),
-            Ask::Review | Ask::Fix | Ask::Edit | Ask::Describe => self.action = Some(Action::ClaudeWith(ask)),
+            Ask::Describe | Ask::Close if self.pr.is_none() => self.msg = "no PR here".into(),
+            Ask::Review | Ask::Fix | Ask::Edit | Ask::Describe | Ask::Close => self.action = Some(Action::ClaudeWith(ask)),
             ask => _ = self.run_claude(ask, ""),
         }
     }
@@ -584,6 +635,7 @@ impl App {
             Ask::Describe => "proposing a description",
             Ask::Fix if self.theirs => "suggesting the changes",
             Ask::Edit => "making the changes",
+            Ask::Close => "drafting a closing comment",
             Ask::Fix => "making the changes",
             Ask::FixChecks => "fixing CI",
         };

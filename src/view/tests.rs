@@ -2204,6 +2204,36 @@ fn claude_proposes_a_description() {
 }
 
 #[test]
+fn claude_drafts_a_closing_comment() {
+    let mut app = fixture();
+    app.pr_state = Some(("OPEN", "238636"));
+    let path = std::env::temp_dir().join(format!("dv-close-{}.json", std::process::id()));
+    std::fs::write(&path, r#"{"closing": "Thanks! Superseded by #9."}"#).unwrap();
+    app.claude.path = Some(path.clone());
+    app.load_claude();
+    app.build();
+    // A section first, in the diff; Space a: close with it (your editor first), more, discard.
+    let head = app.rows.iter().position(|r| r.main == Some(CLOSING_PR)).expect("its section");
+    assert!(app.rows[head].line.text.starts_with("closing comment · Claude's draft") && app.rows[head + 1].line.text == "Thanks! Superseded by #9.");
+    app.claude_menu();
+    let items = app.picker.take().unwrap().items;
+    assert!(matches!(items[0].target, Target::ClosePr) && matches!(items[1].target, Target::Claude(agent::Ask::Close)) && matches!(items[2].target, Target::CloseDiscard));
+    app.goto(head + 1, 0);
+    app.start_ask_claude();
+    assert!(matches!(app.action.take(), Some(Action::ClaudeWith(agent::Ask::Close))), "{}", app.msg);
+    // Discarded: gone; Space a offers to draft one.
+    app.discard_closing();
+    assert!(!std::fs::read_to_string(&path).unwrap().contains("closing") && !app.rows.iter().any(|r| r.main == Some(CLOSING_PR)));
+    app.claude_menu();
+    assert!(app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::Claude(agent::Ask::Close))));
+    // Closed already: not offered.
+    app.pr_state = Some(("CLOSED", "da3633"));
+    app.claude_menu();
+    assert!(!app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::Claude(agent::Ask::Close))));
+    _ = std::fs::remove_file(&path);
+}
+
+#[test]
 fn claude_working_and_out_of_sync_on_the_title() {
     // What Claude's doing and how the checkout stands show on the pinned title, as badges, a
     // long title cut to make room for them.

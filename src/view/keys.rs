@@ -482,6 +482,8 @@ impl App {
                         Target::ClaudeDismissOutdated(sure) => self.dismiss_outdated(sure),
                         Target::DescApprove(sure) => self.approve_description(sure),
                         Target::DescDiscard => self.discard_description(),
+                        Target::ClosePr => self.action = Some(Action::ClosePr),
+                        Target::CloseDiscard => self.discard_closing(),
                         Target::Nothing => {}
                     }
                 }

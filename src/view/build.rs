@@ -243,6 +243,10 @@ impl App {
                 rows.extend(self.summary_threads(Some(CLAUDE_REVIEW)));
             }
         }
+        // Claude's draft comment for closing the PR: first, as what you'd do next.
+        if self.view == View::All && !self.claude.closing.trim().is_empty() {
+            rows.extend(self.section(CLOSING_PR, "closing comment · Claude's draft (Space a: close the PR with it, more changes, discard)".into(), &self.claude.closing, None));
+        }
         // Before the files, like one: the PR's description, then the messages of the commits shown.
         if self.view == View::All {
             if let Some(h) = (0..self.info.len()).find(|&i| self.is_description(i)) {

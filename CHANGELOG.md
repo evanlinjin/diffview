@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- Closing a PR with a comment Claude drafts: `Space a` → "Ask Claude to draft a comment closing the
+  PR" (say why, if you like). The draft shows first in the diff; `Space a` then closes the PR with
+  it, after your editor has it to change, asks for changes (`a` on it too), or discards it.
+
 ## [0.27.1] - 2026-10-18
 
 ### Fixed

@@ -22,6 +22,8 @@
 //! with `"author": "user"` is one the user left for Claude (`a` in dv), which Claude answers.
 //! A top-level `"description"` is a new description Claude proposes for the PR (when asked):
 //! dv shows it against the current one, for the user to approve (it's posted then) or not.
+//! A top-level `"closing"` is a comment Claude drafts for closing the PR (when asked): the user
+//! edits it and closes the PR with it in dv, or not.
 //! One with `"conversation": "<url>"` instead of `path`/`line` asks about a comment in the PR's
 //! conversation (that URL's): it's on no lines, and dv shows it under that comment; with
 //! `"conversation": "summary"`, it replies to the review's summary, and shows under that.
@@ -48,6 +50,8 @@ pub struct Review {
     pub summary: String,
     /// A new description Claude proposes for the PR (empty: none), for the user to approve.
     pub description: String,
+    /// A comment Claude drafted for closing the PR (empty: none), for the user to close it with.
+    pub closing: String,
     pub threads: Vec<Thread>,
 }
 
@@ -444,7 +448,7 @@ fn parse(text: &str) -> Result<Review> {
             })
         })
         .collect::<Result<_>>()?;
-    Ok(Review { head: s(&v["head"]), summary: s(&v["summary"]), description: s(&v["description"]), threads })
+    Ok(Review { head: s(&v["head"]), summary: s(&v["summary"]), description: s(&v["description"]), closing: s(&v["closing"]), threads })
 }
 
 /// A GitHub review comment's id, from a review file's `"about"`: the id, or its link
@@ -553,9 +557,18 @@ fn push_comment(path: &std::path::Path, c: Value) -> Result<String> {
 
 /// Drop Claude's proposed description (approved, or discarded).
 pub fn clear_description(path: &std::path::Path) -> Result<()> {
+    clear(path, "description")
+}
+
+/// Drop Claude's draft closing comment (used, or discarded).
+pub fn clear_closing(path: &std::path::Path) -> Result<()> {
+    clear(path, "closing")
+}
+
+fn clear(path: &std::path::Path, key: &str) -> Result<()> {
     let mut v: Value = serde_json::from_str(&std::fs::read_to_string(path)?)?;
     if let Some(o) = v.as_object_mut() {
-        o.remove("description");
+        o.remove(key);
     }
     write(path, &v)
 }
