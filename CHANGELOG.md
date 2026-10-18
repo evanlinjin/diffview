@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-10-18
+
 ### Changed
 - `dv list` cards in a wide window (110+ columns) have two zones: what the PR is on the left
   (title, who and how big, branch), how it stands on the right (CI and its age, review, Claude), a
@@ -385,6 +387,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.7.2]: https://github.com/evanlinjin/diffview/releases/tag/v0.7.2
 [0.7.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.7.1
 [0.7.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.7.0
 [0.6.2]: https://github.com/evanlinjin/diffview/releases/tag/v0.6.2
