@@ -22,8 +22,9 @@ on GitHub are its section here.
 ### Changed
 - The PR's title line is pinned at the top, across the code and the pane, like the status bar
   (and in its color: the darker of the theme's status line and menu): it doesn't scroll away
-  or fold, and it has the PR's counts (threads, files viewed, pending comments), which the
-  status bar no longer repeats.
+  or fold. It has who opened the PR and from which branch into which (`owner:branch` from a
+  fork), and the PR's counts (threads, files viewed, pending comments) when they fit (else
+  they stay on the status bar); over the pane, its tabs.
 - Comments are never inline any more: they're in the pane on the right, beside their lines, in
   split view too. It's shown when the window has room for it, else hidden, with the lines that
   have comments marked in the gutter (`●`, `◆` Claude's, `○` resolved); `Ctrl-w c` shows or
@@ -31,7 +32,8 @@ on GitHub are its section here.
   it only where there are comments) rather than beside it, as it does in a narrow window, and
   `Ctrl-w ,` / `.` resize it (`Ctrl-w =`: back to its usual width). dv remembers what you
   set with these keys for the next run, in any repo.
-- The pane has a second tab, the PR's text (`Ctrl-w t`): its description, conversation, checks
+- The pane has a second tab, the PR's text (`gn` / `gp`, as Helix goes between buffers, or a
+  click on the tabs over the pane, on the pinned title): its description, conversation, checks
   and Claude's summary, beside the code and scrolled on their own (`Ctrl-l` goes in, `Ctrl-h`
   back to the code). While the pane is shown the PR section is there, not above the diff (its
   header line stays); hidden, it's above the diff as before. The conversation no longer sits
@@ -40,11 +42,14 @@ on GitHub are its section here.
   or on its branch, as asked), and the base fetch when the PR's base commit is already here.
 
 ### Fixed
+- In a window too narrow for the pane beside the code, going to a comment floats it over the
+  code (it was nowhere); the PR tab's text and the pinned title don't scroll sideways with the
+  diff; your own comments for Claude are marked `●`, not `◆`, in the gutter.
 - `dv list` shows `claude ✓` for a review started from a PR's view, once it's written (also
   after you're back in the list, while Claude finishes it in its pane).
 - `Space a` while Claude is working preselects what it did before, not "Stop Claude": Enter out
   of habit no longer ends the run. Stopping it also stops the commands it was running.
-- `Ctrl-w t` from a comment puts the cursor on the line it's on, not the top of the diff; and
+- Switching tabs from a comment puts the cursor on the line it's on, not the top of the diff; and
   where the cursor was in the code (`Ctrl-h` from the PR tab) survives the review reloading.
 - Typing in a picker or menu lists what has the text as typed first: `Space a`, `check` picks
   "Check Claude's review now", not "Edit Claude's notes" (whose letters come in that order).

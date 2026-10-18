@@ -5,7 +5,7 @@ rust-analyzer, and GitHub review comments.
 
 - **Diff**: unified or side-by-side (`Ctrl-w v`), with review comments in a pane on the right,
   beside their lines: shown when the window has room, hidden (their lines marked `●` in the
-  gutter) when it doesn't, and `Ctrl-w c` shows or hides it. Its other tab (`Ctrl-w t`) has the
+  gutter) when it doesn't, and `Ctrl-w c` shows or hides it. Its other tab (`gn` / `gp`, or a click on the tabs above it) has the
   PR's description and conversation, to read beside the code. Resizable, as a column or floating. Syntax highlighted, changed words
   emphasised, context expandable per hunk (`+`/`-`, `Z` for the whole file).
 - **Helix-style**: the cursor/selection model, motions (`w b e`, `f t`, `gw`, `mm`, …), and

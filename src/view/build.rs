@@ -110,19 +110,18 @@ impl App {
             .or(key.info.filter(|&r| self.rows.get(r).is_some_and(|r| r.file == INFO)))
     }
 
-    /// Rebuild rows, keeping the cursor on the same code line, thread or PR info row (and
-    /// where it was in the code and on the PR tab, for `Ctrl-h` / `Ctrl-l`).
+    /// Rebuild rows, keeping the cursor on the same code line, thread or PR info row.
     pub(super) fn rebuild(&mut self, keep: CursorKey) {
-        let (code, pr) = (self.key_at(self.code_head.row), self.pr_head.map(|r| self.key_at(r)));
         self.build();
-        self.code_head.row = self.find_key(code).unwrap_or(0);
-        self.pr_head = pr.and_then(|k| self.find_key(k));
         let row = self.find_key(keep).unwrap_or(0);
         self.select = false;
         self.goto(row, self.head.col);
     }
 
     pub(super) fn build(&mut self) {
+        // Where the cursor was in the code and on the PR tab (`Ctrl-h` / `Ctrl-l` go back
+        // there), kept on the same lines in the new rows.
+        let (code, pr) = (self.key_at(self.code_head.row), self.pr_head.map(|r| self.key_at(r)));
         self.jumps.clear();
         let mut rows = vec![];
         let title = match (&self.pr, &self.replacement) {
@@ -138,7 +137,15 @@ impl App {
             // The header links to the PR (gf / Enter), instead of a URL line of its own.
             let url = self.pr.as_ref().map(|p| p.url.clone()).filter(|u| !u.is_empty());
             let links = url.map(|u| vec![(0, title.chars().count(), u)]).unwrap_or_default();
-            rows.push(Row { links, ..mk(Kind::File, title) });
+            // Who, and from which branch into which, after the title (dim; cut first when narrow).
+            let by = self.pr.as_ref().filter(|p| !p.author.is_empty()).map(|p| {
+                let head = if p.cross_repo { format!("{}:{}", p.head_owner, p.head_branch) } else { p.head_branch.clone() };
+                format!("  @{} · {} ← {head}", p.author, p.base)
+            });
+            let n = title.chars().count();
+            let by = by.unwrap_or_default();
+            let syn = [vec![None; n], vec![Some(self.ui.linenr); by.chars().count()]].concat();
+            rows.push(Row { links, syn, ..mk(Kind::File, title + &by) });
             if self.view != View::All && !self.info_collapsed {
                 // The PR's state, author, branches and size; then Claude's summary, or the text
                 // of your pending review.
@@ -257,6 +264,8 @@ impl App {
             rows.push(Row::text(usize::MAX, Kind::Hunk, "(no changes)".into()));
         }
         self.rows = rows;
+        self.code_head.row = self.find_key(code).unwrap_or(0);
+        self.pr_head = pr.and_then(|k| self.find_key(k));
         self.emph = self.word_spans();
         self.layout();
     }
@@ -298,7 +307,7 @@ impl App {
         lines.into_iter().map(|l| Row { syn: l.styles, links: l.links, nowrap: l.nowrap, ..mk(Kind::Comment, l.text) }).collect()
     }
 
-    /// The width PR text wraps to: the pane's, when it's shown (the text is there).
+    /// The width comments and PR text wrap to: the pane's, when it's shown (they're there).
     pub(super) fn info_w(&self) -> usize {
         if self.margin_active { self.margin_w - 3 - 2 } else { self.wrap_w }
     }
@@ -424,7 +433,7 @@ impl App {
                 out.push(Row { syn, ..mk(Kind::Thread, format!("{tag}{}{}", c.author, when(c))) });
             }
             // In the margin, comments wrap to its width (less the gutter mark and box sides).
-            let w = if self.margin_active { self.margin_w - 3 - 2 } else { self.wrap_w };
+            let w = self.info_w();
             let rows = self.md_rows_at(&c.body, w, mk);
             match t.stale() {
                 // Resolved/outdated: rendered the same, but dimmed throughout (links still open).

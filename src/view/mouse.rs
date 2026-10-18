@@ -50,13 +50,21 @@ impl App {
                 if self.popup.is_some() {
                     return (self.popup, self.help) = (None, None); // a click elsewhere closes it
                 }
+                // On the pinned title, over the pane: its tabs.
+                let pane = self.geom.relw + self.geom.gw + self.geom.ctw;
+                if self.pin && y == 0 && self.margin_active && x >= pane {
+                    if let Some((tab, ..)) = self.pane_tabs().into_iter().find(|t| t.2.contains(&(x - pane))) {
+                        self.pane_to(tab);
+                    }
+                    return;
+                }
                 let Some((row, col, gutter)) = self.at_screen(x, y) else { return };
                 // On a fold arrow (a file's or a thread's first row, in the gutter): fold / unfold.
                 let first_of_thread = self.rows[row].thread.is_some_and(|t| row == 0 || self.rows[row - 1].thread != Some(t));
                 self.select = false;
                 self.goto(row, col);
                 match (gutter, self.rows[row].line.kind) {
-                    (true, Kind::File) => self.toggle_collapse(),
+                    (true, Kind::File) if !(row == 0 && self.pin) => self.toggle_collapse(), // pinned: no fold
                     (true, Kind::Thread) if first_of_thread => self.toggle_thread(),
                     _ => {}
                 }
@@ -96,7 +104,7 @@ impl App {
     pub(super) fn at_screen(&self, x: usize, y: usize) -> Option<(usize, usize, bool)> {
         let g = self.geom;
         if self.pin && y == 0 {
-            let start = g.relw + g.gw; // the pinned title
+            let start = g.relw + g.gw; // the pinned title (and the pane's tabs, `click_tab`)
             return Some((0, x.saturating_sub(start), x < start));
         }
         let y = y - self.pin as usize;

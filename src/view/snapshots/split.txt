@@ -1,4 +1,4 @@
-          PR #7 · Fix the thing                                3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)
+          PR #7 · Fix the thing  @bo · main ← amy:fix          3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)
           OPEN @bo · main ← fix · +2 −2 in 3 files
           review: waiting on @cy
        ╭─ description ─────────────────────────────────────────────────────────────────────────────────────────╮
@@ -36,5 +36,5 @@
 
 
 
- NOR       split view (Ctrl-h / Ctrl-l switch sides)                                                      split    1/39
 
+ NOR       split view (Ctrl-h / Ctrl-l switch sides)                                                      split    1/39

@@ -1,4 +1,4 @@
-          PR #7 · Fix the thing                                                                                                                                    3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)
+          PR #7 · Fix the thing  @bo · main ← amy:fix                                    3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)  Comments  PR                                                         gn
  ▾        src/big.rs  +1 −1                                                                                                                           OPEN @bo · main ← fix · +2 −2 in 3 files
           ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── L9–15 ─    review: waiting on @cy
   9   9   line 9                                                                                                                                   ╭─ description ─────────────────────────────────────────────────────────╮
@@ -26,5 +26,5 @@
 
 
 
- NOR       pane: the PR's description and conversation (Ctrl-w t: comments; Ctrl-l goes in)                                                                                                                            1/42
 
+ NOR       pane: the PR's description and conversation (gn: comments; Ctrl-l goes in)                                                                                                                                  1/42

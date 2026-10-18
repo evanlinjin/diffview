@@ -233,6 +233,8 @@ impl App {
                 ("y", "type definition"),
                 ("i", "implementations"),
                 ("f", "open link / file:line / definition"),
+                ("n", "pane: next tab (comments / PR)"),
+                ("p", "pane: previous tab"),
             ]),
             'z' => ("view", &[("z", "cursor line to center"), ("t", "… to top"), ("b", "… to bottom")]),
             ']' => ("next", &[("g", "change (hunk)"), ("f", "file"), ("c", "comment thread"), ("a", "Claude's comment"), ("p", "pending comment"), ("n", "new comment")]),
@@ -240,7 +242,6 @@ impl App {
             CTRL_W => ("window", &[
                 ("v", "toggle split view"),
                 ("c", "show / hide the comments pane"),
-                ("t", "comments pane: comments / the PR's text"),
                 ("f", "comments pane: a column / floating over the code"),
                 (",", "narrower comments pane"),
                 (".", "wider comments pane"),
@@ -304,8 +305,7 @@ impl App {
                 self.save_pane("shown", show.into());
                 if !show && self.margin_side() {
                     // Off the comment, onto what it's beside (it'd show it again).
-                    let r = (0..self.head.row).rev().find(|&r| !self.in_margin(r)).unwrap_or(0);
-                    self.goto(r, 0);
+                    self.goto(self.line_beside(), 0);
                 }
                 self.msg = match show {
                     true => "comments shown (Ctrl-w c hides them)",
@@ -313,25 +313,7 @@ impl App {
                 }
                 .into();
             }
-            (CTRL_W, 't') => {
-                let tab = if self.pane_tab == Tab::Pr { Tab::Comments } else { Tab::Pr };
-                // Off what the other tab shows (it'd come back for it): from the PR's text, to
-                // where the cursor was in the code; from a comment, to the line it's on.
-                if self.on_pr_tab() {
-                    let p = self.code_head;
-                    self.goto(p.row, p.col);
-                } else if self.margin_side() {
-                    let r = (0..self.head.row).rev().find(|&r| !self.in_margin(r)).unwrap_or(0);
-                    self.goto(r, 0);
-                }
-                (self.pane_tab, self.margin_pref) = (tab, Some(true));
-                self.layout();
-                self.msg = match tab {
-                    Tab::Pr => "pane: the PR's description and conversation (Ctrl-w t: comments; Ctrl-l goes in)",
-                    Tab::Comments => "pane: comments beside their lines (Ctrl-w t: the PR's text)",
-                }
-                .into();
-            }
+            ('g', 'n') | ('g', 'p') => self.pane_to(if self.pane_tab == Tab::Pr { Tab::Comments } else { Tab::Pr }),
             (CTRL_W, 'f') => {
                 let float = !self.margin_float;
                 self.margin_float_pref = Some(float);

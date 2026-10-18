@@ -10,6 +10,37 @@ impl App {
         if self.margin_row(r) { tw } else { tw.min(self.wrap_w + 2) }
     }
 
+    /// The code line the comment under the cursor is beside.
+    pub(super) fn line_beside(&self) -> usize {
+        (0..self.head.row).rev().find(|&r| !self.in_margin(r)).unwrap_or(0)
+    }
+
+    /// The pane on `tab` (shown, if it wasn't): `gn` / `gp`, or a click on the tab.
+    pub(super) fn pane_to(&mut self, tab: Tab) {
+        // Off what the other tab shows (it'd come back for it): from the PR's text, to where
+        // the cursor was in the code; from a comment, to the line it's on.
+        if tab != self.pane_tab && self.on_pr_tab() {
+            let p = self.code_head;
+            self.goto(p.row, p.col);
+        } else if tab != self.pane_tab && self.margin_side() {
+            self.goto(self.line_beside(), 0);
+        }
+        (self.pane_tab, self.margin_pref) = (tab, Some(true));
+        self.layout();
+        self.msg = match tab {
+            Tab::Pr => "pane: the PR's description and conversation (gn: comments; Ctrl-l goes in)",
+            Tab::Comments => "pane: comments beside their lines (gn: the PR's text)",
+        }
+        .into();
+    }
+
+    /// The pane's tabs, on the pinned title's right end, over the pane (`x` from where it
+    /// starts): each one's label and its columns.
+    pub(super) fn pane_tabs(&self) -> [(Tab, &'static str, std::ops::Range<usize>); 2] {
+        let (c, p) = (" Comments ", " PR ");
+        [(Tab::Comments, c, 1..1 + c.len()), (Tab::Pr, p, 1 + c.len()..1 + c.len() + p.len())]
+    }
+
     /// The first row of the code block or table (in a comment) that row `r` is a line of.
     pub(super) fn code_block(&self, r: usize) -> Option<usize> {
         let row = self.rows.get(r).filter(|x| x.nowrap)?;
@@ -21,6 +52,8 @@ impl App {
     /// not at all, but for the cursor's code block, by its own offset.
     pub(super) fn hscroll(&self, r: usize) -> usize {
         match self.box_part(r) {
+            // The pinned title and the PR tab's text aren't the diff's.
+            None if (r == 0 && self.pin) || (self.pane_tab == Tab::Pr && self.pr_row(r)) => 0,
             None => self.left,
             Some(_) if self.code_at.is_some() && self.code_block(r) == self.code_at => self.code_left,
             Some(_) => 0,

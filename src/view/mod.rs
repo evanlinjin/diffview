@@ -73,11 +73,11 @@ VIEW
   + =  -               hunk context +10 / -10 lines
   Z                    whole file
   Tab                  fold file / PR info / thread
+  gn  gp               comments pane: next / previous tab (comments, the PR's text)
   Shift-Tab            fold / unfold all files
   Ctrl-w v             toggle split (side-by-side) view
   Ctrl-w h  Ctrl-w l   split view: old / new side; margin: code / comments (or Ctrl-h Ctrl-l)
   Ctrl-w c             show / hide the comments pane (hidden: ● marks their lines)
-  Ctrl-w t             comments pane: comments / the PR's description and conversation
   Ctrl-w f             comments pane: a column beside the code / floating over it
   Ctrl-w ,  Ctrl-w .   comments pane narrower / wider (Ctrl-w = its usual width)
   Ctrl-w a             Claude view: only Claude's review and the code it's about
@@ -416,8 +416,10 @@ pub struct App {
     msg: String,
     top: usize,
     left: usize,
-    /// The PR's title line is pinned above the code (set by `draw`).
+    /// The PR's title line is pinned above the code, and has room for the PR's counts (else
+    /// they're on the status bar); set by `draw`.
     pin: bool,
+    bar_counts: bool,
     /// The code block in a comment that the cursor is in (its first row), and how far it's
     /// scrolled sideways: only it, so the code beside it and the comment's text stay put.
     code_at: Option<usize>,
@@ -448,7 +450,7 @@ pub struct App {
     pane_file: Option<PathBuf>,
     /// It floats now (set by `draw`).
     margin_float: bool,
-    /// The pane's tab (`Ctrl-w t`); the PR tab's rows, and the first one on screen; where the
+    /// The pane's tab (`gn` / `gp`); the PR tab's rows, and the first one on screen; where the
     /// cursor was last in the code, and on the PR tab (`Ctrl-h` / `Ctrl-l` go back there).
     pane_tab: Tab,
     pr_rows: Vec<usize>,
@@ -629,6 +631,7 @@ impl App {
             top: 0,
             left: 0,
             pin: false,
+            bar_counts: false,
             code_at: None,
             code_left: 0,
             height: 1,

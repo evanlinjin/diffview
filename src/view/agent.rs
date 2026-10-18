@@ -200,10 +200,11 @@ impl App {
         // Read it, changed or not (or gone: `None` would look unchanged then).
         self.claude.mtime = Some(std::time::SystemTime::UNIX_EPOCH);
         self.watch_claude();
-        self.poll_claude();
+        let ran = self.claude.job.is_some();
+        self.poll_claude(); // a run that's ended says how (that's the news, then)
         if let Some(j) = &self.claude.job {
             self.msg = format!("Claude is still {} ({} so far); Space a can stop it", j.label, ago(j.started));
-        } else if !self.claude.path.as_ref().is_some_and(|p| p.exists()) {
+        } else if !ran && !self.claude.path.as_ref().is_some_and(|p| p.exists()) {
             self.msg = "Claude hasn't written a review yet (Space a → review asks for one)".into();
         }
     }

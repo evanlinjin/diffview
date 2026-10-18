@@ -1,4 +1,4 @@
-          PR #7 · Fix the thing            3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)
+          PR #7 · Fix the thing  @bo · main ← amy  Comments  PR                                  gn
  ▾        src/big.rs  +1 −1
           ─────────────────────────────────────── ╭─ amy · L20 ────────────────────────────────────╮
   9   9   line 9                                  │  Why line 20?                                  │
@@ -36,5 +36,5 @@
 
 
 
- NOR       comments shown (Ctrl-w c hides them)                                                1/42
 
+ NOR       comments shown (Ctrl-w c hides them)                                                1/42

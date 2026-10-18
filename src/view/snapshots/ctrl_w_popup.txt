@@ -1,4 +1,4 @@
-          PR #7 · Fix the thing            3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)
+          PR #7 · Fix the thing  @bo · main ← amy:fix
           OPEN @bo · main ← fix · +2 −2 in 3 files
           review: waiting on @cy
        ╭─ description ─────────────────────────────────────────────────────────────────────────────╮
@@ -13,18 +13,18 @@
  10  10   line 10
  11  11   line 11
  12     -     let x = old(12);
-     12◆+     let x = new_call(12);           window
- 13  13   line 13                             v  toggle split view
- 14  14   line 14                             c  show / hide the comments pane
- 15  15   line 15                             t  comments pane: comments / the PR's text
- ▾        src/a.rs  +1 −1                     f  comments pane: a column / floating over the code
-          ── fn main ──────────────────────── ,  narrower comments pane
-  1   1○  fn main() {                         .  wider comments pane
-  2     -     old();                          =  comments pane at its usual width
-      2●+     new_call(x);                    a  Claude view: just Claude's review
-  3   3   }                                   p  pending view: just your pending review
- ▾        new.rs (renamed from old.rs)  +0 −0 h  old side / back to the code
- ▾        img.png (binary)  +0 −0             l  new side / into the comments
+     12◆+     let x = new_call(12);
+ 13  13   line 13
+ 14  14   line 14                             window
+ 15  15   line 15                             v  toggle split view
+ ▾        src/a.rs  +1 −1                     c  show / hide the comments pane
+          ── fn main ──────────────────────── f  comments pane: a column / floating over the code
+  1   1○  fn main() {                         ,  narrower comments pane
+  2     -     old();                          .  wider comments pane
+      2●+     new_call(x);                    =  comments pane at its usual width
+  3   3   }                                   a  Claude view: just Claude's review
+ ▾        new.rs (renamed from old.rs)  +0 −0 p  pending view: just your pending review
+ ▾        img.png (binary)  +0 −0             h  old side / back to the code
+                                              l  new side / into the comments
 
- NOR                                                                                      C-w  1/39
-
+ NOR                           3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)  C-w  1/39

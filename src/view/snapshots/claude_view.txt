@@ -1,4 +1,4 @@
-          PR #7 · Fix the thing            3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)
+          PR #7 · Fix the thing  @bo · main ← amy  Comments  PR                                  gn
  ▾        src/big.rs  +1 −1
           ───────────────────────────────────────────────────────────────────────────────── L10–15 ─
  10  10   line 10
@@ -26,5 +26,5 @@
 
 
 
- NOR       Claude view: its summary and the code it commented on (Ctrl-w a: th… claude view    1/18
 
+ NOR       Claude view: its summary and the code it commented on (Ctrl-w a: th… claude view    1/18

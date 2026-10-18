@@ -174,6 +174,7 @@ impl App {
         self.pin = self.rows.first().is_some_and(|r| r.file == INFO && r.line.kind == Kind::File)
             && matches!(self.drows.first(), Some(DRow::Full(0)))
             && area.height > 4;
+        self.bar_counts = false; // until the title's drawn, with room for them
         let pin = self.pin as usize;
         let h = (area.height as usize).saturating_sub(1 + pin);
         self.height = h.max(1);
@@ -208,8 +209,14 @@ impl App {
         if !shown && self.in_margin(self.head.row) {
             (self.margin_pref, shown) = (Some(true), true);
         }
-        let margin = shown && width > mw + gw + 10;
-        let float = margin && self.margin_float_pref.unwrap_or(!room);
+        // A very narrow window: shown, the pane floats over all of the code beside it (else a
+        // comment the cursor goes to would be nowhere).
+        let tiny = width <= mw + gw + 10;
+        if tiny {
+            mw = width.saturating_sub(gw + 1).max(12);
+        }
+        let margin = shown && width > gw + 12;
+        let float = margin && (tiny || self.margin_float_pref.unwrap_or(!room));
         let mtw = mw - 3;
         // The code's columns: the whole width, or what's left of the margin beside it; split
         // view's halves (one line-number column each, a 1-col divider between) within that.
@@ -272,6 +279,7 @@ impl App {
             // Split view beside the pane: a line is one half, paired or not.
             DRow::Margin(..) if self.split && code_line => htw_l.min(htw_r),
             DRow::Margin(..) => ctw,
+            DRow::Full(_) if pr_tab && !float => ctw, // beside the PR tab's column
             DRow::Full(_) => tw,
         };
         // The cursor kept in view: in a comment's code block by scrolling only that block (to
@@ -389,8 +397,26 @@ impl App {
         f.render_widget(Block::new().style(self.ui.base), area);
         f.render_widget(Paragraph::new(lines), Rect { y: area.y + pin as u16, height: h as u16, ..area });
         if self.pin {
-            let mut spans = vec![Span::styled(" ".repeat(relw), Style { bg: self.ui.bar, ..self.ui.header })];
-            spans.extend(self.render_row(0, s, e, (lw, gw, tw), None, self.head.row == 0, &overlay));
+            let bar = Style { bg: self.ui.bar, ..self.ui.header };
+            let mut spans = vec![Span::styled(" ".repeat(relw), bar)];
+            // With the pane: the title over the code, and the pane's tabs over the pane.
+            let title_w = if margin { self.geom.ctw } else { tw };
+            let state = self.header_tag(INFO).map_or(0, |t| t.0.chars().count() + 2);
+            let line = self.rows[0].line.text.chars().count();
+            self.bar_counts = line + 2 + self.pr_counts().chars().count() + state <= title_w;
+            spans.extend(self.render_row(0, s, e, (lw, gw, title_w), None, self.head.row == 0, &overlay));
+            if margin {
+                let dim = bar.remove_modifier(ratatui::style::Modifier::BOLD).patch(Style { fg: self.ui.linenr.fg, ..Style::new() });
+                let mut used = 0;
+                for (tab, label, cols) in self.pane_tabs() {
+                    spans.push(Span::styled(" ".repeat(cols.start - used), dim));
+                    let on = tab == self.pane_tab;
+                    spans.push(Span::styled(label, if on { self.ui.menu_selected } else { dim }));
+                    used = cols.end;
+                }
+                let rest = (area.width as usize).saturating_sub(relw + gw + title_w + used);
+                spans.push(Span::styled(format!("{:>rest$}", "gn ", rest = rest), dim));
+            }
             f.render_widget(Paragraph::new(Line::from(spans)), Rect { height: 1, ..area });
         }
 
@@ -417,13 +443,13 @@ impl App {
             let preview = if gh::issue_ref(url).is_some() { "Space k preview · " } else { "" };
             let text = format!(" ↗ {url}  {preview}gf open ");
             let w = (text.chars().count() as u16).min(area.width - x);
-            let ty = if y + 1 < h as u16 { y + 1 } else { y.saturating_sub(1) };
+            let ty = if y + 1 < (h + pin) as u16 { y + 1 } else { y.saturating_sub(1) };
             let r = Rect { x: area.x + x, y: area.y + ty, width: w, height: 1 };
             f.render_widget(Clear, r);
             f.render_widget(Paragraph::new(text).style(self.ui.base.patch(self.ui.popup)), r);
         }
 
-        let status = Rect { y: area.y + h as u16, height: 1, ..area };
+        let status = Rect { y: area.y + (h + pin) as u16, height: 1, ..area };
         let left = match &self.prompt {
             Some(q) => Line::from(format!("/{q}")),
             None => {
@@ -448,7 +474,7 @@ impl App {
             None => String::new(),
         };
         let pr = match self.pr_counts() {
-            c if c.is_empty() || self.pin => String::new(), // on the pinned title then
+            c if c.is_empty() || self.bar_counts => String::new(), // on the pinned title then
             c => format!("{c}  "),
         };
         let working = match &self.claude.job {
@@ -542,7 +568,7 @@ impl App {
             let w = (lines.iter().map(Line::width).max().unwrap_or(10) as u16 + 4).max(title.len() as u16 + 4).min(area.width);
             let ph = (lines.len() as u16 + 2).min(h as u16);
             let x = if self.margin_side() { 0 } else { area.width - w };
-            let r = Rect { x, y: (h as u16).saturating_sub(ph), width: w, height: ph };
+            let r = Rect { x, y: ((h + pin) as u16).saturating_sub(ph), width: w, height: ph }; // above the status bar
             let inner = self.popup_frame(f, r, title, "");
             f.render_widget(Paragraph::new(lines), inner);
         }
@@ -636,7 +662,7 @@ impl App {
     fn comment_mark(&self, r: usize) -> Option<(char, Style)> {
         let ts: Vec<&Thread> = self.margin_anchor.iter().filter(|&(_, &c)| c == r).map(|(&t, _)| &self.threads[t]).collect();
         let open: Vec<&&Thread> = ts.iter().filter(|t| !t.stale()).collect();
-        match (ts.is_empty(), open.iter().any(|t| t.claude.is_none()), open.is_empty()) {
+        match (ts.is_empty(), open.iter().any(|t| !agent::claude_wrote(t)), open.is_empty()) {
             (true, ..) => None,
             (_, _, true) => Some(('○', self.ui.stale)),
             (_, true, _) => Some(('●', self.ui.thread)),
@@ -841,8 +867,12 @@ impl App {
             return spans;
         }
         let mut tag = if l.kind == Kind::File { self.header_tag(row.file) } else { None };
-        // Pinned, the PR's title has its counts (the status bar's otherwise) before its state.
-        let counts = if r == 0 && self.pin { self.pr_counts() } else { String::new() };
+        // Pinned, the PR's title has its counts before its state, when they fit beside all of
+        // it (`bar_counts`; else they stay on the status bar).
+        let counts = match r == 0 && self.bar_counts {
+            true => self.pr_counts(),
+            false => String::new(),
+        };
         if !counts.is_empty() {
             tag = Some(match tag {
                 Some((t, st)) => (format!("{counts}  {t}"), st),

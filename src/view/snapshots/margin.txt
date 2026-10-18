@@ -1,4 +1,4 @@
-          PR #7 · Fix the thing                                                                                                                                    3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)
+          PR #7 · Fix the thing  @bo · main ← amy:fix                                    3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)  Comments  PR                                                         gn
  ▾        src/big.rs  +1 −1
           ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── L9–15 ─ ╭─ amy · L20 ───────────────────────────────────────────────────────────╮
   9   9   line 9                                                                                                                                   │  Why line 20?                                                         │
@@ -41,5 +41,5 @@
 
 
 
- NOR                                                                                                                                                                                                                   1/42
 
+ NOR                                                                                                                                                                                                                   1/42

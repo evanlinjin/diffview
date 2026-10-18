@@ -1,4 +1,4 @@
-          PR #7 · Fix the thing                                3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)
+          PR #7 · Fix the thing  @bo · main ← amy:fix          3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)
           OPEN @bo · main ← fix · +2 −2 in 3 files
           review: wait keys · / search · j/k scroll · other keys close                 1–44 / 113
        ╭─ description   MOVE                                                                    ┃ ─────────────╮
@@ -35,16 +35,16 @@
                          + =  -               hunk context +10 / -10 lines                      │
                          Z                    whole file                                        │
                          Tab                  fold file / PR info / thread                      │
+                         gn  gp               comments pane: next / previous tab (comments, the │
+                                              PR's text)                                        │
                          Shift-Tab            fold / unfold all files                           │
                          Ctrl-w v             toggle split (side-by-side) view                  │
                          Ctrl-w h  Ctrl-w l   split view: old / new side; margin: code /        │
                                               comments (or Ctrl-h Ctrl-l)                       │
                          Ctrl-w c             show / hide the comments pane (hidden: ● marks    │
                                               their lines)                                      │
-                         Ctrl-w t             comments pane: comments / the PR's description and│
-                                              conversation                                      │
                          Ctrl-w f             comments pane: a column beside the code / floating│
                                               over it                                           │
 
- NOR                                                                                                               1/39
 
+ NOR                                                                                                               1/39

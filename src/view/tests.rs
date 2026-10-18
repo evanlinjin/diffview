@@ -801,13 +801,13 @@ fn pr_text_on_the_pane_tab() {
     assert!(app.pr_row(para1) && app.pr_rows.contains(&para1));
     assert!(app.drows.iter().all(|d| !matches!(d, DRow::Full(r) if *r == para1)));
     assert!(matches!(app.drows[0], DRow::Full(0)));
-    // Ctrl-w t, then Ctrl-l: into the PR tab; j moves there, and its scroll is its own.
+    // gn, then Ctrl-l: into the PR tab; j moves there, and its scroll is its own.
     let line12 = app.rows.iter().position(|r| r.line.kind == Kind::Add && r.line.new == Some(12)).unwrap();
     app.goto(line12, 0);
     draw(&mut app);
     let top = app.top;
-    ctrl(&mut app, 'w');
-    key(&mut app, 't');
+    key(&mut app, 'g');
+    key(&mut app, 'n');
     draw(&mut app);
     assert_eq!(app.pane_tab, Tab::Pr);
     ctrl(&mut app, 'l');
@@ -824,9 +824,9 @@ fn pr_text_on_the_pane_tab() {
     app.goto_comment(0, 0);
     draw(&mut app);
     assert_eq!(app.pane_tab, Tab::Comments);
-    // Ctrl-w t from it: the PR tab, the cursor on the line the comment is on (not the top).
-    ctrl(&mut app, 'w');
-    key(&mut app, 't');
+    // gn from it: the PR tab, the cursor on the line the comment is on (not the top).
+    key(&mut app, 'g');
+    key(&mut app, 'n');
     draw(&mut app);
     assert_eq!((app.pane_tab, app.head.row), (Tab::Pr, line12));
     // Hidden, the PR text is back at the top of the diff.
@@ -1335,7 +1335,7 @@ fn fixture() -> App {
     let body: String = (1..=24).map(|n| if n == 12 { "-    let x = old(12);\n+    let x = new_call(12);\n".to_owned() } else { format!(" line {n}\n") }).collect();
     let text = format!("diff --git a/src/big.rs b/src/big.rs\nindex 1..2 100644\n--- a/src/big.rs\n+++ b/src/big.rs\n@@ -1,24 +1,24 @@ fn big\n{body}{}", diff::SAMPLE);
     let mut app = App::with("base".into(), diff::parse(&text));
-    app.pr = Some(gh::Pr { number: 7, node_id: "PR".into(), title: "Fix the thing".into(), base: "main".into(), head_oid: "abc".into(), url: String::new(), ..Default::default() });
+    app.pr = Some(gh::Pr { number: 7, node_id: "PR".into(), title: "Fix the thing".into(), base: "main".into(), head_oid: "abc".into(), url: String::new(), author: "bo".into(), head_branch: "fix".into(), head_owner: "amy".into(), cross_repo: true, ..Default::default() });
     let line = |heading, md, text: &str| gh::InfoLine { heading, md, text: text.into(), marks: vec![], url: String::new() };
     app.info = vec![line(false, false, "OPEN @bo · main ← fix · +2 −2 in 3 files"), line(false, false, "review: waiting on @cy"), line(true, false, "description"), line(false, true, "Fixes **the thing**, see `new_call`.")];
     app.claude.summary = "Looks right; one nit.".into();
@@ -1364,8 +1364,8 @@ fn screens() {
     shot("diff", &mut app, 100, 60);
     let mut wide = fixture();
     shot("margin", &mut wide, 220, 45); // wide enough: shown
-    wide.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
-    wide.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+    wide.key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE));
+    wide.key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
     shot("pr_tab", &mut wide, 220, 30);
     let mut app = fixture();
     app.toggle_split();
@@ -1610,6 +1610,16 @@ fn stop_a_stuck_claude() {
 }
 
 #[test]
+fn pinned_title_and_status_bar_frame_the_content() {
+    let mut app = fixture();
+    let s = screen(100, 12, |f| app.draw(f));
+    let l: Vec<&str> = s.lines().collect();
+    assert!(app.pin && l[0].contains("PR #7") && l[11].starts_with(" NOR"), "{s}");
+    // The row above the status bar is content, not covered by it (the diff runs on past it).
+    assert!(l[10].contains("L9–15"), "{s}");
+}
+
+#[test]
 fn click_the_pinned_title() {
     use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
     let mut app = fixture();
@@ -1618,4 +1628,16 @@ fn click_the_pinned_title() {
     assert!(app.pin);
     app.mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column: 30, row: 0, modifiers: KeyModifiers::NONE });
     assert_eq!(app.head.row, 0);
+    // Its gutter has no fold arrow, and a click there doesn't fold the PR's text away.
+    app.mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column: 1, row: 0, modifiers: KeyModifiers::NONE });
+    assert!(!app.info_collapsed);
+}
+
+#[test]
+fn comments_in_a_tiny_window() {
+    // Too narrow for the pane beside anything: going to a comment floats it over the code.
+    let mut app = fixture();
+    app.goto_comment(0, 0);
+    let s = screen(50, 20, |f| app.draw(f));
+    assert!(app.margin_active && app.margin_float && s.contains("new_value"), "{s}");
 }
