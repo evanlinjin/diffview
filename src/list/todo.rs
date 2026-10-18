@@ -32,7 +32,22 @@ impl List {
             }
         }
         let (items, since) = todo::order(items, self.ranked.as_ref());
-        let items = todo::defer(items, &self.deferred, crate::claude::now_secs());
+        let now = crate::claude::now_secs();
+        // What deferrals waited for that has happened: they're over (said so, once).
+        let met: Vec<(String, String)> = items
+            .iter()
+            .filter_map(|it| Some((it, self.deferred.get(&it.key())?.cond.as_ref()?)))
+            .filter(|(it, c)| self.happened(it, c))
+            .map(|(it, c)| (it.key(), format!("#{} is back: {}", it.number, c.says())))
+            .collect();
+        for (key, said) in &met {
+            self.deferred.remove(key);
+            self.msg = said.clone();
+        }
+        if !met.is_empty() {
+            _ = todo::save_deferred(self.deferred_file.as_deref(), &self.deferred);
+        }
+        let items = todo::defer(items, &self.deferred, now, |it, c| self.happened(it, c));
         // Those Claude is at (here or in any dv): at the bottom till it's done.
         let (mut busy, mut todo): (Vec<Item>, Vec<Item>) = items.into_iter().partition(|it| !it.rep && self.claude_doing(it.number).is_some());
         busy.iter_mut().for_each(|it| it.busy = self.claude_doing(it.number));
@@ -156,6 +171,78 @@ impl List {
             .collect();
     }
 
+    /// Whether what deferral condition `c` waits for has happened, for item `it`.
+    pub(super) fn happened(&self, it: &Item, c: &todo::Until) -> bool {
+        let pr = self.prs.iter().find(|p| p.number == it.number);
+        let state = |n: u64| self.prs.iter().find(|p| p.number == n).map(|p| p.state.clone()).or_else(|| self.others.get(&n).cloned());
+        let reviews = self.extra.get(&it.number).map(|e| e.reviews.as_slice()).unwrap_or(&[]);
+        match c {
+            todo::Until::Time(t) => crate::claude::now_secs() >= *t,
+            todo::Until::Merged(n) => state(*n).is_some_and(|s| s == "MERGED"),
+            todo::Until::Closed(n) => state(*n).is_some_and(|s| s == "MERGED" || s == "CLOSED"),
+            todo::Until::Green => pr.and_then(|p| p.checks).is_some_and(|(pass, fail, pending)| pass > 0 && fail == 0 && pending == 0),
+            todo::Until::Approved(None) => pr.is_some_and(|p| p.decision == "APPROVED") || reviews.iter().any(|r| r.1 == "APPROVED"),
+            todo::Until::Approved(Some(who)) => reviews.iter().any(|r| &r.0 == who && r.1 == "APPROVED"),
+            todo::Until::Reviewed(who) => reviews.iter().any(|r| &r.0 == who),
+        }
+    }
+
+    /// `s` then `u`: defer the item until what you write happens (`key`: the item's). dv reads
+    /// the usual phrasings itself; the rest Claude puts in a form dv can watch for (one small
+    /// run, in the background: `until_news`).
+    pub(super) fn defer_until(&mut self, key: String, text: &str) {
+        match todo::Until::parse(text, crate::claude::now_secs()) {
+            Some(c) => self.defer_on(&key, c),
+            None => {
+                self.msg = "Claude is reading when you mean…".into();
+                self.until_rx = Some((key, todo::interpret(text.trim().to_owned(), self.root.clone())));
+            }
+        }
+    }
+
+    fn defer_on(&mut self, key: &str, c: todo::Until) {
+        let Some(it) = self.todo.iter().find(|it| it.key() == key).cloned() else { return };
+        let (until, cond) = match c {
+            todo::Until::Time(t) => (t, None),
+            c => (i64::MAX, Some(c)),
+        };
+        let says = cond.as_ref().map_or_else(|| todo::in_secs(until - crate::claude::now_secs()), todo::Until::says);
+        self.deferred.insert(key.to_owned(), todo::Deferral { until, needs: it.needs_key(), cond });
+        self.msg = format!("deferred until {says} (s on it brings it back)");
+        // A PR it waits on that isn't listed: its state, now (and on refresh).
+        self.find_others();
+        self.save_defer();
+    }
+
+    /// Claude's reading of a deferral's "until …", when it comes.
+    pub(super) fn until_news(&mut self) {
+        let Some(Ok(res)) = self.until_rx.as_ref().map(|(_, rx)| rx.try_recv()) else { return };
+        let Some((key, _)) = self.until_rx.take() else { return };
+        match res {
+            Ok(c) => self.defer_on(&key, c),
+            Err(e) => self.msg = format!("not deferred: {e:#}"),
+        }
+    }
+
+    /// The state of PRs that deferrals wait on and that aren't listed (merged or closed ones
+    /// aren't), from GitHub.
+    pub(super) fn find_others(&mut self) {
+        let waited: Vec<u64> = self
+            .deferred
+            .values()
+            .filter_map(|d| match d.cond {
+                Some(todo::Until::Merged(n) | todo::Until::Closed(n)) => Some(n),
+                _ => None,
+            })
+            .filter(|n| !self.prs.iter().any(|p| p.number == *n))
+            .collect();
+        for n in waited {
+            if let Ok(Some(s)) = gh::pr_state(n) {
+                self.others.insert(n, s);
+            }
+        }
+    }
+
     /// What needs you now (not deferred, Claude not at it), for the tab's count.
     pub(super) fn todo_now(&self) -> usize {
         self.todo.iter().filter(|it| it.deferred.is_none() && it.busy.is_none()).count()
@@ -199,7 +286,7 @@ impl List {
             self.msg = format!("{what} is back");
             return self.save_defer();
         }
-        self.msg = format!("defer {what} for: 1 an hour, 4 four hours, d a day, w a week (any other key: not); it's back sooner if what it needs changes");
+        self.msg = format!("defer {what} for: 1 an hour, 4 four hours, d a day, w a week, or u until something happens (any other key: not); it's back sooner if what it needs changes");
         self.deferring = Some(it.key());
     }
 
@@ -212,7 +299,7 @@ impl List {
             'd' => (86400, "a day"),
             _ => (7 * 86400, "a week"),
         };
-        self.deferred.insert(it.key(), (crate::claude::now_secs() + secs, it.needs_key()));
+        self.deferred.insert(it.key(), todo::Deferral { until: crate::claude::now_secs() + secs, needs: it.needs_key(), cond: None });
         self.msg = format!("deferred for {how} (s on it brings it back)");
         self.save_defer();
     }
@@ -233,17 +320,6 @@ impl List {
 /// A ranking's cost: "cost $0.38" (one from before dv kept it: not recorded).
 pub(super) fn cost_text(c: f64) -> String {
     if c > 0.0 { format!("cost ${c:.2}") } else { "cost not recorded".into() }
-}
-
-/// `s` seconds from now, to the nearest unit: "40s", "3m", "4h", "2d" (four hours just set
-/// reads 4h, not the 3h `ago_secs` would round it down to).
-pub(super) fn in_secs(s: i64) -> String {
-    match s.max(0) {
-        s if s < 60 => format!("{s}s"),
-        s if s < 3600 => format!("{}m", (s + 30) / 60),
-        s if s < 86400 => format!("{}h", (s + 1800) / 3600),
-        s => format!("{}d", (s + 43200) / 86400),
-    }
 }
 
 /// `s` seconds as "40s", "3m", "2h", "5d".

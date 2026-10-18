@@ -259,9 +259,12 @@ pub(super) fn todo_line(rank: usize, it: &crate::todo::Item, cx: &Cards, selecte
     let lead = format!(" {:>w$}  → ", format!("{rank}."), w = cx.num_w);
     // Placed by the rules since Claude ranked (new, or its needs changed): said so. Deferred:
     // when it's back.
-    let says = match it.deferred {
+    let says = match &it.deferred {
         _ if it.busy.is_some() => format!("Claude is {}: nothing for you till it's done", it.busy.as_deref().unwrap_or("at it")),
-        Some(until) => format!("deferred, back in {} (or sooner if it changes; s brings it back now) · {}", super::todo::in_secs(until - crate::claude::now_secs()), it.says()),
+        Some(d) => {
+            let when = d.cond.as_ref().map_or_else(|| format!("in {}", crate::todo::in_secs(d.until - crate::claude::now_secs())), |c| format!("until {}", c.says()));
+            format!("deferred, back {when} (or sooner if it changes; s brings it back now) · {}", it.says())
+        }
         None if it.changed => format!("{}  (since Claude ranked)", it.says()),
         None => it.says(),
     };

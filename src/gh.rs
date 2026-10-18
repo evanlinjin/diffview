@@ -275,6 +275,8 @@ pub fn listed_one(n: u64) -> Result<Listed> {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Extra {
     pub my_review: Option<(String, String)>,
+    /// Everyone's latest review: (login, state).
+    pub reviews: Vec<(String, String)>,
     pub requested: bool,
     /// MERGEABLE, CONFLICTING or UNKNOWN.
     pub mergeable: String,
@@ -314,6 +316,7 @@ fn extra(p: &Value, me: &str) -> Extra {
     let my_review = nodes("latestReviews").into_iter().find(|r| r["author"]["login"] == me).map(|r| (s(&r["state"]), s(&r["commit"]["oid"])));
     Extra {
         my_review,
+        reviews: nodes("latestReviews").iter().map(|r| (s(&r["author"]["login"]), s(&r["state"]))).collect(),
         requested: nodes("reviewRequests").iter().any(|r| r["requestedReviewer"]["login"] == me),
         mergeable: s(&p["mergeable"]),
         head_oid: s(&p["headRefOid"]),

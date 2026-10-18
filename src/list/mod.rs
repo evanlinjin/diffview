@@ -141,6 +141,10 @@ pub struct List {
     /// Todo items deferred (`s`), kept in dv's directory; the one `s` is asking how long for.
     deferred: crate::todo::Deferred,
     deferring: Option<String>,
+    /// A deferral's "until …" Claude is reading (the item's key), and the states of PRs that
+    /// deferrals wait on and that aren't listed.
+    until_rx: Option<(String, Receiver<Result<crate::todo::Until>>)>,
+    others: HashMap<u64, String>,
     deferred_file: Option<PathBuf>,
     /// The window is wide enough for cards in two zones (set by `draw`; cards are 3 lines then).
     wide: bool,
@@ -212,6 +216,8 @@ impl List {
             running_checked: std::time::Instant::now() - std::time::Duration::from_secs(60),
             deferred: crate::todo::load_deferred(crate::todo::deferred_path().as_deref()),
             deferring: None,
+            until_rx: None,
+            others: HashMap::new(),
             deferred_file: crate::todo::deferred_path(),
             wide: true,
             reviewed: HashSet::new(),
@@ -251,6 +257,7 @@ impl List {
             self.batch_news();
             self.watch_reviews();
             self.todo_news();
+            self.until_news();
             if self.watch_running() {
                 self.scan_unpushed(); // what it finished with may be waiting to be pushed
                 self.find_todo(); // Claude started or finished somewhere: its item moves
@@ -326,6 +333,12 @@ impl List {
                     self.group_rx = Some(batch::group(prs, self.root.clone()));
                 }
                 Some(Do::AskRebase(n)) => self.ask_rebase(term, n),
+                Some(Do::DeferUntil(key)) => {
+                    let what = "defer it until… (e.g. #2380 is merged, CI is green, @amy approves, 3 days, monday)";
+                    if let Some(text) = self.edit_text(term, what, "", false) {
+                        self.defer_until(key, &text);
+                    }
+                }
                 Some(Do::RemoveReplacement(id)) => {
                     self.msg = crate::replace::remove(id, &self.root).unwrap_or_else(|e| format!("{e:#}"));
                     self.load_reps();
@@ -394,7 +407,7 @@ impl List {
         }
         self.msg = format!("asked for a rebase of #{n}");
         if let Some(it) = self.todo.iter().find(|it| !it.rep && it.number == n).cloned() {
-            self.deferred.insert(it.key(), (crate::claude::now_secs() + 7 * 86400, it.needs_key()));
+            self.deferred.insert(it.key(), crate::todo::Deferral { until: crate::claude::now_secs() + 7 * 86400, needs: it.needs_key(), cond: None });
             self.msg += "; deferred on the todo tab until it changes";
             self.save_defer();
         }
@@ -562,6 +575,7 @@ impl List {
         let keep = self.shown().get(self.sel).map(|p| p.number);
         self.local = crate::pr_worktrees().into_iter().map(|(n, dir, b)| (n, (dir, b))).collect();
         self.scan_unpushed();
+        self.find_others();
         self.reviewed = crate::batch::reviewed();
         self.load_reps();
         match gh::list() {
@@ -655,10 +669,11 @@ impl List {
         }
         let half = (self.height() / 2).max(1);
         let g = std::mem::take(&mut self.pending_g);
-        // After `s`: how long to defer it for (any other key: not).
+        // After `s`: how long to defer it for, or until what (any other key: not).
         if let Some(key) = self.deferring.take() {
             match k.code {
                 KeyCode::Char(c @ ('1' | '4' | 'd' | 'w')) => self.defer_for(&key, c),
+                KeyCode::Char('u') => return Some(Do::DeferUntil(key)),
                 _ => self.msg = "not deferred".into(),
             }
             return None;
@@ -1037,6 +1052,8 @@ enum Do {
     Merge(u64),
     /// Ask this PR's author for a rebase.
     AskRebase(u64),
+    /// Defer this todo item (its key) until something happens, written in your editor.
+    DeferUntil(String),
 }
 
 fn marks_path() -> Option<PathBuf> {

@@ -100,8 +100,9 @@ pub struct Item {
     pub reason: Option<String>,
     /// New, or its needs changed, since that ranking: placed by the rules, not Claude.
     pub changed: bool,
-    /// Deferred until then (seconds; `s`): at the bottom till then, unless its needs change.
-    pub deferred: Option<i64>,
+    /// Deferred (`s`): at the bottom till then, or till what it waits for happens, unless its
+    /// needs change first.
+    pub deferred: Option<Deferral>,
     /// What Claude is doing on it now (from any dv): nothing for you till it's done, so it's at
     /// the bottom meanwhile.
     pub busy: Option<String>,
@@ -281,8 +282,121 @@ fn path() -> Option<std::path::PathBuf> {
     crate::claude::dv_dir().ok().map(|d| d.join("todo.json"))
 }
 
-/// Items deferred (`s`): key → (until, its needs then).
-pub type Deferred = std::collections::HashMap<String, (i64, String)>;
+/// `s` seconds from now, to the nearest unit: "40s", "3m", "4h", "2d" (four hours just set
+/// reads 4h, not the 3h `ago_secs` would round it down to).
+pub fn in_secs(s: i64) -> String {
+    match s.max(0) {
+        s if s < 60 => format!("{s}s"),
+        s if s < 3600 => format!("{}m", (s + 30) / 60),
+        s if s < 86400 => format!("{}h", (s + 1800) / 3600),
+        s => format!("{}d", (s + 43200) / 86400),
+    }
+}
+
+/// What a deferral waits for, besides its needs changing: a time (`s` then 1 / 4 / d / w), or
+/// something dv can see happen (`s` then `u`, in your words: dv reads the usual phrasings, and
+/// has Claude put the rest as one of these).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Until {
+    /// Seconds since the epoch.
+    Time(i64),
+    /// That PR merged; closed (merged or not).
+    Merged(u64),
+    Closed(u64),
+    /// This PR's checks all passing.
+    Green,
+    /// An approval on this PR (from that login, or anyone); any review from that login.
+    Approved(Option<String>),
+    Reviewed(String),
+}
+
+impl Until {
+    pub fn says(&self) -> String {
+        match self {
+            Until::Time(t) => format!("in {}", in_secs(t - crate::claude::now_secs())),
+            Until::Merged(n) => format!("#{n} is merged"),
+            Until::Closed(n) => format!("#{n} is closed"),
+            Until::Green => "its checks pass".into(),
+            Until::Approved(Some(who)) => format!("@{who} approves it"),
+            Until::Approved(None) => "it's approved".into(),
+            Until::Reviewed(who) => format!("@{who} reviews it"),
+        }
+    }
+
+    fn to_json(&self) -> Value {
+        match self {
+            Until::Time(t) => json!({ "at": t }),
+            Until::Merged(n) => json!({ "merged": n }),
+            Until::Closed(n) => json!({ "closed": n }),
+            Until::Green => json!({ "green": true }),
+            Until::Approved(who) => json!({ "approved": who }),
+            Until::Reviewed(who) => json!({ "reviewed": who }),
+        }
+    }
+
+    /// From the JSON `to_json` writes (and Claude answers in).
+    pub fn from_json(v: &Value) -> Option<Until> {
+        let s = |k: &str| v[k].as_str().map(|s| s.trim_start_matches('@').to_owned());
+        Some(if let Some(t) = v["at"].as_i64() {
+            Until::Time(t)
+        } else if let Some(t) = v["at"].as_str() {
+            Until::Time(crate::gh::epoch_secs(t)?)
+        } else if let Some(n) = v["merged"].as_u64() {
+            Until::Merged(n)
+        } else if let Some(n) = v["closed"].as_u64() {
+            Until::Closed(n)
+        } else if v["green"] == true {
+            Until::Green
+        } else if v.get("approved").is_some() {
+            Until::Approved(s("approved"))
+        } else {
+            Until::Reviewed(s("reviewed")?)
+        })
+    }
+
+    /// The usual phrasings, without Claude: "#2380 is merged", "2380 closed", "CI is green",
+    /// "checks pass", "@amy approves", "it's approved", "@bo reviews", "3h", "2 days", "a week".
+    pub fn parse(text: &str, now: i64) -> Option<Until> {
+        let t = text.trim().trim_start_matches("until").trim().to_lowercase();
+        let words: Vec<&str> = t.split(|c: char| c.is_whitespace() || c == ',').filter(|w| !w.is_empty()).collect();
+        let has = |w: &str| words.iter().any(|x| x.starts_with(w));
+        let num = words.iter().find_map(|w| w.trim_start_matches('#').parse::<u64>().ok().filter(|_| w.starts_with('#') || words.len() <= 4));
+        let who = words.iter().find_map(|w| w.strip_prefix('@')).map(|w| w.trim_end_matches(|c: char| !c.is_alphanumeric() && c != '-').to_owned());
+        // A duration: "3h", "3 hours", "2d", "a week".
+        let unit = |w: &str| match w.trim_end_matches('s') {
+            "h" | "hr" | "hour" => Some(3600),
+            "d" | "day" => Some(86400),
+            "w" | "wk" | "week" => Some(7 * 86400),
+            _ => None,
+        };
+        let dur = words.windows(2).find_map(|p| Some(p[0].replace('a', "1").parse::<i64>().ok()? * unit(p[1])?)).or_else(|| {
+            words.iter().find_map(|w| {
+                let at = w.find(|c: char| !c.is_ascii_digit())?;
+                Some(w[..at].parse::<i64>().ok()? * unit(&w[at..])?)
+            })
+        });
+        Some(match () {
+            _ if has("merge") => Until::Merged(num?),
+            _ if has("close") => Until::Closed(num?),
+            _ if (has("ci") || has("check") || has("test")) && (has("green") || has("pass")) => Until::Green,
+            _ if has("approv") => Until::Approved(who),
+            _ if has("review") => Until::Reviewed(who?),
+            _ => Until::Time(now + dur?),
+        })
+    }
+}
+
+/// A deferral (`s`): till when (`i64::MAX` for one waiting on `cond`), the item's needs then (it
+/// comes back early when they change), and what it waits for, if not a time.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Deferral {
+    pub until: i64,
+    pub needs: String,
+    pub cond: Option<Until>,
+}
+
+/// Items deferred (`s`), by key.
+pub type Deferred = std::collections::HashMap<String, Deferral>;
 
 /// Where they're kept: `deferred.json` in dv's directory.
 pub fn deferred_path() -> Option<std::path::PathBuf> {
@@ -296,26 +410,70 @@ pub fn load_deferred(p: Option<&std::path::Path>) -> Deferred {
     v.as_object()
         .into_iter()
         .flatten()
-        .filter_map(|(k, e)| Some((k.clone(), (e["until"].as_i64()?, e["needs"].as_str().unwrap_or("").to_owned()))))
-        .filter(|(_, (until, _))| *until > now)
+        .filter_map(|(k, e)| {
+            let cond = e.get("cond").and_then(Until::from_json);
+            Some((k.clone(), Deferral { until: e["until"].as_i64()?, needs: e["needs"].as_str().unwrap_or("").to_owned(), cond }))
+        })
+        .filter(|(_, d)| d.until > now)
         .collect()
 }
 
 pub fn save_deferred(p: Option<&std::path::Path>, d: &Deferred) -> Result<()> {
-    let v: serde_json::Map<String, Value> = d.iter().map(|(k, (until, needs))| (k.clone(), json!({ "until": until, "needs": needs }))).collect();
+    let v: serde_json::Map<String, Value> = d
+        .iter()
+        .map(|(k, d)| {
+            let mut e = json!({ "until": d.until, "needs": d.needs });
+            if let Some(c) = &d.cond {
+                e["cond"] = c.to_json();
+            }
+            (k.clone(), e)
+        })
+        .collect();
     let p = p.context("no dv directory")?;
     std::fs::create_dir_all(p.parent().unwrap_or(p))?;
     Ok(std::fs::write(p, Value::Object(v).to_string())?)
 }
 
-/// `items` with what's deferred (and still needs what it did then) moved to the end, marked.
-pub fn defer(items: Vec<Item>, deferred: &Deferred, now: i64) -> Vec<Item> {
-    let (mut later, mut out): (Vec<Item>, Vec<Item>) = items.into_iter().partition(|it| {
-        deferred.get(&it.key()).is_some_and(|(until, needs)| *until > now && *needs == it.needs_key())
-    });
-    later.iter_mut().for_each(|it| it.deferred = deferred.get(&it.key()).map(|d| d.0));
+/// `items` with what's deferred (and still needs what it did then, and isn't `met`) moved to the
+/// end, marked.
+pub fn defer(items: Vec<Item>, deferred: &Deferred, now: i64, met: impl Fn(&Item, &Until) -> bool) -> Vec<Item> {
+    let waiting = |it: &Item| {
+        deferred.get(&it.key()).filter(|d| d.until > now && d.needs == it.needs_key() && !d.cond.as_ref().is_some_and(|c| met(it, c)))
+    };
+    let (mut later, mut out): (Vec<Item>, Vec<Item>) = items.into_iter().partition(|it| waiting(it).is_some());
+    later.iter_mut().for_each(|it| it.deferred = deferred.get(&it.key()).cloned());
     out.append(&mut later);
     out
+}
+
+/// Claude puts `text` (a deferral's "until …", in your words) as one of `Until`'s, in the
+/// background: one small run, no tools.
+pub fn interpret(text: String, root: std::path::PathBuf) -> Receiver<Result<Until>> {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let prompt = format!(
+            "A maintainer defers a pull request until: \"{text}\". It's {} now (UTC). Reply with only one JSON object \
+             saying when, one of: {{\"merged\": N}} (PR N merged), {{\"closed\": N}} (PR N closed), {{\"green\": true}} \
+             (this PR's checks pass), {{\"approved\": \"login\"}} or {{\"approved\": null}} (an approval), \
+             {{\"reviewed\": \"login\"}} (a review from them), {{\"at\": \"2026-10-20T09:00:00Z\"}} (a time). If it's \
+             none of these, {{\"none\": \"why, in a few words\"}}. No other text.",
+            crate::claude::now()
+        );
+        let res = (|| {
+            let out = crate::view::claude_command(&prompt, &root, &[], &[], Some(&root)).stdin(std::process::Stdio::null()).output()?;
+            let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
+            anyhow::ensure!(v["is_error"] == false, "Claude couldn't read it ({})", out.status);
+            let answer = v["result"].as_str().unwrap_or("");
+            let json = answer.get(answer.find('{').context("no answer")?..=answer.rfind('}').context("no answer")?).unwrap_or("");
+            let w: Value = serde_json::from_str(json)?;
+            if let Some(why) = w["none"].as_str() {
+                anyhow::bail!("not something dv can watch for: {why}");
+            }
+            Until::from_json(&w).context("not something dv can watch for")
+        })();
+        _ = tx.send(res);
+    });
+    rx
 }
 
 /// The last ranking (`todo.json` in dv's directory), if any.
@@ -436,6 +594,7 @@ mod tests {
     fn what_needs_you() {
         let extra = |mine: Option<(&str, &str)>, requested, head: &str| Extra {
             my_review: mine.map(|(s, c)| (s.into(), c.into())),
+            reviews: vec![],
             requested,
             mergeable: "MERGEABLE".into(),
             head_oid: head.into(),
@@ -520,19 +679,51 @@ mod tests {
         assert_eq!(p, [("pr-2".to_owned(), "bug fix — review it".to_owned()), ("rep-12".to_owned(), "ready".to_owned())]);
     }
 
+    fn items_needs() -> String {
+        Need::ReadyToMerge.weight().to_string()
+    }
+
+    #[test]
+    fn deferral_conditions() {
+        let now = 1_000_000;
+        let p = |t: &str| Until::parse(t, now);
+        assert_eq!(p("#2380 is merged"), Some(Until::Merged(2380)));
+        assert_eq!(p("until 2380 closed"), Some(Until::Closed(2380)));
+        assert_eq!(p("CI is green"), Some(Until::Green));
+        assert_eq!(p("checks pass"), Some(Until::Green));
+        assert_eq!(p("@amy approves"), Some(Until::Approved(Some("amy".into()))));
+        assert_eq!(p("it's approved"), Some(Until::Approved(None)));
+        assert_eq!(p("@bo reviews it"), Some(Until::Reviewed("bo".into())));
+        assert_eq!(p("3h"), Some(Until::Time(now + 3 * 3600)));
+        assert_eq!(p("2 days"), Some(Until::Time(now + 2 * 86400)));
+        assert_eq!(p("a week"), Some(Until::Time(now + 7 * 86400)));
+        assert_eq!(p("the release is out"), None); // for Claude to read
+        // Round trip, as kept and as Claude answers.
+        for u in [Until::Merged(1), Until::Green, Until::Approved(None), Until::Reviewed("x".into()), Until::Time(5)] {
+            assert_eq!(Until::from_json(&u.to_json()), Some(u));
+        }
+        assert_eq!(Until::from_json(&json!({ "at": "2026-10-20T09:00:00Z" })), crate::gh::epoch_secs("2026-10-20T09:00:00Z").map(Until::Time));
+    }
+
     #[test]
     fn deferring() {
         let it = |n, needs: Vec<Need>| Item { rep: false, number: n, needs, claude: None, updated: String::new(), reason: None, changed: false, deferred: None, busy: None };
         let items = vec![it(1, vec![Need::ReadyToMerge]), it(2, vec![Need::NoReview])];
-        let d: Deferred = [("pr-1".to_owned(), (200, items[0].needs_key()))].into();
+        let d: Deferred = [("pr-1".to_owned(), Deferral { until: 200, needs: items[0].needs_key(), cond: None })].into();
         // Deferred: to the end, marked, until then.
-        let o = defer(items.clone(), &d, 100);
-        assert_eq!((o[0].number, o[1].number, o[1].deferred), (2, 1, Some(200)));
+        let never = |_: &Item, _: &Until| false;
+        let o = defer(items.clone(), &d, 100, never);
+        assert_eq!((o[0].number, o[1].number, o[1].deferred.as_ref().map(|d| d.until)), (2, 1, Some(200)));
         // Past it: back in place.
-        assert_eq!(defer(items.clone(), &d, 300)[0].number, 1);
+        assert_eq!(defer(items.clone(), &d, 300, never)[0].number, 1);
         // Its needs changed: back before then.
         let mut changed = items;
         changed[0].needs.push(Need::NewActivity);
-        assert_eq!(defer(changed, &d, 100)[0].deferred, None);
+        assert_eq!(defer(changed, &d, 100, never)[0].deferred, None);
+        // Until something happens: deferred till it has.
+        let d: Deferred = [("pr-1".to_owned(), Deferral { until: i64::MAX, needs: items_needs(), cond: Some(Until::Merged(2380)) })].into();
+        let items = vec![it(1, vec![Need::ReadyToMerge]), it(2, vec![Need::NoReview])];
+        assert_eq!(defer(items.clone(), &d, 100, never)[1].number, 1);
+        assert_eq!(defer(items, &d, 100, |_, c| *c == Until::Merged(2380))[0].number, 1);
     }
 }

@@ -310,7 +310,7 @@ fn defer_from_the_todo_tab() {
     k(&mut l, KeyCode::Char('s'));
     k(&mut l, KeyCode::Char('4'));
     assert_eq!((shown(&l), l.todo_now()), (vec![2, 1], 1));
-    assert!(l.todo[1].deferred.is_some_and(|u| u - crate::claude::now_secs() > 3 * 3600));
+    assert!(l.todo[1].deferred.as_ref().is_some_and(|d| d.until - crate::claude::now_secs() > 3 * 3600));
     assert!(crate::todo::load_deferred(Some(&dir.join("deferred.json"))).contains_key("pr-1"));
     // Claude at work on #2 (here or in any dv): to the bottom, out of the count, said so.
     l.running.insert(2, "making the changes".into());
