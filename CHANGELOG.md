@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-10-19
+
 ### Added
 - `Space g` can take the PR as it is on GitHub when your checkout has diverged from it (or is
   behind): your commits that GitHub doesn't have are kept on a `dv-backup/pr-N-<sha>` branch first.
@@ -842,6 +844,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.29.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.29.0
 [0.28.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.28.1
 [0.28.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.28.0
 [0.27.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.27.1
