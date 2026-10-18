@@ -5,9 +5,7 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
-### Fixed
-- `dv list`: the tab shown wasn't lit (the position at the header's right end, drawn over the whole
-  line, took its colors).
+## [0.24.3] - 2026-10-18
 
 ### Changed
 - Todo: a PR whose replacement Claude is drafting goes to the bottom ("drafting a replacement"),
@@ -15,6 +13,8 @@ on GitHub are its section here.
   first.
 
 ### Fixed
+- `dv list`: the tab shown wasn't lit (the position at the header's right end, drawn over the whole
+  line, took its colors).
 - In a dv that had been running across an install (a new dv in its place), drafting a
   replacement, or a review's worktree for `a a`, failed with "No such file or directory": dv ran
   another of itself by its old path, gone. It runs the new one now.
@@ -751,6 +751,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.24.3]: https://github.com/evanlinjin/diffview/releases/tag/v0.24.3
 [0.24.2]: https://github.com/evanlinjin/diffview/releases/tag/v0.24.2
 [0.24.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.24.1
 [0.24.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.24.0
