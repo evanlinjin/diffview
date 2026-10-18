@@ -2506,6 +2506,10 @@ fn claude_input_box_empty_or_not() {
     assert!(agent::input_empty(&screen("❯\u{a0}")));
     assert!(!agent::input_empty(&screen("❯ force push it")));
     assert!(!agent::input_empty("no box here")); // not found: not taken for empty
+    // Claude Code's suggestion, dimmed or grey, isn't typed; text in the plain color is.
+    assert!(agent::input_empty(&screen("\x1b[38;2;153;153;153m❯\u{a0}\x1b[2mfix the tests\x1b[22m")));
+    assert!(agent::input_empty(&screen("❯ \x1b[38;2;136;136;136mTry \"refactor\"\x1b[39m")));
+    assert!(!agent::input_empty(&screen("\x1b[38;2;153;153;153m❯\x1b[39m \x1b[38;2;255;255;255mforce push\x1b[0m")));
 }
 
 #[test]
@@ -2523,6 +2527,7 @@ fn a_question_about_the_pr_before_any_review() {
     app.toggle_view(View::Claude);
     let head = app.rows.iter().position(|r| r.main == Some(CLAUDE_REVIEW)).expect("its section");
     assert_eq!(app.rows[head].line.text, "questions for Claude");
+    assert_eq!(app.rows[head].info, None); // no summary to quote or post from it
     assert!(app.rows[head..].iter().any(|r| r.line.text.contains("Why a new trait?")));
     _ = std::fs::remove_file(&path);
 }

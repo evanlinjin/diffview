@@ -485,7 +485,7 @@ impl List {
         let alive = |pid: Option<u32>, session: Option<&str>| match (pid, session) {
             (Some(pid), _) => std::process::Command::new("kill").args(["-0", &pid.to_string()]).stderr(std::process::Stdio::null()).status().is_ok_and(|s| s.success()),
             (None, Some(id)) => panes.get_or_init(open_panes).iter().find(|p: &&Pane| p.1.contains(id)).is_some_and(|p| {
-                let screen = pane_screen(p.0);
+                let screen = crate::view::pane_screen(p.0);
                 crate::view::working(&screen) || crate::view::asking(&screen)
             }),
             _ => false,
@@ -503,7 +503,7 @@ impl List {
                 if pr.is_none() && rep.is_none() {
                     continue;
                 }
-                let screen = pane_screen(*id);
+                let screen = crate::view::pane_screen(*id);
                 let doing = match (crate::view::asking(&screen), crate::view::working(&screen)) {
                     (true, _) => "asking you (in its pane)",
                     (_, true) => "working (in its pane)",
@@ -520,9 +520,7 @@ impl List {
         // session stays, for the next ask to resume). Every marker of a pane run is looked at
         // (a cheap read of its transcript's end), so one not closed at first (you were on it)
         // is later.
-        let markers: Vec<u64> = std::fs::read_dir(&dir).into_iter().flatten().flatten().filter_map(|e| e.file_name().to_str()?.strip_prefix("pr-")?.strip_suffix(".json")?.parse().ok()).collect();
-        for n in markers.into_iter().filter(|n| !now.contains_key(n)) {
-            let Some((session, since)) = crate::claude::pane_run(n) else { continue };
+        for (n, session, since) in crate::claude::pane_runs(&dir).into_iter().filter(|r| !now.contains_key(&r.0)) {
             if let Some(p) = panes.get_or_init(open_panes).iter().find(|p| p.1.contains(&session))
                 && crate::view::close_if_done(p.0, &session, since)
             {
@@ -617,10 +615,4 @@ fn open_panes() -> Vec<Pane> {
         .filter(|p| p["exited"] != true && p["is_plugin"] != true)
         .filter_map(|p| Some((p["id"].as_u64()?, p["pane_command"].as_str()?.to_owned(), std::path::PathBuf::from(p["pane_cwd"].as_str().unwrap_or("")))))
         .collect()
-}
-
-/// What zellij pane `id` shows.
-fn pane_screen(id: u64) -> String {
-    let out = std::process::Command::new("zellij").args(["action", "dump-screen", "-p", &format!("terminal_{id}")]).stdin(std::process::Stdio::null()).output();
-    out.map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default()
 }

@@ -241,8 +241,9 @@ impl App {
         let questions = self.threads.iter().any(|t| t.conversation == ON_SUMMARY && self.in_view(t));
         let summary = !self.claude.summary.trim().is_empty();
         if (self.view == View::Claude || self.unpublished()) && (summary || questions) {
-            let title = if summary { "claude's review" } else { "questions for Claude" };
-            rows.extend(self.section(CLAUDE_REVIEW, title.into(), &self.claude.summary, Some(SUMMARY)));
+            // (No summary: nothing of it to quote or post, so not the summary's rows.)
+            let (title, info) = if summary { ("claude's review", Some(SUMMARY)) } else { ("questions for Claude", None) };
+            rows.extend(self.section(CLAUDE_REVIEW, title.into(), &self.claude.summary, info));
             if !self.sections_folded.contains(&CLAUDE_REVIEW) {
                 rows.extend(self.summary_threads(Some(CLAUDE_REVIEW)));
             }

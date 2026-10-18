@@ -346,17 +346,35 @@ fn transcript(id: &str) -> Option<PathBuf> {
     dirs.flatten().map(|d| d.path().join(format!("{id}.jsonl"))).find(|p| p.exists())
 }
 
+/// `turn_ended`'s answers by session: (the transcript's length, since, the answer).
+type Ended = std::collections::HashMap<String, (u64, i64, Option<String>)>;
+
 /// Whether Claude has ended its turn in session `id`, after `since` (seconds), by its
 /// transcript: its last message its answer (`end_turn`), not a tool call or a result it's
 /// working from. Its last words then.
 pub fn turn_ended(id: &str, since: i64) -> Option<String> {
     use std::io::{Read, Seek, SeekFrom};
-    let mut f = std::fs::File::open(transcript(id)?).ok()?;
-    let len = f.metadata().ok()?.len();
+    // As last read, while it hasn't grown (a pane left open, done, is looked at every few
+    // seconds).
+    static LAST: std::sync::Mutex<Option<Ended>> = std::sync::Mutex::new(None);
+    let path = transcript(id)?;
+    let len = std::fs::metadata(&path).ok()?.len();
+    if let Ok(last) = LAST.lock()
+        && let Some((l, s, r)) = last.as_ref().and_then(|m| m.get(id))
+        && (*l, *s) == (len, since)
+    {
+        return r.clone();
+    }
+    let mut f = std::fs::File::open(&path).ok()?;
     f.seek(SeekFrom::Start(len.saturating_sub(512 * 1024))).ok()?;
-    let mut tail = String::new();
-    f.read_to_string(&mut tail).ok()?;
-    turn_ended_in(&tail, since)
+    let mut tail = vec![];
+    f.read_to_end(&mut tail).ok()?;
+    // Bytes: the cut may land inside a character (its first line, cut, isn't JSON anyway).
+    let r = turn_ended_in(&String::from_utf8_lossy(&tail), since);
+    if let Ok(mut last) = LAST.lock() {
+        last.get_or_insert_default().insert(id.to_owned(), (len, since, r.clone()));
+    }
+    r
 }
 
 fn turn_ended_in(tail: &str, since: i64) -> Option<String> {
@@ -386,8 +404,25 @@ fn turn_ended_in(tail: &str, since: i64) -> Option<String> {
 
 /// PR `n`'s run in a pane, from its marker (`mark_running`): its session, and when it started.
 pub fn pane_run(n: u64) -> Option<(String, i64)> {
-    let v: Value = serde_json::from_str(&std::fs::read_to_string(dv_dir().ok()?.join("running").join(format!("pr-{n}.json"))).ok()?).ok()?;
+    pane_run_in(&dv_dir().ok()?.join("running").join(format!("pr-{n}.json")))
+}
+
+fn pane_run_in(marker: &std::path::Path) -> Option<(String, i64)> {
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(marker).ok()?).ok()?;
     Some((v["session"].as_str()?.to_owned(), v["started"].as_i64().unwrap_or(0)))
+}
+
+/// Every run in a pane, from the markers in `dir` (`running/`): (PR, session, started).
+pub fn pane_runs(dir: &std::path::Path) -> Vec<(u64, String, i64)> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return vec![] };
+    entries
+        .flatten()
+        .filter_map(|e| {
+            let n = e.file_name().to_str()?.strip_prefix("pr-")?.strip_suffix(".json")?.parse().ok()?;
+            let (s, t) = pane_run_in(&e.path())?;
+            Some((n, s, t))
+        })
+        .collect()
 }
 
 /// The text of lines `first..=last` on one side of `f`, or `None` if any of them doesn't exist
