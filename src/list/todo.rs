@@ -516,17 +516,17 @@ impl List {
                 };
             }
         }
-        // A pane dv started that's done (it was at it, and isn't, nor asking you, two looks
-        // running): closed, its run over (its session stays, for the next ask to resume).
-        let done: Vec<u64> = self.stopped.iter().filter(|n| !now.contains_key(n)).copied().collect();
-        self.stopped = self.running.keys().filter(|n| !now.contains_key(n)).copied().collect();
-        for n in &done {
-            let marker = std::fs::read_to_string(dir.join(format!("pr-{n}.json"))).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok());
-            let Some(session) = marker.as_ref().and_then(|m| m["session"].as_str()) else { continue };
-            if let Some(p) = panes.get_or_init(open_panes).iter().find(|p| p.1.contains(session))
-                && crate::view::close_done_pane(p.0)
+        // A pane dv started, Claude done there: closed (`close_if_done`), its run over (its
+        // session stays, for the next ask to resume). Every marker of a pane run is looked at
+        // (a cheap read of its transcript's end), so one not closed at first (you were on it)
+        // is later.
+        let markers: Vec<u64> = std::fs::read_dir(&dir).into_iter().flatten().flatten().filter_map(|e| e.file_name().to_str()?.strip_prefix("pr-")?.strip_suffix(".json")?.parse().ok()).collect();
+        for n in markers.into_iter().filter(|n| !now.contains_key(n)) {
+            let Some((session, since)) = crate::claude::pane_run(n) else { continue };
+            if let Some(p) = panes.get_or_init(open_panes).iter().find(|p| p.1.contains(&session))
+                && crate::view::close_if_done(p.0, &session, since)
             {
-                crate::claude::clear_running(*n);
+                crate::claude::clear_running(n);
             }
         }
         let changed = now != self.running || reps != self.running_reps;

@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 mod agent;
-pub(crate) use agent::{REPLACE_TOOLS, answer_prompt, close_done_pane, asking, working, claude_command, claude_wrote, fix_checks_prompt, review_prompt, turn, update_prompt, with_instructions};
+pub(crate) use agent::{REPLACE_TOOLS, answer_prompt, close_if_done, asking, working, claude_command, claude_wrote, fix_checks_prompt, review_prompt, turn, update_prompt, with_instructions};
 mod build;
 use build::*;
 mod files;
@@ -461,9 +461,6 @@ struct ClaudeState {
     asking: bool,
     /// Its pane shows it working (Claude Code's "esc to interrupt").
     pane_busy: bool,
-    /// It stopped working there at the last look: done if it's still idle at the next (one look
-    /// can miss its spinner), and its pane closes then.
-    pane_stopped: bool,
 }
 
 /// The comments you've seen (`comment_key`), kept in `path`; and those of the thread the

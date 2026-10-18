@@ -2497,3 +2497,13 @@ fn diff_base_follows_a_rebase() {
     assert_eq!(app.full_base, b);
     _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn claude_input_box_empty_or_not() {
+    // What's between Claude Code's last two rules, past its prompt: empty, or words waiting.
+    let rule = "─".repeat(40);
+    let screen = |input: &str| format!("● Done.\n\n{rule}\n{input}\n{rule}\n  ~/repo │ main\n");
+    assert!(agent::input_empty(&screen("❯\u{a0}")));
+    assert!(!agent::input_empty(&screen("❯ force push it")));
+    assert!(!agent::input_empty("no box here")); // not found: not taken for empty
+}

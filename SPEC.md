@@ -99,9 +99,11 @@ disk: rust-analyzer can index it and `hx` can open it.
    changes its open comments ask for, after optional instructions of yours in `$EDITOR`): in a
    zellij floating pane as an interactive session, opened without focus, so hidden while
    zellij's floating panes are (`Space a` → "Show Claude's pane" brings it up), and closed once
-   Claude's done there (it was working, and two looks running it's neither working nor asking
-   you; not while you're in it; by dv or `dv list`, whichever sees it), its session kept for the
-   next ask to resume; dv says when it's
+   Claude's done there: its transcript (Claude Code's, by the session's id) ends on its answer
+   (`end_turn`) since the run started, not a question for you (ending in `?`), nor asking you
+   something on screen, with its input box empty (a request waiting for Enter, your words), and
+   you not looking at it (shown and focused); by dv or `dv list`, whichever sees it first. Its
+   session is kept for the next ask to resume; dv says when it's
    asking you something, a permission prompt, checking its screen every 3s), else `claude -p` in the background
    (`acceptEdits`, Bash limited to `dv review-*` and read-only git), with "Claude working…"
    in the status bar and its log path if it fails. Comments get stable `id`s (assigned by dv on

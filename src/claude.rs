@@ -334,11 +334,60 @@ pub fn save_session(review: &std::path::Path, dir: &std::path::Path, id: Option<
 /// Whether Claude Code has session `id` (it keeps each as `projects/<dir>/<id>.jsonl` under its
 /// config dir), so dv doesn't try to resume one that never started or was cleaned up.
 pub fn session_exists(id: &str) -> bool {
+    transcript(id).is_some()
+}
+
+/// Claude Code's transcript of session `id` (`~/.claude/projects/<dir>/<id>.jsonl`).
+fn transcript(id: &str) -> Option<PathBuf> {
     let config = std::env::var_os("CLAUDE_CONFIG_DIR")
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".claude")));
-    let Some(Ok(dirs)) = config.map(|c| std::fs::read_dir(c.join("projects"))) else { return false };
-    dirs.flatten().any(|d| d.path().join(format!("{id}.jsonl")).exists())
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".claude")))?;
+    let dirs = std::fs::read_dir(config.join("projects")).ok()?;
+    dirs.flatten().map(|d| d.path().join(format!("{id}.jsonl"))).find(|p| p.exists())
+}
+
+/// Whether Claude has ended its turn in session `id`, after `since` (seconds), by its
+/// transcript: its last message its answer (`end_turn`), not a tool call or a result it's
+/// working from. Its last words then.
+pub fn turn_ended(id: &str, since: i64) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(transcript(id)?).ok()?;
+    let len = f.metadata().ok()?.len();
+    f.seek(SeekFrom::Start(len.saturating_sub(512 * 1024))).ok()?;
+    let mut tail = String::new();
+    f.read_to_string(&mut tail).ok()?;
+    turn_ended_in(&tail, since)
+}
+
+fn turn_ended_in(tail: &str, since: i64) -> Option<String> {
+    // Its messages (not the bookkeeping lines between, nor subagents'), the last ones.
+    let msgs: Vec<Value> = tail
+        .lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .filter(|v| matches!(v["type"].as_str(), Some("user" | "assistant")) && v["isSidechain"] != true)
+        .collect();
+    let last = msgs.last()?;
+    let ended = last["type"] == "assistant" && last["message"]["stop_reason"] == "end_turn";
+    let at = crate::gh::epoch_secs(last["timestamp"].as_str().unwrap_or(""))?;
+    if !ended || at <= since {
+        return None;
+    }
+    // Its answer: the text of the turn's last messages.
+    let text: Vec<&str> = msgs
+        .iter()
+        .rev()
+        .take_while(|v| v["type"] == "assistant" && v["message"]["stop_reason"] == "end_turn")
+        .flat_map(|v| v["message"]["content"].as_array().into_iter().flatten())
+        .filter(|c| c["type"] == "text")
+        .filter_map(|c| c["text"].as_str())
+        .collect();
+    Some(text.into_iter().rev().collect::<Vec<_>>().join("\n"))
+}
+
+/// PR `n`'s run in a pane, from its marker (`mark_running`): its session, and when it started.
+pub fn pane_run(n: u64) -> Option<(String, i64)> {
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(dv_dir().ok()?.join("running").join(format!("pr-{n}.json"))).ok()?).ok()?;
+    Some((v["session"].as_str()?.to_owned(), v["started"].as_i64().unwrap_or(0)))
 }
 
 /// The text of lines `first..=last` on one side of `f`, or `None` if any of them doesn't exist
@@ -910,4 +959,20 @@ fn running_markers() {
     assert_eq!(r.len(), 2);
     assert_eq!((r[&7].as_str(), r[&8].as_str()), ("making the changes", "reviewing (in its pane)"));
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn turn_ended_from_the_transcript() {
+    // Its last message an answer (`end_turn`) after the run started: ended, with its words; a
+    // tool call or a result it works from: still at it; an old answer (before the run): not yet.
+    let line = |t: &str, ts: &str, stop: &str, text: &str| {
+        serde_json::json!({ "type": t, "timestamp": ts, "message": { "stop_reason": stop, "content": [{ "type": "text", "text": text }] } }).to_string()
+    };
+    let since = crate::gh::epoch_secs("2026-10-18T10:00:00Z").unwrap();
+    let done = [line("user", "2026-10-18T10:00:01Z", "", "go"), line("assistant", "2026-10-18T10:01:00Z", "end_turn", "All done."), r#"{"type":"queue-operation"}"#.into()].join("\n");
+    assert_eq!(turn_ended_in(&done, since).as_deref(), Some("All done."));
+    let working = [line("assistant", "2026-10-18T10:01:00Z", "tool_use", ""), line("user", "2026-10-18T10:01:02Z", "", "")].join("\n");
+    assert_eq!(turn_ended_in(&working, since), None);
+    let old = line("assistant", "2026-10-18T09:00:00Z", "end_turn", "Earlier.");
+    assert_eq!(turn_ended_in(&old, since), None);
 }

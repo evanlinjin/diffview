@@ -143,7 +143,7 @@ impl App {
         if busy {
             return Some("Claude is still working on the last request".into());
         }
-        let (_, cmd, _) = self.claude_pane_cmd()?;
+        let (_, cmd) = self.claude_pane_cmd()?;
         let dv = crate::claude::dv_dir().map(|d| d.display().to_string()).unwrap_or_default();
         (needs_files && !dv.is_empty() && !cmd.contains(&dv)).then(|| {
             "Claude's pane for this PR can't reach dv's review files (it's from an older dv): close it, and Space a starts a new one".into()
@@ -663,7 +663,7 @@ impl App {
             // what it asks, talk to it.
             // Floating and unfocused: hidden while zellij's floating panes are (`Space a` →
             // show it, or zellij's own toggle); dv says when it's asking you something, and
-            // closes it once Claude's done there (`close_done_pane`).
+            // closes it once Claude's done there (`close_if_done`).
             true => match std::process::Command::new("zellij")
                 .args(["run", "--floating", "--no-focus", "--name", &format!("claude: {label}"), "--cwd"])
                 .arg(&self.root)
@@ -753,15 +753,12 @@ impl App {
         }
         self.claude.asking = asking_now;
         // Claude Code says how to stop it while it's working.
-        let was_busy = std::mem::replace(&mut self.claude.pane_busy, screen.as_deref().is_some_and(working));
-        // Done there (it was working, and isn't, nor asking you, two looks running): its pane
-        // closes; the session stays, for the next ask to resume.
-        let idle = !self.claude.pane_busy && !asking_now;
-        let done = std::mem::replace(&mut self.claude.pane_stopped, was_busy && idle) && idle;
-        if done && self.claude_pane().is_some_and(close_done_pane) {
-            if let Some(p) = &self.pr {
-                crate::claude::clear_running(p.number);
-            }
+        self.claude.pane_busy = screen.as_deref().is_some_and(working);
+        // Done there: its pane closes (`close_if_done`); the session stays, for the next ask.
+        let (Some(pr), Some(pane)) = (self.pr.as_ref().map(|p| p.number), self.claude_pane()) else { return };
+        let Some((session, since)) = crate::claude::pane_run(pr) else { return };
+        if close_if_done(pane, &session, since) {
+            crate::claude::clear_running(pr);
             self.msg = "Claude's done: its pane closed (Space a asks it more, in the same session)".into();
         }
     }
@@ -778,11 +775,11 @@ impl App {
     }
 
     /// The PR's Claude pane, its command line, and its tab's id.
-    fn claude_pane_cmd(&self) -> Option<(u64, String, u64)> {
+    fn claude_pane_cmd(&self) -> Option<(u64, String)> {
         let id = self.claude.session.as_ref().filter(|_| in_zellij())?;
         zellij_panes().iter().find_map(|p| {
             let cmd = p["pane_command"].as_str().filter(|c| p["exited"] != true && c.contains(id.as_str()))?;
-            Some((p["id"].as_u64()?, cmd.to_owned(), p["tab_id"].as_u64()?))
+            Some((p["id"].as_u64()?, cmd.to_owned()))
         })
     }
 
@@ -914,16 +911,39 @@ fn offer_to_pane(pane: u64, prompt: &str) -> Result<bool> {
     Ok(true)
 }
 
-/// Close Claude's pane `pane`, done (`working` / `asking` say so): not one you're in. Whether
-/// it closed.
-pub(crate) fn close_done_pane(pane: u64) -> bool {
-    let focused = zellij_panes().iter().any(|p| p["id"].as_u64() == Some(pane) && p["is_plugin"] != true && p["is_focused"] == true);
-    !focused
-        && std::process::Command::new("zellij")
-            .args(["action", "close-pane", "-p", &format!("terminal_{pane}")])
-            .stdin(std::process::Stdio::null())
-            .status()
-            .is_ok_and(|s| s.success())
+/// Close Claude's pane `pane` (session `session`, run since `since`) if Claude's done there:
+/// its transcript says it ended its turn (`turn_ended`: not a guess from the screen), not on a
+/// question for you, nor asking you something (a permission), with nothing in its input box (a
+/// request waiting for Enter, words of yours), and you aren't looking at it. Whether it closed.
+pub(crate) fn close_if_done(pane: u64, session: &str, since: i64) -> bool {
+    let Some(last) = crate::claude::turn_ended(session, since) else { return false };
+    if last.trim_end().ends_with('?') {
+        return false;
+    }
+    let id = format!("terminal_{pane}");
+    let zellij = |args: &[&str]| std::process::Command::new("zellij").arg("action").args(args).stdin(std::process::Stdio::null()).output().ok();
+    let Some(screen) = zellij(&["dump-screen", "-p", &id]).map(|o| String::from_utf8_lossy(&o.stdout).into_owned()) else { return false };
+    if asking(&screen) || !input_empty(&screen) {
+        return false;
+    }
+    // Shown (floating panes up) and focused: you're reading it.
+    let panes = zellij_panes();
+    let me = panes.iter().find(|p| p["id"].as_u64() == Some(pane) && p["is_plugin"] != true);
+    let shown = zellij(&["are-floating-panes-visible"]).is_some_and(|o| String::from_utf8_lossy(&o.stdout).trim() == "true");
+    if me.is_none_or(|p| p["is_focused"] == true && (shown || p["is_floating"] != true)) {
+        return false;
+    }
+    zellij(&["close-pane", "-p", &id]).is_some_and(|o| o.status.success())
+}
+
+/// Whether Claude Code's input box on `screen` is empty: what's between its last two rules
+/// (`────`), past the `❯` prompt. Not found: not empty (nothing's closed on a guess).
+pub(super) fn input_empty(screen: &str) -> bool {
+    let lines: Vec<&str> = screen.lines().collect();
+    let rule = |l: &&str| l.trim().len() >= 10 && l.trim().chars().all(|c| c == '─');
+    let rules: Vec<usize> = (0..lines.len()).filter(|&i| rule(&lines[i])).collect();
+    let [.., a, b] = rules[..] else { return false };
+    lines[a + 1..b].iter().all(|l| l.trim_start_matches(['❯', '>']).trim_matches(|c: char| c.is_whitespace() || c == '\u{a0}').is_empty())
 }
 
 /// Bring Claude's pane `pane` up: in another tab (an older dv's Claude tab), that tab; in dv's

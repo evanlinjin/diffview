@@ -172,9 +172,6 @@ pub struct List {
     running: HashMap<u64, String>,
     /// The same for replacements (and new PRs), by id: Claude at it in a pane in its worktree.
     running_reps: HashMap<u64, String>,
-    /// Runs in panes dv started that stopped at the last look: done if still so at the next (one
-    /// look can miss Claude's spinner), their panes closed then.
-    stopped: HashSet<u64>,
     running_checked: std::time::Instant,
     /// Auto (`C`, kept in git config `dv.auto`): Claude does its part on what needs you, green
     /// drafts are marked ready, and the list is ranked again (`auto_run`). What it's done, once
@@ -282,7 +279,6 @@ impl List {
             want_rank: false,
             running: HashMap::new(),
             running_reps: HashMap::new(),
-            stopped: HashSet::new(),
             unpushed: HashMap::new(),
             unpushed_rx: None,
             rescan: false,
