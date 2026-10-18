@@ -138,9 +138,10 @@ fn header(h: &str) -> Option<(u32, String)> {
 
 /// Load the diff with whole-file context (so any hunk can be expanded without asking git
 /// again), plus git's function-context hunk headers from a normal `ctx`-line diff.
-pub fn load(base: &str, ctx: u32) -> Result<Vec<FileDiff>> {
-    let mut files = diff(base, 1_000_000, &[])?;
-    let mut normal = diff(base, ctx, &[])?;
+/// `to`: a commit to diff up to, else the working tree.
+pub fn load(base: &str, to: Option<&str>, ctx: u32) -> Result<Vec<FileDiff>> {
+    let mut files = diff(base, to, 1_000_000, &[])?;
+    let mut normal = diff(base, to, ctx, &[])?;
     for f in &mut files {
         f.prepare();
         if let Some(g) = normal.iter_mut().find(|g| g.path == f.path) {
@@ -226,16 +227,21 @@ pub fn merge_base(base: Option<&str>) -> Result<String> {
         .to_owned())
 }
 
-/// Diff `base` against the working tree, optionally limited to `paths`.
-pub fn diff(base: &str, context: u32, paths: &[&str]) -> Result<Vec<FileDiff>> {
+/// Diff `base` against commit `to` (else the working tree), optionally limited to `paths`.
+pub fn diff(base: &str, to: Option<&str>, context: u32, paths: &[&str]) -> Result<Vec<FileDiff>> {
     let u = format!("-U{context}");
     let specs: Vec<String> = paths.iter().map(|p| format!(":(literal){p}")).collect();
     let mut args = vec![
         "-c", "core.quotepath=off", "diff", "--no-color", "--no-ext-diff", "-M",
-        "--src-prefix=a/", "--dst-prefix=b/", &u, base, "--",
+        "--src-prefix=a/", "--dst-prefix=b/", &u, base,
     ];
+    args.extend(to);
+    args.push("--");
     args.extend(specs.iter().map(String::as_str));
     let mut files = parse(&git(&args)?);
+    if to.is_some() {
+        return Ok(files); // commits only: untracked files aren't in them
+    }
     // Untracked files too, as new ones (git diff leaves them out): a file Claude, or you, just
     // created is part of what's being reviewed.
     let mut ls = vec!["ls-files", "--others", "--exclude-standard", "-z", "--"];

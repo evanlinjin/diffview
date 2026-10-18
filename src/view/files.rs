@@ -1,11 +1,20 @@
 //! The changed files down the left (`Ctrl-w e`): each under its folder, with what's open on it
-//! (comments) and whether it's viewed; the one you're in lit. A click goes to a file.
+//! (comments) and whether it's viewed; the one you're in lit. A click goes to a file. Under
+//! them, the PR's commits: one, or a range (`v`), shown instead of the whole diff.
 use super::*;
 
 /// Windows this wide show the list unless you've hidden it (`Ctrl-w e`, kept like the pane's).
 const FILES_AUTO: usize = 150;
 /// The narrowest it goes (`Ctrl-w ,`).
 const FILES_MIN: usize = 16;
+
+/// One of the PR's commits.
+#[derive(Clone, PartialEq, Debug)]
+pub(super) struct Commit {
+    pub(super) sha: String,
+    pub(super) short: String,
+    pub(super) subject: String,
+}
 
 /// One line of the list: a folder (`None`), or file `i`.
 pub(super) struct Entry {
@@ -65,7 +74,12 @@ impl App {
         let w = area.width as usize - 1; // the divider
         let entries = self.file_entries();
         let cur = self.current_file();
-        let h = (area.height as usize).saturating_sub(1);
+        // The commits under the files: up to a third of the height (all of them when few).
+        let ch = match self.commits.len() {
+            0 => 0,
+            n => (n + 2).min((area.height as usize / 3).max(4)),
+        };
+        let h = (area.height as usize).saturating_sub(1 + ch);
         // The current file in view, when it's another (the wheel scrolls the list meanwhile).
         if let Some(i) = cur.filter(|_| cur != self.files_cur).and_then(|c| entries.iter().position(|e| e.file == Some(c))) {
             if i < self.files_top {
@@ -115,19 +129,151 @@ impl App {
             };
             lines.push(line);
         }
+        if ch > 0 {
+            lines.resize(1 + h, Line::default());
+            let y = area.y + 1 + h as u16;
+            self.commits_y = y;
+            lines.extend(self.commit_lines(w, ch - 1));
+        }
         f.render_widget(Paragraph::new(lines), Rect { width: area.width - 1, ..area });
         // In the key color while it has focus (as the comments pane's edge is).
-        let edge = if self.files_focus { Style { fg: ui.key.fg, ..Style::new() } } else { ui.linenr };
+        let edge = if self.files_focus { Style { fg: self.ui.key.fg, ..Style::new() } } else { self.ui.linenr };
         let divider: Vec<Line> = (0..area.height).map(|_| Line::from(Span::styled("│", edge))).collect();
         f.render_widget(Paragraph::new(divider), Rect { x: area.x + area.width - 1, width: 1, ..area });
         self.files_entries = entries.into_iter().map(|e| e.file).collect();
     }
 
-    /// A click on the list's line `y` (0 is its heading): that file.
-    pub(super) fn click_file(&mut self, y: usize) {
+    /// The commits' part: its heading, then "all commits" and each commit (`h` lines of them).
+    fn commit_lines(&mut self, w: usize, h: usize) -> Vec<Line<'static>> {
+        let ui = &self.ui;
+        let n = self.commits.len();
+        // The cursor in view while it's there.
+        if self.in_commits {
+            self.commits_top = self.commits_top.min(self.commit_cur).max((self.commit_cur + 1).saturating_sub(h));
+        }
+        self.commits_top = self.commits_top.min((n + 1).saturating_sub(h));
+        let title = match self.commit_shown {
+            Some((a, b)) if a == b => format!(" COMMITS {} of {n}", a + 1),
+            Some((a, b)) => format!(" COMMITS {}–{} of {n}", a + 1, b + 1),
+            None => format!(" COMMITS {n}"),
+        };
+        let mut lines = vec![Line::from(Span::styled(format!("{title:<w$}"), Style { bg: ui.bar, ..ui.header }))];
+        // Rows: 0 "all commits", r the commit r - 1.
+        let shown = |r: usize| match self.commit_shown {
+            None => r == 0,
+            Some((a, b)) => r > a && r <= b + 1,
+        };
+        let picking = self.commit_anchor.map(|a| (a.min(self.commit_cur), a.max(self.commit_cur)));
+        let focus = self.files_focus && self.in_commits;
+        let lit = ui.base.bg(ui.cursorline.or(ui.menu_selected.bg).unwrap_or(Color::DarkGray));
+        for r in (self.commits_top..=n).take(h) {
+            let on = focus && r == self.commit_cur;
+            let row = match (on, picking.is_some_and(|(a, b)| r >= a && r <= b), shown(r)) {
+                (true, _, _) | (_, true, _) => ui.menu_selected,
+                (_, _, true) => lit,
+                _ => ui.base,
+            };
+            let (hash, text) = match r {
+                0 => (String::new(), "all commits".to_owned()),
+                r => (format!("{} ", self.commits[r - 1].short), self.commits[r - 1].subject.clone()),
+            };
+            let text = cut(&text, w.saturating_sub(2 + hash.chars().count()));
+            let pad = w.saturating_sub(2 + hash.chars().count() + text.chars().count());
+            lines.push(Line::from(vec![
+                Span::styled(if on || shown(r) { "▌ " } else { "  " }, row.patch(Style { fg: ui.key.fg, ..Style::new() })),
+                Span::styled(hash, row.patch(Style { fg: ui.stale.fg, ..Style::new() })),
+                Span::styled(text, if shown(r) { row.add_modifier(ratatui::style::Modifier::BOLD) } else { row }),
+                Span::styled(" ".repeat(pad), row),
+            ]));
+        }
+        lines
+    }
+
+    /// A click on the list's line `y` (0 is its heading): that file, or that commit (with
+    /// Shift: the commits from the one shown to it).
+    pub(super) fn click_file(&mut self, y: usize, shift: bool) {
+        let top = self.commits_y as usize;
+        if !self.commits.is_empty() && y > top {
+            let r = self.commits_top + y - top - 1;
+            if r <= self.commits.len() {
+                self.commit_cur = r;
+                let from = self.commit_shown.map(|(a, _)| a + 1).filter(|_| shift && r > 0);
+                self.commit_anchor = from;
+                self.pick_commits();
+            }
+            return;
+        }
         if let Some(Some(i)) = y.checked_sub(1).and_then(|y| self.files_entries.get(self.files_top + y)).copied() {
             self.goto_file(i);
         }
+    }
+
+    /// The wheel over the list's line `y`: its files or its commits scroll.
+    pub(super) fn scroll_files(&mut self, y: usize, by: isize) {
+        let top = self.commits_y as usize;
+        let t = if !self.commits.is_empty() && y >= top { &mut self.commits_top } else { &mut self.files_top };
+        *t = t.saturating_add_signed(by);
+    }
+
+    /// The PR's commits as checked out (first parents: the branch's own line), oldest first.
+    pub(super) fn load_commits(&mut self) {
+        let range = format!("{}..HEAD", self.full_base);
+        let Ok(out) = diff::git(&["log", "--reverse", "--first-parent", "--format=%H%x09%h%x09%s", &range]) else { return };
+        self.commits = out
+            .lines()
+            .filter_map(|l| {
+                let mut p = l.splitn(3, '\t');
+                Some(Commit { sha: p.next()?.into(), short: p.next()?.into(), subject: p.next().unwrap_or("").into() })
+            })
+            .collect();
+        let n = self.commits.len();
+        self.commit_cur = self.commit_cur.min(n);
+        if self.commit_shown.is_some_and(|(_, b)| b >= n) {
+            (self.commit_shown, self.to) = (None, None);
+            self.base = self.full_base.clone();
+        }
+    }
+
+    /// Showing commits before the PR's last: its comments (on the head's lines) don't fit them.
+    pub(super) fn before_head(&self) -> bool {
+        self.commit_shown.is_some_and(|(_, b)| b + 1 < self.commits.len())
+    }
+
+    /// What's shown of the commits, for the status bar: `None` for all of them.
+    pub(super) fn commits_label(&self) -> Option<String> {
+        let (a, b) = self.commit_shown?;
+        Some(match a == b {
+            true => format!("commit {}", self.commits[a].short),
+            false => format!("commits {}..{}", self.commits[a].short, self.commits[b].short),
+        })
+    }
+
+    /// `Enter` in the commits: the one under the cursor, or the range from `v`'s anchor to it
+    /// ("all commits" in it: the whole diff).
+    fn pick_commits(&mut self) {
+        let (a, b) = match self.commit_anchor.take() {
+            Some(a) => (a.min(self.commit_cur), a.max(self.commit_cur)),
+            None => (self.commit_cur, self.commit_cur),
+        };
+        self.show_commits((a > 0).then(|| (a - 1, b - 1)));
+    }
+
+    /// Show commits `first..=last` (`None`: all of them, the whole diff).
+    pub(super) fn show_commits(&mut self, sel: Option<(usize, usize)>) {
+        let sel = sel.filter(|&(a, b)| a <= b && b < self.commits.len());
+        let (base, to) = match sel {
+            None => (self.full_base.clone(), None),
+            Some((a, b)) => (if a == 0 { self.full_base.clone() } else { self.commits[a - 1].sha.clone() }, Some(self.commits[b].sha.clone())),
+        };
+        (self.base, self.to, self.commit_shown) = (base, to, sel);
+        self.extra.clear(); // per-hunk context: the hunks are different ones now
+        self.hl_cache.clear(); // both sides may be other versions
+        self.msg = match (self.reload(false), self.commits_label()) {
+            (Err(e), _) => format!("{e:#}"),
+            (Ok(()), None) => "all commits: the whole diff".into(),
+            (Ok(()), Some(l)) if self.before_head() => format!("{l} (comments are on the PR's head: they show with the last commit)"),
+            (Ok(()), Some(l)) => l,
+        };
     }
 
     /// A key while the list has focus: j / k go to the next / previous file, Ctrl-l, l,
@@ -139,12 +285,25 @@ impl App {
             let i = app.current_file().map_or(0, |c| (c as isize + d).clamp(0, n - 1));
             app.goto_file(i as usize);
         };
+        let last_file = self.current_file().is_some_and(|c| c + 1 == self.files.len()) || self.files.is_empty();
         match k.code {
+            // In the commits: j / k move, v marks a range's start, Enter shows it.
+            KeyCode::Char('j') | KeyCode::Down if !ctrl && self.in_commits => self.commit_cur = (self.commit_cur + 1).min(self.commits.len()),
+            KeyCode::Char('k') | KeyCode::Up if !ctrl && self.in_commits && self.commit_cur == 0 => self.in_commits = false,
+            KeyCode::Char('k') | KeyCode::Up if !ctrl && self.in_commits => self.commit_cur -= 1,
+            KeyCode::Char('v') if self.in_commits => self.commit_anchor = if self.commit_anchor.is_some() { None } else { Some(self.commit_cur) },
+            KeyCode::Enter if self.in_commits => self.pick_commits(),
+            KeyCode::Esc if self.commit_anchor.is_some() => self.commit_anchor = None,
+            // Past the last file: on into the commits, at the one shown.
+            KeyCode::Char('j') | KeyCode::Down if !ctrl && last_file && !self.commits.is_empty() => {
+                self.in_commits = true;
+                self.commit_cur = self.commit_shown.map_or(0, |(a, _)| a + 1);
+            }
             KeyCode::Char('j') | KeyCode::Down if !ctrl => step(self, 1),
             KeyCode::Char('k') | KeyCode::Up if !ctrl => step(self, -1),
             KeyCode::Char('w') if ctrl => return false, // Ctrl-w keys act on the list (resize, hide)
             KeyCode::Char('h') | KeyCode::Left | KeyCode::Backspace => {}
-            KeyCode::Char('l') | KeyCode::Right | KeyCode::Enter | KeyCode::Esc => self.files_focus = false,
+            KeyCode::Char('l') | KeyCode::Right | KeyCode::Enter | KeyCode::Esc => (self.files_focus, self.commit_anchor) = (false, None),
             _ => {
                 self.files_focus = false;
                 return false;

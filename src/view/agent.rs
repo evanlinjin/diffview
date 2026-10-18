@@ -73,6 +73,10 @@ impl App {
     /// Whether thread `t` shows: in the Claude view, only those of Claude's review; in the
     /// pending view, those with a comment of your pending review.
     pub(super) fn in_view(&self, t: &Thread) -> bool {
+        // Comments are on the PR's head: not on commits before it.
+        if self.before_head() {
+            return false;
+        }
         match self.view {
             View::All => true,
             View::Claude => t.claude.is_some(),

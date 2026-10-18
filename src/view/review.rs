@@ -426,7 +426,7 @@ impl App {
                 }
                 // Not against HEAD: files without uncommitted changes aren't in that diff, and
                 // their comments would look outdated (and could be dismissed as such).
-                if !self.uncommitted() {
+                if !self.uncommitted() && self.commit_shown.is_none() {
                     crate::claude::reanchor(&mut r.threads, &self.files);
                 }
                 (self.claude.summary, self.claude.head) = (r.summary, r.head);
@@ -980,6 +980,9 @@ impl App {
     /// Line comments are posted against the PR head; local edits would shift the lines.
     pub(super) fn check_synced(&self) -> Result<()> {
         let pr = self.pr.as_ref().context("no PR for this branch")?;
+        if self.before_head() {
+            bail!("comments go on the PR's head: show commits up to the last one (or all) to comment");
+        }
         if diff::git(&["rev-parse", "HEAD"])?.trim() != pr.head_oid {
             bail!("HEAD isn't the PR head (pull, or `gh pr checkout {}`)", pr.number);
         }

@@ -206,7 +206,7 @@ impl App {
         // Threads on files that have left the diff (a change reverted, a file now matching the
         // base) would show nowhere: list them here, by file. Not when showing only what isn't
         // committed, where most files are out of the diff on purpose.
-        let mut gone: Vec<usize> = match self.uncommitted() {
+        let mut gone: Vec<usize> = match self.uncommitted() || self.commit_shown.is_some() {
             true => vec![],
             false => (0..self.threads.len())
                 .filter(|&t| self.in_view(&self.threads[t]) && !self.files.iter().any(|f| f.path == self.threads[t].path))

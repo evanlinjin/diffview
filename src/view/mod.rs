@@ -80,6 +80,7 @@ VIEW
   Ctrl-w v             toggle split (side-by-side) view
   Ctrl-w n             relative line numbers on / off (kept for next time)
   Ctrl-w e             the changed files' list on the left, on / off (a click goes to one)
+                       and the PR's commits under it: Enter shows one, v … Enter a range
   Ctrl-w h  Ctrl-w l   pane left / right: files, old / new side, comments (or Ctrl-h Ctrl-l)
   Ctrl-w c             show / hide the comments pane (╎ ● mark their lines)
   Ctrl-w f             comments pane: a column beside the code / floating over it
@@ -422,6 +423,20 @@ pub struct App {
     base: String,
     /// The base dv started with (`base` is HEAD while showing only what isn't committed).
     full_base: String,
+    /// The commit the diff goes up to while showing some of the PR's commits, else the
+    /// working tree.
+    to: Option<String>,
+    /// The PR's commits, oldest first, under the files' list; what's shown of them (first,
+    /// last; `None`: all, the whole diff), the cursor there (0: "all commits", then each),
+    /// a range being selected (`v`), whether the list's cursor is there, and its scroll.
+    commits: Vec<files::Commit>,
+    commit_shown: Option<(usize, usize)>,
+    commit_cur: usize,
+    commit_anchor: Option<usize>,
+    in_commits: bool,
+    commits_top: usize,
+    /// Where the commits' heading is on screen (for clicks).
+    commits_y: u16,
     files: Vec<FileDiff>,
     /// Extra context lines per hunk: (path, hunk's first full index) → lines (can be negative).
     extra: HashMap<(String, usize), i64>,
@@ -581,8 +596,9 @@ pub struct App {
 impl App {
     pub fn new(base: String, pr: Option<Pr>) -> Result<Self> {
         crate::progress(Some("loading the diff"));
-        let files = diff::load(&base, DEFAULT_CONTEXT)?;
+        let files = diff::load(&base, None, DEFAULT_CONTEXT)?;
         let mut app = Self::with(base, files);
+        app.load_commits();
         let theme = Theme::load();
         (app.hl, app.ui) = (Highlighter::new(&theme), theme.ui());
         app.settings = crate::theme::settings();
@@ -658,6 +674,14 @@ impl App {
         let mut app = App {
             full_base: base.clone(),
             base,
+            to: None,
+            commits: vec![],
+            commit_shown: None,
+            commit_cur: 0,
+            commit_anchor: None,
+            in_commits: false,
+            commits_top: 0,
+            commits_y: 0,
             files,
             extra: HashMap::new(),
             view_extra: HashMap::new(),
@@ -1037,7 +1061,8 @@ impl App {
 
     fn reload(&mut self, threads: bool) -> Result<()> {
         let keep = self.cursor_key();
-        self.files = diff::load(&self.base, DEFAULT_CONTEXT)?;
+        self.load_commits();
+        self.files = diff::load(&self.base, self.to.as_deref(), DEFAULT_CONTEXT)?;
         // After the diff: Claude's comments follow their code, which may have just been edited.
         match threads {
             true => self.load_threads(),

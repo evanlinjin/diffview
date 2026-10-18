@@ -41,6 +41,7 @@ impl App {
     pub(super) fn toggle_uncommitted(&mut self) {
         let to = if self.uncommitted() { self.full_base.clone() } else { "HEAD".into() };
         self.base = to;
+        (self.to, self.commit_shown, self.commit_anchor) = (None, None, None);
         self.extra.clear(); // per-hunk context: the hunks are different ones now
         self.hl_cache.retain(|k, _| !k.1);
         self.msg = match (self.reload(false), self.uncommitted()) {

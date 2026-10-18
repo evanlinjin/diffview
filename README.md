@@ -9,7 +9,8 @@ one. A todo list ranks what needs you next.
   context expandable per hunk (`+` / `-`, `Z`). Helix's cursor, motions and selections, your
   Helix theme and settings, and rust-analyzer (`gd`, `gr`, `Space k`).
 - **Files list** on the left (`Ctrl-w e`): the changed files, viewed and comment counts, a click
-  to jump; the file you're in keeps its header pinned.
+  to jump; the file you're in keeps its header pinned. Under it, the PR's commits: view one, or
+  a range.
 - **Comments pane** on the right (`Ctrl-w c`): review threads beside their lines, and a second
   tab (`gn`) with the PR's description, conversation and checks, scrolled on its own.
 - **GitHub**: comment on lines, suggest changes, reply, resolve, mark files viewed, submit

@@ -1975,3 +1975,46 @@ fn files_list_and_pinned_file_header() {
     w(&mut app, 'q');
     assert!(app.files_w == 0 && !app.files_focus);
 }
+
+#[test]
+fn commits_under_the_files() {
+    let k = |app: &mut App, c: KeyCode| app.key(KeyEvent::new(c, KeyModifiers::NONE));
+    let draw = |app: &mut App| screen(220, 24, |f| app.draw(f));
+    let mut app = fixture();
+    app.files_pref = Some(true);
+    app.commits = (1..=3).map(|n| files::Commit { sha: format!("{n}{}", "0".repeat(39)), short: format!("c{n}"), subject: format!("commit {n}") }).collect();
+    let s = draw(&mut app);
+    // Under the files: the heading, "all commits" (shown), then each, oldest first.
+    let list: Vec<String> = s.lines().map(|l| l.chars().take(app.files_w - 1).collect::<String>().trim_end().to_owned()).collect();
+    let at = list.iter().position(|l| l.starts_with(" COMMITS 3")).expect(&s);
+    assert_eq!(list[at + 1].trim_start_matches('▌').trim(), "all commits");
+    assert!(list[at + 2].contains("c1 commit 1") && list[at + 4].contains("c3 commit 3"), "{list:?}");
+    // From the code into the list, down past the last file into the commits; Enter on one shows
+    // it alone: the diff from its parent (the previous commit) to it.
+    app.key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL));
+    (0..6).for_each(|_| k(&mut app, KeyCode::Char('j')));
+    assert!(app.in_commits);
+    app.commit_cur = 2;
+    k(&mut app, KeyCode::Enter);
+    assert_eq!((app.commit_shown, app.base.as_str(), app.to.as_deref()), (Some((1, 1)), app.commits[0].sha.as_str(), Some(app.commits[1].sha.as_str())));
+    // Before the PR's last commit: its comments (on the head's lines) are hidden, and can't be made.
+    assert!(app.before_head() && !app.threads.iter().any(|t| app.in_view(t)));
+    assert!(app.check_synced().unwrap_err().to_string().starts_with("comments go on the PR's head"));
+    // v, then down: the range from the first to the last; comments again (it ends at the head).
+    app.commit_cur = 1;
+    k(&mut app, KeyCode::Char('v'));
+    k(&mut app, KeyCode::Char('j'));
+    k(&mut app, KeyCode::Char('j'));
+    k(&mut app, KeyCode::Enter);
+    assert_eq!((app.commit_shown, app.base.as_str(), app.to.as_deref()), (Some((0, 2)), "base", Some(app.commits[2].sha.as_str())));
+    assert!(!app.before_head() && app.threads.iter().any(|t| app.in_view(t)));
+    let s = draw(&mut app);
+    assert!(s.contains(" COMMITS 1–3 of 3") && s.contains("commits c1..c3"), "{s}");
+    // "all commits": the whole diff again.
+    app.commit_cur = 0;
+    k(&mut app, KeyCode::Enter);
+    assert_eq!((app.commit_shown, app.base.as_str(), app.to.as_deref()), (None, "base", None));
+    // k from "all commits" back up into the files.
+    k(&mut app, KeyCode::Char('k'));
+    assert!(!app.in_commits && app.files_focus);
+}

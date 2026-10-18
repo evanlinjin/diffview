@@ -336,7 +336,10 @@ impl App {
         for r in self.visible_rows() {
             if let Some(key) = self.hl_key(r).filter(|k| !self.hl_cache.contains_key(k)) {
                 let text = match key.1 {
-                    true => std::fs::read_to_string(&key.0).unwrap_or_default(),
+                    true => match &self.to {
+                        Some(c) => diff::git(&["show", &format!("{c}:{}", key.0)]).unwrap_or_default(),
+                        None => std::fs::read_to_string(&key.0).unwrap_or_default(),
+                    },
                     false => diff::git(&["show", &format!("{}:{}", self.base, key.0)]).unwrap_or_default(),
                 };
                 // ponytail: whole file highlighted synchronously on first view; a thread if big PRs stutter.
@@ -576,7 +579,7 @@ impl App {
                 View::Pending => "pending view  ",
                 View::All => "",
             },
-            if self.uncommitted() { "uncommitted  " } else { "" },
+            if self.uncommitted() { "uncommitted  ".into() } else { self.commits_label().map(|l| format!("{l}  ")).unwrap_or_default() },
             if self.split { "split  " } else { "" }
         );
         // The left side (what you're on, messages, hints) wins: when both don't fit, the right

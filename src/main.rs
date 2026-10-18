@@ -370,7 +370,7 @@ fn review_file(cmd: &str, o: &Opts) -> anyhow::Result<()> {
         }
         return Ok(());
     }
-    let files = diff::load(&base, 3)?;
+    let files = diff::load(&base, None, 3)?;
     let r = claude::check(&path, &files)?;
     for (kind, msgs) in [("fixed", &r.notes), ("warning", &r.warnings), ("error", &r.errors)] {
         msgs.iter().for_each(|m| println!("{kind}: {m}"));
