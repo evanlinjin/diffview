@@ -968,38 +968,49 @@ impl App {
             spans.push(Span::raw(" ".repeat(tw.saturating_sub(used))));
             return spans;
         }
-        let mut tag = if l.kind == Kind::File && row.main.is_none() { self.header_tag(row.file) } else { None };
+        let tag = if l.kind == Kind::File && row.main.is_none() { self.header_tag(row.file) } else { None };
         // Pinned, the PR's title has its counts before its state, when they fit beside all of
-        // it (`bar_counts`; else they stay on the status bar).
-        let counts = match r == 0 && self.bar_counts {
+        // it (`bar_counts`; else they stay on the status bar); and, always, what Claude's doing
+        // and how the checkout stands against the PR, as badges.
+        let pinned = r == 0 && self.pin;
+        let counts = match pinned && self.bar_counts {
             true => self.pr_counts(),
             false => String::new(),
         };
+        let mut segs: Vec<(String, Style)> = vec![];
         if !counts.is_empty() {
-            tag = Some(match tag {
-                Some((t, st)) => (format!("{counts}  {t}"), st),
-                None => (counts.clone(), Style::new()),
-            });
+            segs.push((counts, style.patch(ui.linenr)));
         }
-        // The PR's state always shows: a long title is cut to make room.
+        let badge = |c: Option<Color>| Style::new().fg(ui.base.bg.unwrap_or(Color::Black)).bg(c.unwrap_or(Color::Yellow)).add_modifier(ratatui::style::Modifier::BOLD);
+        if pinned {
+            if let Some(d) = self.claude_doing() {
+                segs.push((format!(" {d} "), badge(ui.pending.fg)));
+            }
+            if !self.sync.is_empty() {
+                segs.push((format!(" {} ", self.sync), badge(ui.warning.fg)));
+            }
+        }
+        if let Some((t, st)) = tag {
+            segs.push((t, style.patch(st)));
+        }
+        let width = |segs: &[(String, Style)]| segs.iter().map(|(t, _)| t.chars().count()).sum::<usize>() + 2 * segs.len().saturating_sub(1);
+        // These always show: a long title is cut to make room (the counts go first).
         let mut used = used;
-        if let Some((t, _)) = &tag
-            && row.file == INFO
-        {
-            while used + 1 + t.chars().count() > tw && spans.len() > 1 {
+        if !segs.is_empty() && row.file == INFO {
+            while used + 1 + width(&segs) > tw && spans.len() > 1 {
                 used -= spans.pop().map_or(0, |s| s.width());
             }
         }
-        match tag {
+        match width(&segs) {
             // Right-aligned when it fits after the name; it isn't part of the row's text.
-            Some((t, st)) if used + 1 + t.chars().count() <= tw => {
-                let n = t.chars().count();
+            n if n > 0 && used + 1 + n <= tw => {
                 spans.push(Span::raw(" ".repeat(tw - used - n)));
-                // The counts plain, the state as its badge.
-                let c = if counts.is_empty() { 0 } else { counts.chars().count() + 2 };
-                let (a, b): (String, String) = (t.chars().take(c).collect(), t.chars().skip(c).collect());
-                spans.push(Span::styled(a, style.patch(ui.linenr)));
-                spans.push(Span::styled(b, style.patch(st)));
+                for (k, (t, st)) in segs.into_iter().enumerate() {
+                    if k > 0 {
+                        spans.push(Span::raw("  "));
+                    }
+                    spans.push(Span::styled(t, st));
+                }
             }
             _ => spans.push(Span::raw(" ".repeat(tw.saturating_sub(used)))),
         }

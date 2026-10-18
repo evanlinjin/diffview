@@ -74,6 +74,27 @@ impl App {
         Ok(format!("committed {} (Space g pushes it)", head.trim()))
     }
 
+    /// How the checkout stands against the PR (or where it's pushed), for the pinned title:
+    /// commits not pushed, a history that's diverged (an amend or rebase here), commits the PR
+    /// has that this doesn't, changes not committed. Empty when it's all in step.
+    pub(super) fn refresh_sync(&mut self) {
+        let mut parts = vec![];
+        if let Ok((remote, branch, _)) = self.push_target() {
+            let theirs = self.their_head(&remote, &branch);
+            match self.unpushed(&remote, &branch) {
+                Push::Ahead(n) => parts.push(format!("↑{n} unpushed")),
+                // HEAD in the PR's history: it's ahead of this, not diverged from it.
+                Push::Diverged if diff::git(&["merge-base", "--is-ancestor", "HEAD", &theirs]).is_ok() => parts.push("↓ behind the PR".into()),
+                Push::Diverged => parts.push("⇅ diverged: force-push".into()),
+                Push::Nothing | Push::Unknown => {}
+            }
+        }
+        if !diff::git(&["status", "--porcelain", "--untracked-files=no"]).unwrap_or_default().trim().is_empty() {
+            parts.push("✎ uncommitted".into());
+        }
+        self.sync = parts.join(" · ");
+    }
+
     /// Commits on HEAD that the PR (or the upstream branch) doesn't have yet, if that's known.
     fn unpushed(&self, remote: &str, branch: &str) -> Push {
         push_state(std::path::Path::new("."), &self.their_head(remote, branch))
@@ -118,6 +139,10 @@ impl App {
         let to = format!("HEAD:refs/heads/{branch}");
         args.extend([remote.as_str(), to.as_str()]);
         diff::git(&args)?;
+        // The PR's head is what was just pushed (its next fetch says so too).
+        if let (Some(p), Ok(h)) = (&mut self.pr, diff::git(&["rev-parse", "HEAD"])) {
+            p.head_oid = h.trim().to_owned();
+        }
         let next = match self.threads.iter().any(agent::claude_wrote) {
             true => " · Space a → Update Claude's review looks at just what's new",
             false => "",

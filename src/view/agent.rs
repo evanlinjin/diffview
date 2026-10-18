@@ -272,18 +272,35 @@ impl App {
             return self.picker = Some(Picker { title: " description ", items, query: String::new(), sel: 0 });
         }
         let text = self.claude.description.clone();
-        self.msg = match crate::gh::set_body(pr, &text).and_then(|_| crate::claude::clear_description(&path)) {
-            Ok(()) => {
-                // What's on GitHub now, without waiting for the next fetch.
-                if let Some(b) = (0..self.info.len()).find(|&i| self.is_description(i)).map(|h| h + 1).filter(|&b| self.info.get(b).is_some_and(|l| l.md)) {
-                    self.info[b].text = text;
-                }
-                let keep = self.cursor_key();
-                self.load_claude();
-                self.rebuild(keep);
-                format!("#{pr}'s description is Claude's now")
+        let body = (0..self.info.len()).find(|&i| self.is_description(i)).map(|h| h + 1).filter(|&b| self.info.get(b).is_some_and(|l| l.md));
+        let shown = body.map_or(String::new(), |b| self.info[b].text.clone());
+        // Edited on GitHub since dv showed it: the proposal's diff was against an older text.
+        let now = match crate::gh::body(pr) {
+            Ok(t) => t,
+            Err(e) => return self.msg = format!("description not changed: {e:#}"),
+        };
+        if now.trim() != shown.trim() {
+            if let Some(b) = body {
+                self.info[b].text = now;
             }
-            Err(e) => format!("description not changed: {e:#}"),
+            let keep = self.cursor_key();
+            self.rebuild(keep);
+            return self.msg = "description not changed: it was edited on GitHub since; dv shows it now against Claude's: approve again if it's still right".into();
+        }
+        if let Err(e) = crate::gh::set_body(pr, &text) {
+            return self.msg = format!("description not changed: {e:#}");
+        }
+        // What's on GitHub now, without waiting for the next fetch.
+        if let Some(b) = body {
+            self.info[b].text = text;
+        }
+        let cleared = crate::claude::clear_description(&path);
+        let keep = self.cursor_key();
+        self.load_claude();
+        self.rebuild(keep);
+        self.msg = match cleared {
+            Ok(()) => format!("#{pr}'s description is Claude's now"),
+            Err(e) => format!("#{pr}'s description is Claude's now, but its proposal is still in the review file: {e:#} (Space a discards it)"),
         };
     }
 
@@ -609,17 +626,28 @@ impl App {
             return;
         }
         self.claude.pane_check = Some(std::time::Instant::now());
-        let asking_now = self.claude_pane().is_some_and(|p| {
-            std::process::Command::new("zellij")
-                .args(["action", "dump-screen", "-p", &format!("terminal_{p}")])
-                .stdin(std::process::Stdio::null())
-                .output()
-                .is_ok_and(|o| asking(&String::from_utf8_lossy(&o.stdout)))
+        let screen = self.claude_pane().and_then(|p| {
+            let o = std::process::Command::new("zellij").args(["action", "dump-screen", "-p", &format!("terminal_{p}")]).stdin(std::process::Stdio::null()).output().ok()?;
+            Some(String::from_utf8_lossy(&o.stdout).into_owned())
         });
+        let asking_now = screen.as_deref().is_some_and(asking);
         if asking_now && !self.claude.asking {
             self.msg = "Claude is asking you something in its pane: Space a → Show Claude's pane".into();
         }
         self.claude.asking = asking_now;
+        // Claude Code says how to stop it while it's working.
+        self.claude.pane_busy = screen.is_some_and(|s| s.contains("esc to interrupt"));
+    }
+
+    /// What Claude is doing here, for the pinned title: a run in the background, or its pane
+    /// busy (or waiting on you). `None` when it's idle.
+    pub(super) fn claude_doing(&self) -> Option<String> {
+        match &self.claude.job {
+            Some(j) => Some(format!("◐ claude: {} {}", j.label, ago(j.started))),
+            None if self.claude.asking => Some("◐ claude is asking you (Space a)".into()),
+            None if self.claude.pane_busy => Some("◐ claude working (its pane)".into()),
+            None => None,
+        }
     }
 
     /// The PR's Claude pane and its command line.

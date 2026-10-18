@@ -95,6 +95,12 @@ fn gh(args: &[&str]) -> Result<String> {
     gh_input(args, None)
 }
 
+/// PR `n`'s description as it is on GitHub now.
+pub fn body(n: u64) -> Result<String> {
+    let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", "body"])?)?;
+    Ok(v["body"].as_str().unwrap_or("").replace("\r\n", "\n"))
+}
+
 /// Replace PR `n`'s description with `body` (`gh pr edit`, the text on stdin).
 pub fn set_body(n: u64, body: &str) -> Result<()> {
     gh_input(&["pr", "edit", &n.to_string(), "--body-file", "-"], Some(body)).map(drop)
@@ -911,7 +917,10 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
             "COMMENTED" if !s(&r["body"]).trim().is_empty() => "reviewed · ",
             _ => continue, // pending, or nothing to read here
         };
-        said.push((s(&r["submittedAt"]), s(&r["author"]["login"]), what, s(&v["url"]), s(&r["body"])));
+        // Its own: questions about it (`a`) are kept by it. (The fragment is the review's id:
+        // the link opens the PR.)
+        let url = format!("{}#review-{}", s(&v["url"]), s(&r["id"]));
+        said.push((s(&r["submittedAt"]), s(&r["author"]["login"]), what, url, s(&r["body"])));
     }
     said.sort_by(|a, b| a.0.cmp(&b.0)); // ISO times sort as text
     out.push(heading(format!("conversation ({})", said.len())));
@@ -1069,8 +1078,8 @@ fn reviews_in_the_conversation() {
         "url": "https://github.com/o/r/pull/1", "body": "",
         "comments": [{ "author": { "login": "amy" }, "body": "first", "createdAt": "2026-01-01T00:00:00Z", "url": "c1" }],
         "reviews": [
-            { "author": { "login": "me" }, "state": "COMMENTED", "body": "looks close", "submittedAt": "2026-01-03T00:00:00Z" },
-            { "author": { "login": "bo" }, "state": "APPROVED", "body": "", "submittedAt": "2026-01-02T00:00:00Z" },
+            { "id": "R3", "author": { "login": "me" }, "state": "COMMENTED", "body": "looks close", "submittedAt": "2026-01-03T00:00:00Z" },
+            { "id": "R2", "author": { "login": "bo" }, "state": "APPROVED", "body": "", "submittedAt": "2026-01-02T00:00:00Z" },
             { "author": { "login": "cy" }, "state": "COMMENTED", "body": "", "submittedAt": "2026-01-04T00:00:00Z" },
             { "author": { "login": "me" }, "state": "PENDING", "body": "draft", "submittedAt": "" },
         ],
@@ -1083,4 +1092,7 @@ fn reviews_in_the_conversation() {
     assert!(rest[0].starts_with("@amy · ") && rest[1] == "first");
     assert!(rest[2].starts_with("@bo · approved · ") && rest[3].is_empty());
     assert!(rest[4].starts_with("@me · reviewed · ") && rest[5] == "looks close");
+    // Each its own link (what `a` keeps a question about it by): not the PR's, nor another's.
+    let urls: Vec<&str> = lines[lines.len() - 6..].iter().step_by(2).map(|l| l.url.as_str()).collect();
+    assert_eq!(urls, ["c1", "https://github.com/o/r/pull/1#review-R2", "https://github.com/o/r/pull/1#review-R3"]);
 }

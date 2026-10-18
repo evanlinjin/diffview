@@ -50,7 +50,7 @@ disk: rust-analyzer can index it and `hx` can open it.
    the PR head if needed, or continuing one started on the web), `S` submits with a summary
    from `$EDITOR` (`:cq` cancels), or comments and closes the PR (an empty comment only closes), discard asks for confirmation. Pending comments are
    tagged `[pending]` and counted on the PR's title line (pinned at the top, over the code and
-   the pane, in the status bar's color: it has the threads, files viewed and pending counts). GitHub's answers are kept in
+   the pane, in the status bar's color: it has the threads, files viewed and pending counts; and, as badges before the PR's state that always show (a long title is cut for them), what Claude is doing here (`◐ claude: <what> <for how long>` for a run in the background; `◐ claude working (its pane)` while its pane shows Claude Code's "esc to interrupt"; `◐ claude is asking you` at a prompt there) and how the checkout stands against the PR (`↑N unpushed`, `⇅ diverged: force-push` after an amend or rebase, `↓ behind the PR`, `✎ uncommitted`; worked out when the tree changes or the PR's head moves). GitHub's answers are kept in
    `cache/pr-N.json` in dv's data directory: opening the PR shows them at once and fetches
    afresh in the background; a job that changes GitHub first waits for the fresh state
    (fetching it then if it isn't in yet). dv checks the PR's ETag every 5 seconds

@@ -2103,6 +2103,11 @@ fn ask_claude_about_a_conversation_comment() {
     let Some(Action::AskConversation { url: u, prefill }) = app.action.take() else { panic!("no question: {}", app.msg) };
     assert_eq!(u, url);
     assert!(prefill.starts_with("About @cy's comment (https://") && prefill.contains("> Can we rename it?"), "{prefill}");
+    // In the Claude view (no conversation there): under a heading of their own, not lost.
+    app.toggle_view(View::Claude);
+    let q = app.rows.iter().position(|r| r.line.text.contains("what do they mean?")).expect("the question, in the Claude view");
+    let heading = app.rows[..q].iter().rev().find(|r| r.line.kind == Kind::Thread && r.thread.is_none()).unwrap();
+    assert_eq!(heading.line.text, "questions about the PR's conversation");
 }
 
 #[test]
@@ -2132,4 +2137,22 @@ fn claude_proposes_a_description() {
     assert!(!std::fs::read_to_string(&path).unwrap().contains("description"));
     assert!(app.rows.iter().any(|r| r.main.is_some() && r.line.text == "description"));
     _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn claude_working_and_out_of_sync_on_the_title() {
+    // What Claude's doing and how the checkout stands show on the pinned title, as badges, a
+    // long title cut to make room for them.
+    let mut app = fixture();
+    app.sync = "↑2 unpushed · ✎ uncommitted".into();
+    app.claude.pane_busy = true;
+    let s = screen(160, 12, |f| app.draw(f));
+    let title = s.lines().next().unwrap();
+    assert!(title.contains("◐ claude working (its pane)") && title.contains("↑2 unpushed · ✎ uncommitted"), "{title}");
+    let s = screen(90, 12, |f| app.draw(f));
+    assert!(s.lines().next().unwrap().contains("↑2 unpushed"), "{s}");
+    // Idle and in step: neither.
+    (app.sync, app.claude.pane_busy) = (String::new(), false);
+    let s = screen(160, 12, |f| app.draw(f));
+    assert!(!s.lines().next().unwrap().contains('◐'));
 }

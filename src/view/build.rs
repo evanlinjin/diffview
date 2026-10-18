@@ -239,8 +239,13 @@ impl App {
                         let mk = |kind, text| Row { main: Some(DESCRIPTION), info: Some(h + 1), ..Row::text(INFO, kind, text) };
                         rows.push(mk(Kind::File, "description · Claude's proposal (Space a: approve, more changes, discard)".into()));
                         if !self.sections_folded.contains(&DESCRIPTION) {
+                            // By source line (a reworded paragraph is one changed line), each then
+                            // wrapped to the code's width.
                             let w = self.wrap_w.saturating_sub(2).max(20);
-                            rows.extend(line_diff(&wrap(text, w), &wrap(&self.claude.description, w)).into_iter().map(|(k, t)| mk(k, t)));
+                            let lines = |t: &str| t.replace("\r\n", "\n").lines().map(str::to_owned).collect::<Vec<_>>();
+                            for (k, line) in line_diff(&lines(text), &lines(&self.claude.description)) {
+                                rows.extend(wrap(&line, w).into_iter().map(|t| mk(k, t)));
+                            }
                         }
                     }
                 }
@@ -259,18 +264,24 @@ impl App {
             true => vec![],
             false => (0..self.threads.len())
                 .filter(|&t| self.in_view(&self.threads[t]) && !self.files.iter().any(|f| f.path == self.threads[t].path))
-                .filter(|&t| self.threads[t].conversation.is_empty() || self.conversation_item(&self.threads[t].conversation).is_none())
+                // Questions about the conversation are under their comment, in the whole diff.
+                .filter(|&t| self.threads[t].conversation.is_empty() || self.view != View::All || self.conversation_item(&self.threads[t].conversation).is_none())
                 .collect(),
         };
-        gone.sort_by(|&a, &b| self.threads[a].path.cmp(&self.threads[b].path)); // stable: in order within a file
+        // By file (stable: in order within one); questions about the conversation, on no file, last.
+        gone.sort_by_key(|&t| (self.threads[t].path.is_empty(), self.threads[t].path.clone()));
         if !gone.is_empty() {
             let heading = |text: String| Row::text(INFO, Kind::Thread, text);
-            rows.push(heading(format!("comments on files no longer in the diff ({})", gone.len())));
-            let mut last = "";
+            let on_files = gone.iter().filter(|&&t| !self.threads[t].path.is_empty()).count();
+            if on_files > 0 {
+                rows.push(heading(format!("comments on files no longer in the diff ({on_files})")));
+            }
+            let mut last = None;
             for &t in &gone {
-                if self.threads[t].path != last {
-                    last = &self.threads[t].path;
-                    rows.push(heading(last.to_owned()));
+                let path = self.threads[t].path.as_str();
+                if last != Some(path) {
+                    last = Some(path);
+                    rows.push(heading(if path.is_empty() { "questions about the PR's conversation".into() } else { path.to_owned() }));
                 }
                 rows.extend(self.thread_rows(t, INFO));
             }
@@ -379,7 +390,6 @@ impl App {
         lines.into_iter().map(|l| Row { syn: l.styles, links: l.links, nowrap: l.nowrap, ..mk(Kind::Comment, l.text) }).collect()
     }
 
-    /// The width comments and PR text wrap to: the pane's, when it's shown (they're there).
     /// The questions for Claude about conversation comment `info[body]` (and its answers),
     /// under it.
     fn conversation_rows(&self, body: usize) -> Vec<Row> {
@@ -416,6 +426,7 @@ impl App {
         self.rows.get(r)?.main
     }
 
+    /// The width comments and PR text wrap to: the pane's, when it's shown (they're there).
     pub(super) fn info_w(&self) -> usize {
         if self.margin_active { self.margin_w - 3 - 2 - self.pane_pad() } else { self.wrap_w }
     }
@@ -697,31 +708,13 @@ impl App {
     }
 }
 
-/// `text`'s lines, each cut into lines of at most `w` chars at spaces (as markdown source reads),
-/// keeping a line's indent on the lines it's cut into.
-fn wrap(text: &str, w: usize) -> Vec<String> {
-    let mut out = vec![];
-    for line in text.replace("\r\n", "\n").lines() {
-        let body = line.trim_start();
-        let indent = &line[..line.len() - body.len()];
-        let mut cur = indent.to_owned();
-        for word in body.split(' ') {
-            if cur.len() > indent.len() && cur.chars().count() + 1 + word.chars().count() > w {
-                out.push(std::mem::replace(&mut cur, indent.to_owned()));
-            } else if cur.len() > indent.len() {
-                cur.push(' ');
-            }
-            cur.push_str(word);
-        }
-        out.push(cur);
-    }
-    out
-}
-
 /// A line diff of `old` → `new`: (Ctx | Del | Add, line), from their longest common subsequence.
-// ponytail: O(n·m) table; fine for a PR description, a real diff if it's ever used on files.
+// ponytail: O(n·m) table, capped as `word_diff` is (beyond it: all old out, all new in).
 fn line_diff(old: &[String], new: &[String]) -> Vec<(Kind, String)> {
     let (n, m) = (old.len(), new.len());
+    if n * m > 250_000 {
+        return old.iter().map(|l| (Kind::Del, l.clone())).chain(new.iter().map(|l| (Kind::Add, l.clone()))).collect();
+    }
     let mut lcs = vec![vec![0u32; m + 1]; n + 1];
     for i in (0..n).rev() {
         for j in (0..m).rev() {
@@ -750,7 +743,5 @@ fn description_diff() {
     let d = line_diff(&l("a\nb\nc"), &l("a\nB\nc\nd"));
     let k: Vec<Kind> = d.iter().map(|x| x.0).collect();
     assert_eq!(k, [Kind::Ctx, Kind::Del, Kind::Add, Kind::Ctx, Kind::Add]);
-    assert_eq!(wrap("  - one two", 8), ["  - one", "  two"]);
-    assert_eq!(wrap("one two three", 7), ["one two", "three"]);
-    assert!(wrap("", 7).is_empty());
+    assert_eq!(super::wrap("  - one two", 8), ["  - one", "  two"]);
 }

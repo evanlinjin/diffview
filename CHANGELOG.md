@@ -6,6 +6,9 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Added
+- The pinned PR title says, as badges that always show, when Claude is working here (in the
+  background, or in its pane, or asking you something there) and when the checkout is out of
+  step with the PR: `↑2 unpushed`, `⇅ diverged: force-push`, `↓ behind the PR`, `✎ uncommitted`.
 - `a` on a comment in the PR's conversation asks Claude about it: your question (the comment
   quoted) and Claude's answer are a thread under it, on the PR tab (`r` to go on).
 - Commits shown: each one's message is a section before the files (one for every commit in a

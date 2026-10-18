@@ -649,6 +649,7 @@ impl App {
                 if let Some(pr) = &mut self.pr {
                     (pr.title, pr.head_oid, pr.url) = (title, head, url);
                 }
+                self.refresh_sync(); // the PR's head may have moved
             }
             Err(e) => self.msg = format!("loading PR info: {e:#}"),
         }

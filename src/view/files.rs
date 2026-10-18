@@ -325,9 +325,13 @@ impl App {
             Some((a, b)) => (if a == 0 { self.full_base.clone() } else { self.commits[a - 1].sha.clone() }, Some(self.commits[b].sha.clone())),
         };
         (self.base, self.to, self.commit_shown) = (base, to, sel);
-        // Their messages, each a section before the files.
-        // ponytail: one git per commit shown; a single `git log` if long ranges feel slow.
-        self.commit_msgs = sel.map_or(vec![], |(a, b)| (a..=b).map(|i| diff::git(&["log", "-1", "--format=%B", &self.commits[i].sha]).unwrap_or_default()).collect());
+        // Their messages, each a section before the files: one `git log` for them all, in order.
+        self.commit_msgs = sel.map_or(vec![], |(a, b)| {
+            let mut args = vec!["log", "--no-walk=unsorted", "--format=%B%x00"];
+            args.extend(self.commits[a..=b].iter().map(|c| c.sha.as_str()));
+            let out = diff::git(&args).unwrap_or_default();
+            out.split('\0').map(|m| m.trim_matches('\n').to_owned()).take(b + 1 - a).collect()
+        });
         self.extra.clear(); // per-hunk context: the hunks are different ones now
         self.hl_cache.clear(); // both sides may be other versions
         self.msg = match (self.reload(false), self.commits_label()) {

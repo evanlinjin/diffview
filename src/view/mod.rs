@@ -424,6 +424,8 @@ struct ClaudeState {
     /// When Claude's pane was last looked at, and whether it was asking you something then.
     pane_check: Option<std::time::Instant>,
     asking: bool,
+    /// Its pane shows it working (Claude Code's "esc to interrupt").
+    pane_busy: bool,
 }
 
 /// The comments you've seen (`comment_key`), kept in `path`; and those of the thread the
@@ -550,6 +552,8 @@ pub struct App {
     threads: Vec<Thread>,
     info: Vec<gh::InfoLine>,
     info_collapsed: bool,
+    /// How the checkout stands against the PR (`refresh_sync`): empty when in step.
+    sync: String,
     /// The description's and the commit messages' sections, folded (by `Row::main`).
     sections_folded: HashSet<usize>,
     /// The messages of the commits shown (`commit_shown`), each its section's text.
@@ -647,6 +651,7 @@ impl App {
         if other_skill && (app.msg.is_empty() || app.github_stale) {
             app.msg = "dv's Claude skill has changed since this PR's Claude session began: the next Claude run starts a new one".into();
         }
+        app.refresh_sync();
         app.build();
         match Lsp::start(&app.root) {
             Ok((l, id)) => {
@@ -765,6 +770,7 @@ impl App {
             threads: vec![],
             info: vec![],
             info_collapsed: false,
+            sync: String::new(),
             sections_folded: HashSet::new(),
             commit_msgs: vec![],
             wrap_w: 100,
@@ -1102,6 +1108,7 @@ impl App {
         }
         self.shape();
         self.rebuild(keep);
+        self.refresh_sync();
         Ok(())
     }
 
@@ -1208,7 +1215,7 @@ fn posted_msg(review: bool) -> &'static str {
     if review { "added to pending review (S to submit)" } else { "posted" }
 }
 
-/// Word-wrap long lines at `w` chars; short lines (and their indentation) are kept as-is.
+/// Word-wrap long lines at `w` chars, keeping their indent; short lines are kept as they are.
 fn wrap(text: &str, w: usize) -> Vec<String> {
     let mut out = vec![];
     for line in text.lines() {
@@ -1216,11 +1223,14 @@ fn wrap(text: &str, w: usize) -> Vec<String> {
             out.push(line.to_owned());
             continue;
         }
-        let mut cur = String::new();
-        for word in line.split(' ') {
-            if !cur.is_empty() && cur.chars().count() + 1 + word.chars().count() > w {
-                out.push(std::mem::take(&mut cur));
-            } else if !cur.is_empty() {
+        // Cut at spaces; the lines it's cut into keep its indent.
+        let body = line.trim_start();
+        let indent = &line[..line.len() - body.len()];
+        let mut cur = indent.to_owned();
+        for word in body.split(' ') {
+            if cur.len() > indent.len() && cur.chars().count() + 1 + word.chars().count() > w {
+                out.push(std::mem::replace(&mut cur, indent.to_owned()));
+            } else if cur.len() > indent.len() {
                 cur.push(' ');
             }
             cur.push_str(word);
