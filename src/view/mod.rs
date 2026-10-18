@@ -159,6 +159,8 @@ pub(super) const MARK_DOT: u8 = 5;
 const SUMMARY: usize = usize::MAX;
 /// `Row::info` for the text of your pending review, in the pending view.
 const DRAFT: usize = usize::MAX - 2;
+/// `Row::info` for the PR's facts (author, branches, size, reviews, checks), boxed together.
+const FACTS: usize = usize::MAX - 3;
 
 /// Position in the view: row index into `rows`, char index into the row's text.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -263,6 +265,8 @@ enum Action {
     /// A comment for Claude on these lines (with their text), then Claude answers it; `about`:
     /// the GitHub review comment it asks about (its id, and a quote of it for the editor).
     AskClaude { anchor: Anchor, code: Vec<String>, about: Option<(u64, String)> },
+    /// `a` on a PR conversation comment: a question about it (its URL), starting from `prefill`.
+    AskConversation { url: String, prefill: String },
     /// Run Claude (review, or make the changes) after your own instructions for it.
     ClaudeWith(agent::Ask),
     /// Have Claude draft a replacement for these PRs, after your instructions for it (starting
@@ -893,6 +897,14 @@ impl App {
                 let prefill = about.as_ref().map_or(String::new(), |(_, q)| q.clone());
                 let Some(body) = compose_with(&what, false, &prefill, false)? else { return Ok("comment cancelled".into()) };
                 keep_on_error(crate::claude::add_comment(&p, &anchor, code, &body, about.map(|a| a.0)).map(drop), &body)?;
+                self.load_claude();
+                Ok(self.answer_now())
+            }
+            Action::AskConversation { url, prefill } => {
+                let p = self.claude.path.clone().context("no review file")?;
+                let what = "ask Claude about this conversation comment (it answers under it; nothing goes to GitHub)";
+                let Some(body) = compose_with(what, false, &prefill, false)? else { return Ok("question cancelled".into()) };
+                keep_on_error(crate::claude::add_conversation(&p, &url, &body).map(drop), &body)?;
                 self.load_claude();
                 Ok(self.answer_now())
             }

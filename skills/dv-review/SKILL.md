@@ -102,7 +102,10 @@ The user can also leave you comments of their own on lines (`"author": "user"` o
 itself; Claude's comments have no `author`): questions about the code, or requests. Treat each
 like a reply: it's waiting for you while the user has the last word. One with `"about": <id>` asks
 you about another reviewer's comment on GitHub (it quotes it): find it in `dv review-comments` (the
-comment with that `id`, and its thread), and answer what the user asks about it.
+comment with that `id`, and its thread), and answer what the user asks about it. One with
+`"conversation": "<url>"` (and no `path` or `line`) asks about a comment in the PR's conversation,
+at that URL (quoted in it; `gh pr view <n> --comments` has the rest): answer it the same way, with
+a reply; it has no lines, so don't add any.
 
 When asked to answer them: read the file, and for every comment whose last word (its last
 reply, or the comment itself if it has none) is from `"user"` and isn't `"resolved": true`:

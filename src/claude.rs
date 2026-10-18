@@ -20,6 +20,8 @@
 //! "old" = the base). `start_line` is optional (single-line comment). Replies are a
 //! conversation with Claude: dv appends the user's (`r`), Claude appends its answers. A comment
 //! with `"author": "user"` is one the user left for Claude (`a` in dv), which Claude answers.
+//! One with `"conversation": "<url>"` instead of `path`/`line` asks about a comment in the PR's
+//! conversation (that URL's): it's on no lines, and dv shows it under that comment.
 //!
 //! `id` names a comment for good (`c1`, `c2`, …), so replies and dismissals reach the right one
 //! however the list is edited; dv and `dv review-check` give one to any comment without.
@@ -333,15 +335,20 @@ fn parse(text: &str) -> Result<Review> {
         .map(|(i, c)| {
             let line = |k: &str| c[k].as_u64().map(|n| n as u32);
             let path = s(&c["path"]);
-            anyhow::ensure!(!path.is_empty(), "comment {} has no \"path\"", i + 1);
-            let end = line("line").with_context(|| format!("comment {} has no \"line\"", i + 1))?;
+            let conversation = s(&c["conversation"]);
+            anyhow::ensure!(!path.is_empty() || !conversation.is_empty(), "comment {} has no \"path\"", i + 1);
+            let end = match conversation.is_empty() {
+                true => Some(line("line").with_context(|| format!("comment {} has no \"line\"", i + 1))?),
+                false => None, // on no lines: under the conversation comment it's about
+            };
             Ok(Thread {
                 id: String::new(),
                 path,
                 left: c["side"] == "old",
-                line: Some(end),
-                start_line: line("start_line").filter(|&s| s < end),
-                original_line: Some(end),
+                line: end,
+                start_line: line("start_line").filter(|&s| end.is_some_and(|e| s < e)),
+                original_line: end,
+                conversation,
                 resolved: c["resolved"] == true,
                 outdated: false,
                 // The recorded code, diff-style (+ new side, - old), as outdated threads show it.
@@ -445,15 +452,6 @@ fn root_author(c: &Value) -> String {
 /// A comment the user leaves for Claude on lines of the diff (`a` in dv), for Claude to answer
 /// or act on. Starts the review file if there isn't one. Returns its id.
 pub fn add_comment(path: &std::path::Path, a: &crate::gh::Anchor, code: Vec<String>, body: &str, about: Option<u64>) -> Result<String> {
-    let mut v: Value = match std::fs::read_to_string(path) {
-        Ok(t) => serde_json::from_str(&t)?,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => serde_json::json!({ "comments": [] }),
-        Err(e) => return Err(e.into()),
-    };
-    if !v["comments"].is_array() {
-        v["comments"] = serde_json::json!([]);
-    }
-    let comments = v["comments"].as_array_mut().context("no comments")?;
     let mut c = serde_json::json!({
         "path": a.path, "line": a.line, "side": if a.left { "old" } else { "new" },
         "author": USER, "body": body, "created": now(), "code": code,
@@ -464,6 +462,25 @@ pub fn add_comment(path: &std::path::Path, a: &crate::gh::Anchor, code: Vec<Stri
     if let Some(id) = about {
         c["about"] = id.into(); // a GitHub review comment it asks Claude about
     }
+    push_comment(path, c)
+}
+
+/// A question the user asks Claude about the PR conversation's comment at `url` (`a` on it).
+pub fn add_conversation(path: &std::path::Path, url: &str, body: &str) -> Result<String> {
+    push_comment(path, serde_json::json!({ "conversation": url, "author": USER, "body": body, "created": now() }))
+}
+
+/// Add comment `c` to the review file at `path` (starting it if there isn't one); its id.
+fn push_comment(path: &std::path::Path, c: Value) -> Result<String> {
+    let mut v: Value = match std::fs::read_to_string(path) {
+        Ok(t) => serde_json::from_str(&t)?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => serde_json::json!({ "comments": [] }),
+        Err(e) => return Err(e.into()),
+    };
+    if !v["comments"].is_array() {
+        v["comments"] = serde_json::json!([]);
+    }
+    let comments = v["comments"].as_array_mut().context("no comments")?;
     comments.push(c);
     assign_ids(comments);
     let id = comments.last().and_then(|c| c["id"].as_str()).unwrap_or_default().to_owned();
@@ -573,7 +590,7 @@ pub fn locate(t: &Thread, f: &FileDiff) -> Found {
 /// Keep Claude's comments on their code: move the ones whose lines moved, and mark the ones
 /// whose lines are gone outdated (or that aren't in the diff any more, which dv can't show).
 pub fn reanchor(threads: &mut [Thread], files: &[FileDiff]) {
-    for t in threads.iter_mut().filter(|t| t.claude.is_some()) {
+    for t in threads.iter_mut().filter(|t| t.claude.is_some() && t.conversation.is_empty()) {
         let found = match files.iter().find(|f| f.path == t.path) {
             Some(f) => locate(t, f),
             None => Found::Gone,
@@ -605,6 +622,9 @@ pub fn check(path: &std::path::Path, files: &[FileDiff]) -> Result<Report> {
     let mut changed = v["comments"].as_array_mut().is_some_and(|c| assign_ids(c));
     for (i, t) in r.threads.iter().enumerate() {
         let c = &mut v["comments"][i];
+        if !t.conversation.is_empty() {
+            continue; // about a conversation comment: on no lines to check
+        }
         let at = format!("comment {} ({}:{})", i + 1, t.path, t.line.unwrap_or(0));
         let Some(f) = files.iter().find(|f| f.path == t.path) else {
             rep.errors.push(format!("{at}: {} isn't in the diff", t.path));
@@ -656,6 +676,22 @@ pub fn check(path: &std::path::Path, files: &[FileDiff]) -> Result<Report> {
         write(path, &v)?;
     }
     Ok(rep)
+}
+
+#[test]
+fn questions_about_the_conversation() {
+    // `a` on a conversation comment: a question on no lines, by the comment's URL; check()
+    // leaves it be (nothing to anchor), and it loads with its URL and no path.
+    let p = std::env::temp_dir().join(format!("dv-claude-conv-{}.json", std::process::id()));
+    _ = std::fs::remove_file(&p);
+    let url = "https://github.com/o/r/pull/7#issuecomment-5";
+    let id = add_conversation(&p, url, "what do they mean?").unwrap();
+    let rep = check(&p, &[]).unwrap();
+    assert!(rep.errors.is_empty() && rep.warnings.is_empty(), "{:?}", rep.errors);
+    let t = &load(&p).unwrap().unwrap().threads[0];
+    assert_eq!((t.conversation.as_str(), t.path.as_str(), t.line, t.claude.as_deref()), (url, "", None, Some(id.as_str())));
+    assert_eq!(t.comments[0].author, "you");
+    _ = std::fs::remove_file(&p);
 }
 
 #[test]

@@ -63,6 +63,9 @@ pub struct Thread {
     pub severity: String,
     /// From the review file: the GitHub review comment it's about (its id), if it answers one.
     pub about: Option<u64>,
+    /// From the review file: the PR conversation comment (or review) it asks Claude about, by
+    /// its URL. Such a thread is on no file's lines (`path` empty): it's under that comment.
+    pub conversation: String,
 }
 
 #[derive(Clone, Default)]
@@ -668,6 +671,7 @@ fn parse_thread(t: &Value) -> Thread {
         claude: None,
         severity: String::new(),
         about: None,
+        conversation: String::new(),
     }
 }
 
@@ -850,7 +854,8 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         let count = |m| checks.iter().filter(|c| verdict(c) == m).count();
         let (pass, fail, pending) = (count('✓'), count('✗'), count('●'));
         let mut l = InfoLine::new(false, false);
-        l.put("checks: ", None);
+        l.put("checks", Some(Mark::Link(format!("{}/checks", s(&v["url"])))));
+        l.put(": ", None);
         // Only the counts that aren't zero.
         let parts = [(pass, "✓", "passed", Mark::Pass), (fail, "✗", "failed", Mark::Fail), (pending, "●", "pending", Mark::Pending)];
         for (k, (n, sym, what, m)) in parts.into_iter().filter(|p| p.0 > 0).enumerate() {
@@ -864,7 +869,12 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
             let name = c["name"].as_str().or(c["context"].as_str()).unwrap_or("?");
             let m = if verdict(c) == '✗' { Mark::Fail } else { Mark::Pending };
             let mut l = InfoLine::new(false, false);
-            l.put(&format!("{} {name}", verdict(c)), Some(m));
+            l.put(&format!("{} ", verdict(c)), Some(m.clone()));
+            // Its run on GitHub (a check run's details, a status's target).
+            match c["detailsUrl"].as_str().or(c["targetUrl"].as_str()).filter(|u| !u.is_empty()) {
+                Some(u) => l.put(name, Some(Mark::Link(u.to_owned()))),
+                None => l.put(name, Some(m)),
+            };
             out.push(l);
         }
     }

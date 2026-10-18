@@ -341,6 +341,10 @@ impl App {
         if self.claude.path.is_none() {
             return self.msg = "no review file here (not in a git repo?)".into();
         }
+        // On a comment in the PR's conversation: a question about it, under it.
+        if let Some((url, prefill)) = self.conversation_at_cursor() {
+            return self.action = Some(Action::AskConversation { url, prefill });
+        }
         // On a GitHub review thread: ask Claude about the comment under the cursor.
         if let Some(t) = self.rows[self.head.row].thread.filter(|&t| self.threads[t].claude.is_none()) {
             return self.ask_about(t);
@@ -360,6 +364,18 @@ impl App {
             Some(code) => self.action = Some(Action::AskClaude { anchor, code, about: None }),
             None => self.msg = "those lines aren't in this diff".into(),
         }
+    }
+
+    /// The conversation comment under the cursor (its author line or text): its URL, and the
+    /// start of a question about it (who, the link, the comment quoted).
+    fn conversation_at_cursor(&self) -> Option<(String, String)> {
+        let row = &self.rows[self.head.row];
+        let body = row.info.filter(|_| row.file == INFO && row.thread.is_none() && !row.main)?;
+        let text = self.info.get(body).filter(|l| l.md)?;
+        let head = self.info.get(body.checked_sub(1)?).filter(|h| h.heading && !h.url.is_empty() && h.text.starts_with('@'))?;
+        let who = head.text.split(" · ").next().unwrap_or("");
+        let quote: String = text.text.lines().map(|l| format!("> {l}\n")).collect();
+        Some((head.url.clone(), format!("About {who}'s comment ({}):\n{quote}\n", head.url)))
     }
 
     /// Which of a replacement's drafts row `r` is a line of: "description" or "closing note".

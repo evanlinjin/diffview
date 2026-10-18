@@ -481,6 +481,9 @@ impl App {
         if th.outdated {
             return self.msg = "this comment is outdated (its code changed): ask Claude to update it, or Space d".into();
         }
+        if !th.conversation.is_empty() {
+            return self.msg = "Claude's answer here is for you, on no lines: C on the comment above quotes it in a new conversation comment".into();
+        }
         let anchor = Anchor { path: th.path.clone(), line: th.line.unwrap_or(0), left: th.left, start: th.start_line.map(|s| (s, th.left)) };
         let mut body = self.comment_under_cursor(t).map(|c| c.body.clone()).unwrap_or_default();
         // On GitHub the severity leads the text, as reviewers write it: "**nit:** …".

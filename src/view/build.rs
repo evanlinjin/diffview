@@ -165,6 +165,10 @@ impl App {
             } else if !self.info_collapsed {
                 // In the pane (when it's shown), wrapped to its width.
                 let width = self.info_w();
+                // The facts at the top (author, branches, size, reviews, checks), in a box whose
+                // title opens the PR on GitHub.
+                let facts = self.info.iter().take_while(|l| !l.heading && !l.md).count();
+                let url = self.pr.as_ref().map(|p| p.url.clone()).filter(|u| !u.is_empty());
                 for (ii, l) in self.info.iter().enumerate() {
                     // The description has a section of its own in the diff's column (below).
                     if self.is_description(ii) || ii.checked_sub(1).is_some_and(|h| self.is_description(h)) {
@@ -183,10 +187,24 @@ impl App {
                             let placeholder = if description { "_(no description)_" } else { "_(no comment)_" };
                             rows.extend(self.md_rows_at(placeholder, width, mk).into_iter().map(|r| Row { info: Some(ii), ..r }));
                             rows.push(Row { info: Some(ii), edge: true, ..mk(Kind::Comment, String::new()) });
+                            rows.extend(self.conversation_rows(ii));
                         }
                         (false, true) => {
                             rows.extend(self.md_rows_at(&l.text, width, mk).into_iter().map(|r| Row { info: Some(ii), ..r }));
                             rows.push(Row { info: Some(ii), edge: true, ..mk(Kind::Comment, String::new()) });
+                            rows.extend(self.conversation_rows(ii));
+                        }
+                        (false, false) if ii < facts => {
+                            let fact = |r: Row| Row { info: Some(FACTS), ..r };
+                            if ii == 0 {
+                                let title = if url.is_some() { "status · on GitHub ↗" } else { "status" };
+                                let links = url.iter().map(|u| (9, title.chars().count(), u.clone())).collect();
+                                rows.push(fact(Row { links, ..mk(Kind::Thread, title.into()) }));
+                            }
+                            rows.push(fact(self.info_row(l, mk(Kind::Comment, l.text.clone()))));
+                            if ii + 1 == facts {
+                                rows.push(Row { edge: true, ..fact(mk(Kind::Comment, String::new())) });
+                            }
                         }
                         (false, false) => rows.push(self.info_row(l, mk(Kind::Comment, l.text.clone()))),
                     }
@@ -226,6 +244,7 @@ impl App {
             true => vec![],
             false => (0..self.threads.len())
                 .filter(|&t| self.in_view(&self.threads[t]) && !self.files.iter().any(|f| f.path == self.threads[t].path))
+                .filter(|&t| self.threads[t].conversation.is_empty() || self.conversation_item(&self.threads[t].conversation).is_none())
                 .collect(),
         };
         gone.sort_by(|&a, &b| self.threads[a].path.cmp(&self.threads[b].path)); // stable: in order within a file
@@ -346,6 +365,21 @@ impl App {
     }
 
     /// The width comments and PR text wrap to: the pane's, when it's shown (they're there).
+    /// The questions for Claude about conversation comment `info[body]` (and its answers),
+    /// under it.
+    fn conversation_rows(&self, body: usize) -> Vec<Row> {
+        let Some(url) = body.checked_sub(1).and_then(|h| self.info.get(h)).filter(|h| h.heading && !h.url.is_empty()).map(|h| &h.url) else { return vec![] };
+        (0..self.threads.len())
+            .filter(|&t| self.threads[t].conversation == *url && self.in_view(&self.threads[t]))
+            .flat_map(|t| self.thread_rows(t, INFO))
+            .collect()
+    }
+
+    /// The conversation comment with this URL: its body's index in `info`.
+    pub(super) fn conversation_item(&self, url: &str) -> Option<usize> {
+        (0..self.info.len()).find(|&i| self.info[i].heading && self.info[i].url == url).map(|h| h + 1).filter(|&b| self.info.get(b).is_some_and(|l| l.md))
+    }
+
     /// `info[i]` is the description's heading.
     pub(super) fn is_description(&self, i: usize) -> bool {
         self.info.get(i).is_some_and(|l| l.heading && l.text == "description")

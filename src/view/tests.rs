@@ -187,7 +187,7 @@ fn comments_placed_and_anchored() {
     let t = |left, line, resolved, comments| Thread {
         id: format!("T{line:?}"),
         path: "src/a.rs".into(), left, line, start_line: None, original_line: Some(1), resolved, outdated: line.is_none(),
-        hunk: vec![], comments, claude: None, severity: String::new(), about: None,
+        hunk: vec![], comments, claude: None, severity: String::new(), about: None, conversation: String::new(),
     };
     app.threads = vec![
         t(true, Some(2), false, vec![c(1, "why remove?"), c(2, "unused")]), // on the deleted line
@@ -530,7 +530,7 @@ fn copy_refs() {
     let c = |id| gh::Comment { id, node_id: String::new(), can_edit: false, can_delete: false, author: "amy".into(), body: "hi".into(), created: String::new(), pending: false };
     app.threads = vec![gh::Thread {
         id: "T".into(), path: "src/a.rs".into(), left: false, line: Some(2), start_line: None, original_line: Some(2),
-        resolved: false, outdated: false, hunk: vec![], comments: vec![c(11), c(12)], claude: None, severity: String::new(), about: None,
+        resolved: false, outdated: false, hunk: vec![], comments: vec![c(11), c(12)], claude: None, severity: String::new(), about: None, conversation: String::new(),
     }];
     let heading = |text: &str, url: &str| gh::InfoLine { heading: true, md: false, text: text.into(), marks: vec![], url: url.into() };
     let body = |text: &str| gh::InfoLine { heading: false, md: true, text: text.into(), marks: vec![], url: String::new() };
@@ -665,7 +665,7 @@ fn cycle_pending_comments() {
     let c = |id, pending| gh::Comment { id, node_id: String::new(), can_edit: true, can_delete: true, author: "me".into(), body: format!("c{id}"), created: String::new(), pending };
     let t = |line, comments| gh::Thread {
         id: String::new(), path: "src/a.rs".into(), left: false, line: Some(line), start_line: None, original_line: Some(line),
-        resolved: false, outdated: false, hunk: vec![], comments, claude: None, severity: String::new(), about: None,
+        resolved: false, outdated: false, hunk: vec![], comments, claude: None, severity: String::new(), about: None, conversation: String::new(),
     };
     // A pending reply on line 3's thread, a pending comment on line 1, a posted one between.
     app.threads = vec![t(3, vec![c(1, false), c(2, true)]), t(1, vec![c(3, true)]), t(2, vec![c(4, false)])];
@@ -743,7 +743,7 @@ fn comments_in_the_margin() {
     let c = |id, body: &str| gh::Comment { id, node_id: String::new(), can_edit: false, can_delete: false, author: "amy".into(), body: body.into(), created: String::new(), pending: false };
     let t = |line, comments| gh::Thread {
         id: String::new(), path: "a.rs".into(), left: false, line: Some(line), start_line: None, original_line: Some(line),
-        resolved: false, outdated: false, hunk: vec![], comments, claude: None, severity: String::new(), about: None,
+        resolved: false, outdated: false, hunk: vec![], comments, claude: None, severity: String::new(), about: None, conversation: String::new(),
     };
     app.threads = vec![t(1, vec![c(1, "first")]), t(2, vec![c(2, "second")])];
     app.margin_active = true;
@@ -846,7 +846,7 @@ fn margin_tags_on_their_own_line() {
     let c = gh::Comment { id: 1, node_id: String::new(), can_edit: false, can_delete: false, author: "amy".into(), body: "old".into(), created: String::new(), pending: false };
     app.threads = vec![gh::Thread {
         id: String::new(), path: "src/a.rs".into(), left: false, line: Some(2), start_line: None, original_line: Some(2),
-        resolved: true, outdated: false, hunk: vec![], comments: vec![c], claude: None, severity: String::new(), about: None,
+        resolved: true, outdated: false, hunk: vec![], comments: vec![c], claude: None, severity: String::new(), about: None, conversation: String::new(),
     }];
     let rows = |app: &App| app.rows.iter().filter(|r| r.thread == Some(0)).map(|r| r.line.text.clone()).collect::<Vec<_>>();
     app.build();
@@ -999,7 +999,7 @@ fn threads_on_files_gone_from_the_diff() {
     };
     app.threads = vec![gh::Thread {
         id: "T1".into(), path: "src/reverted.rs".into(), left: false, line: Some(4), start_line: None, original_line: Some(4),
-        resolved: false, outdated: false, hunk: vec![], comments: vec![c], claude: None, severity: String::new(), about: None,
+        resolved: false, outdated: false, hunk: vec![], comments: vec![c], claude: None, severity: String::new(), about: None, conversation: String::new(),
     }];
     app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new(), ..Default::default() });
     app.build();
@@ -1126,7 +1126,7 @@ fn claude_view() {
     let c = |author: &str| gh::Comment { id: 1, node_id: String::new(), can_edit: false, can_delete: false, author: author.into(), body: "hm".into(), created: String::new(), pending: false };
     let t = |path: &str, line, claude: Option<&str>, author| gh::Thread {
         id: String::new(), path: path.into(), left: false, line: Some(line), start_line: None, original_line: Some(line),
-        resolved: false, outdated: false, hunk: vec![], comments: vec![c(author)], claude: claude.map(Into::into), severity: String::new(), about: None,
+        resolved: false, outdated: false, hunk: vec![], comments: vec![c(author)], claude: claude.map(Into::into), severity: String::new(), about: None, conversation: String::new(),
     };
     app.threads = vec![t("big.rs", 20, Some("c1"), "claude"), t("big.rs", 5, None, "amy"), t("src/a.rs", 2, None, "amy")];
     app.build();
@@ -1264,7 +1264,7 @@ fn range_comment_lights_its_lines() {
     let c = gh::Comment { id: 1, node_id: String::new(), can_edit: false, can_delete: false, author: "amy".into(), body: "these".into(), created: String::new(), pending: false };
     app.threads = vec![gh::Thread {
         id: String::new(), path: "a.rs".into(), left: false, line: Some(4), start_line: Some(2), original_line: Some(4),
-        resolved: false, outdated: false, hunk: vec![], comments: vec![c], claude: None, severity: String::new(), about: None,
+        resolved: false, outdated: false, hunk: vec![], comments: vec![c], claude: None, severity: String::new(), about: None, conversation: String::new(),
     }];
     app.margin_active = true;
     app.build();
@@ -1309,7 +1309,7 @@ fn gf_after_w() {
     let c = gh::Comment { id: 1, node_id: String::new(), can_edit: false, can_delete: false, author: "claude".into(), body: "Rename new_call there".into(), created: String::new(), pending: false };
     app.threads = vec![gh::Thread {
         id: String::new(), path: "src/a.rs".into(), left: false, line: Some(2), start_line: None, original_line: Some(2),
-        resolved: false, outdated: false, hunk: vec![], comments: vec![c], claude: Some("c1".into()), severity: String::new(), about: None,
+        resolved: false, outdated: false, hunk: vec![], comments: vec![c], claude: Some("c1".into()), severity: String::new(), about: None, conversation: String::new(),
     }];
     app.build();
     app.root = std::env::temp_dir().join(format!("dv-gfw-{}", std::process::id())); // nothing there
@@ -1360,7 +1360,7 @@ fn fixture() -> App {
     let c = |author: &str, body: &str, pending| gh::Comment { id: { id.set(id.get() + 1); id.get() }, node_id: String::new(), can_edit: true, can_delete: true, author: author.into(), body: body.into(), created: String::new(), pending };
     let t = |path: &str, line, comments, claude: Option<&str>, resolved| gh::Thread {
         id: String::new(), path: path.into(), left: false, line: Some(line), start_line: None, original_line: Some(line),
-        resolved, outdated: false, hunk: vec![], comments, claude: claude.map(Into::into), severity: if claude.is_some() { "nit".into() } else { String::new() }, about: None,
+        resolved, outdated: false, hunk: vec![], comments, claude: claude.map(Into::into), severity: if claude.is_some() { "nit".into() } else { String::new() }, about: None, conversation: String::new(),
     };
     app.threads = vec![
         t("src/big.rs", 12, vec![c("claude", "Name it `new_value`; see src/a.rs:2.", false)], Some("c1"), false),
@@ -1640,7 +1640,7 @@ fn pinned_title_and_status_bar_frame_the_content() {
     let l: Vec<&str> = s.lines().collect();
     assert!(app.pin && l[0].contains("PR #7") && l[11].starts_with(" NOR"), "{s}");
     // The row above the status bar is content, not covered by it (the diff runs on past it).
-    assert!(l[10].contains("Fixes the thing"), "{s}"); // the description: its section, before the files
+    assert!(!l[10].trim().is_empty() && !l[10].starts_with(" NOR"), "{s}");
 }
 
 #[test]
@@ -2048,4 +2048,28 @@ fn up_from_the_first_comment_stays_in_the_pane() {
     assert!(app.margin_side(), "k left the pane, onto row {}", app.head.row);
     (0..200).for_each(|_| app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)));
     assert!(app.margin_side(), "j left the pane");
+}
+
+#[test]
+fn ask_claude_about_a_conversation_comment() {
+    let mut app = fixture();
+    let url = "https://github.com/o/r/pull/7#issuecomment-5";
+    let head = gh::InfoLine { heading: true, md: false, text: "@cy · commented".into(), marks: vec![], url: url.into() };
+    app.info.push(head);
+    app.info.push(gh::InfoLine { heading: false, md: true, text: "Can we rename it?".into(), marks: vec![], url: String::new() });
+    // A question about it in Claude's review file: under it, on the PR tab.
+    let c = gh::Comment { id: 0, node_id: String::new(), can_edit: false, can_delete: false, author: "you".into(), body: "what do they mean?".into(), created: String::new(), pending: false };
+    app.threads.push(gh::Thread { claude: Some("c9".into()), comments: vec![c], conversation: url.into(), ..Default::default() });
+    _ = screen(220, 30, |f| app.draw(f));
+    let at = |text: &str| app.rows.iter().position(|r| r.line.text.contains(text)).unwrap();
+    let (body, q) = (at("Can we rename it?"), at("what do they mean?"));
+    assert!(q > body && app.pr_row(q) && app.rows[q].thread.is_some());
+    assert!(!app.rows.iter().any(|r| r.line.text.starts_with("comments on files no longer")));
+    // a on the comment: a question about it, quoting it, with its link.
+    app.claude.path = Some(std::env::temp_dir().join("dv-unused-review.json"));
+    app.goto(body, 0);
+    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+    let Some(Action::AskConversation { url: u, prefill }) = app.action.take() else { panic!("no question: {}", app.msg) };
+    assert_eq!(u, url);
+    assert!(prefill.starts_with("About @cy's comment (https://") && prefill.contains("> Can we rename it?"), "{prefill}");
 }

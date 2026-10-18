@@ -37,4 +37,4 @@
 
 
 
- NOR       split view (Ctrl-h / Ctrl-l switch sides)                                                                                                                                                                              split    1/44
+ NOR       split view (Ctrl-h / Ctrl-l switch sides)                                                                                                                                                                              split    1/46

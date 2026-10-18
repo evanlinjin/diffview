@@ -1,14 +1,14 @@
           PR #7 · Fix the thing  @bo · main ← amy:fix                                    3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)  Comments  PR                                                         gn
- ▾        description                                                                                                                             │    OPEN @bo · main ← fix · +2 −2 in 3 files
-          Fixes the thing, see new_call.                                                                                                          │    review: waiting on @cy
- ▾        src/big.rs  +1 −1  · 2 comments                                                                                                         │ ╭─ claude's review ────────────────────────────────────────────────────╮
-          ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── L9–15 ─│ │  Looks right; one nit.                                               │
-  9   9   line 9                                                                                                                                  │ ╰──────────────────────────────────────────────────────────────────────╯
- 10  10   line 10                                                                                                                                 │ ╭─ your review (pending) ──────────────────────────────────────────────╮
- 11  11   line 11                                                                                                                                 │ │  Nearly there.                                                       │
- 12     -     let x = old(12);                                                                                                                    │ ╰──────────────────────────────────────────────────────────────────────╯
-     12 +     let x = new_call(12);                                                                                                              ◆│
- 13  13   line 13                                                                                                                                 │
+ ▾        description                                                                                                                             │ ╭─ status ─────────────────────────────────────────────────────────────╮
+          Fixes the thing, see new_call.                                                                                                          │ │  OPEN @bo · main ← fix · +2 −2 in 3 files                            │
+ ▾        src/big.rs  +1 −1  · 2 comments                                                                                                         │ │  review: waiting on @cy                                              │
+          ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── L9–15 ─│ ╰──────────────────────────────────────────────────────────────────────╯
+  9   9   line 9                                                                                                                                  │ ╭─ claude's review ────────────────────────────────────────────────────╮
+ 10  10   line 10                                                                                                                                 │ │  Looks right; one nit.                                               │
+ 11  11   line 11                                                                                                                                 │ ╰──────────────────────────────────────────────────────────────────────╯
+ 12     -     let x = old(12);                                                                                                                    │ ╭─ your review (pending) ──────────────────────────────────────────────╮
+     12 +     let x = new_call(12);                                                                                                              ◆│ │  Nearly there.                                                       │
+ 13  13   line 13                                                                                                                                 │ ╰──────────────────────────────────────────────────────────────────────╯
  14  14   line 14                                                                                                                                 │
  15  15   line 15                                                                                                                                 │
  ▾        src/a.rs  +1 −1  · 1 comment                                                                                                            │
@@ -27,4 +27,4 @@
                                                                                                                                                   │
                                                                                                                                                   │
                                                                                                                                                   │
- NOR       pane: the PR's description and conversation (gn: comments; Ctrl-l goes in)                                                                                                                                  1/44
+ NOR       pane: the PR's description and conversation (gn: comments; Ctrl-l goes in)                                                                                                                                  1/46

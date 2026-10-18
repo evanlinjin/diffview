@@ -164,6 +164,9 @@ impl App {
         if self.replacement_draft(self.head.row).is_some() {
             return Some(("Claude's draft", &[("a", "ask Claude to redraft this (quoted)")]));
         }
+        if row.info == Some(FACTS) {
+            return Some(("PR", &[("Enter", "open the link under the cursor (a check: its run)"), ("gf", "the same")]));
+        }
         if row.info == Some(DRAFT) {
             return Some(("your review", &[("S", "edit it and submit"), ("C", "new conversation comment"), ("Space c", "copy link")]));
         }

@@ -1,6 +1,8 @@
           PR #7 · Fix the thing  @bo · main ← amy:fix
-          OPEN @bo · main ← fix · +2 −2 in 3 files
-          review: waiting on @cy
+       ╭─ status ──────────────────────────────────────────────────────────────────────────────────╮
+       │  OPEN @bo · main ← fix · +2 −2 in 3 files                                                 │
+       │  review: waiting on @cy                                                                   │
+       ╰───────────────────────────────────────────────────────────────────────────────────────────╯
        ╭─ claude's review ─────────────────────────────────────────────────────────────────────────╮
        │  Looks right; one nit.                                                                    │
        ╰───────────────────────────────────────────────────────────────────────────────────────────╯
@@ -10,21 +12,19 @@
  ▾        description
           Fixes the thing, see new_call.
  ▾        src/big.rs  +1 −1  · 2 comments
-          ────────────────────────────────────────────────────────────────────────────────── L9–15 ─
-  9   9   line 9
- 10  10   line 10                             window
- 11  11   line 11                             v  toggle split view
- 12     -     let x = old(12);                n  relative line numbers on / off
-     12 +     let x = new_call(12);           e  the files' list on / off
- 13  13   line 13                             c  show / hide the comments pane
- 14  14   line 14                             f  comments pane: a column / floating over the code
- 15  15   line 15                             ,  narrower pane (the one you're in, else comments)
- ▾        src/a.rs  +1 −1  · 1 comment        .  wider pane
-          ── fn main ──────────────────────── =  the pane at its usual width
-  1   1   fn main() {                         q  hide the pane you're in (files / comments)
-  2     -     old();                          a  Claude view: just Claude's review
-      2 +     new_call(x);                    p  pending view: just your pending review
-  3   3   }                                   h  the pane to the left
- ▾        new.rs (renamed from old.rs)  +0 −0 l  the pane to the right
- ▾        img.png (binary)  +0 −0
- NOR                           3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)  C-w  1/41
+          ─────────────────────────────────── window
+  9   9   line 9                              v  toggle split view
+ 10  10   line 10                             n  relative line numbers on / off
+ 11  11   line 11                             e  the files' list on / off
+ 12     -     let x = old(12);                c  show / hide the comments pane
+     12 +     let x = new_call(12);           f  comments pane: a column / floating over the code
+ 13  13   line 13                             ,  narrower pane (the one you're in, else comments)
+ 14  14   line 14                             .  wider pane
+ 15  15   line 15                             =  the pane at its usual width
+ ▾        src/a.rs  +1 −1  · 1 comment        q  hide the pane you're in (files / comments)
+          ── fn main ──────────────────────── a  Claude view: just Claude's review
+  1   1   fn main() {                         p  pending view: just your pending review
+  2     -     old();                          h  the pane to the left
+      2 +     new_call(x);                    l  the pane to the right
+  3   3   }
+ NOR                           3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)  C-w  1/43

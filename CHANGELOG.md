@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- `a` on a comment in the PR's conversation asks Claude about it: your question (the comment
+  quoted) and Claude's answer are a thread under it, on the PR tab (`r` to go on).
+- The PR's facts on the PR tab are in a box whose title opens the PR on GitHub; each failed or
+  pending check links to its run, and `checks` to the PR's checks page.
+
 ## [0.12.0] - 2026-10-18
 
 ### Added
