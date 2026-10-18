@@ -23,6 +23,8 @@ on GitHub are its section here.
   pending check links to its run, and `checks` to the PR's checks page.
 
 ### Fixed
+- Moving in the contents list (`j` / `k`) no longer moves the diff: it has its own cursor,
+  and `Enter` goes there.
 - Pickers and popups (`?`, hover, a commit's message, the menus) are over the whole window
   again, the contents list too: they were as narrow as the code beside it.
 

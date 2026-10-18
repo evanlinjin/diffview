@@ -519,6 +519,8 @@ pub struct App {
     files_cur: Option<files::Spot>,
     /// `Ctrl-h` from the code's left edge: keys go to the files' list (j / k a file).
     files_focus: bool,
+    /// The list's own cursor while it has focus (`j` / `k` move it; `Enter` goes there).
+    files_sel: Option<files::Spot>,
     /// Where those three are kept between runs (`pane.json`, any repo), once set by their keys.
     pane_file: Option<PathBuf>,
     /// It floats now (set by `draw`).
@@ -751,6 +753,7 @@ impl App {
             files_entries: vec![],
             files_cur: None,
             files_focus: false,
+            files_sel: None,
             margin_float: false,
             pane_tab: Tab::Comments,
             pr_rows: vec![],

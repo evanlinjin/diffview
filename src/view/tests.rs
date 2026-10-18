@@ -1962,13 +1962,18 @@ fn files_list_and_pinned_file_header() {
     ctrl(&mut app, 'h');
     assert!(app.files_focus);
     let Some(files::Spot::File(before)) = app.current_spot() else { panic!() };
+    // j / k move the list's cursor; the diff stays where it is until Enter, which goes there.
+    let row = app.head.row;
     app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    assert_eq!((app.files_sel, app.head.row), (Some(files::Spot::File(before + 1)), row));
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(app.current_spot(), Some(files::Spot::File(before + 1)));
-    assert_eq!(app.rows[app.head.row].line.kind, Kind::File);
+    assert!(app.rows[app.head.row].line.kind == Kind::File && !app.files_focus);
+    ctrl(&mut app, 'h');
     app.key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
-    assert_eq!(app.current_spot(), Some(files::Spot::File(before)));
-    ctrl(&mut app, 'l');
-    assert!(!app.files_focus);
+    assert_eq!(app.current_spot(), Some(files::Spot::File(before + 1))); // not yet
+    ctrl(&mut app, 'l'); // back, without going
+    assert!(!app.files_focus && app.current_spot() == Some(files::Spot::File(before + 1)));
     app.goto(big, 0);
     _ = screen(220, 20, |f| app.draw(f));
     ctrl(&mut app, 'l');
@@ -2156,3 +2161,4 @@ fn claude_working_and_out_of_sync_on_the_title() {
     let s = screen(160, 12, |f| app.draw(f));
     assert!(!s.lines().next().unwrap().contains('◐'));
 }
+

@@ -20,8 +20,8 @@ impl App {
         }
         // The code's left edge: on into the files' list.
         if !right && self.files_w > 0 && !self.margin_side() && (!self.split || !self.right) {
-            self.files_focus = true;
-            return self.msg = "files: j / k a file, Ctrl-l (or Enter) back to the code".into();
+            (self.files_focus, self.files_sel) = (true, self.current_spot());
+            return self.msg = "contents: j / k move, Enter goes there, Ctrl-l back".into();
         }
         if self.margin_active && self.pane_tab == Tab::Pr && right && (!self.split || self.right) && !self.pr_rows.is_empty() {
             let back = self.pr_head.filter(|r| self.pr_rows.contains(r));

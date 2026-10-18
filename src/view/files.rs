@@ -87,7 +87,8 @@ impl App {
             row.main.map(Spot::Section).or_else(|| (row.file < self.files.len()).then_some(Spot::File(row.file)))
         };
         at(self.head.row).or_else(|| {
-            let r = match *self.drows.get(self.top)? {
+            // The top of the screen, under the pinned title.
+            let r = match *self.drows.get(self.top.max(self.pin as usize))? {
                 DRow::Full(r) => r,
                 DRow::Pair(l, r) | DRow::Margin(l, r, _) => l.or(r)?,
             };
@@ -116,14 +117,20 @@ impl App {
             }
         }
         self.files_cur = cur;
+        // Its own cursor in view while it has focus.
+        let sel = self.files_sel.filter(|_| self.files_focus && !self.in_commits);
+        if let Some(i) = sel.and_then(|s| entries.iter().position(|e| e.spot == s)) {
+            self.files_top = self.files_top.min(i).max((i + 1).saturating_sub(h));
+        }
         self.files_top = self.files_top.min(entries.len().saturating_sub(h));
         let bar = Style { bg: ui.bar, ..ui.header };
         let mut lines = vec![Line::from(Span::styled(format!("{:<w$}", format!(" CONTENTS · {} files", self.files.len())), bar))];
         let dim = Style { fg: ui.stale.fg, ..Style::new() };
         for e in entries.iter().skip(self.files_top).take(h) {
-            let lit = |on: bool| match (on, self.files_focus) {
-                (true, true) => ui.menu_selected,
-                (true, false) => ui.base.bg(ui.cursorline.or(ui.menu_selected.bg).unwrap_or(Color::DarkGray)),
+            // The list's cursor (while it has focus), else where the diff is.
+            let lit = |on: bool| match (sel == Some(e.spot), on) {
+                (true, _) => ui.menu_selected,
+                (_, true) => ui.base.bg(ui.cursorline.or(ui.menu_selected.bg).unwrap_or(Color::DarkGray)),
                 _ => ui.base,
             };
             let line = match e.spot {
@@ -342,18 +349,18 @@ impl App {
         };
     }
 
-    /// A key while the list has focus: j / k go to the next / previous file, Ctrl-l, l,
-    /// Enter or Esc back to the code. Others leave the list too, and act as usual (`false`).
+    /// A key while the list has focus: j / k move its cursor (the diff stays put), Enter goes
+    /// there and back to the code, Ctrl-l, l or Esc back without going. Others leave the list
+    /// too, and act as usual (`false`).
     pub(super) fn files_key(&mut self, k: KeyEvent) -> bool {
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
         // Through what the list has (sections, then files), in its order.
         let spots: Vec<Spot> = self.file_entries().into_iter().map(|e| e.spot).filter(|&s| s != Spot::Folder).collect();
-        let at = self.current_spot().and_then(|c| spots.iter().position(|&s| s == c));
+        // The list's cursor moves; the diff stays where it is until Enter.
+        let at = self.files_sel.or(self.current_spot()).and_then(|c| spots.iter().position(|&s| s == c));
         let step = |app: &mut App, d: isize| {
             let i = at.map_or(0, |i| (i as isize + d).clamp(0, spots.len() as isize - 1) as usize);
-            if let Some(&s) = spots.get(i) {
-                app.goto_spot(s);
-            }
+            app.files_sel = spots.get(i).copied();
         };
         let last_file = at.is_some_and(|i| i + 1 == spots.len()) || spots.is_empty();
         match k.code {
@@ -376,7 +383,13 @@ impl App {
             KeyCode::Char('k') | KeyCode::Up if !ctrl => step(self, -1),
             KeyCode::Char('w') if ctrl => return false, // Ctrl-w keys act on the list (resize, hide)
             KeyCode::Char('h') | KeyCode::Left | KeyCode::Backspace => {}
-            KeyCode::Char('l') | KeyCode::Right | KeyCode::Enter | KeyCode::Esc => (self.files_focus, self.commit_anchor) = (false, None),
+            KeyCode::Enter => {
+                if let Some(s) = self.files_sel {
+                    self.goto_spot(s);
+                }
+                (self.files_focus, self.commit_anchor) = (false, None);
+            }
+            KeyCode::Char('l') | KeyCode::Right | KeyCode::Esc => (self.files_focus, self.commit_anchor) = (false, None),
             _ => {
                 self.files_focus = false;
                 return false;
@@ -416,7 +429,7 @@ impl App {
         if self.files_w == 0 {
             return self.msg = "the files' list is hidden (Ctrl-w e shows it)".into();
         }
-        self.files_focus = true;
+        (self.files_focus, self.files_sel) = (true, self.current_spot());
         self.in_commits = commits && !self.commits.is_empty();
         if self.in_commits {
             self.commit_cur = self.commit_shown.map_or(0, |(a, _)| a + 1);
