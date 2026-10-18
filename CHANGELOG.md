@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-18
+
 ### Added
 - `Ctrl-w n` turns relative line numbers on or off, and dv keeps that for next time, over
   Helix's `line-number` setting.
@@ -401,6 +403,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.8.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.8.0
 [0.7.2]: https://github.com/evanlinjin/diffview/releases/tag/v0.7.2
 [0.7.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.7.1
 [0.7.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.7.0
