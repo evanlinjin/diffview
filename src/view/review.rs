@@ -431,7 +431,9 @@ impl App {
             self.msg = format!("you can't delete @{}'s comment", c.author);
             return;
         }
-        let preview: String = c.body.lines().next().unwrap_or("").chars().take(40).collect();
+        let gist = gh::hidden_words(&c.hidden);
+        let text = self.seen_body(&c).unwrap_or(&gist);
+        let preview: String = text.lines().next().unwrap_or("").chars().take(40).collect();
         let items = vec![
             Item::new("No, keep it", Target::Nothing),
             Item::new(format!("Yes, delete @{}'s comment: \"{preview}\"", c.author), Target::DeleteComment(c.node_id.clone())),
@@ -448,6 +450,7 @@ impl App {
             return;
         };
         match c.can_edit {
+            true if self.seen_body(c).is_none() => self.msg = "it's hidden on GitHub: Tab shows it first".into(),
             true => {
                 let (comment, body, author) = (c.node_id.clone(), c.body.clone(), c.author.clone());
                 self.action = Some(Action::Edit { comment, body, author });
@@ -1386,9 +1389,7 @@ impl App {
         match (t, t.and_then(|t| self.root_id(t))) {
             (Some(t), Some(comment)) if self.pr.is_some() => {
                 let thread = self.threads[t].id.clone();
-                // (Not what's hidden on GitHub, unseen.)
-                let shown = |c: &&gh::Comment| !self.unseen(&c.hidden, &c.node_id);
-                let quote = self.comment_under_cursor(t).filter(shown).map_or(String::new(), |c| quote(&c.body));
+                let quote = self.comment_under_cursor(t).and_then(|c| self.seen_body(c)).map_or(String::new(), quote);
                 self.action = Some(Action::Reply { thread, comment, review, quote });
             }
             _ => self.msg = "move onto a comment thread to reply".into(),

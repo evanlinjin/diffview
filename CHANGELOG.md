@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.12] - 2026-10-19
+
+### Fixed
+- A comment hidden on GitHub isn't shown unseen by `Space d` (its preview says it's hidden)
+  or `Space e` (Tab shows it first); every quote, preview and edit reads a comment's text
+  through one rule.
+- `a` on a hidden comment says it's hidden (and gives the comment's id), so Claude knows to
+  read it on GitHub.
+
 ## [0.34.11] - 2026-10-19
 
 ### Fixed

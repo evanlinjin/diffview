@@ -2610,6 +2610,12 @@ fn hidden_conversation_comment_folded() {
     assert!(line.contains("▸ @bo · 1d ago · hidden on GitHub (spam)") && !s.contains("buy now"), "{line}");
     let r = app.rows.iter().position(|r| r.line.text.ends_with("hidden on GitHub (spam)")).unwrap();
     app.goto(r, 0);
+    // Not quoted unseen: `C` opens a comment without it.
+    let pr = app.pr.take();
+    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), url: "u".into(), ..Default::default() });
+    app.start_conversation_comment();
+    assert!(matches!(app.action.take(), Some(Action::Converse { ref quote, .. }) if quote.is_empty()));
+    app.pr = pr;
     app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     assert!(!app.rows.iter().any(|r| r.line.text.contains("hidden on GitHub")) && app.rows.iter().any(|r| r.line.text == "buy now"));
 }

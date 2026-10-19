@@ -584,16 +584,19 @@ impl App {
     /// A comment hidden on GitHub (`why`), not shown here (Tab): what its heading says after
     /// who and when, in place of its text.
     fn hidden_note(&self, why: &str, node: &str) -> Option<String> {
-        if why.is_empty() || self.revealed.contains(node) {
-            return None;
-        }
-        Some(format!(" · {}", gh::hidden_words(why)))
+        self.unseen(why, node).then(|| format!(" · {}", gh::hidden_words(why)))
     }
 
     /// Whether a comment (`hidden` on GitHub, why; its node id) is hidden here still: not to be
     /// quoted (`c`, `C`, `r`, `a`) before you've seen it.
     pub(super) fn unseen(&self, hidden: &str, node: &str) -> bool {
-        self.hidden_note(hidden, node).is_some()
+        !hidden.is_empty() && !self.revealed.contains(node)
+    }
+
+    /// A review comment's text, as far as you've seen it: none while it's hidden on GitHub
+    /// (and not shown here). What quotes, previews or edits it reads it through this.
+    pub(super) fn seen_body<'a>(&self, c: &'a gh::Comment) -> Option<&'a str> {
+        (!self.unseen(&c.hidden, &c.node_id)).then_some(c.body.as_str())
     }
 
     /// Whether row `r` is the folded line of a conversation comment hidden on GitHub.
