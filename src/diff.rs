@@ -214,7 +214,14 @@ pub fn git_in(dir: &std::path::Path, args: &[&str]) -> Result<String> {
 
 pub fn git(args: &[&str]) -> Result<String> {
     // Never an editor (a rebase's, a commit's): dv holds the terminal. These beat git's config.
-    let out = Command::new("git").args(args).env("GIT_EDITOR", "true").env("GIT_SEQUENCE_EDITOR", "true").output().context("running git")?;
+    // And no signature lines in `git log`'s output (`log.showSignature`): dv parses it.
+    let out = Command::new("git")
+        .args(["-c", "log.showSignature=false"])
+        .args(args)
+        .env("GIT_EDITOR", "true")
+        .env("GIT_SEQUENCE_EDITOR", "true")
+        .output()
+        .context("running git")?;
     if !out.status.success() {
         bail!("git {}: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim());
     }

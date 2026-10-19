@@ -799,23 +799,24 @@ pub fn rerun_failed(head: &str) -> Result<String> {
     if ids.is_empty() {
         return Ok("no failed runs to rerun (they may be running already)".into());
     }
-    // All at once; one that can't be (too old, say) doesn't keep the others from it.
-    let runs: Vec<_> = ids
-        .iter()
-        .map(|id| Command::new("gh").args(["run", "rerun", id, "--failed"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped()).spawn())
-        .collect();
-    let errors: Vec<String> = runs
-        .into_iter()
-        .filter_map(|r| match r.and_then(|c| c.wait_with_output()) {
-            Ok(o) if o.status.success() => None,
-            Ok(o) => Some(String::from_utf8_lossy(&o.stderr).lines().next().unwrap_or("failed").to_owned()),
-            Err(e) => Some(e.to_string()),
-        })
-        .collect();
-    let rerun = ids.len() - errors.len();
+    // A few at a time (not GitHub's limit on many writes at once); one that can't be (too
+    // old, say) doesn't keep the others from it.
+    let mut errors = vec![];
+    for batch in ids.chunks(4) {
+        std::thread::scope(|s| {
+            let runs: Vec<_> = batch.iter().map(|id| s.spawn(move || gh(&["run", "rerun", id, "--failed"]).err().map(|e| format!("run {id}: {e:#}")))).collect();
+            errors.extend(runs.into_iter().filter_map(|r| r.join().ok().flatten()));
+        });
+    }
+    rerun_says(ids.len(), &errors)
+}
+
+/// What rerunning `total` runs came to, `errors` the ones that couldn't be.
+fn rerun_says(total: usize, errors: &[String]) -> Result<String> {
+    let rerun = total - errors.len();
     match (rerun, errors.first()) {
         (0, Some(e)) => anyhow::bail!("no failed run could be rerun: {e}"),
-        (_, Some(e)) => Ok(format!("{rerun} of {} failed runs rerunning ({} couldn't be: {e})", ids.len(), errors.len())),
+        (_, Some(e)) => Ok(format!("{rerun} of {total} failed runs rerunning ({} couldn't be: {e})", errors.len())),
         _ => Ok(format!("{rerun} failed run(s) rerunning")),
     }
 }
@@ -1092,8 +1093,17 @@ fn pr_query(n: u64, more: &str) -> Result<Value> {
         "query($owner: String!, $name: String!, $n: Int!) {{ repository(owner: $owner, name: $name) {{ pullRequest(number: $n) {{
            {SIGNATURE_RULES} commits(last: 100) {{ totalCount nodes {{ commit {{ oid signature {{ isValid }} }} }} }} {more} }} }} }}"
     );
-    let v: Value = serde_json::from_str(&gh(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-F", &format!("n={n}"), "-f", &format!("query={q}")])?)?;
-    Ok(v["data"]["repository"]["pullRequest"].clone())
+    // A part GitHub refuses (some reactions, say) is an error with the rest still in `data`:
+    // that's kept (gh exits non-zero then, so its output is read either way).
+    let out = Command::new("gh")
+        .args(["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-F", &format!("n={n}"), "-f", &format!("query={q}")])
+        .stdin(Stdio::null())
+        .output()
+        .context("running gh")?;
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
+    let p = &v["data"]["repository"]["pullRequest"];
+    anyhow::ensure!(p.is_object(), "gh api graphql: {}", String::from_utf8_lossy(&out.stderr).trim());
+    Ok(p.clone())
 }
 
 fn signatures_of(p: &Value) -> Result<Signatures> {
@@ -1131,12 +1141,7 @@ pub fn info_json(n: u64) -> Result<Value> {
         v["dvAwaiting"] = w.get(&sha).map_or(0, Vec::len).into();
     }
     // One query for both: its commits' signatures, and which reactions are yours.
-    // (Its reactions part refused, the signatures alone: they matter more. Not on any error:
-    // offline, the second would fail too.)
-    let extra = pr_query(n, MINE).or_else(|e| match format!("{e:#}").contains("GraphQL") {
-        true => pr_query(n, ""),
-        false => Err(e),
-    });
+    let extra = pr_query(n, MINE);
     if let Ok(p) = &extra {
         v["dvMine"] = mine_of(p);
     }
@@ -1660,4 +1665,11 @@ fn live_info() {
     let n: u64 = std::env::var("DV_LIVE_PR").expect("DV_LIVE_PR").parse().unwrap();
     let v = info_json(n).unwrap();
     assert!(v["dvCommits"].is_array() && v["dvMine"].is_object(), "{}", v["dvCommits"]);
+}
+
+#[test]
+fn rerun_summary() {
+    assert_eq!(rerun_says(3, &[]).unwrap(), "3 failed run(s) rerunning");
+    assert_eq!(rerun_says(3, &["run 7: too old".into()]).unwrap(), "2 of 3 failed runs rerunning (1 couldn't be: run 7: too old)");
+    assert!(rerun_says(1, &["run 7: too old".into()]).is_err());
 }

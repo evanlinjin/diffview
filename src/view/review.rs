@@ -88,8 +88,11 @@ impl App {
             return self.start_rebase();
         }
         if let Job::Rerun = job {
+            self.ensure_fresh();
             let head = self.pr.as_ref().map(|p| p.head_oid.clone()).unwrap_or_default();
-            self.msg = gh::rerun_failed(&head).unwrap_or_else(|e| format!("{e:#}"));
+            let said = gh::rerun_failed(&head).unwrap_or_else(|e| format!("{e:#}"));
+            _ = self.reload(true); // the checks pending now (CI doesn't change the PR's ETag)
+            self.msg = said;
             return;
         }
         if let Job::Retarget(base) = job {
@@ -742,6 +745,10 @@ impl App {
         // fetched (a job: a frame says so first; tried again on the next refresh if it fails).
         // (Mid-rebase, a diff that follows the base waits till it's through: asked again then.)
         let waits = |a: &App| super::rebase::rebasing(&a.root) && a.pr.as_ref().is_some_and(|p| a.follow_base.as_deref() == Some(format!("origin/{}", p.base).as_str()));
+        if let Some(base) = retarget.clone().filter(|_| waits(self)) {
+            self.msg = format!("the PR's base is {base} now: the diff follows once the rebase is through");
+            self.retarget_later = Some(base);
+        }
         if let Some(base) = retarget.filter(|_| self.job.is_none() && !waits(self)) {
             (self.msg, self.job) = (format!("the PR's base is {base} now: fetching it…"), Some(Job::Retarget(base)));
         }

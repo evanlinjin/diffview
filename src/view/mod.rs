@@ -593,6 +593,8 @@ pub struct App {
     picker: Option<Picker>,
     /// A comment or reply for Claude, waiting on the picker for what you want of it.
     wanting: Option<Action>,
+    /// A retarget seen mid-rebase: the new base, followed once the rebase is through.
+    retarget_later: Option<String>,
     /// What isn't committed (the commits list's last row), as of the last reload.
     dirty: files::Dirty,
     /// The commits (shas) questions about them were last matched to (`rekey_commits`).
@@ -856,6 +858,7 @@ impl App {
             wanting: None,
             rekeyed: vec![],
             dirty: Default::default(),
+            retarget_later: None,
             search: String::new(),
             msg: String::new(),
             top: 0,
@@ -1271,6 +1274,12 @@ impl App {
             self.msg = format!("{e:#}");
         }
         self.rekey_commits(); // (commits rewritten here or elsewhere)
+        // A retarget that waited on a rebase: it's through (dv's, Claude's, in a terminal).
+        if self.job.is_none() && !rebase::rebasing(&self.root)
+            && let Some(base) = self.retarget_later.take()
+        {
+            (self.msg, self.job) = (format!("the PR's base is {base} now: fetching it…"), Some(Job::Retarget(base)));
+        }
         self.tree_seen = Some(self.tree_stamp());
     }
 
