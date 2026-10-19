@@ -27,6 +27,7 @@ mod rebase;
 mod replacement;
 mod seen;
 mod build;
+mod text;
 mod compose;
 use compose::*;
 use build::*;
