@@ -372,146 +372,167 @@ impl App {
             f.render_widget(Paragraph::new(text).style(self.ui.base.patch(self.ui.popup)), r);
         }
 
-        let status = Rect { y: area.y + (h + pin) as u16, height: 1, ..full };
-        let left = match &self.prompt {
-            Some(q) => Line::from(format!("/{q}")),
-            None => {
-                let l = &self.rows[self.head.row].line;
-                let pos = match (l.new, l.old) {
-                    (Some(n), _) => format!("{n}:{}", self.head.col + 1),
-                    (None, Some(o)) => format!("-{o}:{}", self.head.col + 1),
-                    _ => String::new(),
-                };
-                let (mode, mst) = if self.select { (" SEL ", self.ui.mode_select) } else { (" NOR ", self.ui.mode_normal) };
-                Line::from(vec![Span::styled(mode, mst), Span::raw(format!("  {}  {pos}  {}", self.file_path().unwrap_or(""), self.msg))])
-            }
-        };
-        let pend = match self.pending {
-            Some(CTRL_W) => "C-w".into(),
-            p => p.map(String::from).unwrap_or_default(),
-        };
-        let count = if self.count > 0 { self.count.to_string() } else { String::new() };
-        let ra = match self.progress.values().next() {
-            Some((t, m)) => format!("ra: {t} {m}  "),
-            None if self.lsp.is_some() && !self.lsp_ready => "ra: starting  ".into(),
-            None => String::new(),
-        };
-        let pr = match self.pr_counts() {
-            c if c.is_empty() || self.bar_counts => String::new(), // on the pinned title then
-            c => format!("{c}  "),
-        };
-        let working = match &self.claude.job {
-            Some(j) => format!("Claude working {}… · ", agent::ago(j.started)),
-            None => String::new(),
-        };
-        let view = format!(
-            "{}{}{}",
-            match self.view {
-                View::Claude => "claude view  ",
-                View::Pending => "pending view  ",
-                View::All => "",
-            },
-            if self.uncommitted() { "uncommitted  ".into() } else { self.commits_label().map(|l| format!("{l}  ")).unwrap_or_default() },
-            if self.split { "split  " } else { "" }
-        );
-        // The left side (what you're on, messages, hints) wins: when both don't fit, the right
-        // keeps only the essentials, and the left is cut with an ellipsis.
-        let essential = format!("{view}{count}{pend}  {}/{} ", self.head.row + 1, self.rows.len());
-        let extras = format!("{ra}{working}{pr}");
-        let width = full.width as usize;
-        let right = match left.width() + extras.chars().count() + essential.chars().count() < width {
-            true => format!("{extras}{essential}"),
-            false => essential,
-        };
-        let left = fit(left, width.saturating_sub(right.chars().count() + 1));
-        let bar = self.ui.base.patch(self.ui.status);
-        f.render_widget(Paragraph::new(left).style(bar), status);
-        f.render_widget(Paragraph::new(right).alignment(Alignment::Right).style(bar), status);
+        self.draw_status(f, Rect { y: area.y + (h + pin) as u16, height: 1, ..full });
 
-        if let Some(p) = &self.picker {
-            let m = self.matches();
-            let sel = p.sel.min(m.len().saturating_sub(1));
-            // Items are cards when they have detail lines (comment pickers): all the same height.
-            let per = 1 + p.items.iter().map(|i| i.detail.len()).max().unwrap_or(0);
-            let gap = (per > 1) as usize; // a blank line between cards
-            let item_h = per + gap;
-            let w = (full.width * 3 / 4).max(20).min(full.width);
-            let ph = ((m.len() * item_h) as u16 + 3).min(full.height.saturating_sub(4)).max(3);
-            let r = Rect { x: full.x + (full.width - w) / 2, y: 2.min(full.height), width: w, height: ph.min(full.height) };
-            let vis = ((ph as usize).saturating_sub(3) / item_h).max(1);
-            let off = sel.saturating_sub(vis.saturating_sub(1));
-            let mut lines = vec![Line::from(format!("> {}", p.query))];
-            let q = p.query.to_lowercase();
-            for (i, &it) in m.iter().enumerate().skip(off).take(vis) {
-                let st = if i == sel { self.ui.menu_selected } else { Style::new() };
-                // Highlight the words the filter matched, where they are (as `matches` checks).
-                let label: Vec<char> = p.items[it].label.chars().collect();
-                let lower: Vec<char> = p.items[it].label.to_lowercase().chars().collect();
-                let mut hit = vec![false; label.len()];
-                for w in q.split_whitespace().map(|w| w.chars().collect::<Vec<_>>()) {
-                    for k in (0..lower.len().saturating_sub(w.len() - 1)).filter(|&k| lower.len() == label.len() && lower[k..].starts_with(&w)) {
-                        hit[k..k + w.len()].iter_mut().for_each(|h| *h = true);
-                    }
-                }
-                let spans: Vec<Span> = label.iter().zip(&hit).map(|(c, &h)| Span::styled(c.to_string(), if h { st.patch(self.ui.key) } else { st })).collect();
-                lines.push(Line::from(spans).style(st));
-                let detail = &p.items[it].detail;
-                for k in 0..per - 1 {
-                    let text = detail.get(k).map_or(String::new(), |d| format!("  {d}"));
-                    lines.push(Line::from(Span::styled(text, st.patch(self.ui.stale))).style(st));
-                }
-                if gap > 0 {
-                    lines.push(Line::default());
-                }
-            }
-            let pos = if m.is_empty() { "0 / 0".into() } else { format!("{} / {}", sel + 1, m.len()) };
-            let inner = self.popup_frame(f, r, p.title, &pos);
-            f.render_widget(Paragraph::new(lines), inner);
-            // Items start below the query line.
-            let list = Rect { y: inner.y + 1, height: inner.height.saturating_sub(1), ..inner };
-            self.scrollbar(f, list, m.len(), vis, off);
-            self.geom.picker = Some(mouse::PickerGeom { list, item_h, off });
-        }
+        self.draw_picker(f, full);
 
         // The key hints, without the contents list: bottom right, as Helix has them; bottom left
         // while the cursor is in the comment margin, so they don't cover the comments there.
         if let Some((title, keys)) = keys.filter(|_| sw == 0) {
-            let kw = keys.iter().map(|k| k.0.len()).max().unwrap_or(1);
-            let lines: Vec<Line> = keys
-                .iter()
-                .map(|(k, d)| Line::from(vec![Span::styled(format!("{k:<kw$}  "), self.ui.key), Span::raw(*d)]))
-                .collect();
-            let w = (lines.iter().map(Line::width).max().unwrap_or(10) as u16 + 4).max(title.len() as u16 + 4).min(area.width);
-            let ph = (lines.len() as u16 + 2).min(h as u16);
-            let x = if self.margin_side() { area.x } else { area.x + area.width - w };
-            let r = Rect { x, y: ((h + pin) as u16).saturating_sub(ph), width: w, height: ph }; // above the status bar
-            let inner = self.popup_frame(f, r, title, "");
-            f.render_widget(Paragraph::new(lines), inner);
+            self.draw_key_popup(f, Rect { height: (h + pin) as u16, ..area }, title, keys);
         }
 
-        if let Some((title, text, scroll)) = self.popup.clone() {
-            // As wide as the text (hover is wrapped to fit 100; help may be two columns), and the title.
-            let text_w = text.iter().map(Line::width).max().unwrap_or(0).max(title.chars().count() + 1);
-            let w = (text_w as u16 + 3).max(30).min(full.width.saturating_sub(4));
-            // ponytail: wrapped height estimated from line widths (char wrap, not word wrap).
-            let cw = w.saturating_sub(3).max(1) as usize;
-            let total: usize = text.iter().map(|l| l.width().div_ceil(cw).max(1)).sum();
-            let h = (total as u16 + 2).min(full.height.saturating_sub(4)).max(3);
-            let r = Rect { x: full.x + (full.width - w) / 2, y: 2.min(full.height), width: w, height: h.min(full.height) };
-            let vis = h.saturating_sub(2) as usize;
-            // Don't scroll past the end.
-            let scroll = scroll.min(total.saturating_sub(vis) as u16);
-            if let Some(p) = &mut self.popup {
-                p.2 = scroll;
-            }
-            let first = scroll as usize + 1;
-            let pos = if total > vis { format!("{first}–{} / {total}", (first + vis - 1).min(total)) } else { String::new() };
-            let inner = self.popup_frame(f, r, &title, &pos);
-            let text_area = Rect { width: inner.width.saturating_sub(1), ..inner }; // room for the scrollbar
-            let text = code_to_edge(text, text_area.width as usize, self.ui.md.code_bg);
-            f.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }).scroll((scroll, 0)), text_area);
-            self.scrollbar(f, inner, total, vis, scroll as usize);
+        self.draw_popup(f, full);
+    }
+
+    /// The status bar: the mode, where you are, the message; on the right, what's going on.
+    fn draw_status(&self, f: &mut Frame, status: Rect) {
+    let left = match &self.prompt {
+        Some(q) => Line::from(format!("/{q}")),
+        None => {
+            let l = &self.rows[self.head.row].line;
+            let pos = match (l.new, l.old) {
+                (Some(n), _) => format!("{n}:{}", self.head.col + 1),
+                (None, Some(o)) => format!("-{o}:{}", self.head.col + 1),
+                _ => String::new(),
+            };
+            let (mode, mst) = if self.select { (" SEL ", self.ui.mode_select) } else { (" NOR ", self.ui.mode_normal) };
+            Line::from(vec![Span::styled(mode, mst), Span::raw(format!("  {}  {pos}  {}", self.file_path().unwrap_or(""), self.msg))])
         }
+    };
+    let pend = match self.pending {
+        Some(CTRL_W) => "C-w".into(),
+        p => p.map(String::from).unwrap_or_default(),
+    };
+    let count = if self.count > 0 { self.count.to_string() } else { String::new() };
+    let ra = match self.progress.values().next() {
+        Some((t, m)) => format!("ra: {t} {m}  "),
+        None if self.lsp.is_some() && !self.lsp_ready => "ra: starting  ".into(),
+        None => String::new(),
+    };
+    let pr = match self.pr_counts() {
+        c if c.is_empty() || self.bar_counts => String::new(), // on the pinned title then
+        c => format!("{c}  "),
+    };
+    let working = match &self.claude.job {
+        Some(j) => format!("Claude working {}… · ", agent::ago(j.started)),
+        None => String::new(),
+    };
+    let view = format!(
+        "{}{}{}",
+        match self.view {
+            View::Claude => "claude view  ",
+            View::Pending => "pending view  ",
+            View::All => "",
+        },
+        if self.uncommitted() { "uncommitted  ".into() } else { self.commits_label().map(|l| format!("{l}  ")).unwrap_or_default() },
+        if self.split { "split  " } else { "" }
+    );
+    // The left side (what you're on, messages, hints) wins: when both don't fit, the right
+    // keeps only the essentials, and the left is cut with an ellipsis.
+    let essential = format!("{view}{count}{pend}  {}/{} ", self.head.row + 1, self.rows.len());
+    let extras = format!("{ra}{working}{pr}");
+    let width = status.width as usize;
+    let right = match left.width() + extras.chars().count() + essential.chars().count() < width {
+        true => format!("{extras}{essential}"),
+        false => essential,
+    };
+    let left = fit(left, width.saturating_sub(right.chars().count() + 1));
+    let bar = self.ui.base.patch(self.ui.status);
+    f.render_widget(Paragraph::new(left).style(bar), status);
+    f.render_widget(Paragraph::new(right).alignment(Alignment::Right).style(bar), status);
+
+    }
+
+    /// The picker open, centered: its query, then its items (cards, with details), the words the
+    /// filter matched lit.
+    fn draw_picker(&mut self, f: &mut Frame, full: Rect) {
+        let Some(p) = &self.picker else { return };
+        let m = self.matches();
+        let sel = p.sel.min(m.len().saturating_sub(1));
+        // Items are cards when they have detail lines (comment pickers): all the same height.
+        let per = 1 + p.items.iter().map(|i| i.detail.len()).max().unwrap_or(0);
+        let gap = (per > 1) as usize; // a blank line between cards
+        let item_h = per + gap;
+        let w = (full.width * 3 / 4).max(20).min(full.width);
+        let ph = ((m.len() * item_h) as u16 + 3).min(full.height.saturating_sub(4)).max(3);
+        let r = centered(full, w, ph);
+        let vis = ((ph as usize).saturating_sub(3) / item_h).max(1);
+        let off = sel.saturating_sub(vis.saturating_sub(1));
+        let mut lines = vec![Line::from(format!("> {}", p.query))];
+        let q = p.query.to_lowercase();
+        for (i, &it) in m.iter().enumerate().skip(off).take(vis) {
+            let st = if i == sel { self.ui.menu_selected } else { Style::new() };
+            // Highlight the words the filter matched, where they are (as `matches` checks).
+            let label: Vec<char> = p.items[it].label.chars().collect();
+            let lower: Vec<char> = p.items[it].label.to_lowercase().chars().collect();
+            let mut hit = vec![false; label.len()];
+            for w in q.split_whitespace().map(|w| w.chars().collect::<Vec<_>>()) {
+                for k in (0..lower.len().saturating_sub(w.len() - 1)).filter(|&k| lower.len() == label.len() && lower[k..].starts_with(&w)) {
+                    hit[k..k + w.len()].iter_mut().for_each(|h| *h = true);
+                }
+            }
+            let spans: Vec<Span> = label.iter().zip(&hit).map(|(c, &h)| Span::styled(c.to_string(), if h { st.patch(self.ui.key) } else { st })).collect();
+            lines.push(Line::from(spans).style(st));
+            let detail = &p.items[it].detail;
+            for k in 0..per - 1 {
+                let text = detail.get(k).map_or(String::new(), |d| format!("  {d}"));
+                lines.push(Line::from(Span::styled(text, st.patch(self.ui.stale))).style(st));
+            }
+            if gap > 0 {
+                lines.push(Line::default());
+            }
+        }
+        let pos = if m.is_empty() { "0 / 0".into() } else { format!("{} / {}", sel + 1, m.len()) };
+        let inner = self.popup_frame(f, r, p.title, &pos);
+        f.render_widget(Paragraph::new(lines), inner);
+        // Items start below the query line.
+        let list = Rect { y: inner.y + 1, height: inner.height.saturating_sub(1), ..inner };
+        self.scrollbar(f, list, m.len(), vis, off);
+        self.geom.picker = Some(mouse::PickerGeom { list, item_h, off });
+    }
+
+    /// Which keys do what here (`title`, `keys`): bottom right of `above` (the code, above the
+    /// status bar), as Helix has them; bottom left while the cursor is in the comment margin, so
+    /// they don't cover the comments there.
+    fn draw_key_popup(&self, f: &mut Frame, above: Rect, title: &str, keys: &[(&str, &str)]) {
+        let kw = keys.iter().map(|k| k.0.len()).max().unwrap_or(1);
+        let lines: Vec<Line> = keys
+            .iter()
+            .map(|(k, d)| Line::from(vec![Span::styled(format!("{k:<kw$}  "), self.ui.key), Span::raw(*d)]))
+            .collect();
+        let w = (lines.iter().map(Line::width).max().unwrap_or(10) as u16 + 4).max(title.len() as u16 + 4).min(above.width);
+        let ph = (lines.len() as u16 + 2).min(above.height);
+        let x = if self.margin_side() { above.x } else { above.x + above.width - w };
+        let r = Rect { x, y: above.y + above.height.saturating_sub(ph), width: w, height: ph };
+        let inner = self.popup_frame(f, r, title, "");
+        f.render_widget(Paragraph::new(lines), inner);
+    }
+
+    /// The popup open (help, hover, messages), centered, as wide as its text; scrolled.
+    fn draw_popup(&mut self, f: &mut Frame, full: Rect) {
+        let Some((title, text, scroll)) = self.popup.clone() else { return };
+        // As wide as the text (hover is wrapped to fit 100; help may be two columns), and the title.
+        let text_w = text.iter().map(Line::width).max().unwrap_or(0).max(title.chars().count() + 1);
+        let w = (text_w as u16 + 3).max(30).min(full.width.saturating_sub(4));
+        // ponytail: wrapped height estimated from line widths (char wrap, not word wrap).
+        let cw = w.saturating_sub(3).max(1) as usize;
+        let total: usize = text.iter().map(|l| l.width().div_ceil(cw).max(1)).sum();
+        let h = (total as u16 + 2).min(full.height.saturating_sub(4)).max(3);
+        let r = centered(full, w, h);
+        let vis = h.saturating_sub(2) as usize;
+        // Don't scroll past the end.
+        let scroll = scroll.min(total.saturating_sub(vis) as u16);
+        if let Some(p) = &mut self.popup {
+            p.2 = scroll;
+        }
+        let first = scroll as usize + 1;
+        let pos = if total > vis { format!("{first}–{} / {total}", (first + vis - 1).min(total)) } else { String::new() };
+        let inner = self.popup_frame(f, r, &title, &pos);
+        let text_area = Rect { width: inner.width.saturating_sub(1), ..inner }; // room for the scrollbar
+        let text = code_to_edge(text, text_area.width as usize, self.ui.md.code_bg);
+        f.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }).scroll((scroll, 0)), text_area);
+        self.scrollbar(f, inner, total, vis, scroll as usize);
     }
 
     /// A thin scrollbar on the right edge of `area`, only when `total` items don't fit in `vis`.
@@ -568,6 +589,11 @@ pub(super) fn code_to_edge(text: Vec<Line<'static>>, w: usize, code_bg: Option<C
             l
         })
         .collect()
+}
+
+/// A popup's place: centered in `full`, near its top, `w` × `h` (as much as fits).
+fn centered(full: Rect, w: u16, h: u16) -> Rect {
+    Rect { x: full.x + (full.width - w) / 2, y: 2.min(full.height), width: w, height: h.min(full.height) }
 }
 
 /// How many rows the cursor keeps from the top and bottom of `h` rows (Helix's scrolloff).
