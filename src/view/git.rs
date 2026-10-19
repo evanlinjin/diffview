@@ -232,6 +232,31 @@ impl App {
         draft(&self.threads, since, &diff::git(&["status", "--porcelain"]).unwrap_or_default())
     }
 
+    /// Where Claude writes the commit message it's asked for: beside the review file.
+    pub(super) fn commit_msg_path(&self) -> Option<std::path::PathBuf> {
+        self.claude.path.as_ref().map(|p| p.with_extension("commit.txt"))
+    }
+
+    /// "Commit everything": Claude writes the message, in the background (from the changes,
+    /// in the repo's style); once it's done your editor opens with it (`COMMIT_LABEL`).
+    pub(super) fn commit_ask(&mut self) -> Result<String> {
+        let p = self.commit_msg_path().context("no review file")?;
+        _ = std::fs::remove_file(&p);
+        let status = diff::git(&["status", "--porcelain"]).unwrap_or_default();
+        let prompt = format!(
+            "Write the commit message for committing everything not committed in this checkout (as `git add -A` would \
+             take it): these files (`git status --porcelain`):\n{status}\nRead the changes (`git diff HEAD`; a new \
+             file's content with your Read tool) and how this repo writes commit messages (`git log -15 --format=%B`), \
+             and write a message in that style: a subject line saying what it does, and a body saying why when it isn't \
+             obvious (the review file's \"Changed: …\" replies say why for what you changed). Write only the message, to \
+             {} (your Write tool). Don't commit, and change nothing else.",
+            p.display()
+        );
+        let forked = self.claude_pane().is_some();
+        self.claude.job = Some(self.spawn_claude(&prompt, COMMIT_LABEL, forked, &[])?);
+        Ok("Claude is writing the commit message (your editor opens with it)…".into())
+    }
+
     /// Commit everything that isn't (new files too: dv shows them), with a message written in
     /// the editor; leaving it empty cancels.
     pub(super) fn commit(&mut self, draft: &str) -> Result<String> {
@@ -516,3 +541,6 @@ impl App {
         (self.to, self.commit_shown, self.commit_anchor) = (None, None, None);
     }
 }
+
+/// The background run writing a commit message: when it's done, the commit goes on.
+pub(super) const COMMIT_LABEL: &str = "writing the commit message";

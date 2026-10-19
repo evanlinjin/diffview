@@ -865,6 +865,19 @@ impl App {
                 false => self.msg += " (Space g → amend shows where it put them)",
             }
         }
+        // The commit message it wrote: your editor opens with it (gone wrong, or not written:
+        // the draft from its replies).
+        if label == super::git::COMMIT_LABEL {
+            let wrote = self.commit_msg_path().and_then(|p| std::fs::read_to_string(&p).ok()).map(|m| m.trim().to_owned()).filter(|m| !m.is_empty() && !failed);
+            if let Some(p) = self.commit_msg_path() {
+                _ = std::fs::remove_file(p);
+            }
+            let msg = wrote.unwrap_or_else(|| self.commit_draft());
+            match self.picker.is_none() && self.prompt.is_none() && self.action.is_none() {
+                true => self.action = Some(Action::CommitWith(msg)),
+                false => self.msg += " (Space g → commit again when you're ready)",
+            }
+        }
         // Replies made meanwhile: one more run, unless this one went wrong (then that's the news,
         // and retrying would hit the same wall).
         if std::mem::take(&mut self.claude.again) && self.waiting_replies() > 0 {

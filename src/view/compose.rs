@@ -50,8 +50,10 @@ pub(super) enum Action {
     Edit { comment: String, body: String, author: String },
     /// Submit the pending review: COMMENT, APPROVE or REQUEST_CHANGES.
     Submit(&'static str),
-    /// Commit everything uncommitted, starting from this message.
+    /// Commit everything uncommitted: Claude writes the message first (`commit_ask`).
     Commit,
+    /// Commit everything uncommitted, the editor starting from this message.
+    CommitWith(String),
 }
 
 /// Something written in the editor, to send to GitHub (as a job, so "posting…" shows first).
@@ -362,9 +364,17 @@ impl App {
             }
             Action::Commit => {
                 anyhow::ensure!(!self.claude_busy(), "Claude is still at work here: commit once it's done (its changes would be half made)");
-                let draft = self.commit_draft();
-                self.commit(&draft)
+                // Claude writes the message (then your editor has it); no review file to keep
+                // it beside: the draft from its replies, as before.
+                match self.claude.path.is_some() {
+                    true => self.commit_ask(),
+                    false => {
+                        let draft = self.commit_draft();
+                        self.commit(&draft)
+                    }
+                }
             }
+            Action::CommitWith(msg) => self.commit(&msg),
         }
     }
 
