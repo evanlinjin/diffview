@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.2] - 2026-10-19
+
 ### Changed
 - `Space o` (or Enter on the "N more" line) shows the whole conversation right there, in the
   pane beside the description, and again only its latest: no separate view to go back from.
@@ -1042,6 +1044,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.34.2]: https://github.com/evanlinjin/diffview/releases/tag/v0.34.2
 [0.34.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.34.1
 [0.34.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.34.0
 [0.33.3]: https://github.com/evanlinjin/diffview/releases/tag/v0.33.3
