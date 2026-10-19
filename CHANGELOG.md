@@ -13,6 +13,8 @@ on GitHub are its section here.
 - The PR's own reactions, among its facts (`reactions 👍 2`).
 
 ### Fixed
+- `a` with text selected in a Claude thread (its comment, or its answer to your question)
+  replies there, quoting the selection, instead of saying it only works on code lines.
 - `gf` on a GitHub comment (its author line; or its text, with nothing else under the cursor)
   opens it on GitHub.
 

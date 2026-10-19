@@ -292,7 +292,8 @@ enum Action {
     Reply { thread: String, comment: u64, review: bool, quote: String },
     /// A reply to Claude on its comment (by id), saved to the review file for Claude to answer,
     /// with what you want of it ("ask", "suggest", "change"; empty: unsaid).
-    ClaudeReply(String, &'static str),
+    /// (And what the editor starts from: a quote of what's selected, say.)
+    ClaudeReply(String, &'static str, String),
     /// A comment for Claude on these lines (with their text), then Claude answers it; `about`:
     /// the GitHub review comment it asks about (its id, and a quote of it for the editor).
     AskClaude { anchor: Anchor, code: Vec<String>, about: Option<(u64, String)>, want: &'static str },
@@ -993,10 +994,10 @@ impl App {
                 let Some(body) = compose_with("reply", false, &quote, false)? else { return Ok("reply cancelled".into()) };
                 self.post_later(Post::Reply { thread, comment, review, body })
             }
-            Action::ClaudeReply(k, want) => {
+            Action::ClaudeReply(k, want, prefill) => {
                 let p = self.claude.path.clone().context("no review file")?;
                 let what = format!("reply to Claude{}", agent::want_hint(want));
-                let Some(body) = compose_with(&what, false, "", false)? else { return Ok("reply cancelled".into()) };
+                let Some(body) = compose_with(&what, false, &prefill, false)? else { return Ok("reply cancelled".into()) };
                 keep_on_error(crate::claude::reply(&p, &k, &body, want), &body)?;
                 Ok(self.answer_now())
             }

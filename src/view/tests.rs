@@ -415,7 +415,7 @@ fn claude_review() {
     // First what you want of it: on your PR, the change made, unless you said otherwise there.
     assert_eq!(app.picker.as_ref().map(|p| p.sel), Some(2));
     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    assert!(matches!(app.action.take(), Some(Action::ClaudeReply(k, "change")) if k == "c1")); // ids given on load
+    assert!(matches!(app.action.take(), Some(Action::ClaudeReply(k, "change", _)) if k == "c1")); // ids given on load
     // Space r resolves it in the file: it folds, and the cursor stays on it.
     press(&mut app, " r");
     assert!(std::fs::read_to_string(&p).unwrap().contains("\"resolved\": true"));
@@ -2389,7 +2389,13 @@ fn reply_to_claudes_summary() {
     let row = app.rows.iter().position(|r| r.info == Some(SUMMARY) && r.thread.is_none() && r.line.text.contains("Looks right")).unwrap();
     app.goto(row, 0);
     app.start_reply(true);
-    assert!(matches!(app.action.take(), Some(Action::ClaudeReply(k, _)) if k == "c7"));
+    assert!(matches!(app.action.take(), Some(Action::ClaudeReply(k, ..)) if k == "c7"));
+    // `a` on what's selected of Claude's answer there: a reply, quoting it.
+    let ans = at(&app, "Because it's minimal.");
+    app.goto(ans, 0);
+    app.key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+    assert!(matches!(app.action.take(), Some(Action::ClaudeReply(k, "", q)) if k == "c7" && q.contains("> Because it's minimal.")));
     // The whole diff (Comments, PR): not there.
     app.bar_to(Bar::Pr);
     assert!(!app.rows.iter().any(|r| r.line.text.contains("why approve?")));

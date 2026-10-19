@@ -158,7 +158,7 @@ impl App {
     pub(super) fn want(&mut self, w: &'static str) {
         self.action = match self.wanting.take() {
             Some(Action::AskClaude { anchor, code, about, .. }) => Some(Action::AskClaude { anchor, code, about, want: w }),
-            Some(Action::ClaudeReply(k, _)) => Some(Action::ClaudeReply(k, w)),
+            Some(Action::ClaudeReply(k, _, q)) => Some(Action::ClaudeReply(k, w, q)),
             other => other,
         };
     }
@@ -577,6 +577,17 @@ impl App {
         // On a comment in the PR's conversation: a question about it, under it.
         if let Some((url, prefill)) = self.conversation_at_cursor() {
             return self.action = Some(Action::AskConversation { url, prefill });
+        }
+        // On a thread of Claude's review (its comment, or your question and its answer): a reply
+        // there, quoting what's selected of it.
+        if let Some((t, k)) = self.claude_at_cursor() {
+            let quote = self.selected_quote().map_or(String::new(), |q| format!("About this:\n{q}\n"));
+            self.select = false;
+            let reply = Action::ClaudeReply(k, "", quote);
+            return match self.threads[t].conversation.is_empty() {
+                true => self.pick_want(reply, Some(t)),
+                false => self.action = Some(reply),
+            };
         }
         // On a GitHub review thread: ask Claude about the comment under the cursor.
         if let Some(t) = self.rows[self.head.row].thread.filter(|&t| self.threads[t].claude.is_none()) {
