@@ -579,7 +579,7 @@ impl List {
                         d => format!("Claude is done {d} on #{n} ({took})"),
                     };
                 }
-                batch::Status::Failed(e) => self.msg = format!("Claude's {doing} on #{n} failed: {e} (a a asks again)"),
+                batch::Status::Failed(e) => self.msg = format!("Claude's {doing} on #{n} failed: {e}{}", if doing == "reviewing" { " (a a asks again)" } else { "" }),
                 batch::Status::Reviewing => worktrees = true, // its worktree is ready
                 _ => {}
             }

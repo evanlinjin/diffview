@@ -395,7 +395,9 @@ impl Issues {
         if self.closing_rx.is_none() && !started {
             let dir = self.reviews_dir.clone();
             let drafted = |n: u64| dir.as_ref().and_then(|d| std::fs::read_to_string(d.join(format!("issue-{n}.json"))).ok()).is_some_and(|t| serde_json::from_str::<Value>(&t).is_ok_and(|v| v["closing"].as_str().is_some_and(|c| !c.trim().is_empty())));
-            let next = self.items.iter().map(|i| (i.number, i.updated.clone())).find(|(n, u)| self.close_why(*n).is_some() && !drafted(*n) && !self.auto_done.contains(&(*n, format!("closing@{u}"))));
+            // (Not what you've put aside.)
+            let deferred: HashSet<u64> = self.todo.iter().filter(|it| it.deferred.is_some()).map(|it| it.number).collect();
+            let next = self.items.iter().map(|i| (i.number, i.updated.clone())).find(|(n, u)| !deferred.contains(n) && self.close_why(*n).is_some() && !drafted(*n) && !self.auto_done.contains(&(*n, format!("closing@{u}"))));
             if let Some((n, u)) = next {
                 self.auto_done.insert((n, format!("closing@{u}")));
                 self.closing_rx = Some((n, draft_closing(n, self.root.clone())));

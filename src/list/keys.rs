@@ -192,7 +192,7 @@ impl List {
                 self.auto = !self.auto;
                 _ = crate::diff::git(&["config", "dv.auto", if self.auto { "true" } else { "false" }]);
                 self.msg = match self.auto {
-                    true => "auto on: Claude does its part as things come in (fixes your CI, reviews, answers you, drafts the comment closing a PR it'd close; Claude runs, at your cost), green drafts are marked ready, and it ranks the list again as it changes".into(),
+                    true => "auto on: Claude does its part as things come in (fixes your CI, reviews, answers you, drafts the comment closing a PR it'd close, drafts a replacement of a low-effort PR worth keeping; Claude runs, at your cost), green drafts are marked ready, and it ranks the list again as it changes".into(),
                     false => "auto off: a a has Claude do its part, r r ranks, Space g in a PR marks it ready".into(),
                 };
                 self.find_todo();
