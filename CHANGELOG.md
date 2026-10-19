@@ -5,6 +5,23 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.86] - 2026-10-19
+
+### Added
+- `Space a` → "Open Claude in a pane": the PR's Claude session in a floating pane, focused, to
+  talk to it when none is open; while a background run is at work on it, a fork of it.
+- `dv amend <commit> [file…]`: what isn't committed (in those files) folded into that commit of
+  the branch, as `f` does, a backup branch first. Claude amends through it.
+
+### Fixed
+- "Amend it all into the commits Claude finds it belongs in" did nothing when Claude was refused
+  a command on the way (a `jq` to read its answers): its placements are amended now.
+- Claude commits only in runs that answer you or make changes (not in reviews or CI fixes), and
+  amends through `dv amend` (merges kept, other branches untouched) rather than a hand rebase;
+  dv's amend won't run over a rebase stopped part way.
+- A new PR worktree is made from a ref of its own (two prepared at once could swap commits),
+  and recorded as dv's checkout (a PR force-pushed after a failed checkout wasn't taken as work).
+
 ## [0.34.85] - 2026-10-19
 
 ### Fixed
