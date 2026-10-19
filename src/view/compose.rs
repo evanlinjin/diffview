@@ -213,23 +213,33 @@ impl App {
                 Ok(keep_on_error(Err(anyhow::anyhow!(why)), &extra).err().map_or(String::new(), |e| format!("{e:#}")))
             }
             Action::Replace(prs, about) => {
-                let drafting = crate::replace::load(prs[0]).is_ok_and(|r| r.drafting_now());
+                let drafting = || crate::replace::load(prs[0]).is_ok_and(|r| r.drafting_now());
                 let which = prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(", ");
-                // A change to its drafts: kept with them (shown here), for the redraft to take in.
-                if let (Some(q), Some(id)) = (about, self.replacement.as_ref().map(|r| r.id)) {
-                    let what = format!("ask Claude to redraft the replacement of {which}: what to change, under the quote");
-                    let Some(ask) = compose_with(&what, false, q.trim_end(), false)? else { return Ok("not asked".into()) };
-                    crate::replace::ask(id, &ask)?;
-                    if drafting {
+                // Drafted already: what you want is asked of its drafts (kept with them, shown
+                // there), for the redraft to take in.
+                if crate::replace::drafted(prs[0]) || crate::replace::is_new(prs[0]) {
+                    let (what, prefill) = match about {
+                        Some(q) => (format!("ask Claude to redraft the replacement of {which}: what to change, under the quote"), q),
+                        None => (format!("what else Claude should do in its redraft of {which} (optional)"), String::new()),
+                    };
+                    let asking = !prefill.is_empty();
+                    let Some(ask) = compose_with(&what, !asking, prefill.trim_end(), !asking)? else { return Ok("not asked".into()) };
+                    if !ask.trim().is_empty() {
+                        crate::replace::ask(prs[0], &ask)?;
+                    }
+                    if drafting() {
                         return Ok("kept with the drafts: Claude is drafting now, so Space a → Redraft once it's done takes it in".into());
                     }
                 } else {
-                    if drafting {
+                    if drafting() {
                         return Ok(format!("Claude is already drafting the replacement of #{}", prs[0]));
                     }
                     let what = format!("instructions for Claude's replacement of {which} (optional)");
                     let Some(extra) = compose_with(&what, true, crate::claude::instructions("replace").trim_end(), true)? else { return Ok("not asked".into()) };
                     crate::claude::save_instructions("replace", &extra)?; // `dv replace` reads them
+                    if drafting() {
+                        return Ok(format!("Claude started drafting the replacement of #{} meanwhile", prs[0]));
+                    }
                 }
                 crate::replace::spawn(&prs)?;
                 Ok(format!("Claude is drafting a replacement for {which} in the background: dv list's replacements tab shows it"))

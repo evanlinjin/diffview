@@ -1369,6 +1369,19 @@ fn replacement_in_the_pr_section() {
     app.rebuild(keep);
     let text: Vec<&str> = app.rows.iter().map(|r| r.line.text.as_str()).collect();
     assert!(text.contains(&"what you asked of the drafts") && text.contains(&"Say why.") && text.iter().any(|t| t.contains("not redrafted with it yet")), "{text:#?}");
+    // Under way: only what the draft was given is being redrafted with; what came after waits.
+    let mut r = app.replacement.clone().unwrap();
+    r.asks.push(("Shorter.".into(), false));
+    (r.drafting, r.taking) = (Some(std::process::id()), 1);
+    app.show_replacement(r);
+    let keep = app.cursor_key();
+    app.rebuild(keep);
+    let text: Vec<&str> = app.rows.iter().map(|r| r.line.text.as_str()).collect();
+    let at = |s: &str| text.iter().position(|t| t.contains(s)).unwrap();
+    assert!(at("Say why.") < at("Claude is redrafting with it") && at("Shorter.") < at("not redrafted with it yet") && at("Claude is redrafting with it") < at("Shorter."), "{text:#?}");
+    let mut r = app.replacement.clone().unwrap();
+    r.drafting = None;
+    app.show_replacement(r);
     // S: publish first; closing what it replaces comes after.
     let s = |app: &mut App| {
         app.review_menu();

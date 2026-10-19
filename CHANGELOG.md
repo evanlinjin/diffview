@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Fixed
+- Redrafting a replacement no longer resends the last instructions you wrote for any
+  replacement: what you write for a redraft is asked of that one's drafts (shown with them),
+  and the saved instructions are for first drafts only. A new PR's redraft gets what you wrote
+  (it was dropped).
+- A request made of a replacement's drafts while its redraft is being set up is no longer
+  lost, and two redrafts can't start at once.
+- Only what the redraft under way was given shows as "Claude is redrafting with it".
+
 ## [0.34.37] - 2026-10-19
 
 ### Fixed

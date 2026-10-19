@@ -41,6 +41,8 @@ pub struct Record {
     /// What you've asked of its drafts (`a` on them), oldest first, and whether a redraft has
     /// taken each in since.
     pub asks: Vec<(String, bool)>,
+    /// How many of `asks` the draft under way was given (the rest wait for the next).
+    pub taking: usize,
 }
 
 impl Record {
@@ -145,6 +147,7 @@ fn parse(id: u64, text: &str) -> Result<Record> {
         drafting: v["drafting"].as_u64().map(|p| p as u32),
         task: s(&v["task"]),
         asks: v["asks"].as_array().into_iter().flatten().map(|a| (s(&a["text"]), a["done"] == true)).collect(),
+        taking: v["taking"].as_u64().unwrap_or(0) as usize,
     })
 }
 
@@ -155,9 +158,22 @@ fn to_json(r: &Record) -> String {
         "replaces": replaces, "base": r.base, "title": r.title, "body": r.body,
         "closing_note": r.closing_note, "session": r.session, "published": r.published, "closed": r.closed,
         "drafting": r.drafting, "task": r.task,
-        "asks": r.asks.iter().map(|(text, done)| json!({ "text": text, "done": done })).collect::<Vec<_>>(),
+        "asks": r.asks.iter().map(|(text, done)| json!({ "text": text, "done": done })).collect::<Vec<_>>(), "taking": r.taking,
     });
     serde_json::to_string_pretty(&v).unwrap_or_default() + "\n"
+}
+
+/// Change replacement `id`'s record as it is now (Claude may have written to it, another dv
+/// asked for something): load, `f`, save, quickly, so nothing written meanwhile is lost.
+/// `f`'s answer, and the record as saved.
+fn update<T>(id: u64, f: impl FnOnce(&mut Record) -> Result<T>) -> Result<(T, Record)> {
+    let mut r = match path(id)?.exists() {
+        true => load(id)?,
+        false => Record { id, ..Record::default() },
+    };
+    let out = f(&mut r)?;
+    save(&r)?;
+    Ok((out, r))
 }
 
 pub fn save(r: &Record) -> Result<()> {
@@ -187,12 +203,10 @@ pub fn all() -> Vec<Record> {
 
 /// Set up a replacement of `prs` (the first names it) from the repo at `root`: its record
 /// (kept if it exists: drafting again carries on), and its branch, from the originals' base,
-/// in its worktree. Returns the record and the worktree.
-pub fn prepare(prs: &[u64], root: &Path) -> Result<(Record, PathBuf)> {
+/// in its worktree. Returns the worktree.
+fn prepare(prs: &[u64], root: &Path) -> Result<PathBuf> {
     let id = *prs.first().context("no PR to replace")?;
     let git = |args: &[&str]| crate::diff::git(&[&["-C", &root.to_string_lossy()], args].concat());
-    let mut r = load(id).unwrap_or(Record { id, ..Record::default() });
-    anyhow::ensure!(!r.drafting_now(), "Claude is already drafting the replacement of #{id}");
     let mut originals = vec![];
     let mut bases: Vec<(u64, String)> = vec![];
     for &n in prs {
@@ -204,11 +218,14 @@ pub fn prepare(prs: &[u64], root: &Path) -> Result<(Record, PathBuf)> {
     if let Some((n, b)) = bases.iter().find(|b| b.1 != bases[0].1) {
         anyhow::bail!("#{} targets {}, #{n} targets {b}: one replacement can't replace both", bases[0].0, bases[0].1);
     }
-    r.base = bases.first().map(|b| b.1.clone()).unwrap_or_default();
-    r.replaces = originals;
-    if r.session.is_empty() {
-        r.session = crate::claude::new_session_id();
-    }
+    let base = bases.first().map(|b| b.1.clone()).unwrap_or_default();
+    let ((), r) = update(id, |r| {
+        (r.base, r.replaces) = (base, originals);
+        if r.session.is_empty() {
+            r.session = crate::claude::new_session_id();
+        }
+        Ok(())
+    })?;
     let dir = crate::worktree_dir_named(root, &name(id))?;
     if dir.exists() {
         crate::ensure_worktree_of(&dir, root)?;
@@ -222,8 +239,7 @@ pub fn prepare(prs: &[u64], root: &Path) -> Result<(Record, PathBuf)> {
             Err(_) => git(&["worktree", "add", "-b", &b, &d, &crate::diff::remote_branch(&r.base)])?,
         };
     }
-    save(&r)?;
-    Ok((r, dir))
+    Ok(dir)
 }
 
 /// Set up a new PR doing `task` from the repo at `root`: its record, and its branch from the
@@ -240,15 +256,14 @@ pub fn create_new(task: &str, root: &Path) -> Result<u64> {
     Ok(id)
 }
 
-/// A new PR's record and worktree, to draft it (again): its branch brought up to its base.
-fn prepare_new(id: u64, root: &Path) -> Result<(Record, PathBuf)> {
+/// A new PR's worktree, to draft it (again): its branch brought up to its base.
+fn prepare_new(id: u64, root: &Path) -> Result<PathBuf> {
     let r = load(id)?;
-    anyhow::ensure!(!r.drafting_now(), "Claude is already drafting {}", label(id));
     let dir = crate::worktree_dir_named(root, &name(id))?;
     anyhow::ensure!(dir.exists(), "its worktree {} is gone", dir.display());
     crate::ensure_worktree_of(&dir, root)?;
     _ = rebase(&r, &dir); // carrying on: from its base as it is now, if that goes cleanly
-    Ok((r, dir))
+    Ok(dir)
 }
 
 /// Bring replacement `r`'s branch (in `dir`) up to its base on origin: fetch, then rebase onto
@@ -294,12 +309,19 @@ pub fn prompt(r: &Record, extra: &str) -> String {
     crate::claude::with_instructions(&p, &extra)
 }
 
+/// Whether replacement `id` has drafts (so drafting it again carries on from them).
+pub fn drafted(id: u64) -> bool {
+    load(id).is_ok_and(|r| !r.title.is_empty() || !r.body.is_empty())
+}
+
 /// Ask Claude for a change to replacement `id`'s drafts: kept in its record (shown with them),
 /// for its next redraft to take in.
 pub fn ask(id: u64, text: &str) -> Result<()> {
-    let mut r = load(id)?;
-    r.asks.push((text.trim().to_owned(), false));
-    save(&r)
+    update(id, |r| {
+        r.asks.push((text.trim().to_owned(), false));
+        Ok(())
+    })
+    .map(drop)
 }
 
 /// Have Claude draft a replacement for `prs` with a dv of its own (`dv replace`), in the
@@ -324,25 +346,43 @@ pub fn writable() -> Result<PathBuf> {
 }
 
 /// Draft replacement `prs` with Claude, in its worktree, in the foreground of this thread:
-/// what it took ("12 turns, $0.40").
+/// what it took ("12 turns, $0.40"). `extra`: your instructions for a first draft; for one
+/// drafted already, it's asked of its drafts (as `ask`), as what else you want.
 pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> Result<String> {
-    let (mut r, dir) = match prs {
-        [id] if is_new(*id) => prepare_new(*id, root)?,
-        _ => prepare(prs, root)?,
-    };
-    // Others (dv list, another dv) see it's under way, and don't start another.
-    r.drafting = Some(std::process::id());
-    save(&r)?;
-    let res = run_claude(&r, &dir, extra, prepared);
+    let id = *prs.first().context("no PR to replace")?;
+    // Under way first, before the slow setting up: others (dv list, another dv) see it, and
+    // don't start another.
+    let (first, _) = update(id, |r| {
+        anyhow::ensure!(!r.drafting_now(), "Claude is already drafting {}", label(id));
+        r.drafting = Some(std::process::id());
+        let first = r.title.is_empty() && r.body.is_empty(); // as `drafted`
+        if !first && !extra.trim().is_empty() {
+            r.asks.push((extra.trim().to_owned(), false));
+        }
+        Ok(first)
+    })?;
+    let res = (|| {
+        let dir = match prs {
+            [id] if is_new(*id) => prepare_new(*id, root)?,
+            _ => prepare(prs, root)?,
+        };
+        // What you've asked of it so far goes in its prompt: those are what it takes in.
+        let (r, _) = update(id, |r| {
+            r.taking = r.asks.len();
+            Ok(r.clone())
+        })?;
+        run_claude(&r, &dir, if first { extra } else { "" }, prepared)
+    })();
     // Claude has written to the record meanwhile: only the mark comes off (and what you asked
     // that it was given is done, if it finished).
-    if let Ok(mut now) = load(r.id) {
+    _ = update(id, |now| {
         now.drafting = None;
-        for a in now.asks.iter_mut().take(r.asks.len()).filter(|_| res.is_ok()) {
+        let taken = std::mem::take(&mut now.taking);
+        for a in now.asks.iter_mut().take(taken).filter(|_| res.is_ok()) {
             a.1 = true;
         }
-        _ = save(&now);
-    }
+        Ok(())
+    });
     res
 }
 
@@ -493,6 +533,7 @@ fn records_round_trip() {
         drafting: Some(7),
         task: String::new(),
         asks: vec![("shorter title".into(), true), ("mention #9".into(), false)],
+        taking: 1,
     };
     assert_eq!(parse(12, &to_json(&r)).unwrap(), r);
     // Only what no redraft has taken in yet is asked again.

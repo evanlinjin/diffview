@@ -267,8 +267,12 @@ impl App {
                 rows.extend(self.section(CLOSING_NOTE, self.info[h].text.clone(), text, Some(h + 1)));
             }
             if let Some(r) = self.replacement.as_ref().filter(|r| !r.asks.is_empty()) {
-                let not_yet = if r.drafting_now() { "Claude is redrafting with it" } else { "not redrafted with it yet" };
-                let asks: Vec<String> = r.asks.iter().map(|(text, done)| if *done { text.clone() } else { format!("{text}\n\n_({not_yet})_") }).collect();
+                let drafting = r.drafting_now();
+                let asks: Vec<String> = r.asks.iter().enumerate().map(|(i, (text, done))| match (done, drafting && i < r.taking) {
+                    (true, _) => text.clone(),
+                    (false, true) => format!("{text}\n\n_(Claude is redrafting with it)_"),
+                    (false, false) => format!("{text}\n\n_(not redrafted with it yet)_"),
+                }).collect();
                 rows.extend(self.section(ASKED, "what you asked of the drafts".into(), &asks.join("\n\n---\n\n"), None));
             }
             if let Some((a, _)) = self.commit_shown {
