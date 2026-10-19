@@ -5,6 +5,10 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- Your own reactions are lit (in the accent color), as on GitHub: on review comments, the
+  conversation's, and the PR's.
+
 ### Fixed
 - A question about a commit shows while that commit (or only what isn't committed) is shown;
   it offers Ask or Change (no suggestion: it's on no lines), Ask preselected; and it follows

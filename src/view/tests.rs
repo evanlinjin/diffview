@@ -1014,6 +1014,17 @@ fn whose_turn_and_severity() {
 }
 
 #[test]
+fn your_reactions_lit() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let c = gh::Comment { id: 1, author: "amy".into(), body: "hm".into(), node_id: "n1".into(), reactions: vec![("THUMBS_DOWN".into(), 2, true), ("EYES".into(), 1, false)], ..Default::default() };
+    app.threads = vec![gh::Thread { path: "src/a.rs".into(), line: Some(2), comments: vec![c], ..Default::default() }];
+    app.build();
+    let row = app.rows.iter().find(|r| r.line.text.contains("👎 2")).expect("its reactions");
+    let at = |e: char| row.line.text.chars().position(|c| c == e).unwrap();
+    assert_eq!((row.syn.get(at('👎')).copied().flatten(), row.syn.get(at('👀')).copied().flatten()), (Some(app.ui.key), None));
+}
+
+#[test]
 fn ask_claude_about_a_commit() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
     let dir = std::env::temp_dir().join(format!("dv-ask-commit-{}", std::process::id()));

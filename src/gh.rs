@@ -86,8 +86,8 @@ pub struct Comment {
     pub created: String,
     /// Part of the viewer's unsubmitted review.
     pub pending: bool,
-    /// Its reactions: (GitHub's name for one, e.g. THUMBS_UP; how many).
-    pub reactions: Vec<(String, u64)>,
+    /// Its reactions: (GitHub's name for one, e.g. THUMBS_UP; how many; one is yours).
+    pub reactions: Vec<Reaction>,
 }
 
 /// Where a new comment goes. Lines are file line numbers on the given side.
@@ -446,7 +446,7 @@ fn verdict(c: &Value) -> char {
 }
 
 const COMMENT: &str = "id databaseId author { login } body createdAt diffHunk state viewerCanUpdate viewerCanDelete \
-reactionGroups { content reactors { totalCount } }";
+reactionGroups { content viewerHasReacted reactors { totalCount } }";
 const THREAD: &str = "id path line startLine originalLine diffSide isResolved isOutdated";
 const PAGE: &str = "pageInfo { hasNextPage endCursor }";
 
@@ -600,23 +600,63 @@ pub const REACTIONS: [(&str, &str); 8] = [
     ("EYES", "👀"),
 ];
 
-/// A comment's `reactionGroups` (from GraphQL: `reactors`; from `gh pr view`: `users`), those
-/// with any.
-fn reactions(v: &Value) -> Vec<(String, u64)> {
+/// A reaction on a comment: GitHub's name for it (e.g. THUMBS_UP), how many, one is yours.
+pub type Reaction = (String, u64, bool);
+
+/// A comment's `reactionGroups` (from GraphQL: `reactors`, `viewerHasReacted`; from `gh pr
+/// view`: `users`, and whose isn't said: `mine` has yours, by node id), those with any.
+fn reactions(v: &Value, mine: &[&str]) -> Vec<Reaction> {
     v.as_array()
         .into_iter()
         .flatten()
         .filter_map(|g| {
             let n = g["reactors"]["totalCount"].as_u64().or_else(|| g["users"]["totalCount"].as_u64())?;
-            (n > 0).then(|| (g["content"].as_str().unwrap_or("").to_owned(), n))
+            let what = g["content"].as_str().unwrap_or("");
+            (n > 0).then(|| (what.to_owned(), n, g["viewerHasReacted"] == true || mine.contains(&what)))
         })
         .collect()
 }
 
-/// Reactions as they show: `👍 2  🎉 1`.
-pub fn reactions_text(r: &[(String, u64)]) -> String {
+/// Reactions as they show (`👍 2`, `🎉 1`), each with whether one's yours.
+pub fn reaction_parts(r: &[Reaction]) -> Vec<(String, bool)> {
     let emoji = |c: &str| REACTIONS.iter().find(|e| e.0 == c).map_or("?", |e| e.1);
-    r.iter().map(|(c, n)| format!("{} {n}", emoji(c))).collect::<Vec<_>>().join("  ")
+    r.iter().map(|(c, n, mine)| (format!("{} {n}", emoji(c)), *mine)).collect()
+}
+
+/// Reactions as text: `👍 2  🎉 1`.
+#[cfg(test)]
+fn reactions_text(r: &[Reaction]) -> String {
+    reaction_parts(r).into_iter().map(|p| p.0).collect::<Vec<_>>().join("  ")
+}
+
+impl InfoLine {
+    /// Reactions, yours in the accent color (as GitHub lights them).
+    fn put_reactions(&mut self, r: &[Reaction]) {
+        for (i, (text, mine)) in reaction_parts(r).into_iter().enumerate() {
+            self.put(if i == 0 { "" } else { "  " }, None).put(&text, mine.then_some(Mark::Mine));
+        }
+    }
+}
+
+/// Which reactions on PR `n`'s conversation (itself, its comments, its reviews) are yours,
+/// by node id: `gh pr view` doesn't say.
+fn mine_json(n: u64) -> Result<Value> {
+    let groups = "reactionGroups { content viewerHasReacted }";
+    let q = format!(
+        "query($owner: String!, $name: String!, $n: Int!) {{ repository(owner: $owner, name: $name) {{ pullRequest(number: $n) {{
+           id {groups} comments(last: 100) {{ nodes {{ id {groups} }} }} reviews(last: 100) {{ nodes {{ id {groups} }} }} }} }} }}"
+    );
+    let v: Value = serde_json::from_str(&gh(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-F", &format!("n={n}"), "-f", &format!("query={q}")])?)?;
+    let p = &v["data"]["repository"]["pullRequest"];
+    let mut out = serde_json::Map::new();
+    let nodes = std::iter::once(p).chain(["comments", "reviews"].iter().flat_map(|k| p[k]["nodes"].as_array().into_iter().flatten()));
+    for node in nodes {
+        let mine: Vec<Value> = node["reactionGroups"].as_array().into_iter().flatten().filter(|g| g["viewerHasReacted"] == true).map(|g| g["content"].clone()).collect();
+        if let Some(id) = node["id"].as_str().filter(|_| !mine.is_empty()) {
+            out.insert(id.to_owned(), mine.into());
+        }
+    }
+    Ok(out.into())
 }
 
 /// The reactions on comment (or review) `node` now: each kind's (name, count, yours).
@@ -800,7 +840,7 @@ fn parse_thread(t: &Value) -> Thread {
                 body: c["body"].as_str().unwrap_or("").replace("\r\n", "\n"),
                 created: c["createdAt"].as_str().unwrap_or("").to_owned(),
                 pending: c["state"] == "PENDING",
-                reactions: reactions(&c["reactionGroups"]),
+                reactions: reactions(&c["reactionGroups"], &[]),
             })
             .collect(),
         claude: None,
@@ -866,6 +906,8 @@ pub enum Mark {
     Fail,
     Pending,
     Dim,
+    /// A reaction of yours.
+    Mine,
     Link(String),
 }
 
@@ -984,6 +1026,9 @@ pub fn info_json(n: u64) -> Result<Value> {
     {
         v["dvAwaiting"] = w.get(&sha).map_or(0, Vec::len).into();
     }
+    if let Ok(m) = mine_json(n) {
+        v["dvMine"] = m;
+    }
     if let Ok(s) = signatures(n) {
         v["dvCommits"] = s.commits.into_iter().map(|(oid, signed)| json!({ "oid": oid, "signed": signed })).collect();
         v["dvCommitsTotal"] = s.total.into();
@@ -1047,10 +1092,12 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         out.push(l);
     }
     // The PR's own reactions (Space = on its description reacts).
-    let own = reactions(&v["reactionGroups"]);
+    // Yours, by node id (`mine_json`).
+    let mine = |id: &Value| -> Vec<&str> { id.as_str().and_then(|id| v["dvMine"][id].as_array()).into_iter().flatten().filter_map(Value::as_str).collect() };
+    let own = reactions(&v["reactionGroups"], &mine(&v["id"]));
     if !own.is_empty() {
         let mut l = InfoLine::new(false, false);
-        l.put("reactions", Some(Mark::Dim)).put(&format!(" {}", reactions_text(&own)), None);
+        l.put("reactions ", Some(Mark::Dim)).put_reactions(&own);
         out.push(l);
     }
 
@@ -1167,10 +1214,10 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
     // verdict: a plain review's inline comments are threads on the code), in time order:
     // (when, who, what they did, link, text).
     // (when, who, what they did, link, text, node id, reactions).
-    type Said<'a> = (String, String, &'a str, String, String, String, Vec<(String, u64)>);
+    type Said<'a> = (String, String, &'a str, String, String, String, Vec<Reaction>);
     let mut said: Vec<Said> = list(&v["comments"])
         .iter()
-        .map(|c| (s(&c["createdAt"]), s(&c["author"]["login"]), "", s(&c["url"]), s(&c["body"]), s(&c["id"]), reactions(&c["reactionGroups"])))
+        .map(|c| (s(&c["createdAt"]), s(&c["author"]["login"]), "", s(&c["url"]), s(&c["body"]), s(&c["id"]), reactions(&c["reactionGroups"], &mine(&c["id"]))))
         .collect();
     for r in list(&v["reviews"]) {
         let what = match s(&r["state"]).as_str() {
@@ -1183,12 +1230,11 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         // Its own: questions about it (`a`) are kept by it. (The fragment is the review's id:
         // the link opens the PR.)
         let url = format!("{}#review-{}", s(&v["url"]), s(&r["id"]));
-        said.push((s(&r["submittedAt"]), s(&r["author"]["login"]), what, url, s(&r["body"]), s(&r["id"]), reactions(&r["reactionGroups"])));
+        said.push((s(&r["submittedAt"]), s(&r["author"]["login"]), what, url, s(&r["body"]), s(&r["id"]), reactions(&r["reactionGroups"], &mine(&r["id"]))));
     }
     said.sort_by(|a, b| a.0.cmp(&b.0)); // ISO times sort as text
     out.push(heading(format!("conversation ({})", said.len())));
     for (at, who, what, url, body, node, r) in said {
-        let r = if r.is_empty() { String::new() } else { format!(" · {}", reactions_text(&r)) };
         // A verdict in its color, so an approval doesn't read as just another comment.
         let mut h = InfoLine { url, node, ..InfoLine::new(true, false) };
         let mark = match what {
@@ -1197,7 +1243,10 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
             _ => None,
         };
         h.put(&format!("@{who} · "), None).put(what.trim_end_matches(" · "), mark).put(if what.is_empty() { "" } else { " · " }, None);
-        h.put(&format!("{}{r}", ago(&at)), None);
+        h.put(&ago(&at), None);
+        if !r.is_empty() {
+            h.put(" · ", None).put_reactions(&r);
+        }
         out.push(h);
         out.push(markdown(body.replace("\r\n", "\n")));
     }
@@ -1407,8 +1456,12 @@ fn reactions_both_ways() {
     // GraphQL's reactors, `gh pr view`'s users; none-left groups dropped.
     let g = json!([{ "content": "THUMBS_UP", "reactors": { "totalCount": 2 } }, { "content": "EYES", "reactors": { "totalCount": 0 } }]);
     let v = json!([{ "content": "HOORAY", "users": { "totalCount": 1 } }]);
-    assert_eq!(reactions(&g), [("THUMBS_UP".to_owned(), 2)]);
-    assert_eq!(reactions_text(&[reactions(&g), reactions(&v)].concat()), "👍 2  🎉 1");
+    assert_eq!(reactions(&g, &[]), [("THUMBS_UP".to_owned(), 2, false)]);
+    assert_eq!(reactions_text(&[reactions(&g, &[]), reactions(&v, &[])].concat()), "👍 2  🎉 1");
+    // Yours: as GraphQL says, or (gh pr view's) as dv asked.
+    let g = json!([{ "content": "EYES", "viewerHasReacted": true, "reactors": { "totalCount": 1 } }]);
+    assert_eq!(reactions(&g, &[]), [("EYES".to_owned(), 1, true)]);
+    assert_eq!(reactions(&v, &["HOORAY"]), [("HOORAY".to_owned(), 1, true)]);
 }
 
 /// Live: react to comments (and a PR) on GitHub and take it back. Changes GitHub: give it a

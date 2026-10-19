@@ -529,6 +529,7 @@ impl App {
                 gh::Mark::Fail => ui.error,
                 gh::Mark::Pending => ui.warning,
                 gh::Mark::Dim => ui.stale,
+                gh::Mark::Mine => ui.key,
                 gh::Mark::Link(url) => {
                     row.links.push((*a, *b, url.clone()));
                     ui.md.link
@@ -612,10 +613,23 @@ impl App {
             a if a.is_empty() => String::new(),
             a => format!(" · {a}"),
         };
-        // Its reactions, after who, when and where.
-        let reacts = |c: &gh::Comment| match c.reactions.is_empty() {
-            true => String::new(),
-            false => format!(" · {}", gh::reactions_text(&c.reactions)),
+        // Its reactions, after who, when and where; yours in the accent color.
+        let reacts = |c: &gh::Comment| -> (String, Vec<Option<Style>>) {
+            let (mut text, mut syn) = (String::new(), vec![]);
+            for (i, (t, mine)) in gh::reaction_parts(&c.reactions).into_iter().enumerate() {
+                let gap = if i == 0 { " · " } else { "  " };
+                syn.extend(vec![None; gap.chars().count()]);
+                syn.extend(vec![mine.then_some(self.ui.key); t.chars().count()]);
+                text += gap;
+                text += &t;
+            }
+            (text, syn)
+        };
+        // A line's syntax: `syn` up to `at` chars, then the reactions'.
+        let with = |mut syn: Vec<Option<Style>>, at: usize, r: Vec<Option<Style>>| {
+            syn.resize(at, None);
+            syn.extend(r);
+            syn
         };
         let mut out = vec![];
         for (k, c) in t.comments.iter().enumerate() {
@@ -624,7 +638,10 @@ impl App {
                 // keeps room for who, when and where.
                 let tags_below = self.margin_active && !tag_text.is_empty();
                 let lead = if tags_below { String::new() } else { tag_text.clone() };
-                let mut head = format!("{lead}{}{re}{}{range}{}", name(c), when(c), reacts(c));
+                let (rt, rs) = reacts(c);
+                let mut head = format!("{lead}{}{re}{}{range}", name(c), when(c));
+                let at = head.chars().count();
+                head += &rt;
                 if !open {
                     head += &match t.comments.len() {
                         1 => " · 1 comment".to_owned(),
@@ -635,6 +652,7 @@ impl App {
                     true => author_syn(c),
                     false => [tag_syn.clone(), author_syn(c)].concat(),
                 };
+                let syn = if rs.is_empty() { syn } else { with(syn, at, rs) };
                 out.push(Row { syn, ..mk(Kind::Thread, head) });
                 if tags_below {
                     out.push(Row { syn: tag_syn.clone(), ..mk(Kind::Comment, tag_text.trim_end().to_owned()) });
@@ -650,7 +668,10 @@ impl App {
             } else {
                 let tag = if c.pending { "[pending] " } else { "" };
                 let syn = [vec![Some(self.ui.pending); tag.chars().count()], author_syn(c)].concat();
-                out.push(Row { syn, ..mk(Kind::Thread, format!("{tag}{}{}{}", name(c), when(c), reacts(c))) });
+                let (rt, rs) = reacts(c);
+                let head = format!("{tag}{}{}", name(c), when(c));
+                let syn = if rs.is_empty() { syn } else { with(syn, head.chars().count(), rs) };
+                out.push(Row { syn, ..mk(Kind::Thread, format!("{head}{rt}")) });
             }
             // In the margin, comments wrap to its width (less the gutter mark and box sides).
             let w = self.info_w();
