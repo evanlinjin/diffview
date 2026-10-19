@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.21] - 2026-10-19
+
+### Fixed
+- The files' list's cursor has the cursor line's tint, as the diff's and the pane's do (not
+  the menu's selection colour); what the diff shows, the list unfocused, the related tint.
+
 ## [0.34.20] - 2026-10-19
 
 ### Added
