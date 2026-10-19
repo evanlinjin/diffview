@@ -28,6 +28,19 @@ pub struct MdLine {
     pub nowrap: bool,
 }
 
+impl MdLine {
+    /// As a line to draw: a span a char, each in its style.
+    pub fn into_line(self) -> ratatui::text::Line<'static> {
+        let spans: Vec<ratatui::text::Span<'static>> = self
+            .text
+            .chars()
+            .zip(self.styles.into_iter().chain(std::iter::repeat(None)))
+            .map(|(ch, st)| ratatui::text::Span::styled(ch.to_string(), st.unwrap_or_default()))
+            .collect();
+        ratatui::text::Line::from(spans)
+    }
+}
+
 #[derive(Clone)]
 struct Cell {
     ch: char,

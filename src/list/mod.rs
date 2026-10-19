@@ -425,12 +425,12 @@ impl List {
         let note = n.and_then(|n| Some((n, crate::claude::ci_note(n, &head(n)?)?))).filter(|(_, c)| !c.task.is_empty());
         let prefill = note.as_ref().map_or(String::new(), |(n, c)| c.prefill(*n));
         let Some(task) = self.edit_text(term, what, &prefill, false).filter(|t| !t.trim().is_empty()) else { return };
-        match crate::replace::create_new(&task, &self.root) {
-            Ok(id) => {
+        match start_new_pr(&task, &self.root) {
+            Ok((id, rx)) => {
                 if let Some((n, _)) = note {
                     crate::claude::ci_fix_drafted(n); // not offered again
                 }
-                self.draft_rx.push(batch::replace(vec![id], self.root.clone(), String::new()));
+                self.draft_rx.push(rx);
                 self.load_reps();
                 self.msg = format!("Claude is drafting {}: the drafts tab shows it (Enter there reviews it, S publishes it)", crate::replace::label(id));
             }
@@ -873,4 +873,11 @@ pub(super) fn said(text: Result<Option<String>>, msg: &mut String) -> Option<Str
         Ok(None) => (*msg = "cancelled".into(), None).1,
         Err(e) => (*msg = format!("{e:#}"), None).1,
     }
+}
+
+/// A new PR doing `task` (what you wrote), for Claude to draft in the background: its id, and
+/// the news of its draft.
+pub(super) fn start_new_pr(task: &str, root: &std::path::Path) -> Result<(u64, Receiver<(u64, batch::Status)>)> {
+    let id = crate::replace::create_new(task, root)?;
+    Ok((id, batch::replace(vec![id], root.to_path_buf(), String::new())))
 }

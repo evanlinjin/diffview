@@ -84,12 +84,13 @@ impl IssueView {
     /// text; each comment; then the triage.
     fn render(&mut self, ui: &Ui, width: usize) {
         let w = width.saturating_sub(4).clamp(20, 100);
+        // (`#123` linked to the repo's, as the PR view's.)
+        let repo = self.url.rsplit_once("/issues/").map(|(r, _)| r.to_owned());
         let md = |text: &str, out: &mut Vec<Line<'static>>| {
-            for l in crate::md::render(text, w, &ui.md, &self.hl, None) {
-                let spans: Vec<Span<'static>> = l.text.chars().zip(l.styles.into_iter().chain(std::iter::repeat(None))).map(|(c, st)| Span::styled(c.to_string(), st.unwrap_or_default())).collect();
-                let mut v = vec![Span::raw("  ")];
-                v.extend(spans);
-                out.push(Line::from(v));
+            for l in crate::md::render(text, w, &ui.md, &self.hl, repo.as_deref()) {
+                let mut line = l.into_line();
+                line.spans.insert(0, Span::raw("  "));
+                out.push(line);
             }
         };
         let head = |text: String, out: &mut Vec<Line<'static>>| out.push(Line::from(Span::styled(text, ui.heading.add_modifier(ratatui::style::Modifier::BOLD))));
@@ -133,9 +134,20 @@ impl IssueView {
         (self.lines, self.width) = (out, width);
     }
 
-    /// Why its triage would close it (empty: it wouldn't).
-    pub fn triage_close(&self) -> String {
-        self.t("close")
+    /// How it closes, as its triage says (`--reason` of `gh issue close`, and for a duplicate,
+    /// of what); not said, from its words: "fixed …" completed, else not planned.
+    pub fn close_reason(&self) -> (String, Option<u64>) {
+        let dup = self.triage["duplicate_of"].as_u64();
+        match self.t("reason").as_str() {
+            r @ ("completed" | "not planned") => (r.to_owned(), None),
+            "duplicate" if dup.is_some() => ("duplicate".into(), dup),
+            _ if self.t("close").to_lowercase().starts_with("fixed") => ("completed".into(), None),
+            _ => ("not planned".into(), None),
+        }
+    }
+
+    pub fn url(&self) -> &str {
+        &self.url
     }
 
     pub fn scroll_at(&self) -> usize {
@@ -154,6 +166,8 @@ impl IssueView {
     pub fn draw(&mut self, f: &mut Frame, ui: &Ui, area: Rect) {
         if self.width != area.width as usize || self.lines.is_empty() {
             self.render(ui, area.width as usize);
+            // (Fewer lines now, a narrower window wider: not past the end.)
+            self.scroll = self.scroll.min(self.lines.len().saturating_sub(area.height as usize));
         }
         let body: Vec<Line> = self.lines.iter().skip(self.scroll).take(area.height as usize).cloned().collect();
         f.render_widget(Paragraph::new(body).style(ui.base), area);
@@ -206,7 +220,11 @@ fn an_issue_and_its_triage() {
     };
     assert_eq!(v.new_labels(), ["chain"]); // bug it has
     assert_eq!(v.new_title().as_deref(), Some("LocalChain panics on reorg past genesis"));
-    assert_eq!((v.triage_close().as_str(), v.closing().as_deref()), ("fixed by #9", Some("Fixed by #9, thanks!")));
+    assert_eq!(v.closing().as_deref(), Some("Fixed by #9, thanks!"));
+    assert_eq!(v.close_reason(), ("completed".into(), None)); // "fixed by …"
+    v.triage["reason"] = "duplicate".into();
+    v.triage["duplicate_of"] = 3.into();
+    assert_eq!(v.close_reason(), ("duplicate".into(), Some(3)));
     assert!(v.fix_task().starts_with("Fix #7: panic\n\nFrom triaging it:\nStill on master"));
     let ui = Theme::load().ui();
     snapshot("issue_view", &screen(80, 22, |f| v.draw(f, &ui, f.area())));

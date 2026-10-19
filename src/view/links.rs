@@ -77,20 +77,7 @@ impl App {
     }
 
     pub(super) fn open_url(&mut self, url: &str) {
-        if cfg!(test) {
-            return self.msg = format!("opened {url}"); // (no browser from tests)
-        }
-        let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
-        let spawned = std::process::Command::new(opener)
-            .arg(url)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn();
-        self.msg = match spawned {
-            Ok(_) => format!("opened {url}"),
-            Err(e) => format!("{opener}: {e}"),
-        };
+        self.msg = open_url(url);
     }
 
     /// Go to `line` of `path` (as a comment wrote it: from the repo root, or just its end, like
@@ -189,4 +176,22 @@ fn file_refs() {
     assert_eq!(at("at 12:30 today", "12"), None); // a time
     assert_eq!(at("note: this", "note"), None);
     assert_eq!(at("x.rs:12:5,", "x.rs"), Some(("x.rs".into(), 12)));
+}
+
+/// `url` in the browser (`xdg-open` / `open`): what happened, for the status bar.
+pub(crate) fn open_url(url: &str) -> String {
+    if cfg!(test) {
+        return format!("opened {url}"); // (no browser from tests)
+    }
+    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    let spawned = std::process::Command::new(opener)
+        .arg(url)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    match spawned {
+        Ok(_) => format!("opened {url}"),
+        Err(e) => format!("{opener}: {e}"),
+    }
 }

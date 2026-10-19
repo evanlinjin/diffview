@@ -130,15 +130,9 @@ impl App {
                 // A code block's line (not one ending in inline code): its background its line's,
                 // for `code_to_edge` to take to the popup's edge.
                 let code = code_bg.filter(|&bg| l.nowrap && l.styles.last().copied().flatten().and_then(|s| s.bg) == Some(bg));
-                let spans: Vec<Span> = l
-                    .text
-                    .chars()
-                    .zip(l.styles.into_iter().chain(std::iter::repeat(None)))
-                    .map(|(ch, st)| Span::styled(ch.to_string(), st.unwrap_or_default()))
-                    .collect();
                 match code {
-                    Some(bg) => Line::from(spans).style(Style::new().bg(bg)),
-                    None => Line::from(spans),
+                    Some(bg) => l.into_line().style(Style::new().bg(bg)),
+                    None => l.into_line(),
                 }
             })
             .collect()

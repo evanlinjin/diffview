@@ -337,7 +337,9 @@ Asked to triage issue #N, reply with its triage, only a JSON object (dv keeps it
   review #N, needs a decision).
 - `close`: only when it should be closed, why in a few words ("duplicate of #12", "fixed by
   #40", "answered", "won't fix: out of scope", "stale: no repro since March"); `closing`: a
-  comment to close it with, for the user to edit. Else both empty.
+  comment to close it with, for the user to edit; `reason`: how it closes, `completed` (fixed,
+  done), `not planned` (won't fix, answered, stale) or `duplicate` (with `"duplicate_of": 12`).
+  Else all empty.
 
 ## Your notes on the repo
 

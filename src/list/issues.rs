@@ -12,7 +12,6 @@ pub struct Issue {
     pub number: u64,
     pub title: String,
     pub author: String,
-    pub url: String,
     pub updated: String,
     /// (name, hex color)
     pub labels: Vec<(String, String)>,
@@ -80,7 +79,7 @@ pub fn fetch() -> Result<(String, Vec<Issue>)> {
         let q = format!(
             "query($owner: String!, $name: String!) {{ viewer {{ login }} repository(owner: $owner, name: $name) {{
                issues(states: OPEN, first: 100{from}, orderBy: {{ field: UPDATED_AT, direction: DESC }}) {{ {PAGE} nodes {{
-                 number title url updatedAt author {{ login }}
+                 number title updatedAt author {{ login }}
                  labels(first: 10) {{ nodes {{ name color }} }} comments {{ totalCount }}
                  reactions(content: THUMBS_UP) {{ totalCount }} assignees(first: 5) {{ nodes {{ login }} }}
                  closedByPullRequestsReferences(first: 5, includeClosedPrs: true) {{ nodes {{ number state }} }} }} }} }} }}"
@@ -105,7 +104,6 @@ fn issue(i: &Value) -> Issue {
         number: i["number"].as_u64().unwrap_or(0),
         title: s(&i["title"]),
         author: s(&i["author"]["login"]),
-        url: s(&i["url"]),
         updated: s(&i["updatedAt"]),
         labels: nodes("labels").iter().map(|l| (s(&l["name"]), s(&l["color"]))).collect(),
         comments: i["comments"]["totalCount"].as_u64().unwrap_or(0),
@@ -250,6 +248,8 @@ pub struct Issues {
     /// The issue open in dv (Enter), and Claude's drafts of PRs fixing issues, under way.
     view: Option<super::issue_view::IssueView>,
     drafts: Vec<Receiver<(u64, batch::Status)>>,
+    /// Those drafts not done yet (by id).
+    drafting: HashSet<u64>,
     root: PathBuf,
     pub msg: String,
 }
@@ -302,6 +302,11 @@ impl Issues {
         let (items, _) = crate::todo::order(items, self.ranked.as_ref());
         // Deferred: at the bottom till then, or till what it needs changes (as dv list's).
         self.todo = crate::todo::defer(items, &self.deferred, crate::claude::now_secs(), |_, _| false);
+    }
+
+    /// Claude at work from here: triaging, or drafting a fix.
+    pub fn busy(&self) -> bool {
+        self.running.values().any(batch::Status::running) || !self.drafting.is_empty()
     }
 
     /// Those not deferred: what needs you now.
@@ -390,6 +395,9 @@ impl Issues {
                 }
             }
             for (id, st) in self.drafts.iter().flat_map(|rx| rx.try_iter()).collect::<Vec<_>>() {
+                if !st.running() {
+                    self.drafting.remove(&id);
+                }
                 match st {
                     batch::Status::Done(took) => self.msg = format!("Claude drafted {} ({took}): dv list's drafts tab has it (I I there)", crate::replace::label(id)),
                     batch::Status::Failed(e) => self.msg = format!("Claude's draft of {} failed: {}", crate::replace::label(id), e.lines().next().unwrap_or("")),
@@ -504,9 +512,9 @@ impl Issues {
             (_, KeyCode::Esc) => (self.query.clear(), self.sel = 0).1,
             (_, KeyCode::Char('?')) => self.help = true,
             (Some('q'), KeyCode::Char('q')) => return Some(IssuesDo::Quit),
-            (_, KeyCode::Char('q')) if self.running.values().any(batch::Status::running) => {
+            (_, KeyCode::Char('q')) if self.busy() => {
                 self.pending = Some('q');
-                self.msg = "Claude is still triaging: q again quits (runs under way finish, but their triage is lost)".into();
+                self.msg = "Claude is still at work (triaging, drafting): q again quits (what's under way is lost)".into();
             }
             (_, KeyCode::Char('q')) => return Some(IssuesDo::Quit),
             (_, KeyCode::Char('R')) => {
@@ -524,6 +532,9 @@ impl Issues {
             // The issue, in dv.
             (_, KeyCode::Enter) => {
                 if let Some(n) = this {
+                    self.msg = format!("#{n}…");
+                    _ = term.draw(|f| self.draw(f)); // (said while GitHub's asked)
+                    self.msg.clear();
                     match super::issue_view::IssueView::load(n, self.reviews_dir.as_deref()) {
                         Ok(v) => self.view = Some(v),
                         Err(e) => self.msg = format!("#{n}: {e:#}"),
@@ -541,7 +552,10 @@ impl Issues {
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
         let page = ratatui::crossterm::terminal::size().map_or(20, |(_, h)| h.saturating_sub(2) as usize);
         let pending = self.pending.take();
-        self.msg.clear();
+        // (Scrolling, the wheel too, leaves what was said.)
+        if !matches!(k.code, KeyCode::Char('j' | 'k') | KeyCode::Up | KeyCode::Down) && !ctrl {
+            self.msg.clear();
+        }
         let v = self.view.as_mut()?;
         let n = v.number;
         match (pending, k.code) {
@@ -553,14 +567,7 @@ impl Issues {
             (Some('g'), KeyCode::Char('e')) => v.scroll(isize::MAX / 2, page),
             (_, KeyCode::Char('q') | KeyCode::Esc) => self.view = None,
             (_, KeyCode::Char('?')) => self.help = true,
-            (_, KeyCode::Char('o')) => {
-                let url = self.items.iter().find(|i| i.number == n).map(|i| i.url.clone()).unwrap_or_default();
-                let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
-                self.msg = match std::process::Command::new(opener).arg(&url).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn() {
-                    Ok(_) => format!("opened {url}"),
-                    Err(e) => format!("{opener}: {e}"),
-                };
-            }
+            (_, KeyCode::Char('o')) => self.msg = crate::view::open_url(v.url()),
             (_, KeyCode::Char('C')) => {
                 let body = said(edit(term, &format!("a comment on issue #{n} (posted when you save)"), "", false), &mut self.msg)?;
                 self.msg = match crate::gh::gh(&["issue", "comment", &n.to_string(), "--body", &body]) {
@@ -571,7 +578,10 @@ impl Issues {
             }
             (Some('L'), KeyCode::Char('L')) => {
                 let labels = v.new_labels();
-                self.msg = match crate::gh::gh(&["issue", "edit", &n.to_string(), "--add-label", &labels.join(",")]) {
+                // (A flag each: a label may have a comma in it.)
+                let mut args = vec!["issue".to_owned(), "edit".into(), n.to_string()];
+                labels.iter().for_each(|l| args.extend(["--add-label".into(), l.clone()]));
+                self.msg = match crate::gh::gh(&args.iter().map(String::as_str).collect::<Vec<_>>()) {
                     Ok(_) => format!("#{n}: labelled {}", labels.join(", ")),
                     Err(e) => format!("not labelled: {e:#}"),
                 };
@@ -587,11 +597,14 @@ impl Issues {
             }
             (Some('X'), KeyCode::Char('X')) => {
                 let closing = v.closing().unwrap_or_default();
-                let why = v.triage_close();
-                let body = said(edit(term, &format!("closing issue #{n}: the comment it closes with (empty: none)"), &closing, true), &mut self.msg)?;
-                // Fixed (a PR did it) or not planned (a duplicate, won't fix, answered, stale).
-                let reason = if why.to_lowercase().contains("fixed") { "completed" } else { "not planned" };
-                let mut args = vec!["issue".to_owned(), "close".into(), n.to_string(), "--reason".into(), reason.into()];
+                // As its triage says: completed, not planned, or a duplicate (of what).
+                let (reason, dup) = v.close_reason();
+                let body = said(edit(term, &format!("closing issue #{n} ({reason}): the comment it closes with (empty: none)"), &closing, true), &mut self.msg)?;
+                let mut args = vec!["issue".to_owned(), "close".into(), n.to_string()];
+                match dup {
+                    Some(d) => args.extend(["--duplicate-of".into(), d.to_string()]),
+                    None => args.extend(["--reason".into(), reason.clone()]),
+                }
                 if !body.trim().is_empty() {
                     args.extend(["--comment".into(), body]);
                 }
@@ -608,9 +621,10 @@ impl Issues {
                 let task = v.fix_task();
                 let what = format!("a PR fixing #{n}, for Claude to draft (what it should do; unpublished until you publish it)");
                 let task = said(edit(term, &what, &task, false), &mut self.msg)?;
-                match crate::replace::create_new(&task, &self.root) {
-                    Ok(id) => {
-                        self.drafts.push(batch::replace(vec![id], self.root.clone(), String::new()));
+                match start_new_pr(&task, &self.root) {
+                    Ok((id, rx)) => {
+                        self.drafts.push(rx);
+                        self.drafting.insert(id);
                         self.msg = format!("Claude is drafting {} (fixes #{n}): dv list's drafts tab shows it", crate::replace::label(id));
                     }
                     Err(e) => self.msg = format!("couldn't start it: {e:#}"),
@@ -924,7 +938,7 @@ CLAUDE
 #[test]
 fn issues_listed_triaged_filtered() {
     use crate::view::tests::{screen, snapshot};
-    let v: Value = serde_json::from_str(r#"{"number": 7, "title": "Panics on reorg", "url": "https://github.com/o/r/issues/7",
+    let v: Value = serde_json::from_str(r#"{"number": 7, "title": "Panics on reorg",
         "updatedAt": "2026-01-01T00:00:00Z", "author": {"login": "amy"}, "labels": {"nodes": [{"name": "bug", "color": "d73a4a"}]},
         "comments": {"totalCount": 3}, "reactions": {"totalCount": 2}, "assignees": {"nodes": [{"login": "me"}]},
         "closedByPullRequestsReferences": {"nodes": [{"number": 9, "state": "OPEN"}]}}"#).unwrap();

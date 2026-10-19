@@ -264,6 +264,7 @@ fn pick_and_review(o: &Opts, root: &Path) -> anyhow::Result<()> {
             view::restore_terminal();
             match res? {
                 // (Not with Claude still at work on PRs from the list: back there, saying so.)
+                // (Its own work: `Issues` asks before it quits.)
                 list::issues::IssuesDo::Quit if list.busy() => {
                     list.msg = "Claude is still at work on PRs here: q again (in dv list) quits".into();
                     on_issues = false;
