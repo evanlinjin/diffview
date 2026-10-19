@@ -105,18 +105,11 @@ impl App {
     }
 
     /// What `info` line `i` is, whatever its place among them (a refresh adds lines before
-    /// it, a reaction line, a check): a comment's node id (its text: `/text`), else its link,
-    /// else its own text; one of `Row::info`'s markers (`FACTS`, …) as itself.
+    /// it): its `key`; one of `Row::info`'s markers (`FACTS`, …) as itself.
     fn info_id(&self, i: Option<usize>) -> Option<String> {
         let i = i?;
-        let Some(l) = self.info.get(i) else { return Some(format!("#{i}")) };
-        let head = i.checked_sub(1).and_then(|h| self.info.get(h)).filter(|h| h.heading && !l.heading);
-        Some(match (l.node.as_str(), head.map(|h| h.node.as_str())) {
-            ("", Some(n)) if !n.is_empty() => format!("{n}/text"),
-            ("", _) if !l.url.is_empty() => l.url.clone(),
-            ("", _) => format!("~{}", l.text),
-            (n, _) => n.to_owned(),
-        })
+        // (A line with no key, not from GitHub's answer: its text.)
+        Some(self.info.get(i).map_or_else(|| format!("#{i}"), |l| if l.key.is_empty() { format!("~{}", l.text) } else { l.key.clone() }))
     }
 
     /// The row `key` is on now.

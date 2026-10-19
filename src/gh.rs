@@ -1077,11 +1077,15 @@ pub struct InfoLine {
     pub node: String,
     /// On a conversation comment's heading: hidden on GitHub, and why; empty if it isn't.
     pub hidden: String,
+    /// What the line is, the same across refreshes (its text may not be: counts, times): a
+    /// comment's node id (its text: `<node>/text`), else what the line is about (`checks`,
+    /// `conversation`, …). For the cursor to stay on it.
+    pub key: String,
 }
 
 impl InfoLine {
     fn new(heading: bool, md: bool) -> Self {
-        InfoLine { heading, md, text: String::new(), marks: vec![], hidden: String::new(), url: String::new(), node: String::new() }
+        InfoLine { heading, md, text: String::new(), marks: vec![], hidden: String::new(), key: String::new(), url: String::new(), node: String::new() }
     }
 
     fn put(&mut self, s: &str, mark: Option<Mark>) -> &mut Self {
@@ -1555,7 +1559,22 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         out.push(h);
         out.push(markdown(body.replace("\r\n", "\n")));
     }
+    for i in 0..out.len() {
+        out[i].key = line_key(&out[..=i]);
+    }
     out
+}
+
+/// What the last of `lines` is (`InfoLine::key`): its node; else the node of the heading it's
+/// the text of; else its label, what it says up to its first `:`, `(` or digit (`checks`,
+/// `conversation`, `reactions`).
+fn line_key(lines: &[InfoLine]) -> String {
+    let (l, before) = lines.split_last().unwrap_or_else(|| unreachable!());
+    match before.last().filter(|h| h.heading && !l.heading && !h.node.is_empty()) {
+        _ if !l.node.is_empty() => l.node.clone(),
+        Some(h) => format!("{}/text", h.node),
+        None => l.text.split([':', '(']).next().unwrap_or("").split(|c: char| c.is_ascii_digit()).next().unwrap_or("").trim().to_owned(),
+    }
 }
 
 #[test]
@@ -1892,4 +1911,16 @@ fn gateway_timeout_asked_again_smaller() {
     assert!(refused(serde_json::json!(null), "HTTP 502: Bad Gateway").is_some_and(|r| too_big(&r)));
     // Not about time: not asked again.
     assert!(refused(serde_json::json!({ "message": "Bad credentials" }), "HTTP 401").is_none());
+}
+
+#[test]
+fn info_lines_keep_their_keys() {
+    let keys = |v: Value| info_lines(&v).into_iter().map(|l| l.key).collect::<Vec<_>>();
+    let pr = |n: usize| json!({ "id": "PR_1", "statusCheckRollup": [], "comments": (0..n).map(|i| json!({ "id": format!("IC_{i}"), "author": { "login": "amy" }, "body": "hi", "createdAt": "2026-10-01T00:00:00Z" })).collect::<Vec<_>>() });
+    let (one, two) = (keys(pr(1)), keys(pr(2)));
+    // The same lines keep their keys though their text (counts) changed; a comment's text is
+    // keyed by its comment.
+    for k in ["conversation", "IC_0", "IC_0/text"] {
+        assert!(one.iter().any(|x| x == k) && two.iter().any(|x| x == k), "{k}: {one:?} {two:?}");
+    }
 }
