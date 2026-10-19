@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.40] - 2026-10-19
+
+### Fixed
+- A replacement's first draft that Claude stops partway (an error, its turn limit) keeps its
+  record (its drafts so far, its session) again: only one that couldn't be set up is removed.
+- `dv list`'s `A` on replacements, some drafted and some not: what you write goes to the
+  drafted ones' redrafts; the first drafts get your instructions for replacements.
+
 ## [0.34.39] - 2026-10-19
 
 ### Changed

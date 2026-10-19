@@ -483,16 +483,18 @@ impl List {
         let which: Vec<String> = groups.iter().map(|g| g.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join("+")).collect();
         let what = format!("instructions for Claude's replacement of {} (optional)", which.join(", "));
         // Drafted already: what else you want of it (asked of its drafts), not your instructions
-        // for first drafts (nor saved as them).
+        // for first drafts (nor saved as them); any first drafts among them get those.
         let extra = match groups.iter().any(|g| crate::replace::drafted(g[0])) {
-            true => self.edit_text(term, &format!("what else Claude should do in its redraft of {} (optional)", which.join(", ")), "", true),
+            true => self.edit_text(term, &format!("what else Claude should do in its redraft of {} (optional; first drafts get your instructions for replacements)", which.join(", ")), "", true),
             false => self.instructions(term, "replace", &what),
         };
         let Some(extra) = extra else { return };
         self.msg = format!("Claude is drafting {} replacement(s): the replacements tab shows them", groups.len());
         self.marked.clear();
         for g in groups {
-            self.draft_rx.push(batch::replace(g, self.root.clone(), extra.clone()));
+            // (A first draft with nothing given takes your saved instructions: `replace::draft`.)
+            let extra = if crate::replace::drafted(g[0]) { extra.clone() } else { String::new() };
+            self.draft_rx.push(batch::replace(g, self.root.clone(), extra));
         }
     }
 

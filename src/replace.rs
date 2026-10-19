@@ -378,15 +378,20 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
     };
     let res = (|| {
         let dir = match prs {
-            [id] if is_new(*id) => prepare_new(*id, root)?,
-            _ => prepare(prs, root)?,
+            [id] if is_new(*id) => prepare_new(*id, root),
+            _ => prepare(prs, root),
         };
+        // Not set up (PRs on different bases, one that isn't there): no record left of it.
+        if dir.is_err() && !existed {
+            _ = std::fs::remove_file(path(id)?);
+        }
+        let dir = dir?;
         // What you've asked of it so far goes in its prompt: those are what it takes in.
         let (r, _) = update(id, |r| {
             r.taking = r.asks.len();
             Ok(r.clone())
         })?;
-        run_claude(&r, &dir, if first { extra } else { "" }, prepared)
+        run_claude(&r, &dir, first, if first { extra } else { "" }, prepared)
     })();
     // Claude has written to the record meanwhile: only the mark comes off (and what you asked
     // that it was given is done, if it finished).
@@ -398,17 +403,13 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
         }
         Ok(())
     });
-    // Not set up (PRs on different bases, one that isn't there): no record left of it.
-    if res.is_err() && !existed {
-        _ = std::fs::remove_file(path(id)?);
-    }
     res
 }
 
-fn run_claude(r: &Record, dir: &Path, extra: &str, prepared: impl FnOnce()) -> Result<String> {
+/// `first`: its first draft (a new session; else it carries on in its own).
+fn run_claude(r: &Record, dir: &Path, first: bool, extra: &str, prepared: impl FnOnce()) -> Result<String> {
     prepared();
-    // A record that exists from before has a session that saw it: carry on there.
-    let session = match !r.drafted() {
+    let session = match first {
         true => ["--session-id".to_owned(), r.session.clone()],
         false => ["--resume".to_owned(), r.session.clone()],
     };
