@@ -1,0 +1,14 @@
+ Issues   todo 2   open 2   mine 1   close 1     I I the PRs
+▌   #8 How do I sync?                                                                                         💬  0 · 👍  0                    │ Claude would close it: answered in #3
+▌   1. @bo                                                                                                    ✕ close: answered in #3        │
+▌      → answer it                                                                                            claude ✓                       │
+▌                                                                                                                                            │
+
+    #7 Panics on reorg  bug                                                                                   💬  3 · 👍  2                    │ assigned to you · #9 would fix it: review that · not
+    2. @amy  → @me                                                                                                                           │ triaged yet (a a)
+       fixed by #9 (open)                                                                                                                    │
+                                                                                                                                             │
+
+
+
+ ? keys · I I the PRs                                                                                                                                                                             1 / 2

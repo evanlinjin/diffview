@@ -1,4 +1,4 @@
-  todo 3   open 3   close 1   worktrees 0   keys
+ PRs   todo 3   open 3   close 1   worktree keys
 ▌   #2  Docs                                Enter review (Space a there drafts a closing comment)
 ▌      ✕ #1 does this better                gn gp PRs with a worktree
 ▌       @bo   +0 −0 in 1 file               /     filter

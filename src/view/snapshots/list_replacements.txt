@@ -1,4 +1,4 @@
-  todo 0   open 3   close 0   worktrees 0   drafts 0   keys
+ PRs   todo 0   open 3   close 0   worktrees 0   draft keys
                                                        Enter review it, in its worktree
  no replacements yet: A A on a PR (or marked ones) has gn gp what needs you
                                                        /     filter

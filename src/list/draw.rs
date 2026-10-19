@@ -49,9 +49,10 @@ impl List {
             (Tab::Worktrees, format!("worktrees {}", self.local.len())),
             (Tab::Replacements, format!("drafts {}", self.reps.len())),
         ];
-        let mut spans = vec![Span::styled(" ", hs)];
+        // Which list this is (dv issues' says ISSUES).
+        let mut spans = vec![Span::styled(" PRs ", hs.add_modifier(ratatui::style::Modifier::BOLD)), Span::styled(" ", hs)];
         let mut hits = vec![];
-        let mut x = 1u16;
+        let mut x = 6u16; // (past " PRs  ")
         for (t, name) in names {
             let s = tab(name, self.tab == t);
             let w = s.width() as u16;
@@ -59,6 +60,8 @@ impl List {
             spans.extend([s, Span::styled(" ", hs)]);
             x += w + 1;
         }
+        // (The other list, and how to get there.)
+        spans.push(Span::styled("   I I the issues", dim));
         let tabs = Line::from(spans);
         f.render_widget(Paragraph::new(tabs).style(hs), head);
         let pos = if shown.is_empty() { "0 / 0 ".into() } else { format!("{} / {} ", sel + 1, shown.len()) };
@@ -89,7 +92,7 @@ impl List {
             .take(h)
             .flat_map(|(i, p)| {
                 let item = (self.tab == Tab::Todo).then(|| self.todo_shown().into_iter().find(|(c, _)| std::ptr::eq(*c, *p)).map(|x| x.1)).flatten();
-                let rep_card = self.tab == Tab::Replacements || item.is_some_and(|it| it.rep);
+                let rep_card = self.tab == Tab::Replacements || item.is_some_and(|it| it.is_rep());
                 let says = item.map(todo_says);
                 let mark = match rep_card {
                     true => {

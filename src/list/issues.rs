@@ -39,7 +39,9 @@ pub struct Triage {
 /// The issues' tabs.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum ITab {
+    /// What needs you, in order (Claude's, once it's ranked them).
     #[default]
+    Todo,
     Open,
     /// Assigned to you, or opened by you.
     Mine,
@@ -50,14 +52,15 @@ pub enum ITab {
 impl ITab {
     fn next(self) -> ITab {
         match self {
+            ITab::Todo => ITab::Open,
             ITab::Open => ITab::Mine,
             ITab::Mine => ITab::CanClose,
-            ITab::CanClose => ITab::Open,
+            ITab::CanClose => ITab::Todo,
         }
     }
 
     fn prev(self) -> ITab {
-        self.next().next()
+        self.next().next().next()
     }
 }
 
@@ -115,6 +118,50 @@ pub fn triage_of(dir: &std::path::Path, n: u64) -> Option<Triage> {
     let v: Value = serde_json::from_str(&std::fs::read_to_string(dir.join(format!("issue-{n}.json"))).ok()?).ok()?;
     let s = |k: &str| v[k].as_str().unwrap_or("").trim().to_owned();
     Some(Triage { kind: s("kind"), priority: s("priority"), next: s("next"), close: s("close") })
+}
+
+/// What issue `i` needs of you (`t`: Claude's triage of it, written at `t_at`, seconds):
+/// the PR fixing it merged (close it), Claude would close it, assigned to you, a PR would fix it
+/// (review that), changed since Claude triaged it, not triaged.
+pub fn issue_needs(i: &Issue, t: Option<&Triage>, t_at: Option<i64>, me: &str) -> Vec<crate::todo::Need> {
+    use crate::todo::Need;
+    let mut out = vec![];
+    if let Some(&(n, _)) = i.fixed_by.iter().find(|p| p.1 == "MERGED") {
+        out.push(Need::FixMerged(n));
+    }
+    if let Some(t) = t.filter(|t| !t.close.is_empty()) {
+        out.push(Need::WouldClose(t.close.clone()));
+    }
+    if !me.is_empty() && i.assignees.iter().any(|a| a == me) {
+        out.push(Need::Assigned);
+    }
+    if let Some(&(n, _)) = i.fixed_by.iter().find(|p| p.1 == "OPEN") {
+        out.push(Need::FixOpen(n));
+    }
+    match (t, t_at) {
+        (None, _) => out.push(Need::Untriaged),
+        (Some(_), Some(at)) if crate::gh::epoch_secs(&i.updated).is_some_and(|u| u > at) => out.push(Need::Retriage),
+        _ => {}
+    }
+    out
+}
+
+/// Issue `i`, a line for Claude ranking the todo list: what it is, what it needs, its triage.
+pub fn about_issue(it: &crate::todo::Item, i: &Issue, t: Option<&Triage>) -> String {
+    let mut v = serde_json::json!({
+        "key": it.key(),
+        "title": i.title,
+        "author": i.author,
+        "updated": gh::ago(&i.updated),
+        "labels": i.labels.iter().map(|l| l.0.clone()).collect::<Vec<_>>(),
+        "comments": i.comments,
+        "thumbs_up": i.thumbs,
+        "needs": it.needs.iter().map(crate::todo::Need::says).collect::<Vec<_>>(),
+    });
+    if let Some(t) = t {
+        v["triage"] = serde_json::json!({ "kind": t.kind, "priority": t.priority, "next": t.next, "close": t.close });
+    }
+    v.to_string()
 }
 
 /// Claude triages issue `n` (`extra`: your instructions), in the main checkout, reading only
@@ -176,6 +223,15 @@ pub struct Issues {
     marked: HashSet<u64>,
     /// Claude's triage of each issue (from its review file), and the runs under way.
     triage: HashMap<u64, Triage>,
+    /// When each triage was written (seconds): an issue changed since is to triage again.
+    triage_at: HashMap<u64, i64>,
+    /// The todo tab: what needs you, in order; Claude's last ranking of it, and the next on its
+    /// way; deferred items (`s`, kept in `deferred-issues.json`), and the one `s` is asking about.
+    todo: Vec<crate::todo::Item>,
+    ranked: Option<crate::todo::Ranked>,
+    rank_rx: Option<Receiver<Result<crate::todo::Ranked>>>,
+    deferred: crate::todo::Deferred,
+    deferring: Option<String>,
     running: HashMap<u64, batch::Status>,
     running_rx: Vec<Receiver<(u64, batch::Status)>>,
     reviews_dir: Option<PathBuf>,
@@ -189,6 +245,8 @@ impl Issues {
     pub fn new() -> Issues {
         Issues {
             ui: Theme::load().ui(),
+            ranked: crate::todo::load_of(crate::todo::Of::Issues),
+            deferred: crate::todo::load_deferred(crate::todo::deferred_path_of(crate::todo::Of::Issues).as_deref()),
             reviews_dir: crate::claude::dv_dir().ok().map(|d| d.join("reviews")),
             root: std::env::current_dir().unwrap_or_default(),
             ..Default::default()
@@ -211,13 +269,47 @@ impl Issues {
         }
         self.reviews_mtime = mtime;
         self.triage = self.items.iter().filter_map(|i| Some((i.number, triage_of(dir, i.number)?))).collect();
+        let at = |n: u64| std::fs::metadata(dir.join(format!("issue-{n}.json"))).ok()?.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs() as i64);
+        self.triage_at = self.triage.keys().filter_map(|&n| Some((n, at(n)?))).collect();
+        self.find_todo();
+    }
+
+    /// The todo tab's items: each issue's needs, in Claude's order where it's ranked them (the
+    /// rules' otherwise), deferred ones at the bottom till then (or till what they need changes).
+    fn find_todo(&mut self) {
+        use crate::todo::{Item, Kind};
+        let items: Vec<Item> = self
+            .items
+            .iter()
+            .filter_map(|i| {
+                let needs = issue_needs(i, self.triage.get(&i.number), self.triage_at.get(&i.number).copied(), &self.me);
+                (!needs.is_empty()).then(|| Item { kind: Kind::Issue, number: i.number, needs, claude: None, updated: i.updated.clone(), reason: None, changed: false, deferred: None, busy: None, waits: None })
+            })
+            .collect();
+        let (items, _) = crate::todo::order(items, self.ranked.as_ref());
+        let now = crate::claude::now_secs();
+        // Over (its time's come, or what it needs changed): gone.
+        self.deferred.retain(|k, d| d.until > now && items.iter().any(|it| it.key() == *k && it.needs_key() == d.needs));
+        let (mut later, mut out): (Vec<Item>, Vec<Item>) = items.into_iter().partition(|it| self.deferred.contains_key(&it.key()));
+        later.iter_mut().for_each(|it| it.deferred = self.deferred.get(&it.key()).cloned());
+        out.append(&mut later);
+        self.todo = out;
+    }
+
+    /// Those not deferred: what needs you now.
+    fn todo_now(&self) -> usize {
+        self.todo.iter().filter(|it| it.deferred.is_none()).count()
     }
 
     /// The issues on the tab shown, filtered.
     pub fn shown(&self) -> Vec<&Issue> {
+        if self.tab == ITab::Todo {
+            return self.todo.iter().filter_map(|it| self.items.iter().find(|i| i.number == it.number)).filter(|i| self.matches(i)).collect();
+        }
         self.items
             .iter()
             .filter(|i| match self.tab {
+                ITab::Todo => true,
                 ITab::Open => true,
                 ITab::Mine => i.author == self.me || i.assignees.contains(&self.me),
                 ITab::CanClose => self.triage.get(&i.number).is_some_and(|t| !t.close.is_empty()),
@@ -273,6 +365,17 @@ impl Issues {
                 }
             }
             self.watch_reviews();
+            if let Some(Ok(res)) = self.rank_rx.as_ref().map(Receiver::try_recv) {
+                self.rank_rx = None;
+                match res {
+                    Ok(r) => {
+                        self.msg = format!("Claude ranked what needs you (${:.2})", r.cost);
+                        self.ranked = Some(r);
+                        self.find_todo();
+                    }
+                    Err(e) => self.msg = format!("not ranked: {e:#}"),
+                }
+            }
             for rx in &self.running_rx {
                 while let Ok((n, st)) = rx.try_recv() {
                     match &st {
@@ -342,6 +445,18 @@ impl Issues {
                 self.marked.clear();
             }
             (Some('a'), KeyCode::Char('a')) => self.triage_marked(term),
+            (Some('r'), KeyCode::Char('r')) => self.rank(),
+            // `s` asked how long: 1 an hour, 4 four hours, d a day, w a week.
+            (Some('s'), KeyCode::Char(c @ ('1' | '4' | 'd' | 'w'))) => self.defer_for(c),
+            (Some('s'), _) => self.msg = "not deferred".into(),
+            (_, KeyCode::Char('s')) if self.tab == ITab::Todo => self.defer_key(),
+            (_, KeyCode::Char('r')) if self.tab == ITab::Todo => {
+                self.pending = Some('r');
+                self.msg = format!("r again: Claude ranks the {} issue(s) that need you (one run; {})", self.todo.len(), match &self.ranked {
+                    Some(r) => format!("ranked {} ago, cost ${:.2}", gh::ago_secs(crate::claude::now_secs() - r.at), r.cost),
+                    None => "never ranked before".into(),
+                });
+            }
             (_, KeyCode::Char(c @ ('g' | 'I' | 'U' | 'a'))) => {
                 self.pending = Some(c);
                 self.msg = match c {
@@ -393,6 +508,53 @@ impl Issues {
         None
     }
 
+    /// `s` on a todo item: defer it (the next key says how long), or bring a deferred one back.
+    fn defer_key(&mut self) {
+        let Some(n) = self.shown().get(self.sel).map(|i| i.number) else { return };
+        let Some(it) = self.todo.iter().find(|it| it.number == n) else { return };
+        if self.deferred.remove(&it.key()).is_some() {
+            self.msg = format!("#{n} is back");
+            return self.save_defer();
+        }
+        self.msg = "defer it for: 1 an hour, 4 four hours, d a day, w a week (any other key: not); back sooner if what it needs changes".into();
+        (self.pending, self.deferring) = (Some('s'), Some(it.key()));
+    }
+
+    fn defer_for(&mut self, c: char) {
+        let Some(key) = self.deferring.take() else { return };
+        let Some(it) = self.todo.iter().find(|it| it.key() == key) else { return };
+        let (secs, how) = match c {
+            '1' => (3600, "an hour"),
+            '4' => (4 * 3600, "four hours"),
+            'd' => (86400, "a day"),
+            _ => (7 * 86400, "a week"),
+        };
+        self.deferred.insert(key, crate::todo::Deferral { until: crate::claude::now_secs() + secs, needs: it.needs_key(), cond: None });
+        self.msg = format!("deferred for {how} (s on it brings it back)");
+        self.save_defer();
+    }
+
+    fn save_defer(&mut self) {
+        if let Err(e) = crate::todo::save_deferred(crate::todo::deferred_path_of(crate::todo::Of::Issues).as_deref(), &self.deferred) {
+            self.msg = format!("couldn't save it: {e:#}");
+        }
+        self.find_todo();
+    }
+
+    /// `r r`: Claude ranks the todo tab (one run, in the background).
+    fn rank(&mut self) {
+        if self.todo.is_empty() {
+            return self.msg = "nothing on the todo tab to rank".into();
+        }
+        let lines: Vec<String> = self
+            .todo
+            .iter()
+            .filter_map(|it| Some(about_issue(it, self.items.iter().find(|i| i.number == it.number)?, self.triage.get(&it.number))))
+            .collect();
+        self.rank_rx = Some(crate::todo::rank_of(lines, crate::todo::fingerprint(&self.todo), self.root.clone(), crate::todo::Of::Issues));
+        self.msg = "Claude is ranking what needs you…".into();
+    }
+
     /// `a a`: Claude triages the marked issues (or this one), with your instructions if any.
     fn triage_marked(&mut self, term: &mut DefaultTerminal) {
         let ns: Vec<u64> = match self.marked.is_empty() {
@@ -410,8 +572,14 @@ impl Issues {
         self.running_rx.push(triage_all(ns, self.root.clone(), extra));
     }
 
+    /// A card's rows, and the blank after it: on the todo tab, one more (Claude's word, beside
+    /// it or under its title).
+    fn card_rows(&self) -> usize {
+        if self.tab == ITab::Todo { 5 } else { 4 }
+    }
+
     fn height(&self) -> usize {
-        ratatui::crossterm::terminal::size().map_or(10, |(_, h)| h.saturating_sub(2) as usize / 4)
+        ratatui::crossterm::terminal::size().map_or(10, |(_, h)| h.saturating_sub(2) as usize / self.card_rows())
     }
 
     fn draw(&mut self, f: &mut Frame) {
@@ -423,14 +591,23 @@ impl Issues {
         let dim = hs.remove_modifier(ratatui::style::Modifier::BOLD).patch(Style { fg: ui.linenr.fg, ..Style::new() });
         let mine = self.items.iter().filter(|i| i.author == self.me || i.assignees.contains(&self.me)).count();
         let close = self.items.iter().filter(|i| self.triage.get(&i.number).is_some_and(|t| !t.close.is_empty())).count();
-        let tabs = [(ITab::Open, format!("open {}", self.items.len())), (ITab::Mine, format!("mine {mine}")), (ITab::CanClose, format!("close {close}"))];
-        let mut spans = vec![Span::styled(" ISSUES ", hs.add_modifier(ratatui::style::Modifier::BOLD)), Span::styled(" ", hs)];
+        let tabs = [
+            (ITab::Todo, format!("todo {}", self.todo_now())),
+            (ITab::Open, format!("open {}", self.items.len())),
+            (ITab::Mine, format!("mine {mine}")),
+            (ITab::CanClose, format!("close {close}")),
+        ];
+        let mut spans = vec![Span::styled(" Issues ", hs.add_modifier(ratatui::style::Modifier::BOLD)), Span::styled(" ", hs)];
         for (t, name) in tabs {
             spans.extend([Span::styled(format!(" {name} "), if self.tab == t { ui.menu_selected } else { dim }), Span::styled(" ", hs)]);
         }
+        spans.push(Span::styled("   I I the PRs", dim));
         f.render_widget(Paragraph::new(Line::from(spans)).style(hs), Rect { height: 1.min(area.height), ..area });
         let shown = self.shown();
-        let rows = 4;
+        let rows = self.card_rows();
+        // The todo tab: Claude's word beside each card when the window's wide enough, else
+        // under its title (as dv list's).
+        let column = (self.tab == ITab::Todo).then(|| msg_column(area.width as usize)).flatten();
         let h = area.height.saturating_sub(2) as usize / rows;
         let sel = self.sel.min(shown.len().saturating_sub(1));
         let top = self.top.min(sel).max((sel + 1).saturating_sub(h));
@@ -442,7 +619,17 @@ impl Issues {
             .skip(top)
             .take(h)
             .flat_map(|(k, i)| {
-                let mut l = issue_card(i, ui, k == sel, self.marked.contains(&i.number), num_w, width, self.triage.get(&i.number), self.running.get(&i.number));
+                let item = (self.tab == ITab::Todo).then(|| self.todo.iter().find(|it| it.number == i.number)).flatten();
+                let card_w = column.unwrap_or(width);
+                let rank = item.filter(|_| column.is_some()).map(|_| k + 1); // (narrow: on the line under the title)
+                let mut l = issue_card(i, ui, k == sel, self.marked.contains(&i.number), num_w, card_w, self.triage.get(&i.number), self.running.get(&i.number), rank);
+                if let Some(it) = item {
+                    let cx = Cards { ui, num_w, width: card_w, checks_loading: false, usual: "" };
+                    match column {
+                        Some(w) => l = with_message(l, &todo_says(it).1, &cx, w, width, k == sel),
+                        None => l.insert(1, todo_line(k + 1, it, &cx, k == sel)),
+                    }
+                }
                 l.push(Line::raw(""));
                 l
             })
@@ -481,7 +668,7 @@ impl Issues {
 /// it and who has it, and Claude's triage (what kind, how pressing); the PRs that would fix it,
 /// and what Claude says is next (or that it's at it).
 #[allow(clippy::too_many_arguments)]
-fn issue_card(i: &Issue, ui: &Ui, selected: bool, marked: bool, num_w: usize, width: usize, t: Option<&Triage>, run: Option<&batch::Status>) -> Vec<Line<'static>> {
+fn issue_card(i: &Issue, ui: &Ui, selected: bool, marked: bool, num_w: usize, width: usize, t: Option<&Triage>, run: Option<&batch::Status>, rank: Option<usize>) -> Vec<Line<'static>> {
     let row = card_row(ui, selected);
     let tint = |st: Style| row.patch(Style { bg: None, ..st });
     let dim = tint(ui.stale);
@@ -512,7 +699,12 @@ fn issue_card(i: &Issue, ui: &Ui, selected: bool, marked: bool, num_w: usize, wi
     }
     let talk = vec![sp(format!("💬 {} · 👍 {}  ", i.comments, i.thumbs), dim), sp(gh::ago(&i.updated), dim)];
     // Who; Claude's triage.
-    let mut who = vec![indent(), sp(format!("@{}", i.author), dim)];
+    // (Its place on the todo tab, under its number.)
+    let first = match rank {
+        Some(r) => sp(format!("{}{:>w$} ", " ".repeat(MARK_W), format!("{r}."), w = num_w), tint(ui.key)),
+        None => indent(),
+    };
+    let mut who = vec![first, sp(format!("@{}", i.author), dim)];
     if !i.assignees.is_empty() {
         who.push(sp(format!("  → {}", i.assignees.iter().map(|a| format!("@{a}")).collect::<Vec<_>>().join(" ")), dim));
     }
@@ -544,7 +736,7 @@ MOVE
   j k, Up Down         move
   gg ge                first / last issue
   Ctrl-d Ctrl-u        half a page down / up
-  gn gp                next / previous tab (open, mine, can close)
+  gn gp                next / previous tab (todo, open, mine, can close)
   Enter                open it on GitHub
   I I                  back to the PRs
   ?                    this help
@@ -556,6 +748,10 @@ FIND
                        label: author: kind: priority:  is:triaged  (-term excludes)
   Esc                  clear the filter
   R                    refresh from GitHub (no Claude)
+
+TODO
+  r r                  Claude ranks what needs you (one run; the bar says its cost)
+  s                    defer it: 1 an hour, 4 four hours, d a day, w a week (again: back)
 
 CLAUDE
   m                    mark the issue (again: unmark)
@@ -577,6 +773,7 @@ fn issues_listed_triaged_filtered() {
     let mut l = Issues { me: "me".into(), reviews_dir: Some(dir.clone()), ..Default::default() };
     l.items = vec![a, Issue { number: 8, title: "How do I sync?".into(), author: "bo".into(), updated: "2026-01-02T00:00:00Z".into(), ..Default::default() }];
     l.watch_reviews();
+    l.tab = ITab::Open;
     assert_eq!(l.triage.get(&8).map(|t| t.close.as_str()), Some("answered in #3"));
     let shown = |l: &Issues| l.shown().iter().map(|i| i.number).collect::<Vec<_>>();
     assert_eq!(shown(&l), [7, 8]);
@@ -594,6 +791,15 @@ fn issues_listed_triaged_filtered() {
     l.query.clear();
     l.items.iter_mut().for_each(|i| i.updated.clear()); // (no age: the snapshot stays as it is)
     snapshot("issues", &screen(140, 12, |f| l.draw(f)));
+    // The todo tab: #7 assigned to you, a PR would fix it; #8 Claude would close.
+    l.find_todo();
+    assert_eq!(l.todo.iter().map(|it| (it.number, it.needs.clone())).collect::<Vec<_>>(), [
+        (8, vec![crate::todo::Need::WouldClose("answered in #3".into())]),
+        (7, vec![crate::todo::Need::Assigned, crate::todo::Need::FixOpen(9), crate::todo::Need::Untriaged]),
+    ]);
+    l.tab = ITab::Todo;
+    snapshot("issues_todo", &screen(140, 14, |f| l.draw(f)));
+    snapshot("issues_todo_wide", &screen(200, 14, |f| l.draw(f)));
     _ = std::fs::remove_dir_all(&dir);
 }
 

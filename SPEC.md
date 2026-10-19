@@ -154,10 +154,16 @@ disk: rust-analyzer can index it and `hx` can open it.
    it. For several marked PRs, `A A` first has Claude suggest groups (a
    `claude -p` that only reads them), edited in `$EDITOR`, a line each.
 4. **Issues** (`dv issues`, or `I I` in `dv list`; `I I` there goes back): the repo's open
-   issues (the 500 most recently updated, one GraphQL query a page), a card each: number, title
+   issues (the 500 most recently updated, one GraphQL query a page); each list's top bar says
+   which it is (`PRs`, `Issues`) and `I I` the other. A card each: number, title
    and labels, comments and 👍, its age; who opened it and who it's assigned to; the PRs that
-   would close it (`fixed by #N (open)`). Tabs (`gn` / `gp`): open, mine (assigned to you or
-   opened by you), can close (Claude's triage says why). `/` filters (`label:`, `author:`,
+   would close it (`fixed by #N (open)`). Tabs (`gn` / `gp`): todo, open, mine (assigned to you or
+   opened by you), can close (Claude's triage says why). Todo: what needs you of an issue (the PR
+   fixing it merged: close it; Claude would close it; assigned to you; a PR would fix it: review
+   that; changed since Claude triaged it; not triaged), in the rules' order, or Claude's (`r r`,
+   one reading-only run: why each is where it is and what next, in the message column as dv
+   list's; its own ranking, `todo-issues.json`); `s` defers one (1 / 4 / d / w; kept in
+   `deferred-issues.json`), back sooner if what it needs changes. `/` filters (`label:`, `author:`,
    `kind:`, `priority:`, `is:triaged`, `-term`). `m` marks, `a a` has Claude triage the marked
    (or this one), two at a time, in the main checkout, reading only (`gh issue view/list`, `gh
    search`, `gh label list`, the code): the skill's "Triage an issue", to `issue-N.json` beside

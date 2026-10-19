@@ -1,4 +1,4 @@
- ISSUES   open 2   mine 1   close 1
+ Issues   todo 2   open 2   mine 1   close 1     I I the PRs
 ▌   #7 Panics on reorg  bug                                                                                   💬  3 · 👍  2
 ▌      @amy  → @me
 ▌      fixed by #9 (open)
