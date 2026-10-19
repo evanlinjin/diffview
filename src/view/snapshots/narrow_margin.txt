@@ -37,4 +37,4 @@
 
 
 
- NOR       comments shown (Ctrl-w c hides them)                                                1/43
+ NOR       comments shown (Ctrl-w c hides them)          0/4 viewed · 1 pending (S submits)    1/43

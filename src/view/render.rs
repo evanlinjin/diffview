@@ -322,7 +322,9 @@ impl App {
             let mut spans = vec![Span::styled(" ".repeat(relw), bar)];
             // With the pane: the title over the code, and the pane's tabs over the pane.
             let title_w = if margin { self.geom.ctw } else { tw };
-            let state = self.header_tag(INFO).map_or(0, |t| t.0.chars().count() + 2);
+            // What else is on its right (as `render_row` puts it): its state, and the badges.
+            let badges = self.claude_doing().map(|d| d.chars().count() + 2).into_iter().chain((!self.sync.is_empty()).then(|| self.sync.chars().count() + 2));
+            let state = self.header_tag(INFO).map(|t| t.0.chars().count()).into_iter().chain(badges).map(|n| n + 2).sum::<usize>();
             let line = self.rows[0].line.text.chars().count();
             self.bar_counts = line + 2 + self.pr_counts().chars().count() + state <= title_w;
             spans.extend(self.render_row(0, s, e, (lw, gw, title_w), None, self.head.row == 0, &overlay));
@@ -645,9 +647,12 @@ impl App {
             (n, 0) => format!("{n} threads"),
             (n, c) => format!("{n} threads + {c} Claude"),
         };
+        // (The pane's tabs shown: they count the threads, one way.)
+        let tabs = self.margin_active;
         match &self.pr {
+            Some(_) if tabs => format!("{seen}/{on_github} viewed{pending}"),
             Some(_) => format!("{threads} · {seen}/{on_github} viewed{pending}"),
-            None if claude > 0 => threads,
+            None if claude > 0 && !tabs => threads,
             None => String::new(),
         }
     }

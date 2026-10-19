@@ -112,7 +112,7 @@ impl App {
     /// What "make the changes" acts on: the review file's open comments, Claude's and the ones
     /// you left it (`a`), not resolved or outdated. The one place that's decided.
     pub(super) fn change_requests(&self) -> usize {
-        self.threads.iter().filter(|t| t.claude.is_some() && !t.resolved && !t.outdated && (t.by_claude() || !matches!(t.want.as_str(), "ask" | "suggest"))).count()
+        self.threads.iter().filter(|t| t.claude.is_some() && !t.stale() && (t.by_claude() || !matches!(t.want.as_str(), "ask" | "suggest"))).count()
     }
 
     /// Why Claude can't take a request right now (checked before asking you for instructions,

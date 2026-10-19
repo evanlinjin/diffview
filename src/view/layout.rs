@@ -113,8 +113,12 @@ impl App {
                 // when all are; your pending comments, a count (nothing of them to resolve).
                 let done = shown.iter().filter(|t| t.stale()).count();
                 let l = match (shown.len(), b) {
+                    // (As the title counts them: your pending comments, wherever they are.)
+                    (_, Bar::Pending) => match self.pending_count() {
+                        0 => format!(" {name} "),
+                        n => format!(" {name} {n} "),
+                    },
                     (0, _) => format!(" {name} "),
-                    (n, Bar::Pending) => format!(" {name} {n} "),
                     (n, _) => format!(" {name} {done}/{n} "),
                 };
                 let w = l.chars().count();

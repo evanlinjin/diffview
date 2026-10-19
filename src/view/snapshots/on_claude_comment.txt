@@ -27,4 +27,4 @@
  Space r  resolve                                 ╰────────────────────────────────────────────────╯
  Space d  dismiss                           0
 
- NOR   src/big.rs                3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)    23/43
+ NOR   src/big.rs                                       0/4 viewed · 1 pending (S submits)    23/43

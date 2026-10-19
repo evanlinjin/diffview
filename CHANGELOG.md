@@ -5,6 +5,17 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.58] - 2026-10-19
+
+### Changed
+- One count per thing: the pane's `Pending` tab counts your pending comments as the title does
+  (not the threads they're in), and with the pane's tabs shown, the title doesn't count the
+  threads again.
+
+### Fixed
+- The pinned title, with its counts, Claude's badge and the checkout's beside it, could lose
+  its text: whether the counts fit now counts the badges too.
+
 ## [0.34.57] - 2026-10-19
 
 ### Changed

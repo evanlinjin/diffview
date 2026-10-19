@@ -276,9 +276,9 @@ impl App {
     /// code has changed, and a checkout that isn't the PR's head.
     pub(super) fn submit_notes(&self) -> Vec<String> {
         let count = |f: &dyn Fn(&Thread) -> bool| self.threads.iter().filter(|t| f(t)).count();
-        let open = count(&|t| t.claude.is_some() && !t.resolved && !t.outdated);
+        let open = count(&|t| t.claude.is_some() && !t.stale());
         let answered = count(&|t| t.answered());
-        let github = count(&|t| t.claude.is_none() && !t.resolved && !t.outdated && !t.comments.iter().all(|c| c.pending));
+        let github = count(&|t| t.claude.is_none() && !t.stale() && !t.comments.iter().all(|c| c.pending));
         let stale = count(&|t| t.outdated && t.comments.iter().any(|c| c.pending));
         let head = diff::git(&["rev-parse", "HEAD"]).unwrap_or_default();
         let behind = self.pr.as_ref().is_some_and(|p| !p.head_oid.is_empty() && p.head_oid != head.trim());
