@@ -724,9 +724,7 @@ impl App {
         let before = count(self);
         let had_new = self.new_paths();
         let keep = self.cursor_key();
-        let claude: Vec<Thread> = std::mem::take(&mut self.threads).into_iter().filter(|t| t.claude.is_some()).collect();
         self.apply_github(f, true);
-        self.threads.extend(claude);
         self.shape();
         let new = count(self).saturating_sub(before);
         self.unfold_new(&had_new);
@@ -740,14 +738,16 @@ impl App {
     }
 
     /// (`fresh`: just fetched, not the cache's: only then does a retarget count.)
-    fn apply_github(&mut self, (threads, info): Fetched, fresh: bool) {
+    pub(super) fn apply_github(&mut self, (threads, info): Fetched, fresh: bool) {
         match threads {
             Ok(r) => {
                 // A draft GitHub couldn't take (see `Post::Summary`) stays until it can.
                 if r.pending.is_none() || !r.pending_body.is_empty() {
                     self.summary_draft = r.pending_body;
                 }
-                (self.threads, self.review) = (r.threads, r.pending);
+                // GitHub's threads, new; Claude's (from its review file) as they were, after them.
+                let claude: Vec<Thread> = std::mem::take(&mut self.threads).into_iter().filter(|t| t.claude.is_some()).collect();
+                (self.threads, self.review) = (r.threads.into_iter().chain(claude).collect(), r.pending);
                 (self.theirs, self.me) = (!r.mine, r.me); // (before: your own comments aren't new)
                 self.apply_viewed(r.viewed); // after the threads: not folded with new ones
                 if let Some(pr) = &mut self.pr {

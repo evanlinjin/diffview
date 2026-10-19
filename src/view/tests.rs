@@ -2764,3 +2764,12 @@ fn cursor_on_a_comment_stays_as_lines_come_before_it() {
 fn activity_heading(n: usize) -> InfoLine {
     InfoLine { heading: true, text: format!("activity ({n})"), key: "activity".into(), ..Default::default() }
 }
+
+#[test]
+fn a_failed_refresh_keeps_the_comments() {
+    let mut app = fixture();
+    let before = app.threads.len();
+    assert!(app.threads.iter().any(|t| t.claude.is_none()));
+    app.apply_github((Err(anyhow!("rate limited")), Err(anyhow!("rate limited"))), true);
+    assert_eq!(app.threads.len(), before);
+}
