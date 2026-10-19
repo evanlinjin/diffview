@@ -110,7 +110,7 @@ disk: rust-analyzer can index it and `hx` can open it.
    you not looking at it (shown and focused); by dv or `dv list`, whichever sees it first. Its
    session is kept for the next ask to resume; dv says when it's
    asking you something, a permission prompt, checking its screen every 3s), else `claude -p` in the background
-   (`acceptEdits`, Bash limited to `dv review-*` and read-only git; answering you or making changes, also `git add/commit` and `dv amend C [F…]` (what isn't committed, in files F, folded into the branch's commit C, as `f` does, a backup branch first): never a push), with "Claude working…"
+   (`acceptEdits`, Bash limited to `dv review-*` and read-only git; answering you or making changes, also `git add/commit` and `dv amend C [F…] [-F M]` (what isn't committed, in files F, folded into the branch's commit C, as `f` does, and/or C's message replaced by file M's, a backup branch first); and `cargo fmt --check` / `cargo +nightly fmt --check` / `cargo +nightly clippy` as CI runs them: never a push), with "Claude working…"
    in the status bar and its log path if it fails. Comments get stable `id`s (assigned by dv on
    load and by review-check); both write the file atomically and re-read it before a change.
    Each PR has one Claude Code session per checkout (`pr-N.session` next to its review file,

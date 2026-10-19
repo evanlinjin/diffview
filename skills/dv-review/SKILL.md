@@ -150,7 +150,13 @@ Never answer "re-send it as …" for what you're allowed to do: do it.
 
 To amend a change into the commit it belongs in: `dv amend <sha> [file…]` folds what isn't
 committed (in those files: name them when other changes are uncommitted too) into that commit,
-HEAD kept on a backup branch first. Don't rebase by hand. Say which commit it went in.
+HEAD kept on a backup branch first. To change a commit's message, write the new one to a file
+and `dv amend <sha> -F <file>` (with files too, to fold them in the same go). Don't rebase by
+hand. Say which commit it went in.
+
+Your commands run only if each is allowed on its own: one plain command per call (no `cd`, `&&`,
+loops, pipes into other commands, or `git -C`). Build and test with the default toolchain
+(`cargo test`, `cargo clippy`); `cargo +nightly fmt --check` and `cargo +nightly clippy` work too.
 
 Once a thread is settled, resolve it: set `"resolved": true` on the comment after your reply.
 It's settled when you've made the change it asked for, or you and the user agree it doesn't

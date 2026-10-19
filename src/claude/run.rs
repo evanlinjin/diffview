@@ -21,6 +21,15 @@ pub(crate) const ALLOWED: &[&str] = &[
     "Bash(cargo build:*)",
     "Bash(cargo test:*)",
     "Bash(cargo clippy:*)",
+    // As CI runs them (bdk's: nightly rustfmt, clippy on a pinned toolchain), checking only.
+    "Bash(cargo fmt --check:*)",
+    "Bash(cargo fmt --all --check:*)",
+    "Bash(cargo fmt --all -- --check:*)",
+    "Bash(cargo +nightly fmt --check:*)",
+    "Bash(cargo +nightly fmt --all --check:*)",
+    "Bash(cargo +nightly fmt --all -- --check:*)",
+    "Bash(cargo +nightly clippy:*)",
+    "Bash(cargo +stable clippy:*)",
 ];
 
 /// What a background run may do beyond `ALLOWED`: when fixing PR `n`'s CI, rerun its failed
