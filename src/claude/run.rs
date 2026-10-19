@@ -120,6 +120,13 @@ pub(crate) fn with_instructions(prompt: &str, extra: &str) -> String {
     }
 }
 
+/// Where `dv scratch` puts Claude's checkouts (made, so Claude Code can be given it).
+pub(crate) fn scratch_dir() -> anyhow::Result<std::path::PathBuf> {
+    let d = crate::claude::dv_dir()?.join("scratch");
+    std::fs::create_dir_all(&d)?;
+    Ok(d)
+}
+
 /// `--add-dir` for dv's directory (the review files and notes): it's outside the checkout
 /// Claude runs in, which is all Claude Code lets it touch otherwise.
 pub(crate) fn claude_dirs() -> Vec<std::ffi::OsString> {
@@ -163,7 +170,7 @@ pub(crate) fn json_in(answer: &str, open: char) -> Option<serde_json::Value> {
 /// edits allowed, in the session `session` names (`--resume <id>`, `--session-id <id>`, …),
 /// with dv's directory reachable, and only the commands the skill needs.
 /// `more`: tools allowed on top of the usual ones; `access`: the one directory outside `dir`
-/// Claude may write to (`None`: all of dv's).
+/// Claude may write to (`None`: all of dv's), besides its scratch checkouts (`dv scratch`).
 pub(crate) fn claude_command(prompt: &str, dir: &Path, session: &[String], more: &[&str], access: Option<&Path>) -> std::process::Command {
     let mut cmd = std::process::Command::new("claude");
     // No editor to wait on (`git rebase --continue`, `git commit` without -m).
@@ -171,7 +178,7 @@ pub(crate) fn claude_command(prompt: &str, dir: &Path, session: &[String], more:
         .args(["-p", prompt, "--output-format", "json", "--permission-mode", "acceptEdits"])
         .args(session);
     match access {
-        Some(d) => _ = cmd.arg("--add-dir").arg(d),
+        Some(d) => _ = cmd.arg("--add-dir").arg(d).args(scratch_dir().ok().map(|s| [std::ffi::OsString::from("--add-dir"), s.into_os_string()]).into_iter().flatten()),
         None => _ = cmd.args(claude_dirs()),
     }
     // Last: it takes every argument after it.

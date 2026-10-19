@@ -710,16 +710,20 @@ fn common_dir(d: &Path) -> anyhow::Result<String> {
 /// whether the base builds. Ones over a day old go first; `dv scratch --rm <dir>` removes one
 /// now. What to tell Claude.
 fn scratch(rest: &[String]) -> anyhow::Result<String> {
-    let root = claude::dv_dir()?.join("scratch");
+    let root = claude::scratch_dir()?.canonicalize()?;
+    // (git's record of it too: pruned only if git couldn't remove it, not the user's others.)
     let remove = |d: &std::path::Path| {
-        _ = diff::git(&["worktree", "remove", "--force", &d.to_string_lossy()]);
+        let failed = diff::git(&["worktree", "remove", "--force", &d.to_string_lossy()]).is_err();
         _ = std::fs::remove_dir_all(d);
+        if failed {
+            _ = diff::git(&["worktree", "prune"]);
+        }
     };
     if rest.first().map(String::as_str) == Some("--rm") {
-        let d = PathBuf::from(rest.get(1).context("dv scratch --rm <dir>")?).canonicalize()?;
-        anyhow::ensure!(d.starts_with(root.canonicalize()?) && d != root.canonicalize()?, "{} isn't one of dv's scratch checkouts", d.display());
+        let given = rest.get(1).context("dv scratch --rm <dir>")?;
+        let d = PathBuf::from(given).canonicalize().with_context(|| format!("no {given}"))?;
+        anyhow::ensure!(is_scratch(&root, &d), "{} isn't one of dv's scratch checkouts", d.display());
         remove(&d);
-        _ = diff::git(&["worktree", "prune"]);
         return Ok(format!("removed {}", d.display()));
     }
     let rev = rest.first().filter(|r| !r.starts_with('-')).context("dv scratch <rev>, e.g. `dv scratch HEAD` or `dv scratch origin/master`")?;
@@ -729,17 +733,21 @@ fn scratch(rest: &[String]) -> anyhow::Result<String> {
             remove(&e.path());
         }
     }
-    _ = diff::git(&["worktree", "prune"]);
     let sha = diff::git(&["rev-parse", "--short", "--verify", "--end-of-options", &format!("{rev}^{{commit}}")])?.trim().to_owned();
-    std::fs::create_dir_all(&root)?;
     let dir = root.join(format!("{sha}-{}", std::process::id()));
     let d = dir.display();
     diff::git(&["worktree", "add", "--detach", "--quiet", &dir.to_string_lossy(), &sha])?;
     Ok(format!(
         "{d}\n(a checkout of {rev} at {sha}, detached and yours: edit its files, then build and test it with \
-         `cargo test --manifest-path {d}/Cargo.toml` (or any cargo command allowed, with --manifest-path); \
-         removed after a day, or now with `dv scratch --rm {d}`)"
+         `cargo test --manifest-path {d}/Cargo.toml` (or any cargo command allowed, with --manifest-path; it \
+         builds from nothing, and takes the toolchain and cargo config of where you are, not its own); removed \
+         after a day, or now with `dv scratch --rm {d}`)"
     ))
+}
+
+/// Whether `d` is one of the scratch checkouts in `root` (itself: not a directory in one).
+fn is_scratch(root: &std::path::Path, d: &std::path::Path) -> bool {
+    d.parent() == Some(root)
 }
 
 /// `dv cargo [+toolchain] <check|build|test|clippy|doc|fmt --check> …`: for Claude, cargo on any
@@ -812,6 +820,15 @@ pub(crate) fn remove_worktree(n: u64, force: bool) -> anyhow::Result<String> {
         Some(b) => format!("removed {}; kept branch {b} (`git branch -D {b}` deletes it, if nothing on it is unpushed)", dir.display()),
         None => format!("removed {}", dir.display()),
     })
+}
+
+#[test]
+fn scratch_rm_only_a_checkout() {
+    let root = std::path::Path::new("/d/scratch");
+    assert!(is_scratch(root, &root.join("abc-1")));
+    assert!(!is_scratch(root, root)); // all of them
+    assert!(!is_scratch(root, &root.join("abc-1/src"))); // in one
+    assert!(!is_scratch(root, std::path::Path::new("/tmp")));
 }
 
 #[test]

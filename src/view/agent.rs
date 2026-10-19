@@ -682,7 +682,9 @@ impl App {
             .args(prompt)
             .args(self.session_args())
             .args(fork.then_some("--fork-session"))
-            .args(claude_dirs());
+            .args(claude_dirs())
+            // (A checkout of its own to try things in, as the skill has it: not asked each time.)
+            .args(["--allowedTools", "Bash(dv scratch:*)"]);
         let s = cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
             .status().context("running zellij")?;
         anyhow::ensure!(s.success(), "zellij run failed ({s})");
