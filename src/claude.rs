@@ -534,7 +534,7 @@ fn parse(text: &str) -> Result<Review> {
                         body,
                         created,
                         pending: false,
-                        reactions: vec![],
+                        reactions: vec![], hidden: String::new(),
                     })
                     .collect(),
             })

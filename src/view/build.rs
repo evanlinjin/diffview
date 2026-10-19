@@ -94,7 +94,8 @@ impl App {
                 let first = self.rows.iter().position(|r| r.thread == Some(t))?;
                 Some((self.root_id(t)?, row - first))
             }),
-            info: (r.file == INFO && r.main.is_none()).then_some(row),
+            // (Which of the PR's rows outside its sections: they move with the pane.)
+            info: (r.file == INFO && r.main.is_none()).then(|| self.rows[..row].iter().filter(|x| x.file == INFO && x.main.is_none()).count()),
             section: r.main.and_then(|m| Some((m, row - self.rows.iter().position(|x| x.main == Some(m))?))),
         }
     }
@@ -113,7 +114,7 @@ impl App {
                 Some((first..=first + off).take_while(|&r| self.rows.get(r).is_some_and(|r| r.main == Some(m))).last().unwrap_or(first))
             })
             .or_else(|| key.line.map(|(p, old, new)| self.locate(&p, old, new)))
-            .or(key.info.filter(|&r| self.rows.get(r).is_some_and(|r| r.file == INFO && r.main.is_none())))
+            .or_else(|| (0..self.rows.len()).filter(|&r| self.rows[r].file == INFO && self.rows[r].main.is_none()).nth(key.info?))
     }
 
     /// Rebuild rows, keeping the cursor on the same code line, thread or PR info row.
@@ -279,6 +280,7 @@ impl App {
             }
         };
         gone.sort_by_cached_key(|&t| (self.threads[t].path.is_empty(), label(t)));
+        let gone_at = rows.len();
         if !gone.is_empty() {
             // (In the pane, as the PR's text is; inline with it hidden.)
             let heading = |text: String| Row { attached: true, ..Row::text(INFO, Kind::Thread, text) };
@@ -357,6 +359,7 @@ impl App {
             rows.push(Row::text(usize::MAX, Kind::Hunk, "(no changes)".into()));
         }
         self.rows = rows;
+        self.gone_at = gone_at;
         self.code_head.row = self.find_key(code).unwrap_or(0);
         self.emph = self.word_spans();
         self.layout();
@@ -442,8 +445,14 @@ impl App {
         if self.pr.is_none() {
             return self.msg = "no PR here".into();
         }
-        self.conversation_all = !self.conversation_all;
-        self.view = View::All;
+        if !self.info.iter().any(|l| l.heading && l.text.starts_with("conversation")) {
+            return self.msg = "no conversation on this PR yet".into();
+        }
+        // From another tab: to the whole diff, with all of it.
+        self.conversation_all = self.view != View::All || !self.conversation_all;
+        if self.view != View::All {
+            self.toggle_view(self.view);
+        }
         self.sections_folded.remove(&DESCRIPTION);
         self.info_collapsed = false;
         self.rebuild_at(|r| r.attached && r.line.text.starts_with("conversation ("));
@@ -489,9 +498,9 @@ impl App {
         // Its comments: (heading, body) in `info`, after its own heading.
         let Some(start) = self.info.iter().position(|l| l.heading && l.text.starts_with("conversation")) else { return vec![] };
         let items: Vec<usize> = (start + 1..self.info.len()).filter(|&i| self.info[i].heading).collect();
-        let shown: Vec<usize> = match latest {
-            None => items.clone(),
-            Some(n) => {
+        let latest_shown: Vec<usize> = {
+            let n = latest.unwrap_or(LATEST);
+            {
                 let asked = |h: usize| self.threads.iter().any(|t| t.conversation == self.info[h].url && self.in_view(t));
                 // New: after your own last word there (you'd read up to it, as GitHub has it),
                 // and not seen in dv since.
@@ -506,6 +515,7 @@ impl App {
                 items.iter().enumerate().filter(|&(k, &h)| k >= last || new(k, h) || asked(h)).map(|(_, &h)| h).collect()
             }
         };
+        let shown = if latest.is_some() { latest_shown.clone() } else { items.clone() };
         let mut rows = vec![];
         if !items.is_empty() {
             rows.push(Row { info: None, ..mk(Kind::Thread, self.info[start].text.clone()) });
@@ -515,7 +525,7 @@ impl App {
         if more > 0 {
             let what = if more == 1 { "1 older comment or review".to_owned() } else { format!("{more} older comments and reviews") };
             rows.push(Row { info: Some(MORE_CONVERSATION), ..mk(Kind::Comment, format!("… {what}: Space o shows them")) });
-        } else if latest.is_none() && items.len() > LATEST {
+        } else if latest.is_none() && latest_shown.len() < items.len() {
             rows.push(Row { info: Some(MORE_CONVERSATION), ..mk(Kind::Comment, "… all of it: Space o shows only the latest".into()) });
         }
         for h in shown.iter().copied() {
@@ -524,7 +534,10 @@ impl App {
             let text = self.info.get(body).map_or("", |l| l.text.as_str());
             // A review with no text, just its verdict: GitHub's placeholder, in its box.
             let text = if text.trim().is_empty() { "_(no comment)_" } else { text };
-            rows.extend(self.md_rows_at(text, width, mk).into_iter().map(|r| Row { info: Some(body), ..r }));
+            match self.hidden_note(&self.info[h].hidden, &self.info[h].node) {
+                Some(note) => rows.push(Row { info: Some(body), syn: vec![Some(self.ui.stale); note.chars().count()], ..mk(Kind::Comment, note) }),
+                None => rows.extend(self.md_rows_at(text, width, mk).into_iter().map(|r| Row { info: Some(body), ..r })),
+            }
             rows.push(Row { info: Some(body), edge: true, ..mk(Kind::Comment, String::new()) });
             rows.extend(self.conversation_rows(body));
         }
@@ -553,6 +566,25 @@ impl App {
         };
         rows.extend(self.summary_threads(None));
         rows
+    }
+
+    /// A comment hidden on GitHub (`why`), not shown here (Tab): the line in place of its text.
+    fn hidden_note(&self, why: &str, node: &str) -> Option<String> {
+        (!why.is_empty() && !self.revealed.contains(node)).then(|| format!("hidden on GitHub ({why}): Tab shows it"))
+    }
+
+    /// Tab on a comment hidden on GitHub: its text shown, or hidden again. Whether it was one.
+    pub(super) fn toggle_hidden(&mut self) -> bool {
+        let row = &self.rows[self.head.row];
+        let node = match row.thread {
+            Some(t) => self.comment_under_cursor(t).filter(|c| !c.hidden.is_empty()).map(|c| c.node_id.clone()),
+            None => self.conversation_node().filter(|n| self.info.iter().any(|l| l.node == *n && !l.hidden.is_empty())),
+        };
+        let Some(node) = node else { return false };
+        flip(&mut self.revealed, node);
+        let keep = self.cursor_key();
+        self.rebuild(keep);
+        true
     }
 
     /// With no PR (a branch Claude reviewed), Claude's review is all the PR section has.
@@ -757,7 +789,10 @@ impl App {
             }
             // In the margin, comments wrap to its width (less the gutter mark and box sides).
             let w = self.info_w();
-            let rows = self.md_rows_at(&c.body, w, mk);
+            let rows = match self.hidden_note(&c.hidden, &c.node_id) {
+                Some(note) => vec![Row { syn: vec![Some(self.ui.stale); note.chars().count()], ..mk(Kind::Comment, note) }],
+                None => self.md_rows_at(&c.body, w, mk),
+            };
             match t.stale() {
                 // Resolved/outdated: rendered the same, but dimmed throughout (links still open).
                 true => out.extend(rows.into_iter().map(|mut r| {
@@ -874,8 +909,13 @@ impl App {
 
     pub(super) fn toggle_collapse(&mut self) {
         let fi = self.rows[self.head.row].file;
-        // On what's attached to the description: it folds with it (if there's one).
-        if self.rows[self.head.row].attached && self.rows.iter().any(|r| r.main == Some(DESCRIPTION) && r.line.kind == Kind::File) {
+        // On what's attached to the description: it folds with it (if there's one); else
+        // (a branch's, threads on files gone from the diff), nothing to fold.
+        // (Your pending review's text, in the pending view: it folds, as the PR's text.)
+        if self.rows[self.head.row].attached && self.view != View::Pending {
+            if self.head.row >= self.gone_at || !self.rows.iter().any(|r| r.main == Some(DESCRIPTION) && r.line.kind == Kind::File) {
+                return self.msg = "nothing to fold here".into();
+            }
             flip(&mut self.sections_folded, DESCRIPTION);
             return self.rebuild_at(|r| r.main == Some(DESCRIPTION) && r.line.kind == Kind::File);
         }
@@ -884,6 +924,9 @@ impl App {
                 self.sections_folded.insert(id);
             }
             return self.rebuild_at(move |r| r.main == Some(id) && r.line.kind == Kind::File);
+        }
+        if fi == INFO && self.view == View::Claude {
+            return self.msg = "nothing to fold here".into();
         }
         if fi == INFO {
             self.info_collapsed = !self.info_collapsed;

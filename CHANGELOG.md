@@ -5,6 +5,22 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.5] - 2026-10-19
+
+### Added
+- Comments hidden on GitHub (minimized as off topic, outdated, …) show folded: one dim line,
+  `hidden on GitHub (off topic): Tab shows it`; `Tab` shows the text, and again hides it.
+- The pane's tabs say how many threads each has: `Comments 4  Claude 1  Pending 1`.
+
+### Fixed
+- The cursor on the PR's text stays put when `Ctrl-w c` shows or hides the pane.
+- `Tab` on comments on files gone from the diff, on a branch's questions, or on the title in
+  the Claude view no longer folds something else (or nothing visible).
+- `Space o` from the Claude or pending tab goes to the whole diff with all the conversation
+  (it no longer flips back to the latest); with no conversation it says so.
+- "All of it: Space o shows only the latest" shows only when the latest would show less; the
+  key hints on that line are right.
+
 ## [0.34.4] - 2026-10-19
 
 ### Changed

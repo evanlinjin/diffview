@@ -41,20 +41,29 @@ impl App {
     }
 
     /// The pane's tabs, on the pinned title's right end, over the pane (`x` from where it
-    /// starts): each one's label and its columns.
-    pub(super) fn pane_tabs(&self) -> Vec<(Bar, &'static str, std::ops::Range<usize>)> {
+    /// starts): each one's label, with how many threads it shows, and its columns.
+    pub(super) fn pane_tabs(&self) -> Vec<(Bar, String, std::ops::Range<usize>)> {
         let mut x = 1;
         // A draft no one else has seen: only Claude's comments and yours, so one tab for both;
         // and no PR yet (what it replaces is atop its description).
         let tabs: &[_] = match self.unpublished() {
-            true => &[(Bar::Claude, " Claude ")],
-            false => &[(Bar::Comments, " Comments "), (Bar::Claude, " Claude "), (Bar::Pending, " Pending ")],
+            true => &[(Bar::Claude, "Claude")],
+            false => &[(Bar::Comments, "Comments"), (Bar::Claude, "Claude"), (Bar::Pending, "Pending")],
         };
         tabs.iter()
-            .copied()
-            .map(|(b, l)| {
-                x += l.len();
-                (b, l, x - l.len()..x)
+            .map(|&(b, name)| {
+                let n = match b {
+                    Bar::Claude if !self.unpublished() => self.threads.iter().filter(|t| t.claude.is_some()).count(),
+                    Bar::Pending => self.threads.iter().filter(|t| t.comments.iter().any(|c| c.pending)).count(),
+                    _ => self.threads.len(),
+                };
+                let l = match n {
+                    0 => format!(" {name} "),
+                    n => format!(" {name} {n} "),
+                };
+                let w = l.chars().count();
+                x += w;
+                (b, l, x - w..x)
             })
             .collect()
     }

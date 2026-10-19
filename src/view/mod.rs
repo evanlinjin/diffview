@@ -749,6 +749,10 @@ pub struct App {
     github_poke: Option<std::sync::mpsc::Sender<()>>,
     /// The PR's whole conversation attached to the description, not only its latest (`Space o`).
     conversation_all: bool,
+    /// The first row of the threads on files gone from the diff (rows' length if none).
+    gone_at: usize,
+    /// Comments hidden on GitHub that you've shown here (Tab), by node id.
+    revealed: HashSet<String>,
     /// The last note said about the PR's base (`base_note`), to say the next in its place.
     base_said: String,
     /// What's shown came from the cache, and the fresh fetch isn't in yet.
@@ -949,6 +953,8 @@ impl App {
             github_gen: Default::default(),
             github_poke: None,
             base_said: String::new(),
+            revealed: HashSet::new(),
+            gone_at: 0,
             conversation_all: false,
             github_stale: false,
         };

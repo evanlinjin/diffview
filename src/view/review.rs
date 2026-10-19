@@ -582,7 +582,7 @@ impl App {
     }
 
     pub(super) fn show_replacement(&mut self, r: crate::replace::Record) {
-        let line = |heading, md, text: &str| gh::InfoLine { heading, md, text: text.into(), marks: vec![], url: String::new(), node: String::new() };
+        let line = |heading, md, text: &str| gh::InfoLine { heading, md, text: text.into(), marks: vec![], hidden: String::new(), url: String::new(), node: String::new() };
         let mut replaces = line(false, false, "replaces ");
         for (i, o) in r.replaces.iter().enumerate() {
             let sep = if i == 0 { "" } else { ", " };

@@ -88,6 +88,8 @@ pub struct Comment {
     pub pending: bool,
     /// Its reactions: (GitHub's name for one, e.g. THUMBS_UP; how many; one is yours).
     pub reactions: Vec<Reaction>,
+    /// Hidden on GitHub, and why ("off topic", "outdated", …); empty if it isn't.
+    pub hidden: String,
 }
 
 /// Where a new comment goes. Lines are file line numbers on the given side.
@@ -446,7 +448,7 @@ fn verdict(c: &Value) -> char {
 }
 
 const COMMENT: &str = "id databaseId author { login } body createdAt diffHunk state viewerCanUpdate viewerCanDelete \
-reactionGroups { content viewerHasReacted reactors { totalCount } }";
+reactionGroups { content viewerHasReacted reactors { totalCount } } isMinimized minimizedReason";
 const THREAD: &str = "id path line startLine originalLine diffSide isResolved isOutdated";
 const PAGE: &str = "pageInfo { hasNextPage endCursor }";
 
@@ -599,6 +601,15 @@ pub const REACTIONS: [(&str, &str); 8] = [
     ("ROCKET", "🚀"),
     ("EYES", "👀"),
 ];
+
+/// Why a comment is hidden on GitHub (its `isMinimized`, `minimizedReason`: "off-topic",
+/// "OUTDATED", …), in words; empty if it isn't.
+pub fn hidden(c: &Value) -> String {
+    match c["isMinimized"] == true {
+        true => Some(c["minimizedReason"].as_str().unwrap_or("").to_lowercase().replace(['-', '_'], " ")).filter(|r| !r.is_empty()).unwrap_or_else(|| "hidden".into()),
+        false => String::new(),
+    }
+}
 
 /// A reaction on a comment: GitHub's name for it (e.g. THUMBS_UP), how many, one is yours.
 pub type Reaction = (String, u64, bool);
@@ -937,6 +948,7 @@ fn parse_thread(t: &Value) -> Thread {
                 created: c["createdAt"].as_str().unwrap_or("").to_owned(),
                 pending: c["state"] == "PENDING",
                 reactions: reactions(&c["reactionGroups"], &[]),
+                hidden: hidden(c),
             })
             .collect(),
         claude: None,
@@ -1018,11 +1030,13 @@ pub struct InfoLine {
     pub url: String,
     /// On a conversation comment's (or review's) heading: its node id, to react to it.
     pub node: String,
+    /// On a conversation comment's heading: hidden on GitHub, and why; empty if it isn't.
+    pub hidden: String,
 }
 
 impl InfoLine {
     fn new(heading: bool, md: bool) -> Self {
-        InfoLine { heading, md, text: String::new(), marks: vec![], url: String::new(), node: String::new() }
+        InfoLine { heading, md, text: String::new(), marks: vec![], hidden: String::new(), url: String::new(), node: String::new() }
     }
 
     fn put(&mut self, s: &str, mark: Option<Mark>) -> &mut Self {
@@ -1450,11 +1464,11 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
     // The conversation: comments, and reviews with something to read (their text, or a
     // verdict: a plain review's inline comments are threads on the code), in time order:
     // (when, who, what they did, link, text).
-    // (when, who, what they did, link, text, node id, reactions).
-    type Said<'a> = (String, String, &'a str, String, String, String, Vec<Reaction>);
+    // (when, who, what they did, link, text, node id, reactions, why it's hidden).
+    type Said<'a> = (String, String, &'a str, String, String, String, Vec<Reaction>, String);
     let mut said: Vec<Said> = list(&v["comments"])
         .iter()
-        .map(|c| (s(&c["createdAt"]), s(&c["author"]["login"]), "", s(&c["url"]), s(&c["body"]), s(&c["id"]), reactions(&c["reactionGroups"], &mine(&c["id"]))))
+        .map(|c| (s(&c["createdAt"]), s(&c["author"]["login"]), "", s(&c["url"]), s(&c["body"]), s(&c["id"]), reactions(&c["reactionGroups"], &mine(&c["id"])), hidden(c)))
         .collect();
     for r in list(&v["reviews"]) {
         let what = match s(&r["state"]).as_str() {
@@ -1467,13 +1481,13 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         // Its own: questions about it (`a`) are kept by it. (The fragment is the review's id:
         // the link opens the PR.)
         let url = format!("{}#review-{}", s(&v["url"]), s(&r["id"]));
-        said.push((s(&r["submittedAt"]), s(&r["author"]["login"]), what, url, s(&r["body"]), s(&r["id"]), reactions(&r["reactionGroups"], &mine(&r["id"]))));
+        said.push((s(&r["submittedAt"]), s(&r["author"]["login"]), what, url, s(&r["body"]), s(&r["id"]), reactions(&r["reactionGroups"], &mine(&r["id"])), String::new()));
     }
     said.sort_by(|a, b| a.0.cmp(&b.0)); // ISO times sort as text
     out.push(heading(format!("conversation ({})", said.len())));
-    for (at, who, what, url, body, node, r) in said {
+    for (at, who, what, url, body, node, r, hidden) in said {
         // A verdict in its color, so an approval doesn't read as just another comment.
-        let mut h = InfoLine { url, node, ..InfoLine::new(true, false) };
+        let mut h = InfoLine { url, node, hidden, ..InfoLine::new(true, false) };
         let mark = match what {
             "✓ approved · " => Some(Mark::Pass),
             "✗ requested changes · " => Some(Mark::Fail),
