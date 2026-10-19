@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.46.1] - 2026-10-19
+
+### Fixed
+- `dv issues` with auto on (`dv.auto`, set from dv list too) says as it starts how many issues
+  Claude's about to triage, and what it costs; `C` turns it off.
+- A closing comment Claude drafted on an issue not triaged doesn't count as its triage (auto
+  triages it still), and a triage landing after it keeps it. A draft that comes back empty, or
+  whose run dies, says so (it said "drafting" for good); `q` asks again while one's under way.
+
 ## [0.46.0] - 2026-10-19
 
 ### Added
