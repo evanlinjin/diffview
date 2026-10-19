@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.52.0] - 2026-10-19
+
+### Added
+- `dv scratch <rev>`: Claude gets a throwaway detached checkout to test in (does a test fail
+  without the fix? does the base build?), so it can find out instead of asking. Old checkouts
+  are removed after a day; `dv scratch --rm <dir>` removes one now.
+
 ## [0.51.0] - 2026-10-19
 
 ### Added
