@@ -883,7 +883,9 @@ impl App {
         let cursor_here = self.head.row == r && this_side;
         // In a box, what doesn't wrap (code) is cut at its edge, and scrolled on its own.
         let bw = self.box_w(r, tw);
-        let text_w = if part.is_some() { bw.saturating_sub(1) } else { tw };
+        // In the pane a box is open on its right: its text runs to the pane's edge.
+        let open = part.is_some() && self.margin_row(r);
+        let text_w = if part.is_some() && !open { bw.saturating_sub(1) } else { tw };
         let skip = self.hscroll(r);
         for (i, c) in l.text.chars().enumerate().skip(skip).take(text_w) {
             let p = Pos { row: r, col: i };
@@ -933,11 +935,12 @@ impl App {
         let used: usize = spans[g..].iter().map(|s| s.width()).sum();
         if let Some(p) = part {
             // The box's right side: header rows run a rule to the corner, body rows pad to the edge.
+            // (In the pane, open: its rules run on to the edge, no side.)
             let (fill, lead, corner) = match p {
-                BoxPart::Top => ('─', " ", '╮'),
-                BoxPart::Divider => ('─', " ", '┤'),
-                BoxPart::Body => (' ', "", '│'),
-                BoxPart::Bottom => ('─', "", '╯'),
+                BoxPart::Top => ('─', " ", if open { '─' } else { '╮' }),
+                BoxPart::Divider => ('─', " ", if open { '─' } else { '┤' }),
+                BoxPart::Body => (' ', "", if open { ' ' } else { '│' }),
+                BoxPart::Bottom => ('─', "", if open { '─' } else { '╯' }),
             };
             let lead = if used == 0 { "" } else { lead };
             let n = bw.saturating_sub(used + lead.len() + 1);

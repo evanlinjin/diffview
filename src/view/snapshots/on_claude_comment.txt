@@ -1,30 +1,30 @@
           PR #7 · Fix the thing  @bo · main ← amy  Comments  Claude  Pending                     gn
  ▾        description
-          Fixes the thing, see new_call.         ▎╭─ status ───────────────────────────────────────╮
-                                                 ▎│  OPEN @bo · main ← fix · +2 −2 in 3 files      │
-                                                 ▎│  review: waiting on @cy                        │
-                                                 ▎╰────────────────────────────────────────────────╯
-                                                 ▎╭─ your review (pending) ────────────────────────╮
-                                                 ▎│  Nearly there.                                 │
-                                                 ▎╰────────────────────────────────────────────────╯
+          Fixes the thing, see new_call.         ▎╭─ status ────────────────────────────────────────
+                                                 ▎│  OPEN @bo · main ← fix · +2 −2 in 3 files
+                                                 ▎│  review: waiting on @cy
+                                                 ▎╰─────────────────────────────────────────────────
+                                                 ▎╭─ your review (pending) ─────────────────────────
+                                                 ▎│  Nearly there.
+                                                 ▎╰─────────────────────────────────────────────────
  ▾        src/big.rs  +1 −1  · 2 comments
-          ───────────────────────────────────────▎╭─ amy · L20 ────────────────────────────────────╮
-  9   9   line 9                                 ▎│  Why line 20?                                  │
- 10  10   line 10                                ▎├─ you ──────────────────────────────────────────┤
- 11  11   line 11                                ▎│  Because.                                      │
- 12     -     let x = old(12);                   ▎╰────────────────────────────────────────────────╯
-     12 +     let x = new_call(12);              ▎╭─ ◆ claude · L12 ───────────────────────────────╮
- 13  13   line 13                                ▎│  [nit]                                         │
- 14  14   line 14                                ▎│  Name it new_value; see src/a.rs:2.            │
- 15  15   line 15                                ▎╰────────────────────────────────────────────────╯
+          ───────────────────────────────────────▎╭─ amy · L20 ─────────────────────────────────────
+  9   9   line 9                                 ▎│  Why line 20?
+ 10  10   line 10                                ▎├─ you ───────────────────────────────────────────
+ 11  11   line 11                                ▎│  Because.
+ 12     -     let x = old(12);                   ▎╰─────────────────────────────────────────────────
+     12 +     let x = new_call(12);              ▎╭─ ◆ claude · L12 ────────────────────────────────
+ 13  13   line 13                                ▎│  [nit]
+ 14  14   line 14                                ▎│  Name it new_value; see src/a.rs:2.
+ 15  15   line 15                                ▎╰─────────────────────────────────────────────────
  ▾        src/a.rs  +1 −1  · 1 comment
           ── fn main ──────────────────────────────────────────────────────────────────────── L1–3 ─
  Claude's comment                                ▎ ▸ amy · L1 · 1 comment
  r        reply to Claude                        ▎ ┃ [resolved]
- gf       go to a file:line or name in it        ▎╭─ you · L2 ─────────────────────────────────────╮
- c        copy to your review                    ▎│  [pending]                                     │
- C        post it now                            ▎│  Pass y here.                                  │
- Space r  resolve                                ▎╰────────────────────────────────────────────────╯
+ gf       go to a file:line or name in it        ▎╭─ you · L2 ──────────────────────────────────────
+ c        copy to your review                    ▎│  [pending]
+ C        post it now                            ▎│  Pass y here.
+ Space r  resolve                                ▎╰─────────────────────────────────────────────────
  Space d  dismiss                           0
 
  NOR   src/big.rs                3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)    23/43

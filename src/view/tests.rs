@@ -1648,13 +1648,13 @@ fn long_code_cut_at_the_box_edge() {
     app.build();
     let s = screen(220, 45, |f| app.draw(f));
     let line = s.lines().find(|l| l.contains("xxx")).unwrap();
-    assert!(line.trim_end().ends_with("x›│"), "{line}");
+    assert!(line.trim_end().ends_with("x›"), "{line}"); // (in the pane, a box is open on its right)
     // The cursor to its end scrolls that line's block, not the code beside it or the screen.
     let r = app.rows.iter().position(|r| r.nowrap && r.line.text.contains("xxx")).unwrap();
     app.goto(r, 300);
     let t = screen(220, 45, |f| app.draw(f));
     let line = t.lines().find(|l| l.contains("xxx")).unwrap();
-    assert!(line.contains("‹x") && !line.contains('›') && line.trim_end().ends_with('│'), "{line}");
+    assert!(line.contains("‹x") && !line.contains('›') && line.trim_end().ends_with('x'), "{line}");
     let code = |s: &str| s.lines().take(20).map(|l| l.chars().take(100).collect::<String>()).collect::<Vec<_>>();
     assert_eq!((code(&s), app.left), (code(&t), 0));
 }
@@ -1666,7 +1666,7 @@ fn long_facts_cut_at_the_box_edge() {
     app.build();
     let s = screen(220, 45, |f| app.draw(f));
     let line = s.lines().find(|l| l.contains("bbb")).unwrap();
-    assert!(line.contains("b›│"), "{line}"); // cut at its box's edge
+    assert!(line.trim_end().ends_with("b›"), "{line}"); // cut at the pane's edge
 }
 
 #[test]

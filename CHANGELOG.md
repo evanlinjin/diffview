@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.4] - 2026-10-19
+
+### Changed
+- In the comments pane, comment boxes are open on their right: no side border, their rules
+  run to the pane's edge, and their text uses the width that frees.
+
 ## [0.34.3] - 2026-10-19
 
 ### Changed
@@ -1050,6 +1056,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.34.4]: https://github.com/evanlinjin/diffview/releases/tag/v0.34.4
 [0.34.3]: https://github.com/evanlinjin/diffview/releases/tag/v0.34.3
 [0.34.2]: https://github.com/evanlinjin/diffview/releases/tag/v0.34.2
 [0.34.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.34.1

@@ -514,9 +514,9 @@ impl App {
         let more = items.len() - shown.len();
         if more > 0 {
             let what = if more == 1 { "1 older comment or review".to_owned() } else { format!("{more} older comments and reviews") };
-            rows.push(Row { info: Some(MORE_CONVERSATION), ..mk(Kind::Comment, format!("… {what}: Space o (or Enter) shows them")) });
+            rows.push(Row { info: Some(MORE_CONVERSATION), ..mk(Kind::Comment, format!("… {what}: Space o shows them")) });
         } else if latest.is_none() && items.len() > LATEST {
-            rows.push(Row { info: Some(MORE_CONVERSATION), ..mk(Kind::Comment, "… all of it: Space o (or Enter) shows only the latest".into()) });
+            rows.push(Row { info: Some(MORE_CONVERSATION), ..mk(Kind::Comment, "… all of it: Space o shows only the latest".into()) });
         }
         for h in shown.iter().copied() {
             let body = h + 1;
@@ -591,7 +591,8 @@ impl App {
 
     /// The width comments and PR text wrap to: the pane's, when it's shown (they're there).
     pub(super) fn info_w(&self) -> usize {
-        if self.margin_active { self.margin_w - 3 - 2 - self.pane_pad() } else { self.wrap_w }
+        // (In the pane, a box is open on its right: to the edge.)
+        if self.margin_active { self.margin_w - 3 - self.pane_pad() } else { self.wrap_w }
     }
 
     /// The space inside the line between the code and the pane, as a column.
