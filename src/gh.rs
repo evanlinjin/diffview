@@ -1084,8 +1084,7 @@ fn requires_signatures(p: &Value) -> bool {
 
 /// PR `n`'s commits' signatures, and whether its base requires them: one GraphQL query.
 pub fn signatures(n: u64) -> Result<Signatures> {
-    let a = pr_query(n, "").context("its commits' signatures")?;
-    signatures_whole(&a).map_err(|why| anyhow::anyhow!("its commits' signatures: {}", first_line(&why)))
+    signatures_whole(&pr_query(n, "")?).map_err(anyhow::Error::msg)
 }
 
 /// The signatures in a `pr_query` answer, whole or not at all: a commit GitHub had trouble
@@ -1103,20 +1102,19 @@ fn first_line(s: &str) -> String {
     s.lines().next().unwrap_or("").to_owned()
 }
 
-/// Whether GitHub refused a query for its size or time (asked again smaller), not for what
-/// would refuse it again: a rate or abuse limit, a permission, a PR not found.
+/// Whether GitHub refused a query for its size or time (asked again smaller: every error's
+/// kind says so), not for what would refuse it again: a rate or abuse limit, a permission, a PR
+/// not found, paging the smaller one has too.
 fn too_big(r: &Refused) -> bool {
-    let k = r.kind.as_str();
-    !(k.contains("RATE") || k.contains("ABUSE")) && (k.is_empty() || ["LIMIT", "TIMEOUT", "PAGINATION"].iter().any(|w| k.contains(w)))
+    r.kinds.iter().all(|k| !(k.contains("RATE") || k.contains("ABUSE")) && (k.is_empty() || ["LIMIT", "TIMEOUT"].iter().any(|w| k.contains(w))))
 }
 
 /// What PR info adds from one `pr_query` with `MINE` (`first`): which reactions are yours (of
 /// what GitHub answered: none of them asked again alone), and its commits' signatures (else
 /// why not). Refused for its size, the signatures are asked on their own (`alone`).
 fn extras(first: Result<PrAnswer>, alone: impl FnOnce() -> Result<PrAnswer>) -> (Value, std::result::Result<Signatures, String>) {
-    let retry = matches!(first.as_ref().map_err(|e| e.downcast_ref::<Refused>()), Err(Some(r)) if too_big(r));
     let answer = match first {
-        Err(e) if retry => alone().map_err(|_| e), // (its reason, the first: the real one)
+        Err(e) if e.downcast_ref::<Refused>().is_some_and(too_big) => alone().map_err(|_| e), // (its reason, the first: the real one)
         r => r,
     };
     match answer {
@@ -1138,7 +1136,8 @@ struct PrAnswer {
 /// …) and reason. Not the same as not being reached, nor as a bad token.
 #[derive(Debug)]
 struct Refused {
-    kind: String,
+    /// Each error's kind (empty when it gave none).
+    kinds: Vec<String>,
     why: String,
 }
 
@@ -1157,8 +1156,8 @@ fn pr_answer(v: &Value, stderr: &str) -> Result<PrAnswer> {
     let errors = v["errors"].as_array().map(Vec::as_slice).unwrap_or(&[]);
     if !node.is_object() {
         if let Some(e) = errors.first() {
-            let (kind, why) = (e["type"].as_str().unwrap_or(""), e["message"].as_str().unwrap_or("refused"));
-            return Err(Refused { kind: kind.to_owned(), why: why.to_owned() }.into());
+            let kinds = errors.iter().map(|e| e["type"].as_str().unwrap_or("").to_owned()).collect();
+            return Err(Refused { kinds, why: e["message"].as_str().unwrap_or("refused").to_owned() }.into());
         }
         // Not GraphQL's answer: the body's word (`Bad credentials`), else gh's.
         let why = v["message"].as_str().unwrap_or(stderr.trim());
@@ -1789,14 +1788,16 @@ fn github_refusals() {
     // Its commits refused: GitHub's word for why, its first line.
     let a = pr_answer(&answer(json!([{ "path": ["repository", "pullRequest", "commits"], "message": "timed out\nmore" }])), "").unwrap();
     assert_eq!(extras(Ok(a), || unreachable!()).1.unwrap_err(), "timed out");
-    // Refused whole: asked again alone (reactions unknown then); rate-limited, not.
-    let refused = |kind: &str| -> Result<PrAnswer> { Err(Refused { kind: kind.into(), why: "too big".into() }.into()) };
+    // Refused whole for its size or time: asked again alone (none of the reactions then);
+    // anything that would refuse it again, among its errors: not.
+    let refused = |kinds: &[&str]| -> Result<PrAnswer> { Err(Refused { kinds: kinds.iter().map(|k| k.to_string()).collect(), why: "too big".into() }.into()) };
     let alone = || pr_answer(&answer(json!([])), "");
-    for kind in ["MAX_NODE_LIMIT_EXCEEDED", "", "TIMEOUT"] {
-        assert!(extras(refused(kind), alone).1.is_ok(), "{kind}");
+    for kinds in [&["MAX_NODE_LIMIT_EXCEEDED"][..], &[""], &["TIMEOUT"]] {
+        let (mine, sig) = extras(refused(kinds), alone);
+        assert!(sig.is_ok() && mine == json!({}), "{kinds:?}");
     }
-    for kind in ["RATE_LIMITED", "SECONDARY_RATE_LIMIT", "FORBIDDEN", "NOT_FOUND"] {
-        let (_, sig) = extras(refused(kind), || unreachable!());
+    for kinds in [&["RATE_LIMITED"][..], &["SECONDARY_RATE_LIMIT"], &["FORBIDDEN"], &["NOT_FOUND"], &["EXCESSIVE_PAGINATION"], &["MAX_NODE_LIMIT_EXCEEDED", "RATE_LIMITED"]] {
+        let (_, sig) = extras(refused(kinds), || unreachable!());
         assert_eq!(sig.unwrap_err(), "GitHub: too big");
     }
 }
