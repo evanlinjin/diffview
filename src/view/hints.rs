@@ -37,17 +37,23 @@ pub(crate) fn help_lines(help: &str, ui: &Ui, width: usize, query: &str) -> Vec<
         };
         // Sections: heading + entries, keeping only matching entries.
         let mut sections: Vec<(&str, Vec<&str>)> = vec![];
+        // An entry: its line, and those going on under its description (blank where the key
+        // is), kept or left out together.
+        let mut entries: Vec<(&str, Vec<Vec<&str>>)> = vec![];
         for l in help.trim_matches('\n').lines() {
             match l {
                 "" => {}
-                h if !h.starts_with(' ') => sections.push((h, vec![])),
-                e if q.is_empty() || fold(e).contains(&q) => {
-                    if let Some(s) = sections.last_mut() {
-                        s.1.push(e);
-                    }
-                }
-                _ => {}
+                h if !h.starts_with(' ') => entries.push((h, vec![])),
+                e => match entries.last_mut() {
+                    Some((_, es)) if e.starts_with(&" ".repeat(KEY_COL)) && !es.is_empty() => es.last_mut().into_iter().for_each(|x| x.push(e)),
+                    Some((_, es)) => es.push(vec![e]),
+                    None => {}
+                },
             }
+        }
+        for (h, es) in entries {
+            let kept = es.into_iter().filter(|e| q.is_empty() || e.iter().any(|l| fold(l).contains(&q)));
+            sections.push((h, kept.flatten().collect()));
         }
         sections.retain(|s| !s.1.is_empty());
         if sections.is_empty() {

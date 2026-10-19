@@ -68,6 +68,8 @@ impl App {
             return match (self.name_at_cursor(), comment) {
                 (Some(name), _) => self.goto_definition(&name),
                 (None, Some(u)) => self.open_url(&u),
+                // (A comment on code, nothing under the cursor: that code, in your editor.)
+                (None, None) if self.rows[self.head.row].file != INFO => self.action = self.open_target().map(Action::Open),
                 (None, None) => self.msg = "no link, file:line or name under the cursor".into(),
             };
         };

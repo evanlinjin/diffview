@@ -1,6 +1,6 @@
           PR #7 · Fix the thing  @bo · main ← amy:fix          3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)
  ▾        description
-          Fixes the th keys · / search · j/k scroll · other keys close                 1–44 / 136
+          Fixes the th keys · / search · j/k scroll · other keys close                 1–44 / 133
        ╭─ status ─────  MOVE                                                                    ┃ ─────────────╮
        │  OPEN @bo · m   h j k l, arrows      move (counts: 5j)                                 ┃              │
        │  review: wait   w b e  W B E         word motions (select)                             ┃              │
@@ -15,7 +15,7 @@
  11  11   line 11        Ctrl-o               jump back                                         ┃
  12     -     let x =                                                                           ┃
      12 +     let x =   DIFF                                                                    ┃                      ◆
- 13  13   line 13        ]g [g                next / prev hunk (change)                         │
+ 13  13   line 13        ]g [g                next / prev hunk (change)                         ┃
  14  14   line 14        ]f [f, Space f       next / prev file, file picker                     │
  15  15   line 15        ]c [c                next / prev comment thread                        │
  ▾        src/a.rs  +1   ]u [u                next / prev unresolved one (wraps around)         │

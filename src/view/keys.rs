@@ -49,9 +49,7 @@ VIEW
   Ctrl-w f             comments pane: a column beside the code / floating over it
   Ctrl-w ,  Ctrl-w .   the pane you're in narrower / wider (Ctrl-w = usual width)
   Ctrl-w q             hide the pane you're in (files' list or comments)
-  Enter                open hx at cursor (on a link: open it)
-  Enter                code: open in hx; text: its link, file:line or name
-                       (as comments cite code) or to where the function / type named
+  Enter                code: open in hx; text: its link, file:line, or where the name
                        under it is defined (Ctrl-o comes back)
 
 RUST-ANALYZER
@@ -215,7 +213,7 @@ impl App {
             // a link): what's under the cursor (`open_link`: a link, a file:line, a name).
             KeyCode::Enter => {
                 let row = &self.rows[self.head.row];
-                let code = row.file != INFO && row.thread.is_none() && matches!(row.line.kind, Kind::Add | Kind::Del | Kind::Ctx);
+                let code = row.file != INFO && row.thread.is_none();
                 match code && self.link_at_cursor().is_none() {
                     true => self.action = self.open_target().map(Action::Open),
                     false => self.open_link(),

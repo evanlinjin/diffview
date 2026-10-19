@@ -59,7 +59,7 @@ the file as JSON:
 - When a comment (or a reply) points at other code, cite it as `` `path:line` `` or
   `` `path:start-end` ``: the path from the repo root (`src/view/mod.rs:1213`, not `mod.rs`
   or `mod.rs line 1213`), in backticks, with nothing between path, colon and number. dv's
-  `gf` jumps there from the comment; other forms may not resolve.
+  Enter jumps there from the comment; other forms may not resolve.
 - One issue per comment, with its `severity`: `bug`, `security`, `perf`, `design`,
   `question` or `nit` (dv shows it as a tag, and puts it before the text when the user copies
   the comment to GitHub, so don't repeat it in the body). To propose exact code, use a GitHub

@@ -3031,3 +3031,16 @@ fn one_reply_to_several_claude_comments() {
     assert!(matches!(app.action.take(), Some(Action::ClaudeReplyAll(ref ks, "amend")) if ks.len() == 2));
     _ = std::fs::remove_file(&p);
 }
+
+#[test]
+fn enter_opens_code_or_what_is_under_the_cursor() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let enter = |app: &mut App| app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    // On code, and on its file's header: the file in your editor.
+    for kind in [Kind::Add, Kind::File] {
+        let r = app.rows.iter().position(|r| r.line.kind == kind && r.file != INFO).unwrap();
+        app.goto(r, 0);
+        enter(&mut app);
+        assert!(matches!(app.action.take(), Some(Action::Open(p)) if p.starts_with("src/a.rs:")), "{kind:?}");
+    }
+}
