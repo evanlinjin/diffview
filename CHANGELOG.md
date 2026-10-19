@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.53.0] - 2026-10-19
+
+### Added
+- A PR that conflicts with its base says so on its card in every tab (drafts too) and in the
+  PR view ("conflicts with main"), not just as a need on the todo tab.
+
+### Fixed
+- A deferral until someone reviews (or approves) a PR counts only reviews submitted after it
+  was deferred, not ones the PR already had.
+
 ## [0.52.0] - 2026-10-19
 
 ### Added
