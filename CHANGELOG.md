@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.35] - 2026-10-19
+
+### Changed
+- Inside dv, no change you'd see: `list/mod.rs` is split as `view/` is (drawing, keys, marks,
+  the background), its fields default, one helper for the keys you press twice, and its
+  popups drawn as the view's are.
+
 ## [0.34.34] - 2026-10-19
 
 ### Changed
