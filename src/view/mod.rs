@@ -45,6 +45,7 @@ mod render;
 mod review;
 mod select;
 mod term;
+mod threads;
 pub use term::{MOUSE, init_terminal, restore_terminal};
 pub(crate) use term::{compose_with, in_zellij};
 pub(crate) use github::prefetch_github;
