@@ -50,22 +50,20 @@ impl App {
             true => &[(Bar::Claude, "Claude")],
             false => &[(Bar::Comments, "Comments"), (Bar::Claude, "Claude"), (Bar::Pending, "Pending")],
         };
-        // The threads on the code shown: on its files, or (listed after the PR's text) on files
-        // gone from it; none on commits before the PR's head.
+        // The threads about the code each tab's view shows (as the view decides it): on its
+        // files, or on commits, or listed after the PR's text as on files gone from the diff.
         let paths: HashSet<&str> = self.files.iter().map(|f| f.path.as_str()).collect();
         let gone_listed = !(self.uncommitted() || self.commit_shown.is_some());
-        let shown: Vec<&Thread> = match self.before_head() {
-            true => vec![],
-            false => self.threads.iter().filter(|t| !t.path.is_empty() && (gone_listed || paths.contains(t.path.as_str()))).collect(),
-        };
+        let on_code = |t: &&Thread| commit_of(&t.conversation).is_some() || !t.path.is_empty() && (gone_listed || paths.contains(t.path.as_str()));
+        let about_code: Vec<&Thread> = self.threads.iter().filter(on_code).collect();
         tabs.iter()
             .map(|&(b, name)| {
-                let on_code = shown.iter();
-                let n = match b {
-                    Bar::Claude if !self.unpublished() => on_code.filter(|t| t.claude.is_some()).count(),
-                    Bar::Pending => on_code.filter(|t| t.comments.iter().any(|c| c.pending)).count(),
-                    _ => on_code.count(),
+                let v = match b {
+                    Bar::Claude if !self.unpublished() => View::Claude,
+                    Bar::Pending => View::Pending,
+                    _ => View::All,
                 };
+                let n = about_code.iter().filter(|t| self.in_view_of(v, t)).count();
                 let l = match n {
                     0 => format!(" {name} "),
                     n => format!(" {name} {n} "),

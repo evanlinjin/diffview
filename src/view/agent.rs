@@ -113,17 +113,22 @@ impl App {
     /// Whether thread `t` shows: in the Claude view, only those of Claude's review; in the
     /// pending view, those with a comment of your pending review.
     pub(super) fn in_view(&self, t: &Thread) -> bool {
+        self.in_view_of(self.view, t)
+    }
+
+    /// `in_view`, for view `v` (the pane's tabs count what each would show).
+    pub(super) fn in_view_of(&self, v: View, t: &Thread) -> bool {
         // Comments are on the PR's head: not on commits before it (but one about a commit is
         // on no lines: it shows whatever's shown).
         if self.before_head() && commit_of(&t.conversation).is_none() {
             return false;
         }
-        self.of_view(t)
+        Self::of_view(v, t)
     }
 
-    /// Whether thread `t` is of the view (Claude's, your pending review's), shown or not.
-    fn of_view(&self, t: &Thread) -> bool {
-        match self.view {
+    /// Whether thread `t` is of view `v` (Claude's, your pending review's), shown or not.
+    fn of_view(v: View, t: &Thread) -> bool {
+        match v {
             View::All => true,
             View::Claude => t.claude.is_some(),
             View::Pending => t.comments.iter().any(|c| c.pending),
@@ -200,7 +205,7 @@ impl App {
 
     /// Whether the view has threads in it (on an earlier commit too, where they're hidden).
     pub(super) fn any_in_view(&self) -> bool {
-        self.threads.iter().any(|t| self.of_view(t))
+        self.threads.iter().any(|t| Self::of_view(self.view, t))
     }
 
     /// Whether `ask` may change the code (or reads it whole: a review): answering does when a
