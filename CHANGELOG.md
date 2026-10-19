@@ -8,8 +8,8 @@ on GitHub are its section here.
 ### Fixed
 - 0.33.2 showed the last known signatures (and your reactions) when GitHub didn't say: from
   the cache, as if current, even of an older head, hiding "signatures unknown". It says
-  unknown again. Asked again alone only when refused for its size; reactions partly refused,
-  which are yours is unknown (not "none").
+  unknown again. Asked again alone only when refused for its size or time (not a rate limit,
+  a permission, a PR not found).
 
 ## [0.33.2] - 2026-10-19
 
