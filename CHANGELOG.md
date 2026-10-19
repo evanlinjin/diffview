@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.41.4] - 2026-10-19
+
+### Fixed
+- An issue's triage follows your notes on the repo again (in its prompt: a reading-only run
+  can't reach dv's directory to read them).
+- Ranking, grouping and reading a deferral find Claude's JSON as the triage does (text after
+  it, like "(see [1])", no longer breaks them).
+- The filter's smart case goes by what you're looking for, not the key: `Label:bug` matches
+  `Bug`.
+
 ## [0.41.3] - 2026-10-19
 
 ### Fixed
