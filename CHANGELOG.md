@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-10-19
+
 ### Added
 - `Space l`: the PR's labels and assignees, and what it could have (the repo's labels, who it
   can be assigned to), ✓ on those it has; Enter adds or removes one. Its assignees show among
@@ -944,6 +946,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.32.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.32.0
 [0.31.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.31.0
 [0.30.2]: https://github.com/evanlinjin/diffview/releases/tag/v0.30.2
 [0.30.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.30.1
