@@ -1066,6 +1066,7 @@ pub enum Mark {
 
 /// A line of the PR info section. `md` lines (description, comments) are rendered as markdown;
 /// the rest are colored by `marks` (char ranges).
+#[derive(Default)]
 pub struct InfoLine {
     pub heading: bool,
     pub md: bool,
@@ -1085,7 +1086,7 @@ pub struct InfoLine {
 
 impl InfoLine {
     fn new(heading: bool, md: bool) -> Self {
-        InfoLine { heading, md, text: String::new(), marks: vec![], hidden: String::new(), key: String::new(), url: String::new(), node: String::new() }
+        InfoLine { heading, md, ..Default::default() }
     }
 
     fn put(&mut self, s: &str, mark: Option<Mark>) -> &mut Self {
