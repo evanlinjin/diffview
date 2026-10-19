@@ -168,7 +168,8 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], backup: &str) -> Res
     git_in(dir, &["branch", "-f", backup, "HEAD"])?;
     let gitdir = std::path::PathBuf::from(git_in(dir, &["rev-parse", "--absolute-git-dir"])?.trim());
     let (patch, index) = (gitdir.join("dv-amend.patch"), gitdir.join("dv-amend.index"));
-    // The fixup commits are made in an index of dv's own: yours (what you staged) isn't touched.
+    // The fixup commits are made in an index of dv's own, so what you staged needn't be unstaged
+    // first (it comes back unstaged, as `--autostash` puts it back; new files stay added).
     let own = |args: &[&str]| -> Result<()> {
         let out = std::process::Command::new("git").arg("-C").arg(dir).args(args).env("GIT_INDEX_FILE", &index).output()?;
         anyhow::ensure!(out.status.success(), "git {}: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim());
@@ -201,10 +202,14 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], backup: &str) -> Res
             Ok(()) => done.extend(mine),
             Err(e) => {
                 _ = git_in(dir, &["rebase", "--abort"]);
-                _ = git_in(dir, &["reset", "-q", &was]); // this one's changes uncommitted again
-                // git's own words for it: the line saying what it couldn't do.
+                // This one's changes uncommitted again (staged: a mixed reset would untrack new
+                // files a later commit's fixup still needs).
+                _ = git_in(dir, &["reset", "-q", "--soft", &was]);
                 let msg = format!("{e:#}");
-                let why = msg.lines().find(|l| l.contains("could not apply") || l.contains("CONFLICT")).unwrap_or(msg.lines().last().unwrap_or("")).trim().to_owned();
+                let why = match msg.contains("could not apply") {
+                    true => "a later commit changes those lines".to_owned(),
+                    false => msg.rsplit("error: ").next().unwrap_or(&msg).lines().next().unwrap_or("").trim().to_owned(),
+                };
                 skipped.push((t.to_owned(), why));
             }
         }
@@ -230,9 +235,7 @@ pub(super) fn fold(dir: &Path, base: &str, sha: &str, paths: &[String], backup: 
     hunks.retain(|h| !h.path.is_empty() && (paths.is_empty() || paths.contains(&h.path)));
     anyhow::ensure!(!hunks.is_empty(), "nothing uncommitted to amend");
     hunks.iter_mut().for_each(|h| h.to = Some(sha.to_owned()));
-    let (_, skipped) = amend(dir, base, &hunks, backup)?;
-    anyhow::ensure!(skipped.is_empty(), "nothing amended: it's all as it was"); // (one commit: all or nothing)
-    Ok(())
+    amend(dir, base, &hunks, backup).map(drop) // (one commit: in, or an error)
 }
 
 /// `dv amend <commit> [file…]` (for Claude: dv's amend, not a rebase by hand): what isn't
@@ -384,7 +387,7 @@ impl App {
         let left = match skipped.as_slice() {
             [] => String::new(),
             [(t, why), ..] => format!(
-                "; {} left uncommitted, as a later commit changes those lines ({}: {why}): f on a later commit folds them there",
+                "; {} left uncommitted ({}: {why}): f on a later commit folds them there",
                 match skipped.len() { 1 => format!("{}'s changes", &t[..7.min(t.len())]), k => format!("the changes for {k} commits") },
                 &t[..7.min(t.len())],
             ),
