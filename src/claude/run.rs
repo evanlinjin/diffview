@@ -21,11 +21,14 @@ pub(crate) const ALLOWED: &[&str] = &[
     "Bash(cargo build:*)",
     "Bash(cargo test:*)",
     "Bash(cargo clippy:*)",
-    // As CI runs them (bdk's: nightly rustfmt, clippy on a pinned toolchain), checking only.
+    // As CI runs them (bdk's: nightly rustfmt; clippy, on the default toolchain here).
+    // (Checking only: a `cargo fmt` would rewrap files the PR never touched.)
     "Bash(cargo fmt --check:*)",
+    "Bash(cargo fmt -- --check:*)",
     "Bash(cargo fmt --all --check:*)",
     "Bash(cargo fmt --all -- --check:*)",
     "Bash(cargo +nightly fmt --check:*)",
+    "Bash(cargo +nightly fmt -- --check:*)",
     "Bash(cargo +nightly fmt --all --check:*)",
     "Bash(cargo +nightly fmt --all -- --check:*)",
     "Bash(cargo +nightly clippy:*)",
