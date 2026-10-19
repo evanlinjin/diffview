@@ -217,6 +217,7 @@ impl App {
                 ("v", "mark file viewed"),
                 ("g", "git: uncommitted only / commit / push / update"),
                 ("m", "messages, in full"),
+                ("s", "a shell in the checkout's directory"),
                 ("r", "resolve thread"),
                 ("=", "react to the comment (👍 🎉 …)"),
                 ("l", "the PR's labels, assignees, reviewers"),
@@ -393,6 +394,7 @@ impl App {
             (' ', 'v') => self.toggle_viewed(),
             (' ', 'g') => self.git_menu(),
             (' ', 'm') => self.messages(),
+            (' ', 's') => self.action = Some(Action::Shell),
             ('f' | 't' | 'F' | 'T', c) => self.find_char(p, c),
             _ => {}
         }

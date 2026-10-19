@@ -145,6 +145,7 @@ GENERAL
   ?                    this help (/ to search it)
   R                    refresh (git diff + GitHub)
   Space m              messages so far, in full (the status bar cuts long ones)
+  Space s              a shell in the checkout's directory (zellij: a floating pane)
   mouse                wheel scrolls, click moves (or folds, on an arrow), drag selects
   q, Ctrl-c            quit
 ";
@@ -283,6 +284,8 @@ const MARGIN_CODE_MAX: usize = 200;
 
 /// Work that needs the terminal back (an editor), run between frames.
 enum Action {
+    /// A shell in the checkout's directory: a floating pane in zellij, else this terminal.
+    Shell,
     Open(String),
     /// `review`: add to the pending review instead of posting immediately.
     /// `prefill`: starting text in the editor (a ```suggestion block for `s`).
@@ -1001,6 +1004,23 @@ impl App {
 
     fn perform(&mut self, a: Action) -> Result<String> {
         match a {
+            Action::Shell => {
+                let shell = std::env::var("SHELL").unwrap_or_else(|_| "sh".into());
+                let root = self.root.display().to_string();
+                if in_zellij() {
+                    let name = format!("shell: {}", self.root.file_name().map_or(root.clone(), |n| n.to_string_lossy().into_owned()));
+                    let st = std::process::Command::new("zellij")
+                        .args(["run", "--floating", "--close-on-exit", "--name", &name, "--cwd", &root, "--", &shell])
+                        .stdin(std::process::Stdio::null())
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .status()?;
+                    anyhow::ensure!(st.success(), "zellij run failed");
+                    return Ok(format!("a shell in {root}, floating (exit closes it)"));
+                }
+                std::process::Command::new(&shell).current_dir(&self.root).status().context("running your shell")?;
+                Ok(String::new())
+            }
             Action::Open(target) if in_zellij() => self.open_in_hx_pane(&target),
             Action::Open(target) => {
                 interactive("hx", std::slice::from_ref(&target), &format!("hx {target}")).context("running hx")?;
