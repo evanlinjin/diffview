@@ -380,7 +380,7 @@ impl App {
                 }
                 // Not against HEAD: files without uncommitted changes aren't in that diff, and
                 // their comments would look outdated (and could be dismissed as such).
-                if !self.uncommitted() && self.commit_shown.is_none() {
+                if self.whole_pr() {
                     crate::claude::reanchor(&mut r.threads, &self.files);
                 }
                 (self.claude.summary, self.claude.head, self.claude.description, self.claude.closing) = (r.summary, r.head, r.description, r.closing);

@@ -147,237 +147,23 @@ impl App {
         // Where the cursor was in the code, kept on the same line in the new rows.
         let code = self.key_at(self.code_head.row);
         self.jumps.clear();
-        let mut rows = vec![];
-        let title = match (&self.pr, &self.replacement) {
-            (Some(pr), _) => Some(format!("PR #{} · {}", pr.number, pr.title)),
-            (None, Some(r)) => {
-                let title = if r.title.is_empty() { "(not drafted yet)" } else { r.title.as_str() };
-                Some(match crate::replace::is_new(r.id) {
-                    true => format!("{} · {title}", crate::replace::label(r.id).replacen("new PR", "New PR", 1)),
-                    false => format!("Replacement of #{} · {title}", r.id),
-                })
-            }
-            (None, None) => (!self.claude.summary.is_empty()).then(|| "Claude's review".to_owned()),
-        };
-        if let Some(title) = title {
-            let mk = |kind, text| Row::text(INFO, kind, text);
-            // The header links to the PR (gf / Enter), instead of a URL line of its own.
-            let url = self.pr.as_ref().map(|p| p.url.clone()).filter(|u| !u.is_empty());
-            let links = url.map(|u| vec![(0, title.chars().count(), u)]).unwrap_or_default();
-            // Who, and from which branch into which, after the title (dim; cut first when narrow).
-            let by = self.pr.as_ref().filter(|p| !p.author.is_empty()).map(|p| {
-                let head = if p.cross_repo { format!("{}:{}", p.head_owner, p.head_branch) } else { p.head_branch.clone() };
-                format!("  @{} · {} ← {head}", p.author, p.base)
-            });
-            let n = title.chars().count();
-            let by = by.unwrap_or_default();
-            let syn = [vec![None; n], vec![Some(self.ui.linenr); by.chars().count()]].concat();
-            rows.push(Row { links, syn, ..mk(Kind::File, title + &by) });
-            if self.view == View::Pending && !self.info_collapsed {
-                // The PR's state, author, branches and size; then the text of your pending review
-                // (in the pane, as the PR's text is).
-                if let Some(l) = self.info.first().filter(|l| !l.heading && !l.md) {
-                    rows.push(Row { attached: true, ..self.info_row(l, mk(Kind::Comment, l.text.clone())) });
-                }
-                rows.extend(self.draft_rows().into_iter().map(|r| Row { attached: true, ..r }));
-            }
+        let mut rows = self.title_rows();
+        // Attached to the description (beside it in the pane, as comments are beside their
+        // lines; inline after it, the pane hidden): with no description (a branch), after the
+        // title.
+        let mut attached = self.attached_rows();
+        if self.whole_pr() {
+            rows.extend(self.closing_comment());
+            rows.extend(self.description_rows(&mut attached));
         }
-        // Attached to the description: beside it in the pane, as comments are beside their
-        // lines (inline after it, the pane hidden). The whole diff's: the PR's facts, its
-        // conversation's latest (`Space o`: all of it), your pending review's text. The Claude
-        // view's: Claude's summary (or your questions about the PR), and what's said under it.
-        // (Folded with it: Tab on it, or on them.)
-        // Some of the commits (their messages, then their code), or only what isn't committed:
-        // not the PR's text (it's about all of them).
-        let commits = self.commit_shown.is_some() || self.uncommitted();
-        let mut attached: Vec<Row> = match self.view {
-            _ if commits || self.sections_folded.contains(&DESCRIPTION) => vec![],
-            // (A draft's: what you asked of it, beside it too.)
-            _ if self.claude_side() => {
-                let desc = (0..self.info.len()).find(|&i| self.is_description(i)).map_or(0, |h| h + 1);
-                [self.claude_attached(), self.request_rows(&["description", ""], desc)].into_iter().flatten().collect()
-            }
-            View::All if self.info_collapsed => vec![],
-            View::All => {
-                let latest = (!self.conversation_all).then_some(LATEST);
-                [self.pr_facts(), self.conversation(latest), self.no_pr_summary(), self.draft_rows()].into_iter().flatten().collect()
-            }
-            _ => vec![],
-        };
-        attached.iter_mut().for_each(|r| r.attached = true);
-        // Claude's draft comment for closing the PR: first, as what you'd do next.
-        if self.view == View::All && !commits && !self.claude.closing.trim().is_empty() {
-            let what = match self.pr_state.is_some_and(|s| matches!(s.0, "OPEN" | "DRAFT")) {
-                true => "closing comment · Claude's draft (Space a: close the PR with it, more changes, discard)",
-                false => "closing comment · Claude's draft (the PR isn't open: Space a discards it)",
-            };
-            rows.extend(self.section(CLOSING_PR, what.into(), &self.claude.closing, None));
-        }
-        // Before the files, like one: the PR's description (in the Claude view too, Claude's
-        // review attached to it), then the messages of the commits shown.
-        if matches!(self.view, View::All | View::Claude)
-            && !commits
-            && let Some(h) = (0..self.info.len()).find(|&i| self.is_description(i))
-        {
-            let text = self.info.get(h + 1).filter(|l| l.md).map_or("", |l| l.text.as_str());
-            match self.claude.description.is_empty() || self.pr.is_none() {
-                true => {
-                    let text = match (text.trim().is_empty(), self.replacement.is_some()) {
-                        (true, true) => "_(not drafted yet)_",
-                        (true, false) => "_(no description)_",
-                        _ => text,
-                    };
-                    let mut s = self.section(DESCRIPTION, self.info[h].text.clone(), text, Some(h + 1));
-                    // An unpublished draft: what it replaces (or what you asked for) first, as
-                    // it has no facts box.
-                    if let Some(l) = self.info.first().filter(|_| self.unpublished() && s.len() > 1) {
-                        // (Its info line's, not the draft's text: `a` there quotes none of it.)
-                        let mk = |text| Row { main: Some(DESCRIPTION), info: Some(0), ..Row::text(INFO, Kind::Comment, text) };
-                        s.splice(1..1, [self.info_row(l, mk(l.text.clone())), mk(String::new())]);
-                    }
-                    rows.extend(self.attach(s, &mut attached));
-                }
-                // Claude's proposal: what it changes, line by line (as markdown source).
-                false => {
-                    let mk = |kind, text| Row { main: Some(DESCRIPTION), info: Some(h + 1), ..Row::text(INFO, kind, text) };
-                    let mut s = vec![mk(Kind::File, "description · Claude's proposal (Space a: approve, more changes, discard)".into())];
-                    if !self.sections_folded.contains(&DESCRIPTION) {
-                        // By source line (a reworded paragraph is one changed line), each then
-                        // wrapped to the code's width.
-                        let w = self.wrap_w.saturating_sub(2).max(20);
-                        let lines = |t: &str| t.replace("\r\n", "\n").lines().map(str::to_owned).collect::<Vec<_>>();
-                        for (k, line) in line_diff(&lines(text), &lines(&self.claude.description)) {
-                            s.extend(wrap(&line, w).into_iter().map(|t| mk(k, t)));
-                        }
-                    }
-                    rows.extend(self.attach(s, &mut attached));
-                }
-            }
-        }
-        // No description to attach to (a branch): after the title.
         rows.append(&mut attached);
-        if self.view == View::All {
-            // A replacement's closing note (for the PRs it replaces), after its description.
-            // Published, on its PR: still what closes what it replaces (S), while any is open.
-            let open = |r: &&crate::replace::Record| r.replaces.iter().any(|o| !r.closed.contains(&o.number));
-            if let Some(r) = self.replacement.as_ref().filter(|_| self.pr.is_some() && !commits).filter(open) {
-                rows.extend(self.section(CLOSING_NOTE, "closing note, for the PRs it replaces (S closes them with it)".into(), &r.closing_note, None));
-            }
-            if let Some(h) = (0..self.info.len()).find(|&i| self.is_closing_note(i)).filter(|_| !commits) {
-                let text = self.info.get(h + 1).filter(|l| l.md).map_or("", |l| l.text.as_str());
-                let text = if text.trim().is_empty() { "_(not drafted yet)_" } else { text };
-                let s = self.section(CLOSING_NOTE, self.info[h].text.clone(), text, Some(h + 1));
-                let mut asked: Vec<Row> = match self.sections_folded.contains(&CLOSING_NOTE) {
-                    true => vec![],
-                    false => self.request_rows(&["closing note"], h + 1).into_iter().map(|r| Row { attached: true, ..r }).collect(),
-                };
-                rows.extend(self.attach(s, &mut asked));
-            }
-            if let Some((a, _)) = self.commit_shown {
-                for (k, msg) in self.commit_msgs.iter().enumerate() {
-                    let Some(c) = self.commits.get(a + k) else { break };
-                    rows.extend(self.section(1 + a + k, format!("commit {}", c.short), msg, None));
-                }
-            }
-        }
-        // Threads on files that have left the diff (a change reverted, a file now matching the
-        // base) would show nowhere: list them here, by file. Not when showing only what isn't
-        // committed, where most files are out of the diff on purpose.
-        // (Questions about a commit are on no lines: listed whatever's shown.)
-        // Questions about the conversation are under their comment, in the whole diff (else
-        // here), and those about the summary under it.
-        let unplaced = |th: &Thread| th.conversation != ON_SUMMARY && (self.view != View::All || self.conversation_item(&th.conversation).is_none());
-        let mut gone: Vec<usize> = (0..self.threads.len())
-            .filter(|&t| {
-                let th = &self.threads[t];
-                self.in_view(th) && !self.has_file(&th.path) && (self.on_code(th) || self.gone_listed() && unplaced(th))
-            })
-            .collect();
-        // By file (stable: in order within one); questions about the conversation, on no file, last.
-        // (Questions on no lines: about a commit, under it; else about the conversation.)
-        let label = |t: usize| {
-            let th = &self.threads[t];
-            match (th.path.is_empty(), commit_of(&th.conversation)) {
-                (false, _) => th.path.clone(),
-                (true, Some(sha)) => format!("about commit {}", self.commit_short(sha)),
-                (true, None) => "questions about the PR's conversation".into(),
-            }
-        };
-        gone.sort_by_cached_key(|&t| (self.threads[t].path.is_empty(), label(t)));
+        rows.extend(self.closing_note_rows());
+        rows.extend(self.commit_sections());
         let gone_at = rows.len();
-        if !gone.is_empty() {
-            // (In the pane, as the PR's text is; inline with it hidden.)
-            let heading = |text: String| Row { attached: true, ..Row::text(INFO, Kind::Thread, text) };
-            let on_files = gone.iter().filter(|&&t| !self.threads[t].path.is_empty()).count();
-            if on_files > 0 {
-                rows.push(heading(format!("comments on files no longer in the diff ({on_files})")));
-            }
-            let mut last = None;
-            for &t in &gone {
-                let l = label(t);
-                if last.as_ref() != Some(&l) {
-                    rows.push(heading(l.clone()));
-                    last = Some(l);
-                }
-                rows.extend(self.thread_rows(t, INFO).into_iter().map(|r| Row { attached: true, ..r }));
-            }
-        }
+        rows.extend(self.gone_rows());
         let shown: Vec<&Thread> = self.threads.iter().filter(|t| self.in_view(t)).collect();
         for (i, f) in self.files.iter().enumerate() {
-            // The Claude / pending view: only files with its comments, and only around them.
-            let around;
-            let lines = match self.view != View::All {
-                true if !shown.iter().any(|t| t.path == f.path) => continue,
-                true => {
-                    let e = |a| *self.view_extra.get(&(f.path.clone(), a)).unwrap_or(&0);
-                    around = diff::shown(&f.full, &view_windows(&shown, f, e, self.whole.contains(&f.path)), &f.headers);
-                    &around
-                }
-                false => &f.lines,
-            };
-            let count = |k| f.lines.iter().filter(|l| l.kind == k).count();
-            // "dir/" dimmed, the file name in the header color, "(new)" etc. dimmed, +/- colored.
-            let (dir, name) = f.path.rsplit_once('/').map_or(("", f.path.as_str()), |(d, n)| (d, n));
-            let dir = if dir.is_empty() { String::new() } else { format!("{dir}/") };
-            let meta = if f.meta.is_empty() { String::new() } else { format!(" ({})", f.meta) };
-            let dim = Some(self.ui.stale);
-            // Its open comments, said even when it's folded (a viewed file is), so none go unseen.
-            let open = self.threads.iter().filter(|t| t.path == f.path && !t.stale() && self.in_view(t)).count();
-            let comments = match open {
-                0 => String::new(),
-                1 => "  · 1 comment".into(),
-                n => format!("  · {n} comments"),
-            };
-            let parts = [
-                (dir, dim),
-                (name.to_owned(), None),
-                (meta, dim),
-                ("  ".into(), None),
-                (format!("+{}", count(Kind::Add)), Some(self.ui.plus)),
-                (" ".into(), None),
-                (format!("−{}", count(Kind::Del)), Some(self.ui.minus)),
-                (comments, Some(self.ui.thread)),
-            ];
-            let text: String = parts.iter().map(|p| p.0.as_str()).collect();
-            let syn = parts.iter().flat_map(|(t, st)| t.chars().map(move |_| *st)).collect();
-            rows.push(Row { syn, ..Row::text(i, Kind::File, text) });
-            if self.collapsed.contains(&f.path) {
-                continue;
-            }
-            // (thread, index into f.lines it sits under); unplaceable ones go under the file header.
-            let placed: Vec<(usize, Option<usize>)> = (0..self.threads.len())
-                .filter(|&t| self.threads[t].path == f.path && self.in_view(&self.threads[t]))
-                .map(|t| (t, anchor_line(&self.threads[t], lines)))
-                .collect();
-            for &(t, _) in placed.iter().filter(|p| p.1.is_none()) {
-                rows.extend(self.thread_rows(t, i));
-            }
-            for (li, l) in lines.iter().enumerate() {
-                rows.push(Row::new(i, l.clone()));
-                for &(t, _) in placed.iter().filter(|p| p.1 == Some(li)) {
-                    rows.extend(self.thread_rows(t, i));
-                }
-            }
+            rows.extend(self.file_rows(i, f, &shown));
         }
         if rows.is_empty() {
             rows.push(Row::text(usize::MAX, Kind::Hunk, "(no changes)".into()));
@@ -387,6 +173,252 @@ impl App {
         self.code_head.row = self.find_key(code).unwrap_or(0);
         self.emph = self.word_spans();
         self.layout();
+    }
+
+    /// The pinned title's text: the PR's number and title, a replacement's or new PR's, or (a
+    /// branch Claude reviewed) "Claude's review"; none otherwise.
+    fn title(&self) -> Option<String> {
+        match (&self.pr, &self.replacement) {
+            (Some(pr), _) => Some(format!("PR #{} · {}", pr.number, pr.title)),
+            (None, Some(r)) => {
+                let title = if r.title.is_empty() { "(not drafted yet)" } else { r.title.as_str() };
+                Some(match crate::replace::is_new(r.id) {
+                    true => format!("{} · {title}", crate::replace::label(r.id).replacen("new PR", "New PR", 1)),
+                    false => format!("Replacement of #{} · {title}", r.id),
+                })
+            }
+            (None, None) => (!self.claude.summary.trim().is_empty()).then(|| "Claude's review".to_owned()),
+        }
+    }
+
+    /// The title row (it links to the PR; who, and from which branch into which, after it, dim);
+    /// in the pending view, the PR's facts line and your pending review's text attached to it.
+    fn title_rows(&self) -> Vec<Row> {
+        let Some(title) = self.title() else { return vec![] };
+        let mk = |kind, text| Row::text(INFO, kind, text);
+        let url = self.pr.as_ref().map(|p| p.url.clone()).filter(|u| !u.is_empty());
+        let links = url.map(|u| vec![(0, title.chars().count(), u)]).unwrap_or_default();
+        let by = self.pr.as_ref().filter(|p| !p.author.is_empty()).map(|p| {
+            let head = if p.cross_repo { format!("{}:{}", p.head_owner, p.head_branch) } else { p.head_branch.clone() };
+            format!("  @{} · {} ← {head}", p.author, p.base)
+        });
+        let n = title.chars().count();
+        let by = by.unwrap_or_default();
+        let syn = [vec![None; n], vec![Some(self.ui.linenr); by.chars().count()]].concat();
+        let rows = vec![Row { links, syn, ..mk(Kind::File, title + &by) }];
+        if self.view != View::Pending || self.info_collapsed {
+            return rows;
+        }
+        let facts = self.info.first().filter(|l| !l.heading && !l.md).map(|l| self.info_row(l, mk(Kind::Comment, l.text.clone())));
+        let mut attached: Vec<Row> = facts.into_iter().chain(self.draft_rows()).collect();
+        self.attach(rows, &mut attached)
+    }
+
+    /// What's attached to the description: the whole diff's, the PR's facts, its activity's
+    /// latest (`Space o`: all of it), your pending review's text; Claude's side's, its summary
+    /// (or your questions about the PR), what's said under it, its activity (a draft's: what
+    /// you asked of it too). Not with some of the commits, nor the description folded.
+    fn attached_rows(&self) -> Vec<Row> {
+        match self.view {
+            _ if !self.whole_pr() || self.sections_folded.contains(&DESCRIPTION) => vec![],
+            _ if self.claude_side() => {
+                let desc = self.heading(Self::is_description).map_or(0, |h| h + 1);
+                [self.claude_attached(), self.request_rows(&["description", ""], desc)].into_iter().flatten().collect()
+            }
+            View::All if self.info_collapsed => vec![],
+            View::All => {
+                let latest = (!self.conversation_all).then_some(LATEST);
+                [self.pr_facts(), self.conversation(latest), self.no_pr_summary(), self.draft_rows()].into_iter().flatten().collect()
+            }
+            View::Pending | View::Claude => vec![],
+        }
+    }
+
+    /// Claude's draft comment for closing the PR: first, as what you'd do next.
+    fn closing_comment(&self) -> Vec<Row> {
+        if self.view != View::All || self.claude.closing.trim().is_empty() {
+            return vec![];
+        }
+        let what = match self.pr_state.is_some_and(|s| matches!(s.0, "OPEN" | "DRAFT")) {
+            true => "closing comment · Claude's draft (Space a: close the PR with it, more changes, discard)",
+            false => "closing comment · Claude's draft (the PR isn't open: Space a discards it)",
+        };
+        self.section(CLOSING_PR, what.into(), &self.claude.closing, None)
+    }
+
+    /// Before the files, like one: the PR's description (in the Claude view too), what's
+    /// `attached` to it; or Claude's proposal for it, what it changes, line by line.
+    fn description_rows(&self, attached: &mut Vec<Row>) -> Vec<Row> {
+        let Some(h) = self.heading(Self::is_description).filter(|_| matches!(self.view, View::All | View::Claude)) else { return vec![] };
+        let text = self.info_body(h);
+        let s = match self.claude.description.is_empty() || self.pr.is_none() {
+            true => {
+                let text = match (text.trim().is_empty(), self.replacement.is_some()) {
+                    (true, true) => "_(not drafted yet)_",
+                    (true, false) => "_(no description)_",
+                    _ => text,
+                };
+                let mut s = self.section(DESCRIPTION, self.info[h].text.clone(), text, Some(h + 1));
+                // An unpublished draft: what it replaces (or what you asked for) first, as it
+                // has no facts box. (Its info line's, not the draft's text: `a` there quotes none.)
+                if let Some(l) = self.info.first().filter(|_| self.unpublished() && s.len() > 1) {
+                    let mk = |text| Row { main: Some(DESCRIPTION), info: Some(0), ..Row::text(INFO, Kind::Comment, text) };
+                    s.splice(1..1, [self.info_row(l, mk(l.text.clone())), mk(String::new())]);
+                }
+                s
+            }
+            // By source line (a reworded paragraph is one changed line), each then wrapped to
+            // the code's width (as markdown source).
+            false => self.section_with(DESCRIPTION, "description · Claude's proposal (Space a: approve, more changes, discard)".into(), Some(h + 1), |mk| {
+                let w = self.wrap_w.saturating_sub(2).max(20);
+                let lines = |t: &str| t.replace("\r\n", "\n").lines().map(str::to_owned).collect::<Vec<_>>();
+                line_diff(&lines(text), &lines(&self.claude.description)).into_iter().flat_map(|(k, line)| wrap(&line, w).into_iter().map(move |t| mk(k, t))).collect()
+            }),
+        };
+        self.attach(s, attached)
+    }
+
+    /// A replacement's closing note (for the PRs it replaces), after its description: Claude's
+    /// draft (unpublished), what you asked of it beside it; published, on its PR, still what
+    /// closes what it replaces (`S`), while any is open.
+    fn closing_note_rows(&self) -> Vec<Row> {
+        if self.view != View::All || !self.whole_pr() {
+            return vec![];
+        }
+        let open = |r: &&crate::replace::Record| r.replaces.iter().any(|o| !r.closed.contains(&o.number));
+        if let Some(r) = self.replacement.as_ref().filter(|_| self.pr.is_some()).filter(open) {
+            return self.section(CLOSING_NOTE, "closing note, for the PRs it replaces (S closes them with it)".into(), &r.closing_note, None);
+        }
+        let Some(h) = self.heading(Self::is_closing_note) else { return vec![] };
+        let text = match self.info_body(h) {
+            t if t.trim().is_empty() => "_(not drafted yet)_",
+            t => t,
+        };
+        let s = self.section(CLOSING_NOTE, self.info[h].text.clone(), text, Some(h + 1));
+        let mut asked = match self.sections_folded.contains(&CLOSING_NOTE) {
+            true => vec![],
+            false => self.request_rows(&["closing note"], h + 1),
+        };
+        self.attach(s, &mut asked)
+    }
+
+    /// Some of the commits shown: each one's message, a section.
+    fn commit_sections(&self) -> Vec<Row> {
+        let Some((a, _)) = self.commit_shown.filter(|_| self.view == View::All) else { return vec![] };
+        let commits = self.commit_msgs.iter().enumerate().map_while(|(k, msg)| Some((self.commits.get(a + k)?, k, msg)));
+        commits.flat_map(|(c, k, msg)| self.section(1 + a + k, format!("commit {}", c.short), msg, None)).collect()
+    }
+
+    /// Threads that would show nowhere, listed (in the pane, as the PR's text is; inline with
+    /// it hidden), by file, then on no file: on files that have left the diff (a change
+    /// reverted, a file now matching the base); questions about a commit (on no lines, under
+    /// "about commit …", whatever's shown); questions about the conversation not under their
+    /// comment (it isn't shown, or not in the whole diff). Those about the summary are under
+    /// it. Not with only some of the PR shown (`whole_pr`): most files are out of the diff on
+    /// purpose then.
+    fn gone_rows(&self) -> Vec<Row> {
+        let unplaced = |th: &Thread| th.conversation != ON_SUMMARY && (self.view != View::All || self.conversation_item(&th.conversation).is_none());
+        let mut gone: Vec<usize> = (0..self.threads.len())
+            .filter(|&t| {
+                let th = &self.threads[t];
+                self.in_view(th) && !self.has_file(&th.path) && (self.on_code(th) || self.whole_pr() && unplaced(th))
+            })
+            .collect();
+        let label = |t: usize| {
+            let th = &self.threads[t];
+            match (th.path.is_empty(), commit_of(&th.conversation)) {
+                (false, _) => th.path.clone(),
+                (true, Some(sha)) => format!("about commit {}", self.commit_short(sha)),
+                (true, None) => "questions about the PR's conversation".into(),
+            }
+        };
+        gone.sort_by_cached_key(|&t| (self.threads[t].path.is_empty(), label(t)));
+        let mut rows = vec![];
+        let heading = |text: String| Row { attached: true, ..Row::text(INFO, Kind::Thread, text) };
+        let on_files = gone.iter().filter(|&&t| !self.threads[t].path.is_empty()).count();
+        if on_files > 0 {
+            rows.push(heading(format!("comments on files no longer in the diff ({on_files})")));
+        }
+        let mut last = None;
+        for &t in &gone {
+            let l = label(t);
+            if last.as_ref() != Some(&l) {
+                rows.push(heading(l.clone()));
+                last = Some(l);
+            }
+            rows.extend(self.thread_rows(t, INFO).into_iter().map(|r| Row { attached: true, ..r }));
+        }
+        rows
+    }
+
+    /// File `i`'s rows: its header, then its lines with the threads `shown` on them (the Claude
+    /// and pending views: only a file with some, and only around them); folded, its header.
+    fn file_rows(&self, i: usize, f: &FileDiff, shown: &[&Thread]) -> Vec<Row> {
+        let around;
+        let lines = match self.view != View::All {
+            true if !shown.iter().any(|t| t.path == f.path) => return vec![],
+            true => {
+                let e = |a| *self.view_extra.get(&(f.path.clone(), a)).unwrap_or(&0);
+                around = diff::shown(&f.full, &view_windows(shown, f, e, self.whole.contains(&f.path)), &f.headers);
+                &around
+            }
+            false => &f.lines,
+        };
+        let mut rows = vec![self.file_header(i, f, shown)];
+        if self.collapsed.contains(&f.path) {
+            return rows;
+        }
+        // (thread, index into its lines it sits under); unplaceable ones under the header.
+        let placed: Vec<(usize, Option<usize>)> =
+            (0..self.threads.len()).filter(|&t| self.threads[t].path == f.path && self.in_view(&self.threads[t])).map(|t| (t, anchor_line(&self.threads[t], lines))).collect();
+        for &(t, _) in placed.iter().filter(|p| p.1.is_none()) {
+            rows.extend(self.thread_rows(t, i));
+        }
+        for (li, l) in lines.iter().enumerate() {
+            rows.push(Row::new(i, l.clone()));
+            for &(t, _) in placed.iter().filter(|p| p.1 == Some(li)) {
+                rows.extend(self.thread_rows(t, i));
+            }
+        }
+        rows
+    }
+
+    /// A file's header: "dir/" dimmed, its name in the header color, "(new)" and such dimmed,
+    /// +/- colored, and its open comments (said folded too, so none go unseen).
+    fn file_header(&self, i: usize, f: &FileDiff, shown: &[&Thread]) -> Row {
+        let count = |k| f.lines.iter().filter(|l| l.kind == k).count();
+        let (dir, name) = f.path.rsplit_once('/').map_or(("", f.path.as_str()), |(d, n)| (d, n));
+        let dir = if dir.is_empty() { String::new() } else { format!("{dir}/") };
+        let meta = if f.meta.is_empty() { String::new() } else { format!(" ({})", f.meta) };
+        let dim = Some(self.ui.stale);
+        let comments = match shown.iter().filter(|t| t.path == f.path && !t.stale()).count() {
+            0 => String::new(),
+            1 => "  · 1 comment".into(),
+            n => format!("  · {n} comments"),
+        };
+        let parts = [
+            (dir, dim),
+            (name.to_owned(), None),
+            (meta, dim),
+            ("  ".into(), None),
+            (format!("+{}", count(Kind::Add)), Some(self.ui.plus)),
+            (" ".into(), None),
+            (format!("−{}", count(Kind::Del)), Some(self.ui.minus)),
+            (comments, Some(self.ui.thread)),
+        ];
+        let text: String = parts.iter().map(|p| p.0.as_str()).collect();
+        let syn = parts.iter().flat_map(|(t, st)| t.chars().map(move |_| *st)).collect();
+        Row { syn, ..Row::text(i, Kind::File, text) }
+    }
+
+    /// The `info` heading that `is` (the description's, a closing note's), if there's one.
+    fn heading(&self, is: fn(&Self, usize) -> bool) -> Option<usize> {
+        (0..self.info.len()).find(|&i| is(self, i))
+    }
+
+    /// The text under `info` heading `h` (its markdown line), or "".
+    fn info_body(&self, h: usize) -> &str {
+        self.info.get(h + 1).filter(|l| l.md).map_or("", |l| l.text.as_str())
     }
 
     /// Pair each run of removed rows with the added rows after it (as split view does) and
@@ -418,12 +450,12 @@ impl App {
     /// diff (listed after the PR's text: `gone_listed`), or a question about a commit. The one
     /// rule for where a thread goes, and what the pane's tabs count.
     pub(super) fn on_code(&self, t: &Thread) -> bool {
-        commit_of(&t.conversation).is_some() || !t.path.is_empty() && (self.gone_listed() || self.has_file(&t.path))
+        commit_of(&t.conversation).is_some() || !t.path.is_empty() && (self.whole_pr() || self.has_file(&t.path))
     }
 
-    /// Whether threads on files gone from the diff are listed (not when showing only what isn't
-    /// committed, or a commit: most files are out of the diff on purpose then).
-    fn gone_listed(&self) -> bool {
+    /// The whole PR shown: not some of its commits, nor only what isn't committed (then its
+    /// text, about all of it, isn't; nor what's on files out of the diff, most on purpose).
+    pub(super) fn whole_pr(&self) -> bool {
         !(self.uncommitted() || self.commit_shown.is_some())
     }
 
@@ -434,35 +466,6 @@ impl App {
     /// Which section row `r` is in (`Row::main`), if it's one.
     pub(super) fn section_of(&self, r: usize) -> Option<usize> {
         self.rows.get(r)?.main
-    }
-
-    /// The width comments and PR text wrap to: the pane's, when it's shown (they're there).
-    pub(super) fn info_w(&self) -> usize {
-        if self.margin_active { self.margin_w - self.pane_gw() - 2 - self.pane_pad() } else { self.wrap_w }
-    }
-
-    /// The space inside the line between the code and the pane, as a column.
-    pub(super) fn pane_pad(&self) -> usize {
-        usize::from(!self.margin_float)
-    }
-
-    /// The pane's gutter: a box's left side and a space (`│  `); as a column, where boxes are
-    /// open on their left, just a space (their rules come from the line beside the code).
-    pub(super) fn pane_gw(&self) -> usize {
-        if self.margin_float { 3 } else { 1 }
-    }
-
-    /// Drawn at the right end of a header line: the PR's state on the PR's, the file's GitHub
-    /// "Viewed" state on a file's.
-    pub(super) fn header_tag(&self, file: usize) -> Option<(String, Style)> {
-        if file == INFO {
-            return self.pr_state.map(|(s, color)| (format!(" {s} "), chip(color)));
-        }
-        let (t, st) = match self.viewed.get(&self.files.get(file)?.path)?.as_str() {
-            "VIEWED" => ("✓ Viewed ", self.ui.plus),
-            _ => ("↻ changed since viewed ", self.ui.warning),
-        };
-        Some((t.into(), st))
     }
 
     /// Rebuild rows and put the cursor on the first row matching `at` (else the top).
@@ -505,7 +508,7 @@ impl App {
         let extra = if view { &self.view_extra } else { &self.extra };
         let e = |a| *extra.get(&(path.clone(), a)).unwrap_or(&0);
         let ws = match view {
-            true => view_windows(&self.threads.iter().filter(|t| self.in_view(t)).collect::<Vec<_>>(), f, e, false),
+            true => view_windows(&self.threads.iter().filter(|t| self.in_view(t)).collect::<Vec<_>>(), f, e, self.whole.contains(&f.path)),
             false => diff::windows(&f.full, DEFAULT_CONTEXT as usize, e, self.whole.contains(&path)),
         };
         let Some((_, _, hunks)) = ws.into_iter().find(|w| w.0 <= idx && idx <= w.1) else { return };

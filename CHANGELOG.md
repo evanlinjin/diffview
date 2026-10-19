@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.78] - 2026-10-19
+
+### Fixed
+- `+` / `-` in the Claude or pending view on a file shown whole (`Z`) go by what's on screen.
+- A Claude review whose summary is only whitespace doesn't title the view "Claude's review"
+  over nothing.
+
 ## [0.34.77] - 2026-10-19
 
 ### Fixed

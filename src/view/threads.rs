@@ -1,5 +1,5 @@
-//! Getting about the review's threads: the threads and pending pickers, `]c` and the like,
-//! and which comment of a thread the cursor is in.
+//! The review's threads: as rows (their boxes, folded or open), the threads and pending
+//! pickers, `]c` and the like, and which comment of a thread the cursor is in.
 use super::*;
 
 /// The threads picker's titles, one per filter (Tab goes round them): its title says which.
@@ -372,5 +372,13 @@ impl App {
 
     pub(super) fn root_id(&self, t: usize) -> Option<u64> {
         Some(self.threads.get(t)?.comments.first()?.id)
+    }
+    /// A comment's first `n` lines as they read rendered (quotes skipped), for picker cards.
+    pub(super) fn snippet(&self, body: &str, n: usize) -> Vec<String> {
+        // Wrapped to the picker's text width (3/4 of the window, less padding and indent).
+        let w = (self.width as usize * 3 / 4).saturating_sub(6).max(20);
+        let lines = crate::md::render(body, w, &self.ui.md, &self.hl, None);
+        let text = lines.into_iter().map(|l| l.text.trim_end().to_owned());
+        text.skip_while(|l| l.is_empty() || l.starts_with('▎')).filter(|l| !l.is_empty()).take(n).collect()
     }
 }

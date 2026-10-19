@@ -507,4 +507,32 @@ impl App {
     pub(super) fn hd(&self) -> usize {
         self.d_of[self.head.row]
     }
+    /// The width comments and PR text wrap to: the pane's, when it's shown (they're there).
+    pub(super) fn info_w(&self) -> usize {
+        if self.margin_active { self.margin_w - self.pane_gw() - 2 - self.pane_pad() } else { self.wrap_w }
+    }
+
+    /// The space inside the line between the code and the pane, as a column.
+    pub(super) fn pane_pad(&self) -> usize {
+        usize::from(!self.margin_float)
+    }
+
+    /// The pane's gutter: a box's left side and a space (`│  `); as a column, where boxes are
+    /// open on their left, just a space (their rules come from the line beside the code).
+    pub(super) fn pane_gw(&self) -> usize {
+        if self.margin_float { 3 } else { 1 }
+    }
+
+    /// Drawn at the right end of a header line: the PR's state on the PR's, the file's GitHub
+    /// "Viewed" state on a file's.
+    pub(super) fn header_tag(&self, file: usize) -> Option<(String, Style)> {
+        if file == INFO {
+            return self.pr_state.map(|(s, color)| (format!(" {s} "), chip(color)));
+        }
+        let (t, st) = match self.viewed.get(&self.files.get(file)?.path)?.as_str() {
+            "VIEWED" => ("✓ Viewed ", self.ui.plus),
+            _ => ("↻ changed since viewed ", self.ui.warning),
+        };
+        Some((t.into(), st))
+    }
 }

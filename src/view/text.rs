@@ -6,10 +6,15 @@ impl App {
     /// A section of PR text in the diff's column: a header like a file's (`name` folds it),
     /// then `text` rendered to the code's width (`info`: the `info` line it is, for `C`).
     pub(super) fn section(&self, id: usize, title: String, text: &str, info: Option<usize>) -> Vec<Row> {
+        self.section_with(id, title, info, |mk| self.md_rows_at(text, self.wrap_w, mk))
+    }
+
+    /// A section (`section`) whose body `body` makes, with its rows' maker.
+    pub(super) fn section_with(&self, id: usize, title: String, info: Option<usize>, body: impl FnOnce(&dyn Fn(Kind, String) -> Row) -> Vec<Row>) -> Vec<Row> {
         let mk = |kind, text| Row { main: Some(id), info, ..Row::text(INFO, kind, text) };
         let mut rows = vec![mk(Kind::File, title)];
         if !self.sections_folded.contains(&id) {
-            rows.extend(self.md_rows_at(text, self.wrap_w, mk).into_iter().map(|r| Row { main: Some(id), info, ..r }));
+            rows.extend(body(&mk));
         }
         rows
     }
@@ -267,8 +272,8 @@ impl App {
     /// A section with what's `attached` to it: beside it from its header on (the pane), or
     /// after it.
     pub(super) fn attach(&self, mut s: Vec<Row>, attached: &mut Vec<Row>) -> Vec<Row> {
-        let at = if self.margin_active { 1 } else { s.len() };
-        s.splice(at..at, std::mem::take(attached));
+        let at = if self.margin_active { 1 } else { s.len() }.min(s.len());
+        s.splice(at..at, std::mem::take(attached).into_iter().map(|r| Row { attached: true, ..r }));
         s
     }
 
@@ -306,15 +311,6 @@ impl App {
             }
         }
         row
-    }
-
-    /// A comment's first `n` lines as they read rendered (quotes skipped), for picker cards.
-    pub(super) fn snippet(&self, body: &str, n: usize) -> Vec<String> {
-        // Wrapped to the picker's text width (3/4 of the window, less padding and indent).
-        let w = (self.width as usize * 3 / 4).saturating_sub(6).max(20);
-        let lines = crate::md::render(body, w, &self.ui.md, &self.hl, None);
-        let text = lines.into_iter().map(|l| l.text.trim_end().to_owned());
-        text.skip_while(|l| l.is_empty() || l.starts_with('▎')).filter(|l| !l.is_empty()).take(n).collect()
     }
 
     /// A comment hidden on GitHub (`why`), not shown here (Tab): what its heading says after
