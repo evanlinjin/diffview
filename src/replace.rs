@@ -222,10 +222,11 @@ pub fn prepare(prs: &[u64], root: &Path) -> Result<(Record, PathBuf)> {
 }
 
 /// Set up a new PR doing `task` from the repo at `root`: its record, and its branch from the
-/// repo's default branch (on origin), in its worktree. Its id.
+/// repo's default branch (on its remote), in its worktree. Its id.
 pub fn create_new(task: &str, root: &Path) -> Result<u64> {
     let git = |args: &[&str]| crate::diff::git(&[&["-C", &root.to_string_lossy()], args].concat());
-    let base = git(&["rev-parse", "--abbrev-ref", &format!("{}/HEAD", crate::diff::remote())]).ok().and_then(|b| b.trim().strip_prefix(format!("{}/", crate::diff::remote()).as_str()).map(str::to_owned)).unwrap_or_else(|| "master".into());
+    // (The remote's default branch, as the diff's base without a PR is.)
+    let base = crate::diff::remote_head().and_then(|h| h.split_once('/').map(|(_, b)| b.to_owned())).unwrap_or_else(|| "master".into());
     let id = new_id();
     let r = Record { id, base: base.clone(), session: crate::claude::new_session_id(), task: task.trim().to_owned(), ..Record::default() };
     let dir = crate::worktree_dir_named(root, &name(id))?;
