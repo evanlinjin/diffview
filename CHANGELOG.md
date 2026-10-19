@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.65] - 2026-10-19
+
+### Fixed
+- `dv list`: back from a PR, the cursor is on the card it was on (the list may have changed
+  meanwhile); a deferral Claude reads the time of ("after the release") leaves it on what's next,
+  as one you type.
+
 ## [0.34.64] - 2026-10-19
 
 ### Fixed

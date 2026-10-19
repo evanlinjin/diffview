@@ -214,10 +214,13 @@ impl List {
                 self.msg = format!("{} marked from before: a a or A A acts on them; m unmarks", self.marked.len());
             }
         }
+        // (The cursor on the card it was on, as through what comes in below.)
+        let keep = self.selected();
         self.find_new(); // back from a PR: that one's seen now
         self.load_reps();
         self.scan_unpushed(); // and what you (or Claude) left there unpushed
         self.find_todo(); // and what you did there may have seen to it
+        self.select_card(keep);
         loop {
             if self.marked != self.marked_saved {
                 // On what's saved now: another dv list of this repo may have marked some too.
@@ -238,7 +241,6 @@ impl List {
             self.gone_news();
             self.prefetch();
             self.others_news();
-            self.until_news();
             if self.watch_running() {
                 self.scan_unpushed(); // what it finished with may be waiting to be pushed
                 self.find_todo(); // Claude started or finished somewhere: its item moves
@@ -267,6 +269,8 @@ impl List {
                 self.find_todo(); // green checks: ready to merge
             }
             self.select_card(keep);
+            // Your own deferral, Claude's reading of when: as your keys, after (what's next).
+            self.until_news();
             if !event::poll(Duration::from_millis(100))? {
                 continue;
             }
