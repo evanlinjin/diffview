@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.62] - 2026-10-19
+
+### Fixed
+- `dv list`'s todo tab keeps the cursor on the PR it's on when the list changes under it (a
+  review landing, CI finishing, Claude done), so the next key acts on that PR, not another.
+
 ## [0.34.61] - 2026-10-19
 
 ### Fixed

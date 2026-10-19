@@ -5,7 +5,18 @@ use crate::todo::{self, Facts, Item};
 
 impl List {
     /// What needs you, from what's known now, in Claude's order (where it ranked them).
+    /// (The cursor stays on the card it's on, wherever the list puts it now.)
     pub(super) fn find_todo(&mut self) {
+        let key = |c: &(&Listed, Option<&Item>)| (c.0.number, c.1.map(|i| i.rep));
+        let keep = self.shown_cards().get(self.sel).map(key);
+        self.rebuild_todo();
+        if let Some(i) = keep.and_then(|k| self.shown_cards().iter().position(|c| key(c) == k)) {
+            self.sel = i;
+        }
+    }
+
+    /// The todo items, and what Claude would close, from the reviews and PRs as they are.
+    fn rebuild_todo(&mut self) {
         let dir = self.reviews_dir.clone();
         let seen = dir.as_ref().and_then(|d| d.parent()).map(|d| d.join("seen"));
         // Claude's CI notes (as `crate::claude::ci_note_path`, without a git run per PR).

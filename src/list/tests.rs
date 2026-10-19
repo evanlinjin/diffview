@@ -285,10 +285,12 @@ fn todo_tab() {
     let shown = |l: &List| l.shown().iter().map(|p| p.number).collect::<Vec<_>>();
     // Answered (75) before requested (70) before no review (30); yours with nothing else isn't on it.
     assert_eq!(shown(&l), [3, 2, 1]);
-    // CI still running on one: after the rest, back once it's done.
+    // CI still running on one: after the rest, back once it's done (the cursor going with it).
+    l.sel = 1;
     l.prs[1].checks = Some((3, 0, 2));
     l.find_todo();
     assert_eq!(shown(&l), [3, 1, 2]);
+    assert_eq!(l.shown()[l.sel].number, 2);
     // Not with a check failing already: that's to fix now.
     l.prs[1].checks = Some((2, 1, 2));
     l.find_todo();
@@ -371,6 +373,7 @@ fn defer_from_the_todo_tab() {
     assert!(l.todo.iter().all(|it| it.waits.is_none()));
     l.extra.get_mut(&2).unwrap().said.clear();
     // b b: ask for a rebase (the first b says what it'll do; anything else calls it off).
+    l.sel = 0;
     k(&mut l, KeyCode::Char('b'));
     assert!(l.msg.starts_with("b again: ask #2's author for a rebase"), "{}", l.msg);
     assert!(k(&mut l, KeyCode::Char('x')).is_none());
