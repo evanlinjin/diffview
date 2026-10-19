@@ -122,7 +122,7 @@ pub fn triage_of(dir: &std::path::Path, n: u64) -> Option<Triage> {
 /// reviews).
 fn triage_run(n: u64, root: &std::path::Path, extra: &str) -> Result<batch::Status> {
     let file = crate::claude::dv_dir()?.join("reviews").join(format!("issue-{n}.json"));
-    let base = crate::diff::remote_branch(&crate::list::issues::default_branch());
+    let base = crate::diff::remote_branch(&crate::diff::default_branch());
     let prompt = format!(
         "Use the dv-review skill to triage issue #{n} (see \"Triage an issue\"); the code as it is on the base branch \
          is `{base}` (`git show {base}:<path>`, `git log {base}`): this checkout may be on another branch. Reply with \
@@ -133,22 +133,15 @@ fn triage_run(n: u64, root: &std::path::Path, extra: &str) -> Result<batch::Stat
     let tools = ["Bash(gh issue view:*)", "Bash(gh issue list:*)", "Bash(gh search:*)", "Bash(gh label list:*)"];
     let out = crate::claude::claude_reader(&prompt, root, &tools).stdin(std::process::Stdio::null()).output().context("is Claude Code (`claude`) installed?")?;
     let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
-    anyhow::ensure!(out.status.success() && v["is_error"] == false, "Claude stopped ({}): {}", out.status, String::from_utf8_lossy(&out.stderr).lines().last().unwrap_or(""));
     let answer = v["result"].as_str().unwrap_or("");
-    let json = answer.get(answer.find('{').context("no triage in Claude's answer")?..=answer.rfind('}').context("no triage")?).unwrap_or("");
-    let mut t: Value = serde_json::from_str(json).context("Claude's triage isn't JSON")?;
+    // (Its own word for what went wrong, where it said one.)
+    let why = if answer.is_empty() { String::from_utf8_lossy(&out.stderr).lines().last().unwrap_or("").to_owned() } else { answer.lines().next().unwrap_or("").to_owned() };
+    anyhow::ensure!(out.status.success() && v["is_error"] == false, "Claude stopped ({}): {why}", out.status);
+    let mut t = crate::claude::json_in(answer, '{').filter(Value::is_object).context("no triage in Claude's answer")?;
     t["issue"] = n.into();
     std::fs::create_dir_all(file.parent().context("no dir")?)?;
     crate::claude::write(&file, &t)?;
     Ok(batch::Status::Done(format!("{} turns, ${:.2}", v["num_turns"].as_u64().unwrap_or(0), v["total_cost_usd"].as_f64().unwrap_or(0.0))))
-}
-
-/// The repo's default branch (the base issues are about), as `origin/HEAD` names it.
-pub fn default_branch() -> String {
-    crate::diff::git(&["rev-parse", "--abbrev-ref", &format!("{}/HEAD", crate::diff::remote())])
-        .ok()
-        .and_then(|b| b.trim().split_once('/').map(|(_, b)| b.to_owned()))
-        .unwrap_or_else(|| "master".into())
 }
 
 /// Claude triages each of `ns`, a couple at a time, in the background: its news on the receiver.
@@ -368,7 +361,7 @@ impl Issues {
             (Some('q'), KeyCode::Char('q')) => return Some(IssuesDo::Quit),
             (_, KeyCode::Char('q')) if self.running.values().any(batch::Status::running) => {
                 self.pending = Some('q');
-                self.msg = "Claude is still triaging: q again quits (its runs stop with dv)".into();
+                self.msg = "Claude is still triaging: q again quits (runs under way finish, but their triage is lost)".into();
             }
             (_, KeyCode::Char('q')) => return Some(IssuesDo::Quit),
             (_, KeyCode::Char('R')) => {

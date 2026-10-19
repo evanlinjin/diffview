@@ -189,7 +189,7 @@ fn suggest_groups(prs: &[(u64, String, String, String)], root: &Path) -> anyhow:
         list.join("\n")
     );
     let tools = ["Bash(gh pr view:*)", "Bash(gh pr diff:*)"];
-    let out = crate::claude::claude_command(&prompt, root, &[], &tools, Some(root)).stdin(std::process::Stdio::null()).output()?;
+    let out = crate::claude::claude_reader(&prompt, root, &tools).stdin(std::process::Stdio::null()).output()?;
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
     anyhow::ensure!(v["is_error"] == false, "Claude couldn't group them ({})", out.status);
     parse_groups(v["result"].as_str().unwrap_or(""))

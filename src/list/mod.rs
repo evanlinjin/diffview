@@ -835,7 +835,8 @@ pub(super) fn filter_term(t: &str, keyed: impl Fn(&str, &str, &dyn Fn(&str, &str
     };
     let smart = !t.chars().any(char::is_uppercase);
     let has = |field: &str, v: &str| if smart { field.to_lowercase().contains(v) } else { field.contains(v) };
-    let hit = t.split_once(':').and_then(|(k, v)| keyed(k, v, &has)).unwrap_or_else(|| has(&hay(), t));
+    // (A key in any case: `Label:bug`.)
+    let hit = t.split_once(':').and_then(|(k, v)| keyed(&k.to_lowercase(), v, &has)).unwrap_or_else(|| has(&hay(), t));
     hit != neg
 }
 

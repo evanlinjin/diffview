@@ -127,24 +127,31 @@ pub(crate) fn claude_dirs() -> Vec<std::ffi::OsString> {
     }
 }
 
+/// What a reading-only run may use beyond its own reading tools (Read, Grep, Glob): looking,
+/// never changing.
+const READ_ONLY: &[&str] = &["Bash(git diff:*)", "Bash(git show:*)", "Bash(git log:*)", "Bash(git rev-parse:*)", "Bash(gh pr view:*)"];
+
+/// `claude -p prompt` in `dir` that only reads: what it says is its answer. `dontAsk`: whatever
+/// isn't allowed is refused (left unsaid, the user's own default mode would rule, and `auto`
+/// lets it edit). `more`: commands on top of `READ_ONLY`. No session.
+pub(crate) fn claude_reader(prompt: &str, dir: &Path, more: &[&str]) -> std::process::Command {
+    let mut cmd = std::process::Command::new("claude");
+    cmd.env("PATH", path_for_claude()).args(["-p", prompt, "--output-format", "json", "--permission-mode", "dontAsk"]);
+    cmd.arg("--allowedTools").args(READ_ONLY).args(more).current_dir(dir);
+    cmd
+}
+
+/// The first JSON value of kind `object`/`array` in Claude's `answer` (words around it, a
+/// fence, braces in its strings: what parses whole from a `{`/`[` on is it).
+pub(crate) fn json_in(answer: &str, open: char) -> Option<serde_json::Value> {
+    answer.match_indices(open).find_map(|(i, _)| serde_json::Deserializer::from_str(&answer[i..]).into_iter::<serde_json::Value>().next()?.ok())
+}
+
 /// `claude -p prompt` in `dir` as dv runs it in the background: its result as JSON on stdout,
 /// edits allowed, in the session `session` names (`--resume <id>`, `--session-id <id>`, …),
 /// with dv's directory reachable, and only the commands the skill needs.
 /// `more`: tools allowed on top of the usual ones; `access`: the one directory outside `dir`
 /// Claude may write to (`None`: all of dv's).
-/// What a reading-only run may use beyond its own reading tools (Read, Grep, Glob): looking,
-/// never changing.
-const READ_ONLY: &[&str] = &["Bash(git diff:*)", "Bash(git show:*)", "Bash(git log:*)", "Bash(git rev-parse:*)", "Bash(gh pr view:*)"];
-
-/// `claude -p prompt` in `dir` that only reads (no edits allowed: what it says is its answer),
-/// with `more` commands on top of `READ_ONLY`. No session.
-pub(crate) fn claude_reader(prompt: &str, dir: &Path, more: &[&str]) -> std::process::Command {
-    let mut cmd = std::process::Command::new("claude");
-    cmd.env("PATH", path_for_claude()).args(["-p", prompt, "--output-format", "json"]);
-    cmd.arg("--allowedTools").args(READ_ONLY).args(more).current_dir(dir);
-    cmd
-}
-
 pub(crate) fn claude_command(prompt: &str, dir: &Path, session: &[String], more: &[&str], access: Option<&Path>) -> std::process::Command {
     let mut cmd = std::process::Command::new("claude");
     // No editor to wait on (`git rebase --continue`, `git commit` without -m).
@@ -214,4 +221,11 @@ fn live_claude_change_on_their_pr() {
     assert!(!after.to_string().contains("```suggestion"), "suggested instead");
     _ = std::fs::remove_dir_all(&dir);
     _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
+fn json_in_an_answer() {
+    let v = json_in("Here {it is}: ```json\n{\"a\": \"x } y\", \"b\": [1]}\n``` (a note})", '{').unwrap();
+    assert_eq!((v["a"].as_str(), v["b"][0].as_u64()), (Some("x } y"), Some(1)));
+    assert!(json_in("no object", '{').is_none());
 }
