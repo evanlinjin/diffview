@@ -237,6 +237,10 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
                 }
             }
         }
+        // Its base's required checks unreadable: one not reported yet would be missing here.
+        if v["dvRequiredUnknown"] == true {
+            l.put(" · can't read which its base requires", Some(Mark::Dim));
+        }
         push("checks".into(), l);
         for c in checks.iter().filter(|c| verdict(c) != '✓') {
             let name = check_name(c);

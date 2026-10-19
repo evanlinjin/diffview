@@ -18,6 +18,9 @@ pub struct Rollup {
     /// `context`/`state`/`targetUrl` (as `gh pr view --json statusCheckRollup` has them), each
     /// with `isRequired`: GitHub's word on whether its base requires it.
     pub checks: Vec<Value>,
+    /// Its base's required checks couldn't be read (its rules, its branch protection): those
+    /// not reported yet may be missing from `checks`.
+    pub unknown: bool,
 }
 
 /// PRs `ns`' checks (`Rollup`), from one GraphQL query a few dozen PRs (a few at once). An open
@@ -45,22 +48,39 @@ pub fn rollups(ns: &[u64]) -> Result<std::collections::HashMap<u64, Rollup>> {
     Ok(out)
 }
 
-/// The PRs (by their `p<N>` alias) a batch's errors are about, weighed as `gh::refused` does
-/// (its base's rules unreadable: no matter); an error about no one PR: the batch's error.
-fn refused_prs(v: &serde_json::Value) -> Result<Vec<u64>> {
-    let mut bad = vec![];
+/// The PRs (by their `p<N>` alias) a batch's errors are about: refused, and (no matter but
+/// for what's required) its base's rules unreadable. An error about no one PR: the batch's.
+fn refused_prs(v: &serde_json::Value) -> Result<(Vec<u64>, Vec<u64>)> {
+    let (mut bad, mut unread) = (vec![], vec![]);
     for e in v["errors"].as_array().into_iter().flatten() {
         let path = e["path"].as_array().cloned().unwrap_or_default();
-        if path.iter().any(|k| k == "baseRef") {
-            continue;
-        }
         let pr = path.iter().filter_map(|k| k.as_str()?.strip_prefix('p')?.parse::<u64>().ok()).next();
         match pr {
+            Some(n) if path.iter().any(|k| k == "baseRef") => unread.push(n),
             Some(n) => bad.push(n),
             None => anyhow::bail!("GitHub: {}", e["message"].as_str().unwrap_or("refused")),
         }
     }
-    Ok(bad)
+    Ok((bad, unread))
+}
+
+/// The checks branch `base`'s protection requires, from REST: GraphQL's `branchProtectionRule`
+/// is null to anyone who can't administer the repo, while this answers anyone who can read it.
+/// `None`: it couldn't be read. Kept a few minutes (a base's rules rarely change).
+fn protected(base: &str) -> Option<Vec<String>> {
+    type Cache = std::collections::HashMap<String, (std::time::Instant, Option<Vec<String>>)>;
+    static CACHE: std::sync::LazyLock<std::sync::Mutex<Cache>> = std::sync::LazyLock::new(Default::default);
+    if let Some(v) = CACHE.lock().ok()?.get(base).filter(|c| c.0.elapsed() < std::time::Duration::from_secs(600)) {
+        return v.1.clone();
+    }
+    let got = (!base.is_empty())
+        .then(|| gh_json(&["api", &format!("repos/{{owner}}/{{repo}}/branches/{base}")]).ok())
+        .flatten()
+        .map(|b| b["protection"]["required_status_checks"]["contexts"].as_array().into_iter().flatten().filter_map(|c| c.as_str().map(str::to_owned)).collect());
+    if let Ok(mut c) = CACHE.lock() {
+        c.insert(base.to_owned(), (std::time::Instant::now(), got.clone()));
+    }
+    got
 }
 
 fn rollup_chunk(ns: &[u64]) -> Result<Vec<(u64, Rollup)>> {
@@ -68,9 +88,8 @@ fn rollup_chunk(ns: &[u64]) -> Result<Vec<(u64, Rollup)>> {
         .iter()
         .map(|n| {
             format!(
-                "p{n}: pullRequest(number: {n}) {{ state \
-                 baseRef {{ rules(first: 50) {{ nodes {{ type parameters {{ ... on RequiredStatusChecksParameters {{ requiredStatusChecks {{ context }} }} }} }} }} \
-                   branchProtectionRule {{ requiredStatusCheckContexts }} }} \
+                "p{n}: pullRequest(number: {n}) {{ state baseRefName \
+                 baseRef {{ rules(first: 50) {{ nodes {{ type parameters {{ ... on RequiredStatusChecksParameters {{ requiredStatusChecks {{ context }} }} }} }} }} }} \
                  commits(last: 1) {{ nodes {{ commit {{ oid statusCheckRollup {{ contexts(first: 100) {{ pageInfo {{ hasNextPage }} nodes {{ \
                    ... on CheckRun {{ name status conclusion detailsUrl isRequired(pullRequestNumber: {n}) }} \
                    ... on StatusContext {{ context state targetUrl isRequired(pullRequestNumber: {n}) }} }} }} }} }} }} }} }}"
@@ -84,7 +103,7 @@ fn rollup_chunk(ns: &[u64]) -> Result<Vec<(u64, Rollup)>> {
     // stand (only none expected of those not reported yet: what's reported says if it's
     // required); anything else refused, none of that PR's (a check GitHub didn't give isn't
     // none: `checks` would say passing), the others' kept. Refused about no one PR: none.
-    let bad = refused_prs(&v)?;
+    let (bad, unread) = refused_prs(&v)?;
     let repo = &v["data"]["repository"];
     anyhow::ensure!(repo.is_object(), "GitHub: no repository in its answer");
     Ok(ns
@@ -97,17 +116,18 @@ fn rollup_chunk(ns: &[u64]) -> Result<Vec<(u64, Rollup)>> {
             let mut checks = contexts["nodes"].as_array().cloned().unwrap_or_default();
             // Required and not reported (yet): expected, as GitHub shows it. Not when it listed
             // only some (one past its first 100 isn't missing), nor once it's closed.
-            let base = &pr["baseRef"];
-            let rules = base["rules"]["nodes"].as_array().into_iter().flatten().filter(|r| r["type"] == "REQUIRED_STATUS_CHECKS");
+            let rules = pr["baseRef"]["rules"]["nodes"].as_array().into_iter().flatten().filter(|r| r["type"] == "REQUIRED_STATUS_CHECKS");
             let mut want: Vec<String> = rules.flat_map(|r| r["parameters"]["requiredStatusChecks"].as_array().cloned().unwrap_or_default()).filter_map(|c| c["context"].as_str().map(str::to_owned)).collect();
-            want.extend(base["branchProtectionRule"]["requiredStatusCheckContexts"].as_array().into_iter().flatten().filter_map(|c| c.as_str().map(str::to_owned)));
+            let protection = protected(pr["baseRefName"].as_str().unwrap_or(""));
+            let unknown = unread.contains(&n) || protection.is_none();
+            want.extend(protection.unwrap_or_default());
             want.sort();
             want.dedup(); // (a ruleset and branch protection may both name it)
             if pr["state"] == "OPEN" && contexts["pageInfo"]["hasNextPage"] != true {
                 let missing: Vec<String> = want.into_iter().filter(|w| !checks.iter().any(|c| check_name(c) == w.as_str())).collect();
                 checks.extend(missing.into_iter().map(|name| serde_json::json!({ "name": name, "status": "EXPECTED", "isRequired": true })));
             }
-            Some((n, Rollup { head: commit["oid"].as_str().unwrap_or("").to_owned(), checks }))
+            Some((n, Rollup { head: commit["oid"].as_str().unwrap_or("").to_owned(), checks, unknown }))
         })
         .collect())
 }
@@ -220,7 +240,7 @@ fn one_refused_pr_leaves_the_others() {
     let v = serde_json::json!({ "errors": [
         { "path": ["repository", "p12", "commits", "nodes", 0], "message": "no" },
         { "path": ["repository", "p13", "baseRef", "rules"], "message": "can't read rules" } ] });
-    assert_eq!(refused_prs(&v).unwrap(), [12]);
+    assert_eq!(refused_prs(&v).unwrap(), (vec![12], vec![13]));
     let whole = serde_json::json!({ "errors": [{ "message": "rate limited" }] });
     assert!(refused_prs(&whole).is_err());
 }
