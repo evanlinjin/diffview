@@ -481,10 +481,13 @@ fn active_tab_lit() {
     let buf = term.backend().buffer().clone();
     let (open, _) = l.tab_hits.iter().find(|(_, t)| *t == Tab::Open).cloned().unwrap();
     let (todo, _) = l.tab_hits.iter().find(|(_, t)| *t == Tab::Todo).cloned().unwrap();
-    let lit = l.ui.menu_selected.bg;
-    assert!(lit.is_some(), "the theme has a selection background");
-    assert_eq!(buf[(open.start + 1, 0)].bg, lit.unwrap(), "the tab shown isn't lit");
-    assert_ne!(buf[(todo.start + 1, 0)].bg, lit.unwrap());
+    // Lit: the selection's background, or (a theme without one, as with none at all) reversed.
+    let lit = |x: u16| match l.ui.menu_selected.bg {
+        Some(bg) => buf[(x, 0)].bg == bg,
+        None => buf[(x, 0)].modifier.contains(ratatui::style::Modifier::REVERSED),
+    };
+    assert!(lit(open.start + 1), "the tab shown isn't lit");
+    assert!(!lit(todo.start + 1));
 }
 
 #[test]
