@@ -187,8 +187,11 @@ impl App {
         // conversation's latest (`Space o`: all of it), your pending review's text. The Claude
         // view's: Claude's summary (or your questions about the PR), and what's said under it.
         // (Folded with it: Tab on it, or on them.)
+        // Some of the commits: their messages, then their code; not the PR's text (it's about
+        // all of them).
+        let commits = self.commit_shown.is_some();
         let mut attached: Vec<Row> = match self.view {
-            _ if self.sections_folded.contains(&DESCRIPTION) => vec![],
+            _ if commits || self.sections_folded.contains(&DESCRIPTION) => vec![],
             _ if self.claude_side() => self.claude_attached(),
             View::All if self.info_collapsed => vec![],
             View::All => {
@@ -199,7 +202,7 @@ impl App {
         };
         attached.iter_mut().for_each(|r| r.attached = true);
         // Claude's draft comment for closing the PR: first, as what you'd do next.
-        if self.view == View::All && !self.claude.closing.trim().is_empty() {
+        if self.view == View::All && !commits && !self.claude.closing.trim().is_empty() {
             let what = match self.pr_state.is_some_and(|s| matches!(s.0, "OPEN" | "DRAFT")) {
                 true => "closing comment · Claude's draft (Space a: close the PR with it, more changes, discard)",
                 false => "closing comment · Claude's draft (the PR isn't open: Space a discards it)",
@@ -209,6 +212,7 @@ impl App {
         // Before the files, like one: the PR's description (in the Claude view too, Claude's
         // review attached to it), then the messages of the commits shown.
         if matches!(self.view, View::All | View::Claude)
+            && !commits
             && let Some(h) = (0..self.info.len()).find(|&i| self.is_description(i))
         {
             let text = self.info.get(h + 1).filter(|l| l.md).map_or("", |l| l.text.as_str());
@@ -249,12 +253,12 @@ impl App {
         rows.append(&mut attached);
         if self.view == View::All {
             // A replacement's closing note (for the PRs it replaces), after its description.
-            if let Some(h) = (0..self.info.len()).find(|&i| self.is_closing_note(i)) {
+            if let Some(h) = (0..self.info.len()).find(|&i| self.is_closing_note(i)).filter(|_| !commits) {
                 let text = self.info.get(h + 1).filter(|l| l.md).map_or("", |l| l.text.as_str());
                 let text = if text.trim().is_empty() { "_(not drafted yet)_" } else { text };
                 rows.extend(self.section(CLOSING_NOTE, self.info[h].text.clone(), text, Some(h + 1)));
             }
-            if let Some(r) = self.replacement.as_ref().filter(|r| !r.asks.is_empty()) {
+            if let Some(r) = self.replacement.as_ref().filter(|r| !commits && !r.asks.is_empty()) {
                 let drafting = r.drafting_now();
                 let asks: Vec<String> = r.asks.iter().enumerate().map(|(i, (text, done))| match (done, drafting && i < r.taking) {
                     (true, _) => text.clone(),

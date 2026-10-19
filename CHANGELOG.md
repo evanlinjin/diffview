@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Changed
+- Showing some of the commits: only their messages come before the code (and in the contents);
+  the PR's description, what's attached to it and Claude's drafts are about all of them, and
+  come back with the whole diff.
+
 ## [0.34.42] - 2026-10-19
 
 ### Added

@@ -2180,16 +2180,16 @@ fn commits_under_the_files() {
     app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
     k(&mut app, KeyCode::Char('k'));
     assert!(!app.in_commits && app.files_focus);
-    // Commits shown: each one's message is a section before the files, after the description;
-    // they're in the list too; Tab on a header folds it.
+    // Commits shown: each one's message is a section before the files, and the PR's text (the
+    // description, what's beside it) isn't there; they're in the list too; Tab on a header folds it.
     (app.commit_shown, app.commit_msgs) = (Some((0, 1)), vec!["commit 1".into(), "commit 2\n\nWhy it's done this way.".into()]);
     app.build();
-    let desc = app.rows.iter().position(|r| r.main.is_some() && r.line.text == "description").expect("the description's");
+    assert!(!app.rows.iter().any(|r| r.main == Some(DESCRIPTION) || r.attached), "the PR's text, with some commits");
     let c1 = app.rows.iter().position(|r| r.main.is_some() && r.line.text == "commit c1").expect("c1's section");
     let head = app.rows.iter().position(|r| r.main.is_some() && r.line.text == "commit c2").expect("c2's section");
-    assert!(desc < c1 && c1 < head && app.rows[head + 1..].iter().take_while(|r| r.main.is_some()).any(|r| r.line.text.contains("Why it's done")));
-    let spots: Vec<files::Spot> = app.file_entries().into_iter().map(|e| e.spot).take(3).collect();
-    assert_eq!(spots, [files::Spot::Section(DESCRIPTION), files::Spot::Section(1), files::Spot::Section(2)]);
+    assert!(c1 < head && app.rows[head + 1..].iter().take_while(|r| r.main.is_some()).any(|r| r.line.text.contains("Why it's done")));
+    let spots: Vec<files::Spot> = app.file_entries().into_iter().map(|e| e.spot).take(2).collect();
+    assert_eq!(spots, [files::Spot::Section(1), files::Spot::Section(2)]);
     app.goto(head, 0);
     app.toggle_collapse();
     assert!(!app.rows.iter().any(|r| r.line.text.contains("Why it's done")));
