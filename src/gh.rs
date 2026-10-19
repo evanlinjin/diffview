@@ -669,27 +669,26 @@ impl InfoLine {
 /// comments, its reviews) are yours: `gh pr view` doesn't say.
 const MINE: &str = "id reactionGroups { content viewerHasReacted } comments(last: 100) { pageInfo { hasPreviousPage startCursor } nodes { id reactionGroups { content viewerHasReacted } } } reviews(last: 100) { pageInfo { hasPreviousPage startCursor } nodes { id reactionGroups { content viewerHasReacted } } }";
 
-/// Yours, by node id, from a pull request's node with `MINE` (or a page of its comments or
-/// reviews), into `yours`; and the ids looked at (what's yours there is known), into `seen`.
-fn mine_of(p: &Value, yours: &mut serde_json::Map<String, Value>, seen: &mut Vec<Value>) {
+/// Yours, from a pull request's node with `MINE` (or a page of its comments or reviews), into
+/// `mine`: every node looked at, by id, with the reactions on it that are yours (none: empty).
+/// A node not in it: which are yours isn't known.
+fn mine_of(p: &Value, mine: &mut serde_json::Map<String, Value>) {
     let nodes = std::iter::once(p).chain(["comments", "reviews"].iter().flat_map(|k| p[k]["nodes"].as_array().into_iter().flatten()));
     for node in nodes {
         let Some(id) = node["id"].as_str() else { continue };
-        seen.push(id.into());
-        let mine: Vec<Value> = node["reactionGroups"].as_array().into_iter().flatten().filter(|g| g["viewerHasReacted"] == true).map(|g| g["content"].clone()).collect();
-        if !mine.is_empty() {
-            yours.insert(id.to_owned(), mine.into());
-        }
+        let yours: Vec<Value> = node["reactionGroups"].as_array().into_iter().flatten().filter(|g| g["viewerHasReacted"] == true).map(|g| g["content"].clone()).collect();
+        mine.insert(id.to_owned(), yours.into());
     }
 }
 
-/// Which reactions on PR node `p` (with `MINE`) and its whole conversation are yours: its
-/// comments and reviews before the last 100 asked for too, 100 at a time (a PR that has so
-/// many). Yours by node id, and every id looked at; what's not among them isn't known.
-fn mine_all(p: &Value) -> (Value, Value) {
-    let (mut yours, mut seen) = (serde_json::Map::new(), vec![]);
-    mine_of(p, &mut yours, &mut seen);
-    for kind in ["comments", "reviews"] {
+/// Which reactions on PR node `p` (with `MINE`) and its whole conversation are yours (as
+/// `mine_of`): its comments and reviews before the last 100 asked for too, 100 at a time (a
+/// PR that has so many), the two at once.
+fn mine_all(p: &Value) -> Value {
+    let mut mine = serde_json::Map::new();
+    mine_of(p, &mut mine);
+    let older = |kind: &str| {
+        let mut out = serde_json::Map::new();
         let mut page = p[kind]["pageInfo"].clone();
         // ponytail: 20 pages (2,000 more) at most; beyond, not known (dimmed).
         for _ in 0..20 {
@@ -698,11 +697,18 @@ fn mine_all(p: &Value) -> (Value, Value) {
                 "query($id: ID!, $b: String) {{ node(id: $id) {{ ... on PullRequest {{ {kind}(last: 100, before: $b) {{ pageInfo {{ hasPreviousPage startCursor }} nodes {{ id reactionGroups {{ content viewerHasReacted }} }} }} }} }} }}"
             );
             let Ok(d) = mutate(&q, json!({ "id": p["id"], "b": before })) else { break };
-            mine_of(&json!({ kind: d["node"][kind] }), &mut yours, &mut seen);
+            mine_of(&json!({ kind: d["node"][kind] }), &mut out);
             page = d["node"][kind]["pageInfo"].clone();
         }
-    }
-    (yours.into(), seen.into())
+        out
+    };
+    std::thread::scope(|s| {
+        let pages = ["comments", "reviews"].map(|k| s.spawn(move || older(k)));
+        for p in pages {
+            mine.extend(p.join().unwrap_or_default());
+        }
+    });
+    mine.into()
 }
 
 /// The reactions on comment (or review) `node` now: each kind's (name, count, yours).
@@ -1295,7 +1301,7 @@ pub fn info_json(n: u64) -> Result<Value> {
     }
     // One query for both: its commits' signatures, and which reactions are yours (`extras`).
     let (node, signatures) = extras(pr_query(n, MINE), || pr_query(n, ""));
-    (v["dvMine"], v["dvMineSeen"]) = mine_all(&node);
+    v["dvMine"] = mine_all(&node);
     match signatures {
         Ok(s) => {
             v["dvCommits"] = s.commits.into_iter().map(|(oid, signed)| json!({ "oid": oid, "signed": signed })).collect();
@@ -1390,13 +1396,9 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
     // The PR's own reactions (Space = on its description reacts).
     // Yours, by node id (`mine_json`).
     let mine = |id: &Value| -> Vec<&str> { id.as_str().and_then(|id| v["dvMine"][id].as_array()).into_iter().flatten().filter_map(Value::as_str).collect() };
-    // Whether which of a node's reactions are yours is known (asked of GitHub, as for the
-    // last 100 comments or more): else they're dimmed, not shown as not yours. (dv's cache
-    // from before this said nothing: as it was.)
-    let known = |id: &Value| match v["dvMineSeen"].as_array() {
-        Some(seen) => seen.contains(id),
-        None => v["dvMine"].is_object(),
-    };
+    // Whether which of a node's reactions are yours is known (asked of GitHub): else they're
+    // dimmed, not shown as not yours.
+    let known = |id: &Value| id.as_str().is_some_and(|id| v["dvMine"].get(id).is_some());
     let own = reactions(&v["reactionGroups"], &mine(&v["id"]));
     if !own.is_empty() {
         let mut l = InfoLine::new(false, false);
@@ -1871,9 +1873,9 @@ fn github_refusals() {
     let alone = || pr_answer(&answer(json!([])), "");
     for kinds in [&["MAX_NODE_LIMIT_EXCEEDED"][..], &["TIMEOUT"], &["RESOURCE_LIMITS_EXCEEDED", "TIMEOUT"]] {
         let (node, sig) = extras(refused(kinds), alone);
-        let (mut yours, mut seen) = (serde_json::Map::new(), vec![]);
-        mine_of(&node, &mut yours, &mut seen);
-        assert!(sig.is_ok() && yours.is_empty() && seen.is_empty(), "{kinds:?}"); // none known
+        let mut mine = serde_json::Map::new();
+        mine_of(&node, &mut mine);
+        assert!(sig.is_ok() && mine.is_empty(), "{kinds:?}"); // none known
     }
     let never: [&[&str]; 7] = [&[""], &["RATE_LIMITED"], &["SECONDARY_RATE_LIMIT"], &["FORBIDDEN"], &["NOT_FOUND"], &["EXCESSIVE_PAGINATION"], &["MAX_NODE_LIMIT_EXCEEDED", "RATE_LIMITED"]];
     for kinds in never {
