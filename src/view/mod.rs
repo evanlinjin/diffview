@@ -712,7 +712,9 @@ pub struct App {
     hl: Highlighter,
     ui: Ui,
     /// Highlighted files by (path, new side?), filled lazily as rows are drawn.
-    hl_cache: HashMap<(String, bool), Colors>,
+    /// Each file's syntax colors, by (its revision: the base, a commit, or empty for the
+    /// working tree; its path): another base or commit is another key, not stale colors.
+    hl_cache: HashMap<(String, String), Colors>,
     /// Highlighted markdown by wrapped text (filled while building rows, hence the RefCell).
     md_cache: std::cell::RefCell<HashMap<String, Vec<crate::md::MdLine>>>,
     /// Width comment/info text is wrapped to; follows the terminal.
@@ -1081,7 +1083,7 @@ impl App {
                     }
                     None => res,
                 };
-                self.hl_cache.retain(|k, _| !k.1); // working-tree files may have changed; the base can't
+                self.forget_tree_colors();
                 if !in_pane {
                     *term = init_terminal();
                 }
@@ -1369,7 +1371,7 @@ impl App {
 
     /// Reload the diff after the working tree changed under dv.
     pub(super) fn reload_tree(&mut self) {
-        self.hl_cache.retain(|k, _| !k.1); // working-tree files may have changed; the base can't
+        self.forget_tree_colors();
         if let Err(e) = self.reload(false) {
             self.msg = format!("{e:#}");
         }
@@ -1413,7 +1415,6 @@ impl App {
         }
         self.full_base = now;
         (self.to, self.commit_shown, self.commit_anchor) = (None, None, None);
-        self.hl_cache.retain(|k, _| !k.1);
     }
 
     /// https://github.com/owner/repo, for `#123` links.
@@ -1460,14 +1461,20 @@ impl App {
     }
 
     /// Which highlighted file a code row's colors come from: the base for removed lines, else the working tree.
-    fn hl_key(&self, r: usize) -> Option<(String, bool)> {
+    fn hl_key(&self, r: usize) -> Option<(String, String)> {
         let row = &self.rows[r];
         let f = self.files.get(row.file).filter(|f| f.meta != "binary")?;
         match row.line.kind {
-            Kind::Del => Some((f.old_path.clone(), false)),
-            Kind::Add | Kind::Ctx => Some((f.path.clone(), true)),
+            Kind::Del => Some((self.base.clone(), f.old_path.clone())),
+            Kind::Add | Kind::Ctx => Some((self.to.clone().unwrap_or_default(), f.path.clone())),
             _ => None,
         }
+    }
+
+    /// The working tree's colors forgotten: its files may have changed (the base's and a
+    /// commit's can't).
+    fn forget_tree_colors(&mut self) {
+        self.hl_cache.retain(|k, _| !k.0.is_empty());
     }
 }
 

@@ -183,7 +183,6 @@ impl App {
         self.base = to;
         (self.to, self.commit_shown, self.commit_anchor) = (None, None, None);
         self.extra.clear(); // per-hunk context: the hunks are different ones now
-        self.hl_cache.retain(|k, _| !k.1);
         self.msg = match (self.reload(false), self.uncommitted()) {
             (Err(e), _) => format!("{e:#}"),
             (Ok(()), true) if self.files.is_empty() => "nothing that isn't committed (Space g shows the whole diff)".into(),

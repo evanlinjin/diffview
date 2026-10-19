@@ -264,7 +264,6 @@ impl App {
             }
             (self.full_base, self.follow_base) = (mb, Some(onto));
             (self.to, self.commit_shown, self.commit_anchor) = (None, None, None);
-            self.hl_cache.retain(|k, _| !k.1);
         }
         if let Some(pr) = &mut self.pr {
             pr.base = base.clone();

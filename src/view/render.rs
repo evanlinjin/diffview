@@ -331,15 +331,13 @@ impl App {
             .collect();
         for r in self.visible_rows() {
             if let Some(key) = self.hl_key(r).filter(|k| !self.hl_cache.contains_key(k)) {
-                let text = match key.1 {
-                    true => match &self.to {
-                        Some(c) => diff::git(&["show", &format!("{c}:{}", key.0)]).unwrap_or_default(),
-                        None => std::fs::read_to_string(&key.0).unwrap_or_default(),
-                    },
-                    false => diff::git(&["show", &format!("{}:{}", self.base, key.0)]).unwrap_or_default(),
+                let (rev, path) = &key;
+                let text = match rev.as_str() {
+                    "" => std::fs::read_to_string(path).unwrap_or_default(),
+                    rev => diff::git(&["show", &format!("{rev}:{path}")]).unwrap_or_default(),
                 };
                 // ponytail: whole file highlighted synchronously on first view; a thread if big PRs stutter.
-                let colors = if text.len() > HL_MAX_BYTES { vec![] } else { self.hl.file(&key.0, &text) };
+                let colors = if text.len() > HL_MAX_BYTES { vec![] } else { self.hl.file(path, &text) };
                 self.hl_cache.insert(key, colors);
             }
         }
@@ -944,7 +942,7 @@ impl App {
         let syn = match row.syn.is_empty() {
             false => Some(&row.syn),
             true => self.hl_key(r).and_then(|k| {
-                let n = if k.1 { l.new } else { l.old }?;
+                let n = if l.kind == Kind::Del { l.old } else { l.new }?;
                 self.hl_cache.get(&k)?.get(n as usize - 1)
             }),
         };

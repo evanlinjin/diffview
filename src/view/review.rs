@@ -104,7 +104,7 @@ impl App {
     /// After a job that changed something: the diff reloaded (the working tree, or the PR's
     /// head, may have changed), and what came of it said.
     fn finish(&mut self, res: Result<impl Into<String>>) {
-        self.hl_cache.retain(|k, _| !k.1);
+        self.forget_tree_colors();
         let reload = self.reload(true);
         self.msg = match (res, reload) {
             (Err(e), _) | (_, Err(e)) => format!("{e:#}"),
