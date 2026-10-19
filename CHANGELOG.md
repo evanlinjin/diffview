@@ -5,6 +5,17 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.53.3] - 2026-10-19
+
+### Fixed
+- Waits and deferrals until a review count reviews from when they were said: a comment's
+  wait from the comment; one Claude found from when it was asked to rank. A deferral waits
+  for the PR's reviews to be known first.
+- A published replacement's item waits on its own PR (reviews, pushes, checks), not on the
+  PR it replaces.
+- A sideways scroll left over a short line stops at the line's end instead of jumping to
+  column 0.
+
 ## [0.53.2] - 2026-10-19
 
 ### Fixed
