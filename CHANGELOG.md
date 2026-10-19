@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Fixed
+- Signatures asked again on their own only for GitHub's own kinds of refusal for a query's size
+  or time (not an error with no kind); the reason given is the one that explains why not, and
+  when asking again fails too, its reason as well.
+
 ## [0.33.3] - 2026-10-19
 
 ### Fixed

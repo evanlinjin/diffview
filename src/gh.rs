@@ -1109,7 +1109,7 @@ const TOO_BIG: [&str; 3] = ["MAX_NODE_LIMIT_EXCEEDED", "RESOURCE_LIMITS_EXCEEDED
 /// saying so: not anything that would refuse it again (a rate limit, a permission, a field
 /// that isn't there, an error that says no kind).
 fn too_big(r: &Refused) -> bool {
-    !r.kinds.is_empty() && r.kinds.iter().all(|k| TOO_BIG.contains(&k.as_str()))
+    r.kinds.iter().all(|k| TOO_BIG.contains(&k.as_str())) // (never empty: see `pr_answer`)
 }
 
 /// What PR info adds from one `pr_query` with `MINE` (`first`): which reactions are yours (of
@@ -1117,7 +1117,9 @@ fn too_big(r: &Refused) -> bool {
 /// why not). Refused for its size, the signatures are asked on their own (`alone`).
 fn extras(first: Result<PrAnswer>, alone: impl FnOnce() -> Result<PrAnswer>) -> (Value, std::result::Result<Signatures, String>) {
     let answer = match first {
-        Err(e) if e.downcast_ref::<Refused>().is_some_and(too_big) => alone().map_err(|_| e), // (its reason, the first: the real one)
+        // (Too big, and then the smaller one failed too: both said, the second's reason the one
+        // to act on.)
+        Err(e) if e.downcast_ref::<Refused>().is_some_and(too_big) => alone().map_err(|e2| anyhow::anyhow!("{e:#}; and asked alone: {e2:#}")),
         r => r,
     };
     match answer {
@@ -1161,10 +1163,12 @@ fn pr_answer(v: &Value, stderr: &str) -> Result<PrAnswer> {
     let why_of = |e: &Value| e["message"].as_str().unwrap_or("refused").to_owned();
     if !node.is_object() {
         if let Some(first) = errors.first() {
-            let kind = |e: &Value| e["type"].as_str().unwrap_or("").to_owned();
-            // The reason: one that isn't about size, if any (that's why it isn't asked again).
-            let why = errors.iter().find(|e| !TOO_BIG.contains(&kind(e).as_str())).unwrap_or(first);
-            return Err(Refused { kinds: errors.iter().map(kind).collect(), why: why_of(why) }.into());
+            let kinds: Vec<String> = errors.iter().map(|e| e["type"].as_str().unwrap_or("").to_owned()).collect();
+            // The reason: a kind that isn't about size, with words, if any (that's why it isn't
+            // asked again); else the first.
+            let telling = |i: &usize| !kinds[*i].is_empty() && !TOO_BIG.contains(&kinds[*i].as_str()) && errors[*i]["message"].is_string();
+            let why = (0..errors.len()).find(telling).map_or(first, |i| &errors[i]);
+            return Err(Refused { why: why_of(why), kinds }.into());
         }
         // Not GraphQL's answer: the body's word (`Bad credentials`), else gh's.
         let why = v["message"].as_str().unwrap_or(stderr.trim());
@@ -1808,7 +1812,7 @@ fn github_refusals() {
         let (mine, sig) = extras(refused(kinds), alone);
         assert!(sig.is_ok() && mine == json!({}), "{kinds:?}");
     }
-    let never: [&[&str]; 8] = [&[], &[""], &["RATE_LIMITED"], &["SECONDARY_RATE_LIMIT"], &["FORBIDDEN"], &["NOT_FOUND"], &["EXCESSIVE_PAGINATION"], &["MAX_NODE_LIMIT_EXCEEDED", "RATE_LIMITED"]];
+    let never: [&[&str]; 7] = [&[""], &["RATE_LIMITED"], &["SECONDARY_RATE_LIMIT"], &["FORBIDDEN"], &["NOT_FOUND"], &["EXCESSIVE_PAGINATION"], &["MAX_NODE_LIMIT_EXCEEDED", "RATE_LIMITED"]];
     for kinds in never {
         let (_, sig) = extras(refused(kinds), || unreachable!());
         assert_eq!(sig.unwrap_err(), "GitHub: too big");
