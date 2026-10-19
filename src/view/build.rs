@@ -729,7 +729,7 @@ impl App {
     /// The pane's gutter: a box's left side and a space (`│  `); as a column, where boxes are
     /// open on their left, just a space (their rules come from the line beside the code).
     pub(super) fn pane_gw(&self) -> usize {
-        if self.margin_float { 3 } else { 1 }
+        pane_gw(self.margin_float)
     }
 
     /// Color a PR info line by its marks: badges, pass/fail colors, links.
@@ -1069,6 +1069,11 @@ impl App {
         }
         self.rebuild_at(|r| r.file == fi);
     }
+}
+
+/// The pane's gutter, floating (`float`) or as a column: see `App::pane_gw`.
+pub(super) fn pane_gw(float: bool) -> usize {
+    if float { 3 } else { 1 }
 }
 
 /// A line diff of `old` → `new`: (Ctx | Del | Add, line), from their longest common subsequence.

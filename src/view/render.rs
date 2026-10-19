@@ -256,7 +256,7 @@ impl App {
         }
         let margin = shown && width > gw + 12;
         let float = margin && (tiny || self.margin_float_pref.unwrap_or(!room));
-        let mtw = mw - if float { 3 } else { 1 }; // (`pane_gw`, before it's set)
+        let mtw = mw - super::build::pane_gw(float); // (`self.pane_gw()` isn't set for this draw yet)
         // The code's columns: the whole width, or what's left of the margin beside it; split
         // view's halves (one line-number column each, a 1-col divider between) within that.
         let code_w = if margin && !float { width.saturating_sub(1 + mw) } else { width };

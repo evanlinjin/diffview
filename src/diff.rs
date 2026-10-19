@@ -232,10 +232,11 @@ pub fn git(args: &[&str]) -> Result<String> {
 /// said when dv asked: `ensure_remote`), else its only remote, else the one gh took for the
 /// base repo (`gh-resolved`), else `origin`.
 pub fn remote() -> String {
-    // (Once found, it stays: `ensure_remote` decides it before anything asks.)
-    static R: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    R.get_or_init(|| found_remote(std::path::Path::new(".")).unwrap_or_else(|| "origin".into())).clone()
+    REMOTE.get_or_init(|| found_remote(std::path::Path::new(".")).unwrap_or_else(|| "origin".into())).clone()
 }
+
+/// The remote, once found (or chosen: `ensure_remote` sets it): it stays.
+static REMOTE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 /// Branch `b` on the remote (`remote`), as git tracks it: `origin/main`.
 pub fn remote_branch(b: &str) -> String {
@@ -273,7 +274,11 @@ fn found_remote(dir: &std::path::Path) -> Option<String> {
 /// says (several remotes), and kept in this repo's git config (`dv.remote`), not asked again.
 pub fn ensure_remote() -> Result<()> {
     use std::io::{BufRead, IsTerminal, Write};
-    if found_remote(std::path::Path::new(".")).is_some() || !std::io::stdin().is_terminal() {
+    if let Some(r) = found_remote(std::path::Path::new(".")) {
+        _ = REMOTE.set(r);
+        return Ok(());
+    }
+    if !std::io::stdin().is_terminal() {
         return Ok(());
     }
     let names: Vec<String> = git(&["remote"])?.lines().map(str::to_owned).collect();
@@ -302,6 +307,7 @@ pub fn ensure_remote() -> Result<()> {
         }
     };
     git(&["config", "dv.remote", &names[pick]])?;
+    _ = REMOTE.set(names[pick].clone());
     // gh too (its own `gh-resolved`): or it may take another repo for the PRs than dv fetches.
     let url = git(&["remote", "get-url", &names[pick]])?;
     let quiet = std::process::Stdio::null;
