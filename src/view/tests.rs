@@ -1412,7 +1412,7 @@ fn replacement_in_the_pr_section() {
     assert_eq!(items.len(), 1); // nothing to publish until then
     std::fs::write(clean.join("tracked"), "").unwrap();
     crate::diff::git_in(&clean, &["add", "tracked"]).unwrap();
-    crate::diff::git_in(&clean, &["commit", "-qm", "t"]).unwrap();
+    crate::diff::git_in(&clean, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "t"]).unwrap();
     std::fs::write(clean.join("tracked"), "changed").unwrap();
     let items = s(&mut app);
     assert!(matches!(items[1].1, Target::AmendMenu) && matches!(items[2].1, Target::AmendAll), "changes to tracked files: amend them in, too");
