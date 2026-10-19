@@ -126,8 +126,6 @@ impl App {
         }
     }
 
-    /// The help text, styled: section headings, keys (separators dimmed), descriptions wrapped
-    /// with a hanging indent under the description column, `(notes)` dimmed.
     /// Rebuild the help overlay for its current search.
     pub(super) fn refresh_help(&mut self) {
         let Some((q, typing)) = self.help.clone() else { return };
@@ -374,7 +372,7 @@ impl App {
 
     pub(super) fn pending_key(&mut self, p: char, c: char) {
         let file = |rows: &[Row], r: usize| rows[r].line.kind == Kind::File;
-        let so = 3.min(self.height / 2);
+        let so = super::render::scrolloff(self.height);
         match (p, c) {
             // In the pane, its own top / end (the first and last comment, or the PR's text).
             ('g', 'g') => self.goto(self.pane_rows().first().copied().unwrap_or(0), 0),

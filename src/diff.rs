@@ -14,6 +14,13 @@ pub enum Kind {
     Comment,
 }
 
+impl Kind {
+    /// A line of the diff's code (unchanged, added or removed): not a header, a hunk, a comment.
+    pub fn is_code(self) -> bool {
+        matches!(self, Kind::Ctx | Kind::Add | Kind::Del)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Line {
     pub kind: Kind,

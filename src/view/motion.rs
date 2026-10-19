@@ -198,7 +198,7 @@ impl App {
     pub(super) fn match_bracket(&mut self) {
         let Pos { row, col } = self.head;
         let (fi, l) = (self.rows[row].file, self.rows[row].line.clone());
-        let Some(f) = self.files.get(fi).filter(|_| matches!(l.kind, Kind::Ctx | Kind::Add | Kind::Del)) else {
+        let Some(f) = self.files.get(fi).filter(|_| l.kind.is_code()) else {
             return self.msg = "not on a bracket".into();
         };
         let Some(start) = f.full.iter().position(|x| x.old == l.old && x.new == l.new) else { return };
@@ -351,7 +351,7 @@ impl App {
         if self.top == was {
             return false;
         }
-        let so = 3.min(self.height / 2);
+        let so = super::render::scrolloff(self.height);
         let (lo, hi) = (self.top + so, (self.top + self.height).saturating_sub(so + 1));
         let into = |hd: usize| hd.clamp(lo, hi.max(lo)).min(last as usize);
         let hd = self.hd();

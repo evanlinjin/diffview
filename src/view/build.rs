@@ -1077,7 +1077,7 @@ impl App {
         let code = self.rows[self.head.row..]
             .iter()
             .take_while(|r| r.file == row.file)
-            .find(|r| matches!(r.line.kind, Kind::Ctx | Kind::Add | Kind::Del));
+            .find(|r| r.line.kind.is_code());
         let Some(idx) = code.and_then(|c| f.full.iter().position(|x| x.old == c.line.old && x.new == c.line.new)) else {
             return;
         };

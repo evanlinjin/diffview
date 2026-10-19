@@ -1,7 +1,9 @@
-//! Drawing: rows, split halves, hunk rules, popups, scrollbars, and the help/hover content.
+//! Drawing the frame: its layout (the files' list, the code, the pane), the pinned title and
+//! its tabs, the status bar, pickers and popups. One row's drawing is `row.rs`'s; what the keys
+//! say, `hints.rs`'s.
 use super::*;
-
 use row::{clip, fit, skip_cols};
+
 /// Files bigger than this aren't highlighted.
 pub(super) const HL_MAX_BYTES: usize = 1 << 20;
 
@@ -30,7 +32,7 @@ impl App {
         let h = (area.height as usize).saturating_sub(1 + pin);
         self.height = h.max(1);
         self.width = full.width; // pickers and popups: over the whole window, the contents too
-        let so = 3.min(h / 2);
+        let so = scrolloff(h);
 
         let maxno = self.rows.iter().filter_map(|r| r.line.old.max(r.line.new)).max().unwrap_or(0);
         let lw = maxno.to_string().len().max(3);
@@ -97,7 +99,7 @@ impl App {
         // Where the margin starts (floating: over the code's right end).
         let mx = width.saturating_sub(mw).saturating_sub(gw + 1);
         self.geom = mouse::Geom { relw, gw, ghw, half, ctw: if float { mx } else { ctw }, picker: None };
-        let code_line = matches!(self.rows[self.head.row].line.kind, Kind::Ctx | Kind::Add | Kind::Del);
+        let code_line = self.rows[self.head.row].line.kind.is_code();
         let cur_w = match self.drows[self.hd()] {
             DRow::Pair(..) => htw_l.min(htw_r),
             DRow::Margin(..) if self.margin_side() => mtw - self.pane_pad(),
@@ -132,27 +134,8 @@ impl App {
         }
 
         let (s, e) = self.ordered();
-        let overlay: HashMap<Pos, char> = self
-            .labels
-            .iter()
-            .filter(|l| self.label_first.is_none_or(|f| l.2[0] == f))
-            .flat_map(|&(p, _, [a, b])| match self.label_first {
-                None => vec![(p, a), (Pos { col: p.col + 1, ..p }, b)],
-                Some(_) => vec![(p, b)], // after the first key, show the remaining char at the word start
-            })
-            .collect();
-        for r in self.visible_rows() {
-            if let Some(key) = self.hl_key(r).filter(|k| !self.hl_cache.contains_key(k)) {
-                let (rev, path) = &key;
-                let text = match rev.as_str() {
-                    "" => std::fs::read_to_string(path).unwrap_or_default(),
-                    rev => diff::git(&["show", &format!("{rev}:{path}")]).unwrap_or_default(),
-                };
-                // ponytail: whole file highlighted synchronously on first view; a thread if big PRs stutter.
-                let colors = if text.len() > HL_MAX_BYTES { vec![] } else { self.hl.file(path, &text) };
-                self.hl_cache.insert(key, colors);
-            }
-        }
+        let overlay = self.label_overlay();
+        self.highlight_visible();
         let divider = Span::styled("│", self.ui.linenr);
         let lit_code = self.lit_code();
         let pair = |l: Option<usize>, rr: Option<usize>, cur: bool| {
@@ -199,11 +182,6 @@ impl App {
         // As a column, a space between the line and the pane's boxes (not `││`).
         let pad = self.pane_pad();
         let ptw = mtw - pad;
-        let pane_cell = |v: Vec<Span<'static>>| {
-            let mut out = vec![Span::raw(" ".repeat(pad))];
-            out.extend(clip(v, mw - pad));
-            out
-        };
         // The file the top of the screen is in, its header scrolled off: pinned over its code.
         let sticky = (|| {
             let d = self.top.min(self.drows.len().checked_sub(1)?);
@@ -230,12 +208,11 @@ impl App {
                     (_, true) => vec![Span::styled(format!("{:>w$} ", "", w = relw - 1), if tint && !self.margin_side() { self.ui.linenr_selected } else { self.ui.linenr })],
                     _ => vec![Span::styled(format!("{:>w$} ", d.abs_diff(hd), w = relw - 1), self.ui.linenr)],
                 };
-                let mut spans = if d < self.drows.len() { rel } else { vec![] };
+                let mut spans = rel;
                 // Beside the pane (as a column), full-width rows are as wide as the code.
                 let column = margin && !float;
                 let fw = if column { ctw } else { tw };
-                match self.drows.get(d).copied().unwrap_or(DRow::Pair(None, None)) {
-                    _ if d >= self.drows.len() => {}
+                match self.drows[d] {
                     DRow::Full(r) => {
                         spans.extend(self.render_row(r, s, e, (lw, gw, fw), None, tint, &overlay));
                         if column {
@@ -249,14 +226,14 @@ impl App {
                         // Code on the left (blank on a spacer row), a gap, then the comment
                         // column; floating, the code runs full width under it, and is covered
                         // only where there's a comment.
-                        let lit = |_: usize| tint && !pane_cur;
+                        let lit = tint && !pane_cur;
                         let related = |r: usize| lit_code.is_some_and(|(a, b)| (a..=b).contains(&r));
-                        let diff_line = |r: usize| matches!(self.rows[r].line.kind, Kind::Ctx | Kind::Add | Kind::Del);
+                        let diff_line = |r: usize| self.rows[r].line.kind.is_code();
                         let cw = if float { tw } else { ctw };
                         let code = match (l, rr) {
                             (None, None) => vec![],
-                            (l, rr) if self.split && l.or(rr).is_some_and(diff_line) => pair(l, rr, l.or(rr).is_some_and(lit)),
-                            (Some(r), _) | (None, Some(r)) => self.render_row(r, s, e, (lw, gw, cw), None, lit(r), &overlay),
+                            (l, rr) if self.split && l.or(rr).is_some_and(diff_line) => pair(l, rr, lit),
+                            (Some(r), _) | (None, Some(r)) => self.render_row(r, s, e, (lw, gw, cw), None, lit, &overlay),
                         };
                         let code = match l.or(rr).is_some_and(related) && self.settings.cursorline {
                             true => self.related_tint(code),
@@ -267,20 +244,26 @@ impl App {
                             (c, _) => {
                                 spans.extend(clip(code, gw + mx));
                                 spans.push(sep.clone());
-                                match c {
-                                    // A box open on its left: its rules start on the line, `├─`.
-                                    Some(r) if self.open_left(r) && self.box_part(r).is_some_and(|p| p != BoxPart::Body) => {
+                                if let Some(r) = c {
+                                // As a column, boxes are open on their left (`open_left`): a box's
+                                // rules start on the line, `├─`; a row in none (a folded thread, a
+                                // heading) has its mark where the space would be, so its text lines
+                                // up with the boxes'. Floating: a space, then the row.
+                                let (gutter, w) = match (float, self.box_part(r)) {
+                                    (false, Some(p)) if p != BoxPart::Body => {
                                         spans.pop();
                                         spans.push(Span::styled(format!("├{}", "─".repeat(pad)), self.ui.linenr.bg(self.ui.base.bg.unwrap_or(Color::Reset))));
-                                        spans.extend(raise(clip(head_tint(r, self.render_row(r, s, e, (lw, self.pane_gw(), ptw), None, tint && pane_cur, &overlay)), mw - pad)));
+                                        (self.pane_gw(), mw - pad)
                                     }
-                                    // Not in a box (a folded thread, a heading): its mark where the
-                                    // space would be, so its text lines up with the boxes'.
-                                    Some(r) if self.open_left(r) && self.box_part(r).is_none() => {
-                                        spans.extend(raise(clip(head_tint(r, self.render_row(r, s, e, (lw, pad + self.pane_gw(), ptw), None, tint && pane_cur, &overlay)), mw)));
+                                    (false, None) => (pad + self.pane_gw(), mw),
+                                    _ => {
+                                        spans.push(Span::raw(" ".repeat(pad)));
+                                        (self.pane_gw(), mw - pad)
                                     }
-                                    Some(r) => spans.extend(raise(pane_cell(head_tint(r, self.render_row(r, s, e, (lw, self.pane_gw(), ptw), None, tint && pane_cur, &overlay))))),
-                                    None => spans.push(Span::raw(" ".repeat(mw))),
+                                };
+                                spans.extend(raise(clip(head_tint(r, self.render_row(r, s, e, (lw, gutter, ptw), None, tint && pane_cur, &overlay)), w)));
+                                } else {
+                                    spans.push(Span::raw(" ".repeat(mw)));
                                 }
                             }
                         }
@@ -571,10 +554,41 @@ pub(crate) fn popup_frame(ui: &Ui, f: &mut Frame, r: Rect, title: &str, pos: &st
     Rect { x: r.x + 1, y: r.y + 1, width: r.width.saturating_sub(2), height: r.height.saturating_sub(2) }
 }
 
-impl App {
+/// How many rows the cursor keeps from the top and bottom of `h` rows (Helix's scrolloff).
+pub(super) fn scrolloff(h: usize) -> usize {
+    3.min(h / 2)
 }
 
 impl App {
+    /// What jump labels show (`gw`): each label's two chars at its word, or after the first key
+    /// pressed, the remaining one.
+    fn label_overlay(&self) -> HashMap<Pos, char> {
+        self.labels
+            .iter()
+            .filter(|l| self.label_first.is_none_or(|f| l.2[0] == f))
+            .flat_map(|&(p, _, [a, b])| match self.label_first {
+                None => vec![(p, a), (Pos { col: p.col + 1, ..p }, b)],
+                Some(_) => vec![(p, b)],
+            })
+            .collect()
+    }
+
+    /// The files of the rows on screen highlighted, those not yet (cached by revision and path).
+    fn highlight_visible(&mut self) {
+        for r in self.visible_rows() {
+            if let Some(key) = self.hl_key(r).filter(|k| !self.hl_cache.contains_key(k)) {
+                let (rev, path) = &key;
+                let text = match rev.as_str() {
+                    "" => std::fs::read_to_string(path).unwrap_or_default(),
+                    rev => diff::git(&["show", &format!("{rev}:{path}")]).unwrap_or_default(),
+                };
+                // ponytail: whole file highlighted synchronously on first view; a thread if big PRs stutter.
+                let colors = if text.len() > HL_MAX_BYTES { vec![] } else { self.hl.file(path, &text) };
+                self.hl_cache.insert(key, colors);
+            }
+        }
+    }
+
     /// The PR's counts: threads (and Claude's), files viewed, comments pending.
     pub(super) fn pr_counts(&self) -> String {
         let pending = match self.pending_count() {

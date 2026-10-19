@@ -545,7 +545,7 @@ impl App {
     pub(super) fn selection_anchor(&self) -> Result<Anchor> {
         let (s, e) = self.ordered();
         let code: Vec<usize> = (s.row..=e.row)
-            .filter(|&r| matches!(self.rows[r].line.kind, Kind::Ctx | Kind::Add | Kind::Del))
+            .filter(|&r| self.rows[r].line.kind.is_code())
             .collect();
         let (Some(&a), Some(&b)) = (code.first(), code.last()) else { bail!("select code lines to comment on") };
         if self.rows[a].file != self.rows[b].file {
@@ -636,7 +636,7 @@ impl App {
     pub(super) fn suggestion(&self) -> Result<(Anchor, String)> {
         let (s, e) = self.ordered();
         let rows: Vec<&Row> =
-            self.rows[s.row..=e.row].iter().filter(|r| matches!(r.line.kind, Kind::Ctx | Kind::Add | Kind::Del)).collect();
+            self.rows[s.row..=e.row].iter().filter(|r| r.line.kind.is_code()).collect();
         let (Some(first), Some(last)) = (rows.first(), rows.last()) else { bail!("select the lines to suggest a change for") };
         if rows.iter().any(|r| r.line.kind == Kind::Del) {
             bail!("suggestions replace lines in the new version; leave removed lines out of the selection");

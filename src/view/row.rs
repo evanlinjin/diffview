@@ -236,7 +236,7 @@ impl App {
             }
         };
         if cursor_row && self.settings.cursorline {
-            if matches!(l.kind, Kind::Ctx | Kind::Add | Kind::Del) {
+            if l.kind.is_code() {
                 gstyle = gstyle.patch(ui.linenr_selected);
             }
             // Like Helix: the cursor's line is tinted. Added/removed lines keep their color, lifted.
@@ -258,7 +258,7 @@ impl App {
         };
         // A code line keeps its last column for comment marks (`╎` over a comment's lines, a dot
         // at its last), at the edge beside the pane.
-        let code_row = matches!(l.kind, Kind::Ctx | Kind::Add | Kind::Del);
+        let code_row = l.kind.is_code();
         let mark = code_row.then(|| self.comment_mark(r, side)).flatten();
         let tw = if code_row { tw.saturating_sub(1) } else { tw };
         let mut spans = vec![Span::styled(gutter, gstyle)];
