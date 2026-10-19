@@ -56,9 +56,7 @@ pub(crate) fn in_zellij() -> bool {
 pub(super) fn zellij_run() -> Vec<&'static str> {
     let floating = || {
         let me = std::env::var("ZELLIJ_PANE_ID").ok()?.parse::<u64>().ok()?;
-        let out = std::process::Command::new("zellij").args(["action", "list-panes", "-j"]).stdin(std::process::Stdio::null()).output().ok()?;
-        let panes: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
-        panes.as_array()?.iter().find(|p| p["id"].as_u64() == Some(me) && p["is_plugin"] != true)?["is_floating"].as_bool()
+        zellij_panes(&[])?.iter().find(|p| p["id"].as_u64() == Some(me) && p["is_plugin"] != true)?["is_floating"].as_bool()
     };
     match floating() {
         Some(true) => vec!["run"],
@@ -72,21 +70,22 @@ pub(super) fn interactive(prog: &str, args: &[String], name: &str) -> std::io::R
     if !in_zellij() {
         return std::process::Command::new(prog).args(args).status();
     }
-    let st = zellij_pane(prog, args, name, true).map(|(st, _)| st);
+    let st = zellij_pane(prog, args, name, &std::env::current_dir()?, true).map(|(st, _)| st);
     // Its pane gone, zellij focuses one beside it, not always dv's: your keys would go there.
     focus_dv();
     st
 }
 
-/// `prog args` in a pane of its own (`zellij run`, named `name`, in dv's directory): waited
-/// for (its exit status), or not (and its pane id, `terminal_N`, from what zellij says).
-fn zellij_pane(prog: &str, args: &[String], name: &str, wait: bool) -> std::io::Result<(std::process::ExitStatus, String)> {
+/// `prog args` in a pane of its own (`zellij run`, named `name`, in `cwd`): waited for (its
+/// exit status), or not; and its pane id (`terminal_N`): as zellij says it, else the newest
+/// pane of that name, so a pane closed from zellij is noticed either way.
+pub(super) fn zellij_pane(prog: &str, args: &[String], name: &str, cwd: &Path, wait: bool) -> std::io::Result<(std::process::ExitStatus, Option<String>)> {
     let out = std::process::Command::new("zellij")
         .args(zellij_run())
         .args(["--close-on-exit", "--name", name])
         .args(wait.then_some("--block-until-exit"))
         .arg("--cwd")
-        .arg(std::env::current_dir()?)
+        .arg(cwd)
         .arg("--")
         .arg(prog)
         .args(args)
@@ -95,7 +94,12 @@ fn zellij_pane(prog: &str, args: &[String], name: &str, wait: bool) -> std::io::
         .stdin(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .output()?;
-    Ok((out.status, String::from_utf8_lossy(&out.stdout).trim().to_owned()))
+    let said = String::from_utf8_lossy(&out.stdout);
+    let id = said.lines().map(str::trim).find(|l| l.starts_with("terminal_")).map(str::to_owned).or_else(|| {
+        let id = zellij_panes(&[])?.iter().filter(|p| p["title"] == name && p["is_plugin"] != true).filter_map(|p| p["id"].as_u64()).max()?;
+        Some(format!("terminal_{id}"))
+    });
+    Ok((out.status, id))
 }
 
 /// zellij's focus back on dv's pane (`$ZELLIJ_PANE_ID`), when it may have gone to another.
@@ -241,16 +245,8 @@ pub(crate) fn compose_with(what: &str, allow_empty: bool, prefill: &str, untouch
         let q = |p: &Path| format!("'{}'", p.to_string_lossy().replace('\'', "'\\''"));
         let script = format!("\"$0\" \"$@\"; echo $? > {tmp} && mv {tmp} {done}", tmp = q(&path.with_extension("done.tmp")), done = q(&done));
         let sh: Vec<String> = ["-c".to_owned(), script, prog.to_owned()].into_iter().chain(args).collect();
-        let name = format!("dv: {what}");
-        let (st, said) = zellij_pane("sh", &sh, &name, false)?;
+        let (st, pane) = zellij_pane("sh", &sh, &format!("dv: {what}"), &std::env::current_dir()?, false)?;
         anyhow::ensure!(st.success(), "zellij run failed ({st})");
-        // Its pane: as zellij said (`terminal_N`), else found by its name (the newest of it), so
-        // a pane closed from zellij is noticed either way.
-        let pane = said.lines().map(str::trim).find(|l| l.starts_with("terminal_")).map(str::to_owned).or_else(|| {
-            let panes = zellij_panes(&[])?;
-            let id = panes.iter().filter(|p| p["title"] == name.as_str() && p["is_plugin"] != true).filter_map(|p| p["id"].as_u64()).max()?;
-            Some(format!("terminal_{id}"))
-        });
         let pane = pane.unwrap_or_default();
         let looked = std::time::Instant::now();
         let prefill = prefill.to_owned();

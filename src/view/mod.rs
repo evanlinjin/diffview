@@ -1308,9 +1308,9 @@ impl App {
             zellij(&["action", "focus-pane-id", &id])?;
             return Ok("opened in hx (its pane on the right); dv reloads as you save".into());
         }
-        let root = self.root.display().to_string();
-        let id = zellij(&[zellij_run().as_slice(), &["--close-on-exit", "--name", "hx", "--cwd", &root, "--", "hx", target]].concat())?;
-        self.hx = Some(HxPane { pane: id });
+        let (st, id) = term::zellij_pane("hx", &[target.to_owned()], "hx", &self.root, false)?;
+        anyhow::ensure!(st.success(), "zellij run failed ({st})");
+        self.hx = id.map(|pane| HxPane { pane });
         Ok("hx is open on the right; dv reloads as you save, and Enter opens the next file there".into())
     }
 
