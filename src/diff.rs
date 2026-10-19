@@ -213,6 +213,18 @@ pub fn shown(full: &[Line], windows: &[(usize, usize, Vec<usize>)], headers: &[(
     out
 }
 
+/// Where branch `here` in the checkout at `dir` pushes to: its push remote (or its remote; a
+/// remote's name, or a URL as `gh pr checkout` sets one for a fork), and the branch it tracks
+/// there (a PR's own name, even when the local one is `<owner>-<branch>`).
+pub fn push_target(dir: &std::path::Path, here: &str) -> Option<(String, String)> {
+    let config = |k: &str| git_in(dir, &["config", "--get", k]).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
+    let remote = config(&format!("branch.{here}.pushRemote"))
+        .or_else(|| config("remote.pushDefault"))
+        .or_else(|| config(&format!("branch.{here}.remote")))?;
+    let branch = config(&format!("branch.{here}.merge")).map_or(here.to_owned(), |m| m.trim_start_matches("refs/heads/").to_owned());
+    Some((remote, branch))
+}
+
 /// `git -C dir …`.
 pub fn git_in(dir: &std::path::Path, args: &[&str]) -> Result<String> {
     let d = dir.to_string_lossy();

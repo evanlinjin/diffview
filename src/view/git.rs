@@ -292,7 +292,7 @@ impl App {
     fn push_target(&self) -> Result<(String, String, String)> {
         let here = diff::git(&["branch", "--show-current"])?.trim().to_owned();
         if !here.is_empty() {
-            let (remote, branch) = branch_target(&here)?;
+            let (remote, branch) = diff::push_target(Path::new("."), &here).with_context(|| format!("{here} has no remote to push to"))?;
             let name = format!("{branch} on {remote}");
             return Ok((remote, branch, name));
         }
@@ -350,18 +350,6 @@ pub(super) fn draft(threads: &[Thread], since: i64, status: &str) -> String {
         true => format!("\n\n{files}"),
         false => format!("Address review comments\n\n{}\n\n{files}", changes.join("\n")),
     }
-}
-
-/// Where HEAD pushes to: the current branch's push remote (or its remote), and the branch
-/// it tracks there (a PR's own name, even when the local one is `<owner>-<branch>`).
-fn branch_target(here: &str) -> Result<(String, String)> {
-    let config = |k: &str| diff::git(&["config", "--get", k]).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
-    let remote = config(&format!("branch.{here}.pushRemote"))
-        .or_else(|| config("remote.pushDefault"))
-        .or_else(|| config(&format!("branch.{here}.remote")))
-        .with_context(|| format!("{here} has no remote to push to"))?;
-    let branch = config(&format!("branch.{here}.merge")).map_or(here.to_owned(), |m| m.trim_start_matches("refs/heads/").to_owned());
-    Ok((remote, branch))
 }
 
 /// How HEAD in the checkout at `dir` stands against `theirs` (the head where it's pushed).
