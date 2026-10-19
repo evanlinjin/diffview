@@ -620,7 +620,7 @@ impl App {
     /// A comment hidden on GitHub (`why`), not shown here (Tab): what its heading says after
     /// who and when, in place of its text.
     fn hidden_note(&self, why: &str, node: &str) -> Option<String> {
-        self.unseen(why, node).then(|| format!(" · {}", gh::hidden_words(why)))
+        self.unseen(why, node).then(|| format!(" · {}", hidden_words(why)))
     }
 
     /// Whether a comment (`hidden` on GitHub, why; its node id) is hidden here still: not to be
@@ -637,14 +637,14 @@ impl App {
 
     /// The same for the PR's text: `info` line `i`, unless it's a conversation comment's,
     /// hidden on GitHub and not shown here.
-    pub(super) fn seen_info(&self, i: usize) -> Option<&gh::InfoLine> {
+    pub(super) fn seen_info(&self, i: usize) -> Option<&InfoLine> {
         let head = i.checked_sub(1).and_then(|h| self.info.get(h)).filter(|h| h.heading);
         self.info.get(i).filter(|_| !head.is_some_and(|h| self.unseen(&h.hidden, &h.node)))
     }
 
     /// A review comment's text for a list, or (hidden on GitHub, unseen) that it's hidden.
     pub(super) fn gist<'a>(&self, c: &'a gh::Comment) -> std::borrow::Cow<'a, str> {
-        self.seen_body(c).map_or_else(|| format!("_({})_", gh::hidden_words(&c.hidden)).into(), Into::into)
+        self.seen_body(c).map_or_else(|| format!("_({})_", hidden_words(&c.hidden)).into(), Into::into)
     }
 
     /// Whether row `r` is the folded line of a conversation comment hidden on GitHub.
@@ -758,18 +758,18 @@ impl App {
     }
 
     /// Color a PR info line by its marks: badges, pass/fail colors, links.
-    pub(super) fn info_row(&self, l: &gh::InfoLine, mut row: Row) -> Row {
+    pub(super) fn info_row(&self, l: &InfoLine, mut row: Row) -> Row {
         let ui = &self.ui;
         row.syn = vec![None; l.text.chars().count()];
         for (a, b, m) in &l.marks {
             let st = match m {
-                gh::Mark::Chip(hex) => chip(hex),
-                gh::Mark::Pass => ui.plus,
-                gh::Mark::Fail => ui.error,
-                gh::Mark::Pending => ui.warning,
-                gh::Mark::Dim => ui.stale,
-                gh::Mark::Mine => ui.key,
-                gh::Mark::Link(url) => {
+                Mark::Chip(hex) => chip(hex),
+                Mark::Pass => ui.plus,
+                Mark::Fail => ui.error,
+                Mark::Pending => ui.warning,
+                Mark::Dim => ui.stale,
+                Mark::Mine => ui.key,
+                Mark::Link(url) => {
                     row.links.push((*a, *b, url.clone()));
                     ui.md.link
                 }
@@ -855,7 +855,7 @@ impl App {
         // Its reactions, after who, when and where; yours in the accent color.
         let reacts = |c: &gh::Comment| -> (String, Vec<Option<Style>>) {
             let (mut text, mut syn) = (String::new(), vec![]);
-            for (i, (t, mine)) in gh::reaction_parts(&c.reactions).into_iter().enumerate() {
+            for (i, (t, mine)) in reaction_parts(&c.reactions).into_iter().enumerate() {
                 let gap = if i == 0 { " · " } else { "  " };
                 syn.extend(vec![None; gap.chars().count()]);
                 syn.extend(vec![mine.then_some(self.ui.key); t.chars().count()]);

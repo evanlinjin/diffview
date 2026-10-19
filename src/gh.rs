@@ -92,7 +92,6 @@ pub struct Comment {
     pub hidden: String,
 }
 
-
 /// Where a new comment goes. Lines are file line numbers on the given side.
 #[derive(Clone)]
 pub struct Anchor {
@@ -440,7 +439,7 @@ pub fn list_checks() -> Result<ListChecks> {
 
 /// A CI check's outcome: ✓ passed, ✗ failed, ● pending. CheckRun has status/conclusion;
 /// StatusContext has state.
-fn verdict(c: &Value) -> char {
+pub(crate) fn verdict(c: &Value) -> char {
     match (c["status"].as_str(), c["conclusion"].as_str().or(c["state"].as_str())) {
         (Some(st), _) if st != "COMPLETED" => '●',
         (_, Some("SUCCESS" | "NEUTRAL" | "SKIPPED")) => '✓',
@@ -613,21 +612,12 @@ pub fn hidden(c: &Value) -> String {
     }
 }
 
-/// What a comment hidden on GitHub (`why`, from `hidden`) says it is: "hidden on GitHub
-/// (spam)", or (GitHub gave no reason) just "hidden on GitHub".
-pub fn hidden_words(why: &str) -> String {
-    match why {
-        "hidden" => "hidden on GitHub".into(),
-        why => format!("hidden on GitHub ({why})"),
-    }
-}
-
 /// A reaction on a comment: GitHub's name for it (e.g. THUMBS_UP), how many, one is yours.
 pub type Reaction = (String, u64, bool);
 
 /// A comment's `reactionGroups` (from GraphQL: `reactors`, `viewerHasReacted`; from `gh pr
 /// view`: `users`, and whose isn't said: `mine` has yours, by node id), those with any.
-fn reactions(v: &Value, mine: &[&str]) -> Vec<Reaction> {
+pub(crate) fn reactions(v: &Value, mine: &[&str]) -> Vec<Reaction> {
     v.as_array()
         .into_iter()
         .flatten()
@@ -637,32 +627,6 @@ fn reactions(v: &Value, mine: &[&str]) -> Vec<Reaction> {
             (n > 0).then(|| (what.to_owned(), n, g["viewerHasReacted"] == true || mine.contains(&what)))
         })
         .collect()
-}
-
-/// Reactions as they show (`👍 2`, `🎉 1`), each with whether one's yours.
-pub fn reaction_parts(r: &[Reaction]) -> Vec<(String, bool)> {
-    let emoji = |c: &str| REACTIONS.iter().find(|e| e.0 == c).map_or("?", |e| e.1);
-    r.iter().map(|(c, n, mine)| (format!("{} {n}", emoji(c)), *mine)).collect()
-}
-
-/// Reactions as text: `👍 2  🎉 1`.
-#[cfg(test)]
-fn reactions_text(r: &[Reaction]) -> String {
-    reaction_parts(r).into_iter().map(|p| p.0).collect::<Vec<_>>().join("  ")
-}
-
-impl InfoLine {
-    /// Reactions, yours in the accent color (as GitHub lights them); all dimmed when which
-    /// are yours isn't `known`.
-    fn put_reactions(&mut self, r: &[Reaction], known: bool) {
-        for (i, (text, mine)) in reaction_parts(r).into_iter().enumerate() {
-            let mark = match known {
-                true => mine.then_some(Mark::Mine),
-                false => Some(Mark::Dim),
-            };
-            self.put(if i == 0 { "" } else { "  " }, None).put(&text, mark);
-        }
-    }
 }
 
 /// The `pr_query` fields saying which reactions on a PR's conversation (itself, its
@@ -1050,55 +1014,6 @@ pub fn reply(pr: &Pr, comment_id: u64, body: &str) -> Result<()> {
     post(&ep, &json!({ "body": body }))
 }
 
-/// How to color part of a PR info line.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Mark {
-    /// A badge with this background (hex, no '#'), e.g. a label or the PR state.
-    Chip(String),
-    Pass,
-    Fail,
-    Pending,
-    Dim,
-    /// A reaction of yours.
-    Mine,
-    Link(String),
-}
-
-/// A line of the PR info section. `md` lines (description, comments) are rendered as markdown;
-/// the rest are colored by `marks` (char ranges).
-#[derive(Default)]
-pub struct InfoLine {
-    pub heading: bool,
-    pub md: bool,
-    pub text: String,
-    pub marks: Vec<(usize, usize, Mark)>,
-    /// On a comment's (or the description's) heading: its link on GitHub, for `Space c`.
-    pub url: String,
-    /// On a conversation comment's (or review's) heading: its node id, to react to it.
-    pub node: String,
-    /// On a conversation comment's heading: hidden on GitHub, and why; empty if it isn't.
-    pub hidden: String,
-    /// What the line is, the same across refreshes (its text may not be: counts, times): a
-    /// comment's node id (its text: `<node>/text`), else what the line is about (`checks`,
-    /// `conversation`, …). For the cursor to stay on it.
-    pub key: String,
-}
-
-impl InfoLine {
-    fn new(heading: bool, md: bool) -> Self {
-        InfoLine { heading, md, ..Default::default() }
-    }
-
-    fn put(&mut self, s: &str, mark: Option<Mark>) -> &mut Self {
-        let a = self.text.chars().count();
-        self.text.push_str(s);
-        if let Some(m) = mark {
-            self.marks.push((a, a + s.chars().count(), m));
-        }
-        self
-    }
-}
-
 /// Workflow runs waiting for a maintainer to approve them (a first-time contributor's PR, say):
 /// head commit → their run ids. Only those for `sha`, if given.
 pub fn awaiting_approval(sha: Option<&str>) -> Result<std::collections::HashMap<String, Vec<u64>>> {
@@ -1141,7 +1056,7 @@ pub struct Signatures {
 const SIGNATURE_RULES: &str = "baseRef { branchProtectionRule { requiresCommitSignatures } rules(first: 100) { nodes { type } } }";
 
 /// Whether a PR's base (its node, with `SIGNATURE_RULES`) requires signed commits.
-fn requires_signatures(p: &Value) -> bool {
+pub(crate) fn requires_signatures(p: &Value) -> bool {
     let b = &p["baseRef"];
     b["branchProtectionRule"]["requiresCommitSignatures"] == true || b["rules"]["nodes"].as_array().is_some_and(|r| r.iter().any(|r| r["type"] == "REQUIRED_SIGNATURES"))
 }
@@ -1334,270 +1249,6 @@ pub fn info_json(n: u64) -> Result<Value> {
         Err(why) => v["dvCommitsUnknown"] = why.into(),
     }
     Ok(v)
-}
-
-/// What PR info says, beyond its section's lines.
-pub struct Info {
-    pub lines: Vec<InfoLine>,
-    pub title: String,
-    pub head: String,
-    pub url: String,
-    pub state: State,
-    /// Its commits GitHub has no valid signature on.
-    /// (`None`: GitHub didn't say this time: what was known stands.)
-    pub unsigned: Option<Vec<String>>,
-    /// Workflow runs awaiting approval, checks failing.
-    pub awaiting: usize,
-    pub failing: usize,
-    /// Its base branch.
-    pub base: String,
-}
-
-/// The PR section's lines, its title, head, URL and state, its commits GitHub has no valid
-/// signature on, (workflow runs awaiting approval, checks failing), and its base branch.
-pub fn parse_info(v: &Value) -> Info {
-    let s = |k: &str| v[k].as_str().unwrap_or("").to_owned();
-    let unsigned = v["dvCommits"].as_array().map(|cs| cs.iter().filter(|c| c["signed"] != true).filter_map(|c| c["oid"].as_str().map(str::to_owned)).collect());
-    let failing = v["statusCheckRollup"].as_array().into_iter().flatten().filter(|c| verdict(c) == '✗').count();
-    let awaiting = v["dvAwaiting"].as_u64().unwrap_or(0) as usize;
-    Info { lines: info_lines(v), title: s("title"), head: s("headRefOid"), url: s("url"), state: state(v), unsigned, awaiting, failing, base: s("baseRefName") }
-}
-
-/// A PR's state as GitHub shows it, with its color: DRAFT, OPEN, MERGED or CLOSED.
-pub type State = (&'static str, &'static str);
-
-pub fn state(v: &Value) -> State {
-    // A closed draft is closed.
-    match (v["state"].as_str().unwrap_or(""), v["isDraft"] == true) {
-        ("MERGED", _) => ("MERGED", "8957e5"),
-        ("CLOSED", _) => ("CLOSED", "da3633"),
-        (_, true) => ("DRAFT", "6e7681"),
-        _ => ("OPEN", "238636"),
-    }
-}
-
-fn info_lines(v: &Value) -> Vec<InfoLine> {
-    let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
-    let list = |v: &Value| v.as_array().map(Vec::as_slice).unwrap_or(&[]).to_vec();
-    let mut out = vec![];
-    let plain = |text: String| {
-        let mut l = InfoLine::new(false, false);
-        l.put(&text, None);
-        l
-    };
-
-    // Author, branches, size (the state is on the PR's header line).
-    let author = s(&v["author"]["login"]);
-    let mut l = InfoLine::new(false, false);
-    l.put(&format!("@{author}"), Some(Mark::Link(format!("https://github.com/{author}"))))
-        .put(&format!(" · {} ← {} · ", s(&v["baseRefName"]), s(&v["headRefName"])), None)
-        .put(&format!("+{}", v["additions"]), Some(Mark::Pass))
-        .put(" ", None)
-        .put(&format!("−{}", v["deletions"]), Some(Mark::Fail))
-        .put(&format!(" in {} files", v["changedFiles"]), None);
-    out.push(l);
-
-    let labels = list(&v["labels"]);
-    if !labels.is_empty() {
-        let mut l = InfoLine::new(false, false);
-        l.put("labels", Some(Mark::Dim));
-        for lb in &labels {
-            l.put(" ", None).put(&format!(" {} ", s(&lb["name"])), Some(Mark::Chip(s(&lb["color"]))));
-        }
-        out.push(l);
-    }
-    let assigned = list(&v["assignees"]);
-    if !assigned.is_empty() {
-        let mut l = InfoLine::new(false, false);
-        l.put("assigned", Some(Mark::Dim));
-        for a in &assigned {
-            l.put(&format!(" @{}", s(&a["login"])), None);
-        }
-        out.push(l);
-    }
-    // The PR's own reactions (Space = on its description reacts).
-    // Yours, by node id (`mine_json`).
-    let mine = |id: &Value| -> Vec<&str> { id.as_str().and_then(|id| v["dvMine"][id].as_array()).into_iter().flatten().filter_map(Value::as_str).collect() };
-    // Whether which of a node's reactions are yours is known (asked of GitHub): else they're
-    // dimmed, not shown as not yours.
-    let known = |id: &Value| id.as_str().is_some_and(|id| v["dvMine"].get(id).is_some());
-    let own = reactions(&v["reactionGroups"], &mine(&v["id"]));
-    if !own.is_empty() {
-        let mut l = InfoLine::new(false, false);
-        l.put("reactions ", Some(Mark::Dim)).put_reactions(&own, known(&v["id"]));
-        out.push(l);
-    }
-
-    // Who did what, one reviewer a line (no scrolling sideways for them all): "✗ @bo requested
-    // changes", "✓ @amy approved", "● @cy requested" (waiting on them); in their colors.
-    let reviews = list(&v["latestReviews"]);
-    let by = |state: &str| -> Vec<String> { reviews.iter().filter(|r| r["state"] == state).map(|r| s(&r["author"]["login"])).collect() };
-    let requested: Vec<String> = list(&v["reviewRequests"]).iter().map(|r| r["login"].as_str().or(r["slug"].as_str()).or(r["name"].as_str()).unwrap_or("?").to_owned()).collect();
-    let groups = [
-        ("✗", "requested changes", by("CHANGES_REQUESTED"), Mark::Fail),
-        ("✓", "approved", by("APPROVED"), Mark::Pass),
-        ("●", "requested", requested, Mark::Pending),
-    ];
-    let mut l = InfoLine::new(false, false);
-    l.put("reviews:", None);
-    if groups.iter().all(|g| g.2.is_empty()) {
-        let decision = s(&v["reviewDecision"]).to_lowercase().replace('_', " ");
-        l.put(" ", None).put(if decision.is_empty() { "none yet" } else { &decision }, Some(Mark::Dim));
-    }
-    out.push(l);
-    for (sign, what, who, mark) in groups {
-        for name in who {
-            let mut l = InfoLine::new(false, false);
-            l.put(&format!("{sign} @{name}"), Some(mark.clone())).put(&format!(" {what}"), None);
-            out.push(l);
-        }
-    }
-
-    let checks = list(&v["statusCheckRollup"]);
-    if checks.is_empty() {
-        out.push(plain("checks: none".into()));
-    } else {
-        let count = |m| checks.iter().filter(|c| verdict(c) == m).count();
-        let (pass, fail, pending) = (count('✓'), count('✗'), count('●'));
-        let mut l = InfoLine::new(false, false);
-        l.put("checks", Some(Mark::Link(format!("{}/checks", s(&v["url"])))));
-        l.put(": ", None);
-        // Only the counts that aren't zero.
-        let parts = [(pass, "✓", "passed", Mark::Pass), (fail, "✗", "failed", Mark::Fail), (pending, "●", "pending", Mark::Pending)];
-        for (k, (n, sym, what, m)) in parts.into_iter().filter(|p| p.0 > 0).enumerate() {
-            if k > 0 {
-                l.put(" · ", None);
-            }
-            l.put(&format!("{sym} {n} {what}"), Some(m));
-        }
-        out.push(l);
-        for c in checks.iter().filter(|c| verdict(c) != '✓') {
-            let name = c["name"].as_str().or(c["context"].as_str()).unwrap_or("?");
-            let m = if verdict(c) == '✗' { Mark::Fail } else { Mark::Pending };
-            let mut l = InfoLine::new(false, false);
-            l.put(&format!("{} ", verdict(c)), Some(m.clone()));
-            // Its run on GitHub (a check run's details, a status's target).
-            match c["detailsUrl"].as_str().or(c["targetUrl"].as_str()).filter(|u| !u.is_empty()) {
-                Some(u) => l.put(name, Some(Mark::Link(u.to_owned()))),
-                None => l.put(name, Some(m)),
-            };
-            out.push(l);
-        }
-    }
-
-    // Workflow runs that won't run until a maintainer approves them.
-    match v["dvAwaiting"].as_u64().unwrap_or(0) {
-        0 => {}
-        k => {
-            let mut l = InfoLine::new(false, false);
-            let s = if k == 1 { "" } else { "s" };
-            l.put(&format!("⏸ {k} workflow run{s} awaiting approval"), Some(Mark::Pending)).put(" (Space g approves)", Some(Mark::Dim));
-            out.push(l);
-        }
-    }
-    // Its commits signed, or which aren't (and whether its base requires them to be).
-    if let Some(cs) = v["dvCommits"].as_array().filter(|c| !c.is_empty()) {
-        let unsigned: Vec<String> = cs.iter().filter(|c| c["signed"] != true).map(|c| s(&c["oid"]).chars().take(8).collect()).collect();
-        let required = v["dvSignaturesRequired"] == true;
-        let mut l = InfoLine::new(false, false);
-        l.put("commits: ", None);
-        match unsigned.len() {
-            0 => l.put(&format!("✓ {} signed", if cs.len() == 1 { "1".to_owned() } else { format!("all {}", cs.len()) }), Some(Mark::Pass)),
-            k => l.put(&format!("✗ {k} of {} unsigned: {}", cs.len(), unsigned.join(", ")), Some(if required { Mark::Fail } else { Mark::Pending })),
-        };
-        // More than GitHub's last 100: the older ones aren't checked.
-        let total = v["dvCommitsTotal"].as_u64().unwrap_or(0) as usize;
-        if total > cs.len() {
-            l.put(&format!(" (the last {} of {total})", cs.len()), Some(Mark::Dim));
-        }
-        if required {
-            let st = if unsigned.is_empty() { Mark::Dim } else { Mark::Fail };
-            l.put(" · ", None).put(&format!("{} requires signed commits", s(&v["baseRefName"])), Some(st));
-        }
-        // GitHub couldn't say this time: what it said last (`keep_signatures`).
-        if v["dvCommitsKept"] == true {
-            let when = Some(s(&v["dvCommitsAt"])).filter(|t| !t.is_empty()).map_or("an earlier look".to_owned(), |t| ago(&t));
-            l.put(&format!(" (as of {when})"), Some(Mark::Dim));
-        }
-        out.push(l);
-    } else if let Some(why) = v["dvCommitsUnknown"].as_str() {
-        let mut l = InfoLine::new(false, false);
-        l.put("commits: ", None).put(&format!("signatures unknown ({why})"), Some(Mark::Dim));
-        out.push(l);
-    }
-
-    let heading = |t: String| {
-        let mut l = InfoLine::new(true, false);
-        l.put(&t, None);
-        l
-    };
-    let markdown = |t: String| {
-        let mut l = InfoLine::new(false, true);
-        l.put(&t, None);
-        l
-    };
-    // The PR itself takes reactions: its node id on the description's heading.
-    out.push(InfoLine { url: s(&v["url"]), node: s(&v["id"]), ..heading("description".into()) });
-    let body = s(&v["body"]).replace("\r\n", "\n");
-    out.push(markdown(body)); // empty: the view shows a placeholder
-
-    // The conversation: comments, and reviews with something to read (their text, or a
-    // verdict: a plain review's inline comments are threads on the code), in time order:
-    // (when, who, what they did, link, text).
-    // (when, who, what they did, link, text, node id, reactions, why it's hidden).
-    type Said<'a> = (String, String, &'a str, String, String, String, Vec<Reaction>, String);
-    let mut said: Vec<Said> = list(&v["comments"])
-        .iter()
-        .map(|c| (s(&c["createdAt"]), s(&c["author"]["login"]), "", s(&c["url"]), s(&c["body"]), s(&c["id"]), reactions(&c["reactionGroups"], &mine(&c["id"])), hidden(c)))
-        .collect();
-    for r in list(&v["reviews"]) {
-        let what = match s(&r["state"]).as_str() {
-            "APPROVED" => "✓ approved · ",
-            "CHANGES_REQUESTED" => "✗ requested changes · ",
-            "DISMISSED" => "reviewed (dismissed) · ",
-            "COMMENTED" if !s(&r["body"]).trim().is_empty() => "reviewed · ",
-            _ => continue, // pending, or nothing to read here
-        };
-        // Its own: questions about it (`a`) are kept by it. (The fragment is the review's id:
-        // the link opens the PR.)
-        let url = format!("{}#review-{}", s(&v["url"]), s(&r["id"]));
-        said.push((s(&r["submittedAt"]), s(&r["author"]["login"]), what, url, s(&r["body"]), s(&r["id"]), reactions(&r["reactionGroups"], &mine(&r["id"])), String::new()));
-    }
-    said.sort_by(|a, b| a.0.cmp(&b.0)); // ISO times sort as text
-    out.push(heading(format!("conversation ({})", said.len())));
-    for (at, who, what, url, body, node, r, hidden) in said {
-        let sure = known(&Value::from(node.as_str()));
-        // A verdict in its color, so an approval doesn't read as just another comment.
-        let mut h = InfoLine { url, node, hidden, ..InfoLine::new(true, false) };
-        let mark = match what {
-            "✓ approved · " => Some(Mark::Pass),
-            "✗ requested changes · " => Some(Mark::Fail),
-            _ => None,
-        };
-        h.put(&format!("@{who} · "), None).put(what.trim_end_matches(" · "), mark).put(if what.is_empty() { "" } else { " · " }, None);
-        h.put(&ago(&at), None);
-        if !r.is_empty() {
-            h.put(" · ", None).put_reactions(&r, sure);
-        }
-        out.push(h);
-        out.push(markdown(body.replace("\r\n", "\n")));
-    }
-    for i in 0..out.len() {
-        out[i].key = line_key(&out[..=i]);
-    }
-    out
-}
-
-/// What the last of `lines` is (`InfoLine::key`): its node; else the node of the heading it's
-/// the text of; else its label, what it says up to its first `:`, `(` or digit (`checks`,
-/// `conversation`, `reactions`).
-fn line_key(lines: &[InfoLine]) -> String {
-    let (l, before) = lines.split_last().unwrap_or_else(|| unreachable!());
-    match before.last().filter(|h| h.heading && !l.heading && !h.node.is_empty()) {
-        _ if !l.node.is_empty() => l.node.clone(),
-        Some(h) => format!("{}/text", h.node),
-        None => l.text.split([':', '(']).next().unwrap_or("").split(|c: char| c.is_ascii_digit()).next().unwrap_or("").trim().to_owned(),
-    }
 }
 
 pub fn ago(iso: &str) -> String {

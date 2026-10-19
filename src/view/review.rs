@@ -9,7 +9,7 @@ pub(super) const STALE: &str = "showing the PR as dv last saw it; refreshing fro
 const GITHUB_POLL: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// The PR's review threads and its info, as `fetch_github` got them.
-pub(super) type Fetched = (Result<gh::Review>, Result<gh::Info>);
+pub(super) type Fetched = (Result<gh::Review>, Result<Info>);
 
 /// Both at once (each is a ~1s GitHub round-trip), kept in `cache` when both came.
 fn fetch_github(n: u64, cache: Option<&Path>) -> Fetched {
@@ -28,7 +28,7 @@ fn fetch_github(n: u64, cache: Option<&Path>) -> Fetched {
         _ = p.parent().map(std::fs::create_dir_all);
         _ = crate::claude::write(p, &json!({ "threads": t, "info": i }));
     }
-    (threads.map(|t| gh::parse_threads(&t)), info.map(|i| gh::parse_info(&i)))
+    (threads.map(|t| gh::parse_threads(&t)), info.map(|i| parse_info(&i)))
 }
 
 /// Where the PR's last answers from GitHub are kept, to show at once next time.
@@ -47,7 +47,7 @@ pub(crate) fn prefetch_github(n: u64) {
 /// What `fetch_github` kept, if anything.
 pub(super) fn cached_github(p: &Path) -> Option<Fetched> {
     let v: Value = serde_json::from_str(&std::fs::read_to_string(p).ok()?).ok()?;
-    Some((Ok(gh::parse_threads(&v["threads"])), Ok(gh::parse_info(&v["info"]))))
+    Some((Ok(gh::parse_threads(&v["threads"])), Ok(parse_info(&v["info"]))))
 }
 
 impl App {
@@ -439,7 +439,7 @@ impl App {
         }
         let preview = match self.seen_body(&c) {
             Some(body) => format!("\"{}\"", body.lines().next().unwrap_or("").chars().take(40).collect::<String>()),
-            None => format!("({})", gh::hidden_words(&c.hidden)),
+            None => format!("({})", hidden_words(&c.hidden)),
         };
         let items = vec![
             Item::new("No, keep it", Target::Nothing),
@@ -592,7 +592,7 @@ impl App {
     }
 
     pub(super) fn show_replacement(&mut self, r: crate::replace::Record) {
-        let line = |heading, md, text: &str| gh::InfoLine { heading, md, text: text.into(), ..Default::default() };
+        let line = |heading, md, text: &str| InfoLine { heading, md, text: text.into(), ..Default::default() };
         let mut replaces = line(false, false, "replaces ");
         for (i, o) in r.replaces.iter().enumerate() {
             let sep = if i == 0 { "" } else { ", " };
@@ -600,13 +600,13 @@ impl App {
             let at = replaces.text.chars().count();
             let num = format!("#{}", o.number);
             replaces.text.push_str(&format!("{num} {} (@{})", o.title, o.author));
-            replaces.marks.push((at, at + num.chars().count(), gh::Mark::Link(o.url.clone())));
+            replaces.marks.push((at, at + num.chars().count(), Mark::Link(o.url.clone())));
         }
         let mut status = vec![];
         if let Some(n) = r.published {
             let url = r.replaces.first().and_then(|o| Some(format!("{}/{n}", o.url.rsplit_once('/')?.0))).unwrap_or_default();
             let mut l = line(false, false, &format!("published as PR #{n}"));
-            l.marks.push((l.text.chars().count() - format!("#{n}").len(), l.text.chars().count(), gh::Mark::Link(url)));
+            l.marks.push((l.text.chars().count() - format!("#{n}").len(), l.text.chars().count(), Mark::Link(url)));
             status.push(l);
         }
         if !r.closed.is_empty() {
@@ -757,7 +757,7 @@ impl App {
             Err(e) => self.msg = format!("loading comments: {e:#}"),
         }
         match info {
-            Ok(gh::Info { lines, title, head, url, state, unsigned, awaiting, failing, base }) => {
+            Ok(Info { lines, title, head, url, state, unsigned, awaiting, failing, base }) => {
                 (self.awaiting, self.failing) = (awaiting, failing);
                 (self.info, self.pr_state) = (lines, Some(state));
                 // GitHub's word on its commits' signatures, for the contents' commits (none this

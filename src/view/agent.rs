@@ -691,7 +691,7 @@ impl App {
         // What's selected of it, else all of it.
         // (Hidden on GitHub, unseen: not quoted; Claude reads it at the link.)
         let quote = match self.seen_info(body) {
-            None => format!("— {}, not shown here", gh::hidden_words(&head.hidden)),
+            None => format!("— {}, not shown here", hidden_words(&head.hidden)),
             Some(_) => self.selected_quote().unwrap_or_else(|| super::quote(&text.text)),
         };
         Some((head.url.clone(), format!("About {who}'s comment ({}):\n{quote}", head.url)))
@@ -727,7 +727,7 @@ impl App {
         // (Hidden on GitHub, unseen: not quoted; said so, for Claude to read it there.)
         let quote: String = match self.seen_body(c) {
             Some(body) => body.lines().map(|l| format!("> {l}\n")).collect(),
-            None => format!("— {}, not shown here\n", gh::hidden_words(&c.hidden)),
+            None => format!("— {}, not shown here\n", hidden_words(&c.hidden)),
         };
         // (Its id, where there's no link with it.)
         let link = if link.is_empty() { format!(" (id {})", c.id) } else { link };

@@ -338,7 +338,7 @@ fn comments_placed_and_anchored() {
 fn quote_into_conversation() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
     app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new(), ..Default::default() });
-    let line = |heading, md, text: &str| gh::InfoLine { heading, md, text: text.into(), ..Default::default() };
+    let line = |heading, md, text: &str| InfoLine { heading, md, text: text.into(), ..Default::default() };
     app.info = vec![line(true, false, "conversation (1)"), line(true, false, "@bo · 2d ago"), line(false, true, "Looks good\nbut fix CI")];
     app.build();
     let quoted = |app: &mut App, row: usize| {
@@ -554,8 +554,8 @@ fn copy_refs() {
         resolved: false, outdated: false, hunk: vec![], comments: vec![c(11), c(12)], claude: None, severity: String::new(), about: None, conversation: String::new(),
         want: String::new(),
     }];
-    let heading = |text: &str, url: &str| gh::InfoLine { heading: true, md: false, text: text.into(), url: url.into(), ..Default::default() };
-    let body = |text: &str| gh::InfoLine { heading: false, md: true, text: text.into(), ..Default::default() };
+    let heading = |text: &str, url: &str| InfoLine { heading: true, md: false, text: text.into(), url: url.into(), ..Default::default() };
+    let body = |text: &str| InfoLine { heading: false, md: true, text: text.into(), ..Default::default() };
     app.info = vec![heading("conversation (1)", ""), heading("@bo · 1d ago", "https://github.com/o/r/pull/1#issuecomment-5"), body("Looks good")];
     app.build();
     let at = |app: &mut App, text: &str| {
@@ -850,8 +850,8 @@ fn pr_text_attached_to_the_description() {
     let draw = |app: &mut App| _ = screen(220, 40, |f| app.draw(f));
     let mut app = fixture();
     // A conversation of five, the second new to you.
-    let heading = |text: &str, node: &str| gh::InfoLine { heading: true, md: false, text: text.into(), marks: vec![], hidden: String::new(), key: String::new(), url: format!("u-{node}"), node: node.into() };
-    let body = |text: &str| gh::InfoLine { heading: false, md: true, text: text.into(), ..Default::default() };
+    let heading = |text: &str, node: &str| InfoLine { heading: true, md: false, text: text.into(), marks: vec![], hidden: String::new(), key: String::new(), url: format!("u-{node}"), node: node.into() };
+    let body = |text: &str| InfoLine { heading: false, md: true, text: text.into(), ..Default::default() };
     app.info.push(heading("conversation (5)", ""));
     for k in 1..=5 {
         app.info.push(heading(&format!("@cy · c{k}"), &format!("n{k}")));
@@ -1230,9 +1230,9 @@ fn claude_view() {
     );
     let mut app = App::with("base".into(), diff::parse(&text));
     app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new(), ..Default::default() });
-    let plain = |text: &str| gh::InfoLine { heading: false, md: false, text: text.into(), ..Default::default() };
-    let heading = |text: &str| gh::InfoLine { heading: true, md: false, text: text.into(), ..Default::default() };
-    let md = |text: &str| gh::InfoLine { heading: false, md: true, text: text.into(), ..Default::default() };
+    let plain = |text: &str| InfoLine { heading: false, md: false, text: text.into(), ..Default::default() };
+    let heading = |text: &str| InfoLine { heading: true, md: false, text: text.into(), ..Default::default() };
+    let md = |text: &str| InfoLine { heading: false, md: true, text: text.into(), ..Default::default() };
     app.info = vec![plain("OPEN @bo · main ← x"), plain("review: waiting on @cy"), heading("description"), md("Long story")];
     app.claude.summary = "Looks fine.".into();
     let c = |author: &str| gh::Comment { id: 1, node_id: String::new(), can_edit: false, can_delete: false, author: author.into(), body: "hm".into(), created: String::new(), pending: false, reactions: vec![], hidden: String::new() };
@@ -1493,7 +1493,7 @@ fn fixture() -> App {
     let mut app = App::with("base".into(), diff::parse(&text));
     app.files_pref = Some(false); // the files' list has its own test; the rest as laid out without it
     app.pr = Some(gh::Pr { number: 7, node_id: "PR".into(), title: "Fix the thing".into(), base: "main".into(), head_oid: "abc".into(), url: String::new(), author: "bo".into(), head_branch: "fix".into(), head_owner: "amy".into(), cross_repo: true, ..Default::default() });
-    let line = |heading, md, text: &str| gh::InfoLine { heading, md, text: text.into(), ..Default::default() };
+    let line = |heading, md, text: &str| InfoLine { heading, md, text: text.into(), ..Default::default() };
     app.info = vec![line(false, false, "OPEN @bo · main ← fix · +2 −2 in 3 files"), line(false, false, "review: waiting on @cy"), line(true, false, "description"), line(false, true, "Fixes **the thing**, see `new_call`.")];
     app.claude.summary = "Looks right; one nit.".into();
     app.summary_draft = "Nearly there.".into();
@@ -1594,7 +1594,7 @@ fn github_changes_shown_when_idle() {
     newer[0].comments.push(reply);
     let fetched = |threads: Vec<Thread>| -> review::Fetched {
         let r = gh::Review { pr_id: "PR".into(), mine: true, me: "you".into(), pending: None, pending_body: String::new(), threads, viewed: Default::default() };
-        (Ok(r), Ok(gh::Info { lines: app_info(), title: "Fix the thing".into(), head: "abc".into(), url: String::new(), state: ("OPEN", "238636"), unsigned: Some(vec![]), awaiting: 0, failing: 0, base: String::new() }))
+        (Ok(r), Ok(Info { lines: app_info(), title: "Fix the thing".into(), head: "abc".into(), url: String::new(), state: ("OPEN", "238636"), unsigned: Some(vec![]), awaiting: 0, failing: 0, base: String::new() }))
     };
     let replies = |app: &App| app.threads.iter().flat_map(|t| &t.comments).filter(|c| c.body == "Fair.").count();
     // Mid-way through something (here a picker): it waits. (What's shown came from the cache.)
@@ -1617,8 +1617,8 @@ fn github_changes_shown_when_idle() {
     assert_eq!(replies(&app), 1);
 }
 
-fn app_info() -> Vec<gh::InfoLine> {
-    vec![gh::InfoLine { heading: false, md: false, text: "OPEN @bo · main ← fix".into(), ..Default::default() }]
+fn app_info() -> Vec<InfoLine> {
+    vec![InfoLine { heading: false, md: false, text: "OPEN @bo · main ← fix".into(), ..Default::default() }]
 }
 
 #[test]
@@ -2001,7 +2001,7 @@ fn comments_in_folded_files_and_empty_reviews() {
     }
     assert!(app.rows[app.head.row].thread.is_some() && app.rows[app.head.row].file == a_rs && !app.collapsed.contains("src/a.rs"));
     // A review with no text (a verdict alone): its box closed, saying so.
-    let line = |heading, md, text: &str| gh::InfoLine { heading, md, text: text.into(), ..Default::default() };
+    let line = |heading, md, text: &str| InfoLine { heading, md, text: text.into(), ..Default::default() };
     app.info = vec![line(true, false, "conversation (1)"), line(true, false, "@bo · requested changes · 2m ago"), line(false, true, "")];
     app.build();
     let r = app.rows.iter().position(|r| r.line.text == "(no comment)").unwrap();
@@ -2197,10 +2197,10 @@ fn up_from_the_first_comment_stays_in_the_pane() {
 fn ask_claude_about_a_conversation_comment() {
     let mut app = fixture();
     let url = "https://github.com/o/r/pull/7#issuecomment-5";
-    let head = gh::InfoLine { heading: true, md: false, text: "@cy · commented".into(), url: url.into(), ..Default::default() };
-    app.info.push(gh::InfoLine { heading: true, md: false, text: "conversation (1)".into(), ..Default::default() });
+    let head = InfoLine { heading: true, md: false, text: "@cy · commented".into(), url: url.into(), ..Default::default() };
+    app.info.push(InfoLine { heading: true, md: false, text: "conversation (1)".into(), ..Default::default() });
     app.info.push(head);
-    app.info.push(gh::InfoLine { heading: false, md: true, text: "Can we rename it?".into(), ..Default::default() });
+    app.info.push(InfoLine { heading: false, md: true, text: "Can we rename it?".into(), ..Default::default() });
     // A question about it in Claude's review file: under it, on the PR tab.
     let c = gh::Comment { id: 0, node_id: String::new(), can_edit: false, can_delete: false, author: "you".into(), body: "what do they mean?".into(), created: String::new(), pending: false, reactions: vec![], hidden: String::new() };
     app.threads.push(gh::Thread { claude: Some("c9".into()), comments: vec![c], conversation: url.into(), ..Default::default() });
@@ -2616,7 +2616,7 @@ fn hidden_on_github_folded() {
 #[test]
 fn hidden_conversation_comment_folded() {
     let mut app = fixture();
-    let line = |heading, md, text: &str, node: &str, hidden: &str| gh::InfoLine { heading, md, text: text.into(), hidden: hidden.into(), node: node.into(), ..Default::default() };
+    let line = |heading, md, text: &str, node: &str, hidden: &str| InfoLine { heading, md, text: text.into(), hidden: hidden.into(), node: node.into(), ..Default::default() };
     app.info.extend([line(true, false, "conversation (1)", "", ""), line(true, false, "@bo · 1d ago", "IC_1", "spam"), line(false, true, "buy now", "", "")]);
     app.build();
     let s = screen(220, 45, |f| app.draw(f));
@@ -2748,7 +2748,7 @@ fn code_blocks_shaded_to_the_box_edge() {
 #[test]
 fn cursor_on_a_comment_stays_as_lines_come_before_it() {
     let mut app = fixture();
-    let line = |heading, md, text: &str, node: &str| gh::InfoLine { heading, md, text: text.into(), node: node.into(), ..Default::default() };
+    let line = |heading, md, text: &str, node: &str| InfoLine { heading, md, text: text.into(), node: node.into(), ..Default::default() };
     app.info.extend([line(true, false, "conversation (2)", ""), line(true, false, "@a · 2d ago", "IC_1"), line(false, true, "first", ""), line(true, false, "@b · 1d ago", "IC_2"), line(false, true, "second", "")]);
     app.build();
     let r = app.rows.iter().position(|r| r.line.text == "second").unwrap();

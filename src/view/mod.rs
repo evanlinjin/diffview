@@ -28,6 +28,8 @@ mod build;
 use build::*;
 mod files;
 mod git;
+mod info;
+use info::*;
 mod keys;
 mod layout;
 mod mouse;
@@ -685,7 +687,7 @@ pub struct App {
     pub merge: bool,
     pr: Option<Pr>,
     threads: Vec<Thread>,
-    info: Vec<gh::InfoLine>,
+    info: Vec<InfoLine>,
     info_collapsed: bool,
     /// How the checkout stands against the PR (`refresh_sync`): empty when in step.
     sync: String,
@@ -712,7 +714,7 @@ pub struct App {
     /// (the `Pending` tab): the same for your pending review.
     view: View,
     /// The PR's state and its color (DRAFT, OPEN, …), at the right end of its header line.
-    pr_state: Option<gh::State>,
+    pr_state: Option<State>,
     /// The replacement checked out here, if it is one (`replace.rs`): shown in the PR section;
     /// and when its record last changed (Claude redrafting it: it's shown again).
     replacement: Option<crate::replace::Record>,
