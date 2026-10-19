@@ -992,15 +992,15 @@ pub fn info_json(n: u64) -> Result<Value> {
     Ok(v)
 }
 
-pub type Info = (Vec<InfoLine>, String, String, String, State, Vec<String>, (usize, usize));
+pub type Info = (Vec<InfoLine>, String, String, String, State, Vec<String>, (usize, usize), String);
 
 /// The PR section's lines, its title, head, URL and state, its commits GitHub has no valid
-/// signature on, and (workflow runs awaiting approval, checks failing).
+/// signature on, (workflow runs awaiting approval, checks failing), and its base branch.
 pub fn parse_info(v: &Value) -> Info {
     let s = |k: &str| v[k].as_str().unwrap_or("").to_owned();
     let unsigned = v["dvCommits"].as_array().into_iter().flatten().filter(|c| c["signed"] != true).filter_map(|c| c["oid"].as_str().map(str::to_owned)).collect();
     let failing = v["statusCheckRollup"].as_array().into_iter().flatten().filter(|c| verdict(c) == '✗').count();
-    (info_lines(v), s("title"), s("headRefOid"), s("url"), state(v), unsigned, (v["dvAwaiting"].as_u64().unwrap_or(0) as usize, failing))
+    (info_lines(v), s("title"), s("headRefOid"), s("url"), state(v), unsigned, (v["dvAwaiting"].as_u64().unwrap_or(0) as usize, failing), s("baseRefName"))
 }
 
 /// A PR's state as GitHub shows it, with its color: DRAFT, OPEN, MERGED or CLOSED.

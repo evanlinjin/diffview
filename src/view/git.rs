@@ -10,6 +10,10 @@ impl App {
 
     /// `Space g`: what there is to do with the working tree and the branch.
     pub(super) fn git_menu(&mut self) {
+        // dv's rebase that ended some other way (in a terminal, say): its note goes.
+        if !super::rebase::rebasing(&self.root) && self.claude.job.is_none() {
+            super::rebase::forget_rebase(&self.root);
+        }
         // Stopped part way through a rebase: finish it or abort it, nothing else (HEAD is
         // detached, conflicts may be in the tree).
         if super::rebase::rebasing(&self.root) {
@@ -346,12 +350,9 @@ enum Push {
 
 #[test]
 fn push_or_force() {
-    let dir = std::env::temp_dir().join(format!("dv-push-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    let git = |args: &[&str]| diff::git(&[&["-C", &dir.to_string_lossy()], args].concat()).unwrap();
-    let commit = |m: &str| git(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", m]);
-    git(&["init", "-q"]);
+    let dir = diff::scratch_repo("push");
+    let git = |args: &[&str]| diff::git_in(&dir, args).unwrap();
+    let commit = |m: &str| git(&["commit", "-q", "--allow-empty", "-m", m]);
     commit("pr head");
     let pr_head = git(&["rev-parse", "HEAD"]).trim().to_owned();
     assert_eq!(push_state(&dir, &pr_head), Push::Nothing);

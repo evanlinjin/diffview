@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Fixed
+- A question about a commit shows while that commit (or only what isn't committed) is shown;
+  it offers Ask or Change (no suggestion: it's on no lines), Ask preselected; and it follows
+  the commit when the commit is amended or rebased.
+- The PR's base changed on GitHub while dv is open: a rebase goes onto the new one (0.31.0
+  said so, but dv didn't re-read the base).
+- The Claude or Pending tab with nothing in it says so on an earlier commit too; a note of
+  dv's rebase that ended in a terminal is forgotten.
+
 ## [0.31.0] - 2026-10-19
 
 ### Added

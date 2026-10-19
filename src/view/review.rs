@@ -698,7 +698,7 @@ impl App {
             Err(e) => self.msg = format!("loading comments: {e:#}"),
         }
         match info {
-            Ok((lines, title, head, url, state, unsigned, (awaiting, failing))) => {
+            Ok((lines, title, head, url, state, unsigned, (awaiting, failing), base)) => {
                 (self.awaiting, self.failing) = (awaiting, failing);
                 (self.info, self.pr_state) = (lines, Some(state));
                 // GitHub's word on its commits' signatures, for the contents' commits.
@@ -708,6 +708,14 @@ impl App {
                 self.unsigned = unsigned;
                 if let Some(pr) = &mut self.pr {
                     (pr.title, pr.head_oid, pr.url) = (title, head, url);
+                    // Its base changed on GitHub: the diff follows the new one (and a rebase
+                    // goes onto it).
+                    if !base.is_empty() && base != pr.base {
+                        if self.follow_base.as_deref() == Some(&format!("origin/{}", pr.base)) {
+                            self.follow_base = Some(format!("origin/{base}"));
+                        }
+                        pr.base = base;
+                    }
                 }
                 self.refresh_sync(); // the PR's head may have moved
             }

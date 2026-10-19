@@ -1022,6 +1022,10 @@ fn ask_claude_about_a_commit() {
     app.commits = vec![files::Commit { sha: "abcdef1234".into(), short: "abcdef1".into(), subject: "add parse".into(), signed: true }];
     // `a` on it: what you want, then the editor, starting from which commit.
     app.ask_commit(0);
+    // On no lines, no suggestion to post: ask (preselected) or change.
+    let p = app.picker.as_mut().unwrap();
+    assert_eq!((p.items.len(), p.sel), (2, 0));
+    p.sel = 1;
     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     let Some(Action::AskConversation { url, prefill, want: "change" }) = app.action.take() else { panic!("no question about the commit") };
     assert_eq!(url, "https://github.com/o/r/pull/1/commits/abcdef1234");
@@ -1031,7 +1035,12 @@ fn ask_claude_about_a_commit() {
     app.load_claude();
     _ = std::fs::remove_dir_all(&dir);
     app.build();
-    assert!(app.rows.iter().any(|r| r.line.text == "about commit abcdef12"));
+    assert!(app.rows.iter().any(|r| r.line.text == "about commit abcdef1"));
+    // Shown while that commit alone is too (it's on no lines).
+    app.commit_shown = Some((0, 0));
+    app.build();
+    assert!(app.rows.iter().any(|r| r.line.text == "about commit abcdef1"));
+    app.commit_shown = None;
     assert!(app.rows.iter().any(|r| r.line.text.starts_with("[waiting] [change] you")));
     assert_eq!(app.change_requests(), 1);
 }
@@ -1574,7 +1583,7 @@ fn github_changes_shown_when_idle() {
     newer[0].comments.push(reply);
     let fetched = |threads: Vec<Thread>| -> review::Fetched {
         let r = gh::Review { pr_id: "PR".into(), mine: true, me: "you".into(), pending: None, pending_body: String::new(), threads, viewed: Default::default() };
-        (Ok(r), Ok((app_info(), "Fix the thing".into(), "abc".into(), String::new(), ("OPEN", "238636"), vec![], (0, 0))))
+        (Ok(r), Ok((app_info(), "Fix the thing".into(), "abc".into(), String::new(), ("OPEN", "238636"), vec![], (0, 0), String::new())))
     };
     let replies = |app: &App| app.threads.iter().flat_map(|t| &t.comments).filter(|c| c.body == "Fair.").count();
     // Mid-way through something (here a picker): it waits. (What's shown came from the cache.)
@@ -2560,18 +2569,14 @@ fn back_from_the_pr_tab_after_the_conversation_grows() {
 fn diff_base_follows_a_rebase() {
     // The PR rebased onto its base branch, moved on: the diff starts at the new fork point, not
     // the old one (which would show the base's own commits as the PR's).
-    let dir = std::env::temp_dir().join(format!("dv-rebase-{}", std::process::id()));
-    _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    let d = dir.to_string_lossy().into_owned();
-    let git = |args: &[&str]| diff::git(&[&["-C", d.as_str(), "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"], args].concat()).unwrap().trim().to_owned();
+    let dir = diff::scratch_repo("rebase");
+    let git = |args: &[&str]| diff::git_in(&dir, args).unwrap().trim().to_owned();
     let commit = |f: &str| {
         std::fs::write(dir.join(f), f).unwrap();
         git(&["add", f]);
         git(&["commit", "-qm", f]);
         git(&["rev-parse", "HEAD"])
     };
-    git(&["init", "-q", "-b", "main"]);
     let a = commit("a");
     git(&["checkout", "-qb", "pr"]);
     commit("p");

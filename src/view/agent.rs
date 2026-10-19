@@ -106,10 +106,16 @@ impl App {
     /// Whether thread `t` shows: in the Claude view, only those of Claude's review; in the
     /// pending view, those with a comment of your pending review.
     pub(super) fn in_view(&self, t: &Thread) -> bool {
-        // Comments are on the PR's head: not on commits before it.
-        if self.before_head() {
+        // Comments are on the PR's head: not on commits before it (but one about a commit is
+        // on no lines: it shows whatever's shown).
+        if self.before_head() && commit_of(&t.conversation).is_none() {
             return false;
         }
+        self.of_view(t)
+    }
+
+    /// Whether thread `t` is of the view (Claude's, your pending review's), shown or not.
+    fn of_view(&self, t: &Thread) -> bool {
         match self.view {
             View::All => true,
             View::Claude => t.claude.is_some(),
@@ -141,11 +147,18 @@ impl App {
         if self.claude.path.is_none() {
             return self.msg = "no review file here (not in a git repo?)".into();
         }
-        let last = t.and_then(|t| WANTS.iter().position(|w| w.0 == self.threads[t].want));
-        let sel = last.unwrap_or(if self.theirs { 1 } else { 2 });
-        let items = WANTS
+        // About a commit (on no lines): no suggestion to post; an answer, unless you said.
+        let commit = matches!(&action, Action::AskConversation { .. });
+        let wants: Vec<_> = WANTS.iter().filter(|w| !(commit && w.0 == "suggest")).collect();
+        let last = t.and_then(|t| wants.iter().position(|w| w.0 == self.threads[t].want));
+        let sel = last.unwrap_or(match (commit, self.theirs) {
+            (true, _) => 0,
+            (false, true) => 1,
+            (false, false) => 2,
+        });
+        let items = wants
             .iter()
-            .map(|&(key, _, _, label)| match key == "change" && self.theirs {
+            .map(|&&(key, _, _, label)| match key == "change" && self.theirs {
                 true => Item::new(format!("{label} (their PR: Space g pushes what you commit)"), Target::Want(key)),
                 false => Item::new(label, Target::Want(key)),
             })
@@ -178,10 +191,9 @@ impl App {
         };
     }
 
-    /// Whether the view has threads in it (on an earlier commit, they're there but hidden:
-    /// it isn't empty).
+    /// Whether the view has threads in it (on an earlier commit too, where they're hidden).
     pub(super) fn any_in_view(&self) -> bool {
-        self.before_head() || self.threads.iter().any(|t| self.in_view(t))
+        self.threads.iter().any(|t| self.of_view(t))
     }
 
     /// Replies of yours that Claude hasn't answered yet.

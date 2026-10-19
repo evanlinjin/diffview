@@ -215,12 +215,10 @@ fn merge_pane_closes_on_success() {
     };
     assert_eq!(run(&["true"], ""), (Some(0), String::new()));
     // Succeeding, it deletes the script's branches for the PR (in the checkout it runs in).
-    let dir = std::env::temp_dir().join(format!("dv-merge-branches-{}", std::process::id()));
-    _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    let git = |args: &[&str]| crate::diff::git(&[&["-C", &dir.to_string_lossy()], args].concat()).unwrap();
-    git(&["init", "-q", "-b", "master"]);
-    git(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x"]);
+    let dir = crate::diff::scratch_repo("merge-branches");
+    let git = |args: &[&str]| crate::diff::git_in(&dir, args).unwrap();
+    git(&["checkout", "-q", "-b", "master"]);
+    git(&["commit", "-q", "--allow-empty", "-m", "x"]);
     git(&["branch", "pull/7/base"]);
     git(&["branch", "pull/7/head"]);
     git(&["branch", "pull/8/head"]);

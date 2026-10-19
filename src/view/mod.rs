@@ -455,6 +455,13 @@ pub(super) fn commit_of(url: &str) -> Option<&str> {
     url.rsplit_once("/commits/").map(|(_, s)| s).or_else(|| url.strip_prefix("commit:"))
 }
 
+impl App {
+    /// A commit's short sha, as the commits list has it (else its first 7 characters).
+    pub(super) fn commit_short(&self, sha: &str) -> String {
+        self.commits.iter().find(|c| c.sha == sha).map_or_else(|| sha.chars().take(7).collect(), |c| c.short.clone())
+    }
+}
+
 /// The threads picker's titles, one per filter (Tab goes round them): its title says which.
 const THREAD_TABS: [&str; 5] = [
     " threads: [all] unresolved pending Claude new ",
@@ -1025,7 +1032,7 @@ impl App {
                 let p = self.claude.path.clone().context("no review file")?;
                 let what = match (url == ON_SUMMARY, commit_of(&url)) {
                     (true, _) => "a question for Claude about the PR, or a reply to its review (it answers in the Claude tab; nothing goes to GitHub)".to_owned(),
-                    (_, Some(sha)) => format!("for Claude, about commit {}{}", &sha[..8.min(sha.len())], agent::want_hint(want)),
+                    (_, Some(sha)) => format!("for Claude, about commit {}{}", self.commit_short(sha), agent::want_hint(want)),
                     _ => "ask Claude about this conversation comment (it answers under it; nothing goes to GitHub)".to_owned(),
                 };
                 let Some(body) = compose_with(&what, false, &prefill, false)? else { return Ok("question cancelled".into()) };

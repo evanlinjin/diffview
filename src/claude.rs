@@ -632,6 +632,15 @@ pub fn add_conversation(path: &std::path::Path, url: &str, body: &str, want: &st
     push_comment(path, c)
 }
 
+/// The questions about the conversation item (a commit) at `from` are about `to` now.
+pub fn rename_conversation(path: &std::path::Path, from: &str, to: &str) -> Result<()> {
+    let mut v: Value = serde_json::from_str(&std::fs::read_to_string(path)?)?;
+    for c in v["comments"].as_array_mut().into_iter().flatten().filter(|c| c["conversation"] == from) {
+        c["conversation"] = to.into();
+    }
+    write(path, &v)
+}
+
 /// Add comment `c` to the review file at `path` (starting it if there isn't one); its id.
 fn push_comment(path: &std::path::Path, c: Value) -> Result<String> {
     let mut v: Value = match std::fs::read_to_string(path) {

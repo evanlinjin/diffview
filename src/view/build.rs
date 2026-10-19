@@ -308,8 +308,10 @@ impl App {
         // Threads on files that have left the diff (a change reverted, a file now matching the
         // base) would show nowhere: list them here, by file. Not when showing only what isn't
         // committed, where most files are out of the diff on purpose.
+        // (Questions about a commit are on no lines: listed whatever's shown.)
+        let about_commit = |t: usize| commit_of(&self.threads[t].conversation).is_some() && self.in_view(&self.threads[t]);
         let mut gone: Vec<usize> = match self.uncommitted() || self.commit_shown.is_some() {
-            true => vec![],
+            true => (0..self.threads.len()).filter(|&t| about_commit(t)).collect(),
             false => (0..self.threads.len())
                 .filter(|&t| self.in_view(&self.threads[t]) && !self.files.iter().any(|f| f.path == self.threads[t].path))
                 // Questions about the conversation are under their comment, in the whole diff.
@@ -323,11 +325,11 @@ impl App {
             let th = &self.threads[t];
             match (th.path.is_empty(), commit_of(&th.conversation)) {
                 (false, _) => th.path.clone(),
-                (true, Some(sha)) => format!("about commit {}", &sha[..8.min(sha.len())]),
+                (true, Some(sha)) => format!("about commit {}", self.commit_short(sha)),
                 (true, None) => "questions about the PR's conversation".into(),
             }
         };
-        gone.sort_by_key(|&t| (self.threads[t].path.is_empty(), label(t)));
+        gone.sort_by_cached_key(|&t| (self.threads[t].path.is_empty(), label(t)));
         if !gone.is_empty() {
             let heading = |text: String| Row::text(INFO, Kind::Thread, text);
             let on_files = gone.iter().filter(|&&t| !self.threads[t].path.is_empty()).count();

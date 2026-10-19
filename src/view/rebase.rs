@@ -50,7 +50,7 @@ pub(super) fn stopped_says(dir: &Path) -> &'static str {
     }
 }
 
-fn forget_rebase(dir: &Path) {
+pub(super) fn forget_rebase(dir: &Path) {
     if let Some(m) = marker(dir) {
         _ = std::fs::remove_file(m);
     }
@@ -120,6 +120,7 @@ impl App {
             if done {
                 self.follow(&onto);
                 self.reload_tree();
+                self.rekey_commits();
                 return Ok(format!("rebased onto {onto} (was {short}: {backup}); Space g force-pushes (with a lease)"));
             }
             self.reload_tree(); // (the diff's base stays till it's done: see follow_rebase)
@@ -183,6 +184,7 @@ impl App {
             if self.follow(&onto) {
                 self.reload_tree();
             }
+            self.rekey_commits();
             let dirty = !git_in(&self.root, &["status", "--porcelain", "--untracked-files=no"]).unwrap_or_default().trim().is_empty();
             self.msg += match dirty {
                 true => " · rebased, but Claude left changes uncommitted: check them, commit or amend (Space g), then force-push",
