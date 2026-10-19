@@ -170,6 +170,15 @@ loops, pipes into other commands, or `git -C`). Build and test with `cargo test`
 (`cargo +nightly fmt --check` works too); on another toolchain, as CI pins one, `dv cargo
 +1.85.0 clippy …` (check, build, test, clippy, doc or fmt --check, any toolchain).
 
+**Find out rather than ask.** When you could settle a question by running something (does
+this test fail without the fix? does the base build? does this input panic?), do it, here or
+in a review: `dv scratch <rev>` gives you a checkout of your own at that commit (detached,
+outside the user's work: `HEAD`, the base, `HEAD~1`), and prints its directory. Edit files
+there (revert the fix, add a repro) and run `cargo test --manifest-path <dir>/Cargo.toml`.
+`dv scratch --rm <dir>` when you're done. Then say what you found ("fails on master
+without the fix: …") instead of asking the user or the author to check. Never change the
+user's own checkout for this.
+
 Once a thread is settled, resolve it: set `"resolved": true` on the comment after your reply.
 It's settled when you've made the change it asked for, or you and the user agree it doesn't
 apply. Don't resolve one where you've only answered a question: the user may have more to say.

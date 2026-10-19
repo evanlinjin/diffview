@@ -30,6 +30,8 @@ const USAGE: &str = "usage: dv [base | PR | list] [-p N] [-f] [-w [-b]]
                    who, what), to answer them in its review (read only)
   dv rerun-failed  for Claude fixing CI: rerun the failed jobs on the PR's head (only those)
   dv cargo [+T] …  for Claude: cargo check/build/test/clippy/doc/fmt --check on any toolchain T
+  dv scratch R     for Claude: a checkout of commit R of its own (detached) to try things in;
+                   `dv scratch --rm <dir>` removes one (else they go after a day)
   dv amend C [F…] [-F M]  fold what isn't committed (in files F) into the branch's commit C, and/or
                    give it the message in file M (a backup branch first)
   dv replace 123 [124 …]   Claude drafts a replacement for those PRs, unpublished, on
@@ -123,6 +125,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Opts> {
             "rerun-failed" => o.cmd = Some("rerun-failed"),
             "amend" => (o.cmd, o.rest) = (Some("amend"), args.by_ref().collect()),
             "cargo" => (o.cmd, o.rest) = (Some("cargo"), args.by_ref().collect()),
+            "scratch" => (o.cmd, o.rest) = (Some("scratch"), args.by_ref().collect()),
             "install-skill" => o.cmd = Some("install-skill"),
             "replace" => o.cmd = Some("replace"),
             "replace-info" => o.cmd = Some("replace-info"),
@@ -207,6 +210,7 @@ fn run() -> anyhow::Result<()> {
             return Ok(());
         }
         Some("replace-info") => return replace::info(),
+        Some("scratch") => return scratch(&o.rest).map(|m| println!("{m}")),
         Some("amend") => {
             // The branch's own commits are those over the base dv diffs against (`review-info`'s).
             let base = diff_base(&o, gh::pr(None).ok().as_ref())?;
@@ -699,6 +703,43 @@ pub(crate) fn pr_worktrees() -> Vec<(u64, PathBuf, Option<String>)> {
 
 fn common_dir(d: &Path) -> anyhow::Result<String> {
     Ok(diff::git(&["-C", &d.to_string_lossy(), "rev-parse", "--path-format=absolute", "--git-common-dir"])?.trim().to_owned())
+}
+
+/// `dv scratch <rev>`: for Claude, a checkout of its own at `rev` (detached, in dv's directory,
+/// where it may write), to find out rather than ask: whether a test fails without the fix,
+/// whether the base builds. Ones over a day old go first; `dv scratch --rm <dir>` removes one
+/// now. What to tell Claude.
+fn scratch(rest: &[String]) -> anyhow::Result<String> {
+    let root = claude::dv_dir()?.join("scratch");
+    let remove = |d: &std::path::Path| {
+        _ = diff::git(&["worktree", "remove", "--force", &d.to_string_lossy()]);
+        _ = std::fs::remove_dir_all(d);
+    };
+    if rest.first().map(String::as_str) == Some("--rm") {
+        let d = PathBuf::from(rest.get(1).context("dv scratch --rm <dir>")?).canonicalize()?;
+        anyhow::ensure!(d.starts_with(root.canonicalize()?) && d != root.canonicalize()?, "{} isn't one of dv's scratch checkouts", d.display());
+        remove(&d);
+        _ = diff::git(&["worktree", "prune"]);
+        return Ok(format!("removed {}", d.display()));
+    }
+    let rev = rest.first().filter(|r| !r.starts_with('-')).context("dv scratch <rev>, e.g. `dv scratch HEAD` or `dv scratch origin/master`")?;
+    let day = std::time::Duration::from_secs(24 * 60 * 60);
+    for e in std::fs::read_dir(&root).into_iter().flatten().flatten() {
+        if e.metadata().and_then(|m| m.modified()).is_ok_and(|t| t.elapsed().is_ok_and(|a| a > day)) {
+            remove(&e.path());
+        }
+    }
+    _ = diff::git(&["worktree", "prune"]);
+    let sha = diff::git(&["rev-parse", "--short", "--verify", "--end-of-options", &format!("{rev}^{{commit}}")])?.trim().to_owned();
+    std::fs::create_dir_all(&root)?;
+    let dir = root.join(format!("{sha}-{}", std::process::id()));
+    let d = dir.display();
+    diff::git(&["worktree", "add", "--detach", "--quiet", &dir.to_string_lossy(), &sha])?;
+    Ok(format!(
+        "{d}\n(a checkout of {rev} at {sha}, detached and yours: edit its files, then build and test it with \
+         `cargo test --manifest-path {d}/Cargo.toml` (or any cargo command allowed, with --manifest-path); \
+         removed after a day, or now with `dv scratch --rm {d}`)"
+    ))
 }
 
 /// `dv cargo [+toolchain] <check|build|test|clippy|doc|fmt --check> …`: for Claude, cargo on any
