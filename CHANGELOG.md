@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-10-19
+
 ### Added
 - `a` on a commit in the commits list (`Ctrl-w e`): ask Claude about it, or for a change to it
   (Ask / Suggest / Change first, as on lines). Its thread is under "about commit …"; a change
@@ -12,6 +14,8 @@ on GitHub are its section here.
 
 ### Changed
 - In the commits list, amending what isn't committed into a commit is `f` (fold), not `a`.
+- `Ctrl-w a` is gone: the Claude view is the comments pane's `Claude` tab (`gn` / `gp`, or a
+  click), as the pending view is the `Pending` tab.
 
 ### Fixed
 - Rebasing with Claude: it couldn't carry the rebase on (its `git` commands came prefixed or
@@ -21,10 +25,8 @@ on GitHub are its section here.
   the base is fetched whatever the remote's refspec.
 - The summaries' strip in the pane isn't cut where a short diff ends; an earlier commit shown
   doesn't make the Claude or Pending tab say it's empty.
-
-### Changed
-- `Ctrl-w a` is gone: the Claude view is the comments pane's `Claude` tab (`gn` / `gp`, or a
-  click), as the pending view is the `Pending` tab.
+- A stale note of dv's rebase no longer claims one you started; an up-to-date branch leaves no
+  backup branch; the rebase goes onto the PR's current base.
 
 ## [0.30.2] - 2026-10-19
 
@@ -922,6 +924,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.31.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.31.0
 [0.30.2]: https://github.com/evanlinjin/diffview/releases/tag/v0.30.2
 [0.30.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.30.1
 [0.30.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.30.0
