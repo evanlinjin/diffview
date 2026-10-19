@@ -22,6 +22,7 @@ pub mod issues;
 mod todo;
 pub(crate) mod github;
 mod draw;
+use draw::draw_help;
 mod keys;
 mod marks;
 use {keys::*, marks::*};
@@ -378,34 +379,13 @@ impl List {
     /// ones (kept if left as they are). In zellij the editor gets a pane beside the list;
     /// elsewhere it takes the terminal. `None`: cancelled (`:cq`), or it failed (said so).
     fn instructions(&mut self, term: &mut DefaultTerminal, kind: &str, what: &str) -> Option<String> {
-        let last = crate::claude::instructions(kind);
-        let extra = self.edit_text(term, what, last.trim(), true)?;
-        _ = crate::claude::save_instructions(kind, &extra);
-        Some(extra)
+        said(instructions(term, kind, what), &mut self.msg)
     }
 
     /// Your editor on `prefill` (kept as is if you leave it: `untouched_ok`), as `instructions`
     /// opens it. `None`: cancelled, or it failed (said so).
     fn edit_text(&mut self, term: &mut DefaultTerminal, what: &str, prefill: &str, allow_empty: bool) -> Option<String> {
-        let in_pane = crate::view::in_zellij();
-        if !in_pane {
-            crate::view::restore_terminal();
-        }
-        let text = crate::view::compose_with(what, allow_empty, prefill, true);
-        if !in_pane {
-            *term = crate::view::init_terminal();
-        }
-        match text {
-            Ok(Some(t)) => Some(t),
-            Ok(None) => {
-                self.msg = "cancelled".into();
-                None
-            }
-            Err(e) => {
-                self.msg = format!("{e:#}");
-                None
-            }
-        }
+        said(edit(term, what, prefill, allow_empty), &mut self.msg)
     }
 
     /// Marks on PRs closed or merged go (ones not looked up yet stay).
@@ -814,35 +794,81 @@ impl Order {
 /// `is:draft`, `review:approved|changes|required|none`, `ci:pass|fail|pending|none`, else text
 /// in the number, title, author, branch or labels. `-` negates. Smart case.
 fn term(p: &Listed, t: &str) -> bool {
+    let labels = || p.labels.iter().map(|l| l.0.as_str()).collect::<Vec<_>>().join(" ");
+    filter_term(
+        t,
+        |k, v, has| {
+            Some(match k {
+                "author" => has(&p.author, v),
+                "label" => p.labels.iter().any(|l| has(&l.0, v)),
+                "base" => has(&p.base, v),
+                "branch" => has(&p.branch, v),
+                "is" if v == "draft" => p.draft,
+                "review" => match p.decision.as_str() {
+                    "APPROVED" => "approved".starts_with(v),
+                    "CHANGES_REQUESTED" => "changes".starts_with(v),
+                    "REVIEW_REQUIRED" => "required".starts_with(v),
+                    _ => v == "none",
+                },
+                // Unknown until the checks arrive; then a PR can match several (fail and pending).
+                "ci" => match p.checks {
+                    Some((0, 0, 0)) | None => v == "none",
+                    Some((pass, fail, pending)) => {
+                        ("pass".starts_with(v) && pass > 0 && fail == 0 && pending == 0) || ("fail".starts_with(v) && fail > 0) || ("pending".starts_with(v) && pending > 0)
+                    }
+                },
+                _ => return None,
+            })
+        },
+        || format!("#{} {} @{} {} {}", p.number, p.title, p.author, p.branch, labels()),
+    )
+}
+
+/// One filter term, GitHub-search style, for dv list's and dv issues' `/`: `key:value` as
+/// `keyed` says (`None`: not a key it knows, so text), else text in `hay`; `-` negates (a lone
+/// `-` is text). Smart case: lowercase matches either case. `keyed` gets the key, the value, and
+/// `has(field, value)`, the same substring rule.
+pub(super) fn filter_term(t: &str, keyed: impl Fn(&str, &str, &dyn Fn(&str, &str) -> bool) -> Option<bool>, hay: impl FnOnce() -> String) -> bool {
     let (neg, t) = match t.strip_prefix('-') {
         Some(rest) if !rest.is_empty() => (true, rest),
         _ => (false, t),
     };
-    let fold = |s: &str| if t.chars().any(char::is_uppercase) { s.to_owned() } else { s.to_lowercase() };
-    let has = |field: &str, v: &str| fold(field).contains(v);
-    let labels = || p.labels.iter().map(|l| l.0.as_str()).collect::<Vec<_>>().join(" ");
-    let hit = match t.split_once(':') {
-        Some(("author", v)) => has(&p.author, v),
-        Some(("label", v)) => p.labels.iter().any(|l| has(&l.0, v)),
-        Some(("base", v)) => has(&p.base, v),
-        Some(("branch", v)) => has(&p.branch, v),
-        Some(("is", "draft")) => p.draft,
-        Some(("review", v)) => match p.decision.as_str() {
-            "APPROVED" => "approved".starts_with(v),
-            "CHANGES_REQUESTED" => "changes".starts_with(v),
-            "REVIEW_REQUIRED" => "required".starts_with(v),
-            _ => v == "none",
-        },
-        // Unknown until the checks arrive; then a PR can match several (fail and pending).
-        Some(("ci", v)) => match p.checks {
-            Some((0, 0, 0)) | None => v == "none",
-            Some((pass, fail, pending)) => {
-                ("pass".starts_with(v) && pass > 0 && fail == 0 && pending == 0)
-                    || ("fail".starts_with(v) && fail > 0)
-                    || ("pending".starts_with(v) && pending > 0)
-            }
-        },
-        _ => has(&format!("#{} {} @{} {} {}", p.number, p.title, p.author, p.branch, labels()), t),
-    };
+    let smart = !t.chars().any(char::is_uppercase);
+    let has = |field: &str, v: &str| if smart { field.to_lowercase().contains(v) } else { field.contains(v) };
+    let hit = t.split_once(':').and_then(|(k, v)| keyed(k, v, &has)).unwrap_or_else(|| has(&hay(), t));
     hit != neg
+}
+
+/// Your editor on `prefill` (kept as is if you leave it), from a list: in zellij a pane beside
+/// it; elsewhere it takes the terminal, given back after. `None`: cancelled (`:cq`).
+pub(super) fn edit(term: &mut DefaultTerminal, what: &str, prefill: &str, allow_empty: bool) -> Result<Option<String>> {
+    let in_pane = crate::view::in_zellij();
+    if !in_pane {
+        crate::view::restore_terminal();
+    }
+    let text = crate::view::compose_with(what, allow_empty, prefill, true);
+    if !in_pane {
+        *term = crate::view::init_terminal();
+    }
+    text
+}
+
+/// Your instructions to Claude for `kind` of task, in your editor, starting from the last ones
+/// (kept, if left as they are).
+pub(super) fn instructions(term: &mut DefaultTerminal, kind: &str, what: &str) -> Result<Option<String>> {
+    let last = crate::claude::instructions(kind);
+    let extra = edit(term, what, last.trim(), true)?;
+    if let Some(e) = &extra {
+        _ = crate::claude::save_instructions(kind, e);
+    }
+    Ok(extra)
+}
+
+/// What the editor gave, with `msg` saying why there's nothing (cancelled, or what failed).
+pub(super) fn said(text: Result<Option<String>>, msg: &mut String) -> Option<String> {
+    match text {
+        Ok(Some(t)) => Some(t),
+        Ok(None) => (*msg = "cancelled".into(), None).1,
+        Err(e) => (*msg = format!("{e:#}"), None).1,
+    }
 }

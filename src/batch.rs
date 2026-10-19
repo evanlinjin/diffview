@@ -73,17 +73,37 @@ impl Status {
 /// the task) from the repo at `root`, with the user's `extra` instructions (if any); progress
 /// comes back on the receiver.
 pub fn start(prs: Vec<(u64, bool, Task)>, root: PathBuf, extra: String) -> Receiver<(u64, Status)> {
-    let (tx, rx) = mpsc::channel();
-    for &(n, ..) in &prs {
-        _ = tx.send((n, Status::Queued));
+    pool(prs, move |(n, branch, task), tx| (*n, run(*n, *branch, task, &root, &extra, tx).unwrap_or_else(|e| Status::Failed(format!("{e:#}")))))
+}
+
+/// Something to do (a PR to review, an issue to triage): its number first.
+pub trait Numbered {
+    fn number(&self) -> u64;
+}
+
+impl Numbered for u64 {
+    fn number(&self) -> u64 {
+        *self
     }
-    let queue = Arc::new(Mutex::new(VecDeque::from(prs)));
+}
+
+impl Numbered for (u64, bool, Task) {
+    fn number(&self) -> u64 {
+        self.0
+    }
+}
+
+/// `items` done by `work` (which may say how it's going on the sender), `AT_ONCE` at a time,
+/// in the background: each queued first, then its news and how it ended, by number.
+pub fn pool<T: Numbered + Send + 'static>(items: Vec<T>, work: impl Fn(&T, &Sender<(u64, Status)>) -> (u64, Status) + Send + Sync + 'static) -> Receiver<(u64, Status)> {
+    let (tx, rx) = mpsc::channel();
+    items.iter().for_each(|i| _ = tx.send((i.number(), Status::Queued)));
+    let (queue, work) = (Arc::new(Mutex::new(VecDeque::from(items))), Arc::new(work));
     for _ in 0..AT_ONCE {
-        let (queue, tx, root, extra) = (queue.clone(), tx.clone(), root.clone(), extra.clone());
+        let (queue, tx, work) = (queue.clone(), tx.clone(), work.clone());
         std::thread::spawn(move || {
-            while let Some((n, branch, task)) = queue.lock().ok().and_then(|mut q| q.pop_front()) {
-                let status = run(n, branch, &task, &root, &extra, &tx).unwrap_or_else(|e| Status::Failed(format!("{e:#}")));
-                _ = tx.send((n, status));
+            while let Some(item) = queue.lock().ok().and_then(|mut q| q.pop_front()) {
+                _ = tx.send(work(&item, &tx));
             }
         });
     }

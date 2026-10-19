@@ -245,14 +245,20 @@ impl List {
             f.render_widget(Paragraph::new(lines), Rect { height: inner.height + 1, ..inner });
         }
         if self.help {
-            // As dv's help: sections, keys in their color, notes dim; two columns when they fit.
-            let body = crate::view::help_lines(HELP, ui, area.width.saturating_sub(4) as usize, "");
-            let w = (body.iter().map(Line::width).max().unwrap_or(0) as u16 + 4).min(area.width);
-            let h = (body.len() as u16 + 3).min(area.height);
-            let r = Rect { x: (area.width - w) / 2, y: (area.height - h) / 2, width: w, height: h };
-            let inner = crate::view::popup_frame(ui, f, r, "dv list keys", "any key closes");
-            f.render_widget(Paragraph::new(body), Rect { y: inner.y + 1, height: inner.height.saturating_sub(1), ..inner });
+            draw_help(f, ui, HELP, "dv list keys");
         }
         self.tab_hits = hits; // where the tabs are, for clicks
     }
+}
+
+/// A list's help (`?`), centered: as dv's (sections, keys in their color, notes dim; two
+/// columns when they fit).
+pub(super) fn draw_help(f: &mut Frame, ui: &Ui, help: &str, title: &str) {
+    let area = f.area();
+    let body = crate::view::help_lines(help, ui, area.width.saturating_sub(4) as usize, "");
+    let w = (body.iter().map(Line::width).max().unwrap_or(0) as u16 + 4).min(area.width);
+    let h = (body.len() as u16 + 3).min(area.height);
+    let r = Rect { x: (area.width - w) / 2, y: (area.height - h) / 2, width: w, height: h };
+    let inner = crate::view::popup_frame(ui, f, r, title, "any key closes");
+    f.render_widget(Paragraph::new(body), Rect { y: inner.y + 1, height: inner.height.saturating_sub(1), ..inner });
 }

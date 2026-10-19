@@ -153,20 +153,10 @@ pub fn default_branch() -> String {
 
 /// Claude triages each of `ns`, a couple at a time, in the background: its news on the receiver.
 fn triage_all(ns: Vec<u64>, root: PathBuf, extra: String) -> Receiver<(u64, batch::Status)> {
-    let (tx, rx) = mpsc::channel();
-    ns.iter().for_each(|&n| _ = tx.send((n, batch::Status::Queued)));
-    let queue = std::sync::Arc::new(std::sync::Mutex::new(std::collections::VecDeque::from(ns)));
-    for _ in 0..batch::AT_ONCE {
-        let (queue, tx, root, extra) = (queue.clone(), tx.clone(), root.clone(), extra.clone());
-        std::thread::spawn(move || {
-            while let Some(n) = queue.lock().ok().and_then(|mut q| q.pop_front()) {
-                _ = tx.send((n, batch::Status::Reviewing));
-                let st = triage_run(n, &root, &extra).unwrap_or_else(|e| batch::Status::Failed(format!("{e:#}")));
-                _ = tx.send((n, st));
-            }
-        });
-    }
-    rx
+    batch::pool(ns, move |&n, tx| {
+        _ = tx.send((n, batch::Status::Reviewing));
+        (n, triage_run(n, &root, &extra).unwrap_or_else(|e| batch::Status::Failed(format!("{e:#}"))))
+    })
 }
 
 /// What the issues list asks of its caller.
@@ -247,24 +237,20 @@ impl Issues {
     fn matches(&self, i: &Issue) -> bool {
         let t = self.triage.get(&i.number);
         self.query.split_whitespace().all(|term| {
-            let (neg, term) = match term.strip_prefix('-').filter(|t| !t.is_empty()) {
-                Some(t) => (true, t),
-                None => (false, term),
-            };
-            let low = |s: &str| s.to_lowercase();
-            let term = low(term);
-            let hit = match term.split_once(':') {
-                Some(("label", v)) => i.labels.iter().any(|l| low(&l.0).contains(v)),
-                Some(("author", v)) => low(&i.author).contains(v),
-                Some(("kind", v)) => t.is_some_and(|t| low(&t.kind).contains(v)),
-                Some(("priority", v)) => t.is_some_and(|t| low(&t.priority).contains(v)),
-                Some(("is", "triaged")) => t.is_some(),
-                _ => {
-                    let hay = format!("#{} {} {} {}", i.number, low(&i.title), low(&i.author), i.labels.iter().map(|l| low(&l.0)).collect::<Vec<_>>().join(" "));
-                    hay.contains(&term)
-                }
-            };
-            hit != neg
+            filter_term(
+                term,
+                |k, v, has| {
+                    Some(match k {
+                        "label" => i.labels.iter().any(|l| has(&l.0, v)),
+                        "author" => has(&i.author, v),
+                        "kind" => t.is_some_and(|t| has(&t.kind, v)),
+                        "priority" => t.is_some_and(|t| has(&t.priority, v)),
+                        "is" if v == "triaged" => t.is_some(),
+                        _ => return None,
+                    })
+                },
+                || format!("#{} {} @{} {}", i.number, i.title, i.author, i.labels.iter().map(|l| l.0.as_str()).collect::<Vec<_>>().join(" ")),
+            )
         })
     }
 
@@ -424,21 +410,7 @@ impl Issues {
         if ns.is_empty() {
             return self.msg = "nothing to triage (Claude's at it already?)".into();
         }
-        let in_pane = crate::view::in_zellij();
-        if !in_pane {
-            crate::view::restore_terminal();
-        }
-        let last = crate::claude::instructions("triage");
-        let extra = crate::view::compose_with("instructions for Claude's triage (optional)", true, last.trim(), true);
-        if !in_pane {
-            *term = crate::view::init_terminal();
-        }
-        let extra = match extra {
-            Ok(Some(e)) => e,
-            Ok(None) => return self.msg = "cancelled".into(),
-            Err(e) => return self.msg = format!("{e:#}"),
-        };
-        _ = crate::claude::save_instructions("triage", &extra);
+        let Some(extra) = said(instructions(term, "triage", "instructions for Claude's triage (optional)"), &mut self.msg) else { return };
         self.msg = format!("Claude is triaging {} issue(s), {} at a time", ns.len(), batch::AT_ONCE);
         self.marked.clear();
         self.running_rx.push(triage_all(ns, self.root.clone(), extra));
@@ -505,12 +477,7 @@ impl Issues {
         let w = (pos.len() as u16).min(status.width);
         f.render_widget(Paragraph::new(pos).style(bar), Rect { x: status.right() - w, width: w, ..status });
         if self.help {
-            let body = crate::view::help_lines(ISSUES_HELP, ui, area.width.saturating_sub(4) as usize, "");
-            let w = (body.iter().map(Line::width).max().unwrap_or(0) as u16 + 4).min(area.width);
-            let h = (body.len() as u16 + 3).min(area.height);
-            let r = Rect { x: (area.width - w) / 2, y: (area.height - h) / 2, width: w, height: h };
-            let inner = crate::view::popup_frame(ui, f, r, "dv issues keys", "any key closes");
-            f.render_widget(Paragraph::new(body), Rect { y: inner.y + 1, height: inner.height.saturating_sub(1), ..inner });
+            draw_help(f, ui, ISSUES_HELP, "dv issues keys");
         }
         self.top = top;
     }
