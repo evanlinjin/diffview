@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.30.1] - 2026-10-19
+
 ### Added
 - Rebase onto the base branch with Claude's help: `Space g` → "Rebase onto origin/<base>"
   fetches it and rebases (HEAD kept on a backup branch first); if it stops on conflicts,
@@ -888,6 +890,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.30.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.30.1
 [0.30.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.30.0
 [0.29.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.29.0
 [0.28.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.28.1
