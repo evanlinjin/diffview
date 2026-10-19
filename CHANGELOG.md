@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.31] - 2026-10-19
+
+### Changed
+- Inside dv, no change you'd see: `view/mod.rs` keeps App and its loop (what belongs to other
+  modules moved there, what's done with the editor to `compose.rs`); App's fields default,
+  pickers name the action or job they do, and each job says what it's doing.
+
 ## [0.34.30] - 2026-10-19
 
 ### Added
