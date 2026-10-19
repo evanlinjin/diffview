@@ -838,7 +838,8 @@ pub fn reanchor(threads: &mut [Thread], files: &[FileDiff]) {
             // (Back on its code, one marked outdated by an earlier pass isn't any more.)
             Found::Unknown => {}
             Found::Here => (t.outdated, t.line) = (false, t.line.or(t.original_line)),
-            Found::Moved(s, l) => (t.start_line, t.line, t.outdated) = (s, Some(l), false),
+            // (Its new place is where it was last seen, should its code go and come back.)
+            Found::Moved(s, l) => (t.start_line, t.line, t.original_line, t.outdated) = (s, Some(l), Some(l), false),
             Found::Gone => (t.outdated, t.line) = (true, None),
         }
     }
@@ -1038,6 +1039,13 @@ fn anchoring() {
     reanchor(&mut r.threads, std::slice::from_ref(&f));
     assert_eq!((r.threads[0].line, r.threads[0].outdated), (Some(2), false));
     assert_eq!((r.threads[1].line, r.threads[1].outdated), (None, true));
+    // Its code gone, then back (kept in memory while the file can't be read): where it moved to.
+    r.threads[0].hunk = vec!["+    gone();".into()];
+    reanchor(&mut r.threads, std::slice::from_ref(&f));
+    assert_eq!((r.threads[0].line, r.threads[0].outdated), (None, true));
+    r.threads[0].hunk = vec!["+    new_call(x);".into()];
+    reanchor(&mut r.threads, std::slice::from_ref(&f));
+    assert_eq!((r.threads[0].line, r.threads[0].outdated), (Some(2), false));
     // check moves a moved comment in the file too.
     let mut v: Value = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
     v["comments"][0]["line"] = 1.into();
