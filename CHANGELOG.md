@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.40.1] - 2026-10-19
+
+### Fixed
+- Committing never runs while Claude is at work in the checkout, however it's reached (an editor
+  pane closing late, a reply sent meanwhile: that one waits for Space a).
+- Claude's commit message is kept when your editor can't open with it then (a menu open): `Space g`
+  → commit opens with it, no second run. It's written on a fork of the PR's session, so the
+  review's conversation doesn't carry it.
+
 ## [0.40.0] - 2026-10-19
 
 ### Added
