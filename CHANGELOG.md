@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- Amend what isn't committed (Claude's changes, say) into the PR's commits it belongs in:
+  `Space g` → "Amend it into the PR's commits…" shows where each change goes (the commit that
+  wrote the lines it changes, by `git blame`) before anything happens; Claude can be asked
+  about the ones blame can't place (new lines). A backup branch first; the rest stays
+  uncommitted. `a` on a commit in `Ctrl-w e`'s list amends it all into that one.
+
 ### Changed
 - One threads picker: `Space t`, with filters `Tab` / `Shift-Tab` go round (all, unresolved,
   pending, Claude, new); `Space p`, `Space A` and `Space n` open it on theirs.

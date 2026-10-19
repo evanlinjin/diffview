@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 mod agent;
+mod amend;
 pub(crate) use agent::{REPLACE_TOOLS, answer_prompt, close_if_done, pane_screen, asking, working, claude_command, claude_wrote, fix_checks_prompt, review_prompt, turn, update_prompt, with_instructions};
 mod build;
 use build::*;
@@ -82,8 +83,8 @@ VIEW
   Ctrl-w n             relative line numbers on / off (kept for next time)
   Ctrl-w e             the contents on the left (description, messages, files), on / off
                        and the PR's commits under it: Enter shows one, v … Enter a range,
-                       m its whole message; Ctrl-w j / Ctrl-w k (or Tab there) go to the
-                       commits / the files
+                       m its whole message, a amends what isn't committed into it;
+                       Ctrl-w j / Ctrl-w k (or Tab there) go to the commits / the files
   Ctrl-w h  Ctrl-w l   pane left / right: files, old / new side, comments (or Ctrl-h Ctrl-l)
   Ctrl-w c             show / hide the comments pane (╎ ● mark their lines)
   Ctrl-w f             comments pane: a column beside the code / floating over it
@@ -127,8 +128,8 @@ ON CLAUDE'S REVIEW (its summary)
 
 REVIEW
   S                    submit (comment / approve / request changes), or discard
-  Space g              git: show only what isn't committed (Claude's changes), commit, push,
-                       update the checkout (to the PR's head, or git pull)
+  Space g              git: show only what isn't committed (Claude's changes), commit, amend
+                       it into the commits it belongs in, push, update the checkout
   Space p  Space t     pick from your pending comments (Ctrl-d deletes) / all threads
   Space v              mark the file viewed (folds it, moves on)
   Space a              ask Claude Code to review, answer your replies, or make the changes
@@ -380,6 +381,11 @@ enum Target {
     GitCommit,
     /// Update the checkout: to the PR's head (fast-forward only), or `git pull --ff-only`.
     GitUpdate,
+    /// The amend picker / amend what isn't committed into the PR's commits / ask Claude where
+    /// what blame couldn't place goes.
+    AmendMenu,
+    Amend,
+    AmendAsk,
     GitPush,
     /// Force-push (with a lease): HEAD doesn't contain the PR's head (a rebase or amend here).
     GitForcePush,

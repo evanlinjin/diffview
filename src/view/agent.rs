@@ -187,7 +187,7 @@ impl App {
     /// Why Claude can't take a request right now (checked before asking you for instructions,
     /// so nothing you write is lost to it): still busy, or the PR's pane is from an older dv
     /// that can't reach the review files (when the request needs them).
-    fn claude_blocked(&self, needs_files: bool) -> Option<String> {
+    pub(super) fn claude_blocked(&self, needs_files: bool) -> Option<String> {
         let busy = self.claude.job.is_some();
         if busy {
             return Some("Claude is still working on the last request".into());
@@ -774,7 +774,7 @@ impl App {
 
     /// The zellij pane running this PR's Claude Code session, if one is open: dv starts those
     /// with the session id on the command line, which no other pane has.
-    fn claude_pane(&self) -> Option<u64> {
+    pub(super) fn claude_pane(&self) -> Option<u64> {
         self.claude_pane_cmd().map(|p| p.0)
     }
 
@@ -858,7 +858,7 @@ impl App {
     /// `claude -p` in the background: its result (JSON) in a log file, its errors next to it.
     /// It runs in the PR's session (or, `forked`, a fork of it), so Claude keeps the review's
     /// context across runs.
-    fn spawn_claude(&mut self, prompt: &str, label: &'static str, forked: bool) -> Result<ClaudeJob> {
+    pub(super) fn spawn_claude(&mut self, prompt: &str, label: &'static str, forked: bool) -> Result<ClaudeJob> {
         use std::os::unix::process::CommandExt;
         // One log per run, so a follow-up run doesn't wipe the one a message points to.
         self.claude.runs += 1;
@@ -915,6 +915,10 @@ impl App {
             (true, Some(r)) => format!("Claude stopped while {label}, refused {r}: see {}", log.display()),
             (true, None) => format!("Claude stopped ({st}) while {label}: see {} (and .err)", log.display()),
         };
+        // Placing changes for an amend: its answers, in the picker.
+        if label == super::amend::AMEND_LABEL && !failed && refused.is_none() {
+            self.amend_menu();
+        }
         // Replies made meanwhile: one more run, unless this one went wrong (then that's the news,
         // and retrying would hit the same wall).
         if std::mem::take(&mut self.claude.again) && self.waiting_replies() > 0 {

@@ -476,6 +476,9 @@ impl App {
                         Target::ClaudePane => self.show_claude_pane(),
                         Target::ClaudeCheck => self.check_claude(),
                         Target::ClaudeStop => self.stop_claude(),
+                        Target::AmendMenu => self.amend_menu(),
+                        Target::Amend => self.amend_now(),
+                        Target::AmendAsk => self.amend_ask(),
                         Target::GitUpdate => {
                             self.msg = "updating the checkout…".into();
                             self.job = Some(Job::Pull);
