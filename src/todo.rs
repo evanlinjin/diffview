@@ -843,7 +843,7 @@ mod tests {
         // head, it looks again.
         let mut p = pr(11, "me");
         p.checks = Some((5, 2, 0));
-        let note = |head: &str| crate::claude::CiNote { head: head.into(), why: "flaky".into(), task: "pin the toolchain".into() };
+        let note = |head: &str| crate::claude::CiNote { head: head.into(), why: "flaky".into(), task: "pin the toolchain".into(), rerun: false };
         let (here, old) = (note("h"), note("old"));
         let mut f = facts(leak(p), Some(leak(extra(None, false, "h"))), None);
         f.ci_note = Some(&here);
