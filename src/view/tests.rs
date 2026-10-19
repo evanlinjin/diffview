@@ -2743,6 +2743,14 @@ fn code_blocks_shaded_to_the_box_edge() {
     // Shaded from the code on, up to the box's side.
     assert!(row[edge - 1].1 == shade && row[edge - 20].1 == shade, "{:?}", &row[edge - 3..=edge]);
     assert_ne!(row[edge].1, shade);
+    // The cursor on it: the cursor line's tint, all along it.
+    let cur = Color::Rgb(7, 7, 7);
+    (app.ui.cursorline, app.settings.cursorline) = (Some(cur), true);
+    let r = app.rows.iter().position(|r| r.line.text.contains("x = 1")).unwrap();
+    app.goto(r, 0);
+    let buf = t.draw(|f| app.draw(f)).unwrap().buffer.clone();
+    let y = (0..45).find(|&y| (0..220).map(|x| buf[(x, y)].symbol()).collect::<String>().contains("x = 1")).unwrap();
+    assert!(buf[(edge as u16 - 1, y)].bg == cur && buf[(edge as u16 - 20, y)].bg == cur);
 }
 
 #[test]

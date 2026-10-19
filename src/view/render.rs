@@ -1011,6 +1011,18 @@ impl App {
         let used: usize = spans[g..].iter().map(|s| s.width()).sum();
         // A code block's line: its background on to the row's end (its box's edge).
         let code_bg = row.nowrap.then(|| row.syn.last().copied().flatten()?.bg).flatten().filter(|&c| Some(c) == ui.md.code_bg);
+        // On the cursor's line, the cursor line's tint over it (the code's own colors kept).
+        let code_bg = match (code_bg, ui.cursorline) {
+            (Some(c), Some(cur)) if cursor_row && self.settings.cursorline => {
+                for sp in &mut spans[g..] {
+                    if sp.style.bg == Some(c) {
+                        sp.style.bg = Some(cur);
+                    }
+                }
+                Some(cur)
+            }
+            (c, _) => c,
+        };
         let pad_style = |st: Style| match code_bg {
             Some(c) => st.bg(c),
             None => st,
