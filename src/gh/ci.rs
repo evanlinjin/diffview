@@ -1,59 +1,86 @@
 //! CI on GitHub: a PR's checks, its failed runs rerun, runs waiting for a maintainer's
 //! approval, and marking it ready for review.
 use super::{gh, gh_json};
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use serde_json::Value;
 
 /// PR `n`'s CI checks on GitHub now that decide (`gate`): (passed, failed, pending).
 pub fn checks(n: u64) -> Result<(usize, usize, usize)> {
-    let mut r = rollups(&[n])?;
-    Ok(gate(&r.remove(&n).unwrap_or_default().1))
+    let r = rollups(&[n])?.remove(&n).context("GitHub said nothing of its checks")?;
+    Ok(gate(&r.checks))
 }
 
-/// PRs `ns`' checks, as GitHub has them now: each its base and its checks (a check run's
-/// `name`/`status`/`conclusion`/`detailsUrl`, a status's `context`/`state`/`targetUrl`, as
-/// `gh pr view --json statusCheckRollup` has them), with `isRequired`: GitHub's word on whether
-/// the PR's base requires it (its rulesets', its branch protection's: read access does). A
-/// check its base's rulesets require that hasn't reported yet is there too, expected (pending).
-pub fn rollups(ns: &[u64]) -> Result<std::collections::HashMap<u64, (String, Vec<Value>)>> {
+/// A PR's checks as GitHub has them now, on its head.
+#[derive(Clone, Debug, Default)]
+pub struct Rollup {
+    pub head: String,
+    /// A check run's `name`/`status`/`conclusion`/`detailsUrl`, a status's
+    /// `context`/`state`/`targetUrl` (as `gh pr view --json statusCheckRollup` has them), each
+    /// with `isRequired`: GitHub's word on whether its base requires it.
+    pub checks: Vec<Value>,
+}
+
+/// PRs `ns`' checks (`Rollup`), from one GraphQL query a few dozen PRs (a few at once). An open
+/// PR's checks its base requires (its rulesets', its branch protection's) that haven't reported
+/// yet are there, expected (pending), when GitHub listed them all. A PR GitHub had nothing on
+/// (it failed there) isn't in the answer.
+pub fn rollups(ns: &[u64]) -> Result<std::collections::HashMap<u64, Rollup>> {
+    let chunks: Vec<&[u64]> = ns.chunks(40).collect();
     let mut out = std::collections::HashMap::new();
-    let mut bases: std::collections::HashMap<String, Vec<String>> = Default::default();
-    for chunk in ns.chunks(40) {
-        let prs: String = chunk
-            .iter()
-            .map(|n| {
-                format!(
-                    "p{n}: pullRequest(number: {n}) {{ baseRefName commits(last: 1) {{ nodes {{ commit {{ statusCheckRollup {{ contexts(first: 100) {{ nodes {{ \
-                     ... on CheckRun {{ name status conclusion detailsUrl isRequired(pullRequestNumber: {n}) }} \
-                     ... on StatusContext {{ context state targetUrl isRequired(pullRequestNumber: {n}) }} }} }} }} }} }} }} }}"
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(" ");
-        let q = format!("query($owner: String!, $name: String!) {{ repository(owner: $owner, name: $name) {{ {prs} }} }}");
-        let v = gh_json(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-f", &format!("query={q}")])?;
-        if let Some(e) = v["errors"].get(0) {
-            bail!("GitHub: {}", e["message"].as_str().unwrap_or("GraphQL error"));
-        }
-        for &n in chunk {
-            let pr = &v["data"]["repository"][format!("p{n}")];
-            let base = pr["baseRefName"].as_str().unwrap_or("").to_owned();
-            let mut checks = pr["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"].as_array().cloned().unwrap_or_default();
-            // Required by its rulesets, and not reported (yet): expected, as GitHub shows it.
-            let want = bases.entry(base.clone()).or_insert_with(|| ruleset_checks(&base));
-            let missing: Vec<&String> = want.iter().filter(|w| !checks.iter().any(|c| check_name(c) == w.as_str())).collect();
-            checks.extend(missing.into_iter().map(|name| serde_json::json!({ "name": name, "status": "EXPECTED", "isRequired": true })));
-            out.insert(n, (base, checks));
+    for group in chunks.chunks(4) {
+        let got: Vec<Result<Vec<(u64, Rollup)>>> = std::thread::scope(|s| {
+            let handles: Vec<_> = group.iter().map(|c| s.spawn(move || rollup_chunk(c))).collect();
+            handles.into_iter().map(|h| h.join().unwrap_or_else(|_| Err(anyhow::anyhow!("panicked")))).collect()
+        });
+        for r in got {
+            out.extend(r?);
         }
     }
     Ok(out)
 }
 
-/// The checks branch `base`'s rulesets require (read access does); none if it can't say.
-fn ruleset_checks(base: &str) -> Vec<String> {
-    let Ok(v) = gh_json(&["api", &format!("repos/{{owner}}/{{repo}}/rules/branches/{base}")]) else { return vec![] };
-    let rules = v.as_array().into_iter().flatten().filter(|r| r["type"] == "required_status_checks");
-    rules.flat_map(|r| r["parameters"]["required_status_checks"].as_array().cloned().unwrap_or_default()).filter_map(|c| c["context"].as_str().map(str::to_owned)).collect()
+fn rollup_chunk(ns: &[u64]) -> Result<Vec<(u64, Rollup)>> {
+    let prs: String = ns
+        .iter()
+        .map(|n| {
+            format!(
+                "p{n}: pullRequest(number: {n}) {{ state \
+                 baseRef {{ rules(first: 50) {{ nodes {{ type parameters {{ ... on RequiredStatusChecksParameters {{ requiredStatusChecks {{ context }} }} }} }} }} \
+                   branchProtectionRule {{ requiredStatusCheckContexts }} }} \
+                 commits(last: 1) {{ nodes {{ commit {{ oid statusCheckRollup {{ contexts(first: 100) {{ pageInfo {{ hasNextPage }} nodes {{ \
+                   ... on CheckRun {{ name status conclusion detailsUrl isRequired(pullRequestNumber: {n}) }} \
+                   ... on StatusContext {{ context state targetUrl isRequired(pullRequestNumber: {n}) }} }} }} }} }} }} }} }}"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let q = format!("query($owner: String!, $name: String!) {{ repository(owner: $owner, name: $name) {{ {prs} }} }}");
+    let v = gh_json(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-f", &format!("query={q}")])?;
+    // (An error on one PR leaves the others' answers: only none at all is a failure.)
+    let repo = &v["data"]["repository"];
+    if repo.is_null() {
+        bail!("GitHub: {}", v["errors"][0]["message"].as_str().unwrap_or("no answer"));
+    }
+    Ok(ns
+        .iter()
+        .filter_map(|&n| {
+            let pr = repo.get(format!("p{n}")).filter(|p| !p.is_null())?;
+            let commit = &pr["commits"]["nodes"][0]["commit"];
+            let contexts = &commit["statusCheckRollup"]["contexts"];
+            let mut checks = contexts["nodes"].as_array().cloned().unwrap_or_default();
+            // Required and not reported (yet): expected, as GitHub shows it. Not when it listed
+            // only some (one past its first 100 isn't missing), nor once it's closed.
+            let base = &pr["baseRef"];
+            let rules = base["rules"]["nodes"].as_array().into_iter().flatten().filter(|r| r["type"] == "REQUIRED_STATUS_CHECKS");
+            let mut want: Vec<String> = rules.flat_map(|r| r["parameters"]["requiredStatusChecks"].as_array().cloned().unwrap_or_default()).filter_map(|c| c["context"].as_str().map(str::to_owned)).collect();
+            want.extend(base["branchProtectionRule"]["requiredStatusCheckContexts"].as_array().into_iter().flatten().filter_map(|c| c.as_str().map(str::to_owned)));
+            if pr["state"] == "OPEN" && contexts["pageInfo"]["hasNextPage"] != true {
+                let missing: Vec<String> = want.into_iter().filter(|w| !checks.iter().any(|c| check_name(c) == w.as_str())).collect();
+                checks.extend(missing.into_iter().map(|name| serde_json::json!({ "name": name, "status": "EXPECTED", "isRequired": true })));
+            }
+            Some((n, Rollup { head: commit["oid"].as_str().unwrap_or("").to_owned(), checks }))
+        })
+        .collect())
 }
 
 /// A check's name (a check run's) or context (a status's).

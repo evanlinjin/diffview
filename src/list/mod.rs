@@ -268,7 +268,12 @@ impl List {
             if let Some(Ok(res)) = self.checks.as_ref().map(Receiver::try_recv) {
                 self.checks = None;
                 match res {
-                    Ok(mut by_pr) => self.prs.iter_mut().for_each(|p| (p.checks, p.optional_failing, p.checks_head) = by_pr.remove(&p.number).map_or((None, 0, String::new()), |(c, o, h)| (Some(c), o, h))),
+                    // (One GitHub said nothing of keeps what it had.)
+                    Ok(mut by_pr) => self.prs.iter_mut().for_each(|p| {
+                        if let Some((c, o, h)) = by_pr.remove(&p.number) {
+                            (p.checks, p.optional_failing, p.checks_head) = (Some(c), o, h);
+                        }
+                    }),
                     Err(e) => self.msg = format!("checks: {e:#}"),
                 }
                 self.find_todo(); // green checks: ready to merge

@@ -908,8 +908,8 @@ pub fn info_json(n: u64) -> Result<Value> {
         Err(why) => v["dvCommitsUnknown"] = why.into(),
     }
     // Its checks as GitHub has them, each required or not (`ci::rollups`); else as gh said.
-    if let Some((_, checks)) = ci::rollups(&[n]).ok().and_then(|mut r| r.remove(&n)) {
-        v["statusCheckRollup"] = checks.into();
+    if let Some(r) = ci::rollups(&[n]).ok().and_then(|mut r| r.remove(&n)) {
+        v["statusCheckRollup"] = r.checks.into();
     }
     Ok(v)
 }

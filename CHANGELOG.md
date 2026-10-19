@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.71] - 2026-10-19
+
+### Fixed
+- A PR's checks, its head and what its base requires (rulesets and branch protection) come in
+  one GitHub answer: a required check past GitHub's first 100 isn't taken for one not yet
+  reported, nor is one on a closed PR; branch protection's not yet reported count as pending
+  too; a card's counts are on the head they say; one PR GitHub fails on keeps its old counts
+  rather than blanking every card's; dv list's checks are fetched a few batches at once.
+
 ## [0.34.70] - 2026-10-19
 
 ### Fixed

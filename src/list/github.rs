@@ -166,20 +166,16 @@ fn extra(p: &Value, me: &str) -> Extra {
 
 pub type ListChecks = std::collections::HashMap<u64, ((usize, usize, usize), usize, String)>;
 
-/// CI check counts for the PRs `list` returns: number → ((passed, failed, pending) of those
-/// that decide (`gh::gate`), how many optional ones fail, the head they're on).
-pub fn list_checks() -> Result<ListChecks> {
-    let v: Value = gh_json(&["pr", "list", "--limit", &LIST_MAX.to_string(), "--json", "number,headRefOid"])?;
-    let prs = v.as_array().context("gh pr list")?;
-    let heads: std::collections::HashMap<u64, String> = prs.iter().map(|p| (p["number"].as_u64().unwrap_or(0), p["headRefOid"].as_str().unwrap_or("").to_owned())).collect();
-    let ns: Vec<u64> = heads.keys().copied().collect();
-    // Each check required or not, as GitHub says (`gh::rollups`).
+/// CI check counts for PRs `ns` (the list's): number → ((passed, failed, pending) of those
+/// that decide (`gh::gate`), how many optional ones fail, the head they're on: as GitHub has
+/// them, each check required or not (`gh::rollups`), checks and head of one answer.
+pub fn list_checks(ns: Vec<u64>) -> Result<ListChecks> {
     Ok(crate::gh::rollups(&ns)?
         .into_iter()
-        .map(|(n, (_, checks))| {
-            let gated = crate::gh::gate(&checks);
-            let optional_failing = checks.iter().filter(|c| crate::gh::optional(c, &checks) && crate::gh::verdict(c) == '✗').count();
-            (n, (gated, optional_failing, heads.get(&n).cloned().unwrap_or_default()))
+        .map(|(n, r)| {
+            let gated = crate::gh::gate(&r.checks);
+            let optional_failing = r.checks.iter().filter(|c| crate::gh::optional(c, &r.checks) && crate::gh::verdict(c) == '✗').count();
+            (n, (gated, optional_failing, r.head))
         })
         .collect())
 }
@@ -245,7 +241,8 @@ impl List {
                     }
                 }
                 let (tx, rx) = mpsc::channel();
-                std::thread::spawn(move || tx.send(github::list_checks()));
+                let ns: Vec<u64> = prs.iter().map(|p| p.number).collect();
+                std::thread::spawn(move || tx.send(github::list_checks(ns)));
                 self.checks = Some(rx);
                 let (tx, rx) = mpsc::channel();
                 std::thread::spawn(move || tx.send(github::list_extra()));

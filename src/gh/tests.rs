@@ -136,3 +136,15 @@ fn only_required_checks_decide() {
     let checks = [run("build", "SUCCESS", false), run("lint", "FAILURE", false)];
     assert_eq!(gate(&checks), (1, 1, 0));
 }
+
+/// Live: `DV_LIVE_REPO=<a checkout> cargo test live_rollups -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn live_rollups() {
+    std::env::set_current_dir(std::env::var("DV_LIVE_REPO").expect("DV_LIVE_REPO")).unwrap();
+    let ns: Vec<u64> = std::env::var("DV_LIVE_PRS").unwrap_or_default().split(',').filter_map(|n| n.trim().parse().ok()).collect();
+    for (n, r) in rollups(&ns).unwrap() {
+        let req: Vec<&str> = r.checks.iter().filter(|c| c["isRequired"] == true).map(check_name).collect();
+        println!("#{n} {} gate {:?} required {req:?}", &r.head[..7.min(r.head.len())], gate(&r.checks));
+    }
+}
