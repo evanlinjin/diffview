@@ -169,14 +169,15 @@ impl App {
                 let what = format!("one reply to Claude's {} comments{}", keys.len(), ask::want_hint(want));
                 let Some(body) = compose_change(&what, want, "")? else { return Ok("reply cancelled".into()) };
                 // Each written that can be (one gone meanwhile: said), and those answered.
-                let failed: Vec<String> = keys.iter().filter(|k| crate::claude::reply(&p, k, &body, want).is_err()).cloned().collect();
-                if failed.len() == keys.len() {
-                    keep_on_error(Err(anyhow::anyhow!("none of those comments could be replied to (gone from the review?)")), &body)?;
+                let mut errs: Vec<(String, anyhow::Error)> = keys.iter().filter_map(|k| crate::claude::reply(&p, k, &body, want).err().map(|e| (k.clone(), e))).collect();
+                if errs.len() == keys.len() {
+                    keep_on_error(Err::<(), _>(errs.remove(0).1), &body)?;
                 }
+                let failed: Vec<String> = errs.into_iter().map(|(k, e)| format!("{k}: {e:#}")).collect();
                 let said = self.answer_now();
                 Ok(match failed.is_empty() {
                     true => said,
-                    false => format!("{said} (not replied to, gone from the review: {})", failed.join(", ")),
+                    false => format!("{said} (not replied to: {})", failed.join("; ")),
                 })
             }
             Action::AskClaude { anchor, code, about, want } => {
