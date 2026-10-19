@@ -162,7 +162,7 @@ fn run() -> anyhow::Result<()> {
     // `dv amend`'s files as git names them, from the repo's root (where dv goes next): those
     // changed of the ones given (`./a`, `../b`, a dir, a glob).
     if o.cmd == Some("amend") && o.rest.len() > 1 {
-        let mut args = vec!["diff", "HEAD", "--name-only", "--no-renames", "-z", "--"];
+        let mut args = vec!["diff", "HEAD", "--name-only", "--no-renames", "--no-relative", "-z", "--"];
         args.extend(o.rest[1..].iter().map(String::as_str));
         let names = diff::git(&args)?;
         let names: Vec<String> = names.split('\0').filter(|n| !n.is_empty()).map(str::to_owned).collect();
