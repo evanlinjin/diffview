@@ -213,16 +213,24 @@ impl App {
                 Ok(keep_on_error(Err(anyhow::anyhow!(why)), &extra).err().map_or(String::new(), |e| format!("{e:#}")))
             }
             Action::Replace(prs, about) => {
-                if crate::replace::load(prs[0]).is_ok_and(|r| r.drafting_now()) {
-                    return Ok(format!("Claude is already drafting the replacement of #{}", prs[0]));
-                }
+                let drafting = crate::replace::load(prs[0]).is_ok_and(|r| r.drafting_now());
                 let which = prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(", ");
-                let (what, prefill) = match about {
-                    Some(q) => (format!("ask Claude to redraft the replacement of {which}: what to change, under the quote"), q),
-                    None => (format!("instructions for Claude's replacement of {which} (optional)"), crate::claude::instructions("replace")),
-                };
-                let Some(extra) = compose_with(&what, true, prefill.trim_end(), true)? else { return Ok("not asked".into()) };
-                crate::claude::save_instructions("replace", &extra)?; // `dv replace` reads them
+                // A change to its drafts: kept with them (shown here), for the redraft to take in.
+                if let (Some(q), Some(id)) = (about, self.replacement.as_ref().map(|r| r.id)) {
+                    let what = format!("ask Claude to redraft the replacement of {which}: what to change, under the quote");
+                    let Some(ask) = compose_with(&what, false, q.trim_end(), false)? else { return Ok("not asked".into()) };
+                    crate::replace::ask(id, &ask)?;
+                    if drafting {
+                        return Ok("kept with the drafts: Claude is drafting now, so Space a → Redraft once it's done takes it in".into());
+                    }
+                } else {
+                    if drafting {
+                        return Ok(format!("Claude is already drafting the replacement of #{}", prs[0]));
+                    }
+                    let what = format!("instructions for Claude's replacement of {which} (optional)");
+                    let Some(extra) = compose_with(&what, true, crate::claude::instructions("replace").trim_end(), true)? else { return Ok("not asked".into()) };
+                    crate::claude::save_instructions("replace", &extra)?; // `dv replace` reads them
+                }
                 agent::spawn_replace(&prs)?;
                 Ok(format!("Claude is drafting a replacement for {which} in the background: dv list's replacements tab shows it"))
             }

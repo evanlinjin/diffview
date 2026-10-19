@@ -89,6 +89,9 @@ impl App {
             let closed: Vec<String> = r.closed.iter().map(|n| format!("#{n}")).collect();
             status.push(line(false, false, &format!("closed {}, with the note", closed.join(", "))));
         }
+        if r.drafting_now() {
+            status.push(line(false, false, "Claude is redrafting it…"));
+        }
         // A new PR: what you asked for, in place of what it replaces (and no closing note).
         let new = r.replaces.is_empty();
         if new {

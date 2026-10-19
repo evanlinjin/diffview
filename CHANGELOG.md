@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Fixed
+- `a` on a replacement's drafts: what you ask shows after them (`what you asked of the drafts`,
+  marked until a redraft takes it in), instead of vanishing into the background run; it no
+  longer becomes the instructions every later redraft starts from, and asked while Claude
+  drafts, it's kept for the next one rather than refused.
+
 ## [0.34.36] - 2026-10-19
 
 ### Fixed

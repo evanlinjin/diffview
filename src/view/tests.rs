@@ -1361,6 +1361,14 @@ fn replacement_in_the_pr_section() {
     app.goto(body, 0);
     app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
     assert!(matches!(app.action.take(), Some(Action::Replace(_, Some(q))) if q.starts_with("About the description:")));
+    // What you asked of the drafts shows with them, until a redraft takes it in and after.
+    let mut r = app.replacement.clone().unwrap();
+    r.asks = vec![("About the description:\n> Replaces #12 and #15.\n\nSay why.".into(), false)];
+    app.show_replacement(r);
+    let keep = app.cursor_key();
+    app.rebuild(keep);
+    let text: Vec<&str> = app.rows.iter().map(|r| r.line.text.as_str()).collect();
+    assert!(text.contains(&"what you asked of the drafts") && text.contains(&"Say why.") && text.iter().any(|t| t.contains("not redrafted with it yet")), "{text:#?}");
     // S: publish first; closing what it replaces comes after.
     let s = |app: &mut App| {
         app.review_menu();
