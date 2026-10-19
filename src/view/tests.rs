@@ -1402,6 +1402,18 @@ fn replacement_in_the_pr_section() {
     app.rebuild(keep);
     let review = app.rows.iter().position(|r| r.line.text == "claude's review").expect("claude's review");
     assert!(app.rows[review].attached && app.rows[review].main.is_none());
+    // Published, on its PR: its closing note is still there, while what it replaces is open.
+    let mut r = app.replacement.clone().unwrap();
+    r.published = Some(20);
+    let draft_pr = app.pr.replace(gh::Pr { number: 20, ..Default::default() });
+    app.show_replacement(r);
+    let keep = app.cursor_key();
+    app.rebuild(keep);
+    assert!(app.rows.iter().any(|r| r.main == Some(CLOSING_NOTE) && r.line.text.starts_with("closing note") && r.line.text.contains("S closes")));
+    app.pr = draft_pr;
+    let mut r = app.replacement.clone().unwrap();
+    r.published = None;
+    app.show_replacement(r);
     // S: publish first; closing what it replaces comes after.
     let s = |app: &mut App| {
         app.review_menu();

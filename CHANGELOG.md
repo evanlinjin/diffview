@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.46] - 2026-10-19
+
 ### Added
 - `a` on a replacement's drafts (or on what you asked of them) asks what you want first, as on
   a PR's comments: `Ask` (Claude answers; it changes nothing) or `Change` (it redrafts).
@@ -15,6 +17,8 @@ on GitHub are its section here.
 - A request of the drafts is done once Claude has answered it, so one Claude's redraft skipped
   or reordered is asked again (it was marked by its place in the list).
 - Folding a replacement's closing note folds what you asked of it too.
+- A published replacement's PR shows its closing note (what `S` closes the PRs it replaces with)
+  while any of them is open.
 
 ## [0.34.45] - 2026-10-19
 

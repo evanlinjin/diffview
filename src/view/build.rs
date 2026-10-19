@@ -257,6 +257,11 @@ impl App {
         rows.append(&mut attached);
         if self.view == View::All {
             // A replacement's closing note (for the PRs it replaces), after its description.
+            // Published, on its PR: still what closes what it replaces (S), while any is open.
+            let open = |r: &&crate::replace::Record| r.replaces.iter().any(|o| !r.closed.contains(&o.number));
+            if let Some(r) = self.replacement.as_ref().filter(|_| self.pr.is_some() && !commits).filter(open) {
+                rows.extend(self.section(CLOSING_NOTE, "closing note, for the PRs it replaces (S closes them with it)".into(), &r.closing_note, None));
+            }
             if let Some(h) = (0..self.info.len()).find(|&i| self.is_closing_note(i)).filter(|_| !commits) {
                 let text = self.info.get(h + 1).filter(|l| l.md).map_or("", |l| l.text.as_str());
                 let text = if text.trim().is_empty() { "_(not drafted yet)_" } else { text };
