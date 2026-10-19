@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.85] - 2026-10-19
+
+### Fixed
+- "Do it, amend it into the relevant commits": Claude couldn't (background runs weren't allowed
+  `git add`/`git commit`), and left the change uncommitted. It may now commit, and amend a
+  change into the commit it belongs in (`git commit --fixup`, `git rebase --autosquash`); never push.
+- A worktree dv creates for a PR starts at the PR's head, not the main checkout's commit: one
+  left half set up (the checkout failed, dv was killed) is never taken for work done there.
+
 ## [0.34.84] - 2026-10-19
 
 ### Fixed
