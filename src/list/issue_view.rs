@@ -104,7 +104,21 @@ impl IssueView {
         };
         // (`#123` linked to the repo's, as the PR view's.)
         let repo = self.url.rsplit_once("/issues/").map(|(r, _)| r.to_owned());
-        let md = |text: &str, w: usize| -> Vec<Line<'static>> { crate::md::render(text, w, &ui.md, &self.hl, repo.as_deref()).into_iter().map(crate::md::MdLine::into_line).collect() };
+        // (A code block's line in its background to the width given, as hover popups have it.)
+        let code_bg = ui.md.code_bg;
+        let md = |text: &str, w: usize| -> Vec<Line<'static>> {
+            crate::md::render(text, w, &ui.md, &self.hl, repo.as_deref())
+                .into_iter()
+                .map(|l| {
+                    let code = code_bg.filter(|&bg| l.nowrap && l.styles.last().copied().flatten().and_then(|s| s.bg) == Some(bg));
+                    let mut line = l.into_line();
+                    if let Some(bg) = code {
+                        line.spans.push(Span::styled(" ".repeat(w.saturating_sub(line.width())), Style::new().bg(bg)));
+                    }
+                    line
+                })
+                .collect()
+        };
         let dim = ui.stale;
         let border = ui.linenr;
         // A bubble: `╭─ title ──╮`, its lines between `│ … │`, `╰──╯`, `w` wide.
