@@ -122,8 +122,7 @@ impl App {
     /// conflicts are in the way; a question, a description, a closing comment don't.
     pub(super) fn claude_blocked(&self, ask: Option<Ask>) -> Option<String> {
         let edits = ask.is_none_or(|a| self.edits(a));
-        let busy = self.claude.job.is_some();
-        if busy {
+        if self.claude_busy() {
             return Some("Claude is still working on the last request".into());
         }
         // A rebase stopped part way: the tree has its conflicts, HEAD is detached.
@@ -131,6 +130,12 @@ impl App {
             return Some(super::rebase::stopped_says(&self.root).into());
         }
         None
+    }
+
+    /// Claude is at work in this checkout: a run of this dv's, or (a replacement) its redraft,
+    /// from any dv. Nothing here rewrites the branch or commits under it meanwhile.
+    pub(super) fn claude_busy(&self) -> bool {
+        self.claude.job.is_some() || self.replacement.as_ref().is_some_and(|r| r.drafting_now())
     }
 
     /// Why `ask` can't go to the PR's Claude pane, where it would (one is open): the pane is

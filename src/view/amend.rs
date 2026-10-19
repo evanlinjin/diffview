@@ -282,7 +282,7 @@ impl App {
         if !nothing_staged(&self.root) {
             return self.msg = "some changes are staged (git add): unstage them first (git reset), so none are lost".into();
         }
-        if self.claude.job.is_some() {
+        if self.claude_busy() {
             return self.msg = "Claude is still at work here: amend once it's done (its changes would be half made)".into();
         }
         let subject = |sha: &str| commits.iter().find(|c| c.0 == sha).map_or(String::new(), |c| format!("{} {}", &sha[..7.min(sha.len())], c.1));
@@ -324,7 +324,7 @@ impl App {
     }
 
     fn try_amend(&mut self) -> Result<String> {
-        anyhow::ensure!(self.claude.job.is_none(), "Claude is still at work here: amend once it's done");
+        anyhow::ensure!(!self.claude_busy(), "Claude is still at work here: amend once it's done");
         let (hunks, _) = self.amend_plan()?;
         let (short, backup) = self.backup_name()?;
         let n = amend(&self.root, &self.full_base, &hunks, &backup)?;
@@ -337,7 +337,7 @@ impl App {
     /// `f` on a commit in the list: everything uncommitted folded into that one (new lines too).
     pub(super) fn amend_into(&mut self, sha: &str) {
         let r = (|| -> Result<String> {
-            anyhow::ensure!(self.claude.job.is_none(), "Claude is still at work here: amend once it's done");
+            anyhow::ensure!(!self.claude_busy(), "Claude is still at work here: amend once it's done");
             let (mut hunks, commits) = plan(&self.root, &self.full_base, false)?;
             anyhow::ensure!(commits.iter().any(|c| c.0 == sha), "that isn't one of the branch's own commits (a merge?): amend into another");
             anyhow::ensure!(!hunks.is_empty(), "nothing uncommitted to amend");

@@ -334,6 +334,7 @@ impl App {
                 self.post_later(Post::Submit(event, body))
             }
             Action::Commit => {
+                anyhow::ensure!(!self.claude_busy(), "Claude is still at work here: commit once it's done (its changes would be half made)");
                 let draft = self.commit_draft();
                 self.commit(&draft)
             }
