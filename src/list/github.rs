@@ -1,7 +1,7 @@
 //! What `dv list` asks GitHub: the open PRs (cards), what its todo tab needs of each, their
 //! checks, and whether any of it changed (an ETag); and the list kept up with it, in the
 //! background.
-use crate::gh::{awaiting_approval, etag_of, gh_json, next_page, requires_signatures, tally, PAGE, SIGNATURE_RULES};
+use crate::gh::{awaiting_approval, etag_of, gh_json, next_page, requires_signatures, PAGE, SIGNATURE_RULES};
 use super::*;
 use anyhow::{Context, Result};
 use serde_json::Value;
@@ -169,16 +169,17 @@ pub type ListChecks = std::collections::HashMap<u64, ((usize, usize, usize), usi
 /// CI check counts for the PRs `list` returns: number → ((passed, failed, pending) of those
 /// that decide (`gh::gate`), how many optional ones fail, the head they're on).
 pub fn list_checks() -> Result<ListChecks> {
-    let v: Value = gh_json(&["pr", "list", "--limit", &LIST_MAX.to_string(), "--json", "number,headRefOid,baseRefName,statusCheckRollup"])?;
+    let v: Value = gh_json(&["pr", "list", "--limit", &LIST_MAX.to_string(), "--json", "number,headRefOid"])?;
     let prs = v.as_array().context("gh pr list")?;
-    Ok(prs
-        .iter()
-        .map(|p| {
-            let head = p["headRefOid"].as_str().unwrap_or("").to_owned();
-            let checks = p["statusCheckRollup"].as_array().map(Vec::as_slice).unwrap_or(&[]);
-            let gated = crate::gh::gate(checks, &crate::gh::required(p["baseRefName"].as_str().unwrap_or("")));
-            let optional_failing = tally(checks).1 - gated.1.min(tally(checks).1);
-            (p["number"].as_u64().unwrap_or(0), (gated, optional_failing, head))
+    let heads: std::collections::HashMap<u64, String> = prs.iter().map(|p| (p["number"].as_u64().unwrap_or(0), p["headRefOid"].as_str().unwrap_or("").to_owned())).collect();
+    let ns: Vec<u64> = heads.keys().copied().collect();
+    // Each check required or not, as GitHub says (`gh::rollups`).
+    Ok(crate::gh::rollups(&ns)?
+        .into_iter()
+        .map(|(n, (_, checks))| {
+            let gated = crate::gh::gate(&checks);
+            let optional_failing = checks.iter().filter(|c| crate::gh::optional(c, &checks) && crate::gh::verdict(c) == '✗').count();
+            (n, (gated, optional_failing, heads.get(&n).cloned().unwrap_or_default()))
         })
         .collect())
 }

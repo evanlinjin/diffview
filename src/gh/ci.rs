@@ -6,42 +6,70 @@ use serde_json::Value;
 
 /// PR `n`'s CI checks on GitHub now that decide (`gate`): (passed, failed, pending).
 pub fn checks(n: u64) -> Result<(usize, usize, usize)> {
-    let v: Value = gh_json(&["pr", "view", &n.to_string(), "--json", "statusCheckRollup,baseRefName"])?;
-    Ok(gate(v["statusCheckRollup"].as_array().map(Vec::as_slice).unwrap_or(&[]), &required(v["baseRefName"].as_str().unwrap_or(""))))
+    let mut r = rollups(&[n])?;
+    Ok(gate(&r.remove(&n).unwrap_or_default().1))
 }
 
-/// The checks branch `base` requires (its rulesets', its protection's), by name; none: it
-/// says none (or can't be read), and every check counts. Asked once a base, per run.
-pub fn required(base: &str) -> std::collections::HashSet<String> {
-    static SEEN: std::sync::Mutex<Option<std::collections::HashMap<String, std::collections::HashSet<String>>>> = std::sync::Mutex::new(None);
-    if let Some(r) = SEEN.lock().ok().and_then(|s| s.as_ref()?.get(base).cloned()) {
-        return r;
+/// PRs `ns`' checks, as GitHub has them now: each its base and its checks (a check run's
+/// `name`/`status`/`conclusion`/`detailsUrl`, a status's `context`/`state`/`targetUrl`, as
+/// `gh pr view --json statusCheckRollup` has them), with `isRequired`: GitHub's word on whether
+/// the PR's base requires it (its rulesets', its branch protection's: read access does). A
+/// check its base's rulesets require that hasn't reported yet is there too, expected (pending).
+pub fn rollups(ns: &[u64]) -> Result<std::collections::HashMap<u64, (String, Vec<Value>)>> {
+    let mut out = std::collections::HashMap::new();
+    let mut bases: std::collections::HashMap<String, Vec<String>> = Default::default();
+    for chunk in ns.chunks(40) {
+        let prs: String = chunk
+            .iter()
+            .map(|n| {
+                format!(
+                    "p{n}: pullRequest(number: {n}) {{ baseRefName commits(last: 1) {{ nodes {{ commit {{ statusCheckRollup {{ contexts(first: 100) {{ nodes {{ \
+                     ... on CheckRun {{ name status conclusion detailsUrl isRequired(pullRequestNumber: {n}) }} \
+                     ... on StatusContext {{ context state targetUrl isRequired(pullRequestNumber: {n}) }} }} }} }} }} }} }} }}"
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        let q = format!("query($owner: String!, $name: String!) {{ repository(owner: $owner, name: $name) {{ {prs} }} }}");
+        let v = gh_json(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-f", &format!("query={q}")])?;
+        if let Some(e) = v["errors"].get(0) {
+            bail!("GitHub: {}", e["message"].as_str().unwrap_or("GraphQL error"));
+        }
+        for &n in chunk {
+            let pr = &v["data"]["repository"][format!("p{n}")];
+            let base = pr["baseRefName"].as_str().unwrap_or("").to_owned();
+            let mut checks = pr["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"].as_array().cloned().unwrap_or_default();
+            // Required by its rulesets, and not reported (yet): expected, as GitHub shows it.
+            let want = bases.entry(base.clone()).or_insert_with(|| ruleset_checks(&base));
+            let missing: Vec<&String> = want.iter().filter(|w| !checks.iter().any(|c| check_name(c) == w.as_str())).collect();
+            checks.extend(missing.into_iter().map(|name| serde_json::json!({ "name": name, "status": "EXPECTED", "isRequired": true })));
+            out.insert(n, (base, checks));
+        }
     }
-    let mut names = std::collections::HashSet::new();
-    if let Ok(v) = gh_json(&["api", &format!("repos/{{owner}}/{{repo}}/rules/branches/{base}")]) {
-        let rules = v.as_array().into_iter().flatten().filter(|r| r["type"] == "required_status_checks");
-        names.extend(rules.flat_map(|r| r["parameters"]["required_status_checks"].as_array().cloned().unwrap_or_default()).filter_map(|c| c["context"].as_str().map(str::to_owned)));
-    }
-    let q = "query($owner:String!,$name:String!,$ref:String!){repository(owner:$owner,name:$name){ref(qualifiedName:$ref){branchProtectionRule{requiredStatusCheckContexts}}}}";
-    let r = format!("ref=refs/heads/{base}");
-    if let Ok(v) = gh_json(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-f", &r, "-f", &format!("query={q}")]) {
-        let ctx = v["data"]["repository"]["ref"]["branchProtectionRule"]["requiredStatusCheckContexts"].as_array().cloned().unwrap_or_default();
-        names.extend(ctx.iter().filter_map(|c| c.as_str().map(str::to_owned)));
-    }
-    if let Ok(mut s) = SEEN.lock() {
-        s.get_or_insert_with(Default::default).insert(base.to_owned(), names.clone());
-    }
-    names
+    Ok(out)
 }
 
-/// The checks that decide whether CI passes, tallied: the `required` ones when the base names
+/// The checks branch `base`'s rulesets require (read access does); none if it can't say.
+fn ruleset_checks(base: &str) -> Vec<String> {
+    let Ok(v) = gh_json(&["api", &format!("repos/{{owner}}/{{repo}}/rules/branches/{base}")]) else { return vec![] };
+    let rules = v.as_array().into_iter().flatten().filter(|r| r["type"] == "required_status_checks");
+    rules.flat_map(|r| r["parameters"]["required_status_checks"].as_array().cloned().unwrap_or_default()).filter_map(|c| c["context"].as_str().map(str::to_owned)).collect()
+}
+
+/// A check's name (a check run's) or context (a status's).
+pub(crate) fn check_name(c: &Value) -> &str {
+    c["name"].as_str().or(c["context"].as_str()).unwrap_or("?")
+}
+
+/// Whether check `c` is optional: its PR's base requires other checks, not it (`isRequired`).
+pub(crate) fn optional(c: &Value, checks: &[Value]) -> bool {
+    c["isRequired"] != true && checks.iter().any(|c| c["isRequired"] == true)
+}
+
+/// The checks that decide whether CI passes, tallied: the required ones when the base requires
 /// any (an optional one failing, codecov's say, doesn't hold the PR back), else all of them.
-pub(crate) fn gate(checks: &[Value], required: &std::collections::HashSet<String>) -> (usize, usize, usize) {
-    if required.is_empty() {
-        return tally(checks);
-    }
-    let name = |c: &Value| c["name"].as_str().or(c["context"].as_str()).unwrap_or("").to_owned();
-    let req: Vec<Value> = checks.iter().filter(|c| required.contains(&name(c))).cloned().collect();
+pub(crate) fn gate(checks: &[Value]) -> (usize, usize, usize) {
+    let req: Vec<Value> = checks.iter().filter(|c| !optional(c, checks)).cloned().collect();
     tally(&req)
 }
 
@@ -50,6 +78,7 @@ pub(crate) fn gate(checks: &[Value], required: &std::collections::HashSet<String
 pub fn mark_ready(n: u64) -> Result<()> {
     let (_, fail, pending) = checks(n)?;
     match (fail, pending) {
+        // (Required ones that haven't reported are pending: `rollups`.)
         (0, 0) => gh(&["pr", "ready", &n.to_string()]).map(drop),
         (0, k) => bail!("CI is still running ({k} check{} pending): ready once it passes", if k == 1 { "" } else { "s" }),
         (k, _) => bail!("CI fails ({k} required check{} failed): fix it first (dv list: a a has Claude look)", if k == 1 { "" } else { "s" }),

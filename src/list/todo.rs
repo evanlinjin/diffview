@@ -485,8 +485,6 @@ impl List {
         self.todo.iter().filter(|it| it.deferred.is_none() && it.busy.is_none() && it.waits.is_none()).count()
     }
 
-    /// What Claude is doing on PR `n` now, if anything: a run from here (`a a`), or any dv's
-    /// (its marker in dv's directory, `running`).
     /// Claude at work on replacement `id`'s checkout: drafting it (here, another dv), or in a pane
     /// there (dv's run, or one you started): nothing else starts there meanwhile.
     pub(super) fn rep_busy(&self, id: u64) -> bool {
@@ -500,6 +498,8 @@ impl List {
         })
     }
 
+    /// What Claude is doing on PR `n` now, if anything: a run from here (`a a`), or any dv's
+    /// (its marker in dv's directory, `running`).
     pub(super) fn claude_doing(&self, n: u64) -> Option<String> {
         match self.batch.get(&n) {
             Some(s) if s.running() => Some(self.batch_task.get(&n).map_or("reviewing", batch::Task::doing).to_owned()),

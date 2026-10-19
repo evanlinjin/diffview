@@ -631,7 +631,11 @@ impl App {
     /// Every few seconds: whether Claude's pane (hidden, maybe) is asking you something, a
     /// permission prompt it won't get past alone; said once each time it starts asking.
     pub(super) fn watch_claude_pane(&mut self) {
-        if self.claude.session.is_none() || !in_zellij() || self.claude.pane_check.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(3)) {
+        if self.claude.session.is_none() || !in_zellij() {
+            // No session (a fresh one asked for), no pane to watch: not busy, not asking.
+            return (self.claude.pane_busy, self.claude.asking) = (false, false);
+        }
+        if self.claude.pane_check.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(3)) {
             return;
         }
         self.claude.pane_check = Some(std::time::Instant::now());

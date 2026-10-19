@@ -120,3 +120,19 @@ fn github_refusals() {
     assert_eq!(format!("{e:#}"), "GitHub: Bad credentials");
 }
 
+
+#[test]
+fn only_required_checks_decide() {
+    use serde_json::json;
+    let run = |name: &str, conclusion: &str, required: bool| json!({ "name": name, "status": "COMPLETED", "conclusion": conclusion, "isRequired": required });
+    // An optional one failing: CI passes.
+    let checks = [run("build", "SUCCESS", true), run("codecov/patch", "FAILURE", false)];
+    assert_eq!(gate(&checks), (1, 0, 0));
+    assert!(optional(&checks[1], &checks) && !optional(&checks[0], &checks));
+    // A required one not reported yet (expected): pending, not passed.
+    let checks = [run("build", "SUCCESS", true), json!({ "name": "e2e", "status": "EXPECTED", "isRequired": true })];
+    assert_eq!(gate(&checks), (1, 0, 1));
+    // None required: every check counts.
+    let checks = [run("build", "SUCCESS", false), run("lint", "FAILURE", false)];
+    assert_eq!(gate(&checks), (1, 1, 0));
+}

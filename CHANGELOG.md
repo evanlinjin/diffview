@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.70] - 2026-10-19
+
+### Fixed
+- Which checks are required is GitHub's word for each (`isRequired`): branch protection's count
+  too without admin rights, and nothing kept from a failed look. A required check that hasn't
+  reported yet counts as pending, so a draft isn't marked ready (nor shown green) before it runs.
+- "Draft a replacement" from a PR's view isn't refused while Claude works on that PR there.
+- A pane's "Claude working" doesn't linger once its session is gone (it held back commits).
+
 ## [0.34.69] - 2026-10-19
 
 ### Fixed
