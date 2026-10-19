@@ -563,6 +563,7 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
         let at = format!("refs/dv/pull/{n}");
         diff::git(&["fetch", "-q", &crate::diff::remote(), &format!("+refs/pull/{n}/head:{at}")])?;
         diff::git(&["worktree", "add", "--detach", &dir.to_string_lossy(), &at])?;
+        _ = diff::git(&["update-ref", "-d", &at]); // (its HEAD keeps the commit)
     }
     std::env::set_current_dir(&dir)?;
     if !existed {
