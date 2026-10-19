@@ -5,6 +5,17 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.47.1] - 2026-10-19
+
+### Fixed
+- `dv issues` with auto on counted every issue as not triaged as it started (the triages
+  weren't read yet).
+- The issue view: a long line (code, a table, Claude's next step) stays in its bubble, and a
+  wide code line in the description doesn't push the pane aside; a comment with no time says
+  none; a closing comment drafted for an issue not triaged shows as that, not as its triage.
+- An issue on the close tab for its ranking's say-so shows why on its card. A re-triage saying
+  to keep an issue open no longer gets an older closing comment back.
+
 ## [0.47.0] - 2026-10-19
 
 ### Changed
