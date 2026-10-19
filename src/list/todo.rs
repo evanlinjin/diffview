@@ -67,6 +67,8 @@ impl List {
             let said = self.extra.get(&it.number).map(|e| e.said.as_slice()).unwrap_or(&[]);
             // A comment's word, else what Claude saw in the conversation when it ranked.
             let claude = self.ranked.as_ref().and_then(|r| r.waits.get(&it.key())).map(|c| (c.clone(), String::new()));
+            // (A push from no known head: nothing to tell it by.)
+            let claude = claude.filter(|(c, _)| *c != todo::Until::Pushed(String::new()));
             it.waits = todo::waiting_on(said, now).or(claude).filter(|(c, _)| !self.happened(it, c));
         }
         let (mut waiting, mut rest): (Vec<Item>, Vec<Item>) = items.into_iter().partition(|it| it.waits.is_some());

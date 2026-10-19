@@ -425,7 +425,7 @@ impl Until {
             Until::Approved(Some(who)) => format!("@{who} approves it"),
             Until::Approved(None) => "it's approved".into(),
             Until::Pushed(h) if h.is_empty() => "the author pushes".into(),
-            Until::Pushed(h) => format!("the author pushes (past {})", &h[..7.min(h.len())]),
+            Until::Pushed(h) => format!("the author pushes (past {})", h.get(..7).unwrap_or(h)),
             Until::Reviewed(who) => format!("@{who} reviews it"),
         }
     }
@@ -466,18 +466,24 @@ impl Until {
 
     /// The usual phrasings, without Claude: "#2380 is merged", "2380 closed", "CI is green",
     /// "checks pass", "@amy approves", "it's approved", "@bo reviews", "3h", "2 days", "a week".
-    /// In a sentence ("Can't do anything until …"), what follows its last "until" first, else all
-    /// of it ("#12, until it's merged").
+    /// In a sentence ("Don't merge until …"), only what follows its last "until": what comes
+    /// before is what waits (but a PR named there counts: "#12, until it's merged").
     pub fn parse(text: &str, now: i64) -> Option<Until> {
         let t = text.trim().to_lowercase();
-        t.rsplit_once("until ").and_then(|(_, after)| Self::parse_one(after, now)).or_else(|| Self::parse_one(&t, now))
+        match t.rsplit_once("until ") {
+            Some((before, after)) => {
+                let named = before.split(|c: char| c.is_whitespace() || c == ',').find_map(|w| w.strip_prefix('#')?.parse::<u64>().ok());
+                Self::parse_one(after, named, now)
+            }
+            None => Self::parse_one(&t, None, now),
+        }
     }
 
-    fn parse_one(t: &str, now: i64) -> Option<Until> {
+    fn parse_one(t: &str, named: Option<u64>, now: i64) -> Option<Until> {
         let t = t.trim();
         let words: Vec<&str> = t.split(|c: char| c.is_whitespace() || c == ',').filter(|w| !w.is_empty()).collect();
         let has = |w: &str| words.iter().any(|x| x.starts_with(w));
-        let num = words.iter().find_map(|w| w.trim_start_matches('#').parse::<u64>().ok().filter(|_| w.starts_with('#') || words.len() <= 4));
+        let num = words.iter().find_map(|w| w.trim_start_matches('#').parse::<u64>().ok().filter(|_| w.starts_with('#') || words.len() <= 4)).or(named);
         let who = words.iter().find_map(|w| w.strip_prefix('@')).map(|w| w.trim_end_matches(|c: char| !c.is_alphanumeric() && c != '-').to_owned());
         // A duration: "3h", "3 hours", "2d", "a week".
         let unit = |w: &str| match w.trim_end_matches('s') {
@@ -501,7 +507,7 @@ impl Until {
             // else named, no other PR, no time: those are someone else's doing, or a while). As
             // `p` posts it, past the head it was at: "the author pushes (past abc1234)".
             _ if who.is_none() && dur.is_none() && ["address", "push", "updat", "respond", "fixes", "rebase"].iter().any(|w| has(w)) => {
-                let head = words.iter().map(|w| w.trim_matches(|c: char| !c.is_ascii_alphanumeric())).find(|w| (7..=40).contains(&w.len()) && w.chars().all(|c| c.is_ascii_hexdigit()));
+                let head = words.windows(2).find(|p| p[0].trim_start_matches('(') == "past").map(|p| p[1].trim_matches(|c: char| !c.is_ascii_alphanumeric())).filter(|w| (7..=40).contains(&w.len()) && w.chars().all(|c| c.is_ascii_hexdigit()));
                 match (head, num) {
                     (Some(h), _) => Until::Pushed(h.to_owned()),
                     (None, None) => Until::Pushed(String::new()),
@@ -977,7 +983,10 @@ mod tests {
         assert_eq!(p("the author pushes"), Some(Until::Pushed(String::new())));
         assert_eq!(p("the author pushes (past abc1234)"), Some(Until::Pushed("abc1234".into())));
         assert_eq!(p("Blocked on #12 until it's merged"), Some(Until::Merged(12)));
-        assert_eq!(p("CI to pass until Friday"), Some(Until::Green));
+        assert_eq!(p("#12, until it's merged"), Some(Until::Merged(12)));
+        assert_eq!(p("Don't approve until the release"), None); // what's before "until" is what waits
+        assert_eq!(p("won't review until @amy pushes"), None);
+        assert_eq!(p("the author addresses the defaced docs"), Some(Until::Pushed(String::new())));
         assert_eq!(p("@amy reviews the fixes"), Some(Until::Reviewed("amy".into())));
         assert_eq!(p("3 days after the push"), Some(Until::Time(now + 3 * 86400)));
         // Round trip, as kept and as Claude answers.
