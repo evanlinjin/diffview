@@ -54,7 +54,7 @@ impl App {
             // line too short to show where it's scrolled to (the cursor there would take it back).
             MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight if code => {
                 let Some((row, col, _)) = self.at_screen(x, y).filter(|_| !(self.pin && y == 0)) else { return };
-                if self.len(row) <= self.hscroll(row) + 1 && self.hscroll(row) > 0 {
+                if kind == MouseEventKind::ScrollRight && self.len(row) <= self.hscroll(row) + 1 && self.hscroll(row) > 0 {
                     return;
                 }
                 self.select = false;
