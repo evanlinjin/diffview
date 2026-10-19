@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.43.1] - 2026-10-19
+
+### Fixed
+- The issue view: `o` opens its own link (not an empty one once it's left the list); it doesn't
+  scroll past its end after a resize or a reload; `#123` links as elsewhere; it says it's
+  loading. Closing goes by how Claude's triage says (completed, not planned, or a duplicate of
+  #N, as GitHub marks it), not by its wording. Labels are added a flag each.
+- `q` in dv issues asks again while Claude drafts a fix too (it was lost).
+
 ## [0.43.0] - 2026-10-19
 
 ### Added
