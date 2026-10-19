@@ -18,6 +18,8 @@ impl List {
         let mut items = vec![];
         // (Reading each review: which Claude would close too, the "can close" tab.)
         let mut closable = HashMap::new();
+        // (And which Claude would replace with one of its own: auto drafts it.)
+        let mut replaceable = HashMap::new();
         for p in self.prs.iter().filter(|p| p.open()) {
             let file = dir.as_ref().map(|d| d.join(format!("pr-{}.json", p.number)));
             let review = file.as_ref().and_then(|f| crate::claude::load(f).ok().flatten());
@@ -26,6 +28,9 @@ impl List {
                 let head = self.extra.get(&p.number).map_or("", |e| e.head_oid.as_str());
                 let older = !r.head.is_empty() && !head.is_empty() && r.head != head;
                 closable.insert(p.number, format!("{}{}", r.close.trim(), if older { " (reviewed at an older head)" } else { "" }));
+            }
+            if let Some(r) = review.as_ref().filter(|r| !r.replace.trim().is_empty() && r.close.trim().is_empty()) {
+                replaceable.insert(p.number, r.replace.trim().to_owned());
             }
             let looked = seen.as_ref().and_then(|s| std::fs::read_to_string(s.join(format!("pr-{}.looked", p.number))).ok()?.trim().parse().ok());
             let (f, c, head_at) = self.unpushed.get(&p.number).copied().unwrap_or((0, 0, None));
@@ -37,6 +42,7 @@ impl List {
             }
         }
         self.closable = closable;
+        self.replaceable = replaceable;
         for r in self.rep_of.values() {
             let needs = todo::rep_needs(r);
             let updated = self.reps.iter().find(|c| c.number == r.id).map_or(String::new(), |c| c.updated.clone());
@@ -161,7 +167,27 @@ impl List {
                 run.push((n, batch::Task::Close));
             }
         }
+        // A PR Claude would replace (low effort, worth keeping) with no replacement of it yet:
+        // drafted, one at a time, once each at a head (unpublished: the drafts tab has it).
+        let drafting = self.drafting.values().any(batch::Status::running);
+        let replaced = |n: u64| self.rep_of.values().any(|r| r.replaces.iter().any(|o| o.number == n));
+        let next = self.replaceable.iter().find_map(|(&n, why)| {
+            let head = self.extra.get(&n).map(|e| e.head_oid.clone()).filter(|h| !h.is_empty())?;
+            (!replaced(n) && !self.auto_done.contains(&(n, head.clone(), "replace"))).then(|| (n, head, why.clone()))
+        });
+        let mut replacing = None;
+        if let (false, Some((n, head, why))) = (drafting, next) {
+            self.auto_done.insert((n, head, "replace"));
+            // (Your instructions for replacements, as a first draft gets them, and why this one.)
+            let saved = crate::claude::instructions("replace");
+            let extra = format!("{}Claude's review of #{n} found it worth replacing: {why}", if saved.trim().is_empty() { String::new() } else { format!("{}\n\n", saved.trim()) });
+            self.draft_rx.push(batch::replace(vec![n], self.root.clone(), extra));
+            replacing = Some(n);
+        }
         let mut said = vec![];
+        if let Some(n) = replacing {
+            said.push(format!("Claude is drafting a replacement of #{n} (its review: low effort, worth keeping; the drafts tab has it)"));
+        }
         if !run.is_empty() {
             said.push(format!("Claude is {}", self.start_batch(run, String::new())));
         }

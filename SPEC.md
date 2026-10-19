@@ -285,7 +285,9 @@ git config `dv.auto` and shown on the top bar, ` auto: CI · review · rank `: t
 part on each item by itself, as `a a` would have it (fixes your failing CI, reviews, updates its
 review, answers you; one batch at a time), for a PR its review would close drafts the comment
 closing it (in the review's `"closing"`, once a head: the PR's view closes with it, your editor
-first), a draft of yours with its checks green is marked ready
+first), for a PR its review would replace (`"replace"`: low effort, AI slop, but worth keeping) drafts a
+replacement of it (as `A A`, unpublished, on the drafts tab; one at a time, once a head, your
+instructions for replacements and why), a draft of yours with its checks green is marked ready
 for review, each once a head, a published replacement with its checks green closes what it
 replaces, each with its closing note (as `S` → close would), and the list is ranked again when something's new or changed, at
 most every 15 minutes; not items deferred or waiting, nor ones Claude's at already), workflow runs awaiting a maintainer's approval (`W W`; its card says

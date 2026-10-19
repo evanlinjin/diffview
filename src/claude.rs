@@ -75,6 +75,9 @@ pub struct Review {
     /// Why Claude would close the PR (its premise is wrong, a competing PR is better); empty:
     /// it wouldn't. `dv list`'s "can close" tab.
     pub close: String,
+    /// Why Claude would replace it with a PR of its own (low effort, AI slop, but the idea's
+    /// worth keeping); empty: it wouldn't. Auto drafts that replacement.
+    pub replace: String,
     pub threads: Vec<Thread>,
 }
 
@@ -589,7 +592,7 @@ fn parse(text: &str) -> Result<Review> {
             })
         })
         .collect::<Result<_>>()?;
-    Ok(Review { head: s(&v["head"]), summary: s(&v["summary"]), description: s(&v["description"]), closing: s(&v["closing"]), close: s(&v["close"]), threads })
+    Ok(Review { head: s(&v["head"]), summary: s(&v["summary"]), description: s(&v["description"]), closing: s(&v["closing"]), close: s(&v["close"]), replace: s(&v["replace"]), threads })
 }
 
 /// A GitHub review comment's id, from a review file's `"about"`: the id, or its link

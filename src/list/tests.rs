@@ -281,6 +281,11 @@ fn todo_tab() {
     snapshot("list_can_close", &screen(100, 8, |f| l.draw(f)));
     assert_eq!((Tab::Open.next(), Tab::CanClose.prev()), (Tab::CanClose, Tab::Open));
     _ = std::fs::remove_file(dir.join("reviews/pr-2.json"));
+    // #1: Claude would replace it (low effort, worth keeping): auto drafts that; not with close.
+    std::fs::write(dir.join("reviews/pr-1.json"), r##"{"head": "h", "summary": "x", "replace": "AI slop, but the fee fix is real"}"##).unwrap();
+    l.find_todo();
+    assert_eq!(l.replaceable.get(&1).map(String::as_str), Some("AI slop, but the fee fix is real"));
+    _ = std::fs::remove_file(dir.join("reviews/pr-1.json"));
     l.find_todo();
     l.tab = Tab::Todo;
     let shown = |l: &List| l.shown().iter().map(|p| p.number).collect::<Vec<_>>();

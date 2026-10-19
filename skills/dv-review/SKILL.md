@@ -49,6 +49,10 @@ the file as JSON:
   work), or a competing PR does it better (name it: `#123 does this better: …`). dv lists
   these PRs on its own (`dv list`'s "can close" tab). Leave it out otherwise; when updating a
   review, remove it if it no longer holds.
+- `replace` (optional, top level): when the PR is low effort (AI slop, careless, far off the
+  repo's ways) but what it's after is worth having, one line saying what to keep and why a
+  fresh PR beats reviewing this one on. dv's auto mode drafts that replacement (section 6).
+  Not with `close` (one or the other), and not for a PR that's merely in need of changes.
 - `path` is relative to the repo root, as in the diff.
 - `line` is the line the comment is on. Add `start_line` for a range (`start_line < line`).
   These are **file line numbers**, not diff positions: on `"side": "new"` (the default) the

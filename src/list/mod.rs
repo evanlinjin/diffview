@@ -158,6 +158,8 @@ pub struct List {
     new: HashSet<u64>,
     /// PRs Claude's review would close, and why: the "can close" tab.
     closable: HashMap<u64, String>,
+    /// PRs Claude's review would replace with one of its own, and why (auto drafts it).
+    replaceable: HashMap<u64, String>,
     /// The repo, for the reviews' worktrees.
     root: PathBuf,
     pub msg: String,
