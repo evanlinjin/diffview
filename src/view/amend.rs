@@ -271,7 +271,7 @@ impl App {
     }
 
     /// HEAD's short sha, and the branch HEAD is kept on before it's rewritten.
-    fn backup_name(&self) -> Result<(String, String)> {
+    pub(super) fn backup_name(&self) -> Result<(String, String)> {
         let short = git_in(&self.root, &["rev-parse", "--short", "HEAD"])?.trim().to_owned();
         let who = self.pr.as_ref().map_or("branch".to_owned(), |p| format!("pr-{}", p.number));
         Ok((short.clone(), format!("dv-backup/{who}-{short}")))
@@ -344,7 +344,7 @@ impl App {
                 &head[..7.min(head.len())],
             );
             let forked = self.claude_pane().is_some();
-            self.claude.job = Some(self.spawn_claude(&prompt, AMEND_LABEL, forked)?);
+            self.claude.job = Some(self.spawn_claude(&prompt, AMEND_LABEL, forked, &[])?);
             Ok(())
         })();
         self.msg = match r {

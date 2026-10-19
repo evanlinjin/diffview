@@ -479,6 +479,18 @@ impl App {
                         Target::ClaudeCheck => self.check_claude(),
                         Target::ClaudeStop => self.stop_claude(),
                         Target::AmendMenu => self.amend_menu(),
+                        Target::Rebase => {
+                            self.msg = "rebasing…".into();
+                            self.job = Some(Job::Rebase);
+                        }
+                        Target::RebaseClaude => {
+                            if let Err(e) = self.rebase_claude() {
+                                self.msg = format!("{e:#}");
+                            } else {
+                                self.msg = "Claude is resolving the rebase's conflicts".into();
+                            }
+                        }
+                        Target::RebaseAbort => self.abort_rebase(),
                         Target::Amend => self.amend_now(),
                         Target::AmendAsk => self.amend_ask(),
                         Target::React(node, what, add) => {

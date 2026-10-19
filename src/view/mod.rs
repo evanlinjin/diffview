@@ -22,6 +22,7 @@ use std::time::Duration;
 
 mod agent;
 mod amend;
+mod rebase;
 pub(crate) use agent::{REPLACE_TOOLS, answer_prompt, close_if_done, pane_screen, asking, working, claude_command, claude_wrote, fix_checks_prompt, review_prompt, turn, update_prompt, with_instructions};
 mod build;
 use build::*;
@@ -130,7 +131,8 @@ ON CLAUDE'S REVIEW (its summary)
 REVIEW
   S                    submit (comment / approve / request changes), or discard
   Space g              git: show only what isn't committed (Claude's changes), commit, amend
-                       it into the commits it belongs in, push, update the checkout
+                       it into the commits it belongs in, push, update the checkout, rebase
+                       onto the base (Claude resolves conflicts)
   Space p  Space t     pick from your pending comments (Ctrl-d deletes) / all threads
   Space v              mark the file viewed (folds it, moves on)
   Space a              ask Claude Code to review, answer your replies, or make the changes
@@ -337,6 +339,8 @@ enum Job {
     Preview(String),
     /// Ask GitHub what reactions a comment (its node id) has, for the react picker.
     Reactions(String),
+    /// Fetch the base branch and rebase onto it (Claude resolving conflicts).
+    Rebase,
     /// Push HEAD to the PR's branch (`true`: force, with a lease on the PR's head).
     Push(bool),
     /// Send what was written in the editor.
@@ -393,6 +397,11 @@ enum Target {
     AmendMenu,
     Amend,
     AmendAsk,
+    /// Rebase onto the base branch (Claude resolving conflicts) / Claude carrying a stopped
+    /// one on / abort it.
+    Rebase,
+    RebaseClaude,
+    RebaseAbort,
     GitPush,
     /// Force-push (with a lease): HEAD doesn't contain the PR's head (a rebase or amend here).
     GitForcePush,

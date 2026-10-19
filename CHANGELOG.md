@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- Rebase onto the base branch with Claude's help: `Space g` → "Rebase onto origin/<base>"
+  fetches it and rebases (HEAD kept on a backup branch first); if it stops on conflicts,
+  Claude resolves them and carries it on, in the background. Stopped part way, `Space g`
+  asks Claude to finish it, or aborts it.
+
 ## [0.30.0] - 2026-10-19
 
 ### Added

@@ -81,8 +81,11 @@ impl App {
             return;
         }
         // Read-only: no reload after.
-        if !matches!(job, Job::Preview(_) | Job::Reactions(_)) {
+        if !matches!(job, Job::Preview(_) | Job::Reactions(_) | Job::Rebase) {
             self.ensure_fresh();
+        }
+        if let Job::Rebase = job {
+            return self.start_rebase();
         }
         if let Job::Reactions(node) = job {
             return self.react_menu(&node);
@@ -104,7 +107,7 @@ impl App {
             }),
             Job::DeleteComment(c) => gh::delete_comment(&c).map(|_| "comment deleted"),
             Job::React(node, what, add) => gh::react(&node, what, add).map(|_| if add { "reacted" } else { "reaction taken back" }),
-            Job::Preview(_) | Job::Reactions(_) | Job::Pull | Job::Push(_) => unreachable!("handled above"),
+            Job::Preview(_) | Job::Reactions(_) | Job::Rebase | Job::Pull | Job::Push(_) => unreachable!("handled above"),
             Job::Post(p) => self.post(p),
             Job::Viewed(path, on) => {
                 let pr_id = self.pr.as_ref().map(|p| p.node_id.clone()).unwrap_or_default();

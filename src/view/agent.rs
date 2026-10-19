@@ -739,7 +739,7 @@ impl App {
                 Ok(s) => (format!("zellij run failed ({s})"), false),
                 Err(e) => (format!("running zellij: {e}"), false),
             },
-            false => match self.spawn_claude(&prompt, label, false) {
+            false => match self.spawn_claude(&prompt, label, false, &[]) {
                 Ok(job) => {
                     self.claude.job = Some(job);
                     (format!("Claude is {label} in the background…"), true)
@@ -763,7 +763,7 @@ impl App {
         }
         let prompt = self.claude_prompt(Ask::Answer, "");
         let forked = self.claude_pane().is_some();
-        match self.spawn_claude(&prompt, "answering", forked) {
+        match self.spawn_claude(&prompt, "answering", forked, &[]) {
             Ok(job) => {
                 self.claude.job = Some(job);
                 "reply sent; Claude is answering…".into()
@@ -858,7 +858,8 @@ impl App {
     /// `claude -p` in the background: its result (JSON) in a log file, its errors next to it.
     /// It runs in the PR's session (or, `forked`, a fork of it), so Claude keeps the review's
     /// context across runs.
-    pub(super) fn spawn_claude(&mut self, prompt: &str, label: &'static str, forked: bool) -> Result<ClaudeJob> {
+    /// `more`: tools it may use on top of `ALLOWED`.
+    pub(super) fn spawn_claude(&mut self, prompt: &str, label: &'static str, forked: bool, more: &[&str]) -> Result<ClaudeJob> {
         use std::os::unix::process::CommandExt;
         // One log per run, so a follow-up run doesn't wipe the one a message points to.
         self.claude.runs += 1;
@@ -868,7 +869,7 @@ impl App {
         if forked {
             session.push("--fork-session".into());
         }
-        let child = claude_command(prompt, &self.root, &session, &[], None)
+        let child = claude_command(prompt, &self.root, &session, more, None)
             .stdin(std::process::Stdio::null())
             .stdout(std::fs::File::create(&log)?)
             .stderr(std::fs::File::create(&err)?)
@@ -915,6 +916,10 @@ impl App {
             (true, Some(r)) => format!("Claude stopped while {label}, refused {r}: see {}", log.display()),
             (true, None) => format!("Claude stopped ({st}) while {label}: see {} (and .err)", log.display()),
         };
+        // A rebase Claude carried on: how it stands now.
+        if label == super::rebase::REBASE_LABEL {
+            self.rebase_ended();
+        }
         // Placing changes for an amend: its answers, in the picker.
         // (Not over what you're at: a picker, a prompt, an action on its way.)
         if label == super::amend::AMEND_LABEL && !failed && refused.is_none() {
@@ -1226,7 +1231,8 @@ pub(crate) fn review_prompt(what: &str) -> String {
 /// Claude may write to (`None`: all of dv's).
 pub(crate) fn claude_command(prompt: &str, dir: &Path, session: &[String], more: &[&str], access: Option<&Path>) -> std::process::Command {
     let mut cmd = std::process::Command::new("claude");
-    cmd.env("PATH", path_for_claude())
+    // No editor to wait on (`git rebase --continue`, `git commit` without -m).
+    cmd.env("PATH", path_for_claude()).env("GIT_EDITOR", "true")
         .args(["-p", prompt, "--output-format", "json", "--permission-mode", "acceptEdits"])
         .args(session);
     match access {
