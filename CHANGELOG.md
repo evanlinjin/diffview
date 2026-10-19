@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Fixed
+- The line between the code and the comments pane goes on to the bottom of the window (it
+  stopped where the rows did). The Claude and Pending tabs, with nothing in them, say so on
+  both sides.
+
 ## [0.30.1] - 2026-10-19
 
 ### Added

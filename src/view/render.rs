@@ -179,6 +179,20 @@ impl App {
             .then_some(("PR text", &[("c", "quote in your review summary"), ("C", "quote in a new conversation comment"), ("Space =", "react"), ("Space c", "copy link")]))
     }
 
+    /// The Claude or pending view with nothing in it: what the code side and the pane say.
+    fn empty_note(&self) -> Option<(&'static str, &'static str)> {
+        let any = self.threads.iter().any(|t| self.in_view(t));
+        match self.view {
+            View::Claude if !any && self.claude.summary.is_empty() && !self.unpublished() => {
+                Some(("Nothing here yet: Claude hasn't reviewed this (Space a asks it).", "No comments from Claude."))
+            }
+            View::Pending if !any && self.summary_draft.is_empty() => {
+                Some(("Nothing here yet: your pending review is empty (c on a line queues a comment).", "No pending comments."))
+            }
+            _ => None,
+        }
+    }
+
     pub(super) fn draw(&mut self, f: &mut Frame) {
         // The changed files' list on the left (`Ctrl-w e`), the rest beside it.
         let full = f.area();
@@ -492,6 +506,28 @@ impl App {
             .collect();
         f.render_widget(Block::new().style(self.ui.base), full);
         f.render_widget(Paragraph::new(lines), Rect { y: area.y + pin as u16, height: h as u16, ..area });
+        // Below the last row: the line between the code and the pane goes on to the bottom; and
+        // a view with nothing in it (yet) says so, on both sides.
+        if rows_shown < h && !pr_tab {
+            let column = margin && !float;
+            let code_w = if column { mx } else { tw };
+            let note = self.empty_note();
+            let filler: Vec<Line> = (rows_shown..h)
+                .map(|y| {
+                    let say = note.filter(|_| y == rows_shown + 1);
+                    let code: String = say.map_or("", |n| n.0).chars().take(code_w).collect();
+                    let mut spans = vec![Span::raw(" ".repeat(relw + gw)), Span::styled(format!("{code:<code_w$}"), self.ui.stale)];
+                    if column {
+                        spans.push(sep.clone());
+                        let pane: String = say.map_or("", |n| n.1).chars().take(mw.saturating_sub(1)).collect();
+                        spans.push(Span::styled(format!(" {pane}"), self.ui.stale));
+                    }
+                    Line::from(spans)
+                })
+                .collect();
+            let at = area.y + (pin + rows_shown) as u16;
+            f.render_widget(Paragraph::new(filler), Rect { y: at, height: (h - rows_shown) as u16, ..area });
+        }
         // Like Helix's which-key: what can follow a pending prefix key, else what the keys do where
         // the cursor is (when no other popup is up). At the bottom of the contents list when it's
         // shown; else a popup (below).

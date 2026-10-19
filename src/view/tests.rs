@@ -2339,6 +2339,12 @@ fn claude_tab_is_the_claude_view() {
     assert_eq!(app.view, View::Claude);
     app.bar_to(Bar::Pending);
     assert_eq!(app.view, View::Pending);
+    // Nothing pending: both sides say so (the fixture has a pending comment: gone here).
+    app.threads.iter_mut().flat_map(|t| &mut t.comments).for_each(|c| c.pending = false);
+    app.summary_draft.clear();
+    app.build();
+    let s = screen(220, 30, |f| app.draw(f));
+    assert!(s.contains("Nothing here yet: your pending review is empty") && s.contains("No pending comments."), "{s}");
     app.bar_to(Bar::Comments);
     assert_eq!(app.view, View::All);
 }
