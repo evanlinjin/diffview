@@ -180,7 +180,8 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], reword: Option<(&str
     // first (what's left may come back staged or not; new files stay added).
     let own = |args: &[&str]| -> Result<()> {
         let out = std::process::Command::new("git").arg("-C").arg(dir).args(args).env("GIT_INDEX_FILE", &index).output()?;
-        anyhow::ensure!(out.status.success(), "git {}: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim());
+        let said = if out.stderr.is_empty() { &out.stdout } else { &out.stderr }; // ("nothing to commit": stdout)
+        anyhow::ensure!(out.status.success(), "git {}: {}", args.join(" "), String::from_utf8_lossy(said).trim());
         Ok(())
     };
     let mut done: Vec<&Hunk> = vec![];
@@ -233,6 +234,11 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], reword: Option<(&str
     if skipped.len() == targets.len() {
         _ = git_in(dir, &["reset", "-q", &orig]);
         _ = git_in(dir, &["read-tree", &staged]); // staged as it was
+        if !marked.is_empty() {
+            // (Those only marked, marked again.)
+            _ = git_in(dir, &[&["--literal-pathspecs", "reset", "-q", "--"], marked.as_slice()].concat());
+            _ = git_in(dir, &[&["--literal-pathspecs", "add", "-N", "--"], marked.as_slice()].concat());
+        }
         _ = git_in(dir, &["branch", "-D", backup]);
         let why = skipped.first().map(|s| s.1.as_str()).unwrap_or("");
         anyhow::bail!("nothing amended: it's all as it was ({why})");
