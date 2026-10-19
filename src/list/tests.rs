@@ -313,7 +313,7 @@ fn todo_tab() {
     assert!(l.rank_rx.is_none() && l.msg.starts_with("r again: Claude ranks the 3 PR(s) that need you, one run (never ranked before)"), "{}", l.msg);
     k(&mut l, KeyCode::Char('j')); // anything else calls it off
     assert!(l.confirm.is_none());
-    l.ranked = Some(crate::todo::Ranked { at: crate::claude::now_secs(), cost: 0.38, fingerprint: fp, waits: Default::default(), items: vec![("pr-1".into(), "a fee bug — review it".into()), ("pr-3".into(), "y".into()), ("pr-2".into(), "z".into())] });
+    l.ranked = Some(crate::todo::Ranked { at: crate::claude::now_secs(), cost: 0.38, fingerprint: fp, waits: Default::default(), closes: Default::default(), items: vec![("pr-1".into(), "a fee bug — review it".into()), ("pr-3".into(), "y".into()), ("pr-2".into(), "z".into())] });
     l.find_todo();
     assert_eq!((shown(&l), l.since), (vec![1, 3, 2], crate::todo::Since::default()));
     assert!(l.since_text().contains("nothing's changed since"));

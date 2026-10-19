@@ -373,6 +373,8 @@ pub struct Ranked {
     pub items: Vec<(String, String)>,
     /// What Claude saw each waits on, in its conversation (by key).
     pub waits: std::collections::HashMap<String, Until>,
+    /// Those it says to close, and why (issues: a duplicate, fixed by a merged PR, moot).
+    pub closes: std::collections::HashMap<String, String>,
 }
 
 /// What a ranking was of: each item and its needs. When today's differs, the ranking is stale.
@@ -708,7 +710,8 @@ pub fn load_of(of: Of) -> Option<Ranked> {
     let v: Value = serde_json::from_str(&std::fs::read_to_string(path(of)?).ok()?).ok()?;
     let items = v["items"].as_array()?.iter().map(|i| (i["key"].as_str().unwrap_or("").to_owned(), i["says"].as_str().unwrap_or("").to_owned())).collect();
     let waits = v["waits"].as_object().into_iter().flatten().filter_map(|(k, w)| Some((k.clone(), Until::from_json(w)?))).collect();
-    Some(Ranked { at: v["at"].as_i64().unwrap_or(0), cost: v["cost"].as_f64().unwrap_or(0.0), fingerprint: v["fingerprint"].as_str().unwrap_or("").to_owned(), items, waits })
+    let closes = v["closes"].as_object().into_iter().flatten().filter_map(|(k, w)| Some((k.clone(), w.as_str()?.to_owned()))).collect();
+    Some(Ranked { at: v["at"].as_i64().unwrap_or(0), cost: v["cost"].as_f64().unwrap_or(0.0), fingerprint: v["fingerprint"].as_str().unwrap_or("").to_owned(), items, waits, closes })
 }
 
 fn save(r: &Ranked, of: Of) -> Result<()> {
@@ -716,7 +719,7 @@ fn save(r: &Ranked, of: Of) -> Result<()> {
     let p = path(of).context("no dv directory")?;
     std::fs::create_dir_all(p.parent().unwrap_or(&p))?;
     let waits: serde_json::Map<String, Value> = r.waits.iter().map(|(k, w)| (k.clone(), w.to_json())).collect();
-    Ok(std::fs::write(p, json!({ "at": r.at, "cost": r.cost, "fingerprint": r.fingerprint, "items": items, "waits": waits }).to_string())?)
+    Ok(std::fs::write(p, json!({ "at": r.at, "cost": r.cost, "fingerprint": r.fingerprint, "items": items, "waits": waits, "closes": r.closes }).to_string())?)
 }
 
 /// A line about item `it` for Claude's ranking: what it is and what it needs.
@@ -745,7 +748,7 @@ pub fn about(it: &Item, pr: &Listed, summary: &str) -> String {
 pub fn rank_of(lines: Vec<String>, fingerprint: String, root: std::path::PathBuf, of: Of) -> Receiver<Result<Ranked>> {
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
-        let res = ask(&lines, &root, of).map(|((items, waits), cost)| Ranked { at: crate::claude::now_secs(), cost, fingerprint, items, waits });
+        let res = ask(&lines, &root, of).map(|((items, waits, closes), cost)| Ranked { at: crate::claude::now_secs(), cost, fingerprint, items, waits, closes });
         if let Ok(r) = &res {
             _ = save(r, of);
         }
@@ -754,7 +757,7 @@ pub fn rank_of(lines: Vec<String>, fingerprint: String, root: std::path::PathBuf
     rx
 }
 
-type Order = (Vec<(String, String)>, std::collections::HashMap<String, Until>);
+type Order = (Vec<(String, String)>, std::collections::HashMap<String, Until>, std::collections::HashMap<String, String>);
 
 /// Claude's order and the waits it saw, and what it cost.
 fn ask(lines: &[String], root: &std::path::Path, of: Of) -> Result<(Order, f64)> {
@@ -779,7 +782,9 @@ fn ask(lines: &[String], root: &std::path::Path, of: Of) -> Result<(Order, f64)>
     let waits = match of {
         Of::Prs => " says it's waiting on something dv can watch for, add \"waits_on\", one of: {\"merged\": N}, \
                     {\"closed\": N}, {\"green\": true}, {\"approved\": \"login\"}, {\"reviewed\": \"login\"}.",
-        Of::Issues => "",
+        // (What to close, said apart from the words: dv's close tab lists them.)
+        Of::Issues => " For one I should close (a duplicate, fixed by a merged PR, answered, moot), add \"close\": \"why, \
+                       a few words\".",
     };
     let prompt = format!(
         "{notes}I maintain this repo. {what}, one JSON object each, with what each needs from me:\n{}\n\n\
@@ -813,7 +818,8 @@ fn parse(answer: &str) -> Result<Order> {
         .filter(|(k, _)| !k.is_empty())
         .collect();
     let waits = all.iter().filter_map(|i| Some((s(&i["key"]), Until::from_json(i.get("waits_on")?)?))).collect();
-    Ok((order, waits))
+    let closes = all.iter().map(|i| (s(&i["key"]), s(&i["close"]))).filter(|(k, c)| !k.is_empty() && !c.is_empty()).collect();
+    Ok((order, waits, closes))
 }
 
 #[cfg(test)]
@@ -1004,7 +1010,7 @@ mod tests {
         assert!(o.iter().all(|i| !i.changed)); // nothing to have changed since
         assert_eq!(o.iter().map(|i| i.number).collect::<Vec<_>>(), [2, 3, 1]);
         // Claude's order, with its word; a new one goes before the first that needs you less.
-        let ranked = Ranked { at: 1, cost: 0.1, fingerprint: fingerprint(&items), waits: Default::default(), items: vec![("pr-1".into(), "small fix — merge".into()), ("pr-3".into(), "x".into())] };
+        let ranked = Ranked { at: 1, cost: 0.1, fingerprint: fingerprint(&items), waits: Default::default(), closes: Default::default(), items: vec![("pr-1".into(), "small fix — merge".into()), ("pr-3".into(), "x".into())] };
         let (o, since) = order(items.clone(), Some(&ranked));
         assert_eq!(since, Since::default()); // it's of the same three (pr-2 left out of Claude's answer goes by the rules)
         assert_eq!(o.iter().map(|i| i.number).collect::<Vec<_>>(), [2, 1, 3]);
@@ -1017,8 +1023,9 @@ mod tests {
         assert_eq!(since, Since { new: 1, changed: 1, gone: 1 });
         assert_eq!(o.iter().filter(|i| i.changed).map(|i| i.number).collect::<Vec<_>>().len(), 2);
         // Claude's answer, words around it.
-        let (p, waits) = parse("Here: [{\"key\": \"pr-2\", \"reason\": \"bug fix\", \"next\": \"review it\"}, {\"key\": \"rep-12\", \"reason\": \"ready\", \"waits_on\": {\"merged\": 2380}}]").unwrap();
-        assert_eq!(p, [("pr-2".to_owned(), "bug fix\nreview it".to_owned()), ("rep-12".to_owned(), "ready".to_owned())]);
+        let (p, waits, closes) = parse("Here: [{\"key\": \"pr-2\", \"reason\": \"bug fix\", \"next\": \"review it\"}, {\"key\": \"rep-12\", \"reason\": \"ready\", \"waits_on\": {\"merged\": 2380}}, {\"key\": \"issue-5\", \"reason\": \"dup\", \"close\": \"duplicate of #4\"}]").unwrap();
+        assert_eq!(closes.get("issue-5").map(String::as_str), Some("duplicate of #4"));
+        assert_eq!(p, [("pr-2".to_owned(), "bug fix\nreview it".to_owned()), ("rep-12".to_owned(), "ready".to_owned()), ("issue-5".to_owned(), "dup".to_owned())]);
         assert_eq!(waits.get("rep-12"), Some(&Until::Merged(2380))); // what it saw the conversation say
     }
 
