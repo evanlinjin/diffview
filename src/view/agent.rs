@@ -484,9 +484,9 @@ impl App {
         let land = match ask {
             Ask::Fix if self.theirs => "",
             Ask::Fix | Ask::Edit => match self.claude.land {
-                "amend" => " Amend each change into the commit of the branch it belongs in (`dv amend <sha> <files>`, as the dv-review skill says), and say in its reply which commit it went in.",
-                "commit" => " Commit the changes as new commits (`git add`, `git commit`, messages in the repo's style): one for each comment, or one for those that belong together; say in each reply which commit has it.",
-                _ => " Leave the changes uncommitted: the user commits them.",
+                "amend" => " Amend each change into the commit of the branch it belongs in (`dv amend <sha> <files>`, as the dv-review skill says), and say in its reply which commit it went in; a comment whose `want` says otherwise, as it says.",
+                "commit" => " Commit the changes as new commits (`git add`, `git commit`, messages in the repo's style): one for each comment, or one for those that belong together; say in each reply which commit has it; a comment whose `want` says otherwise, as it says.",
+                _ => " Leave the changes uncommitted (the user commits them); a comment whose `want` says otherwise, as it says.",
             },
             _ => "",
         };
@@ -524,7 +524,12 @@ impl App {
             // Making the changes (not suggesting them): how they land, first.
             Ask::Fix | Ask::Edit if !(self.theirs && matches!(ask, Ask::Fix)) => {
                 let items: Vec<Item> = LANDS.iter().map(|&(key, label)| Item::new(label, Target::Land(ask, key))).collect();
-                let sel = LANDS.iter().position(|l| l.0 == self.claude.land).unwrap_or(0);
+                // (Their PR, made here: Space g pushes commits, so as commits, unless you've said.)
+                let land = match (self.theirs, self.claude.land) {
+                    (true, "") => "commit",
+                    (_, l) => l,
+                };
+                let sel = LANDS.iter().position(|l| l.0 == land).unwrap_or(0);
                 self.picker = Some(Picker { sel, ..Picker::new(" how should the changes land? ", items) });
             }
             Ask::Review | Ask::Fix | Ask::Edit | Ask::Describe | Ask::Close => self.action = Some(Action::ClaudeWith(ask)),
@@ -629,6 +634,11 @@ impl App {
         }
         if let Some(why) = self.claude_blocked(Some(Ask::Answer)) {
             return format!("reply saved; {why} (then Space a has Claude answer)");
+        }
+        // A commit or an amend asked for while Claude's pane works in this checkout: not two at
+        // once on its history.
+        if self.claude.pane_busy && self.threads.iter().any(|t| t.waiting() && matches!(t.want.as_str(), "amend" | "commit")) {
+            return "reply saved; Claude's pane is at work here, and this commits: Space a has Claude answer once it's done".into();
         }
         let prompt = self.claude_prompt(Ask::Answer, "");
         let forked = self.claude_pane().is_some();

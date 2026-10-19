@@ -168,10 +168,16 @@ impl App {
                 let p = self.claude.path.clone().context("no review file")?;
                 let what = format!("one reply to Claude's {} comments{}", keys.len(), ask::want_hint(want));
                 let Some(body) = compose_change(&what, want, "")? else { return Ok("reply cancelled".into()) };
-                for k in &keys {
-                    keep_on_error(crate::claude::reply(&p, k, &body, want), &body)?;
+                // Each written that can be (one gone meanwhile: said), and those answered.
+                let failed: Vec<String> = keys.iter().filter(|k| crate::claude::reply(&p, k, &body, want).is_err()).cloned().collect();
+                if failed.len() == keys.len() {
+                    keep_on_error(Err(anyhow::anyhow!("none of those comments could be replied to (gone from the review?)")), &body)?;
                 }
-                Ok(self.answer_now())
+                let said = self.answer_now();
+                Ok(match failed.is_empty() {
+                    true => said,
+                    false => format!("{said} (not replied to, gone from the review: {})", failed.join(", ")),
+                })
             }
             Action::AskClaude { anchor, code, about, want } => {
                 let p = self.claude.path.clone().context("no review file")?;
@@ -181,7 +187,7 @@ impl App {
                     None => format!("a comment for Claude on {}:{range}{}", anchor.path, ask::want_hint(want)),
                 };
                 let prefill = about.as_ref().map_or(String::new(), |(_, q)| q.clone());
-                let Some(body) = compose_change(&what, want, &prefill)? else { return Ok("comment cancelled".into()) };
+                let Some(body) = compose_with(&what, false, &prefill, false)? else { return Ok("comment cancelled".into()) };
                 keep_on_error(crate::claude::add_comment(&p, &anchor, code, &body, about.map(|a| a.0), want).map(drop), &body)?;
                 self.load_claude();
                 Ok(self.answer_now())
@@ -439,7 +445,8 @@ fn compose_change(what: &str, want: &str, prefill: &str) -> Result<Option<String
     if !ask::edits_code(want) {
         return compose_with(what, false, prefill, false);
     }
-    Ok(compose_with(what, true, prefill, true)?.map(|b| match b.trim().is_empty() || b.trim() == prefill.trim() {
+    let what = format!("{what}; left empty: what Claude's comment says");
+    Ok(compose_with(&what, true, prefill, true)?.map(|b| match b.trim().is_empty() || b.trim() == prefill.trim() {
         true => format!("{prefill}Make the change your comment describes.").trim_start().to_owned(),
         false => b,
     }))

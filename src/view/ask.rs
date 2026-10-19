@@ -27,13 +27,13 @@ pub(super) const WANTS: [(&str, &str, &str, &str); 5] = [
     (
         "amend",
         "[amend] ",
-        " (Claude makes the change and amends it into the commit it belongs in; nothing goes to GitHub; empty: what the comment says)",
+        " (Claude makes the change and amends it into the commit it belongs in; nothing goes to GitHub)",
         "Amend: Claude makes the change and amends it into the commit it belongs in",
     ),
     (
         "commit",
         "[commit] ",
-        " (Claude makes the change as a new commit; nothing goes to GitHub; empty: what the comment says)",
+        " (Claude makes the change as a new commit; nothing goes to GitHub)",
         "Commit: Claude makes the change as a new commit",
     ),
 ];
@@ -151,6 +151,8 @@ impl App {
             .map(|&&(key, _, _, label)| match (key, draft, self.theirs) {
                 ("change", true, _) => Item::new("Change: Claude redrafts it (its drafts, and the code)", Target::Want(key)),
                 ("change", false, true) => Item::new(format!("{label} (their PR: Space g pushes what you commit)"), Target::Want(key)),
+                ("amend", false, true) => Item::new(format!("{label} (their PR: Space g force-pushes it)"), Target::Want(key)),
+                ("commit", false, true) => Item::new(format!("{label} (their PR: Space g pushes it)"), Target::Want(key)),
                 _ => Item::new(label, Target::Want(key)),
             })
             .collect();
