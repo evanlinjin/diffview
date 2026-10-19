@@ -2,6 +2,11 @@
 use super::*;
 
 impl List {
+    /// Whether PR `n` conflicts with its base.
+    fn conflicts(&self, n: u64) -> bool {
+        self.extra.get(&n).is_some_and(|e| e.mergeable == "CONFLICTING")
+    }
+
     /// Cards on screen (between the header and the status bar).
     pub(super) fn height(&self) -> usize {
         ratatui::crossterm::terminal::size().map_or(10, |(_, h)| h.saturating_sub(2) as usize / self.card_rows())
@@ -78,7 +83,10 @@ impl List {
                                 format!("replaces {}", each.join(", "))
                             }
                         });
-                        Mark { marked: false, claude: self.draft_state(p.number, "claude"), new: false, replaces, awaiting: 0, rank: None, tags: vec![] }
+                        // (Published: its PR's conflicts, as any PR's.)
+                        let published = self.rep_of.get(&p.number).and_then(|r| r.published);
+                        let tags = published.filter(|n| self.conflicts(*n)).map(|_| vec!["conflicts".to_owned()]).unwrap_or_default();
+                        Mark { marked: false, claude: self.draft_state(p.number, "claude"), new: false, replaces, awaiting: 0, rank: None, tags }
                     }
                     false => {
                         // On the todo tab, what Claude could do there (`a a`), when it isn't at it.
@@ -95,7 +103,7 @@ impl List {
                             None => (None, vec![]),
                         };
                         // Conflicts with its base: on every tab (drafts too), whatever's ranked.
-                        if self.extra.get(&p.number).is_some_and(|e| e.mergeable == "CONFLICTING") && !tags.iter().any(|t| t == "conflicts") {
+                        if self.conflicts(p.number) && !tags.iter().any(|t| t == "conflicts") {
                             tags.push("conflicts".into());
                         }
                         Mark { marked: self.marked.contains(&p.number), claude, new: self.new.contains(&p.number), replaces: None, awaiting, rank, tags }
