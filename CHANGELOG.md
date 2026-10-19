@@ -5,6 +5,10 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.45] - 2026-10-19
+
+(0.34.44 again, with its tests passing on CI: it isn't on crates.io.)
+
 ## [0.34.44] - 2026-10-19
 
 ### Changed
