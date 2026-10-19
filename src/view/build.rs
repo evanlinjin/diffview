@@ -97,10 +97,26 @@ impl App {
             info: (r.file == INFO && r.main.is_none()).then(|| {
                 let pr = |x: &&Row| x.file == INFO && x.main.is_none();
                 let before = || self.rows[..row].iter().filter(pr);
-                (r.info, before().filter(|x| r.info.is_some() && x.info == r.info).count(), before().count())
+                let id = self.info_id(r.info);
+                (id.clone(), before().filter(|x| id.is_some() && self.info_id(x.info) == id).count(), before().count())
             }),
             section: r.main.and_then(|m| Some((m, row - self.rows.iter().position(|x| x.main == Some(m))?))),
         }
+    }
+
+    /// What `info` line `i` is, whatever its place among them (a refresh adds lines before
+    /// it, a reaction line, a check): a comment's node id (its text: `/text`), else its link,
+    /// else its own text; one of `Row::info`'s markers (`FACTS`, …) as itself.
+    fn info_id(&self, i: Option<usize>) -> Option<String> {
+        let i = i?;
+        let Some(l) = self.info.get(i) else { return Some(format!("#{i}")) };
+        let head = i.checked_sub(1).and_then(|h| self.info.get(h)).filter(|h| h.heading && !l.heading);
+        Some(match (l.node.as_str(), head.map(|h| h.node.as_str())) {
+            ("", Some(n)) if !n.is_empty() => format!("{n}/text"),
+            ("", _) if !l.url.is_empty() => l.url.clone(),
+            ("", _) => format!("~{}", l.text),
+            (n, _) => n.to_owned(),
+        })
     }
 
     /// The row `key` is on now.
@@ -121,7 +137,7 @@ impl App {
                 let (info, off, k) = key.info?;
                 let pr: Vec<usize> = (0..self.rows.len()).filter(|&r| self.rows[r].file == INFO && self.rows[r].main.is_none()).collect();
                 // Its info's rows (re-wrapped: as far in as there is), else where it was among them.
-                let same: Vec<usize> = pr.iter().copied().filter(|&r| info.is_some() && self.rows[r].info == info).collect();
+                let same: Vec<usize> = pr.iter().copied().filter(|&r| info.is_some() && self.info_id(self.rows[r].info) == info).collect();
                 same.get(off).or(same.last()).or(pr.get(k)).copied()
             })
     }

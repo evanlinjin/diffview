@@ -2738,3 +2738,18 @@ fn code_blocks_shaded_to_the_box_edge() {
     assert!(row[edge - 1].1 == shade && row[edge - 20].1 == shade, "{:?}", &row[edge - 3..=edge]);
     assert_ne!(row[edge].1, shade);
 }
+
+#[test]
+fn cursor_on_a_comment_stays_as_lines_come_before_it() {
+    let mut app = fixture();
+    let line = |heading, md, text: &str, node: &str| gh::InfoLine { heading, md, text: text.into(), marks: vec![], hidden: String::new(), url: String::new(), node: node.into() };
+    app.info.extend([line(true, false, "conversation (2)", ""), line(true, false, "@a · 2d ago", "IC_1"), line(false, true, "first", ""), line(true, false, "@b · 1d ago", "IC_2"), line(false, true, "second", "")]);
+    app.build();
+    let r = app.rows.iter().position(|r| r.line.text == "second").unwrap();
+    app.goto(r, 0);
+    let keep = app.cursor_key();
+    // A refresh: a line before the conversation (a reaction, a check).
+    app.info.insert(1, line(false, false, "reactions 👀 1", ""));
+    app.rebuild(keep);
+    assert_eq!(app.rows[app.head.row].line.text, "second");
+}
