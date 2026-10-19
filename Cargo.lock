@@ -227,7 +227,7 @@ dependencies = [
 
 [[package]]
 name = "dv-review"
-version = "0.34.37"
+version = "0.34.38"
 dependencies = [
  "anyhow",
  "emojis",

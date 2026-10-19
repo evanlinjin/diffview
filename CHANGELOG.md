@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.38] - 2026-10-19
+
 ### Fixed
 - Redrafting a replacement no longer resends the last instructions you wrote for any
   replacement: what you write for a redraft is asked of that one's drafts (shown with them),
