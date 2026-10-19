@@ -11,12 +11,6 @@ pub(crate) const ALLOWED: &[&str] = &[
     "Bash(git show:*)",
     "Bash(git log:*)",
     "Bash(git rev-parse:*)",
-    // A change the user asked to be committed, or amended into the commit it belongs in
-    // (`git commit --fixup`, `git rebase --autosquash`): local, pushed only by the user.
-    "Bash(git status:*)",
-    "Bash(git add:*)",
-    "Bash(git commit:*)",
-    "Bash(git rebase:*)",
     // The PR's description and conversation, to propose a new description from.
     "Bash(gh pr view:*)",
     // Why CI fails, to fix it.
@@ -30,17 +24,28 @@ pub(crate) const ALLOWED: &[&str] = &[
 ];
 
 /// What a background run may do beyond `ALLOWED`: when fixing PR `n`'s CI, rerun its failed
-/// jobs (that PR's: no other; once a head, see `fix_checks_prompt`).
-pub(crate) fn tools_for(fixing_ci: Option<u64>) -> Option<String> {
-    fixing_ci.map(|n| format!("Bash(dv rerun-failed -p {n})"))
+/// jobs (that PR's: no other; once a head, see `fix_checks_prompt`); when answering you or
+/// making changes, commit them (`COMMIT_TOOLS`).
+pub(crate) fn tools_for(fixing_ci: Option<u64>, commits: bool) -> Vec<String> {
+    let rerun = fixing_ci.map(|n| format!("Bash(dv rerun-failed -p {n})"));
+    let commit = COMMIT_TOOLS.iter().filter(|_| commits).map(|t| t.to_string());
+    rerun.into_iter().chain(commit).collect()
 }
 
-/// What drafting a replacement needs on top: reading the PRs it replaces.
+/// Committing a change you asked for, or amending it into the commit it belongs in (dv's own
+/// amend: a backup branch, merges kept); local, pushed only by you.
+pub(crate) const COMMIT_TOOLS: &[&str] = &["Bash(git status:*)", "Bash(git add:*)", "Bash(git commit:*)", "Bash(dv amend:*)"];
+
+/// What drafting a replacement needs on top: reading the PRs it replaces, and committing (to
+/// its own local branch; dv never pushes it without you).
 pub(crate) const REPLACE_TOOLS: &[&str] = &[
     "Bash(dv replace-info:*)",
     "Bash(gh pr view:*)",
     "Bash(gh pr diff:*)",
     "Bash(gh issue view:*)",
+    "Bash(git status:*)",
+    "Bash(git add:*)",
+    "Bash(git commit:*)",
 ];
 
 /// Asking Claude to review `what` ("PR #12").
@@ -115,8 +120,8 @@ pub(crate) fn claude_dirs() -> Vec<std::ffi::OsString> {
 /// Claude may write to (`None`: all of dv's).
 pub(crate) fn claude_command(prompt: &str, dir: &Path, session: &[String], more: &[&str], access: Option<&Path>) -> std::process::Command {
     let mut cmd = std::process::Command::new("claude");
-    // No editor to wait on (`git rebase --continue`, `git commit` without -m, `rebase -i`).
-    cmd.env("PATH", path_for_claude()).env("GIT_EDITOR", "true").env("GIT_SEQUENCE_EDITOR", "true")
+    // No editor to wait on (`git rebase --continue`, `git commit` without -m).
+    cmd.env("PATH", path_for_claude()).env("GIT_EDITOR", "true")
         .args(["-p", prompt, "--output-format", "json", "--permission-mode", "acceptEdits"])
         .args(session);
     match access {

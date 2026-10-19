@@ -551,8 +551,8 @@ impl App {
             self.msg = msg;
             return asked;
         }
-        let mut path_env = std::ffi::OsString::from("PATH=");
-        path_env.push(path_for_claude());
+        let ci = self.pr.as_ref().filter(|_| matches!(ask, Ask::FixChecks)).map(|p| p.number);
+        let more = tools_for(ci, matches!(ask, Ask::Fix | Ask::Edit));
         let (msg, asked) = match in_zellij() {
             // A real session in a pane (the PR's, as the background runs use): watch it, approve
             // what it asks, talk to it.
@@ -568,10 +568,9 @@ impl App {
                     }
                     (format!("Claude is {label} in a hidden pane (Space a shows it; it closes when Claude's done); its comments show up here as it writes them"), true)
                 }
-                Ok(s) => (format!("zellij run failed ({s})"), false),
-                Err(e) => (format!("running zellij: {e}"), false),
+                Err(e) => (format!("{e:#}"), false),
             },
-            false => match self.spawn_claude(&prompt, label, false, tools_for(self.pr.as_ref().filter(|_| matches!(ask, Ask::FixChecks)).map(|p| p.number)).as_deref().as_slice()) {
+            false => match self.spawn_claude(&prompt, label, false, &more.iter().map(String::as_str).collect::<Vec<_>>()) {
                 Ok(job) => {
                     self.claude.job = Some(job);
                     (format!("Claude is {label} in the background…"), true)
@@ -598,7 +597,8 @@ impl App {
         }
         let prompt = self.claude_prompt(Ask::Answer, "");
         let forked = self.claude_pane().is_some();
-        match self.spawn_claude(&prompt, "answering", forked, &[]) {
+        let more = tools_for(None, true);
+        match self.spawn_claude(&prompt, "answering", forked, &more.iter().map(String::as_str).collect::<Vec<_>>()) {
             Ok(job) => {
                 self.claude.job = Some(job);
                 "reply sent; Claude is answering…".into()

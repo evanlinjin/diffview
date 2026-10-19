@@ -28,6 +28,7 @@ const USAGE: &str = "usage: dv [base | PR | list] [-p N] [-f] [-w [-b]]
   dv review-comments  for Claude: the PR's review comments on GitHub, as JSON (ids, lines,
                    who, what), to answer them in its review (read only)
   dv rerun-failed  for Claude fixing CI: rerun the failed jobs on the PR's head (only those)
+  dv amend C [F…]  fold what isn't committed (in files F) into the branch's commit C (a backup branch first)
   dv replace 123 [124 …]   Claude drafts a replacement for those PRs, unpublished, on
                    branch dv/replace-123 in a worktree <repo>-replace-123 (dv list's
                    replacements tab shows it)
@@ -70,6 +71,8 @@ struct Opts {
     cmd: Option<&'static str>,
     /// More PR numbers after the first (`dv replace 12 15`).
     more: Vec<u64>,
+    /// `dv amend`'s commit and files.
+    rest: Vec<String>,
     help: bool,
 }
 
@@ -112,6 +115,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Opts> {
             "review-check" => o.cmd = Some("review-check"),
             "review-comments" => o.cmd = Some("review-comments"),
             "rerun-failed" => o.cmd = Some("rerun-failed"),
+            "amend" => (o.cmd, o.rest) = (Some("amend"), args.by_ref().collect()),
             "install-skill" => o.cmd = Some("install-skill"),
             "replace" => o.cmd = Some("replace"),
             "replace-info" => o.cmd = Some("replace-info"),
@@ -172,6 +176,10 @@ fn run() -> anyhow::Result<()> {
             return Ok(());
         }
         Some("replace-info") => return replace::info(),
+        Some("amend") => {
+            println!("{}", view::fold_cli(&o.rest)?);
+            return Ok(());
+        }
         Some("replace") => {
             let prs: Vec<u64> = o.pr.into_iter().chain(o.more.iter().copied()).collect();
             anyhow::ensure!(!prs.is_empty(), "dv replace needs the PRs to replace, e.g. `dv replace 123`");
@@ -706,6 +714,8 @@ fn args() {
         assert_eq!(p(v).unwrap(), Opts { cmd: Some("version"), ..Opts::default() });
     }
     assert_eq!(p("review-check").unwrap().cmd, Some("review-check"));
+    let a = p("amend abc1234 src/a.rs 12").unwrap();
+    assert_eq!((a.cmd, a.rest, a.pr, a.base), (Some("amend"), vec!["abc1234".into(), "src/a.rs".into(), "12".into()], None, None));
     let r = p("replace 12 15").unwrap();
     assert_eq!((r.cmd, r.pr, r.more), (Some("replace"), Some(12), vec![15]));
 }

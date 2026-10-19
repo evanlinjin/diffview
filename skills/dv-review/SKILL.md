@@ -148,8 +148,9 @@ anywhere, and not the code. Under `"ask"`, don't *start* a new suggestion on you
 they ask for in so many words ("put this in the comment", "update the suggestion") you write.
 Never answer "re-send it as …" for what you're allowed to do: do it.
 
-To amend a change into the commit it belongs in: `git commit --fixup <sha>` (with just that
-change staged), then `git rebase --autosquash --autostash <sha>~`. Say which commit it went in.
+To amend a change into the commit it belongs in: `dv amend <sha> [file…]` folds what isn't
+committed (in those files: name them when other changes are uncommitted too) into that commit,
+HEAD kept on a backup branch first. Don't rebase by hand. Say which commit it went in.
 
 Once a thread is settled, resolve it: set `"resolved": true` on the comment after your reply.
 It's settled when you've made the change it asked for, or you and the user agree it doesn't

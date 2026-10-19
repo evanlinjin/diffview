@@ -23,6 +23,7 @@ use std::time::Duration;
 mod agent;
 mod ask;
 mod amend;
+pub(crate) use amend::fold_cli;
 mod rebase;
 mod replacement;
 mod seen;

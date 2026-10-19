@@ -157,6 +157,8 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], backup: &str) -> Res
         }
     }
     anyhow::ensure!(!targets.is_empty(), "nothing placed to amend");
+    // (Its own rebase it aborts if it fails: not one stopped part way, yours or Claude's.)
+    anyhow::ensure!(!super::rebase::rebasing(dir), "a rebase is stopped part way here: finish or abort it first");
     anyhow::ensure!(nothing_staged(dir), "some changes are staged (git add): unstage them first (git reset), so none are lost");
     git_in(dir, &["branch", "-f", backup, "HEAD"])?;
     let patch = Path::new(git_in(dir, &["rev-parse", "--absolute-git-dir"])?.trim()).join("dv-amend.patch");
@@ -189,6 +191,31 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], backup: &str) -> Res
         return Err(e.context("nothing amended: it's all as it was"));
     }
     Ok(targets.len())
+}
+
+/// Everything uncommitted (`paths`: in those files) folded into the branch's commit `sha` (full;
+/// one of `base`'s branch's own), HEAD kept on `backup` first.
+pub(super) fn fold(dir: &Path, base: &str, sha: &str, paths: &[String], backup: &str) -> Result<()> {
+    let (mut hunks, commits) = plan(dir, base, false)?;
+    anyhow::ensure!(commits.iter().any(|c| c.0 == sha), "that isn't one of the branch's own commits (a merge?): amend into another");
+    // (A name git still quotes: no knowing its file. It stays.)
+    hunks.retain(|h| !h.path.is_empty() && (paths.is_empty() || paths.contains(&h.path)));
+    anyhow::ensure!(!hunks.is_empty(), "nothing uncommitted to amend");
+    hunks.iter_mut().for_each(|h| h.to = Some(sha.to_owned()));
+    amend(dir, base, &hunks, backup).map(|_| ())
+}
+
+/// `dv amend <commit> [file…]` (for Claude: dv's amend, not a rebase by hand): what isn't
+/// committed (in those files) folded into that commit of the branch, HEAD kept on a backup
+/// branch first.
+pub(crate) fn fold_cli(args: &[String]) -> Result<String> {
+    let (rev, paths) = args.split_first().context("dv amend <commit> [file…]")?;
+    let dir = std::env::current_dir()?;
+    let sha = git_in(&dir, &["rev-parse", "--verify", &format!("{rev}^{{commit}}")])?.trim().to_owned();
+    let short = git_in(&dir, &["rev-parse", "--short", "HEAD"])?.trim().to_owned();
+    let backup = format!("dv-backup/amend-{short}");
+    fold(&dir, &format!("{sha}^"), &sha, paths, &backup)?;
+    Ok(format!("amended into {} (HEAD was {short}: {backup})", &sha[..7]))
 }
 
 /// Nothing in the index that isn't in HEAD: amending applies hunks there, one commit at a time.
@@ -338,13 +365,8 @@ impl App {
     pub(super) fn amend_into(&mut self, sha: &str) {
         let r = (|| -> Result<String> {
             anyhow::ensure!(!self.claude_busy(), "Claude is still at work here: amend once it's done");
-            let (mut hunks, commits) = plan(&self.root, &self.full_base, false)?;
-            anyhow::ensure!(commits.iter().any(|c| c.0 == sha), "that isn't one of the branch's own commits (a merge?): amend into another");
-            anyhow::ensure!(!hunks.is_empty(), "nothing uncommitted to amend");
-            // (A name git still quotes: no knowing its file. It stays.)
-            hunks.iter_mut().filter(|h| !h.path.is_empty()).for_each(|h| h.to = Some(sha.to_owned()));
             let (short, backup) = self.backup_name()?;
-            amend(&self.root, &self.full_base, &hunks, &backup)?;
+            fold(&self.root, &self.full_base, sha, &[], &backup)?;
             Ok(self.and_reload(format!("amended into {} (was {short}: {backup}); {}", sha.chars().take(7).collect::<String>(), self.next_step(true))))
         })();
         self.msg = r.unwrap_or_else(|e| format!("{e:#}"));
