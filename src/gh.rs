@@ -1101,14 +1101,28 @@ struct PrAnswer {
     refused: Vec<String>,
 }
 
-/// GitHub's answer (`gh api graphql`'s output): refused whole (no node) is an error, with
-/// GitHub's reason.
-fn pr_answer(v: &Value) -> Result<PrAnswer> {
+/// GitHub refused a query whole (no answer to it, with its reason): not the same as not
+/// being reached.
+#[derive(Debug)]
+struct Refused(String);
+
+impl std::fmt::Display for Refused {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "GitHub: {}", self.0)
+    }
+}
+
+impl std::error::Error for Refused {}
+
+/// GitHub's answer (`gh api graphql`'s output, and what gh said, `stderr`): refused whole (no
+/// node: `Refused`, with GitHub's reason) is an error.
+fn pr_answer(v: &Value, stderr: &str) -> Result<PrAnswer> {
     let node = &v["data"]["repository"]["pullRequest"];
     let errors = v["errors"].as_array().map(Vec::as_slice).unwrap_or(&[]);
     if !node.is_object() {
-        let why = errors.first().map_or("no answer".to_owned(), |e| e["message"].as_str().or(e["type"].as_str()).unwrap_or("refused").to_owned());
-        anyhow::bail!("GitHub: {why}");
+        // Its errors' reason; else the body's (`Bad credentials`), else gh's.
+        let why = errors.first().and_then(|e| e["message"].as_str().or(e["type"].as_str())).or(v["message"].as_str()).unwrap_or(stderr.trim());
+        return Err(Refused(if why.is_empty() { "no answer".into() } else { why.to_owned() }).into());
     }
     // repository.pullRequest.<field>: an error elsewhere, or with no path, is about who knows.
     let refused = errors.iter().map(|e| e["path"].get(2).and_then(Value::as_str).unwrap_or("?").to_owned()).collect();
@@ -1129,7 +1143,7 @@ fn pr_query(n: u64, more: &str) -> Result<PrAnswer> {
         .output()
         .context("running gh")?;
     match serde_json::from_slice::<Value>(&out.stdout) {
-        Ok(v) => pr_answer(&v),
+        Ok(v) => pr_answer(&v, &String::from_utf8_lossy(&out.stderr)),
         Err(_) => anyhow::bail!("gh api graphql: {}", String::from_utf8_lossy(&out.stderr).trim()),
     }
 }
@@ -1171,14 +1185,23 @@ pub fn info_json(n: u64) -> Result<Value> {
     // One query for both: its commits' signatures, and which reactions are yours.
     // (Only its reactions refused: the signatures are there. Its commits refused, or all of it,
     // or not answered: none, rather than ask again and be refused again.)
-    let extra = pr_query(n, MINE);
+    let extra = match pr_query(n, MINE) {
+        // Refused whole (too big with the reactions, say): the signatures on their own.
+        Err(e) if e.is::<Refused>() => pr_query(n, ""),
+        r => r,
+    };
     if let Ok(a) = &extra {
         v["dvMine"] = mine_of(&a.node);
     }
-    if let Some(s) = extra.ok().as_ref().and_then(signatures_whole) {
-        v["dvCommits"] = s.commits.into_iter().map(|(oid, signed)| json!({ "oid": oid, "signed": signed })).collect();
-        v["dvCommitsTotal"] = s.total.into();
-        v["dvSignaturesRequired"] = s.required.into();
+    match extra.map(|a| signatures_whole(&a)) {
+        Ok(Some(s)) => {
+            v["dvCommits"] = s.commits.into_iter().map(|(oid, signed)| json!({ "oid": oid, "signed": signed })).collect();
+            v["dvCommitsTotal"] = s.total.into();
+            v["dvSignaturesRequired"] = s.required.into();
+        }
+        // Unknown, and why: said among its facts (not taken as all signed).
+        Ok(None) => v["dvCommitsUnknown"] = "GitHub didn't say for every commit".into(),
+        Err(e) => v["dvCommitsUnknown"] = format!("{e:#}").into(),
     }
     Ok(v)
 }
@@ -1191,7 +1214,8 @@ pub struct Info {
     pub url: String,
     pub state: State,
     /// Its commits GitHub has no valid signature on.
-    pub unsigned: Vec<String>,
+    /// (`None`: GitHub didn't say this time: what was known stands.)
+    pub unsigned: Option<Vec<String>>,
     /// Workflow runs awaiting approval, checks failing.
     pub awaiting: usize,
     pub failing: usize,
@@ -1203,7 +1227,7 @@ pub struct Info {
 /// signature on, (workflow runs awaiting approval, checks failing), and its base branch.
 pub fn parse_info(v: &Value) -> Info {
     let s = |k: &str| v[k].as_str().unwrap_or("").to_owned();
-    let unsigned = v["dvCommits"].as_array().into_iter().flatten().filter(|c| c["signed"] != true).filter_map(|c| c["oid"].as_str().map(str::to_owned)).collect();
+    let unsigned = v["dvCommits"].as_array().map(|cs| cs.iter().filter(|c| c["signed"] != true).filter_map(|c| c["oid"].as_str().map(str::to_owned)).collect());
     let failing = v["statusCheckRollup"].as_array().into_iter().flatten().filter(|c| verdict(c) == '✗').count();
     let awaiting = v["dvAwaiting"].as_u64().unwrap_or(0) as usize;
     Info { lines: info_lines(v), title: s("title"), head: s("headRefOid"), url: s("url"), state: state(v), unsigned, awaiting, failing, base: s("baseRefName") }
@@ -1362,6 +1386,10 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
             let st = if unsigned.is_empty() { Mark::Dim } else { Mark::Fail };
             l.put(" · ", None).put(&format!("{} requires signed commits", s(&v["baseRefName"])), Some(st));
         }
+        out.push(l);
+    } else if let Some(why) = v["dvCommitsUnknown"].as_str() {
+        let mut l = InfoLine::new(false, false);
+        l.put("commits: ", None).put(&format!("signatures unknown ({why})"), Some(Mark::Dim));
         out.push(l);
     }
 
@@ -1610,7 +1638,8 @@ fn signed_commits_in_the_pr_info() {
     assert!(!rules(json!({ "branchProtectionRule": null, "rules": { "nodes": [{ "type": "DELETION" }] } })));
     // The unsigned commits, for the contents' commits.
     let x = json!({ "dvCommits": [{ "oid": "aa", "signed": true }, { "oid": "bb", "signed": false }] });
-    assert_eq!(parse_info(&x).unsigned, ["bb"]);
+    assert_eq!(parse_info(&x).unsigned, Some(vec!["bb".to_owned()]));
+    assert_eq!(parse_info(&json!({})).unsigned, None); // unknown: not "all signed"
 }
 
 #[test]
@@ -1709,13 +1738,17 @@ fn github_refusals() {
     let commits = json!({ "totalCount": 1, "nodes": [{ "commit": { "oid": "a", "signature": null } }] });
     let answer = |errors: Value| json!({ "data": { "repository": { "pullRequest": { "commits": commits, "baseRef": null } } }, "errors": errors });
     // Only its reactions (comments) refused: the signatures stand.
-    let a = pr_answer(&answer(json!([{ "path": ["repository", "pullRequest", "comments"] }]))).unwrap();
+    let a = pr_answer(&answer(json!([{ "path": ["repository", "pullRequest", "comments"] }])), "").unwrap();
     assert!(signatures_whole(&a).is_some());
     // Its commits refused, or an error that doesn't say where: not taken as unsigned.
     for e in [json!([{ "path": ["repository", "pullRequest", "commits", "nodes", 0] }]), json!([{ "message": "timeout" }])] {
-        assert!(signatures_whole(&pr_answer(&answer(e)).unwrap()).is_none());
+        assert!(signatures_whole(&pr_answer(&answer(e), "").unwrap()).is_none());
     }
     // Refused whole: GitHub's reason.
-    let e = pr_answer(&json!({ "data": null, "errors": [{ "type": "RATE_LIMITED", "message": "API rate limit exceeded" }] })).unwrap_err();
+    let e = pr_answer(&json!({ "data": null, "errors": [{ "type": "RATE_LIMITED", "message": "API rate limit exceeded" }] }), "").unwrap_err();
     assert_eq!(format!("{e:#}"), "GitHub: API rate limit exceeded");
+    assert!(e.is::<Refused>());
+    // A body with only a message (a bad token): that.
+    let e = pr_answer(&json!({ "message": "Bad credentials" }), "gh: Bad credentials (HTTP 401)").unwrap_err();
+    assert_eq!(format!("{e:#}"), "GitHub: Bad credentials");
 }

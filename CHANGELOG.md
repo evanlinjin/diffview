@@ -11,9 +11,10 @@ on GitHub are its section here.
   shown as current.
 - Notes on a retargeted PR's base replace one another rather than pile up, and the "as dv last
   saw it" notice goes once GitHub's fresh answer is in.
-- Signatures: GitHub refusing only a PR's reactions keeps them; refusing its commits, or
-  saying an error without where, leaves them unknown (not unsigned); refusing the whole query
-  says GitHub's reason.
+- Signatures: GitHub refusing only a PR's reactions keeps them; refusing its commits, or an
+  error that doesn't say where, leaves them unknown: `commits: signatures unknown (why)`, and
+  the commits' marks as they were (not all taken as signed). Refused whole (a big PR, with its
+  reactions), they're asked on their own.
 
 ## [0.33.1] - 2026-10-19
 

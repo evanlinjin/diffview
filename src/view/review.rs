@@ -669,9 +669,14 @@ impl App {
             }
             loop {
                 // Every so often, or at once when poked (CI rerun: its checks change, not the
-                // PR's ETag: fetched whatever it says, and it's taken anew after).
+                // PR's ETag: fetched whatever it says; the ETag, conditionally asked first, so a
+                // change since doesn't fetch again).
                 match poked.recv_timeout(GITHUB_POLL) {
-                    Ok(()) => etag = gh::pr_etag(n, "").ok().flatten().unwrap_or(etag),
+                    Ok(()) => {
+                        if let Ok(Some(e)) = gh::pr_etag(n, &etag) {
+                            etag = e;
+                        }
+                    }
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                         let Ok(Some(e)) = gh::pr_etag(n, &etag) else { continue };
                         etag = e;
@@ -745,11 +750,14 @@ impl App {
             Ok(gh::Info { lines, title, head, url, state, unsigned, awaiting, failing, base }) => {
                 (self.awaiting, self.failing) = (awaiting, failing);
                 (self.info, self.pr_state) = (lines, Some(state));
-                // GitHub's word on its commits' signatures, for the contents' commits.
-                for c in &mut self.commits {
-                    c.signed = !unsigned.contains(&c.sha);
+                // GitHub's word on its commits' signatures, for the contents' commits (none this
+                // time: what was known stands).
+                if let Some(unsigned) = unsigned {
+                    for c in &mut self.commits {
+                        c.signed = !unsigned.contains(&c.sha);
+                    }
+                    self.unsigned = unsigned;
                 }
-                self.unsigned = unsigned;
                 if let Some(pr) = &mut self.pr {
                     (pr.title, pr.head_oid, pr.url) = (title, head, url);
                     if fresh && !base.is_empty() {
