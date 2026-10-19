@@ -5,6 +5,18 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.41.3] - 2026-10-19
+
+### Fixed
+- Claude's runs that only read (triaging an issue, ranking the todo list, grouping PRs for a
+  replacement, reading a deferral's "until") refuse anything not allowed. They took your Claude
+  Code default mode, which under `auto` let them edit files; ranking, grouping and deferrals
+  were allowed edits outright.
+- An issue's triage is found in Claude's answer however it wraps it; when a run fails, its own
+  word for why is on the card. The base it reads is the repo's default branch as dv finds it
+  everywhere else.
+- Filter keys in any case (`Label:bug`).
+
 ## [0.41.2] - 2026-10-19
 
 ### Changed
