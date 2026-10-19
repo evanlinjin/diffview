@@ -104,8 +104,14 @@ impl App {
     /// After a job that changed something: the diff reloaded (the working tree, or the PR's
     /// head, may have changed), and what came of it said.
     fn finish(&mut self, res: Result<impl Into<String>>) {
+        self.reloaded(res, true);
+    }
+
+    /// The diff reloaded (`threads`: GitHub's too), and what came of `res` said: its error, or
+    /// the reload's, or what it did.
+    pub(super) fn reloaded(&mut self, res: Result<impl Into<String>>, threads: bool) {
         self.forget_tree_colors();
-        let reload = self.reload(true);
+        let reload = self.reload(threads);
         self.msg = match (res, reload) {
             (Err(e), _) | (_, Err(e)) => format!("{e:#}"),
             (Ok(m), Ok(())) => m.into(),

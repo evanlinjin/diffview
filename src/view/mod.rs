@@ -1083,17 +1083,10 @@ impl App {
                     }
                     None => res,
                 };
-                self.forget_tree_colors();
                 if !in_pane {
                     *term = init_terminal();
                 }
-                if let Err(e) = self.reload(false) {
-                    self.msg = e.to_string();
-                }
-                match res {
-                    Ok(m) => self.msg = m,
-                    Err(e) => self.msg = format!("{e:#}"),
-                }
+                self.reloaded(res, false);
                 if let Some(k) = kept.take() {
                     self.msg = format!("{}: its pane closed; what it had saved is kept in {}", self.msg, k.display());
                 }
