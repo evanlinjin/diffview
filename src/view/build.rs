@@ -463,6 +463,10 @@ impl App {
             return self.msg = "no PR here".into();
         }
         let start = self.info.iter().position(|l| l.key == "activity");
+        // (Not GitHub's answer, what went wrong: its line says.)
+        if let Some(s) = start.filter(|&s| !self.info[s].heading) {
+            return self.msg = self.info[s].text.clone();
+        }
         if !start.is_some_and(|s| self.info[s + 1..].iter().any(|l| l.heading)) {
             return self.msg = "no activity on this PR yet".into();
         }
