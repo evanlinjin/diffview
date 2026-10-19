@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.41.2] - 2026-10-19
+
+### Changed
+- `dv list` and `dv issues` share their filter (smart case in both now), editor, help popup
+  and how Claude's runs are queued, so they behave alike.
+
 ## [0.41.1] - 2026-10-19
 
 ### Fixed
