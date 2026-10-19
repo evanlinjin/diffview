@@ -256,7 +256,7 @@ impl R<'_> {
         let text = strip_tags(h);
         if h.contains("<summary") {
             self.flush();
-            self.push(&format!("▸ {}", text.trim()), Some(Style::new().add_modifier(Modifier::BOLD)), false);
+            self.push(&format!("▸ {}", emoji(text.trim())), Some(Style::new().add_modifier(Modifier::BOLD)), false);
             self.flush();
         } else if h.contains("<br") {
             self.flush();
@@ -508,30 +508,18 @@ fn strip_tags(h: &str) -> String {
     out
 }
 
-/// GitHub `:shortcode:` emoji, for the ones bots and people use most; others stay as text.
+/// GitHub's `:shortcode:` emoji (`:rocket:`, `:loudspeaker:`) as the emoji; others stay as text.
 fn emoji(t: &str) -> String {
-    const MAP: &[(&str, &str)] = &[
-        ("x", "❌"), ("white_check_mark", "✅"), ("heavy_check_mark", "✔"), ("warning", "⚠"),
-        ("rocket", "🚀"), ("tada", "🎉"), ("+1", "👍"), ("thumbsup", "👍"), ("-1", "👎"),
-        ("thumbsdown", "👎"), ("eyes", "👀"), ("bug", "🐛"), ("memo", "📝"), ("sparkles", "✨"),
-        ("fire", "🔥"), ("heart", "❤"), ("construction", "🚧"), ("information_source", "ℹ"),
-        ("question", "❓"), ("exclamation", "❗"), ("red_circle", "🔴"), ("green_circle", "🟢"),
-        ("yellow_circle", "🟡"), ("recycle", "♻"), ("zap", "⚡"), ("lock", "🔒"), ("bulb", "💡"),
-        ("wrench", "🔧"), ("hammer", "🔨"), ("package", "📦"), ("umbrella", "☂"),
-        ("chart_with_upwards_trend", "📈"), ("chart_with_downwards_trend", "📉"), ("robot", "🤖"),
-        ("thinking", "🤔"), ("smile", "😄"), ("sweat_smile", "😅"), ("pray", "🙏"), ("ok_hand", "👌"),
-        ("muscle", "💪"), ("rotating_light", "🚨"), ("no_entry", "⛔"), ("arrow_up", "⬆"),
-        ("arrow_down", "⬇"), ("arrow_right", "➡"), ("star", "⭐"), ("100", "💯"), ("clap", "👏"),
-    ];
     let mut out = String::new();
     let mut rest = t;
     while let Some(a) = rest.find(':') {
         let after = &rest[a + 1..];
-        match after.find(':').map(|b| &after[..b]).and_then(|name| MAP.iter().find(|(k, _)| *k == name)) {
-            Some((k, e)) => {
+        match after.find(':').map(|b| &after[..b]).and_then(|name| Some((name, emojis::get_by_shortcode(name)?))) {
+            Some((name, e)) => {
                 out.push_str(&rest[..a]);
-                out.push_str(e);
-                rest = &after[k.len() + 1..];
+                // (Not its variation selector: it's 2 columns in some terminals, 1 in width counts.)
+                out.push_str(&e.as_str().replace('\u{fe0f}', ""));
+                rest = &after[name.len() + 1..];
             }
             None => {
                 out.push_str(&rest[..=a]);
@@ -581,4 +569,14 @@ fn renders_like_github() {
     assert_eq!(auto[0].text, "Fixes #12, by @amy: https://x.y/z.");
     let urls: Vec<&str> = auto[0].links.iter().map(|l| l.2.as_str()).collect();
     assert_eq!(urls, ["https://github.com/o/r/issues/12", "https://github.com/amy", "https://x.y/z"]);
+}
+
+#[test]
+fn github_emoji_shortcodes() {
+    let s = Styles::default();
+    let text = |md: &str| render(md, 80, &s, &Highlighter::default(), None).into_iter().map(|l| l.text).collect::<Vec<_>>().join("\n");
+    assert_eq!(text(":loudspeaker: Have feedback on :snowflake: tests"), "📢 Have feedback on ❄ tests");
+    // In a `<details>` summary too; not what isn't one.
+    assert!(text("<details><summary>:rocket: New features</summary>\n\nx\n</details>").contains("▸ 🚀 New features"));
+    assert_eq!(text("at 12:30:00, :notanemoji:"), "at 12:30:00, :notanemoji:");
 }
