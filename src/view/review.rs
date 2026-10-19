@@ -1352,6 +1352,10 @@ impl App {
 
     /// Appends `text` to your pending review's text, on GitHub (starting the review if need be).
     fn add_to_summary(&mut self, text: &str) {
+        // (Submitting goes with what's in the editor: added here, it'd be lost.)
+        if matches!(self.writing, Some((Action::Submit(_), _))) {
+            return self.msg = "you're writing the review's summary in the editor's pane: add it there".into();
+        }
         let draft = self.summary_draft.trim_end();
         self.summary_draft = if draft.is_empty() { text.to_owned() } else { format!("{draft}\n\n{text}") };
         self.msg = self.post_later(Post::Summary(self.summary_draft.clone())).unwrap_or_else(|e| format!("{e:#}"));

@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.15] - 2026-10-19
+
+### Fixed
+- Writing beside dv (zellij): what you wrote only ever goes to what asked for it, made as the
+  editor said (empty allowed or not, as it was then); if that gave up meanwhile, the text is
+  saved to a file, not lost or sent elsewhere. Closing the editor's pane from zellij cancels
+  (it no longer blocks writing anything else); a save is never read half-written; something
+  you did as the editor closed isn't dropped; `c` can't add to the review's summary while you
+  write it (it'd be lost on submitting).
+
 ## [0.34.14] - 2026-10-19
 
 ### Changed

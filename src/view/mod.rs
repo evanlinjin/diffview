@@ -724,9 +724,9 @@ pub struct App {
     seen: Seen,
     /// The `hx` pane dv opened (inside zellij), reused for the next file.
     hx: Option<HxPane>,
-    /// What's being written in the editor's pane (inside zellij), dv going on meanwhile: done
-    /// again once it's written, the editor's text taken then (`term::written`).
-    writing: Option<Action>,
+    /// What's being written in the editor's pane (inside zellij), dv going on meanwhile, and
+    /// what asked for it: done again once it's written, given the text (`term::Writing`).
+    writing: Option<(Action, term::Writing)>,
     /// When dv last looked at the working tree, and what it saw (`watch_tree`).
     tree_checked: std::time::Instant,
     tree_seen: Option<(Option<std::time::SystemTime>, u64)>,
@@ -999,9 +999,14 @@ impl App {
             self.watch_replacement();
             self.poll_claude();
             self.watch_claude_pane();
-            // Written (the editor's pane closed): what asked for it goes on, with the text.
-            if term::written() {
-                self.action = self.writing.take();
+            // Written (the editor's pane closed): what asked for it goes on, given the text
+            // (once nothing else is to be done first).
+            let mut given = None;
+            if self.action.is_none()
+                && let Some(text) = self.writing.as_mut().and_then(|w| w.1.done())
+            {
+                self.action = self.writing.take().map(|w| w.0);
+                given = Some(text);
                 focus_dv();
             }
             if let Some(a) = self.action.take() {
@@ -1013,13 +1018,25 @@ impl App {
                 // Anything to post is queued as a job (it runs after a "posting…" frame, then
                 // refetches); here only the diff reloads, as hx may have changed files.
                 let again = a.clone();
-                let res = term::writing_beside(|| self.perform(a));
+                let (res, left) = term::writing_beside(self.writing.is_some(), given, || self.perform(a));
                 // The editor in its pane, dv going on: the rest once it's written.
-                if res.as_ref().is_err_and(|e| e.is::<term::Writing>()) {
-                    self.writing = Some(again);
-                    self.msg = "writing in the editor's pane: dv's yours meanwhile (save and quit there to send; :cq cancels)".into();
-                    continue;
-                }
+                let res = match res.map_err(|e| e.downcast::<term::Writing>()) {
+                    Err(Ok(w)) => {
+                        self.writing = Some((again, w));
+                        self.msg = "writing in the editor's pane: dv's yours meanwhile (save and quit there to send; :cq cancels)".into();
+                        continue;
+                    }
+                    Err(Err(e)) => Err(e),
+                    Ok(m) => Ok(m),
+                };
+                // Written, but what asked gave up before its editor: kept, not lost.
+                let res = match left.flatten() {
+                    Some(body) => {
+                        let why = res.as_ref().map_or_else(|e| format!("{e:#}"), String::clone);
+                        Err(keep_on_error(Err(anyhow!("{why}: what you wrote wasn't sent")), &body).unwrap_err())
+                    }
+                    None => res,
+                };
                 self.hl_cache.retain(|k, _| !k.1); // working-tree files may have changed; the base can't
                 if !in_pane {
                     *term = init_terminal();
