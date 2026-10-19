@@ -29,11 +29,22 @@ impl Hunk {
         }
     }
 
-    /// The hunk as it applies once the ones in `done` (of this file, above it) are in HEAD.
-    fn patch(&self, done: &[&Hunk]) -> String {
-        let shift: i64 = done.iter().filter(|d| d.path == self.path && d.old.0 + d.old.1 <= self.old.0).map(|d| d.new.1 as i64 - d.old.1 as i64).sum();
-        let start = (self.old.0 as i64 + shift).max(0);
-        format!("@@ -{start},{} +{},{} @@\n{}", self.old.1, self.new.0, self.new.1, self.body)
+    /// The hunk as it applies once the ones in `done` (of this file, above it) are in HEAD,
+    /// after `before` (this patch's, of this file, above it). `git apply --unidiff-zero` goes
+    /// by both starts, so both are worked out: the new side's from the old's.
+    fn patch(&self, done: &[&Hunk], before: &[&Hunk]) -> String {
+        let grows = |hs: &[&Hunk]| -> i64 {
+            hs.iter().filter(|d| d.path == self.path && d.old.0 + d.old.1 <= self.old.0).map(|d| d.new.1 as i64 - d.old.1 as i64).sum()
+        };
+        let old = (self.old.0 as i64 + grows(done)).max(0);
+        // -U0: a pure addition's old start is the line before it; a pure removal's new start too.
+        let new = old + grows(before) + (self.old.1 == 0) as i64 - (self.new.1 == 0) as i64;
+        format!("@@ -{old},{} +{},{} @@\n{}", self.old.1, new.max(0), self.new.1, self.body)
+    }
+
+    /// The hunk as the diff has it, to match Claude's answers by.
+    fn text(&self) -> String {
+        self.patch(&[], &[])
     }
 }
 
@@ -56,11 +67,12 @@ fn parse(text: &str) -> Vec<Hunk> {
     let mut in_head = false;
     for l in text.lines() {
         if l.starts_with("diff --git ") {
-            (head, in_head) = (format!("{l}\n"), true);
+            (head, in_head, path) = (format!("{l}\n"), true, String::new());
         } else if in_head && !l.starts_with("@@") {
             head += &format!("{l}\n");
+            // (Still quoted: a name with a quote or a newline in it. Left unplaced.)
             if let Some(p) = l.strip_prefix("+++ b/").or_else(|| l.strip_prefix("--- a/")) {
-                path = p.to_owned();
+                path = p.trim_end_matches('\t').to_owned(); // git ends a name with a space in a tab
             }
         } else if let Some(rest) = l.strip_prefix("@@ ") {
             in_head = false;
@@ -77,23 +89,44 @@ fn parse(text: &str) -> Vec<Hunk> {
 /// What isn't committed in `dir`, each hunk placed in the PR's commit (of those after its
 /// merge-base with `base`) that wrote all the lines it changes, if one did; and those commits
 /// (sha, subject), oldest first.
-pub(super) fn plan(dir: &Path, base: &str) -> Result<Plan> {
+pub(super) fn plan(dir: &Path, base: &str, blame: bool) -> Result<Plan> {
     let mb = git_in(dir, &["merge-base", base, "HEAD"])?.trim().to_owned();
-    let commits: Vec<(String, String)> = git_in(dir, &["log", "--reverse", "--format=%H%x09%s", &format!("{mb}..HEAD")])?
+    // The branch's own (as the commits list has them): not what a merge brought in.
+    let commits: Vec<(String, String)> = git_in(dir, &["log", "--first-parent", "--reverse", "--format=%H%x09%s", &format!("{mb}..HEAD")])?
         .lines()
         .filter_map(|l| l.split_once('\t').map(|(a, b)| (a.to_owned(), b.to_owned())))
         .collect();
-    let text = git_in(dir, &["diff", "HEAD", "-U0", "--no-color", "--no-ext-diff", "--no-renames", "--src-prefix=a/", "--dst-prefix=b/"])?;
+    let text = git_in(dir, &["-c", "core.quotePath=false", "diff", "HEAD", "-U0", "--no-color", "--no-ext-diff", "--no-renames", "--src-prefix=a/", "--dst-prefix=b/"])?;
     let mut hunks = parse(&text);
-    for h in hunks.iter_mut().filter(|h| h.old.1 > 0) {
-        let range = format!("{},+{}", h.old.0, h.old.1);
-        let Ok(blame) = git_in(dir, &["blame", "-l", "-s", "-L", &range, "HEAD", "--", &h.path]) else { continue };
-        let mut by: Vec<&str> = blame.lines().filter_map(|l| l.split_whitespace().next()).map(|s| s.trim_start_matches('^')).collect();
-        by.dedup();
-        if let [one] = by[..]
-            && commits.iter().any(|c| c.0 == one)
-        {
-            (h.to, h.why) = (Some(one.to_owned()), "blame".into());
+    if !blame {
+        return Ok((hunks, commits));
+    }
+    // One blame a file, for the lines all its hunks change: who wrote each line.
+    let mut paths: Vec<String> = hunks.iter().filter(|h| h.old.1 > 0 && !h.path.is_empty()).map(|h| h.path.clone()).collect();
+    paths.dedup();
+    for path in paths {
+        let mut args = vec!["blame".to_owned(), "-l".into(), "-s".into()];
+        for h in hunks.iter().filter(|h| h.path == path && h.old.1 > 0) {
+            args.extend(["-L".to_owned(), format!("{},+{}", h.old.0, h.old.1)]);
+        }
+        args.extend(["HEAD".into(), "--".into(), path.clone()]);
+        let Ok(out) = git_in(dir, &args.iter().map(String::as_str).collect::<Vec<_>>()) else { continue };
+        let by: HashMap<u32, &str> = out
+            .lines()
+            .filter_map(|l| {
+                let mut w = l.split_whitespace();
+                let sha = w.next()?.trim_start_matches('^');
+                Some((w.next()?.trim_end_matches(')').parse().ok()?, sha))
+            })
+            .collect();
+        for h in hunks.iter_mut().filter(|h| h.path == path && h.old.1 > 0) {
+            let mut who: Vec<&str> = (h.old.0..h.old.0 + h.old.1).filter_map(|n| by.get(&n).copied()).collect();
+            who.dedup();
+            if let [one] = who[..]
+                && commits.iter().any(|c| c.0 == one)
+            {
+                (h.to, h.why) = (Some(one.to_owned()), "blame".into());
+            }
         }
     }
     Ok((hunks, commits))
@@ -113,8 +146,8 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], backup: &str) -> Res
         }
     }
     anyhow::ensure!(!targets.is_empty(), "nothing placed to amend");
+    anyhow::ensure!(nothing_staged(dir), "some changes are staged (git add): unstage them first (git reset), so none are lost");
     git_in(dir, &["branch", "-f", backup, "HEAD"])?;
-    git_in(dir, &["reset", "-q"])?; // the index as HEAD: only what's applied goes in
     let patch = std::env::temp_dir().join(format!("dv-amend-{}.patch", std::process::id()));
     let mut done: Vec<&Hunk> = vec![];
     let fixups = (|| -> Result<()> {
@@ -125,14 +158,16 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], backup: &str) -> Res
                 if i == 0 || mine[i - 1].path != h.path {
                     text += &h.head;
                 }
-                text += &h.patch(&done);
+                text += &h.patch(&done, &mine[..i]);
             }
             std::fs::write(&patch, text)?;
             git_in(dir, &["apply", "--cached", "--unidiff-zero", &patch.to_string_lossy()])?;
             git_in(dir, &["commit", "-q", "--no-verify", &format!("--fixup={t}")])?;
             done.extend(mine);
         }
-        git_in(dir, &["-c", "sequence.editor=true", "-c", "core.editor=true", "rebase", "-q", "-i", "--autosquash", "--autostash", &mb])?;
+        // Merges kept (not flattened), and the backup branch left where it is.
+        let quiet = ["-c", "sequence.editor=true", "-c", "core.editor=true", "-c", "rebase.updateRefs=false"];
+        git_in(dir, &[&quiet[..], &["rebase", "-q", "-i", "--autosquash", "--autostash", "--rebase-merges", &mb]].concat())?;
         Ok(())
     })();
     _ = std::fs::remove_file(&patch);
@@ -142,6 +177,11 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], backup: &str) -> Res
         return Err(e.context("nothing amended: it's all as it was"));
     }
     Ok(targets.len())
+}
+
+/// Nothing in the index that isn't in HEAD: amending applies hunks there, one commit at a time.
+fn nothing_staged(dir: &Path) -> bool {
+    git_in(dir, &["diff", "--cached", "--quiet"]).is_ok()
 }
 
 /// Claude's answers for what blame couldn't place, from the request file at `p` (written at
@@ -154,7 +194,7 @@ fn claude_answers(p: &Path, head: &str, hunks: &mut [Hunk], commits: &[(String, 
     for a in v["hunks"].as_array().into_iter().flatten() {
         let (Some(c), Some(path), Some(body)) = (a["commit"].as_str(), a["path"].as_str(), a["diff"].as_str()) else { continue };
         let Some(sha) = commits.iter().find(|k| !c.is_empty() && k.0.starts_with(c)).map(|k| k.0.clone()) else { continue };
-        if let Some(h) = hunks.iter_mut().find(|h| h.to.is_none() && h.path == path && h.patch(&[]) == body) {
+        if let Some(h) = hunks.iter_mut().find(|h| h.to.is_none() && h.path == path && h.text() == body) {
             let why = a["why"].as_str().unwrap_or("").trim();
             (h.to, h.why) = (Some(sha), format!("Claude: {}", if why.is_empty() { "fits there" } else { why }));
         }
@@ -169,7 +209,7 @@ impl App {
     }
 
     fn amend_plan(&self) -> Result<Plan> {
-        let (mut hunks, commits) = plan(&self.root, &self.full_base)?;
+        let (mut hunks, commits) = plan(&self.root, &self.full_base, true)?;
         if let Some(p) = self.amend_file() {
             let head = git_in(&self.root, &["rev-parse", "HEAD"])?.trim().to_owned();
             claude_answers(&p, &head, &mut hunks, &commits);
@@ -185,6 +225,9 @@ impl App {
         };
         if hunks.is_empty() {
             return self.msg = "nothing uncommitted to amend (new files stay untracked: commit them)".into();
+        }
+        if !nothing_staged(&self.root) {
+            return self.msg = "some changes are staged (git add): unstage them first (git reset), so none are lost".into();
         }
         let subject = |sha: &str| commits.iter().find(|c| c.0 == sha).map_or(String::new(), |c| format!("{} {}", &sha[..7.min(sha.len())], c.1));
         let placed = hunks.iter().filter(|h| h.to.is_some()).count();
@@ -209,6 +252,13 @@ impl App {
         self.picker = Some(Picker { title: " amend into the PR's commits ", items, query: String::new(), sel: 0 });
     }
 
+    /// HEAD's short sha, and the branch HEAD is kept on before it's rewritten.
+    fn backup_name(&self) -> Result<(String, String)> {
+        let short = git_in(&self.root, &["rev-parse", "--short", "HEAD"])?.trim().to_owned();
+        let who = self.pr.as_ref().map_or("branch".to_owned(), |p| format!("pr-{}", p.number));
+        Ok((short.clone(), format!("dv-backup/{who}-{short}")))
+    }
+
     /// The amend picker's Enter: do it.
     pub(super) fn amend_now(&mut self) {
         self.msg = match self.try_amend() {
@@ -219,9 +269,7 @@ impl App {
 
     fn try_amend(&mut self) -> Result<String> {
         let (hunks, _) = self.amend_plan()?;
-        let short = git_in(&self.root, &["rev-parse", "--short", "HEAD"])?.trim().to_owned();
-        let who = self.pr.as_ref().map_or("branch".to_owned(), |p| format!("pr-{}", p.number));
-        let backup = format!("dv-backup/{who}-{short}");
+        let (short, backup) = self.backup_name()?;
         let n = amend(&self.root, &self.full_base, &hunks, &backup)?;
         if let Some(p) = self.amend_file() {
             _ = std::fs::remove_file(p); // answered for a HEAD that's gone
@@ -233,12 +281,10 @@ impl App {
     /// `a` on a commit in the list: everything uncommitted into that one (new lines too).
     pub(super) fn amend_into(&mut self, sha: &str) {
         let r = (|| -> Result<String> {
-            let (mut hunks, _) = plan(&self.root, &self.full_base)?;
+            let (mut hunks, _) = plan(&self.root, &self.full_base, false)?;
             anyhow::ensure!(!hunks.is_empty(), "nothing uncommitted to amend");
             hunks.iter_mut().for_each(|h| h.to = Some(sha.to_owned()));
-            let short = git_in(&self.root, &["rev-parse", "--short", "HEAD"])?.trim().to_owned();
-            let who = self.pr.as_ref().map_or("branch".to_owned(), |p| format!("pr-{}", p.number));
-            let backup = format!("dv-backup/{who}-{short}");
+            let (short, backup) = self.backup_name()?;
             amend(&self.root, &self.full_base, &hunks, &backup)?;
             self.reload_tree();
             Ok(format!("amended into {} (was {short}: {backup}); Space g pushes (with a lease)", &sha[..7.min(sha.len())]))
@@ -259,7 +305,7 @@ impl App {
             let ask: Vec<serde_json::Value> = hunks
                 .iter()
                 .filter(|h| h.to.is_none())
-                .map(|h| serde_json::json!({ "path": h.path, "diff": h.patch(&[]), "commit": "", "why": "" }))
+                .map(|h| serde_json::json!({ "path": h.path, "diff": h.text(), "commit": "", "why": "" }))
                 .collect();
             let list: Vec<serde_json::Value> = commits.iter().map(|c| serde_json::json!({ "sha": c.0, "subject": c.1 })).collect();
             std::fs::create_dir_all(p.parent().context("no dir")?)?;
@@ -295,10 +341,13 @@ fn amend_by_blame() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let git = |args: &[&str]| git_in(&dir, args).unwrap();
-    let id = ["-c", "user.name=t", "-c", "user.email=t@t"];
-    let commit = |m: &str| git(&[&id[..], &["commit", "-q", "-am", m]].concat());
+    let commit = |m: &str| git(&["commit", "-q", "-am", m]);
     let write = |f: &str, s: &str| std::fs::write(dir.join(f), s).unwrap();
     git(&["init", "-q"]);
+    // Its own identity (CI has none), and none of the user's signing or hooks.
+    for (k, v) in [("user.name", "t"), ("user.email", "t@t"), ("commit.gpgsign", "false"), ("core.hooksPath", "/dev/null")] {
+        git(&["config", k, v]);
+    }
     write("a.rs", "base\n");
     git(&["add", "."]);
     commit("base");
@@ -313,7 +362,7 @@ fn amend_by_blame() {
     // Changes: two identical ones, one on each commit's lines, a line added to the first's
     // (shifting what follows), and new lines at the end.
     write("a.rs", "base\n/// one\n/// one, more\n// two\nadded\nkeep\n/// three\n// four\nnew\n");
-    let (hunks, commits) = plan(&dir, &base).unwrap();
+    let (hunks, commits) = plan(&dir, &base, true).unwrap();
     assert_eq!(commits.iter().map(|c| c.1.as_str()).collect::<Vec<_>>(), ["first", "second"]);
     let to: Vec<_> = hunks.iter().map(|h| (h.place(), h.to.as_deref())).collect();
     assert_eq!(
@@ -334,14 +383,23 @@ fn amend_by_blame() {
     assert_eq!(std::fs::read_to_string(dir.join("a.rs")).unwrap(), "base\n/// one\n/// one, more\n// two\nadded\nkeep\n/// three\n// four\nnew\n");
     assert_eq!(git(&["rev-parse", "dv-backup/t"]).trim(), second);
     // Claude's answer for one blame couldn't place: taken when it's for this HEAD.
-    let (mut hunks, commits) = plan(&dir, &base).unwrap();
+    let (mut hunks, commits) = plan(&dir, &base, true).unwrap();
     let head = git(&["rev-parse", "HEAD"]).trim().to_owned();
     let first_now = commits[0].0.clone();
     let p = dir.join("answers.json");
-    let answer = serde_json::json!({ "head": head, "hunks": [{ "path": "a.rs", "diff": hunks[0].patch(&[]), "commit": &first_now[..10], "why": "its comments" }] });
+    let answer = serde_json::json!({ "head": head, "hunks": [{ "path": "a.rs", "diff": hunks[0].text(), "commit": &first_now[..10], "why": "its comments" }] });
     std::fs::write(&p, answer.to_string()).unwrap();
     claude_answers(&p, &head, &mut hunks, &commits);
     assert_eq!((hunks[0].to.as_deref(), hunks[0].why.as_str()), (Some(first_now.as_str()), "Claude: its comments"));
     assert_eq!(hunks[1].to, None);
+    // A pure addition placed so (above another change, not placed) lands where it was.
+    amend(&dir, &base, &hunks, "dv-backup/t2").unwrap();
+    assert_eq!(git(&["show", "HEAD~1:a.rs"]), "base\n/// one\n/// one, more\n// two\nadded\nkeep\n");
+    assert_eq!(git(&["diff", "HEAD", "--stat"]).lines().count(), 2); // "new" still uncommitted
+    // Staged changes: refused, so none are lost.
+    git(&["add", "a.rs"]);
+    let (mut hunks, _) = plan(&dir, &base, true).unwrap();
+    hunks.iter_mut().for_each(|h| h.to = Some(head.clone()));
+    assert!(amend(&dir, &base, &hunks, "dv-backup/t3").is_err());
     _ = std::fs::remove_dir_all(&dir);
 }

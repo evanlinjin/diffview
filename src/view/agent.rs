@@ -916,8 +916,12 @@ impl App {
             (true, None) => format!("Claude stopped ({st}) while {label}: see {} (and .err)", log.display()),
         };
         // Placing changes for an amend: its answers, in the picker.
+        // (Not over what you're at: a picker, a prompt, an action on its way.)
         if label == super::amend::AMEND_LABEL && !failed && refused.is_none() {
-            self.amend_menu();
+            match self.picker.is_none() && self.prompt.is_none() && self.action.is_none() {
+                true => self.amend_menu(),
+                false => self.msg += " (Space g → amend shows where it put them)",
+            }
         }
         // Replies made meanwhile: one more run, unless this one went wrong (then that's the news,
         // and retrying would hit the same wall).

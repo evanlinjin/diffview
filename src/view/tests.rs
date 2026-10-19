@@ -83,6 +83,16 @@ fn viewed_files() {
     fresh.threads = vec![gh::Thread { path: "src/a.rs".into(), line: Some(2), comments: vec![c], ..Default::default() }];
     fresh.apply_viewed(viewed("src/a.rs", "VIEWED"));
     assert!(fresh.collapsed.is_empty());
+    // Folded already, and Claude comments there: it opens.
+    fresh.threads.clear();
+    fresh.collapsed.insert("src/a.rs".into());
+    let dir = std::env::temp_dir().join(format!("dv-viewed-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("pr-1.json"), r#"{"comments": [{"path": "src/a.rs", "line": 2, "body": "hm"}]}"#).unwrap();
+    fresh.claude.path = Some(dir.join("pr-1.json"));
+    fresh.load_claude();
+    _ = std::fs::remove_dir_all(&dir);
+    assert!(fresh.collapsed.is_empty());
     app.apply_viewed(viewed("src/a.rs", "DISMISSED"));
     app.build();
     assert_eq!(app.header_tag(0).unwrap().0, "↻ changed since viewed ");

@@ -237,9 +237,15 @@ impl App {
         self.threads.iter().any(|t| t.path == path && self.is_new(t))
     }
 
-    /// New comments came: the viewed files they're on unfold, so they're seen.
-    fn unfold_new(&mut self) {
-        let open: Vec<String> = self.collapsed.iter().filter(|p| self.viewed.get(*p).is_some_and(|s| s == "VIEWED") && self.new_on(p)).cloned().collect();
+    /// The files with comments you haven't seen.
+    fn new_paths(&self) -> HashSet<String> {
+        self.threads.iter().filter(|t| self.is_new(t)).map(|t| t.path.clone()).collect()
+    }
+
+    /// New comments came (GitHub's or Claude's): the viewed files they're on unfold, so
+    /// they're seen; not those that had some already (`before`: folded since, by you).
+    fn unfold_new(&mut self, before: &HashSet<String>) {
+        let open: Vec<String> = self.collapsed.iter().filter(|p| self.viewed.get(*p).is_some_and(|s| s == "VIEWED") && self.new_on(p) && !before.contains(*p)).cloned().collect();
         for p in open {
             self.collapsed.remove(&p);
         }
@@ -434,6 +440,7 @@ impl App {
 
     /// Claude's review file, replacing its threads (GitHub's stay).
     pub(super) fn load_claude(&mut self) {
+        let had_new = self.new_paths();
         self.threads.retain(|t| t.claude.is_none());
         self.claude.summary.clear();
         self.claude.head.clear();
@@ -460,6 +467,7 @@ impl App {
                 }
                 (self.claude.summary, self.claude.head, self.claude.description, self.claude.closing) = (r.summary, r.head, r.description, r.closing);
                 self.threads.extend(r.threads);
+                self.unfold_new(&had_new);
             }
             Ok(None) => {}
             Err(e) => self.msg = format!("Claude's review: {e:#}"),
@@ -650,15 +658,14 @@ impl App {
         }
         let count = |a: &App| a.threads.iter().filter(|t| t.claude.is_none()).map(|t| t.comments.len()).sum::<usize>();
         let before = count(self);
+        let had_new = self.new_paths();
         let keep = self.cursor_key();
         let claude: Vec<Thread> = std::mem::take(&mut self.threads).into_iter().filter(|t| t.claude.is_some()).collect();
         self.apply_github(f);
         self.threads.extend(claude);
         self.shape();
         let new = count(self).saturating_sub(before);
-        if new > 0 {
-            self.unfold_new();
-        }
+        self.unfold_new(&had_new);
         self.rebuild(keep);
         if std::mem::take(&mut self.github_stale) && self.msg == STALE {
             self.msg.clear();
@@ -676,11 +683,11 @@ impl App {
                     self.summary_draft = r.pending_body;
                 }
                 (self.threads, self.review) = (r.threads, r.pending);
+                (self.theirs, self.me) = (!r.mine, r.me); // (before: your own comments aren't new)
                 self.apply_viewed(r.viewed); // after the threads: not folded with new ones
                 if let Some(pr) = &mut self.pr {
                     pr.node_id = r.pr_id;
                 }
-                (self.theirs, self.me) = (!r.mine, r.me);
             }
             Err(e) => self.msg = format!("loading comments: {e:#}"),
         }
