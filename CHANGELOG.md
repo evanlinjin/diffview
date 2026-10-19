@@ -5,6 +5,19 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.53.1] - 2026-10-19
+
+### Fixed
+- Sideways mouse scroll:
+  - in a PR, it doesn't flip direction over a short line or jump to the top from the pinned
+    title, and Shift+wheel scrolls popups and pickers again;
+  - in an issue, only the blocks wider than shown move.
+- `dv scratch`:
+  - replacement drafts may edit their scratch checkouts;
+  - the Claude pane may make one without asking;
+  - `--rm` removes only a whole checkout;
+  - git's records of your other worktrees are left alone.
+
 ## [0.53.0] - 2026-10-19
 
 ### Added
