@@ -166,7 +166,9 @@ fn run() -> anyhow::Result<()> {
     let mut message = None;
     if let Some(i) = o.rest.iter().position(|a| a == "-F" || a == "--file").filter(|_| o.cmd == Some("amend")) {
         let f = o.rest.get(i + 1).context("-F needs a file with the commit's new message")?.clone();
-        message = Some(std::fs::read_to_string(&f).with_context(|| format!("reading {f}"))?);
+        let m = std::fs::read_to_string(&f).with_context(|| format!("reading {f}"))?;
+        anyhow::ensure!(!m.trim().is_empty(), "{f} is empty: no message to give the commit");
+        message = Some(m);
         o.rest.drain(i..i + 2);
     }
     if o.cmd == Some("amend") && o.rest.len() > 1 {

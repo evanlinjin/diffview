@@ -203,11 +203,10 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], reword: Option<(&str
             }
             // By its sha, not its subject: two commits may share one ("wip"). `amend!`: its
             // message replaced too, by what follows the first line.
-            let msg = match reword.filter(|r| r.0 == t) {
-                Some((_, m)) => format!("amend! {t}\n\n{m}"),
-                None => format!("fixup! {t}"),
-            };
-            own(&["commit", "-q", "--no-verify", "--allow-empty", "-m", &msg])?;
+            match reword.filter(|r| r.0 == t) {
+                Some((_, m)) => own(&["commit", "-q", "--no-verify", "--allow-empty", "-m", &format!("amend! {t}\n\n{m}")])?,
+                None => own(&["commit", "-q", "--no-verify", "-m", &format!("fixup! {t}")])?,
+            }
             // Merges kept (not flattened), and the backup branch left where it is.
             // (No editor: see `diff::git`.)
             git_in(dir, &["-c", "rebase.updateRefs=false", "rebase", "-q", "-i", "--autosquash", "--autostash", "--rebase-merges", &mb])?;
