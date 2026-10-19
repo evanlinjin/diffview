@@ -176,7 +176,7 @@ impl App {
             })
             .collect();
         self.wanting = Some(action);
-        self.picker = Some(Picker { title: " what do you want of Claude? ", items, query: String::new(), sel });
+        self.picker = Some(Picker { sel, ..Picker::new(" what do you want of Claude? ", items) });
     }
 
     /// `a` on a commit in the list: a question about it, or a change to it, for Claude (on no
@@ -375,7 +375,7 @@ impl App {
         // out of habit mustn't end a run).
         let want = |t: &Target| matches!(t, Target::Claude(a) if matches!((a, n > 0), (Ask::Answer, true) | (Ask::Review, false)));
         let sel = items.iter().position(|i| want(&i.target)).unwrap_or(0);
-        self.picker = Some(Picker { title: " claude ", items, query: String::new(), sel });
+        self.picker = Some(Picker { sel, ..Picker::new(" claude ", items) });
     }
 
     /// `Space a` → check now: the review file read again (as if it had changed), and the
@@ -433,7 +433,7 @@ impl App {
                 Item::new("No, not yet", Target::Nothing),
                 Item::new(format!("Yes, replace #{pr}'s description on GitHub with Claude's"), Target::DescApprove(true)),
             ];
-            return self.picker = Some(Picker { title: " description ", items, query: String::new(), sel: 0 });
+            return self.picker = Some(Picker::new(" description ", items));
         }
         let text = self.claude.description.clone();
         let body = (0..self.info.len()).find(|&i| self.is_description(i)).map(|h| h + 1).filter(|&b| self.info.get(b).is_some_and(|l| l.md));
@@ -532,7 +532,7 @@ impl App {
                 Item::new("No, keep them", Target::Nothing),
                 Item::new(format!("Yes, dismiss Claude's {} outdated comment(s)", keys.len()), Target::ClaudeDismissOutdated(true)),
             ];
-            return self.picker = Some(Picker { title: " dismiss outdated? ", items, query: String::new(), sel: 0 });
+            return self.picker = Some(Picker::new(" dismiss outdated? ", items));
         }
         let Some(p) = self.claude.path.clone() else { return };
         let keep = self.cursor_key();

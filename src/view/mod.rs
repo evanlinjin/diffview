@@ -511,6 +511,13 @@ struct Picker {
     sel: usize,
 }
 
+impl Picker {
+    /// `items` under `title`, nothing typed, the first chosen.
+    fn new(title: &'static str, items: Vec<Item>) -> Self {
+        Picker { title, items, query: String::new(), sel: 0 }
+    }
+}
+
 /// What an in-flight LSP request was for.
 enum Req {
     Init,

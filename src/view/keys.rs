@@ -379,7 +379,7 @@ impl App {
                     .filter(|(_, r)| r.line.kind == Kind::File)
                     .map(|(i, r)| Item::new(r.line.text.clone(), Target::Row(i)))
                     .collect();
-                self.picker = Some(Picker { title: " files ", items, query: String::new(), sel: 0 });
+                self.picker = Some(Picker::new(" files ", items));
             }
             (' ', 'y') => self.yank(false),
             (' ', 'c') => self.copy_ref(),
@@ -458,7 +458,7 @@ impl App {
                                 Item::new("No, keep it", Target::Nothing),
                                 Item::new(format!("Yes, discard {n} pending comment(s)"), Target::DiscardYes),
                             ];
-                            self.picker = Some(Picker { title: " discard pending review? ", items, query: String::new(), sel: 0 });
+                            self.picker = Some(Picker::new(" discard pending review? ", items));
                         }
                         Target::DiscardYes => {
                             if let Some(r) = self.review.clone() {

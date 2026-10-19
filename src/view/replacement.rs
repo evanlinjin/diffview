@@ -29,7 +29,7 @@ impl App {
             (Some(_), false) => items.push(item(format!("Close {} with the closing note (now)…", open.join(", ")), Target::CloseOriginals)),
             (None, false) => {}
         }
-        self.picker = Some(Picker { title: " replacement ", items, query: String::new(), sel: 0 });
+        self.picker = Some(Picker::new(" replacement ", items));
     }
 
     /// Which remote keeps replacement branches: asked once, then kept in `dv.replaceRemote`.
@@ -39,7 +39,7 @@ impl App {
             return "replacement branches go to a remote of your own, not origin: add one (git remote add <name> <your fork's URL>), then S again".into();
         }
         let items = choices.into_iter().map(|(n, url)| Item::new(format!("{n}  {url}"), Target::ReplaceRemote(n, close))).collect();
-        self.picker = Some(Picker { title: " which remote keeps replacement branches? ", items, query: String::new(), sel: 0 });
+        self.picker = Some(Picker::new(" which remote keeps replacement branches? ", items));
         "dv remembers it (git config dv.replaceRemote)".into()
     }
 

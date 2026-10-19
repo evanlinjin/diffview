@@ -45,7 +45,7 @@ impl App {
                     Item::new("Abort it (back to before it)", Target::RebaseAbort),
                 ],
             };
-            return self.picker = Some(Picker { title: " git: a rebase is stopped ", items, query: String::new(), sel: 0 });
+            return self.picker = Some(Picker::new(" git: a rebase is stopped ", items));
         }
         let changed = diff::git(&["status", "--porcelain"]).unwrap_or_default().lines().count();
         let mut items = vec![match self.uncommitted() {
@@ -110,7 +110,7 @@ impl App {
             let label = format!("Merge #{} with github-merge.py (ends this review; its worktree goes first, if nothing in it is unpushed)", p.number);
             items.push(Item::new(label, Target::GitMerge));
         }
-        self.picker = Some(Picker { title: " git ", items, query: String::new(), sel: 0 });
+        self.picker = Some(Picker::new(" git ", items));
     }
 
     /// `Space g` → approve the workflow runs waiting on the PR's head, so they run.
@@ -167,7 +167,7 @@ impl App {
                 Item::new("No, keep what's here", Target::Nothing),
                 Item::new(format!("Yes, take {name} from GitHub ({ours} commit(s) only here kept on a backup branch)"), Target::GitTakeTheirs(true)),
             ];
-            self.picker = Some(Picker { title: " take GitHub's version? ", items, query: String::new(), sel: 0 });
+            self.picker = Some(Picker::new(" take GitHub's version? ", items));
             return Ok(String::new());
         }
         let who = self.pr.as_ref().map_or(branch.replace('/', "-"), |p| format!("pr-{}", p.number));

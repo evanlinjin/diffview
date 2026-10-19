@@ -238,7 +238,7 @@ impl App {
         }
         // What's still open, to see before you say you're done (approving most of all).
         items.extend(self.submit_notes().iter().map(|n| item(&format!("  ! {n}"), Target::Nothing)));
-        self.picker = Some(Picker { title: " submit review ", items, query: String::new(), sel: 0 });
+        self.picker = Some(Picker::new(" submit review ", items));
     }
 
     /// What's still open in the review: threads waiting on someone, pending comments whose
@@ -288,7 +288,7 @@ impl App {
             Item::new("No, keep it", Target::Nothing),
             Item::new(format!("Yes, delete @{}'s comment: {preview}", c.author), Target::DeleteComment(c.node_id.clone())),
         ];
-        self.picker = Some(Picker { title: " delete comment? ", items, query: String::new(), sel: 0 });
+        self.picker = Some(Picker::new(" delete comment? ", items));
     }
 
     pub(super) fn start_edit(&mut self) {
@@ -478,7 +478,7 @@ impl App {
         if items.is_empty() {
             return self.msg = "no labels in this repo, nor anyone to assign or ask".into();
         }
-        self.picker = Some(Picker { title: " labels, assignees, reviewers (✓: on it; Enter adds or removes) ", items, query: String::new(), sel: 0 });
+        self.picker = Some(Picker::new(" labels, assignees, reviewers (✓: on it; Enter adds or removes) ", items));
     }
 
     pub(super) fn react_menu(&mut self, node: &str) {
@@ -499,7 +499,7 @@ impl App {
                 Item::new(label, Target::React(node.to_owned(), what, !mine))
             })
             .collect();
-        self.picker = Some(Picker { title: " react ", items, query: String::new(), sel: 0 });
+        self.picker = Some(Picker::new(" react ", items));
     }
 
     /// GitHub anchor for the selected code lines (comment rows inside the selection are ignored).

@@ -154,7 +154,7 @@ impl App {
                         Item::new(label, Target::Loc(l))
                     })
                     .collect();
-                self.picker = Some(Picker { title: " locations  ● = in diff ", items, query: String::new(), sel: 0 });
+                self.picker = Some(Picker::new(" locations  ● = in diff ", items));
             }
         }
     }

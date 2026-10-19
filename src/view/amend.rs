@@ -304,7 +304,7 @@ impl App {
             };
             items.push(Item::new(label, Target::Nothing));
         }
-        self.picker = Some(Picker { title: " amend into the PR's commits ", items, query: String::new(), sel: 0 });
+        self.picker = Some(Picker::new(" amend into the PR's commits ", items));
     }
 
     /// HEAD's short sha, and the branch HEAD is kept on before it's rewritten.
