@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.28] - 2026-10-19
+
+### Changed
+- Inside dv, no change you'd see: `view/review.rs` is split by what each part does (the PR's
+  sync with GitHub, links and definitions, what you've seen, replacements, getting about the
+  threads), and duplicated code in it folded.
+
 ## [0.34.27] - 2026-10-19
 
 ### Changed
