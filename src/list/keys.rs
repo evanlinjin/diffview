@@ -129,7 +129,7 @@ impl List {
             }
             KeyCode::Char('s') if self.tab == Tab::Todo => self.defer_key(),
             KeyCode::Char('p') if self.tab == Tab::Todo => {
-                let it = self.todo_shown().get(self.sel).map(|(_, it)| (*it).clone())?;
+                let it = self.selected_item()?;
                 match it.deferred.and_then(|d| d.cond).filter(|_| !it.rep) {
                     Some(c) => return Some(Do::PostWait(it.number, format!("Waiting on: {}.", c.says()))),
                     None => self.msg = "p posts what an item is deferred until (s then u) on its PR: this one isn't".into(),

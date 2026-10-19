@@ -545,7 +545,7 @@ impl List {
 
     /// `s` on the selected todo item: bring it back if it's deferred, else ask for how long.
     pub(super) fn defer_key(&mut self) {
-        let Some(it) = self.todo_shown().get(self.sel).map(|(_, it)| (*it).clone()) else { return };
+        let Some(it) = self.selected_item() else { return };
         let what = if it.rep { crate::replace::label(it.number) } else { format!("#{}", it.number) };
         if it.deferred.is_some() {
             self.deferred.remove(&it.key());

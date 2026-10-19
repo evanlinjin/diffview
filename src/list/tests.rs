@@ -474,6 +474,9 @@ fn drafting_a_replacement_on_the_todo_tab() {
         assert!(l.key(KeyEvent::new(KeyCode::Char(k), KeyModifiers::NONE)).is_none() && l.confirm.is_none());
         assert!(l.msg.contains("draft replacement"), "{k}: {}", l.msg);
     }
+    // Filtered, the item the cursor's on is the filtered list's (what s and p act on).
+    (l.query, l.sel) = ("author:cy".into(), 0);
+    assert_eq!(l.selected_item().map(|it| it.number), Some(3));
 }
 
 #[test]

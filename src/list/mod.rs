@@ -607,7 +607,13 @@ impl List {
 
     /// The selected card's number, and whether it's a replacement's draft.
     fn selected(&self) -> Option<(u64, bool)> {
-        self.shown_cards().get(self.sel).map(|(c, rep)| (c.number, *rep))
+        let rep = |it: Option<&crate::todo::Item>| self.tab == Tab::Replacements || it.is_some_and(|it| it.rep);
+        self.shown_cards().get(self.sel).map(|(c, it)| (c.number, rep(*it)))
+    }
+
+    /// The selected todo item (the todo tab's, as shown: filtered).
+    pub(super) fn selected_item(&self) -> Option<crate::todo::Item> {
+        self.shown_cards().get(self.sel).and_then(|(_, it)| it.cloned())
     }
 
     /// The selected card's PR, for what's done to a PR on GitHub (not a draft replacement's:
@@ -626,19 +632,19 @@ impl List {
         self.shown_cards().into_iter().map(|(card, _)| card).collect()
     }
 
-    /// The cards shown, each with whether it's a replacement's draft (whose number is the PR
-    /// it replaces': not that PR, for what's done with it).
-    fn shown_cards(&self) -> Vec<(&Listed, bool)> {
+    /// The cards shown, each with its todo item on the todo tab (which says whether it's a
+    /// replacement's draft, whose number is the PR it replaces': not that PR, for what's done).
+    fn shown_cards(&self) -> Vec<(&Listed, Option<&crate::todo::Item>)> {
         let in_tab = |p: &&Listed| match self.tab {
             Tab::Worktrees => self.local.contains_key(&p.number),
             _ => p.open(),
         };
-        let all: Vec<(&Listed, bool)> = match self.tab {
-            Tab::Replacements => self.reps.iter().map(|r| (r, true)).collect(),
-            Tab::Todo => self.todo_shown().into_iter().map(|(card, it)| (card, it.rep)).collect(),
-            _ => self.prs.iter().filter(in_tab).map(|p| (p, false)).collect(),
+        let all: Vec<(&Listed, Option<&crate::todo::Item>)> = match self.tab {
+            Tab::Replacements => self.reps.iter().map(|r| (r, None)).collect(),
+            Tab::Todo => self.todo_shown().into_iter().map(|(card, it)| (card, Some(it))).collect(),
+            _ => self.prs.iter().filter(in_tab).map(|p| (p, None)).collect(),
         };
-        let mut prs: Vec<(&Listed, bool)> = all.into_iter().filter(|p| self.query.split_whitespace().all(|t| term(p.0, t))).collect();
+        let mut prs: Vec<(&Listed, Option<&crate::todo::Item>)> = all.into_iter().filter(|p| self.query.split_whitespace().all(|t| term(p.0, t))).collect();
         if self.tab == Tab::Todo {
             return prs; // in the order of what needs you most
         }
