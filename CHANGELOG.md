@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.36] - 2026-10-19
+
+### Fixed
+- A failed reload after an amend, a rebase, taking GitHub's branch or stopping Claude is said
+  after what was done (the backup branch's name too), not in its place.
+- `dv list`'s todo tab, filtered: `s` (defer) and `p` (post what it waits on) act on the item
+  under the cursor, not another.
+- `dv list`'s reviews resume Claude's session only when Claude Code still has it (as dv does).
+- `dv list`'s status bar measures its message by its width on screen.
+
 ## [0.34.35] - 2026-10-19
 
 ### Changed
