@@ -304,6 +304,8 @@ impl Issues {
     /// rules' otherwise), deferred ones at the bottom till then (or till what they need changes).
     fn find_todo(&mut self) {
         use crate::todo::{Item, Kind};
+        // (The cursor stays on its issue as they reorder: a ranking, a triage landing.)
+        let keep = self.shown().get(self.sel).map(|i| i.number);
         let items: Vec<Item> = self
             .items
             .iter()
@@ -315,6 +317,9 @@ impl Issues {
         let (items, _) = crate::todo::order(items, self.ranked.as_ref());
         // Deferred: at the bottom till then, or till what it needs changes (as dv list's).
         self.todo = crate::todo::defer(items, &self.deferred, crate::claude::now_secs(), |_, _| false);
+        if let Some(i) = keep.and_then(|n| self.shown().iter().position(|i| i.number == n)) {
+            self.sel = i;
+        }
     }
 
     /// Auto: Claude triages what's new or changed since dv started (and what changed since its
@@ -326,14 +331,15 @@ impl Issues {
         }
         let busy = self.running.values().any(batch::Status::running);
         let run = if busy { vec![] } else { self.auto_picks() };
-        if !run.is_empty() {
-            self.msg = format!("auto: Claude is triaging {}", run.iter().map(|r| format!("#{}", r.0)).collect::<Vec<_>>().join(", "));
+        let started = !run.is_empty();
+        if started {
+            self.say(format!("auto: Claude is triaging {}", run.iter().map(|r| format!("#{}", r.0)).collect::<Vec<_>>().join(", ")));
             self.running_rx.push(triage_all(run, self.root.clone(), String::new()));
         }
         let due = self.auto_ranked.is_none_or(|t| t.elapsed() > std::time::Duration::from_secs(15 * 60));
         let now: Vec<crate::todo::Item> = self.todo.iter().filter(|it| it.deferred.is_none()).cloned().collect();
         let changed = self.ranked.as_ref().is_none_or(|r| r.fingerprint != crate::todo::fingerprint(&now));
-        if due && changed && !busy && self.rank_rx.is_none() && !now.is_empty() {
+        if due && changed && !busy && !started && self.rank_rx.is_none() && !now.is_empty() {
             self.auto_ranked = Some(std::time::Instant::now());
             self.rank();
         }
@@ -353,6 +359,14 @@ impl Issues {
             }
         }
         run
+    }
+
+    /// News of Claude's own (auto, a triage or ranking done), said unless something's being said
+    /// or asked already (a `q again`, what you just did).
+    fn say(&mut self, m: String) {
+        if self.pending.is_none() && self.msg.is_empty() {
+            self.msg = m;
+        }
     }
 
     /// Claude at work from here: triaging, or drafting a fix.
@@ -420,6 +434,8 @@ impl Issues {
                         (self.me, self.items) = (me, items);
                         if self.baseline.is_none() {
                             self.baseline = Some(self.items.iter().map(|i| (i.number, i.updated.clone())).collect());
+                            // (Nor a ranking straight away: a quarter hour, as after one.)
+                            self.auto_ranked = Some(std::time::Instant::now());
                         }
                         self.reviews_mtime = None; // read the triages for these
                         self.watch_reviews();
@@ -442,7 +458,7 @@ impl Issues {
                 self.rank_rx = None;
                 match res {
                     Ok(r) => {
-                        self.msg = format!("Claude ranked what needs you (${:.2})", r.cost);
+                        self.say(format!("Claude ranked what needs you (${:.2})", r.cost));
                         self.ranked = Some(r);
                         self.find_todo();
                     }
@@ -459,8 +475,8 @@ impl Issues {
                     _ => {}
                 }
             }
-            for rx in &self.running_rx {
-                while let Ok((n, st)) = rx.try_recv() {
+            for (n, st) in self.running_rx.iter().flat_map(|rx| rx.try_iter()).collect::<Vec<_>>() {
+                {
                     if matches!(st, batch::Status::Done(_)) && self.view.as_ref().is_some_and(|v| v.number == n) {
                         let dir = self.reviews_dir.clone();
                         if let Some(v) = self.view.as_mut() {
@@ -470,7 +486,7 @@ impl Issues {
                     match &st {
                         batch::Status::Failed(e) => self.msg = format!("#{n}: {}", e.lines().next().unwrap_or("")),
                         batch::Status::Done(took) => {
-                            self.msg = format!("triaged #{n} ({took})");
+                            self.say(format!("triaged #{n} ({took})"));
                             self.reviews_mtime = None; // (read again: written over, the dir may not say)
                         }
                         _ => {}
@@ -626,8 +642,10 @@ impl Issues {
             }
             return false;
         }
-        let i = self.top + (m.row as usize - 1) / self.card_rows(); // cards start under the bar
-        if i >= self.shown().len() {
+        // (Cards start under the bar; past the last drawn, nothing.)
+        let k = (m.row as usize - 1) / self.card_rows();
+        let i = self.top + k;
+        if k >= self.height() || i >= self.shown().len() {
             return false;
         }
         let double = self.last_click.is_some_and(|(at, j)| j == i && at.elapsed() < Duration::from_millis(400));
