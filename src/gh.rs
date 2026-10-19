@@ -855,7 +855,7 @@ RENAMED_TITLE_EVENT, MERGED_EVENT, CLOSED_EVENT, REOPENED_EVENT, READY_FOR_REVIE
 BASE_REF_CHANGED_EVENT, CROSS_REFERENCED_EVENT, REVIEW_DISMISSED_EVENT";
 
 /// Each of those, with what `view::info` says of it.
-const ACTIVITY: &str = "__typename \
+const ACTIVITY: &str = "__typename ... on Node { id } \
 ... on IssueComment { id url body createdAt author { login } isMinimized minimizedReason reactionGroups { content viewerHasReacted reactors { totalCount } } } \
 ... on PullRequestReview { id body state submittedAt createdAt author { login } reactionGroups { content viewerHasReacted reactors { totalCount } } } \
 ... on PullRequestCommit { commit { abbreviatedOid messageHeadline committedDate author { user { login } name } } } \

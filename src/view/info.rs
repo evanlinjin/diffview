@@ -351,10 +351,8 @@ fn activity_items(v: &Value, items: &[Value]) -> Vec<Vec<(String, InfoLine)>> {
     for it in items {
         let at = s(&it["createdAt"]);
         let who = it["actor"]["login"].as_str().unwrap_or("ghost");
-        // (What it's about too: two labels added at once happen at the same second.)
-        let about = [&it["label"]["name"], &it["requestedReviewer"]["login"], &it["requestedReviewer"]["name"], &it["assignee"]["login"], &it["source"]["url"]];
-        let about = about.iter().find_map(|v| v.as_str()).unwrap_or("");
-        let key = format!("{}@{at}/{about}", s(&it["__typename"]));
+        // Its id (two at once, two labels added, happen at the same second).
+        let key = s(&it["id"]);
         let item = match it["__typename"].as_str().unwrap_or("") {
             "IssueComment" => said(it, s(&it["url"]), "", None, hidden(it)),
             "PullRequestReview" => {
