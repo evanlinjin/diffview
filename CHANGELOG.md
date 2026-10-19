@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.48.0] - 2026-10-19
+
+### Added
+- Auto drafts closing comments: for a PR Claude's review would close (`dv list`), and an issue
+  its triage or ranking would close (`dv issues`), Claude drafts the comment it closes with,
+  once each, ready for you: the PR's view (`Space a` → close with Claude's comment) or the
+  issue's (`X X`) closes with it, after your editor.
+
 ## [0.47.1] - 2026-10-19
 
 ### Fixed
