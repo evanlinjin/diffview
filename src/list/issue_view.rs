@@ -115,10 +115,10 @@ impl IssueView {
             top.push(Span::styled(format!(" {}╮", "─".repeat(w.saturating_sub(tw + 5))), border));
             let mut out = vec![Line::from(top)];
             for l in body {
-                let pad = (w.saturating_sub(4)).saturating_sub(l.width());
+                // (A code block or table line wider than the bubble: cut at its edge.)
                 let mut v = vec![Span::styled("│ ", border)];
-                v.extend(l.spans);
-                v.extend([Span::raw(" ".repeat(pad)), Span::styled(" │", border)]);
+                v.extend(super::card::fit(l.spans, w.saturating_sub(4), Style::new()));
+                v.push(Span::styled(" │", border));
                 out.push(Line::from(v));
             }
             out.push(Line::from(Span::styled(format!("╰{}╯", "─".repeat(w.saturating_sub(2))), border)));
@@ -135,15 +135,21 @@ impl IssueView {
         let inner = right_w.saturating_sub(4).max(20);
         let claude = |text: String| vec![Span::styled("◆ ", ui.key), Span::styled(text, ui.thread)];
         let mut right = vec![];
-        match self.triage.is_null() {
-            true => right.extend(bubble(claude("claude's triage".into()), vec![Line::from(Span::styled("none yet: a a triages it", dim))], right_w)),
-            false => {
-                let what = [self.t("kind"), self.t("priority")].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ");
-                let mut b = md(&self.t("summary"), inner);
+        // Triaged (its kind or summary said: a closing comment alone isn't), or not yet; what's
+        // said of closing it shows either way.
+        let triaged = !self.t("kind").is_empty() || !self.t("summary").is_empty();
+        {
+            let title = ["claude's triage".to_owned(), self.t("kind"), self.t("priority")].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ");
+            let mut b = match triaged {
+                true => md(&self.t("summary"), inner),
+                false => vec![Line::from(Span::styled("none yet: a a triages it", dim))],
+            };
+            {
+                // (Wrapped as markdown: a long `next` stays in the bubble.)
                 let mut said = |k: &str, v: String| {
                     if !v.is_empty() {
                         b.push(Line::default());
-                        b.push(Line::from(vec![Span::styled(format!("{k}: "), ui.key), Span::raw(v)]));
+                        b.extend(md(&format!("**{k}:** {v}"), inner));
                     }
                 };
                 said("next", self.t("next"));
@@ -154,22 +160,25 @@ impl IssueView {
                     b.extend([Line::default(), Line::from(Span::styled("closing comment:", ui.key))]);
                     b.extend(md(&c, inner));
                 }
-                right.extend(bubble(claude(format!("claude's triage · {what}")), b, right_w));
             }
+            right.extend(bubble(claude(title), b, right_w));
         }
         right.push(Line::default());
         right.push(Line::from(Span::styled(format!("activity ({})", self.comments.len()), ui.heading)));
         for (who, when, body) in &self.comments {
-            let title = vec![Span::styled(format!("@{who}"), ui.thread), Span::styled(format!(" · {}", gh::ago(when)), dim)];
+            let mut title = vec![Span::styled(format!("@{who}"), ui.thread)];
+            if !when.is_empty() {
+                title.push(Span::styled(format!(" · {}", gh::ago(when)), dim));
+            }
             right.extend(bubble(title, md(body, inner), right_w));
         }
         // Side by side, a dim line between; or one after the other.
         let out = match two {
             true => (0..left.len().max(right.len()))
                 .map(|k| {
-                    let mut l = left.get(k).cloned().unwrap_or_default();
-                    let pad = left_w.saturating_sub(l.width());
-                    l.spans.extend([Span::raw(" ".repeat(pad)), Span::styled("│", border)]);
+                    // (The description cut at its column: a wide code line doesn't push the pane.)
+                    let mut l = Line::from(super::card::fit(left.get(k).cloned().unwrap_or_default().spans, left_w, Style::new()));
+                    l.spans.push(Span::styled("│", border));
                     l.spans.extend(right.get(k).cloned().unwrap_or_default().spans);
                     l
                 })

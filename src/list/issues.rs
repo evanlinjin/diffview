@@ -199,9 +199,11 @@ fn triage_run(n: u64, updated: &str, root: &std::path::Path, extra: &str) -> Res
     let mut t = crate::claude::json_in(answer, '{').filter(Value::is_object).context("no triage in Claude's answer")?;
     (t["issue"], t["updated"]) = (n.into(), updated.into());
     // A closing comment drafted for it (`X X`), kept when this triage has none of its own.
+    // (Only while this triage still says to close it: one that says keep it open, keeps it.)
     let old: Value = std::fs::read_to_string(&file).ok().and_then(|o| serde_json::from_str(&o).ok()).unwrap_or_default();
-    if t["closing"].as_str().is_none_or(|c| c.trim().is_empty()) && old["closing"].as_str().is_some_and(|c| !c.trim().is_empty()) {
-        for k in ["close", "closing", "reason", "duplicate_of"] {
+    let said = |v: &Value, k: &str| v[k].as_str().is_some_and(|c| !c.trim().is_empty());
+    if said(&t, "close") && !said(&t, "closing") && said(&old, "closing") {
+        for k in ["closing", "reason", "duplicate_of"] {
             t[k] = old[k].clone();
         }
     }
@@ -489,17 +491,18 @@ impl Issues {
                     Ok((me, items)) => {
                         let keep = self.shown().get(self.sel).map(|i| i.number);
                         (self.me, self.items) = (me, items);
-                        if !self.started {
-                            // (Not a ranking straight away: once the triages are in, a quarter hour on.)
+                        let first = !self.started;
+                        // (Not a ranking straight away: once the triages are in, a quarter hour on.)
+                        if first {
                             (self.started, self.auto_ranked) = (true, Some(std::time::Instant::now()));
-                            self.find_todo();
-                            // Auto on (from dv list too: one setting): what it's about to cost, said.
-                            if self.auto && self.untriaged() > 0 {
-                                self.msg = format!("auto is on: Claude triages the {} issue(s) not triaged, two at a time (~$0.30 each; C turns it off)", self.untriaged());
-                            }
                         }
                         self.reviews_mtime = None; // read the triages for these
                         self.watch_reviews();
+                        // Auto on (from dv list too: one setting): what it's about to cost, said (once
+                        // the triages there are read).
+                        if first && self.auto && self.untriaged() > 0 {
+                            self.msg = format!("auto is on: Claude triages the {} issue(s) not triaged, two at a time (~$0.30 each; C turns it off)", self.untriaged());
+                        }
                         self.sel = keep.and_then(|n| self.shown().iter().position(|i| i.number == n)).unwrap_or(0);
                         if self.msg.starts_with("fetching") {
                             self.msg.clear();
@@ -997,7 +1000,8 @@ impl Issues {
                 let item = (self.tab == ITab::Todo).then(|| self.todo.iter().find(|it| it.number == i.number)).flatten();
                 let card_w = column.unwrap_or(width);
                 let rank = item.filter(|_| column.is_some()).map(|_| k + 1); // (narrow: on the line under the title)
-                let mut l = issue_card(i, ui, k == sel, self.marked.contains(&i.number), num_w, card_w, self.triage.get(&i.number), self.running.get(&i.number), rank);
+                let close = self.close_why(i.number).unwrap_or_default();
+                let mut l = issue_card(i, ui, k == sel, self.marked.contains(&i.number), num_w, card_w, self.triage.get(&i.number), self.running.get(&i.number), rank, &close);
                 if let Some(it) = item {
                     let cx = Cards { ui, num_w: num_w.max(3), width: card_w, checks_loading: false, usual: "" };
                     match column {
@@ -1012,7 +1016,7 @@ impl Issues {
         if shown.is_empty() {
             let none = match (self.fetched.is_some(), self.tab) {
                 (true, _) => " fetching…",
-                (_, ITab::CanClose) => " nothing Claude would close (a a triages issues)",
+                (_, ITab::CanClose) => " nothing Claude would close (its triages say, a a; its ranking too, r r)",
                 (_, ITab::Mine) => " no open issues assigned to you or opened by you",
                 _ => " no open issues",
             };
@@ -1053,7 +1057,7 @@ impl Issues {
 /// it and who has it, and Claude's triage (what kind, how pressing); the PRs that would fix it,
 /// and what Claude says is next (or that it's at it).
 #[allow(clippy::too_many_arguments)]
-fn issue_card(i: &Issue, ui: &Ui, selected: bool, marked: bool, num_w: usize, width: usize, t: Option<&Triage>, run: Option<&batch::Status>, rank: Option<usize>) -> Vec<Line<'static>> {
+fn issue_card(i: &Issue, ui: &Ui, selected: bool, marked: bool, num_w: usize, width: usize, t: Option<&Triage>, run: Option<&batch::Status>, rank: Option<usize>, close: &str) -> Vec<Line<'static>> {
     let row = card_row(ui, selected);
     let tint = |st: Style| row.patch(Style { bg: None, ..st });
     let dim = tint(ui.stale);
@@ -1096,7 +1100,7 @@ fn issue_card(i: &Issue, ui: &Ui, selected: bool, marked: bool, num_w: usize, wi
     let triage = match (run, t) {
         (Some(s), _) if s.running() => vec![sp("claude: triaging…".into(), tint(ui.key))],
         (Some(batch::Status::Failed(e)), _) => vec![sp(format!("claude failed: {}", e.lines().next().unwrap_or("")), tint(ui.error))],
-        (_, Some(t)) if !t.close.is_empty() => vec![sp(format!("✕ close: {}", t.close), tint(ui.warning))],
+        _ if !close.is_empty() => vec![sp(format!("✕ close: {close}"), tint(ui.warning))],
         (_, Some(t)) => vec![sp([t.kind.as_str(), t.priority.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" · "), tint(ui.key))],
         _ => vec![],
     };
