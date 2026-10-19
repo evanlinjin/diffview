@@ -323,18 +323,13 @@ impl App {
     /// (`:open` + `:goto` typed into it, after `Esc` for normal mode), else in a new pane below
     /// dv. dv keeps working either way.
     pub(super) fn open_in_hx_pane(&mut self, target: &str) -> Result<String> {
-        let zellij = |args: &[&str]| -> Result<String> {
-            let out = std::process::Command::new("zellij").args(args).stdin(std::process::Stdio::null()).output()?;
-            anyhow::ensure!(out.status.success(), "zellij {} failed", args.get(1).unwrap_or(&""));
-            Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
-        };
-        if let Some(id) = self.hx.as_ref().map(|h| h.pane.clone()).filter(|id| pane_alive(id)) {
+        if let Some(id) = self.hx.as_ref().map(|h| h.pane.clone()).filter(|id| crate::pane::alive(id)) {
             // `target` is path:line:col.
             let mut parts = target.rsplitn(3, ':');
             let (_col, line, path) = (parts.next(), parts.next().unwrap_or("1"), parts.next().unwrap_or(target));
-            zellij(&["action", "write-chars", "-p", &id, "\x1b"])?;
-            zellij(&["action", "write-chars", "-p", &id, &format!(":open {path}\r:goto {line}\r")])?;
-            zellij(&["action", "focus-pane-id", &id])?;
+            crate::pane::action(&["write-chars", "-p", &id, "\x1b"])?;
+            crate::pane::action(&["write-chars", "-p", &id, &format!(":open {path}\r:goto {line}\r")])?;
+            crate::pane::action(&["focus-pane-id", &id])?;
             return Ok("opened in hx (its pane below); dv reloads as you save".into());
         }
         let (st, id) = term::zellij_pane("hx", &[target.to_owned()], "hx", &self.root, false)?;

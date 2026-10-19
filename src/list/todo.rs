@@ -496,8 +496,8 @@ impl List {
         let alive = |pid: Option<u32>, session: Option<&str>| match (pid, session) {
             (Some(pid), _) => std::process::Command::new("kill").args(["-0", &pid.to_string()]).stderr(std::process::Stdio::null()).status().is_ok_and(|s| s.success()),
             (None, Some(id)) => panes.get_or_init(open_panes).iter().find(|p: &&Pane| p.1.contains(id)).is_some_and(|p| {
-                let screen = crate::view::pane_screen(p.0);
-                crate::view::working(&screen) || crate::view::asking(&screen)
+                let screen = crate::pane::screen(p.0);
+                crate::pane::working(&screen) || crate::pane::asking(&screen)
             }),
             _ => false,
         };
@@ -514,8 +514,8 @@ impl List {
                 if pr.is_none() && rep.is_none() {
                     continue;
                 }
-                let screen = crate::view::pane_screen(*id);
-                let doing = match (crate::view::asking(&screen), crate::view::working(&screen)) {
+                let screen = crate::pane::screen(*id);
+                let doing = match (crate::pane::asking(&screen), crate::pane::working(&screen)) {
                     (true, _) => "asking you (in its pane)",
                     (_, true) => "working (in its pane)",
                     _ => continue,
@@ -533,7 +533,7 @@ impl List {
         // is later.
         for (n, session, since) in crate::claude::pane_runs(&dir).into_iter().filter(|r| !now.contains_key(&r.0)) {
             if let Some(p) = panes.get_or_init(open_panes).iter().find(|p| p.1.contains(&session))
-                && crate::view::close_if_done(p.0, &session, since)
+                && crate::pane::close_if_done(p.0, &session, since)
             {
                 crate::claude::clear_running(n);
             }
@@ -607,12 +607,9 @@ fn open_panes() -> Vec<Pane> {
     if !crate::view::in_zellij() {
         return vec![];
     }
-    let out = std::process::Command::new("zellij").args(["action", "list-panes", "-j", "-c"]).stdin(std::process::Stdio::null()).output();
-    let panes: serde_json::Value = out.ok().and_then(|o| serde_json::from_slice(&o.stdout).ok()).unwrap_or_default();
-    panes
-        .as_array()
-        .into_iter()
-        .flatten()
+    crate::pane::list(&["-c"])
+        .unwrap_or_default()
+        .iter()
         .filter(|p| p["exited"] != true && p["is_plugin"] != true)
         .filter_map(|p| Some((p["id"].as_u64()?, p["pane_command"].as_str()?.to_owned(), std::path::PathBuf::from(p["pane_cwd"].as_str().unwrap_or("")))))
         .collect()

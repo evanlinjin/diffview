@@ -783,7 +783,7 @@ impl App {
                 self.msg = why;
                 return false;
             }
-            let (msg, asked) = match offer_to_pane(pane, &prompt) {
+            let (msg, asked) = match crate::pane::offer(pane, &prompt) {
                 Ok(true) => (format!("{label}: the request is in Claude's pane, press Enter there to send it"), true),
                 Ok(false) => ("Claude's pane is waiting for you to answer it; ask again after".into(), false),
                 Err(e) => (format!("Claude's pane: {e:#}"), false),
@@ -869,7 +869,7 @@ impl App {
     /// `Space a` → show Claude's pane (`show_pane`).
     pub(super) fn show_claude_pane(&mut self) {
         let Some((pane, ..)) = self.claude_pane_cmd() else { return self.msg = "Claude's pane is closed".into() };
-        if show_pane(pane).is_err() {
+        if crate::pane::show(pane).is_err() {
             self.msg = "zellij couldn't show Claude's pane".into();
         }
     }
@@ -882,19 +882,19 @@ impl App {
         }
         self.claude.pane_check = Some(std::time::Instant::now());
         let pane = self.claude_pane();
-        let screen = pane.map(pane_screen);
-        let asking_now = screen.as_deref().is_some_and(asking);
+        let screen = pane.map(crate::pane::screen);
+        let asking_now = screen.as_deref().is_some_and(crate::pane::asking);
         if asking_now && !self.claude.asking {
             self.msg = "Claude is asking you something in its pane: Space a → Show Claude's pane".into();
         }
         self.claude.asking = asking_now;
         // Claude Code says how to stop it while it's working.
-        self.claude.pane_busy = screen.as_deref().is_some_and(working);
+        self.claude.pane_busy = screen.as_deref().is_some_and(crate::pane::working);
         // Done there: its pane closes (`close_if_done`); the session stays, for the next ask.
         // (The PR's marker may be another checkout's run: only this one's session counts.)
         let (Some(pr), Some(pane)) = (self.pr.as_ref().map(|p| p.number), pane) else { return };
         let Some((session, since)) = crate::claude::pane_run(pr).filter(|r| Some(&r.0) == self.claude.session.as_ref()) else { return };
-        if close_if_done(pane, &session, since) {
+        if crate::pane::close_if_done(pane, &session, since) {
             crate::claude::clear_running(pr);
             self.msg = "Claude's done: its pane closed (Space a asks it more, in the same session)".into();
         }
@@ -914,7 +914,7 @@ impl App {
     /// The PR's Claude pane and its command line.
     fn claude_pane_cmd(&self) -> Option<(u64, String)> {
         let id = self.claude.session.as_ref().filter(|_| in_zellij())?;
-        super::term::zellij_panes(&["-c", "-t"]).unwrap_or_default().iter().find_map(|p| {
+        crate::pane::list(&["-c"]).unwrap_or_default().iter().find_map(|p| {
             let cmd = p["pane_command"].as_str().filter(|c| p["exited"] != true && c.contains(id.as_str()))?;
             Some((p["id"].as_u64()?, cmd.to_owned()))
         })
@@ -1046,176 +1046,6 @@ pub(super) fn refusal(out: &serde_json::Value) -> Option<String> {
     Some(format!("{} {target}{more}", d["tool_name"].as_str().unwrap_or("a tool")).replace("  ", " ").trim().to_owned())
 }
 
-/// Put `prompt` in a Claude Code pane's input, as a paste (so a multi-line prompt arrives
-/// whole), and focus the pane; you press Enter there. Not if the pane is asking you something
-/// (a permission prompt): `Ok(false)`, and nothing is typed.
-fn offer_to_pane(pane: u64, prompt: &str) -> Result<bool> {
-    let id = format!("terminal_{pane}");
-    let zellij = |args: &[&str]| -> Result<std::process::Output> {
-        let out = std::process::Command::new("zellij").args(args).stdin(std::process::Stdio::null()).output()?;
-        anyhow::ensure!(out.status.success(), "zellij {} failed ({})", args[1], out.status);
-        Ok(out)
-    };
-    let screen = String::from_utf8_lossy(&zellij(&["action", "dump-screen", "-p", &id])?.stdout).into_owned();
-    if asking(&screen) {
-        return Ok(false);
-    }
-    // In another tab (an older dv's Claude tab): not pasted into, as it couldn't be focused
-    // there (zellij can crash on it), and Enter would go to whichever pane is.
-    anyhow::ensure!(!in_other_tab(pane), "it's in another zellij tab (an older dv's): close it there, and Space a starts one here");
-    zellij(&["action", "paste", "-p", &id, prompt])?;
-    show_pane(pane)?;
-    Ok(true)
-}
-
-/// Close Claude's pane `pane` (session `session`, run since `since`) if Claude's done there:
-/// its transcript says it ended its turn (`turn_ended`: not a guess from the screen), not on a
-/// question for you, nor asking you something (a permission), with nothing in its input box (a
-/// request waiting for Enter, words of yours), and you aren't looking at it. Whether it closed.
-pub(crate) fn close_if_done(pane: u64, session: &str, since: i64) -> bool {
-    let Some(last) = crate::claude::turn_ended(session, since) else { return false };
-    if last.trim_end().ends_with('?') {
-        return false;
-    }
-    let id = format!("terminal_{pane}");
-    let zellij = |args: &[&str]| std::process::Command::new("zellij").arg("action").args(args).stdin(std::process::Stdio::null()).output().ok();
-    // With its styling: what's typed, not Claude Code's dimmed suggestions.
-    let Some(screen) = zellij(&["dump-screen", "-a", "-p", &id]).map(|o| String::from_utf8_lossy(&o.stdout).into_owned()) else { return false };
-    if asking(&strip_ansi(&screen)) || !input_empty(&screen) {
-        return false;
-    }
-    // Focused in its tab, and up there (its tab's floating panes shown, or tiled): you may be
-    // reading it.
-    let panes = super::term::zellij_panes(&["-c", "-t"]).unwrap_or_default();
-    let Some(me) = panes.iter().find(|p| p["id"].as_u64() == Some(pane) && p["is_plugin"] != true) else { return false };
-    let tab = me["tab_id"].as_u64().map(|t| t.to_string()).unwrap_or_default();
-    let shown = || zellij(&["are-floating-panes-visible", "--tab-id", &tab]).is_some_and(|o| String::from_utf8_lossy(&o.stdout).trim() == "true");
-    if me["is_focused"] == true && (me["is_floating"] != true || shown()) {
-        return false;
-    }
-    zellij(&["close-pane", "-p", &id]).is_some_and(|o| o.status.success())
-}
-
-/// Whether Claude Code's input box on `screen` (with its styling, `dump-screen -a`) is empty:
-/// what's between its last two rules (`────`), past the `❯` prompt, has nothing typed (in the
-/// text's own color: its suggestions, dimmed or grey, aren't). Not found: not empty (nothing's
-/// closed on a guess).
-pub(super) fn input_empty(screen: &str) -> bool {
-    let lines: Vec<&str> = screen.lines().collect();
-    let rule = |l: &str| {
-        let t = strip_ansi(l);
-        t.trim().chars().count() >= 10 && t.trim().chars().all(|c| c == '─')
-    };
-    let rules: Vec<usize> = (0..lines.len()).filter(|&i| rule(lines[i])).collect();
-    let [.., a, b] = rules[..] else { return false };
-    !lines[a + 1..b].iter().any(|l| typed(l))
-}
-
-/// Whether `line` (with its styling) has text in a plain color: not dimmed, not grey.
-fn typed(line: &str) -> bool {
-    let (mut dim, mut grey) = (false, false);
-    let mut chars = line.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\x1b' {
-            if chars.peek() == Some(&'[') {
-                chars.next();
-                let mut params = String::new();
-                for d in chars.by_ref() {
-                    if d.is_ascii_alphabetic() {
-                        if d == 'm' {
-                            sgr(&params, &mut dim, &mut grey);
-                        }
-                        break;
-                    }
-                    params.push(d);
-                }
-            }
-            continue;
-        }
-        if !dim && !grey && !c.is_whitespace() && !matches!(c, '❯' | '>' | '\u{a0}' | '│') {
-            return true;
-        }
-    }
-    false
-}
-
-/// An SGR's effect on dim and grey (a grey: equal r, g, b below 200; 90; 8 or 232–250).
-fn sgr(params: &str, dim: &mut bool, grey: &mut bool) {
-    let n: Vec<u32> = params.split(';').map(|p| p.parse().unwrap_or(0)).collect();
-    let mut i = 0;
-    while i < n.len() {
-        match n[i] {
-            0 => (*dim, *grey) = (false, false),
-            2 => *dim = true,
-            22 => *dim = false,
-            30..=37 | 39 | 91..=97 => *grey = false,
-            90 => *grey = true,
-            38 if n.get(i + 1) == Some(&2) && i + 4 < n.len() => {
-                let (r, g, b) = (n[i + 2], n[i + 3], n[i + 4]);
-                *grey = r == g && g == b && r < 200;
-                i += 4;
-            }
-            38 if n.get(i + 1) == Some(&5) => {
-                *grey = n.get(i + 2).is_some_and(|&c| c == 8 || (232..=250).contains(&c));
-                i += 2;
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-}
-
-/// `s` without its ANSI escape sequences.
-pub(crate) fn strip_ansi(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\x1b' && chars.peek() == Some(&'[') {
-            chars.next();
-            for d in chars.by_ref() {
-                if d.is_ascii_alphabetic() {
-                    break;
-                }
-            }
-            continue;
-        }
-        out.push(c);
-    }
-    out
-}
-
-/// What zellij pane `pane` shows (its screen, plain).
-pub(crate) fn pane_screen(pane: u64) -> String {
-    let out = std::process::Command::new("zellij").args(["action", "dump-screen", "-p", &format!("terminal_{pane}")]).stdin(std::process::Stdio::null()).output();
-    out.map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default()
-}
-
-/// Bring Claude's pane `pane` up: in another tab (an older dv's Claude tab), that tab; in dv's
-/// own, the pane focused. Not focused in another tab: zellij
-/// (0.45) can panic doing that, taking the session down ("Cannot focus pane … as it is not
-/// selectable").
-fn show_pane(pane: u64) -> Result<()> {
-    let args = match pane_tab(pane).filter(|_| in_other_tab(pane)) {
-        Some(t) => vec!["go-to-tab-by-id".to_owned(), t.to_string()],
-        None => vec!["focus-pane-id".to_owned(), format!("terminal_{pane}")],
-    };
-    let st = std::process::Command::new("zellij").arg("action").args(&args).stdin(std::process::Stdio::null()).status()?;
-    anyhow::ensure!(st.success(), "zellij {} failed ({st})", args[0]);
-    Ok(())
-}
-
-/// Whether a Claude Code pane's screen shows it working: its spinner line, a word and how long
-/// it's been at it ("· Moseying… (59s · ↓ 1.3k tokens)"), or, as it used to say, how to stop it.
-pub(crate) fn working(screen: &str) -> bool {
-    screen.contains("esc to interrupt") || screen.lines().any(|l| l.split_once("… (").is_some_and(|(_, t)| t.starts_with(|c: char| c.is_ascii_digit())))
-}
-
-/// Whether a Claude Code pane's screen shows it asking you something: a permission prompt, or
-/// (in a folder it hasn't seen) whether you trust it. Typing in then would answer it.
-pub(crate) fn asking(screen: &str) -> bool {
-    ["Do you want", "Would you like", "❯ 1.", "trust this folder"].iter().any(|p| screen.contains(p))
-}
-
 /// Have Claude draft a replacement for `prs` with a dv of its own (`dv replace`), in the
 /// background: it carries on if this dv quits. Its output goes to a log in the temp dir.
 pub(super) fn spawn_replace(prs: &[u64]) -> Result<()> {
@@ -1230,17 +1060,6 @@ pub(super) fn spawn_replace(prs: &[u64]) -> Result<()> {
         .process_group(0) // not this terminal's: closing it doesn't stop the draft
         .spawn()?;
     Ok(())
-}
-
-/// The tab zellij pane `pane` is in.
-fn pane_tab(pane: u64) -> Option<u64> {
-    super::term::zellij_panes(&["-c", "-t"]).unwrap_or_default().iter().find(|p| p["id"].as_u64() == Some(pane) && p["is_plugin"] != true).and_then(|p| p["tab_id"].as_u64())
-}
-
-/// Whether zellij pane `pane` is in another tab than dv's.
-fn in_other_tab(pane: u64) -> bool {
-    let own = std::env::var("ZELLIJ_PANE_ID").ok().and_then(|id| id.parse().ok()).and_then(pane_tab);
-    pane_tab(pane).is_some_and(|t| own.is_some_and(|o| o != t))
 }
 
 /// What the editor says Claude will do with what you write, for `want`.

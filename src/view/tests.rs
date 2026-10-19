@@ -1158,15 +1158,15 @@ fn claude_runs_say_what_they_cost() {
 #[test]
 fn claude_pane_asking() {
     // Claude Code's prompts, as dump-screen shows them: dv mustn't type into these.
-    assert!(agent::asking(" Do you want to make this edit to ensure.rs?\n ❯ 1. Yes\n   2. No"));
-    assert!(agent::asking(" Is this a project you created or one you trust?\n ❯ No, exit\n   Yes, I trust this folder"));
-    assert!(!agent::asking("● Done.\n───\n❯ \n───\n  ⏵⏵ auto mode on"));
+    assert!(crate::pane::asking(" Do you want to make this edit to ensure.rs?\n ❯ 1. Yes\n   2. No"));
+    assert!(crate::pane::asking(" Is this a project you created or one you trust?\n ❯ No, exit\n   Yes, I trust this folder"));
+    assert!(!crate::pane::asking("● Done.\n───\n❯ \n───\n  ⏵⏵ auto mode on"));
     // At it: its spinner line (Claude Code's words vary), or the older "esc to interrupt".
-    assert!(agent::working("● Reading files\n· Moseying… (59s · ↓ 1.3k tokens)\n───\n❯ \n"));
-    assert!(agent::working("✻ Wibbling… (1m 9s · ↓ 3.4k tokens · thought for 2s)"));
-    assert!(agent::working("✶ Thinking… (esc to interrupt)"));
+    assert!(crate::pane::working("● Reading files\n· Moseying… (59s · ↓ 1.3k tokens)\n───\n❯ \n"));
+    assert!(crate::pane::working("✻ Wibbling… (1m 9s · ↓ 3.4k tokens · thought for 2s)"));
+    assert!(crate::pane::working("✶ Thinking… (esc to interrupt)"));
     // Done, waiting at its prompt (what you typed there and didn't send isn't work).
-    assert!(!agent::working("● Done… (see above)\n───\n❯ force push it\n───\n  ⏵⏵ auto mode on"));
+    assert!(!crate::pane::working("● Done… (see above)\n───\n❯ force push it\n───\n  ⏵⏵ auto mode on"));
 }
 
 #[test]
@@ -2528,13 +2528,13 @@ fn claude_input_box_empty_or_not() {
     // What's between Claude Code's last two rules, past its prompt: empty, or words waiting.
     let rule = "─".repeat(40);
     let screen = |input: &str| format!("● Done.\n\n{rule}\n{input}\n{rule}\n  ~/repo │ main\n");
-    assert!(agent::input_empty(&screen("❯\u{a0}")));
-    assert!(!agent::input_empty(&screen("❯ force push it")));
-    assert!(!agent::input_empty("no box here")); // not found: not taken for empty
+    assert!(crate::pane::input_empty(&screen("❯\u{a0}")));
+    assert!(!crate::pane::input_empty(&screen("❯ force push it")));
+    assert!(!crate::pane::input_empty("no box here")); // not found: not taken for empty
     // Claude Code's suggestion, dimmed or grey, isn't typed; text in the plain color is.
-    assert!(agent::input_empty(&screen("\x1b[38;2;153;153;153m❯\u{a0}\x1b[2mfix the tests\x1b[22m")));
-    assert!(agent::input_empty(&screen("❯ \x1b[38;2;136;136;136mTry \"refactor\"\x1b[39m")));
-    assert!(!agent::input_empty(&screen("\x1b[38;2;153;153;153m❯\x1b[39m \x1b[38;2;255;255;255mforce push\x1b[0m")));
+    assert!(crate::pane::input_empty(&screen("\x1b[38;2;153;153;153m❯\u{a0}\x1b[2mfix the tests\x1b[22m")));
+    assert!(crate::pane::input_empty(&screen("❯ \x1b[38;2;136;136;136mTry \"refactor\"\x1b[39m")));
+    assert!(!crate::pane::input_empty(&screen("\x1b[38;2;153;153;153m❯\x1b[39m \x1b[38;2;255;255;255mforce push\x1b[0m")));
 }
 
 #[test]

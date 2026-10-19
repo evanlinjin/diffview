@@ -8,24 +8,6 @@ pub(super) struct HxPane {
     pub(super) pane: String,
 }
 
-/// Whether zellij pane `id` (e.g. `terminal_12`) is still there and running.
-pub(super) fn pane_alive(id: &str) -> bool {
-    pane_state(id) == Some(true)
-}
-
-/// Whether pane `id` is open (`Some(false)`: zellij says it isn't), or `None`: can't tell.
-fn pane_state(id: &str) -> Option<bool> {
-    let n = id.strip_prefix("terminal_").and_then(|n| n.parse::<u64>().ok())?;
-    Some(zellij_panes(&[])?.iter().any(|p| p["id"].as_u64() == Some(n) && p["is_plugin"] != true && p["exited"] != true))
-}
-
-/// zellij's panes (`list-panes -j -s`, and `more`: `-c` their commands, `-t` their tabs), or
-/// `None`: it couldn't say.
-pub(super) fn zellij_panes(more: &[&str]) -> Option<Vec<serde_json::Value>> {
-    let out = std::process::Command::new("zellij").args(["action", "list-panes", "-j", "-s"]).args(more).stdin(std::process::Stdio::null()).output().ok()?;
-    serde_json::from_slice::<serde_json::Value>(&out.stdout).ok()?.as_array().cloned()
-}
-
 /// Mouse support (wheel, click, drag); `--no-mouse` turns it off, leaving the terminal's own
 /// selection as it is.
 pub static MOUSE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
@@ -56,7 +38,7 @@ pub(crate) fn in_zellij() -> bool {
 pub(super) fn zellij_run() -> Vec<&'static str> {
     let floating = || {
         let me = std::env::var("ZELLIJ_PANE_ID").ok()?.parse::<u64>().ok()?;
-        zellij_panes(&[])?.iter().find(|p| p["id"].as_u64() == Some(me) && p["is_plugin"] != true)?["is_floating"].as_bool()
+        crate::pane::find(&crate::pane::list(&[])?, me)?["is_floating"].as_bool()
     };
     match floating() {
         Some(true) => vec!["run"],
@@ -101,7 +83,7 @@ pub(super) fn zellij_pane(prog: &str, args: &[String], name: &str, cwd: &Path, w
     }
     let said = String::from_utf8_lossy(&out.stdout);
     let id = said.lines().map(str::trim).find(|l| l.starts_with("terminal_")).map(str::to_owned).or_else(|| {
-        let id = zellij_panes(&[])?.iter().filter(|p| p["title"] == name && p["is_plugin"] != true).filter_map(|p| p["id"].as_u64()).max()?;
+        let id = crate::pane::list(&[])?.iter().filter(|p| p["title"] == name && p["is_plugin"] != true).filter_map(|p| p["id"].as_u64()).max()?;
         Some(format!("terminal_{id}"))
     });
     Ok((out.status, id))
@@ -110,12 +92,7 @@ pub(super) fn zellij_pane(prog: &str, args: &[String], name: &str, cwd: &Path, w
 /// zellij's focus back on dv's pane (`$ZELLIJ_PANE_ID`), when it may have gone to another.
 pub(crate) fn focus_dv() {
     if let Some(id) = std::env::var("ZELLIJ_PANE_ID").ok().filter(|_| in_zellij()) {
-        _ = std::process::Command::new("zellij")
-            .args(["action", "focus-pane-id", &format!("terminal_{id}")])
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
+        _ = crate::pane::action(&["focus-pane-id", &format!("terminal_{id}")]);
     }
 }
 
@@ -156,7 +133,7 @@ impl Writing {
             // editor didn't quit just then.)
             Err(_) if !self.pane.is_empty() && self.looked.elapsed() > std::time::Duration::from_secs(3) => {
                 self.looked = std::time::Instant::now();
-                if pane_state(&self.pane) != Some(false) {
+                if crate::pane::state(&self.pane) != Some(false) {
                     return None;
                 }
                 std::fs::read_to_string(&self.done).unwrap_or_default()

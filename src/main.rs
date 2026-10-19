@@ -7,6 +7,7 @@ mod list;
 mod lsp;
 mod md;
 mod merge;
+mod pane;
 mod replace;
 mod theme;
 mod todo;

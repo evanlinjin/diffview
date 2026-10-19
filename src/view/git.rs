@@ -426,7 +426,7 @@ impl App {
             return;
         }
         self.tree_checked = Some(std::time::Instant::now());
-        if self.hx.as_ref().is_some_and(|h| !pane_alive(&h.pane)) {
+        if self.hx.as_ref().is_some_and(|h| !crate::pane::alive(&h.pane)) {
             self.hx = None;
         }
         let now = self.tree_stamp();
