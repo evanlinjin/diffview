@@ -250,6 +250,14 @@ pub struct Issues {
     drafts: Vec<Receiver<(u64, batch::Status)>>,
     /// Those drafts not done yet (by id).
     drafting: HashSet<u64>,
+    /// Auto (`C`, git config `dv.auto`, as dv list's): Claude triages what's new or changed as
+    /// it comes in, and ranks the todo again. Each issue's `updatedAt` as first fetched (what's
+    /// there then is yours to triage: `a a`; not a bill at start), what it's done (once each),
+    /// and when it last ranked.
+    auto: bool,
+    baseline: Option<HashMap<u64, String>>,
+    auto_done: HashSet<(u64, String)>,
+    auto_ranked: Option<std::time::Instant>,
     root: PathBuf,
     pub msg: String,
 }
@@ -259,6 +267,7 @@ impl Issues {
         Issues {
             ui: Theme::load().ui(),
             ranked: crate::todo::load_of(crate::todo::Of::Issues),
+            auto: crate::diff::git(&["config", "--get", "dv.auto"]).is_ok_and(|v| v.trim() == "true"),
             deferred: crate::todo::load_deferred(crate::todo::deferred_path_of(crate::todo::Of::Issues).as_deref()),
             reviews_dir: crate::claude::dv_dir().ok().map(|d| d.join("reviews")),
             root: std::env::current_dir().unwrap_or_default(),
@@ -302,6 +311,44 @@ impl Issues {
         let (items, _) = crate::todo::order(items, self.ranked.as_ref());
         // Deferred: at the bottom till then, or till what it needs changes (as dv list's).
         self.todo = crate::todo::defer(items, &self.deferred, crate::claude::now_secs(), |_, _| false);
+    }
+
+    /// Auto: Claude triages what's new or changed since dv started (and what changed since its
+    /// triage), `AT_ONCE` at a time, once each; and ranks the todo again once something's new or
+    /// changed, at most every quarter hour.
+    fn auto_run(&mut self) {
+        if !self.auto || self.fetched.is_some() {
+            return;
+        }
+        let busy = self.running.values().any(batch::Status::running);
+        let run = if busy { vec![] } else { self.auto_picks() };
+        if !run.is_empty() {
+            self.msg = format!("auto: Claude is triaging {}", run.iter().map(|r| format!("#{}", r.0)).collect::<Vec<_>>().join(", "));
+            self.running_rx.push(triage_all(run, self.root.clone(), String::new()));
+        }
+        let due = self.auto_ranked.is_none_or(|t| t.elapsed() > std::time::Duration::from_secs(15 * 60));
+        let now: Vec<crate::todo::Item> = self.todo.iter().filter(|it| it.deferred.is_none()).cloned().collect();
+        let changed = self.ranked.as_ref().is_none_or(|r| r.fingerprint != crate::todo::fingerprint(&now));
+        if due && changed && !busy && self.rank_rx.is_none() && !now.is_empty() {
+            self.auto_ranked = Some(std::time::Instant::now());
+            self.rank();
+        }
+    }
+
+    /// What auto triages next (`AT_ONCE` at most, each once at an `updatedAt`): what's changed
+    /// since Claude's triage, and what's new or changed since dv started and isn't triaged.
+    fn auto_picks(&mut self) -> Vec<(u64, String)> {
+        let Some(base) = self.baseline.as_ref() else { return vec![] };
+        let mut run = vec![];
+        for it in self.todo.iter().filter(|it| it.deferred.is_none()) {
+            let Some(i) = self.items.iter().find(|i| i.number == it.number) else { continue };
+            let new = base.get(&i.number) != Some(&i.updated);
+            let due = it.needs.contains(&crate::todo::Need::Retriage) || (new && it.needs.contains(&crate::todo::Need::Untriaged));
+            if due && run.len() < batch::AT_ONCE && self.auto_done.insert((i.number, i.updated.clone())) {
+                run.push((i.number, i.updated.clone()));
+            }
+        }
+        run
     }
 
     /// Claude at work from here: triaging, or drafting a fix.
@@ -367,6 +414,9 @@ impl Issues {
                     Ok((me, items)) => {
                         let keep = self.shown().get(self.sel).map(|i| i.number);
                         (self.me, self.items) = (me, items);
+                        if self.baseline.is_none() {
+                            self.baseline = Some(self.items.iter().map(|i| (i.number, i.updated.clone())).collect());
+                        }
                         self.reviews_mtime = None; // read the triages for these
                         self.watch_reviews();
                         self.sel = keep.and_then(|n| self.shown().iter().position(|i| i.number == n)).unwrap_or(0);
@@ -378,6 +428,7 @@ impl Issues {
                 }
             }
             self.watch_reviews();
+            self.auto_run();
             // A deferral whose time's come: back.
             let now = crate::claude::now_secs();
             if self.todo.iter().any(|it| it.deferred.as_ref().is_some_and(|d| d.until <= now)) {
@@ -509,6 +560,15 @@ impl Issues {
             (_, KeyCode::Char('j') | KeyCode::Down) => self.sel = (self.sel + 1).min(n.saturating_sub(1)),
             (_, KeyCode::Char('k') | KeyCode::Up) => self.sel = self.sel.saturating_sub(1),
             (_, KeyCode::Char('/')) => self.filtering = true,
+            // (The same setting as dv list's: one auto for both.)
+            (_, KeyCode::Char('C')) => {
+                self.auto = !self.auto;
+                _ = crate::diff::git(&["config", "dv.auto", if self.auto { "true" } else { "false" }]);
+                self.msg = match self.auto {
+                    true => "auto on: Claude triages new and changed issues as they come in (at your cost; what's there already, a a), and ranks the todo again as it changes".into(),
+                    false => "auto off: a a triages, r r ranks".into(),
+                };
+            }
             (_, KeyCode::Esc) => (self.query.clear(), self.sel = 0).1,
             (_, KeyCode::Char('?')) => self.help = true,
             (Some('q'), KeyCode::Char('q')) => return Some(IssuesDo::Quit),
@@ -828,7 +888,7 @@ impl Issues {
             (true, ..) => format!(" /{}▏  label: author: kind: priority: is:triaged  -x negates", self.query),
             (_, _, false) => format!(" {}", self.msg),
             (_, false, _) => format!(" filter: {}  (Esc clears)", self.query),
-            _ => " ? keys · I I the PRs".into(),
+            _ => format!(" ? keys · I I the PRs{}", if self.auto { " · auto on" } else { "" }),
         };
         let pos = if shown.is_empty() { String::new() } else { format!("{} / {} ", sel + 1, shown.len()) };
         f.render_widget(Paragraph::new(left).style(bar), status);
@@ -933,7 +993,8 @@ TODO
 CLAUDE
   m                    mark the issue (again: unmark)
   U U                  unmark all
-  a a                  Claude triages the marked issues (or this one), two at a time";
+  a a                  Claude triages the marked issues (or this one), two at a time
+  C                    auto: Claude triages new and changed issues, ranks again (git config dv.auto)";
 
 #[test]
 fn issues_listed_triaged_filtered() {
@@ -977,6 +1038,13 @@ fn issues_listed_triaged_filtered() {
     l.tab = ITab::Todo;
     snapshot("issues_todo", &screen(140, 14, |f| l.draw(f)));
     snapshot("issues_todo_wide", &screen(200, 14, |f| l.draw(f)));
+    // Auto: not #7, there (untriaged) when dv started; #7 once it's changed since; each once.
+    l.baseline = Some(l.items.iter().map(|i| (i.number, i.updated.clone())).collect());
+    assert!(l.auto_picks().is_empty());
+    l.items[0].updated = "2026-02-01T00:00:00Z".into();
+    l.find_todo();
+    assert_eq!(l.auto_picks(), [(7, "2026-02-01T00:00:00Z".to_owned())]);
+    assert!(l.auto_picks().is_empty());
     _ = std::fs::remove_dir_all(&dir);
 }
 
