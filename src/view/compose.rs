@@ -155,7 +155,7 @@ impl App {
             }
             Action::ClaudeReply(k, want, prefill) => {
                 let p = self.claude.path.clone().context("no review file")?;
-                let what = format!("reply to Claude{}", agent::want_hint(want));
+                let what = format!("reply to Claude{}", ask::want_hint(want));
                 let Some(body) = compose_with(&what, false, &prefill, false)? else { return Ok("reply cancelled".into()) };
                 keep_on_error(crate::claude::reply(&p, &k, &body, want), &body)?;
                 Ok(self.answer_now())
@@ -165,7 +165,7 @@ impl App {
                 let range = anchor.start.map_or(anchor.line.to_string(), |(s, _)| format!("{s}-{}", anchor.line));
                 let what = match about {
                     Some(_) => format!("ask Claude about this review comment on {}:{range} (it answers right away; nothing goes to GitHub)", anchor.path),
-                    None => format!("a comment for Claude on {}:{range}{}", anchor.path, agent::want_hint(want)),
+                    None => format!("a comment for Claude on {}:{range}{}", anchor.path, ask::want_hint(want)),
                 };
                 let prefill = about.as_ref().map_or(String::new(), |(_, q)| q.clone());
                 let Some(body) = compose_with(&what, false, &prefill, false)? else { return Ok("comment cancelled".into()) };
@@ -177,7 +177,7 @@ impl App {
                 let p = self.claude.path.clone().context("no review file")?;
                 let what = match (url == ON_SUMMARY, commit_of(&url)) {
                     (true, _) => "a question for Claude about the PR, or a reply to its review (it answers in the Claude tab; nothing goes to GitHub)".to_owned(),
-                    (_, Some(sha)) => format!("for Claude, about commit {}{}", self.commit_short(sha), agent::want_hint(want)),
+                    (_, Some(sha)) => format!("for Claude, about commit {}{}", self.commit_short(sha), ask::want_hint(want)),
                     _ => "ask Claude about this conversation comment (it answers under it; nothing goes to GitHub)".to_owned(),
                 };
                 let Some(body) = compose_with(&what, false, &prefill, false)? else { return Ok("question cancelled".into()) };

@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 mod agent;
+mod ask;
 mod amend;
 mod rebase;
 mod replacement;
