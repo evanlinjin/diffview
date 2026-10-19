@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.50.1] - 2026-10-19
+
+### Fixed
+- An issue in dv: a drag copies the text as drawn (tables keep their borders, code its
+  indentation; no bubble frames), a click leaves nothing selected, and a drag past the
+  view stops at its last line.
+- `dv issues`: `T T` and `X X` on someone else's issue say they take triage access, as `L L` does.
+- Every replacement draft counts as under way from its start, so auto doesn't start a second one.
+
 ## [0.50.0] - 2026-10-19
 
 ### Added
