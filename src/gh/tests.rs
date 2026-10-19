@@ -109,15 +109,18 @@ fn github_refusals() {
     let commits = json!({ "totalCount": 1, "nodes": [{ "commit": { "oid": "a", "signature": null } }] });
     let answer = |errors: Value| json!({ "data": { "repository": { "pullRequest": { "commits": commits, "baseRef": null } } }, "errors": errors });
     // Its base's rules refused: the signatures stand (not required).
-    let p = pr_node(&answer(json!([{ "path": ["repository", "pullRequest", "baseRef", "rules"] }])), "").unwrap();
+    let p = pr_node(&answer(json!([{ "path": ["repository", "pullRequest", "baseRef", "rules"] }]))).unwrap();
     assert!(signatures_of(&p).is_ok_and(|s| !s.required));
     // Anything else refused, or an error that doesn't say where: none of it, GitHub's word why.
     for e in [json!([{ "path": ["repository", "pullRequest", "commits", "nodes", 0], "message": "timed out" }]), json!([{ "message": "timed out" }])] {
-        assert_eq!(format!("{:#}", pr_node(&answer(e), "").unwrap_err()), "GitHub: timed out");
+        assert_eq!(format!("{:#}", pr_node(&answer(e)).unwrap_err()), "GitHub: timed out");
     }
-    // A body with only a message (a bad token): that.
-    let e = pr_node(&json!({ "message": "Bad credentials" }), "gh: Bad credentials (HTTP 401)").unwrap_err();
-    assert_eq!(format!("{e:#}"), "GitHub: Bad credentials");
+    // dv list's (many PRs): a base's rules refused deeper down, fine; a signature, not.
+    let at = |path: Value| json!({ "data": {}, "errors": [{ "path": path, "message": "refused" }] });
+    assert!(refused(&at(json!(["repository", "pullRequests", "nodes", 3, "baseRef", "branchProtectionRule"]))).is_ok());
+    assert!(refused(&at(json!(["repository", "pullRequests", "nodes", 3, "commits", "nodes", 0, "commit", "signature"]))).is_err());
+    // No pull request in it: said.
+    assert!(pr_node(&json!({ "data": { "repository": { "pullRequest": null } } })).is_err());
 }
 
 

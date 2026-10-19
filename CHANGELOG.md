@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.73] - 2026-10-19
+
+### Fixed
+- dv list's facts on each PR (signatures, reviews, review requests) are weighed as a PR's are:
+  only a base's rules may be refused; anything else refused fails the fetch, rather than a
+  refused signature reading as unsigned or a refused review as none (since 0.34.72).
+
 ## [0.34.72] - 2026-10-19
 
 ### Fixed

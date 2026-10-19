@@ -124,6 +124,7 @@ pub fn list_extra() -> Result<(String, std::collections::HashMap<u64, Extra>)> {
                  comments(last: 20) {{ nodes {{ author {{ login }} authorAssociation body }} }} }} }} }} }}"
         );
         let v: Value = gh_json(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-f", &format!("query={q}")])?;
+        crate::gh::refused(&v)?; // (only a base's rules may be: else a refused part reads as none)
         me = v["data"]["viewer"]["login"].as_str().unwrap_or("").to_owned();
         let list = &v["data"]["repository"]["pullRequests"];
         let prs = list["nodes"].as_array().context("gh api graphql: pull requests")?;

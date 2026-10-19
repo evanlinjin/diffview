@@ -747,22 +747,22 @@ fn first_line(s: &str) -> String {
     s.lines().next().unwrap_or("").to_owned()
 }
 
-/// The pull request's node in GitHub's answer to `pr_query` (`gh api graphql`'s output, and
-/// what gh said, `stderr`). What it says of its base's rules may be refused (a ruleset you can't
-/// read): taken as not requiring signatures. Anything else refused, none of it: a commit GitHub
-/// had trouble with isn't one that isn't signed. GitHub's first word for why.
-fn pr_node(v: &Value, stderr: &str) -> Result<Value> {
-    let not_base = |e: &&Value| e["path"].get(2).and_then(Value::as_str) != Some("baseRef");
-    if let Some(e) = v["errors"].as_array().into_iter().flatten().find(not_base) {
-        bail!("GitHub: {}", e["message"].as_str().unwrap_or("refused"));
+/// A GraphQL answer about PRs (`v`), weighed: what it says of a base's rules may be refused (a
+/// ruleset or branch protection you can't read): taken as not requiring anything. Anything else
+/// refused, none of it: a commit GitHub had trouble with isn't one that isn't signed, a review
+/// it didn't give isn't none. GitHub's first word for why.
+pub(crate) fn refused(v: &Value) -> Result<()> {
+    let base = |e: &&Value| e["path"].as_array().is_some_and(|p| p.iter().any(|k| k == "baseRef"));
+    match v["errors"].as_array().into_iter().flatten().find(|e| !base(e)) {
+        Some(e) => bail!("GitHub: {}", e["message"].as_str().unwrap_or("refused")),
+        None => Ok(()),
     }
-    let node = &v["data"]["repository"]["pullRequest"];
-    if !node.is_object() {
-        // Not GraphQL's answer: the body's word (`Bad credentials`), else gh's.
-        let why = v["message"].as_str().unwrap_or(stderr.trim());
-        bail!("GitHub: {}", if why.is_empty() { "no answer" } else { why });
-    }
-    Ok(node.clone())
+}
+
+/// The pull request's node in GitHub's answer to `pr_query`, weighed (`refused`).
+fn pr_node(v: &Value) -> Result<Value> {
+    refused(v)?;
+    v["data"]["repository"]["pullRequest"].as_object().map(|o| Value::Object(o.clone())).context("GitHub: no pull request in its answer")
 }
 
 /// PR `n`'s commits' signatures and its base's rules: one GraphQL query (`pr_node`; a part
@@ -773,7 +773,7 @@ fn pr_query(n: u64) -> Result<Value> {
            {SIGNATURE_RULES} commits(last: 100) {{ totalCount nodes {{ commit {{ oid signature {{ isValid }} }} }} }} }} }} }}"
     );
     let v = gh_json(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-F", &format!("n={n}"), "-f", &format!("query={q}")])?;
-    pr_node(&v, "GitHub said nothing of it")
+    pr_node(&v)
 }
 
 fn signatures_of(p: &Value) -> Result<Signatures> {
