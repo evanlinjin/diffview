@@ -44,6 +44,8 @@ mod mouse;
 mod motion;
 mod ra;
 mod render;
+mod hints;
+mod row;
 mod review;
 mod select;
 mod term;
