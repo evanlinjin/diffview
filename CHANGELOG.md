@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.33] - 2026-10-19
+
+### Changed
+- The labels / assignees / reviewers picker (`Space l`) stays open as you pick, as you left
+  it (what you'd typed, where you were), the change ticked: one after another, `Esc` when done.
+
 ## [0.34.32] - 2026-10-19
 
 ### Fixed
