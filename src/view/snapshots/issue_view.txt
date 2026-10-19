@@ -1,10 +1,5 @@
-#7 panic  bug
-@amy · https://github.com/o/r/issues/7
-
-  It panics.
-
-@bo ·
-  Same here.
+ Issue #7 · panic  @amy  bug
+  https://github.com/o/r/issues/7
 
 claude's triage · bug · high
   Still on master: src/a.rs:12 unwraps.
@@ -15,7 +10,12 @@ claude's triage · bug · high
   closing comment:
   Fixed by #9, thanks!
 
+──────────────────────────────────────────────────────────────────────────────
 
+  It panics.
+
+@bo ·
+  Same here.
 
 
 

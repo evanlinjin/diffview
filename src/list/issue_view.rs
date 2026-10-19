@@ -49,6 +49,17 @@ impl IssueView {
         })
     }
 
+    /// Its title bar, as the PR view's: `Issue #N · title`, who opened it, its labels.
+    pub fn title_bar(&self, f: &mut Frame, ui: &Ui, r: Rect) {
+        let hs = ui.base.patch(Style { bg: ui.bar, ..ui.header });
+        let dim = hs.remove_modifier(ratatui::style::Modifier::BOLD).patch(Style { fg: ui.linenr.fg, ..Style::new() });
+        let mut spans = vec![Span::styled(format!(" Issue #{} · {}", self.number, self.title), hs.add_modifier(ratatui::style::Modifier::BOLD)), Span::styled(format!("  @{}", self.author), dim)];
+        for (name, color) in &self.labels {
+            spans.extend([Span::styled(" ", hs), Span::styled(format!(" {name} "), crate::view::chip(color))]);
+        }
+        f.render_widget(Paragraph::new(Line::from(spans)).style(hs), r);
+    }
+
     /// Claude's triage's `k`, trimmed (empty: not said).
     fn t(&self, k: &str) -> String {
         self.triage[k].as_str().unwrap_or("").trim().to_owned()
@@ -95,21 +106,9 @@ impl IssueView {
         };
         let head = |text: String, out: &mut Vec<Line<'static>>| out.push(Line::from(Span::styled(text, ui.heading.add_modifier(ratatui::style::Modifier::BOLD))));
         let dim = ui.stale;
-        let mut out = vec![];
-        let mut title = vec![Span::styled(format!("#{} ", self.number), ui.key), Span::styled(self.title.clone(), ui.base.add_modifier(ratatui::style::Modifier::BOLD))];
-        for (name, color) in &self.labels {
-            title.extend([Span::raw(" "), Span::styled(format!(" {name} "), crate::view::chip(color))]);
-        }
-        out.push(Line::from(title));
-        out.push(Line::from(Span::styled(format!("@{} · {}", self.author, self.url), dim)));
-        out.push(Line::default());
-        md(if self.body.trim().is_empty() { "_(no description)_" } else { &self.body }, &mut out);
-        for (who, when, body) in &self.comments {
-            out.push(Line::default());
-            head(format!("@{who} · {}", gh::ago(when)), &mut out);
-            md(body, &mut out);
-        }
-        out.push(Line::default());
+        // (Its number, title, who and labels: on its title bar.)
+        let mut out = vec![Line::from(Span::styled(format!("  {}", self.url), dim)), Line::default()];
+        // Claude's triage first, where it's seen (then the issue, however long its thread).
         match self.triage.is_null() {
             true => head("claude's triage: none yet (a a)".into(), &mut out),
             false => {
@@ -130,6 +129,15 @@ impl IssueView {
                     md(&c, &mut out);
                 }
             }
+        }
+        out.push(Line::default());
+        out.push(Line::from(Span::styled("─".repeat(w + 2), dim)));
+        out.push(Line::default());
+        md(if self.body.trim().is_empty() { "_(no description)_" } else { &self.body }, &mut out);
+        for (who, when, body) in &self.comments {
+            out.push(Line::default());
+            head(format!("@{who} · {}", gh::ago(when)), &mut out);
+            md(body, &mut out);
         }
         (self.lines, self.width) = (out, width);
     }
@@ -199,7 +207,8 @@ ON GITHUB
   C                    comment on it (your editor first)
   L L                  add the labels Claude's triage suggests
   T T                  give it the title Claude's triage suggests
-  X X                  close it, with Claude's closing comment (your editor first)
+  X X                  close it, with Claude's closing comment (your editor first; none
+                       yet: Claude drafts one, then X X closes with it)
   o                    open it in the browser
 
 CLAUDE
@@ -227,5 +236,9 @@ fn an_issue_and_its_triage() {
     assert_eq!(v.close_reason(), ("duplicate".into(), Some(3)));
     assert!(v.fix_task().starts_with("Fix #7: panic\n\nFrom triaging it:\nStill on master"));
     let ui = Theme::load().ui();
-    snapshot("issue_view", &screen(80, 22, |f| v.draw(f, &ui, f.area())));
+    snapshot("issue_view", &screen(80, 22, |f| {
+        let a = f.area();
+        v.title_bar(f, &ui, Rect { height: 1, ..a });
+        v.draw(f, &ui, Rect { y: 1, height: a.height - 1, ..a });
+    }));
 }

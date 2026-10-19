@@ -208,6 +208,40 @@ fn triage_all(ns: Vec<(u64, String)>, root: PathBuf, extra: String) -> Receiver<
     })
 }
 
+/// Claude drafts a comment closing issue `n` (reading only), in the background: kept in its
+/// triage (`close`, `closing`, `reason`, `duplicate_of`), for `X X` to close with.
+fn draft_closing(n: u64, root: PathBuf) -> Receiver<Result<()>> {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let res = (|| -> Result<()> {
+            let file = crate::claude::dv_dir()?.join("reviews").join(format!("issue-{n}.json"));
+            let prompt = format!(
+                "{}The maintainer is closing issue #{n}. Read it (`gh issue view {n} --comments`, its triage in {} if \
+                 there is one, related issues and PRs) and draft the comment it closes with: short, kind, saying why \
+                 (fixed by which PR, a duplicate of which issue, answered, out of scope, stale), thanking the author \
+                 where it fits. Reply with only a JSON object: {{\"close\": \"why, a few words\", \"closing\": \
+                 \"the comment, markdown\", \"reason\": \"completed\" | \"not planned\" | \"duplicate\", \
+                 \"duplicate_of\": N or null}}.",
+                crate::claude::notes_preamble(),
+                file.display()
+            );
+            let tools = ["Bash(gh issue view:*)", "Bash(gh issue list:*)", "Bash(gh search:*)"];
+            let out = crate::claude::claude_reader(&prompt, &root, &tools).stdin(std::process::Stdio::null()).output()?;
+            let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
+            anyhow::ensure!(v["is_error"] == false, "Claude couldn't draft it ({})", out.status);
+            let d = crate::claude::json_in(v["result"].as_str().unwrap_or(""), '{').filter(Value::is_object).context("no draft in Claude's answer")?;
+            let mut t: Value = std::fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| serde_json::json!({ "issue": n }));
+            for k in ["close", "closing", "reason", "duplicate_of"] {
+                t[k] = d[k].clone();
+            }
+            std::fs::create_dir_all(file.parent().context("no dir")?)?;
+            crate::claude::write(&file, &t)
+        })();
+        _ = tx.send(res);
+    });
+    rx
+}
+
 /// What the issues list asks of its caller.
 pub enum IssuesDo {
     Quit,
@@ -250,6 +284,8 @@ pub struct Issues {
     drafts: Vec<Receiver<(u64, batch::Status)>>,
     /// Those drafts not done yet (by id).
     drafting: HashSet<u64>,
+    /// A closing comment Claude's drafting (for which issue), on its way.
+    closing_rx: Option<(u64, Receiver<Result<()>>)>,
     /// Auto (`C`, git config `dv.auto`, as dv list's): Claude triages what isn't triaged, and
     /// what's changed since, and ranks the todo again. Whether it's started (the first fetch
     /// in), what it's done (once each), and when it last ranked.
@@ -469,6 +505,20 @@ impl Issues {
                     batch::Status::Done(took) => self.msg = format!("Claude drafted {} ({took}): dv list's drafts tab has it (I I there)", crate::replace::label(id)),
                     batch::Status::Failed(e) => self.msg = format!("Claude's draft of {} failed: {}", crate::replace::label(id), e.lines().next().unwrap_or("")),
                     _ => {}
+                }
+            }
+            if let Some(Ok(res)) = self.closing_rx.as_ref().map(|(_, rx)| rx.try_recv()) {
+                let n = self.closing_rx.take().map_or(0, |c| c.0);
+                match res {
+                    Ok(()) => {
+                        self.msg = format!("Claude drafted a comment closing #{n}: X X closes with it (your editor first)");
+                        self.reviews_mtime = None;
+                        let dir = self.reviews_dir.clone();
+                        if let Some(v) = self.view.as_mut().filter(|v| v.number == n) {
+                            v.reload_triage(dir.as_deref());
+                        }
+                    }
+                    Err(e) => self.msg = format!("no closing comment: {e:#}"),
                 }
             }
             for (n, st) in self.running_rx.iter().flat_map(|rx| rx.try_iter()).collect::<Vec<_>>() {
@@ -700,6 +750,15 @@ impl Issues {
                 };
                 self.reload_view(n);
             }
+            // No closing comment of Claude's yet: it drafts one first (X X then closes with it).
+            (Some('X'), KeyCode::Char('X')) if v.closing().is_none_or(|c| c.is_empty()) => {
+                if self.closing_rx.is_some() {
+                    self.msg = "Claude's drafting a closing comment already".into();
+                } else {
+                    self.closing_rx = Some((n, draft_closing(n, self.root.clone())));
+                    self.msg = format!("Claude is drafting a comment closing #{n} (X X then closes with it)…");
+                }
+            }
             (Some('X'), KeyCode::Char('X')) => {
                 let closing = v.closing().unwrap_or_default();
                 // As its triage says: completed, not planned, or a duplicate (of what).
@@ -755,7 +814,10 @@ impl Issues {
                         None => (self.pending = None, "Claude's triage has no new title".to_owned()).1,
                         Some(t) => format!("T again: retitle #{n} \"{t}\""),
                     },
-                    'X' => format!("X again: close #{n} (your editor first, with Claude's closing comment)"),
+                    'X' => match v.closing().is_some_and(|c| !c.is_empty()) {
+                        true => format!("X again: close #{n} (your editor first, with Claude's closing comment)"),
+                        false => format!("X again: Claude drafts a comment closing #{n} (then X X closes with it)"),
+                    },
                     'N' => format!("N again: Claude drafts a PR fixing #{n} (your editor first)"),
                     'a' => format!("a again: Claude triages #{n} again"),
                     _ => String::new(),
@@ -857,6 +919,17 @@ impl Issues {
         let area = f.area();
         let ui = &self.ui;
         f.render_widget(Paragraph::new("").style(ui.base), area);
+        // An issue open: its own title bar (no tabs: they're the list's), it, and the status bar.
+        if let Some(v) = self.view.as_mut() {
+            v.title_bar(f, ui, Rect { height: 1.min(area.height), ..area });
+            v.draw(f, ui, Rect { y: area.y + 1, height: area.height.saturating_sub(2), ..area });
+            let left = if self.msg.is_empty() { " ? keys · q back to the issues".to_owned() } else { format!(" {}", self.msg) };
+            status_bar(f, ui, &left, &format!("#{}", v.number), self.auto, "");
+            if self.help {
+                draw_help(f, ui, super::issue_view::VIEW_HELP, "an issue's keys");
+            }
+            return;
+        }
         let shown_n = self.shown().len();
         let sel_now = self.sel.min(shown_n.saturating_sub(1));
         let mine = self.items.iter().filter(|i| i.author == self.me || i.assignees.contains(&self.me)).count();
@@ -870,17 +943,6 @@ impl Issues {
         let tabs: Vec<(String, bool)> = names.iter().map(|(t, n)| (n.clone(), self.tab == *t)).collect();
         let hits = top_bar(f, ui, "Issues", &tabs, "I I the PRs", sel_now, shown_n);
         self.tab_hits = hits.into_iter().zip(names.iter().map(|n| n.0)).collect();
-        // An issue open: it, between the bars.
-        if let Some(v) = self.view.as_mut() {
-            v.draw(f, ui, Rect { y: area.y + 1, height: area.height.saturating_sub(2), ..area });
-            let status = Rect { y: area.bottom().saturating_sub(1), height: 1.min(area.height), ..area };
-            let left = if self.msg.is_empty() { " ? keys · q back to the issues".to_owned() } else { format!(" {}", self.msg) };
-            f.render_widget(Paragraph::new(left).style(ui.base.patch(ui.status)), status);
-            if self.help {
-                draw_help(f, ui, super::issue_view::VIEW_HELP, "an issue's keys");
-            }
-            return;
-        }
         let shown = self.shown();
         let rows = self.card_rows();
         // The todo tab: Claude's word beside each card when the window's wide enough, else

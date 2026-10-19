@@ -173,11 +173,13 @@ disk: rust-analyzer can index it and `hx` can open it.
    search`, `gh label list`, the code): the skill's "Triage an issue", to `issue-N.json` beside
    the reviews (kind, priority, a summary, labels, what next, whether to close it and a closing
    comment); the card shows its kind and priority (or `✕ close: why`) and `→ next`. Enter opens
-   the issue in dv: its text and comments (markdown, as comments in dv are), then Claude's triage
+   the issue in dv, under its own title bar (`Issue #N · title`, who, labels; not the list's tabs):
+   Claude's triage first, then its text and comments (markdown, as comments in dv are). The triage:
    (its summary, kind and priority, what next, the labels it would add, a better title, why to
    close it and the comment to close it with). There: `C` comments, `L L` adds Claude's labels,
    `T T` gives it Claude's title, `X X` closes it with Claude's closing comment (your editor
-   first; "fixed …" closes it as completed, else not planned), `N N` has Claude draft a PR fixing
+   first; as completed, not planned, or a duplicate of #N, as the triage says), or with none
+   yet, has Claude draft one first (reading only; kept in the triage, then `X X` closes with it), `N N` has Claude draft a PR fixing
    it (dv list's new PR flow, the issue and its triage as the task; on dv list's drafts tab),
    `a a` triages it again, `o` opens it in the browser, `q` back.
 5. **Later**:
