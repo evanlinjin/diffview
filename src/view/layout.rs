@@ -108,12 +108,13 @@ impl App {
                     _ => View::All,
                 };
                 let shown: Vec<&&Thread> = about_code.iter().filter(|t| self.in_view_of(v, t)).collect();
-                // How many are open of them, when some are resolved: "2/3".
-                let open = shown.iter().filter(|t| !t.resolved).count();
-                let l = match (shown.len(), open) {
+                // How many are resolved of them, as the title's files viewed: "1/3", "3/3" when
+                // all are; your pending comments, a count (nothing of them to resolve).
+                let done = shown.iter().filter(|t| t.resolved).count();
+                let l = match (shown.len(), b) {
                     (0, _) => format!(" {name} "),
-                    (n, o) if o == n => format!(" {name} {n} "),
-                    (n, o) => format!(" {name} {o}/{n} "),
+                    (n, Bar::Pending) => format!(" {name} {n} "),
+                    (n, _) => format!(" {name} {done}/{n} "),
                 };
                 let w = l.chars().count();
                 x += w;

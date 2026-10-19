@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.56] - 2026-10-19
+
+### Changed
+- The pane's tabs count resolved threads, of all (`Comments 1/3`, `3/3` when all are), as the
+  title counts files viewed (0.34.55 counted open ones).
+
 ## [0.34.55] - 2026-10-19
 
 ### Changed

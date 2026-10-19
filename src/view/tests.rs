@@ -2708,10 +2708,10 @@ fn hidden_on_github_folded() {
     tab(&mut app);
     assert!(text(&app).contains("secret1"));
     // The tabs say how many threads each shows.
-    assert_eq!(app.pane_tabs().iter().map(|t| t.1.as_str()).collect::<Vec<_>>(), [" Comments 1 ", " Claude ", " Pending "]);
-    // Some resolved: how many are open of them.
+    assert_eq!(app.pane_tabs().iter().map(|t| t.1.as_str()).collect::<Vec<_>>(), [" Comments 0/1 ", " Claude ", " Pending "]);
+    // How many are resolved of them.
     app.threads[0].resolved = true;
-    assert_eq!(app.pane_tabs()[0].1, " Comments 0/1 ");
+    assert_eq!(app.pane_tabs()[0].1, " Comments 1/1 ");
     app.threads[0].resolved = false;
     assert_eq!(gh::hidden(&serde_json::json!({"isMinimized": true, "minimizedReason": "OFF_TOPIC"})), "off topic");
     assert_eq!(gh::hidden(&serde_json::json!({"isMinimized": false})), "");
