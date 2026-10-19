@@ -198,8 +198,7 @@ fn suggest_groups(prs: &[(u64, String, String, String)], root: &Path) -> anyhow:
 /// The groups in Claude's answer (a JSON array, maybe with words around it).
 fn parse_groups(answer: &str) -> anyhow::Result<Groups> {
     use anyhow::Context;
-    let json = answer.get(answer.find('[').context("no groups in Claude's answer")?..=answer.rfind(']').context("no groups")?).unwrap_or("");
-    let v: serde_json::Value = serde_json::from_str(json)?;
+    let v = crate::claude::json_in(answer, '[').filter(serde_json::Value::is_array).context("no groups in Claude's answer")?;
     Ok(v.as_array()
         .context("no groups")?
         .iter()

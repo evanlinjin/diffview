@@ -605,7 +605,7 @@ pub fn defer(items: Vec<Item>, deferred: &Deferred, now: i64, met: impl Fn(&Item
 }
 
 /// Claude puts `text` (a deferral's "until …", in your words) as one of `Until`'s, in the
-/// background: one small run, no tools.
+/// background: one small run, reading only.
 pub fn interpret(text: String, root: std::path::PathBuf) -> Receiver<Result<Until>> {
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
@@ -623,8 +623,7 @@ pub fn interpret(text: String, root: std::path::PathBuf) -> Receiver<Result<Unti
             let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
             anyhow::ensure!(v["is_error"] == false, "Claude couldn't read it ({})", out.status);
             let answer = v["result"].as_str().unwrap_or("");
-            let json = answer.get(answer.find('{').context("no answer")?..=answer.rfind('}').context("no answer")?).unwrap_or("");
-            let w: Value = serde_json::from_str(json)?;
+            let w = crate::claude::json_in(answer, '{').filter(Value::is_object).context("no answer")?;
             if let Some(why) = w["none"].as_str() {
                 anyhow::bail!("not something dv can watch for: {why}");
             }
@@ -690,11 +689,7 @@ type Order = (Vec<(String, String)>, std::collections::HashMap<String, Until>);
 
 /// Claude's order and the waits it saw, and what it cost.
 fn ask(lines: &[String], root: &std::path::Path) -> Result<(Order, f64)> {
-    let notes = crate::claude::notes_path().ok().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
-    let notes = match notes.trim() {
-        "" => String::new(),
-        n => format!("Your notes on this repo, from reviewing it (follow them):\n{n}\n\n"),
-    };
+    let notes = crate::claude::notes_preamble();
     let prompt = format!(
         "{notes}I maintain this repo. These open PRs (and replacements: PRs you drafted to replace others) are \
          waiting on me, one JSON object each, with what each needs from me:\n{}\n\n\
@@ -718,8 +713,7 @@ fn ask(lines: &[String], root: &std::path::Path) -> Result<(Order, f64)> {
 /// The order in Claude's answer (a JSON array, maybe with words around it): (key, "reason\nnext"),
 /// and what it saw any wait on.
 fn parse(answer: &str) -> Result<Order> {
-    let json = answer.get(answer.find('[').context("no ranking in Claude's answer")?..=answer.rfind(']').context("no ranking")?).unwrap_or("");
-    let v: Value = serde_json::from_str(json)?;
+    let v = crate::claude::json_in(answer, '[').filter(Value::is_array).context("no ranking in Claude's answer")?;
     let s = |v: &Value| v.as_str().unwrap_or("").trim().to_owned();
     let all = v.as_array().context("no ranking")?;
     let order = all

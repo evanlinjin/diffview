@@ -124,9 +124,10 @@ fn triage_run(n: u64, root: &std::path::Path, extra: &str) -> Result<batch::Stat
     let file = crate::claude::dv_dir()?.join("reviews").join(format!("issue-{n}.json"));
     let base = crate::diff::remote_branch(&crate::diff::default_branch());
     let prompt = format!(
-        "Use the dv-review skill to triage issue #{n} (see \"Triage an issue\"); the code as it is on the base branch \
+        "{}Use the dv-review skill to triage issue #{n} (see \"Triage an issue\"); the code as it is on the base branch \
          is `{base}` (`git show {base}:<path>`, `git log {base}`): this checkout may be on another branch. Reply with \
          only the JSON object. (It's {} now.)",
+        crate::claude::notes_preamble(),
         crate::claude::now()
     );
     let prompt = crate::claude::with_instructions(&prompt, extra);

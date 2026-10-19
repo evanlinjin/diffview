@@ -141,6 +141,16 @@ pub(crate) fn claude_reader(prompt: &str, dir: &Path, more: &[&str]) -> std::pro
     cmd
 }
 
+/// The repo's notes for Claude (`notes_path`), as a reading-only run's prompt starts with them
+/// (it can't reach dv's directory to read them itself); empty if there are none.
+pub(crate) fn notes_preamble() -> String {
+    let notes = crate::claude::notes_path().ok().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
+    match notes.trim() {
+        "" => String::new(),
+        n => format!("Your notes on this repo, from reviewing it (follow them):\n{n}\n\n"),
+    }
+}
+
 /// The first JSON value of kind `object`/`array` in Claude's `answer` (words around it, a
 /// fence, braces in its strings: what parses whole from a `{`/`[` on is it).
 pub(crate) fn json_in(answer: &str, open: char) -> Option<serde_json::Value> {
