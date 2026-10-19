@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.37.1] - 2026-10-19
+
+### Fixed
+- Deferring until the author pushes: `p` posts the head it waits past ("the author pushes (past
+  abc1234)"), so a comment saying so clears once they push (it held the PR back for good).
+  Not deferred while the PR's head on GitHub isn't known yet.
+- "Blocked on #12 until it's merged", "CI to pass until Friday" read as before 0.37.0 (what
+  follows "until" is tried first, then the whole); "@amy reviews the fixes" is her review, and
+  "3 days after the push" a time, not a push.
+
 ## [0.37.0] - 2026-10-19
 
 ### Added
