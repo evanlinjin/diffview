@@ -379,7 +379,7 @@ impl App {
         // The key hints, without the contents list: bottom right, as Helix has them; bottom left
         // while the cursor is in the comment margin, so they don't cover the comments there.
         if let Some((title, keys)) = keys.filter(|_| sw == 0) {
-            self.draw_key_popup(f, Rect { height: (h + pin) as u16, ..area }, title, keys);
+            self.draw_key_popup(f, Rect { y: area.y + pin as u16, height: h as u16, ..area }, title, keys);
         }
 
         self.draw_popup(f, full);

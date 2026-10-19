@@ -58,7 +58,7 @@ fn filter_and_keys() {
     k(&mut l, KeyCode::Char('?'));
     assert!(l.help);
     assert!(k(&mut l, KeyCode::Char('q')).is_none() && !l.help);
-    // Tab: the PRs with a worktree, including one that's merged (not in the open tab).
+    // gn: the PRs with a worktree, including one that's merged (not in the open tab).
     l.prs.push(Listed { number: 9, state: "MERGED".into(), ..pr(9, "old", "dee", "2025-01") });
     l.local.insert(9, ("/x/r-9".into(), None));
     l.local.insert(22, ("/x/r-22".into(), Some("feat".into())));

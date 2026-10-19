@@ -1,6 +1,6 @@
   todo 0   open 3   worktrees 0   drafts 0             keys
                                                        Enter review, in its worktree
- no PR worktrees here yet: `dv N -w` (or dv list -w, t gn    replacements
+ no PR worktrees here yet: `dv N -w` (or dv list -w, t gn gp replacements
                                                        /     filter
                                                        o O   sort / reverse
                                                        R     refresh (from GitHub)

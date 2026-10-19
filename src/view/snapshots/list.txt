@@ -1,6 +1,6 @@
   todo 0   open 3   worktrees 0   drafts 0             keys
      #1  Fix CI                                        Enter review
-          @ann   +1 −0 in 1 file                       gn    PRs with a worktree
+          @ann   +1 −0 in 1 file                       gn gp PRs with a worktree
           claude ✓                                     /     filter
           b                                            o O   sort / reverse
                                                        R     refresh (from GitHub)

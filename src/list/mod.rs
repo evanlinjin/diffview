@@ -1,4 +1,4 @@
-//! `dv list`: what needs you (ranked, `todo.rs`), the repo's open PRs, (`Tab`) the ones with a
+//! `dv list`: what needs you (ranked, `todo.rs`), the repo's open PRs, (`gn` / `gp`) the ones with a
 //! local worktree, and the replacements Claude has drafted (unpublished); `Enter` reviews one,
 //! and quitting that review comes back here.
 use crate::gh;
