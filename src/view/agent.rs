@@ -965,14 +965,13 @@ impl App {
     /// Code keeps sessions per directory), so the next run continues the same conversation. One
     /// that never started (a pane that failed) isn't resumed: Claude Code doesn't have it.
     fn session_args(&mut self) -> [String; 2] {
-        match self.claude.session.clone().filter(|id| crate::claude::session_exists(id)) {
-            Some(id) => ["--resume".into(), id],
-            None => {
-                let id = crate::claude::new_session_id();
-                self.set_session(Some(id.clone()));
-                ["--session-id".into(), id]
-            }
-        }
+        let args = match &self.claude.path {
+            Some(p) => crate::claude::session_args(p, &self.root).ok(),
+            None => None,
+        };
+        let args = args.unwrap_or_else(|| ["--session-id".into(), crate::claude::new_session_id()]);
+        self.claude.session = Some(args[1].clone());
+        args
     }
 
     /// Remember (or, with `None`, forget) the PR's session in this checkout, on disk too.

@@ -108,14 +108,7 @@ fn run(n: u64, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sender<
     // The PR's session in that checkout, as dv there would resume it (a new one, if it has
     // none, or one from another version of the skill).
     let review = crate::claude::path(Some(n))?;
-    let session = match crate::claude::load_session(&review, &dir) {
-        Some((id, true)) => ["--resume".to_owned(), id],
-        _ => {
-            let id = crate::claude::new_session_id();
-            crate::claude::save_session(&review, &dir, Some(&id))?;
-            ["--session-id".to_owned(), id]
-        }
-    };
+    let session = crate::claude::session_args(&review, &dir)?;
     _ = tx.send((n, Status::Reviewing));
     let prompt = format!("{} (It's {} now.)", task.prompt(n), crate::claude::now());
     let prompt = crate::view::with_instructions(&prompt, extra);

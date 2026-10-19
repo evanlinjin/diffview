@@ -301,6 +301,20 @@ fn skill_tag() -> String {
     format!("{h:016x}")
 }
 
+/// What resumes the PR's Claude session in checkout `dir` (`review` is the PR's review file):
+/// `--resume <id>` when there's one, of this skill, that Claude Code still has; else a new
+/// one's `--session-id`, saved as the PR's.
+pub fn session_args(review: &std::path::Path, dir: &std::path::Path) -> Result<[String; 2]> {
+    match load_session(review, dir) {
+        Some((id, true)) if session_exists(&id) => Ok(["--resume".into(), id]),
+        _ => {
+            let id = new_session_id();
+            save_session(review, dir, Some(&id))?;
+            Ok(["--session-id".into(), id])
+        }
+    }
+}
+
 /// The session for `review` in checkout `dir`, and whether it started with this dv's skill.
 pub fn load_session(review: &std::path::Path, dir: &std::path::Path) -> Option<(String, bool)> {
     let text = std::fs::read_to_string(session_path(review)).ok()?;
