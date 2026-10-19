@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-10-19
+
+### Changed
+- `dv list`'s todo tab, in a wide window (150 columns or so): Claude's word on each card goes in
+  a column of its own beside it, over four rows, not cut off: why it's there, wrapped, then
+  `→ what to do` in the accent colour. The card's place in the order sits under its number, what
+  holds the PR up (`[✗ 1 check failing · 1 unsigned commit]`) on its title line. The keys popup
+  stays out of the column's way (`?` shows the keys). Narrower, as before: a line under the title.
+
 ## [0.35.1] - 2026-10-19
 
 ### Fixed
