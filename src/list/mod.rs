@@ -97,6 +97,7 @@ const HELP: &str = "\
   ?                    this help
   q, Ctrl-c            quit";
 
+#[derive(Default)]
 pub struct List {
     /// The tabs' columns on the header (for clicks), and the last click on a card (when, which:
     /// a second soon after on the same one opens it).
@@ -157,7 +158,7 @@ pub struct List {
     /// The selected PR, looked up on GitHub in the background for Enter (`prefetch`).
     pr_cache: PrCache,
     /// The PR selected, since when, and whether it's been looked up.
-    prefetched: (Option<u64>, std::time::Instant, bool),
+    prefetched: (Option<u64>, Option<std::time::Instant>, bool),
     /// PRs not in the list that it needs (worktrees', marked ones): as looked up (`gone_news`;
     /// ones not open kept, as they stay so), the lookups under way, and for which.
     gone: HashMap<u64, Listed>,
@@ -174,7 +175,7 @@ pub struct List {
     running: HashMap<u64, String>,
     /// The same for replacements (and new PRs), by id: Claude at it in a pane in its worktree.
     running_reps: HashMap<u64, String>,
-    running_checked: std::time::Instant,
+    running_checked: Option<std::time::Instant>,
     /// Auto (`C`, kept in git config `dv.auto`): Claude does its part on what needs you, green
     /// drafts are marked ready, and the list is ranked again (`auto_run`). What it's done, once
     /// each: (PR, head, what).
@@ -233,75 +234,17 @@ type PrCache = std::sync::Arc<std::sync::Mutex<HashMap<u64, (std::time::Instant,
 
 impl List {
     pub fn new(flags: String) -> List {
-        let ui = Theme::load().ui();
-        let (query, msg) = (String::new(), String::new());
         List {
-            tab_hits: vec![],
-            last_click: None,
-            prs: vec![],
-            ui,
+            ui: Theme::load().ui(),
             flags,
-            sel: 0,
-            top: 0,
-            query,
-            filtering: false,
-            pending_g: false,
-            help: false,
-            order: Order::Created,
-            rev: false,
-            checks: None,
-            fresh: None,
-            local: HashMap::new(),
-            tab: Tab::Open,
-            reps: vec![],
-            rep_of: HashMap::new(),
-            drafting: HashMap::new(),
-            draft_rx: vec![],
-            drafting_elsewhere: HashSet::new(),
-            reps_changed: None,
-            group_rx: None,
-            confirm: None,
-            marked: HashSet::new(),
-            marked_saved: HashSet::new(),
-            batch: HashMap::new(),
-            batch_rx: vec![],
-            batch_task: HashMap::new(),
-            me: String::new(),
-            extra: HashMap::new(),
-            extra_rx: None,
-            gone: HashMap::new(),
-            gone_rx: vec![],
-            gone_pending: HashSet::new(),
-            pr_cache: Default::default(),
-            prefetched: (None, std::time::Instant::now(), true),
-            todo: vec![],
-            since: Default::default(),
             ranked: crate::todo::load(),
-            rank_rx: None,
-            want_rank: false,
-            running: HashMap::new(),
-            running_reps: HashMap::new(),
-            unpushed: HashMap::new(),
-            unpushed_rx: None,
-            rescan: false,
-            running_checked: std::time::Instant::now() - std::time::Duration::from_secs(60),
             auto: crate::diff::git(&["config", "--get", "dv.auto"]).is_ok_and(|v| v.trim() == "true"),
-            auto_done: HashSet::new(),
-            auto_ranked: None,
             deferred: crate::todo::load_deferred(crate::todo::deferred_path().as_deref()),
-            deferring: None,
-            until_rx: None,
-            others: HashMap::new(),
-            others_rx: vec![],
-            others_pending: HashSet::new(),
             deferred_file: crate::todo::deferred_path(),
             wide: true,
-            reviewed: HashSet::new(),
             reviews_dir: crate::claude::dv_dir().ok().map(|d| d.join("reviews")),
-            reviews_mtime: None,
-            new: HashSet::new(),
             root: std::env::current_dir().unwrap_or_default(),
-            msg,
+            ..Default::default()
         }
     }
 
@@ -309,7 +252,7 @@ impl List {
     pub fn run(&mut self, term: &mut DefaultTerminal) -> Result<Option<Pick>> {
         // As saved: another dv list of this repo may have changed them meanwhile.
         self.marked = load_marks();
-        self.prefetched = (None, std::time::Instant::now(), true); // what's selected is looked up again
+        self.prefetched = (None, None, true); // what's selected is looked up again
         self.marked_saved = self.marked.clone();
         // From GitHub again in the background while it's open (and now, back from a PR: you may
         // have changed it).
@@ -507,9 +450,9 @@ impl List {
         // Not a replacement (its number is its own, not a PR's).
         let n = self.selected().filter(|s| !s.1).map(|s| s.0);
         if n != self.prefetched.0 {
-            self.prefetched = (n, std::time::Instant::now(), false);
+            self.prefetched = (n, Some(std::time::Instant::now()), false);
         }
-        if self.prefetched.2 || self.prefetched.1.elapsed() < std::time::Duration::from_millis(300) {
+        if self.prefetched.2 || self.prefetched.1.is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(300)) {
             return;
         }
         self.prefetched.2 = true;
@@ -1455,10 +1398,11 @@ fn write_marks(p: &std::path::Path, marked: &HashSet<u64>) -> Result<()> {
     Ok(std::fs::rename(&tmp, p)?)
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
 enum Tab {
     /// What needs you, ranked.
     Todo,
+    #[default]
     Open,
     Worktrees,
     Replacements,
@@ -1479,9 +1423,10 @@ impl Tab {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 enum Order {
     Updated,
+    #[default]
     Created,
     Number,
     Size,

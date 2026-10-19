@@ -485,10 +485,10 @@ impl List {
     /// Claude's runs from any dv, from their markers, every couple of seconds: only those still
     /// at it (their process, or their zellij pane, still there). Returns whether that changed.
     pub(super) fn watch_running(&mut self) -> bool {
-        if self.running_checked.elapsed() < std::time::Duration::from_secs(2) {
+        if self.running_checked.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(2)) {
             return false;
         }
-        self.running_checked = std::time::Instant::now();
+        self.running_checked = Some(std::time::Instant::now());
         let Some(dir) = self.reviews_dir.as_ref().and_then(|d| d.parent()).map(|d| d.join("running")) else { return false };
         let panes = std::cell::OnceCell::new(); // zellij's panes, looked up only if a run is in one
         // A run in a pane is at it while Claude Code works there (or asks you something), not
