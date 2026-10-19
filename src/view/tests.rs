@@ -880,12 +880,16 @@ fn pr_text_attached_to_the_description() {
     app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
     draw(&mut app);
     assert_eq!(app.pane_tabs().len(), 3); // Comments, Claude, Pending
-    // Enter on it: the whole conversation, alone (no files); Esc, back where it was.
+    // Enter on it: the whole conversation, there in the pane (the files as they were); the
+    // line then says so, and Enter on it again: only the latest.
     app.goto(more, 0);
     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    assert!(at(&app, "comment 1").is_some() && !app.rows.iter().any(|r| r.file < app.files.len()));
-    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-    assert!(at(&app, "comment 1").is_none() && app.head.row == more);
+    assert!(at(&app, "comment 1").is_some_and(|r| app.in_pane(r)) && app.rows.iter().any(|r| r.file < app.files.len()));
+    let less = app.rows.iter().position(|r| r.info == Some(MORE_CONVERSATION)).expect("the line");
+    assert!(app.rows[less].line.text.contains("only the latest"));
+    app.goto(less, 0);
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(at(&app, "comment 1").is_none());
     // Your own word after c2 (as c3): what's before it you'd read, new or not here.
     app.me = "me".into();
     app.info[11].text = "@me · c4".into();
@@ -1119,8 +1123,8 @@ fn threads_on_files_gone_from_the_diff() {
     app.margin_active = true;
     app.build();
     let gone_rows: Vec<usize> = (0..app.rows.len()).filter(|&r| app.rows[r].thread == Some(0)).collect();
-    // In the diff's column, each once (not attached to the description: under their own heading).
-    assert!(gone_rows.iter().all(|&r| app.drows.iter().filter(|d| matches!(d, DRow::Full(x) if *x == r)).count() == 1));
+    // In the pane, each once (as the PR's text is).
+    assert!(gone_rows.iter().all(|&r| app.drows.iter().filter(|d| matches!(d, DRow::Margin(_, _, Some(x)) if *x == r)).count() == 1));
 }
 
 #[test]

@@ -129,8 +129,6 @@ impl App {
             View::All => true,
             View::Claude => t.claude.is_some(),
             View::Pending => t.comments.iter().any(|c| c.pending),
-            // Questions about its comments, under them.
-            View::Conversation => !t.conversation.is_empty() && t.conversation != ON_SUMMARY && commit_of(&t.conversation).is_none(),
         }
     }
 
@@ -147,7 +145,6 @@ impl App {
             View::Pending if !any && self.summary_draft.is_empty() => "pending view: no pending review yet (c queues a comment; gn / gp: the other tabs)",
             View::Pending => "pending view: your pending review and the code it's on (S submits it; gn / gp: the other tabs)",
             View::All => "the whole diff",
-            View::Conversation => "the PR's whole conversation (Esc or Space o: back)",
         }
         .into();
     }

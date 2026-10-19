@@ -1446,19 +1446,18 @@ impl App {
             (0..t.comments.len()).map(|ci| comment_key(t, ci)).collect::<Vec<_>>()
         });
         // A conversation comment (its heading or text): its node id.
+        let on_thread = here.is_some();
         let here = here.or_else(|| self.conversation_node().map(|n| vec![n])).unwrap_or_default();
-        let seen = match here == self.seen.current {
-            true if self.seen.since.elapsed() >= SEEN_AFTER => self.seen.current.clone(),
+        let (seen, conversation) = match here == self.seen.current {
+            true if self.seen.since.elapsed() >= SEEN_AFTER => (self.seen.current.clone(), self.seen.conversation),
             true => return,
             false => {
                 self.seen.since = std::time::Instant::now();
-                std::mem::replace(&mut self.seen.current, here)
+                let was = std::mem::replace(&mut self.seen.conversation, !on_thread);
+                (std::mem::replace(&mut self.seen.current, here), was)
             }
         };
         let before = self.seen.keys.len();
-        // (Only conversation comments: nothing shown hangs on them till the PR's loaded again,
-        // so no rebuild for them.)
-        let conversation = seen.iter().all(|k| self.info.iter().any(|l| l.node == *k));
         self.seen.keys.extend(seen.into_iter().filter(|k| !k.is_empty()));
         if self.seen.keys.len() != before
             && let Some(p) = &self.seen.path

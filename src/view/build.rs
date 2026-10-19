@@ -129,8 +129,6 @@ impl App {
         let code = self.key_at(self.code_head.row);
         self.jumps.clear();
         let mut rows = vec![];
-        // The whole conversation (`Space o`): it alone, after the PR's title and facts.
-        let whole = self.view == View::Conversation;
         let title = match (&self.pr, &self.replacement) {
             (Some(pr), _) => Some(format!("PR #{} · {}", pr.number, pr.title)),
             (None, Some(r)) => {
@@ -157,14 +155,12 @@ impl App {
             let syn = [vec![None; n], vec![Some(self.ui.linenr); by.chars().count()]].concat();
             rows.push(Row { links, syn, ..mk(Kind::File, title + &by) });
             if self.view == View::Pending && !self.info_collapsed {
-                // The PR's state, author, branches and size; then the text of your pending review.
+                // The PR's state, author, branches and size; then the text of your pending review
+                // (in the pane, as the PR's text is).
                 if let Some(l) = self.info.first().filter(|l| !l.heading && !l.md) {
-                    rows.push(self.info_row(l, mk(Kind::Comment, l.text.clone())));
+                    rows.push(Row { attached: true, ..self.info_row(l, mk(Kind::Comment, l.text.clone())) });
                 }
-                rows.extend(self.draft_rows());
-            } else if whole {
-                rows.extend(self.pr_facts());
-                rows.extend(self.conversation(None));
+                rows.extend(self.draft_rows().into_iter().map(|r| Row { attached: true, ..r }));
             }
         }
         // Attached to the description: beside it in the pane, as comments are beside their
@@ -173,8 +169,12 @@ impl App {
         // view's: Claude's summary (or your questions about the PR), and what's said under it.
         // (Folded with it: Tab on it, or on them.)
         let mut attached: Vec<Row> = match self.view {
-            _ if self.info_collapsed || self.unpublished() || self.sections_folded.contains(&DESCRIPTION) => vec![],
-            View::All => [self.pr_facts(), self.conversation(Some(LATEST)), self.no_pr_summary(), self.draft_rows()].into_iter().flatten().collect(),
+            _ if self.unpublished() || self.sections_folded.contains(&DESCRIPTION) => vec![],
+            View::All if self.info_collapsed => vec![],
+            View::All => {
+                let latest = (!self.conversation_all).then_some(LATEST);
+                [self.pr_facts(), self.conversation(latest), self.no_pr_summary(), self.draft_rows()].into_iter().flatten().collect()
+            }
             View::Claude => self.claude_attached(),
             _ => vec![],
         };
@@ -259,9 +259,8 @@ impl App {
         // committed, where most files are out of the diff on purpose.
         // (Questions about a commit are on no lines: listed whatever's shown.)
         let about_commit = |t: usize| commit_of(&self.threads[t].conversation).is_some() && self.in_view(&self.threads[t]);
-        let mut gone: Vec<usize> = match (whole, self.uncommitted() || self.commit_shown.is_some()) {
-            (true, _) => vec![],
-            (_, true) => (0..self.threads.len()).filter(|&t| about_commit(t)).collect(),
+        let mut gone: Vec<usize> = match self.uncommitted() || self.commit_shown.is_some() {
+            true => (0..self.threads.len()).filter(|&t| about_commit(t)).collect(),
             _ => (0..self.threads.len())
                 .filter(|&t| self.in_view(&self.threads[t]) && !self.files.iter().any(|f| f.path == self.threads[t].path))
                 // Questions about the conversation are under their comment, in the whole diff.
@@ -281,7 +280,8 @@ impl App {
         };
         gone.sort_by_cached_key(|&t| (self.threads[t].path.is_empty(), label(t)));
         if !gone.is_empty() {
-            let heading = |text: String| Row::text(INFO, Kind::Thread, text);
+            // (In the pane, as the PR's text is; inline with it hidden.)
+            let heading = |text: String| Row { attached: true, ..Row::text(INFO, Kind::Thread, text) };
             let on_files = gone.iter().filter(|&&t| !self.threads[t].path.is_empty()).count();
             if on_files > 0 {
                 rows.push(heading(format!("comments on files no longer in the diff ({on_files})")));
@@ -293,11 +293,11 @@ impl App {
                     rows.push(heading(l.clone()));
                     last = Some(l);
                 }
-                rows.extend(self.thread_rows(t, INFO));
+                rows.extend(self.thread_rows(t, INFO).into_iter().map(|r| Row { attached: true, ..r }));
             }
         }
         let shown: Vec<&Thread> = self.threads.iter().filter(|t| self.in_view(t)).collect();
-        for (i, f) in self.files.iter().enumerate().filter(|_| !whole) {
+        for (i, f) in self.files.iter().enumerate() {
             // The Claude / pending view: only files with its comments, and only around them.
             let around;
             let lines = match self.view != View::All {
@@ -435,30 +435,18 @@ impl App {
         self.replacement.is_some() && self.info.get(i).is_some_and(|l| l.heading && l.text.starts_with("closing note"))
     }
 
-    /// `Space o`: the PR's whole conversation on its own (a view), or (again, or Esc) back to
-    /// where the cursor was.
+    /// `Space o` (or Enter on the line saying there's more): the PR's whole conversation beside
+    /// the description, or (again) only its latest. In the whole diff (where it is), the cursor
+    /// on the conversation's heading.
     pub(super) fn toggle_conversation(&mut self) {
         if self.pr.is_none() {
             return self.msg = "no PR here".into();
         }
-        match self.view == View::Conversation {
-            true => {
-                // Back to the view it was opened in, where the cursor was there.
-                let (key, view) = self.conversation_back.take().unzip();
-                self.toggle_view(view.filter(|v| *v != View::All).unwrap_or(View::Conversation));
-                if let Some(r) = key.and_then(|k| self.find_key(k)) {
-                    self.goto(r, 0);
-                }
-            }
-            false => {
-                self.conversation_back = Some((self.cursor_key(), self.view));
-                self.view = View::All; // (so the toggle goes to it from any view)
-                self.toggle_view(View::Conversation);
-                // On its first comment (a heading row: its text's `info`, a thread of none).
-                let first = self.rows.iter().position(|r| r.line.kind == Kind::Thread && r.thread.is_none() && r.info.is_some_and(|i| i < self.info.len() && self.info[i].md));
-                self.goto(first.unwrap_or(0), 0);
-            }
-        }
+        self.conversation_all = !self.conversation_all;
+        self.view = View::All;
+        self.sections_folded.remove(&DESCRIPTION);
+        self.info_collapsed = false;
+        self.rebuild_at(|r| r.attached && r.line.text.starts_with("conversation ("));
     }
 
     /// A section of PR text in the diff's column: a header like a file's (`name` folds it),
@@ -535,7 +523,9 @@ impl App {
         let more = items.len() - shown.len();
         if more > 0 {
             let what = if more == 1 { "1 more comment or review".to_owned() } else { format!("{more} more comments and reviews") };
-            rows.push(Row { info: Some(MORE_CONVERSATION), ..mk(Kind::Comment, format!("… {what} in the conversation: Space o (or Enter here) shows it all")) });
+            rows.push(Row { info: Some(MORE_CONVERSATION), ..mk(Kind::Comment, format!("… {what}: Space o (or Enter here) shows them")) });
+        } else if latest.is_none() && items.len() > LATEST {
+            rows.push(Row { info: Some(MORE_CONVERSATION), ..mk(Kind::Comment, "… all of it: Space o (or Enter here) shows only the latest".into()) });
         }
         rows
     }
@@ -566,7 +556,7 @@ impl App {
 
     /// With no PR (a branch Claude reviewed), Claude's review is all the PR section has.
     fn no_pr_summary(&self) -> Vec<Row> {
-        match self.pr.is_none() && self.replacement.is_none() && !self.claude.summary.is_empty() {
+        match self.pr.is_none() && self.replacement.is_none() {
             true => self.claude_attached(),
             false => vec![],
         }
@@ -600,8 +590,7 @@ impl App {
 
     /// The width comments and PR text wrap to: the pane's, when it's shown (they're there).
     pub(super) fn info_w(&self) -> usize {
-        // (The whole conversation is the diff's column's.)
-        if self.margin_active && self.view != View::Conversation { self.margin_w - 3 - 2 - self.pane_pad() } else { self.wrap_w }
+        if self.margin_active { self.margin_w - 3 - 2 - self.pane_pad() } else { self.wrap_w }
     }
 
     /// The space inside the line between the code and the pane, as a column.
@@ -883,8 +872,8 @@ impl App {
 
     pub(super) fn toggle_collapse(&mut self) {
         let fi = self.rows[self.head.row].file;
-        // On what's attached to the description: it folds with it.
-        if self.rows[self.head.row].attached {
+        // On what's attached to the description: it folds with it (if there's one).
+        if self.rows[self.head.row].attached && self.rows.iter().any(|r| r.main == Some(DESCRIPTION) && r.line.kind == Kind::File) {
             flip(&mut self.sections_folded, DESCRIPTION);
             return self.rebuild_at(|r| r.main == Some(DESCRIPTION) && r.line.kind == Kind::File);
         }

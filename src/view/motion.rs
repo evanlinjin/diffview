@@ -59,8 +59,9 @@ impl App {
     /// comments pane (they're interleaved in `rows`, but not on screen), for word motions to
     /// carry on along a line of text rather than jump across.
     fn next_row_here(&self, row: usize, fwd: bool) -> Option<usize> {
-        // (in the pane); comments with the pane hidden aren't on any side.
-        let side = |r: usize| (!(self.rows[r].thread.is_some() && !self.in_pane(r))).then(|| self.in_pane(r));
+        // (in the pane); a file's comments with the pane hidden aren't on any side (PR text is:
+        // after the description).
+        let side = |r: usize| (!(self.rows[r].thread.is_some() && !self.rows[r].attached && !self.in_pane(r))).then(|| self.in_pane(r));
         let here = side(row);
         let mut rs: Box<dyn Iterator<Item = usize>> = if fwd { Box::new(row + 1..self.rows.len()) } else { Box::new((0..row).rev()) };
         rs.find(|&r| side(r).is_some() && side(r) == here)

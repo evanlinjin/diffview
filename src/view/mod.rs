@@ -146,7 +146,7 @@ GENERAL
   R                    refresh (git diff + GitHub)
   Space m              messages so far, in full (the status bar cuts long ones)
   Space s              a shell in the checkout's directory (zellij: a floating pane)
-  Space o              the PR's whole conversation on its own (Esc: back)
+  Space o              the PR's whole conversation, or its latest (beside the description)
   mouse                wheel scrolls, click moves (or folds, on an arrow), drag selects
   q, Ctrl-c            quit
 ";
@@ -450,8 +450,6 @@ pub(super) enum View {
     All,
     Claude,
     Pending,
-    /// The PR's whole conversation on its own (`Space o`).
-    Conversation,
 }
 
 struct Item {
@@ -552,6 +550,8 @@ struct Seen {
     before: HashSet<String>,
     path: Option<PathBuf>,
     current: Vec<String>,
+    /// `current` is a conversation comment's (nothing shown hangs on it: no rebuild for it).
+    conversation: bool,
     since: std::time::Instant,
 }
 
@@ -747,9 +747,8 @@ pub struct App {
     github_gen: std::sync::Arc<std::sync::atomic::AtomicU64>,
     /// Tells the background watch to fetch now, whatever the PR's ETag says.
     github_poke: Option<std::sync::mpsc::Sender<()>>,
-    /// Where the cursor was when the whole conversation was opened (`Space o`), and in which
-    /// view, to go back to.
-    conversation_back: Option<(CursorKey, View)>,
+    /// The PR's whole conversation attached to the description, not only its latest (`Space o`).
+    conversation_all: bool,
     /// The last note said about the PR's base (`base_note`), to say the next in its place.
     base_said: String,
     /// What's shown came from the cache, and the fresh fetch isn't in yet.
@@ -929,7 +928,7 @@ impl App {
             replacement: None,
             replacement_mtime: None,
             me: String::new(),
-            seen: Seen { keys: HashSet::new(), before: HashSet::new(), path: None, current: vec![], since: std::time::Instant::now() },
+            seen: Seen { keys: HashSet::new(), before: HashSet::new(), path: None, current: vec![], conversation: false, since: std::time::Instant::now() },
             claude: ClaudeState::default(),
             hx: None,
             tree_checked: std::time::Instant::now(),
@@ -950,7 +949,7 @@ impl App {
             github_gen: Default::default(),
             github_poke: None,
             base_said: String::new(),
-            conversation_back: None,
+            conversation_all: false,
             github_stale: false,
         };
         app.shape();

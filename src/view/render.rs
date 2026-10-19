@@ -237,8 +237,8 @@ impl App {
         }
         // As set (`Ctrl-w ,` / `.`), leaving some code beside it.
         mw = self.margin_w_pref.unwrap_or(mw).min(width.saturating_sub(gw + 20)).max(MARGIN_NARROW);
-        let mut shown = self.margin_pref.unwrap_or(room || !matches!(self.view, View::All | View::Conversation));
-        if !shown && self.in_margin(self.head.row) {
+        let mut shown = self.margin_pref.unwrap_or(room || self.view != View::All);
+        if !shown && self.in_margin(self.head.row) && !self.rows[self.head.row].attached {
             (self.margin_pref, shown) = (Some(true), true);
         }
         // A very narrow window: shown, the pane floats over all of the code beside it (else a
@@ -579,7 +579,6 @@ impl App {
             match self.view {
                 View::Claude => "claude view  ",
                 View::Pending => "pending view  ",
-                View::Conversation => "conversation  ",
                 View::All => "",
             },
             if self.uncommitted() { "uncommitted  ".into() } else { self.commits_label().map(|l| format!("{l}  ")).unwrap_or_default() },

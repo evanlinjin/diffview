@@ -66,7 +66,7 @@ impl App {
             _ if self.unpublished() => Bar::Claude,
             View::Claude => Bar::Claude,
             View::Pending => Bar::Pending,
-            View::All | View::Conversation => Bar::Comments,
+            View::All => Bar::Comments,
         }
     }
 

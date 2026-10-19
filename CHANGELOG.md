@@ -5,6 +5,19 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Changed
+- `Space o` (or Enter on the "N more" line) shows the whole conversation right there, in the
+  pane beside the description, and again only its latest: no separate view to go back from.
+- The PR's facts list its reviewers one a line (`✓ @amy approved`, `● @cy requested`): no
+  scrolling sideways to see them all.
+
+### Fixed
+- With the pane shown: the pending view's review text and comments on files gone from the
+  diff are in the pane, at its width; Tab on Claude's review on a branch (no description)
+  doesn't hide it for good; folding the PR's text leaves the Claude tab's summary alone;
+  hiding the pane keeps the cursor on the PR text it's on; word motions go through it, inline;
+  questions to Claude on a branch before any review show.
+
 ## [0.34.1] - 2026-10-19
 
 ### Fixed

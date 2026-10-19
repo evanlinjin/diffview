@@ -1339,35 +1339,30 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         out.push(l);
     }
 
-    // Who did what, once: "✗ changes requested by @bo · ✓ approved by @amy · waiting on @cy".
-    let by = |state: &str| -> Vec<String> {
-        let reviews = list(&v["latestReviews"]);
-        reviews.iter().filter(|r| r["state"] == state).map(|r| format!("@{}", s(&r["author"]["login"]))).collect()
-    };
-    let requested: Vec<String> = list(&v["reviewRequests"])
-        .iter()
-        .map(|r| format!("@{}", r["login"].as_str().or(r["name"].as_str()).unwrap_or("?")))
-        .collect();
+    // Who did what, one reviewer a line (no scrolling sideways for them all): "✗ @bo requested
+    // changes", "✓ @amy approved", "● @cy requested" (waiting on them); in their colors.
+    let reviews = list(&v["latestReviews"]);
+    let by = |state: &str| -> Vec<String> { reviews.iter().filter(|r| r["state"] == state).map(|r| s(&r["author"]["login"])).collect() };
+    let requested: Vec<String> = list(&v["reviewRequests"]).iter().map(|r| r["login"].as_str().or(r["slug"].as_str()).or(r["name"].as_str()).unwrap_or("?").to_owned()).collect();
     let groups = [
-        ("✗ changes requested by ", by("CHANGES_REQUESTED"), Some(Mark::Fail)),
-        ("✓ approved by ", by("APPROVED"), Some(Mark::Pass)),
-        ("waiting on ", requested, Some(Mark::Pending)),
+        ("✗", "requested changes", by("CHANGES_REQUESTED"), Mark::Fail),
+        ("✓", "approved", by("APPROVED"), Mark::Pass),
+        ("●", "requested", requested, Mark::Pending),
     ];
     let mut l = InfoLine::new(false, false);
-    l.put("review: ", None);
-    let mut any = false;
-    for (what, who, mark) in groups.into_iter().filter(|g| !g.1.is_empty()) {
-        if any {
-            l.put(" · ", None);
-        }
-        l.put(&format!("{what}{}", who.join(", ")), mark);
-        any = true;
-    }
-    if !any {
+    l.put("reviews:", None);
+    if groups.iter().all(|g| g.2.is_empty()) {
         let decision = s(&v["reviewDecision"]).to_lowercase().replace('_', " ");
-        l.put(if decision.is_empty() { "none yet" } else { &decision }, Some(Mark::Dim));
+        l.put(" ", None).put(if decision.is_empty() { "none yet" } else { &decision }, Some(Mark::Dim));
     }
     out.push(l);
+    for (sign, what, who, mark) in groups {
+        for name in who {
+            let mut l = InfoLine::new(false, false);
+            l.put(&format!("{sign} @{name}"), Some(mark.clone())).put(&format!(" {what}"), None);
+            out.push(l);
+        }
+    }
 
     let checks = list(&v["statusCheckRollup"]);
     if checks.is_empty() {
@@ -1515,12 +1510,12 @@ fn info_summarises_checks() {
     assert_eq!(lines[1].marks[1], (7, 12, Mark::Chip("d73a4a".into()))); // " bug " in its label color
     let t: Vec<String> = lines.into_iter().map(|l| l.text).collect();
     assert_eq!(t[0], "@amy · main ← feat · +3 −1 in 2 files");
-    assert_eq!(t[2], "review: ✗ changes requested by @bo");
-    assert_eq!(&t[3..6], ["checks: ✓ 1 passed · ✗ 1 failed · ● 1 pending", "✗ test", "● ci/legacy"]);
+    assert_eq!(&t[2..4], ["reviews:", "✗ @bo requested changes"]); // one a line
+    assert_eq!(&t[4..7], ["checks: ✓ 1 passed · ✗ 1 failed · ● 1 pending", "✗ test", "● ci/legacy"]);
     let v = serde_json::json!({ "statusCheckRollup": [{ "name": "build", "status": "COMPLETED", "conclusion": "SUCCESS" }] });
     let t: Vec<String> = info_lines(&v).into_iter().map(|l| l.text).collect();
     assert!(t.contains(&"checks: ✓ 1 passed".to_owned())); // no "✗ 0 failed · ● 0 pending"
-    assert!(t.contains(&"review: none yet".to_owned()));
+    assert!(t.contains(&"reviews: none yet".to_owned()));
 }
 
 /// "3h ago", "2d ago", "5mo ago", like GitHub. Falls back to the date if it can't be parsed.

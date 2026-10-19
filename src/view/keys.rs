@@ -102,10 +102,6 @@ impl App {
         let c = match k.code {
             KeyCode::Char(c) => c,
             KeyCode::Esc => {
-                // Out of the whole conversation, back where it was opened (once nothing's pending).
-                if self.view == View::Conversation && self.pending.is_none() && !self.select {
-                    return self.toggle_conversation();
-                }
                 (self.pending, self.count, self.select) = (None, 0, false);
                 return;
             }
@@ -223,7 +219,7 @@ impl App {
                 ("g", "git: uncommitted only / commit / push / update"),
                 ("m", "messages, in full"),
                 ("s", "a shell in the checkout's directory"),
-                ("o", "the PR's whole conversation"),
+                ("o", "the PR's whole conversation / its latest"),
                 ("r", "resolve thread"),
                 ("=", "react to the comment (👍 🎉 …)"),
                 ("l", "the PR's labels, assignees, reviewers"),
@@ -317,7 +313,8 @@ impl App {
                 let show = !self.margin_active;
                 self.margin_pref = Some(show);
                 self.save_pane("shown", show.into());
-                if !show && self.margin_side() {
+                // (PR text stays on screen, after the description.)
+                if !show && self.margin_side() && !self.rows[self.head.row].attached {
                     // Off the comment, onto what it's beside (it'd show it again).
                     self.goto(self.line_beside(), 0);
                 }
