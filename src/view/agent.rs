@@ -75,6 +75,17 @@ pub(crate) fn claude_wrote(t: &Thread) -> bool {
 
 /// Whose turn it is on an open thread of the review file: Claude's (`[waiting]`: you had the
 /// last word), or yours once Claude has answered you (`[answered]`).
+/// On a thread waiting for Claude: what you want of it (`[change]` …), when you said.
+pub(crate) fn want_tag(t: &Thread) -> Option<&'static str> {
+    let tag = match t.want.as_str() {
+        "ask" => "[ask] ",
+        "suggest" => "[suggest] ",
+        "change" => "[change] ",
+        _ => return None,
+    };
+    (turn(t) == Some("[waiting] ")).then_some(tag)
+}
+
 pub(crate) fn turn(t: &Thread) -> Option<&'static str> {
     let last = t.comments.last().filter(|_| t.claude.is_some() && !t.resolved)?;
     match last.author == "you" {
@@ -114,6 +125,34 @@ impl App {
         .into();
     }
 
+    /// Before writing a comment or reply for Claude: what you want of it (an answer, a
+    /// suggestion for GitHub, or the change made here). Preselected: what you last wanted on
+    /// thread `t`, else the change on your PR, a suggestion on theirs.
+    pub(super) fn pick_want(&mut self, action: Action, t: Option<usize>) {
+        let last = t.map(|t| self.threads[t].want.as_str()).and_then(|w| crate::claude::WANTS.iter().position(|&k| k == w));
+        let sel = last.unwrap_or(if self.theirs { 1 } else { 2 });
+        let change = match self.theirs {
+            true => "Change: Claude edits the code here (their PR: Space g pushes what you commit)",
+            false => "Change: Claude edits the code here",
+        };
+        let items = vec![
+            Item::new("Ask: Claude answers (it changes nothing)", Target::Want("ask")),
+            Item::new("Suggest: Claude drafts a suggestion for you to post on GitHub (no code changes)", Target::Want("suggest")),
+            Item::new(change, Target::Want("change")),
+        ];
+        self.wanting = Some(action);
+        self.picker = Some(Picker { title: " what do you want of Claude? ", items, query: String::new(), sel });
+    }
+
+    /// The want picked: on to the editor.
+    pub(super) fn want(&mut self, w: &'static str) {
+        self.action = match self.wanting.take() {
+            Some(Action::AskClaude { anchor, code, about, .. }) => Some(Action::AskClaude { anchor, code, about, want: w }),
+            Some(Action::ClaudeReply(k, _)) => Some(Action::ClaudeReply(k, w)),
+            other => other,
+        };
+    }
+
     /// Replies of yours that Claude hasn't answered yet.
     pub(super) fn waiting_replies(&self) -> usize {
         self.threads.iter().filter(|t| turn(t) == Some("[waiting] ")).count()
@@ -132,7 +171,7 @@ impl App {
     /// What "make the changes" acts on: the review file's open comments, Claude's and the ones
     /// you left it (`a`), not resolved or outdated. The one place that's decided.
     pub(super) fn change_requests(&self) -> usize {
-        self.threads.iter().filter(|t| t.claude.is_some() && !t.resolved && !t.outdated).count()
+        self.threads.iter().filter(|t| t.claude.is_some() && !t.resolved && !t.outdated && !(t.want == "ask" && !claude_wrote(t))).count()
     }
 
     /// Why Claude can't take a request right now (checked before asking you for instructions,
@@ -545,7 +584,7 @@ impl App {
         let first = anchor.start.map_or(anchor.line, |s| s.0);
         let code = self.files.iter().find(|f| f.path == anchor.path).and_then(|f| crate::claude::code_at(f, anchor.left, first, anchor.line));
         match code {
-            Some(code) => self.action = Some(Action::AskClaude { anchor, code, about: None }),
+            Some(code) => self.pick_want(Action::AskClaude { anchor, code, about: None, want: "" }, None),
             None => self.msg = "those lines aren't in this diff".into(),
         }
     }
@@ -594,7 +633,7 @@ impl App {
         let link = self.pr.as_ref().map(|p| format!(" ({}#discussion_r{})", p.url, c.id)).unwrap_or_default();
         let quote: String = c.body.lines().map(|l| format!("> {l}\n")).collect();
         let prefill = format!("About @{}'s comment{link}:\n{quote}\n", c.author);
-        self.action = Some(Action::AskClaude { anchor, code, about: Some((c.id, prefill)) });
+        self.action = Some(Action::AskClaude { anchor, code, about: Some((c.id, prefill)), want: "ask" });
     }
 
     /// From the `Space a` menu. Reviewing and making the changes first ask for your own
@@ -1124,12 +1163,25 @@ pub(crate) fn update_prompt(what: &str, old: &str) -> String {
 
 /// Claude's prompt for answering your replies in its review of `what` (`theirs`: someone
 /// else's PR, so suggestions, not edits).
+/// What the editor says Claude will do with what you write, for `want`.
+pub(super) fn want_hint(want: &str) -> &'static str {
+    match want {
+        "ask" => " (Claude answers; it changes nothing)",
+        "suggest" => " (Claude drafts a suggestion for you to post; it doesn't edit the code)",
+        "change" => " (Claude makes the change in the code here; nothing goes to GitHub)",
+        _ => " (it answers right away; nothing goes to GitHub)",
+    }
+}
+
 pub(crate) fn answer_prompt(what: &str, theirs: bool) -> String {
-    let base = format!("Use the dv-review skill to answer my replies (and the comments I left for you) in the dv review of {what}.");
+    let base = format!(
+        "Use the dv-review skill to answer my replies (and the comments I left for you) in the dv review of {what}. \
+         Where I said what I want (\"want\"), do exactly that (see \"What the user wants\")."
+    );
     match theirs {
         true => format!(
-            "{base} It's someone else's PR, so don't edit the code: where I ask for a change, suggest it instead (see \
-             \"Suggest the changes\")."
+            "{base} It's someone else's PR: where I didn't say, and ask for a change, suggest it rather than edit the code \
+             (see \"Suggest the changes\")."
         ),
         false => base,
     }

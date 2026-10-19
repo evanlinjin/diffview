@@ -459,6 +459,7 @@ impl App {
                             self.job = Some(Job::DeleteComment(id));
                         }
                         Target::Claude(ask) => self.pick_claude(ask),
+                        Target::Want(w) => self.want(w),
                         Target::ClaudeNotes => self.edit_claude_notes(),
                         Target::ClaudeQuestion => {
                             self.bar_to(Bar::Claude); // where it's answered

@@ -570,6 +570,7 @@ impl App {
         let severity = format!("[{}] ", t.severity);
         let serious = matches!(t.severity.as_str(), "bug" | "security" | "major" | "blocker");
         let turn = agent::turn(t);
+        let want = agent::want_tag(t);
         let tags: Vec<(&str, Style)> = [
             (self.is_new(t), "[new] ", self.ui.key),
             (first_pending, "[pending] ", self.ui.pending),
@@ -577,6 +578,7 @@ impl App {
             (t.resolved, "[resolved] ", self.ui.resolved),
             (!t.severity.is_empty(), severity.as_str(), if serious { self.ui.warning } else { self.ui.resolved }),
             (turn.is_some(), turn.unwrap_or(""), self.ui.pending),
+            (want.is_some(), want.unwrap_or(""), self.ui.pending),
         ]
             .into_iter()
             .filter_map(|(on, s, c)| on.then_some((s, c)))

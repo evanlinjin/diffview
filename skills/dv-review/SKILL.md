@@ -115,9 +115,21 @@ reply, or the comment itself if it has none) is from `"user"` and isn't `"resolv
 
 - answer by appending `{ "author": "claude", "body": "…", "created": "<now>" }` to its
   `replies`;
-- if the user asks for a change, make it in the code, then reply saying what you changed (on
-  someone else's PR, when you're told not to edit the code, suggest it instead: see 5);
+- do what the user wants (below); without a `want`, if they ask for a change, make it in the
+  code, then reply saying what you changed (on someone else's PR, when you're told not to edit
+  the code, suggest it instead: see 5);
 - if the user convinced you the comment is wrong, say so in the reply (don't delete it).
+
+### What the user wants
+
+The user's comment or reply can say what they want of you, as `"want"`. Do exactly that,
+whoever's PR it is, and whatever the wording suggests:
+
+| `want` | do | don't |
+|---|---|---|
+| `"ask"` | answer (explain, discuss, give your opinion) | edit the code; draft a suggestion |
+| `"suggest"` | propose the change as in 5 (a suggestion block they can post), reply `"Suggested: …"` | edit the code |
+| `"change"` | make the change in the code here (commit or amend only when they say so), reply `"Changed: …"`, resolve | ask whether to; only suggest it |
 
 Once a thread is settled, resolve it: set `"resolved": true` on the comment after your reply.
 It's settled when you've made the change it asked for, or you and the user agree it doesn't
@@ -138,8 +150,9 @@ addressed it, leave it outdated, say so in your reply, and resolve it.
 
 When asked to make the changes the review's comments ask for: read the file, and for every
 comment that isn't `"resolved": true` and that `dv review-check` doesn't report as outdated
-(yours, and the user's own, `"author": "user"`, which are their requests; the user dismisses
-comments they don't want by deleting them, so all that are left are wanted):
+(yours, and the user's own, `"author": "user"`, which are their requests, except those whose
+`"want"` is `"ask"`: questions; the user dismisses comments they don't want by deleting them,
+so all that are left are wanted):
 
 - make the change in the code (for a `suggestion` block, apply it; otherwise do what the
   comment says, keeping the change as small as the comment implies);

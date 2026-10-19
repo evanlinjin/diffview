@@ -8,6 +8,12 @@ on GitHub are its section here.
 ### Changed
 - Todo: a PR with CI still running goes after what you can act on now (before what Claude's
   at), and back up once CI is done.
+- A comment or reply for Claude (`a` on lines, `r` on its comment) first asks what you want of
+  it: an answer (it changes nothing), a suggestion for you to post on GitHub, or the change made
+  in the code here. Saved as `"want"` on it, shown as `[ask]`/`[suggest]`/`[change]` while it
+  waits, and Claude does exactly that: on someone else's PR too (it used to only suggest
+  there, whatever you asked). Preselected: what you last wanted on that thread, else the change
+  on your PR, a suggestion on theirs.
 
 ## [0.29.0] - 2026-10-19
 

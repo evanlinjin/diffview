@@ -819,6 +819,7 @@ impl App {
                 .filter_map(|&(on, s)| on.then_some(s))
                 .chain(severity.as_deref())
                 .chain(agent::turn(t))
+                .chain(agent::want_tag(t))
                 .collect();
                 // Before the text, so a long first line can't push it out of sight.
                 let replies = match t.comments.len() - 1 {
@@ -1126,12 +1127,16 @@ impl App {
                 return self.msg = "no review file here (not in a git repo?)".into();
             }
             return self.action = Some(match self.threads.iter().find(|t| t.conversation == ON_SUMMARY).and_then(|t| t.claude.clone()) {
-                Some(k) => Action::ClaudeReply(k),
+                Some(k) => Action::ClaudeReply(k, ""),
                 None => Action::AskConversation { url: ON_SUMMARY.into(), prefill: String::new() },
             });
         }
-        if let Some((_, k)) = self.claude_at_cursor() {
-            return self.action = Some(Action::ClaudeReply(k));
+        // On lines, say what you want of Claude; under a conversation comment it's a question.
+        if let Some((t, k)) = self.claude_at_cursor() {
+            return match self.threads[t].conversation.is_empty() {
+                true => self.pick_want(Action::ClaudeReply(k, ""), Some(t)),
+                false => self.action = Some(Action::ClaudeReply(k, "")),
+            };
         }
         let t = self.rows[self.head.row].thread;
         match (t, t.and_then(|t| self.root_id(t))) {

@@ -68,6 +68,9 @@ pub struct Thread {
     /// From the review file: the PR conversation comment (or review) it asks Claude about, by
     /// its URL. Such a thread is on no file's lines (`path` empty): it's under that comment.
     pub conversation: String,
+    /// From the review file: what you last asked Claude for on it ("ask", "suggest",
+    /// "change"); empty if unsaid.
+    pub want: String,
 }
 
 #[derive(Clone, Default)]
@@ -749,6 +752,7 @@ fn parse_thread(t: &Value) -> Thread {
         severity: String::new(),
         about: None,
         conversation: String::new(),
+        want: String::new(),
     }
 }
 

@@ -45,6 +45,10 @@ use std::path::PathBuf;
 pub const AUTHOR: &str = "claude";
 const USER: &str = "user";
 
+/// What the user can want from Claude on a comment or reply (its `"want"`): an answer, a
+/// suggestion drafted for GitHub, or the change made in the code here.
+pub const WANTS: [&str; 3] = ["ask", "suggest", "change"];
+
 pub struct Review {
     pub head: String,
     pub summary: String,
@@ -510,6 +514,11 @@ fn parse(text: &str) -> Result<Review> {
                 claude: Some(c["id"].as_str().map_or(format!("#{i}"), str::to_owned)),
                 severity: s(&c["severity"]).to_lowercase(),
                 about: about_id(&c["about"]),
+                // The user's last message's: what they want from Claude now.
+                want: std::iter::once(c)
+                    .chain(c["replies"].as_array().into_iter().flatten())
+                    .rfind(|m| m["author"] == USER)
+                    .map_or(String::new(), |m| s(&m["want"])),
                 // A comment's own time (the user's have one), else the review's.
                 comments: std::iter::once((root_author(c), s(&c["body"]), Some(s(&c["created"])).filter(|t| !t.is_empty()).unwrap_or(created.clone())))
                     .chain(c["replies"].as_array().into_iter().flatten().map(|r| {
@@ -599,11 +608,14 @@ fn root_author(c: &Value) -> String {
 
 /// A comment the user leaves for Claude on lines of the diff (`a` in dv), for Claude to answer
 /// or act on. Starts the review file if there isn't one. Returns its id.
-pub fn add_comment(path: &std::path::Path, a: &crate::gh::Anchor, code: Vec<String>, body: &str, about: Option<u64>) -> Result<String> {
+pub fn add_comment(path: &std::path::Path, a: &crate::gh::Anchor, code: Vec<String>, body: &str, about: Option<u64>, want: &str) -> Result<String> {
     let mut c = serde_json::json!({
         "path": a.path, "line": a.line, "side": if a.left { "old" } else { "new" },
         "author": USER, "body": body, "created": now(), "code": code,
     });
+    if !want.is_empty() {
+        c["want"] = want.into();
+    }
     if let Some((s, _)) = a.start {
         c["start_line"] = s.into();
     }
@@ -673,13 +685,17 @@ pub fn dismiss_all(path: &std::path::Path, keys: &[String]) -> Result<usize> {
     Ok(gone)
 }
 
-/// Add the user's reply to comment `key`, for Claude to answer.
-pub fn reply(path: &std::path::Path, key: &str, body: &str) -> Result<()> {
+/// Add the user's reply to comment `key`, for Claude to answer (`want`: see `WANTS`; empty:
+/// unsaid).
+pub fn reply(path: &std::path::Path, key: &str, body: &str, want: &str) -> Result<()> {
     update(path, key, |c, i| {
         if !c[i]["replies"].is_array() {
             c[i]["replies"] = serde_json::json!([]);
         }
-        let r = serde_json::json!({ "author": USER, "body": body, "created": now() });
+        let mut r = serde_json::json!({ "author": USER, "body": body, "created": now() });
+        if !want.is_empty() {
+            r["want"] = want.into();
+        }
         if let Some(a) = c[i]["replies"].as_array_mut() {
             a.push(r);
         }
@@ -872,7 +888,7 @@ fn parse_and_dismiss() {
     assert!(parse(r#"{ "comments": [ { "line": 1 } ] }"#).is_err()); // no path
     let p = std::env::temp_dir().join(format!("dv-claude-test-{}.json", std::process::id()));
     std::fs::write(&p, text).unwrap();
-    reply(&p, "#1", "why?").unwrap(); // by position: it has no id yet…
+    reply(&p, "#1", "why?", "").unwrap(); // by position: it has no id yet…
     assert!(set_resolved(&p, "#1", true).is_err()); // …and now it has one, so positions are out
     set_resolved(&p, "c2", true).unwrap();
     let r = load(&p).unwrap().unwrap();
@@ -892,7 +908,7 @@ fn parse_and_dismiss() {
 fn comments_for_claude() {
     let p = std::env::temp_dir().join(format!("dv-claude-ask-{}", std::process::id())).join("pr-1.json");
     let a = crate::gh::Anchor { path: "src/a.rs".into(), line: 3, left: false, start: Some((2, false)) };
-    let id = add_comment(&p, &a, vec!["x".into(), "y".into()], "why?", None).unwrap(); // no file yet: started
+    let id = add_comment(&p, &a, vec!["x".into(), "y".into()], "why?", None, "").unwrap(); // no file yet: started
     let r = load(&p).unwrap().unwrap();
     _ = std::fs::remove_dir_all(p.parent().unwrap());
     let t = &r.threads[0];
@@ -909,7 +925,7 @@ fn ids_given_on_load_stay_in_memory() {
     let r = load_with_ids(&p).unwrap().unwrap();
     assert_eq!(r.threads[1].claude.as_deref(), Some("c5"));
     assert_eq!(std::fs::read_to_string(&p).unwrap(), text); // not written: Claude may be mid-edit
-    reply(&p, "c5", "ok").unwrap(); // that id finds it, and is written with dv's change
+    reply(&p, "c5", "ok", "").unwrap(); // that id finds it, and is written with dv's change
     let r = load(&p).unwrap().unwrap();
     _ = std::fs::remove_file(&p);
     assert_eq!((r.threads[1].claude.as_deref(), r.threads[1].comments.len()), (Some("c5"), 2));

@@ -103,7 +103,8 @@ RUST-ANALYZER
 ON SELECTED LINES
   c                    comment, in your pending review (C: post it now)
   s                    suggest a change, in your pending review
-  a                    a comment for Claude (it answers right away; not on GitHub); on a
+  a                    a comment for Claude: an answer, a suggestion, or the change you want
+                       (it acts right away; not on GitHub); on a
                        replacement's description or closing note: ask Claude to redraft it
 
 ON A REVIEW THREAD
@@ -112,7 +113,8 @@ ON A REVIEW THREAD
   Space e  Space d     edit / delete your comment (delete asks first)
 
 ON CLAUDE'S COMMENT
-  r                    reply to Claude (Claude answers right away, in the background)
+  r                    reply to Claude, saying what you want (it acts right away, in the
+                       background)
   c                    copy it into your pending review (C: post it now)
   Space r  Space d     resolve (Claude skips it) / dismiss
 
@@ -284,11 +286,12 @@ enum Action {
     Comment { anchor: Anchor, review: bool, prefill: String, claude: Option<String> },
     /// `quote`: the comment under the cursor as a `> ` quote, pre-filled in the editor.
     Reply { thread: String, comment: u64, review: bool, quote: String },
-    /// A reply to Claude on its comment (by id), saved to the review file for Claude to answer.
-    ClaudeReply(String),
+    /// A reply to Claude on its comment (by id), saved to the review file for Claude to answer,
+    /// with what you want of it (`claude::WANTS`; empty: unsaid).
+    ClaudeReply(String, &'static str),
     /// A comment for Claude on these lines (with their text), then Claude answers it; `about`:
     /// the GitHub review comment it asks about (its id, and a quote of it for the editor).
-    AskClaude { anchor: Anchor, code: Vec<String>, about: Option<(u64, String)> },
+    AskClaude { anchor: Anchor, code: Vec<String>, about: Option<(u64, String)>, want: &'static str },
     /// `a` on a PR conversation comment: a question about it (its URL), starting from `prefill`.
     AskConversation { url: String, prefill: String },
     /// Run Claude (review, or make the changes) after your own instructions for it.
@@ -357,6 +360,8 @@ enum Target {
     /// A comment: (thread index, comment index within it).
     Comment(usize, usize),
     Claude(agent::Ask),
+    /// What you want of Claude on the comment or reply you're about to write (`claude::WANTS`).
+    Want(&'static str),
     ClaudeNotes,
     /// Ask Claude a question about the PR (a thread under its summary, in the Claude tab).
     ClaudeQuestion,
@@ -517,6 +522,8 @@ pub struct App {
     pending: Option<char>,
     prompt: Option<String>,
     picker: Option<Picker>,
+    /// A comment or reply for Claude, waiting on the picker for what you want of it.
+    wanting: Option<Action>,
     search: String,
     msg: String,
     top: usize,
@@ -772,6 +779,7 @@ impl App {
             pending: None,
             prompt: None,
             picker: None,
+            wanting: None,
             search: String::new(),
             msg: String::new(),
             top: 0,
@@ -947,22 +955,23 @@ impl App {
                 let Some(body) = compose_with("reply", false, &quote, false)? else { return Ok("reply cancelled".into()) };
                 self.post_later(Post::Reply { thread, comment, review, body })
             }
-            Action::ClaudeReply(k) => {
+            Action::ClaudeReply(k, want) => {
                 let p = self.claude.path.clone().context("no review file")?;
-                let Some(body) = compose_with("reply to Claude", false, "", false)? else { return Ok("reply cancelled".into()) };
-                keep_on_error(crate::claude::reply(&p, &k, &body), &body)?;
+                let what = format!("reply to Claude{}", agent::want_hint(want));
+                let Some(body) = compose_with(&what, false, "", false)? else { return Ok("reply cancelled".into()) };
+                keep_on_error(crate::claude::reply(&p, &k, &body, want), &body)?;
                 Ok(self.answer_now())
             }
-            Action::AskClaude { anchor, code, about } => {
+            Action::AskClaude { anchor, code, about, want } => {
                 let p = self.claude.path.clone().context("no review file")?;
                 let range = anchor.start.map_or(anchor.line.to_string(), |(s, _)| format!("{s}-{}", anchor.line));
                 let what = match about {
                     Some(_) => format!("ask Claude about this review comment on {}:{range} (it answers right away; nothing goes to GitHub)", anchor.path),
-                    None => format!("a comment for Claude on {}:{range} (it answers right away; nothing goes to GitHub)", anchor.path),
+                    None => format!("a comment for Claude on {}:{range}{}", anchor.path, agent::want_hint(want)),
                 };
                 let prefill = about.as_ref().map_or(String::new(), |(_, q)| q.clone());
                 let Some(body) = compose_with(&what, false, &prefill, false)? else { return Ok("comment cancelled".into()) };
-                keep_on_error(crate::claude::add_comment(&p, &anchor, code, &body, about.map(|a| a.0)).map(drop), &body)?;
+                keep_on_error(crate::claude::add_comment(&p, &anchor, code, &body, about.map(|a| a.0), want).map(drop), &body)?;
                 self.load_claude();
                 Ok(self.answer_now())
             }

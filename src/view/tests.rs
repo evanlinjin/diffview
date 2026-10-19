@@ -188,6 +188,7 @@ fn comments_placed_and_anchored() {
         id: format!("T{line:?}"),
         path: "src/a.rs".into(), left, line, start_line: None, original_line: Some(1), resolved, outdated: line.is_none(),
         hunk: vec![], comments, claude: None, severity: String::new(), about: None, conversation: String::new(),
+        want: String::new(),
     };
     app.threads = vec![
         t(true, Some(2), false, vec![c(1, "why remove?"), c(2, "unused")]), // on the deleted line
@@ -394,7 +395,10 @@ fn claude_review() {
     // `r` replies to Claude (saved to the file, not GitHub).
     app.goto(row(&app, false), 0);
     press(&mut app, "r");
-    assert!(matches!(app.action.take(), Some(Action::ClaudeReply(k)) if k == "c1")); // ids given on load
+    // First what you want of it: on your PR, the change made, unless you said otherwise there.
+    assert_eq!(app.picker.as_ref().map(|p| p.sel), Some(2));
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(matches!(app.action.take(), Some(Action::ClaudeReply(k, "change")) if k == "c1")); // ids given on load
     // Space r resolves it in the file: it folds, and the cursor stays on it.
     press(&mut app, " r");
     assert!(std::fs::read_to_string(&p).unwrap().contains("\"resolved\": true"));
@@ -531,6 +535,7 @@ fn copy_refs() {
     app.threads = vec![gh::Thread {
         id: "T".into(), path: "src/a.rs".into(), left: false, line: Some(2), start_line: None, original_line: Some(2),
         resolved: false, outdated: false, hunk: vec![], comments: vec![c(11), c(12)], claude: None, severity: String::new(), about: None, conversation: String::new(),
+        want: String::new(),
     }];
     let heading = |text: &str, url: &str| gh::InfoLine { heading: true, md: false, text: text.into(), marks: vec![], url: url.into() };
     let body = |text: &str| gh::InfoLine { heading: false, md: true, text: text.into(), marks: vec![], url: String::new() };
@@ -661,14 +666,32 @@ fn ask_claude_on_lines() {
     let add = app.rows.iter().position(|r| r.line.kind == Kind::Add).unwrap();
     app.goto(add, 0);
     app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
-    let Some(Action::AskClaude { anchor, code, .. }) = app.action.take() else { panic!("no comment for Claude started") };
+    // What you want of it first (here a question), then the editor.
+    let items: Vec<_> = app.picker.as_ref().unwrap().items.iter().map(|i| i.label.clone()).collect();
+    assert!(items[0].starts_with("Ask:") && items[1].starts_with("Suggest:") && items[2].starts_with("Change:"));
+    app.picker.as_mut().unwrap().sel = 0;
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let Some(Action::AskClaude { anchor, code, want: "ask", .. }) = app.action.take() else { panic!("no comment for Claude started") };
     assert_eq!((anchor.path.as_str(), anchor.line, anchor.left), ("src/a.rs", 2, false));
     assert_eq!(code, ["    new_call(x);"]);
     // Once written, it's waiting for Claude (the user had the last word).
-    crate::claude::add_comment(app.claude.path.as_ref().unwrap(), &anchor, code, "why?", None).unwrap();
+    crate::claude::add_comment(app.claude.path.as_ref().unwrap(), &anchor, code, "why?", None, "ask").unwrap();
+    app.load_claude();
+    assert_eq!(app.waiting_replies(), 1);
+    // It says what you want, and a question isn't a change for Claude to make.
+    app.build();
+    let heads: Vec<_> = app.rows.iter().filter(|r| r.thread.is_some()).map(|r| r.line.text.clone()).collect();
+    assert!(heads.iter().any(|h| h.starts_with("[waiting] [ask] ")), "{heads:?}");
+    assert_eq!(app.change_requests(), 0);
+    // A reply there starts from what you last wanted; the reply's want is the thread's now.
+    let k = app.threads[0].claude.clone().unwrap();
+    app.goto(app.rows.iter().position(|r| r.thread == Some(0)).unwrap(), 0);
+    app.key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+    assert_eq!(app.picker.as_ref().map(|p| p.sel), Some(0));
+    crate::claude::reply(app.claude.path.as_ref().unwrap(), &k, "just change it", "change").unwrap();
     app.load_claude();
     _ = std::fs::remove_dir_all(&dir);
-    assert_eq!(app.waiting_replies(), 1);
+    assert_eq!((app.threads[0].want.as_str(), app.change_requests()), ("change", 1));
 }
 
 #[test]
@@ -678,6 +701,7 @@ fn cycle_pending_comments() {
     let t = |line, comments| gh::Thread {
         id: String::new(), path: "src/a.rs".into(), left: false, line: Some(line), start_line: None, original_line: Some(line),
         resolved: false, outdated: false, hunk: vec![], comments, claude: None, severity: String::new(), about: None, conversation: String::new(),
+        want: String::new(),
     };
     // A pending reply on line 3's thread, a pending comment on line 1, a posted one between.
     app.threads = vec![t(3, vec![c(1, false), c(2, true)]), t(1, vec![c(3, true)]), t(2, vec![c(4, false)])];
@@ -700,7 +724,7 @@ fn your_comments_for_claude_stay_private() {
     let dir = std::env::temp_dir().join(format!("dv-private-{}", std::process::id()));
     let p = dir.join("pr-1.json");
     let a = gh::Anchor { path: "src/a.rs".into(), line: 2, left: false, start: None };
-    crate::claude::add_comment(&p, &a, vec!["    new_call(x);".into()], "is this right?", None).unwrap();
+    crate::claude::add_comment(&p, &a, vec!["    new_call(x);".into()], "is this right?", None, "").unwrap();
     app.claude.path = Some(p);
     app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new(), ..Default::default() });
     app.load_claude(); // not load_threads: that asks GitHub about PR 1 of this repo
@@ -756,6 +780,7 @@ fn comments_in_the_margin() {
     let t = |line, comments| gh::Thread {
         id: String::new(), path: "a.rs".into(), left: false, line: Some(line), start_line: None, original_line: Some(line),
         resolved: false, outdated: false, hunk: vec![], comments, claude: None, severity: String::new(), about: None, conversation: String::new(),
+        want: String::new(),
     };
     app.threads = vec![t(1, vec![c(1, "first")]), t(2, vec![c(2, "second")])];
     app.margin_active = true;
@@ -859,6 +884,7 @@ fn margin_tags_on_their_own_line() {
     app.threads = vec![gh::Thread {
         id: String::new(), path: "src/a.rs".into(), left: false, line: Some(2), start_line: None, original_line: Some(2),
         resolved: true, outdated: false, hunk: vec![], comments: vec![c], claude: None, severity: String::new(), about: None, conversation: String::new(),
+        want: String::new(),
     }];
     let rows = |app: &App| app.rows.iter().filter(|r| r.thread == Some(0)).map(|r| r.line.text.clone()).collect::<Vec<_>>();
     app.build();
@@ -960,7 +986,9 @@ fn whose_turn_and_severity() {
     app.claude_menu();
     assert_eq!(app.picker.take().unwrap().items[2].label, "Ask Claude to suggest the changes (3 open comments; their PR: no edits)");
     assert!(app.claude_prompt(agent::Ask::Fix, "").contains("don't edit the code"));
-    assert!(app.claude_prompt(agent::Ask::Answer, "").contains("don't edit the code")); // replies asking for one too
+    // Replies: what you said you want, else a suggestion where one asks for a change.
+    let p = app.claude_prompt(agent::Ask::Answer, "");
+    assert!(p.contains("do exactly that") && p.contains("suggest it rather than edit the code"));
 }
 
 #[test]
@@ -1012,6 +1040,7 @@ fn threads_on_files_gone_from_the_diff() {
     app.threads = vec![gh::Thread {
         id: "T1".into(), path: "src/reverted.rs".into(), left: false, line: Some(4), start_line: None, original_line: Some(4),
         resolved: false, outdated: false, hunk: vec![], comments: vec![c], claude: None, severity: String::new(), about: None, conversation: String::new(),
+        want: String::new(),
     }];
     app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new(), ..Default::default() });
     app.build();
@@ -1145,6 +1174,7 @@ fn claude_view() {
     let t = |path: &str, line, claude: Option<&str>, author| gh::Thread {
         id: String::new(), path: path.into(), left: false, line: Some(line), start_line: None, original_line: Some(line),
         resolved: false, outdated: false, hunk: vec![], comments: vec![c(author)], claude: claude.map(Into::into), severity: String::new(), about: None, conversation: String::new(),
+        want: String::new(),
     };
     app.threads = vec![t("big.rs", 20, Some("c1"), "claude"), t("big.rs", 5, None, "amy"), t("src/a.rs", 2, None, "amy")];
     app.build();
@@ -1310,6 +1340,7 @@ fn range_comment_lights_its_lines() {
     app.threads = vec![gh::Thread {
         id: String::new(), path: "a.rs".into(), left: false, line: Some(4), start_line: Some(2), original_line: Some(4),
         resolved: false, outdated: false, hunk: vec![], comments: vec![c], claude: None, severity: String::new(), about: None, conversation: String::new(),
+        want: String::new(),
     }];
     app.margin_active = true;
     app.build();
@@ -1355,6 +1386,7 @@ fn gf_after_w() {
     app.threads = vec![gh::Thread {
         id: String::new(), path: "src/a.rs".into(), left: false, line: Some(2), start_line: None, original_line: Some(2),
         resolved: false, outdated: false, hunk: vec![], comments: vec![c], claude: Some("c1".into()), severity: String::new(), about: None, conversation: String::new(),
+        want: String::new(),
     }];
     app.build();
     app.root = std::env::temp_dir().join(format!("dv-gfw-{}", std::process::id())); // nothing there
@@ -1406,6 +1438,7 @@ fn fixture() -> App {
     let t = |path: &str, line, comments, claude: Option<&str>, resolved| gh::Thread {
         id: String::new(), path: path.into(), left: false, line: Some(line), start_line: None, original_line: Some(line),
         resolved, outdated: false, hunk: vec![], comments, claude: claude.map(Into::into), severity: if claude.is_some() { "nit".into() } else { String::new() }, about: None, conversation: String::new(),
+        want: String::new(),
     };
     app.threads = vec![
         t("src/big.rs", 12, vec![c("claude", "Name it `new_value`; see src/a.rs:2.", false)], Some("c1"), false),
@@ -2330,7 +2363,7 @@ fn reply_to_claudes_summary() {
     let row = app.rows.iter().position(|r| r.info == Some(SUMMARY) && r.thread.is_none() && r.line.text.contains("Looks right")).unwrap();
     app.goto(row, 0);
     app.start_reply(true);
-    assert!(matches!(app.action.take(), Some(Action::ClaudeReply(k)) if k == "c7"));
+    assert!(matches!(app.action.take(), Some(Action::ClaudeReply(k, _)) if k == "c7"));
     // The whole diff (Comments, PR): not there.
     app.bar_to(Bar::Pr);
     assert!(!app.rows.iter().any(|r| r.line.text.contains("why approve?")));
