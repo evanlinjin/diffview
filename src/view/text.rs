@@ -203,7 +203,7 @@ impl App {
             let tw = w.saturating_sub(3).max(1);
             let wrapped = super::wrap(&para, tw);
             // (More than shows: past two lines, or past its first paragraph.)
-            let more = wrapped.len() > 2 || lines.len() > lines.iter().take_while(|l| !l.is_empty()).count();
+            let more = wrapped.len() > 2 || lines.iter().skip_while(|l| !l.is_empty()).any(|l| !l.is_empty());
             let shown = wrapped.len().min(2);
             for (k, l) in wrapped.iter().take(2).enumerate() {
                 let l = if more && k + 1 == shown { format!("{l} …") } else { l.clone() };
