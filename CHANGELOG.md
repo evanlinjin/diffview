@@ -5,6 +5,19 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.50.0] - 2026-10-19
+
+### Added
+- An issue in dv: a drag copies the text it's over (the description's or the pane's,
+  without the bubbles' sides).
+
+### Fixed
+- `dv issues`: no labelling without triage access on the repo. Claude's labels show as
+  suggestions and `L L` says why, instead of failing on GitHub.
+- Auto: closing comments and replacements skip a PR that Claude is busy with, one put aside,
+  waited on, or being closed, and your own PRs. One replacement at a time, including other
+  dvs' drafts. Issues' closing comments skip deferred issues.
+
 ## [0.49.1] - 2026-10-19
 
 ### Fixed
