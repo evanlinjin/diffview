@@ -173,7 +173,7 @@ impl App {
         }
         let who = self.pr.as_ref().map_or(branch.replace('/', "-"), |p| format!("pr-{}", p.number));
         let kept = take_branch(std::path::Path::new("."), &theirs, &who)?.map_or(String::new(), |b| format!("; what was only here is on {b}"));
-        self.reload_tree();
+        self.reload_tree_or()?;
         self.refresh_sync();
         Ok(format!("now at {name} as it is on GitHub{kept}"))
     }
@@ -424,14 +424,22 @@ impl App {
     }
 
     /// Reload the diff after the working tree changed under dv.
+    /// The working tree reloaded (and what follows from it); what went wrong, said, unless
+    /// the caller says it (`reload_tree_or`).
     pub(super) fn reload_tree(&mut self) {
-        self.forget_tree_colors();
-        if let Err(e) = self.reload(false) {
+        if let Err(e) = self.reload_tree_or() {
             self.msg = format!("{e:#}");
         }
+    }
+
+    /// `reload_tree`, its error returned: for a caller saying what came of it after.
+    pub(super) fn reload_tree_or(&mut self) -> Result<()> {
+        self.forget_tree_colors();
+        let res = self.reload(false);
         self.rekey_commits(); // (commits rewritten here or elsewhere)
         self.follow_github_base(false); // (a retarget that waited on a rebase now through)
         self.tree_seen = Some(self.tree_stamp());
+        res
     }
 
     pub(super) fn reload(&mut self, threads: bool) -> Result<()> {
