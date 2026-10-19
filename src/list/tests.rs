@@ -489,7 +489,7 @@ fn drafting_a_replacement_on_the_todo_tab() {
     l.extra = HashMap::from([(1, extra()), (2, extra()), (3, extra())]);
     let order = |l: &mut List| {
         l.find_todo();
-        l.todo.iter().map(|it| (it.rep, it.number)).collect::<Vec<_>>()
+        l.todo.iter().map(|it| (it.is_rep(), it.number)).collect::<Vec<_>>()
     };
     let first = order(&mut l)[0].1;
     // Claude drafting #first's replacement: #first goes to the bottom, saying so.
@@ -550,7 +550,7 @@ fn a_a_retries_a_ci_fix() {
     // answer, or changes of its wait to be pushed.
     use crate::todo::{Item, Need};
     let mut l = List::new("-wb".into());
-    let item = |needs: Vec<Need>, claude| Item { rep: false, number: 7, needs, claude, updated: String::new(), reason: None, changed: false, deferred: None, busy: None, waits: None };
+    let item = |needs: Vec<Need>, claude| Item { kind: crate::todo::Kind::Pr, number: 7, needs, claude, updated: String::new(), reason: None, changed: false, deferred: None, busy: None, waits: None };
     let ci = Need::CiNotThisPr("flaky".into(), true);
     l.todo = vec![item(vec![ci.clone()], Some(batch::Task::Review))];
     assert_eq!(l.todo_task(7), batch::Task::FixChecks);

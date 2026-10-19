@@ -448,7 +448,7 @@ impl List {
             return self.msg = format!("not posted: {e:#}");
         }
         self.msg = format!("asked for a rebase of #{n}");
-        if let Some(it) = self.todo.iter().find(|it| !it.rep && it.number == n).cloned() {
+        if let Some(it) = self.todo.iter().find(|it| !it.is_rep() && it.number == n).cloned() {
             self.deferred.insert(it.key(), crate::todo::Deferral { until: crate::claude::now_secs() + 7 * 86400, needs: it.needs_key(), cond: None });
             self.msg += "; deferred on the todo tab until it changes";
             self.save_defer();
@@ -630,7 +630,7 @@ impl List {
     }
 
     fn key_of(&self, (card, it): &(&Listed, Option<&crate::todo::Item>)) -> (u64, bool) {
-        (card.number, self.tab == Tab::Replacements || it.is_some_and(|it| it.rep))
+        (card.number, self.tab == Tab::Replacements || it.is_some_and(|it| it.is_rep()))
     }
 
     /// `f`, the cursor kept on the card it was on, wherever it is after (as the event loop does

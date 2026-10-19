@@ -33,7 +33,7 @@ impl List {
             let facts = Facts { pr: p, extra: self.extra.get(&p.number), me: &self.me, review: review.as_ref(), looked, review_changed: file.and_then(secs), unpushed: (f, c), head_at, ci_note: ci_note.as_ref() };
             let (needs, claude) = todo::needs(&facts);
             if !needs.is_empty() {
-                items.push(Item { rep: false, number: p.number, needs, claude, updated: p.updated.clone(), reason: None, changed: false, deferred: None, busy: None, waits: None });
+                items.push(Item { kind: crate::todo::Kind::Pr, number: p.number, needs, claude, updated: p.updated.clone(), reason: None, changed: false, deferred: None, busy: None, waits: None });
             }
         }
         self.closable = closable;
@@ -41,7 +41,7 @@ impl List {
             let needs = todo::rep_needs(r);
             let updated = self.reps.iter().find(|c| c.number == r.id).map_or(String::new(), |c| c.updated.clone());
             if !needs.is_empty() {
-                items.push(Item { rep: true, number: r.id, needs, claude: None, updated, reason: None, changed: false, deferred: None, busy: None, waits: None });
+                items.push(Item { kind: crate::todo::Kind::Rep, number: r.id, needs, claude: None, updated, reason: None, changed: false, deferred: None, busy: None, waits: None });
             }
         }
         let (items, since) = todo::order(items, self.ranked.as_ref());
@@ -63,7 +63,7 @@ impl List {
         let mut items = todo::defer(items, &self.deferred, now, |it, c| self.happened(it, c));
         // What a PR's conversation says it waits on (a trusted comment), not happened yet: to
         // the bottom too, for everyone.
-        for it in items.iter_mut().filter(|it| !it.rep && it.deferred.is_none()) {
+        for it in items.iter_mut().filter(|it| !it.is_rep() && it.deferred.is_none()) {
             let said = self.extra.get(&it.number).map(|e| e.said.as_slice()).unwrap_or(&[]);
             // A comment's word, else what Claude saw in the conversation when it ranked.
             let claude = self.ranked.as_ref().and_then(|r| r.waits.get(&it.key())).map(|c| (c.clone(), String::new()));
@@ -76,7 +76,7 @@ impl List {
         let items = rest;
         // Those Claude is at (here or in any dv; drafting their replacement too): at the bottom
         // till it's done.
-        let doing = |it: &Item| match it.rep {
+        let doing = |it: &Item| match it.is_rep() {
             // A replacement: Claude drafting it, or at it in its worktree.
             true => self.drafting_replacement(it.number).then(|| "drafting it".to_owned()).or_else(|| self.running_reps.get(&it.number).cloned()),
             false => self.claude_doing(it.number).or_else(|| self.drafting_replacement(it.number).then(|| "drafting a replacement".to_owned())),
@@ -84,13 +84,13 @@ impl List {
         let (mut busy, todo): (Vec<Item>, Vec<Item>) = items.into_iter().partition(|it| doing(it).is_some());
         busy.iter_mut().for_each(|it| it.busy = doing(it));
         // A replacement drafted, ready for you to review: first.
-        let (mut ready, todo): (Vec<Item>, Vec<Item>) = todo.into_iter().partition(|it| it.rep && it.needs.contains(&todo::Need::Publish));
+        let (mut ready, todo): (Vec<Item>, Vec<Item>) = todo.into_iter().partition(|it| it.is_rep() && it.needs.contains(&todo::Need::Publish));
         // CI still running on it (a replacement's: on its PR): what it needs mostly waits on
         // that (merging, marking it ready, closing what it replaces), so after what you can do
         // now, before what you've put aside or wait on, and what Claude's at. Not with checks
         // failing already: those can be fixed now. Back up once CI's done.
         let ci_running = |it: &Item| {
-            let n = if it.rep { self.rep_of.get(&it.number).and_then(|r| r.published) } else { Some(it.number) };
+            let n = if it.is_rep() { self.rep_of.get(&it.number).and_then(|r| r.published) } else { Some(it.number) };
             n.and_then(|n| self.prs.iter().find(|p| p.number == n)).and_then(|p| p.checks).is_some_and(|c| c.2 > 0 && c.1 == 0)
         };
         let (mut later, todo): (Vec<Item>, Vec<Item>) = todo.into_iter().partition(|it| it.deferred.is_some() || it.waits.is_some());
@@ -116,7 +116,7 @@ impl List {
         // A published replacement, green, nothing of it unpushed: what it replaces is closed,
         // with its closing note (their items aren't Claude's to review any more, then).
         let mut close = vec![];
-        for it in todo.iter().filter(|it| it.rep && it.needs.iter().any(|n| matches!(n, todo::Need::CloseOriginals(_)))) {
+        for it in todo.iter().filter(|it| it.is_rep() && it.needs.iter().any(|n| matches!(n, todo::Need::CloseOriginals(_)))) {
             let Some(r) = self.rep_of.get(&it.number) else { continue };
             let Some(p) = r.published.and_then(|n| self.prs.iter().find(|p| p.number == n)) else { continue };
             if !p.checks_head.is_empty() && todo::green(p.checks) && self.auto_done.insert((it.number, p.checks_head.clone(), "close")) {
@@ -128,7 +128,7 @@ impl List {
         // One batch of Claude's at a time, of at most as many as run at once: the cap holds, and
         // the rest wait for a later look (most pressing first, in the todo's order).
         let batch_busy = self.batch.values().any(batch::Status::running);
-        for it in todo.iter().filter(|it| !it.rep && !closing.contains(&it.number)) {
+        for it in todo.iter().filter(|it| !it.is_rep() && !closing.contains(&it.number)) {
             let Some(p) = self.prs.iter().find(|p| p.number == it.number) else { continue };
             let Some(head) = self.extra.get(&it.number).map(|e| e.head_oid.clone()).filter(|h| !h.is_empty()) else { continue };
             // CI's state is about the head the rest knows of (else it's another commit's).
@@ -208,7 +208,7 @@ impl List {
         self.todo
             .iter()
             .filter_map(|it| {
-                let cards = if it.rep { &self.reps } else { &self.prs };
+                let cards = if it.is_rep() { &self.reps } else { &self.prs };
                 Some((cards.iter().find(|c| c.number == it.number)?, it))
             })
             .collect()
@@ -230,7 +230,7 @@ impl List {
             .into_iter()
             .filter(|(_, it)| it.deferred.is_none()) // not ranked while deferred
             .map(|(card, it)| {
-                let summary = match it.rep {
+                let summary = match it.is_rep() {
                     true => self.rep_of.get(&it.number).map(|r| r.body.clone()).unwrap_or_default(),
                     false => self.reviews_dir.as_ref().and_then(|d| crate::claude::load(&d.join(format!("pr-{}.json", it.number))).ok().flatten()).map(|r| r.summary).unwrap_or_default(),
                 };
@@ -412,7 +412,7 @@ impl List {
         let Some(it) = self.todo.iter().find(|it| it.key() == key).cloned() else { return };
         // A push: from the head it's at now (a PR's: known once its details are in).
         let c = match c {
-            todo::Until::Pushed(_) => match self.extra.get(&it.number).map(|e| e.head_oid.clone()).filter(|h| !h.is_empty() && !it.rep) {
+            todo::Until::Pushed(_) => match self.extra.get(&it.number).map(|e| e.head_oid.clone()).filter(|h| !h.is_empty() && !it.is_rep()) {
                 Some(h) => todo::Until::Pushed(h),
                 None => return self.msg = "not deferred: its head on GitHub isn't known yet, to see a push by (try again in a moment)".into(),
             },
@@ -582,7 +582,7 @@ impl List {
     /// `s` on the selected todo item: bring it back if it's deferred, else ask for how long.
     pub(super) fn defer_key(&mut self) {
         let Some(it) = self.selected_item() else { return };
-        let what = if it.rep { crate::replace::label(it.number) } else { format!("#{}", it.number) };
+        let what = if it.is_rep() { crate::replace::label(it.number) } else { format!("#{}", it.number) };
         if it.deferred.is_some() {
             self.deferred.remove(&it.key());
             self.msg = format!("{what} is back");
@@ -616,7 +616,7 @@ impl List {
 
     /// What Claude would do on PR `n` from the todo tab (`a a`): what's due there, else review.
     pub(super) fn todo_task(&self, n: u64) -> batch::Task {
-        let it = self.todo.iter().find(|it| !it.rep && it.number == n);
+        let it = self.todo.iter().find(|it| !it.is_rep() && it.number == n);
         // Claude found its failing CI isn't its doing: `a a` has it look again all the same;
         // not over answering you or updating its review, nor over changes waiting to be pushed.
         let retry = it.is_some_and(|it| {

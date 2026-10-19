@@ -50,6 +50,18 @@ pub enum Need {
     NoReview,
     /// New commits or comments since you last looked.
     NewActivity,
+    /// An issue: a PR fixing it (this one) is merged, and it's still open: close it.
+    FixMerged(u64),
+    /// An issue Claude's triage would close: why.
+    WouldClose(String),
+    /// An issue assigned to you.
+    Assigned,
+    /// An issue a PR (this one) would fix: review that.
+    FixOpen(u64),
+    /// An issue changed since Claude triaged it: triage it again.
+    Retriage,
+    /// An issue Claude hasn't triaged.
+    Untriaged,
 }
 
 impl Need {
@@ -73,6 +85,12 @@ impl Need {
             Need::ClaudeComments(_) => 40,
             Need::NoReview => 30,
             Need::NewActivity => 20,
+            Need::FixMerged(_) => 78,
+            Need::WouldClose(_) => 58,
+            Need::Assigned => 56,
+            Need::FixOpen(_) => 45,
+            Need::Retriage => 36,
+            Need::Untriaged => 31,
         }
     }
 
@@ -125,15 +143,29 @@ impl Need {
             Need::ClaudeComments(n) => format!("{n} comment{} from Claude to go through", s(*n)),
             Need::NoReview => "no review from you yet".into(),
             Need::NewActivity => "new activity since you looked".into(),
+            Need::FixMerged(n) => format!("#{n}, which fixes it, is merged: close it"),
+            Need::WouldClose(why) => format!("Claude would close it: {why}"),
+            Need::Assigned => "assigned to you".into(),
+            Need::FixOpen(n) => format!("#{n} would fix it: review that"),
+            Need::Retriage => "changed since Claude triaged it (a a)".into(),
+            Need::Untriaged => "not triaged yet (a a)".into(),
         }
     }
 }
 
-/// A PR or replacement on the todo tab.
+/// What a todo item is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Kind {
+    Pr,
+    /// A replacement (its number is its own, its first original's).
+    Rep,
+    Issue,
+}
+
+/// A PR, replacement or issue on a todo tab.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Item {
-    /// A replacement (`number` is its own, its first original's).
-    pub rep: bool,
+    pub kind: Kind,
     pub number: u64,
     pub needs: Vec<Need>,
     /// What Claude should do on it first, if anything.
@@ -156,8 +188,18 @@ pub struct Item {
 }
 
 impl Item {
+    /// How it's kept (deferrals, rankings): `pr-12`, `rep-12`, `issue-12`.
     pub fn key(&self) -> String {
-        format!("{}-{}", if self.rep { "rep" } else { "pr" }, self.number)
+        let kind = match self.kind {
+            Kind::Pr => "pr",
+            Kind::Rep => "rep",
+            Kind::Issue => "issue",
+        };
+        format!("{kind}-{}", self.number)
+    }
+
+    pub fn is_rep(&self) -> bool {
+        self.kind == Kind::Rep
     }
 
     /// Its needs, as deferring it records them (it comes back early when they change).
@@ -381,8 +423,20 @@ pub fn order(mut items: Vec<Item>, ranked: Option<&Ranked>) -> (Vec<Item>, Since
     (out, since)
 }
 
-fn path() -> Option<std::path::PathBuf> {
-    crate::claude::dv_dir().ok().map(|d| d.join("todo.json"))
+/// Which todo list: dv list's PRs (and replacements), or dv issues' issues. Each has its own
+/// ranking.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Of {
+    Prs,
+    Issues,
+}
+
+fn path(of: Of) -> Option<std::path::PathBuf> {
+    let name = match of {
+        Of::Prs => "todo.json",
+        Of::Issues => "todo-issues.json",
+    };
+    crate::claude::dv_dir().ok().map(|d| d.join(name))
 }
 
 /// `s` seconds from now, to the nearest unit: "40s", "3m", "4h", "2d" (four hours just set
@@ -558,7 +612,16 @@ pub type Deferred = std::collections::HashMap<String, Deferral>;
 
 /// Where they're kept: `deferred.json` in dv's directory.
 pub fn deferred_path() -> Option<std::path::PathBuf> {
-    crate::claude::dv_dir().ok().map(|d| d.join("deferred.json"))
+    deferred_path_of(Of::Prs)
+}
+
+/// Where `of`'s deferrals are kept (each list its own: neither writes over the other's).
+pub fn deferred_path_of(of: Of) -> Option<std::path::PathBuf> {
+    let name = match of {
+        Of::Prs => "deferred.json",
+        Of::Issues => "deferred-issues.json",
+    };
+    crate::claude::dv_dir().ok().map(|d| d.join(name))
 }
 
 /// What's deferred (in file `p`), the expired ones gone.
@@ -636,15 +699,20 @@ pub fn interpret(text: String, root: std::path::PathBuf) -> Receiver<Result<Unti
 
 /// The last ranking (`todo.json` in dv's directory), if any.
 pub fn load() -> Option<Ranked> {
-    let v: Value = serde_json::from_str(&std::fs::read_to_string(path()?).ok()?).ok()?;
+    load_of(Of::Prs)
+}
+
+/// The last ranking of `of`.
+pub fn load_of(of: Of) -> Option<Ranked> {
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(path(of)?).ok()?).ok()?;
     let items = v["items"].as_array()?.iter().map(|i| (i["key"].as_str().unwrap_or("").to_owned(), i["says"].as_str().unwrap_or("").to_owned())).collect();
     let waits = v["waits"].as_object().into_iter().flatten().filter_map(|(k, w)| Some((k.clone(), Until::from_json(w)?))).collect();
     Some(Ranked { at: v["at"].as_i64().unwrap_or(0), cost: v["cost"].as_f64().unwrap_or(0.0), fingerprint: v["fingerprint"].as_str().unwrap_or("").to_owned(), items, waits })
 }
 
-fn save(r: &Ranked) -> Result<()> {
+fn save(r: &Ranked, of: Of) -> Result<()> {
     let items: Vec<Value> = r.items.iter().map(|(k, s)| json!({ "key": k, "says": s })).collect();
-    let p = path().context("no dv directory")?;
+    let p = path(of).context("no dv directory")?;
     std::fs::create_dir_all(p.parent().unwrap_or(&p))?;
     let waits: serde_json::Map<String, Value> = r.waits.iter().map(|(k, w)| (k.clone(), w.to_json())).collect();
     Ok(std::fs::write(p, json!({ "at": r.at, "cost": r.cost, "fingerprint": r.fingerprint, "items": items, "waits": waits }).to_string())?)
@@ -674,11 +742,17 @@ pub fn about(it: &Item, pr: &Listed, summary: &str) -> String {
 /// Claude puts `lines` (from `about`) in order, in the background, and the ranking is saved;
 /// `fingerprint` is what it's of. It only reads (the PRs, on GitHub).
 pub fn rank(lines: Vec<String>, fingerprint: String, root: std::path::PathBuf) -> Receiver<Result<Ranked>> {
+    rank_of(lines, fingerprint, root, Of::Prs)
+}
+
+/// Claude ranks `of`'s items (`lines`, as `about` / `about_issue` put each), in the background;
+/// kept as `of`'s last ranking.
+pub fn rank_of(lines: Vec<String>, fingerprint: String, root: std::path::PathBuf, of: Of) -> Receiver<Result<Ranked>> {
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
-        let res = ask(&lines, &root).map(|((items, waits), cost)| Ranked { at: crate::claude::now_secs(), cost, fingerprint, items, waits });
+        let res = ask(&lines, &root, of).map(|((items, waits), cost)| Ranked { at: crate::claude::now_secs(), cost, fingerprint, items, waits });
         if let Ok(r) = &res {
-            _ = save(r);
+            _ = save(r, of);
         }
         _ = tx.send(res);
     });
@@ -688,22 +762,35 @@ pub fn rank(lines: Vec<String>, fingerprint: String, root: std::path::PathBuf) -
 type Order = (Vec<(String, String)>, std::collections::HashMap<String, Until>);
 
 /// Claude's order and the waits it saw, and what it cost.
-fn ask(lines: &[String], root: &std::path::Path) -> Result<(Order, f64)> {
+fn ask(lines: &[String], root: &std::path::Path, of: Of) -> Result<(Order, f64)> {
     let notes = crate::claude::notes_preamble();
+    let (what, judge, key) = match of {
+        Of::Prs => (
+            "These open PRs (and replacements: PRs you drafted to replace others) are waiting on me",
+            "fixes for bugs and security over refactors and features; contributors who've waited longest; quick ones \
+             first among equals; a PR that blocks others before them. Read a PR (`gh pr view N`) only where its line \
+             isn't enough to judge. If a PR's conversation (`gh pr view N --comments`, where you read it)",
+            "pr-12",
+        ),
+        Of::Issues => (
+            "These open issues are waiting on me (to triage, decide on, close, or get fixed)",
+            "bugs users hit and security over features and chores; what Claude's triage says (its priority, whether to \
+             close it); one a merged PR already fixes first (quick to close); issues that block others before them. \
+             Read an issue (`gh issue view N`) only where its line isn't enough to judge. If an issue's conversation \
+             (`gh issue view N --comments`, where you read it)",
+            "issue-12",
+        ),
+    };
     let prompt = format!(
-        "{notes}I maintain this repo. These open PRs (and replacements: PRs you drafted to replace others) are \
-         waiting on me, one JSON object each, with what each needs from me:\n{}\n\n\
-         Put them in the order I should take them, most important first. Judge what matters: fixes for bugs and \
-         security over refactors and features; contributors who've waited longest; quick ones first among equals; \
-         a PR that blocks others before them. Read a PR (`gh pr view N`) only where its line isn't enough to judge. \
-         Change nothing. If a PR's conversation (`gh pr view N --comments`, where you read it) says it's waiting on \
-         something dv can watch for, add \"waits_on\", one of: {{\"merged\": N}}, {{\"closed\": N}}, {{\"green\": true}}, \
-         {{\"approved\": \"login\"}}, {{\"reviewed\": \"login\"}}. Reply with only a JSON array, every key exactly once, \
-         no other text: [{{\"key\": \"pr-12\", \"reason\": \"why it's here, a few words\", \"next\": \"what I should do, \
-         a few words\"}}]",
+        "{notes}I maintain this repo. {what}, one JSON object each, with what each needs from me:\n{}\n\n\
+         Put them in the order I should take them, most important first. Judge what matters: {judge} says it's \
+         waiting on something dv can watch for, add \"waits_on\", one of: {{\"merged\": N}}, {{\"closed\": N}}, \
+         {{\"green\": true}}, {{\"approved\": \"login\"}}, {{\"reviewed\": \"login\"}}. Change nothing. Reply with only \
+         a JSON array, every key exactly once, no other text: [{{\"key\": \"{key}\", \"reason\": \"why it's here, a \
+         few words\", \"next\": \"what I should do, a few words\"}}]",
         lines.join("\n")
     );
-    let tools = ["Bash(gh pr view:*)", "Bash(gh pr diff:*)"];
+    let tools = ["Bash(gh pr view:*)", "Bash(gh pr diff:*)", "Bash(gh issue view:*)"];
     let out = crate::claude::claude_reader(&prompt, root, &tools).stdin(std::process::Stdio::null()).output()?;
     let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
     anyhow::ensure!(v["is_error"] == false, "Claude couldn't rank them ({})", out.status);
@@ -884,7 +971,7 @@ mod tests {
         assert!(needs(&facts(leak(pr(13, "amy")), Some(leak(e)), None)).0.contains(&Need::ApproveRuns(2)));
         assert_eq!(Need::ApproveRuns(1).says(), "1 workflow run awaiting approval: approve it (W W)");
         // With Claude's reason on the card, what holds the PR up goes first, in short.
-        let it = Item { rep: false, number: 1, needs: vec![Need::ApproveRuns(3), Need::ChecksFailing(2, false), Need::NoReview], claude: None, updated: String::new(), reason: Some("bug fix — review".into()), changed: false, deferred: None, busy: None, waits: None };
+        let it = Item { kind: crate::todo::Kind::Pr, number: 1, needs: vec![Need::ApproveRuns(3), Need::ChecksFailing(2, false), Need::NoReview], claude: None, updated: String::new(), reason: Some("bug fix — review".into()), changed: false, deferred: None, busy: None, waits: None };
         assert_eq!(it.tags(), ["⏸ 3 runs to approve (W W)", "✗ 2 checks failing"]);
         assert_eq!(it.says().split(" · ").count(), 3);
         // Conflicting with its base: ask for a rebase (or, yours, do it).
@@ -910,7 +997,7 @@ mod tests {
 
     #[test]
     fn ordering() {
-        let it = |n, needs: Vec<Need>, updated: &str| Item { rep: false, number: n, needs, claude: None, updated: updated.into(), reason: None, changed: false, deferred: None, busy: None, waits: None };
+        let it = |n, needs: Vec<Need>, updated: &str| Item { kind: crate::todo::Kind::Pr, number: n, needs, claude: None, updated: updated.into(), reason: None, changed: false, deferred: None, busy: None, waits: None };
         let items = vec![it(1, vec![Need::NoReview], "b"), it(2, vec![Need::ReviewRequested], "c"), it(3, vec![Need::NoReview], "a")];
         // Rules: the most pressing first, then the longest waiting.
         let (o, since) = order(items.clone(), None);
@@ -993,7 +1080,7 @@ mod tests {
 
     #[test]
     fn deferring() {
-        let it = |n, needs: Vec<Need>| Item { rep: false, number: n, needs, claude: None, updated: String::new(), reason: None, changed: false, deferred: None, busy: None, waits: None };
+        let it = |n, needs: Vec<Need>| Item { kind: crate::todo::Kind::Pr, number: n, needs, claude: None, updated: String::new(), reason: None, changed: false, deferred: None, busy: None, waits: None };
         let items = vec![it(1, vec![Need::ReadyToMerge]), it(2, vec![Need::NoReview])];
         let d: Deferred = [("pr-1".to_owned(), Deferral { until: 200, needs: items[0].needs_key(), cond: None })].into();
         // Deferred: to the end, marked, until then.
