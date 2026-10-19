@@ -209,7 +209,8 @@ impl App {
                                 let links = url.iter().map(|u| (9, title.chars().count(), u.clone())).collect();
                                 rows.push(fact(Row { links, ..mk(Kind::Thread, title.into()) }));
                             }
-                            rows.push(fact(self.info_row(l, mk(Kind::Comment, l.text.clone()))));
+                            // Not wrapped: cut at the box's edge and scrolled sideways, as code is.
+                            rows.push(fact(Row { nowrap: true, ..self.info_row(l, mk(Kind::Comment, l.text.clone())) }));
                             if ii + 1 == facts {
                                 rows.push(Row { edge: true, ..fact(mk(Kind::Comment, String::new())) });
                             }

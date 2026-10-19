@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Fixed
+- A long line of the PR's facts (its branches, say) ran past the box, hiding its edge: it's cut
+  there with `›` now, and scrolls sideways as the cursor moves along it, as code in comments
+  does.
+
 ### Added
 - `Space g` → "Rerun the failed checks" when the PR's checks fail: their failed jobs, on
   GitHub (a flaky test, a network blip).
