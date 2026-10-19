@@ -5,6 +5,21 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.23] - 2026-10-19
+
+### Fixed
+- A new PR drafted for CI is based on the remote's default branch, asked of the remote if git
+  doesn't know it (it was "master" on a remote added by hand).
+- The cursor on a comment in the PR's text stays on it when a refresh adds a line before it.
+- A pane closed from zellij while you write beside dv is noticed even when zellij doesn't say
+  the pane's id.
+- The tabs' counts are what each tab's view shows, questions about a commit too.
+
+### Changed
+- Leaving dv while you write beside it is held wherever it's asked from (one place), not
+  only by `q`, Ctrl-c and merging.
+- Which reactions are yours is fetched for older comments and reviews at once.
+
 ## [0.34.22] - 2026-10-19
 
 ### Fixed
