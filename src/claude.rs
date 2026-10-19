@@ -44,6 +44,23 @@ use std::path::PathBuf;
 mod run;
 pub(crate) use run::*;
 
+impl Thread {
+    /// Claude's own comment (from its review file), not one you left for it.
+    pub fn by_claude(&self) -> bool {
+        self.claude.is_some() && self.comments.first().is_some_and(|c| c.author == AUTHOR)
+    }
+
+    /// An open thread of the review file where you had the last word: Claude's turn.
+    pub fn waiting(&self) -> bool {
+        self.claude.is_some() && !self.resolved && self.comments.last().is_some_and(|c| c.author == "you")
+    }
+
+    /// An open thread of the review file where Claude has answered you: your turn.
+    pub fn answered(&self) -> bool {
+        self.claude.is_some() && !self.resolved && !self.waiting() && self.comments.iter().any(|c| c.author == "you")
+    }
+}
+
 /// Author names in the file. The user's replies show as "you".
 pub const AUTHOR: &str = "claude";
 const USER: &str = "user";

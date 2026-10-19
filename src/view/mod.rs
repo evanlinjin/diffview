@@ -26,7 +26,6 @@ mod amend;
 mod rebase;
 mod replacement;
 mod seen;
-pub(crate) use agent::{claude_wrote, turn};
 mod build;
 mod compose;
 use compose::*;

@@ -296,7 +296,7 @@ impl App {
         if let (Some(p), Ok(h)) = (&mut self.pr, diff::git(&["rev-parse", "HEAD"])) {
             p.head_oid = h.trim().to_owned();
         }
-        let next = match self.threads.iter().any(agent::claude_wrote) {
+        let next = match self.threads.iter().any(Thread::by_claude) {
             true => " · Space a → Update Claude's review looks at just what's new",
             false => "",
         };

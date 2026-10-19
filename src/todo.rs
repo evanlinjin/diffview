@@ -259,7 +259,7 @@ pub fn needs(f: &Facts) -> (Vec<Need>, Option<Task>) {
     }
     let threads = f.review.map_or(&[][..], |r| r.threads.as_slice());
     let count = |p: &dyn Fn(&crate::gh::Thread) -> bool| threads.iter().filter(|t| p(t)).count();
-    let answered = count(&|t| crate::view::turn(t) == Some("[answered] "));
+    let answered = count(&|t| t.answered());
     if answered > 0 {
         out.push(Need::ClaudeAnswered(answered));
     }
@@ -279,7 +279,7 @@ pub fn needs(f: &Facts) -> (Vec<Need>, Option<Task>) {
     if f.review.is_some() && f.review_changed.is_some_and(|c| c > f.looked.unwrap_or(0)) {
         out.push(Need::ClaudeReviewNew);
     }
-    let open = count(&|t| crate::view::claude_wrote(t) && !t.resolved && !t.comments.iter().any(|c| c.author == "you"));
+    let open = count(&|t| t.by_claude() && !t.resolved && !t.comments.iter().any(|c| c.author == "you"));
     if open > 0 {
         out.push(Need::ClaudeComments(open));
     }
@@ -291,7 +291,7 @@ pub fn needs(f: &Facts) -> (Vec<Need>, Option<Task>) {
         out.push(Need::NewActivity);
     }
     // Claude's part: your replies waiting on it, a review behind the PR, or none yet.
-    let waiting = count(&|t| crate::view::turn(t) == Some("[waiting] "));
+    let waiting = count(&|t| t.waiting());
     let claude = match f.review {
         // Your PR's CI failing (a draft too: a published replacement's, say): Claude looks into
         // it and fixes it here, for you to push. Not again while its changes wait on you.

@@ -270,7 +270,7 @@ impl App {
     pub(super) fn submit_notes(&self) -> Vec<String> {
         let count = |f: &dyn Fn(&Thread) -> bool| self.threads.iter().filter(|t| f(t)).count();
         let open = count(&|t| t.claude.is_some() && !t.resolved && !t.outdated);
-        let answered = count(&|t| agent::turn(t) == Some("[answered] "));
+        let answered = count(&|t| t.answered());
         let github = count(&|t| t.claude.is_none() && !t.resolved && !t.outdated && !t.comments.iter().all(|c| c.pending));
         let stale = count(&|t| t.outdated && t.comments.iter().any(|c| c.pending));
         let head = diff::git(&["rev-parse", "HEAD"]).unwrap_or_default();
@@ -395,7 +395,7 @@ impl App {
             self.load_claude();
             self.rebuild(keep);
             if self.msg.is_empty() {
-                let n = self.threads.iter().filter(|t| agent::claude_wrote(t)).count();
+                let n = self.threads.iter().filter(|t| t.by_claude()).count();
                 self.msg = format!("Claude's review updated: {n} comment(s)");
             }
         }
@@ -423,7 +423,7 @@ impl App {
     /// post it now. Claude's copy is dismissed once it's on GitHub.
     pub(super) fn start_promote(&mut self, t: usize, key: String, review: bool) {
         let th = &self.threads[t];
-        if !agent::claude_wrote(th) {
+        if !th.by_claude() {
             return self.msg = "this is your comment for Claude (private): r replies, Space d removes it".into();
         }
         if th.outdated {

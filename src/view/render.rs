@@ -156,7 +156,7 @@ impl App {
         }
         if let Some(t) = row.thread {
             let t = &self.threads[t];
-            return Some(match (t.claude.is_some(), agent::claude_wrote(t), t.outdated) {
+            return Some(match (t.claude.is_some(), t.by_claude(), t.outdated) {
                 // Yours for Claude: private, so nothing here goes to GitHub.
                 (true, false, _) => ("your comment for Claude", &[("r", "reply"), ("Space r", "resolve"), ("Space d", "remove"), ("Tab", "fold")]),
                 (true, true, true) => ("Claude's comment (outdated)", &[("r", "reply to Claude"), ("Space d", "dismiss"), ("Tab", "fold")]),
@@ -1205,7 +1205,7 @@ impl App {
             0 if self.review.is_none() => String::new(),
             n => format!(" · {n} pending (S submits)"),
         };
-        let claude = self.threads.iter().filter(|t| agent::claude_wrote(t)).count();
+        let claude = self.threads.iter().filter(|t| t.by_claude()).count();
         let review_file = self.threads.iter().filter(|t| t.claude.is_some()).count();
         let seen = self.files.iter().filter(|f| self.viewed.get(&f.path).is_some_and(|s| s == "VIEWED")).count();
         let on_github = self.files.iter().filter(|f| f.meta != "untracked").count(); // what "viewed" can be of

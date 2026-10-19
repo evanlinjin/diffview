@@ -455,7 +455,7 @@ impl App {
             let Some((first, last)) = self.code_span(t) else { continue };
             let th = &self.threads[t];
             let open = !th.stale();
-            let dot = match (open, agent::claude_wrote(th)) {
+            let dot = match (open, th.by_claude()) {
                 (false, _) => MARK_STALE_DOT,
                 (true, true) => MARK_CLAUDE_DOT,
                 (true, false) => MARK_DOT,

@@ -35,24 +35,19 @@ pub(super) struct ClaudeJob {
     pub(super) started: std::time::Instant,
 }
 
-/// Whether thread `t` is Claude's own comment (from its review file), not one you left for it.
-pub(crate) fn claude_wrote(t: &Thread) -> bool {
-    t.claude.is_some() && t.comments.first().is_some_and(|c| c.author == crate::claude::AUTHOR)
-}
-
 /// On a thread waiting for Claude: what you want of it (`[change]` …), when you said.
 pub(crate) fn want_tag(t: &Thread) -> Option<&'static str> {
     let tag = ask::WANTS.iter().find(|w| w.0 == t.want)?.1;
-    (turn(t) == Some("[waiting] ")).then_some(tag)
+    t.waiting().then_some(tag)
 }
 
-/// Whose turn it is on an open thread of the review file: Claude's (`[waiting]`: you had the
-/// last word), or yours once Claude has answered you (`[answered]`).
-pub(crate) fn turn(t: &Thread) -> Option<&'static str> {
-    let last = t.comments.last().filter(|_| t.claude.is_some() && !t.resolved)?;
-    match last.author == "you" {
-        true => Some("[waiting] "),
-        false => t.comments.iter().any(|c| c.author == "you").then_some("[answered] "),
+/// Whose turn it is on an open thread of the review file, as its tag: `[waiting]` (Claude's),
+/// `[answered]` (yours).
+pub(super) fn turn(t: &Thread) -> Option<&'static str> {
+    match (t.waiting(), t.answered()) {
+        (true, _) => Some("[waiting] "),
+        (_, true) => Some("[answered] "),
+        _ => None,
     }
 }
 
@@ -141,14 +136,14 @@ impl App {
     pub(super) fn edits(&self, ask: Ask) -> bool {
         match ask {
             Ask::Describe | Ask::Close => false,
-            Ask::Answer => self.threads.iter().any(|t| turn(t) == Some("[waiting] ") && t.want == "change"),
+            Ask::Answer => self.threads.iter().any(|t| t.waiting() && t.want == "change"),
             _ => true,
         }
     }
 
     /// Replies of yours that Claude hasn't answered yet.
     pub(super) fn waiting_replies(&self) -> usize {
-        self.threads.iter().filter(|t| turn(t) == Some("[waiting] ")).count()
+        self.threads.iter().filter(|t| t.waiting()).count()
     }
 
     /// The commit Claude last reviewed, if there's been more since that build on it (a push,
@@ -164,7 +159,7 @@ impl App {
     /// What "make the changes" acts on: the review file's open comments, Claude's and the ones
     /// you left it (`a`), not resolved or outdated. The one place that's decided.
     pub(super) fn change_requests(&self) -> usize {
-        self.threads.iter().filter(|t| t.claude.is_some() && !t.resolved && !t.outdated && (claude_wrote(t) || !matches!(t.want.as_str(), "ask" | "suggest"))).count()
+        self.threads.iter().filter(|t| t.claude.is_some() && !t.resolved && !t.outdated && (t.by_claude() || !matches!(t.want.as_str(), "ask" | "suggest"))).count()
     }
 
     /// Why Claude can't take a request right now (checked before asking you for instructions,
@@ -201,7 +196,7 @@ impl App {
         if self.claude.path.is_none() {
             return self.msg = "no review file here (not in a git repo?)".into();
         }
-        let has_review = self.threads.iter().any(claude_wrote) || !self.claude.summary.is_empty();
+        let has_review = self.threads.iter().any(Thread::by_claude) || !self.claude.summary.is_empty();
         let review = match (has_review, self.reviewed_before()) {
             (true, Some(old)) => format!("Update Claude's review: what changed since it reviewed {}", &old[..old.len().min(8)]),
             (true, None) => "Update Claude's review (keeps comments that still apply, and your replies)".into(),
@@ -445,7 +440,7 @@ impl App {
 
     /// The ids of Claude's own comments whose code has changed (not your comments for it).
     pub(super) fn outdated_claude_comments(&self) -> Vec<String> {
-        self.threads.iter().filter(|t| claude_wrote(t) && t.outdated).filter_map(|t| t.claude.clone()).collect()
+        self.threads.iter().filter(|t| t.by_claude() && t.outdated).filter_map(|t| t.claude.clone()).collect()
     }
 
     /// From the `Space a` menu: dismiss every outdated comment of Claude's, after a confirmation

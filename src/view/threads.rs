@@ -104,7 +104,7 @@ impl App {
         let threads = &self.threads;
         let each = |keep: &dyn Fn(&Thread) -> bool| (0..threads.len()).filter(|&t| keep(&threads[t])).map(|t| (t, 0)).collect();
         let (items, none) = match what {
-            'a' => (each(&agent::claude_wrote), "no comments from Claude (Space a asks for a review)"),
+            'a' => (each(&Thread::by_claude), "no comments from Claude (Space a asks for a review)"),
             'n' => (each(&|t| self.is_new(t)), "nothing new: you've seen every comment"),
             'u' => (each(&|t| !t.resolved), "no unresolved comments"),
             'p' => {

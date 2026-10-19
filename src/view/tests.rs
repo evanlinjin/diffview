@@ -757,7 +757,7 @@ fn your_comments_for_claude_stay_private() {
     assert_eq!(app.context_keys().unwrap().0, "your comment for Claude");
     app.key(KeyEvent::new(KeyCode::Char('C'), KeyModifiers::NONE));
     assert!(app.action.is_none() && app.msg.contains("private"));
-    assert!(!agent::claude_wrote(&app.threads[0]));
+    assert!(!app.threads[0].by_claude());
     assert_eq!(app.change_requests(), 1); // but it's a request "make the changes" acts on
     // `a` across removed and added lines is refused: line numbers are per side.
     let del = app.rows.iter().position(|r| r.line.kind == Kind::Del).unwrap();
@@ -2730,7 +2730,7 @@ fn a_stopped_rebase_holds_only_what_changes_code() {
     assert!(app.claude_blocked(Some(agent::Ask::Fix)).is_some() && app.claude_blocked(None).is_some());
     assert!(app.claude_blocked(Some(agent::Ask::Describe)).is_none());
     // Answering: held only when a reply waiting wants a change.
-    assert_eq!(app.edits(agent::Ask::Answer), app.threads.iter().any(|t| agent::turn(t) == Some("[waiting] ") && t.want == "change"));
+    assert_eq!(app.edits(agent::Ask::Answer), app.threads.iter().any(|t| t.waiting() && t.want == "change"));
     std::fs::remove_dir_all(dir).unwrap();
 }
 
