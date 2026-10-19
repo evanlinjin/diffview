@@ -1137,7 +1137,7 @@ fn new_until_seen() {
     app.seen.keys.clear();
     app.load_seen();
     assert_eq!(new(&app), [false, true, false]);
-    app.new_picker();
+    app.threads_picker(THREADS_NEW);
     let items = &app.picker.as_ref().unwrap().items;
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].label, "src/a.rs:2  1 reply · [new] [waiting] @claude");
@@ -1324,7 +1324,7 @@ fn replacement_in_the_pr_section() {
     assert_eq!(items[0].0, "Published as PR #20");
     assert!(items[1].0 == "Close #15 with the closing note (now)…" && matches!(items[1].1, Target::CloseOriginals));
     assert_eq!(app.header_tag(INFO).unwrap().0, " PUBLISHED ");
-    assert_eq!(app.pane_tabs().len(), 3); // others comment now
+    assert_eq!(app.pane_tabs().len(), 4); // others comment now
     let replaces = app.rows.iter().position(|r| r.line.text.starts_with("replaces")).unwrap();
     assert!(app.pr_row(replaces)); // on the PR tab again
     let row = app.rows.iter().find(|r| r.line.text == "published as PR #20").unwrap();
@@ -1481,7 +1481,7 @@ fn screens() {
     app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
     shot("ctrl_w_popup", &mut app, 100, 30);
     let mut app = fixture();
-    app.threads_picker();
+    app.threads_picker(THREADS_ALL);
     shot("threads_picker", &mut app, 100, 30);
     let mut app = fixture();
     app.goto_comment(0, 0);
@@ -1535,7 +1535,7 @@ fn github_changes_shown_when_idle() {
     // Mid-way through something (here a picker): it waits. (What's shown came from the cache.)
     (app.github_stale, app.msg) = (true, review::STALE.into());
     tx.send((0, fetched(newer.clone()))).unwrap();
-    app.threads_picker();
+    app.threads_picker(THREADS_ALL);
     assert!(app.picker.is_some());
     app.watch_github();
     assert_eq!(replies(&app), 0);
@@ -2295,7 +2295,7 @@ fn claude_tab_is_the_claude_view() {
     let mut app = fixture();
     app.claude.summary = "Looks right; one nit.\n\nSecond paragraph.\n\nThird, which a two-line strip would cut.".into();
     _ = screen(220, 30, |f| app.draw(f));
-    // gn goes round: Comments, Claude, PR.
+    // gn goes round: Comments, Claude, Pending, PR.
     assert_eq!(app.bar(), Bar::Comments);
     app.cycle_bar(true);
     assert_eq!((app.bar(), app.view), (Bar::Claude, View::Claude));
@@ -2307,12 +2307,16 @@ fn claude_tab_is_the_claude_view() {
     assert!(text.iter().any(|t| t.starts_with("Third")), "{text:?}");
     assert!(app.summary_strip(60).iter().all(|row| !row.iter().any(|s| s.content.contains("claude"))));
     app.cycle_bar(true);
+    assert_eq!((app.bar(), app.view), (Bar::Pending, View::Pending)); // your pending review
+    app.cycle_bar(true);
     assert_eq!((app.bar(), app.view), (Bar::Pr, View::All)); // the PR's text beside the whole diff
     app.cycle_bar(true);
     assert_eq!((app.bar(), app.view), (Bar::Comments, View::All));
     // A click on a tab does the same.
     app.bar_to(Bar::Claude);
     assert_eq!(app.view, View::Claude);
+    app.bar_to(Bar::Pending);
+    assert_eq!(app.view, View::Pending);
     app.bar_to(Bar::Comments);
     assert_eq!(app.view, View::All);
 }

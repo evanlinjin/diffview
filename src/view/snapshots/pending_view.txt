@@ -1,4 +1,4 @@
-          PR #7 · Fix the thing  @bo · main ← amy  Comments  Claude  PR                          gn
+          PR #7 · Fix the thing  @bo · main ← amy  Comments  Claude  Pending  PR                 gn
  ▾        src/a.rs  +1 −1  · 1 comment            ╭─ review summary ───────────────────────────────╮
           ── fn main ──────────────────────────── │ you     Nearly there.                          │
   1   1   fn main() {                             ╰────────────────────────────────────────────────╯

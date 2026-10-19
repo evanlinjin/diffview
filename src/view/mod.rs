@@ -90,7 +90,6 @@ VIEW
   Ctrl-w ,  Ctrl-w .   the pane you're in narrower / wider (Ctrl-w = usual width)
   Ctrl-w q             hide the pane you're in (files' list or comments)
   Ctrl-w a             Claude view: only Claude's review and the code it's about
-  Ctrl-w p             pending view: only your pending review and the code it's about
   Enter                open hx at cursor (on a link: open it)
   gf                   open the link under the cursor, or go to the file:line under it
                        (as comments cite code) or to where the function / type named
@@ -128,7 +127,8 @@ ON CLAUDE'S REVIEW (its summary)
 
 REVIEW
   S                    submit (comment / approve / request changes), or discard
-  Space g              git: show only what isn't committed (Claude's changes), commit, push
+  Space g              git: show only what isn't committed (Claude's changes), commit, push,
+                       update the checkout (to the PR's head, or git pull)
   Space p  Space t     pick from your pending comments (Ctrl-d deletes) / all threads
   Space v              mark the file viewed (folds it, moves on)
   Space a              ask Claude Code to review, answer your replies, or make the changes
@@ -139,7 +139,6 @@ REVIEW
 GENERAL
   ?                    this help (/ to search it)
   R                    refresh (git diff + GitHub)
-  Space u              update the checkout: to the PR's head (fast-forward only), or git pull
   Space m              messages so far, in full (the status bar cuts long ones)
   mouse                wheel scrolls, click moves (or folds, on an arrow), drag selects
   q, Ctrl-c            quit
@@ -259,6 +258,7 @@ enum Tab {
 enum Bar {
     Comments,
     Claude,
+    Pending,
     Pr,
 }
 
@@ -378,6 +378,8 @@ enum Target {
     ClaudeStop,
     GitView,
     GitCommit,
+    /// Update the checkout: to the PR's head (fast-forward only), or `git pull --ff-only`.
+    GitUpdate,
     GitPush,
     /// Force-push (with a lease): HEAD doesn't contain the PR's head (a rebase or amend here).
     GitForcePush,
@@ -422,6 +424,20 @@ impl Item {
         Item { label: label.into(), detail: vec![], target }
     }
 }
+
+/// The threads picker's titles, one per filter (Tab goes round them): its title says which.
+const THREAD_TABS: [&str; 5] = [
+    " threads: [all] unresolved pending Claude new ",
+    " threads: all [unresolved] pending Claude new ",
+    " threads: all unresolved [pending] Claude new ",
+    " threads: all unresolved pending [Claude] new ",
+    " threads: all unresolved pending Claude [new] ",
+];
+const THREADS_ALL: usize = 0;
+const THREADS_UNRESOLVED: usize = 1;
+const THREADS_PENDING: usize = 2;
+const THREADS_CLAUDE: usize = 3;
+const THREADS_NEW: usize = 4;
 
 struct Picker {
     title: &'static str,
@@ -630,7 +646,7 @@ pub struct App {
     theirs: bool,
     /// The Claude view (`Ctrl-w a`): only Claude's review: the PR's one-line summary, Claude's
     /// summary, and its comments with a few lines of code around each. The pending view
-    /// (`Ctrl-w p`): the same for your pending review.
+    /// (the `Pending` tab): the same for your pending review.
     view: View,
     /// The PR's state and its color (DRAFT, OPEN, …), at the right end of its header line.
     pr_state: Option<gh::State>,

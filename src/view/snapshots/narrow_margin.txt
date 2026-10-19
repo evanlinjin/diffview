@@ -1,4 +1,4 @@
-          PR #7 · Fix the thing  @bo · main ← amy  Comments  Claude  PR                          gn
+          PR #7 · Fix the thing  @bo · main ← amy  Comments  Claude  Pending  PR                 gn
  ▾        description                             ╭─ review summary ───────────────────────────────╮
           Fixes the thing, see new_call.          │ you     Nearly there.                          │
  ▾        src/big.rs  +1 −1  · 2 comments         ╰────────────────────────────────────────────────╯

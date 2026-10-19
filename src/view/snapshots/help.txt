@@ -1,6 +1,6 @@
           PR #7 · Fix the thing  @bo · main ← amy:fix          3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)
        ╭─ status ──────────────────────────────────────────────────────────────────────────────────────────────╮
-       │  OPEN @bo · m keys · / search · j/k scroll · other keys close                 1–44 / 129              │
+       │  OPEN @bo · m keys · / search · j/k scroll · other keys close                 1–44 / 127              │
        │  review: wait  MOVE                                                                    ┃              │
        ╰──────────────   h j k l, arrows      move (counts: 5j)                                 ┃ ─────────────╯
        ╭─ your review    w b e  W B E         word motions (select)                             ┃ ─────────────╮

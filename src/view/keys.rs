@@ -208,15 +208,14 @@ impl App {
         Some(match p {
             ' ' => ("space", &[
                 ("f", "file picker"),
-                ("t", "review threads"),
-                ("p", "your pending comments"),
-                ("A", "Claude's comments"),
-                ("n", "new comments (not seen yet)"),
+                ("t", "review threads (Tab: unresolved, pending, …)"),
+                ("p", "… your pending comments"),
+                ("A", "… Claude's comments"),
+                ("n", "… new comments (not seen yet)"),
                 ("a", "ask Claude: review / answer / make changes"),
                 ("k", "hover / preview link"),
                 ("v", "mark file viewed"),
-                ("u", "update checkout (git pull)"),
-                ("g", "git: uncommitted only / commit / push"),
+                ("g", "git: uncommitted only / commit / push / update"),
                 ("m", "messages, in full"),
                 ("r", "resolve thread"),
                 ("e", "edit your comment"),
@@ -253,7 +252,6 @@ impl App {
                 ("=", "the pane at its usual width"),
                 ("q", "hide the pane you're in (files / comments)"),
                 ("a", "Claude view: just Claude's review"),
-                ("p", "pending view: just your pending review"),
                 ("j", "the commits (in the files' list)"),
                 ("k", "the files (in the files' list)"),
                 ("h", "the pane to the left"),
@@ -308,7 +306,6 @@ impl App {
             ('z', 'b') => self.top = (self.hd() + so + 1).saturating_sub(self.height),
             (CTRL_W, 'v') => self.toggle_split(),
             (CTRL_W, 'a') => self.toggle_view(View::Claude),
-            (CTRL_W, 'p') => self.toggle_view(View::Pending),
             (CTRL_W, 'c') => {
                 let show = !self.margin_active;
                 self.margin_pref = Some(show);
@@ -383,18 +380,14 @@ impl App {
             (' ', 'r') => self.toggle_resolved(),
             (' ', 'e') => self.start_edit(),
             (' ', 'd') => self.start_delete(),
-            (' ', 'p') => self.pending_picker(),
-            (' ', 't') => self.threads_picker(),
+            (' ', 't') => self.threads_picker(THREADS_ALL),
+            (' ', 'p') => self.threads_picker(THREADS_PENDING),
             (' ', 'a') => self.claude_menu(),
-            (' ', 'A') => self.claude_picker(),
-            (' ', 'n') => self.new_picker(),
+            (' ', 'A') => self.threads_picker(THREADS_CLAUDE),
+            (' ', 'n') => self.threads_picker(THREADS_NEW),
             (' ', 'v') => self.toggle_viewed(),
             (' ', 'g') => self.git_menu(),
             (' ', 'm') => self.messages(),
-            (' ', 'u') => {
-                self.msg = "updating the checkout…".into();
-                self.job = Some(Job::Pull);
-            }
             ('f' | 't' | 'F' | 'T', c) => self.find_char(p, c),
             _ => {}
         }
@@ -421,8 +414,15 @@ impl App {
         let m = self.matches();
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
         let Some(p) = &mut self.picker else { return };
+        // The threads picker: Tab / Shift-Tab to the next / previous filter.
+        if let Some(tab) = THREAD_TABS.iter().position(|&t| t == p.title)
+            && matches!(k.code, KeyCode::Tab | KeyCode::BackTab)
+        {
+            let n = THREAD_TABS.len();
+            return self.threads_picker(if k.code == KeyCode::Tab { (tab + 1) % n } else { (tab + n - 1) % n });
+        }
         // In the pending comments picker, Ctrl-d deletes the selected one (after a confirmation).
-        if ctrl && k.code == KeyCode::Char('d') && p.title == " pending comments " {
+        if ctrl && k.code == KeyCode::Char('d') && p.title == THREAD_TABS[THREADS_PENDING] {
             if let Some(Target::Comment(ti, ci)) = m.get(p.sel).map(|&i| &p.items[i].target)
                 && let Some(c) = self.threads.get(*ti).and_then(|t| t.comments.get(*ci)).cloned()
             {
@@ -476,6 +476,10 @@ impl App {
                         Target::ClaudePane => self.show_claude_pane(),
                         Target::ClaudeCheck => self.check_claude(),
                         Target::ClaudeStop => self.stop_claude(),
+                        Target::GitUpdate => {
+                            self.msg = "updating the checkout…".into();
+                            self.job = Some(Job::Pull);
+                        }
                         Target::GitView => self.toggle_uncommitted(),
                         Target::GitCommit => self.action = Some(Action::Commit(self.commit_draft())),
                         Target::GitPush => (self.msg, self.job) = ("pushing…".into(), Some(Job::Push(false))),

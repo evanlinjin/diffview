@@ -1,6 +1,6 @@
           PR #7 · Fix the thing  @bo · main ← amy:fix
        ╭─ status ──────────────────────────────────────────────────────────────────────────────────╮
-       │  OP threads                                                             1 / 4             │
+       │  OP threads: [all] unresolved pending Claude new                        1 / 4             │
        │  re >                                                                                     │
        ╰──── src/big.rs:12  [nit] @claude                                              ────────────╯
        ╭─ yo   Name it new_value; see src/a.rs:2.                                      ────────────╮

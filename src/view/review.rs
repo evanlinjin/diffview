@@ -202,7 +202,7 @@ impl App {
         }
     }
 
-    /// `Space u`: on a PR, up to its head as `gh pr checkout` does (fast-forward only: a branch
+    /// `Space g` → update the checkout: on a PR, up to its head as `gh pr checkout` does (fast-forward only: a branch
     /// with commits that aren't on the PR is left as it is, and said so); else `git pull
     /// --ff-only`. Local changes in the way are git's to refuse, so nothing is overwritten.
     fn pull(&self) -> Result<String> {
@@ -787,24 +787,34 @@ impl App {
         self.show_locations(locs);
     }
 
-    /// `Space p`: a picker of the comments in your pending review.
-    /// `Space t`: a picker of every review thread, with its state, author, gist and replies.
-    pub(super) fn threads_picker(&mut self) {
-        self.threads_picker_of(" threads ", |_, _| true, "no review threads");
+    /// `Space t` (and `Space p` / `A` / `n` on their filter): the review threads, with their
+    /// state, author, gist and replies; Tab / Shift-Tab go round the filters (`THREAD_TABS`):
+    /// all, unresolved, your pending comments (each one: `Ctrl-d` deletes it), Claude's, the
+    /// new ones. What's typed stays across them.
+    pub(super) fn threads_picker(&mut self, tab: usize) {
+        let query = self.picker.as_ref().filter(|p| THREAD_TABS.contains(&p.title)).map(|p| p.query.clone()).unwrap_or_default();
+        let (mut items, none) = match tab {
+            THREADS_UNRESOLVED => (self.thread_items(|t| !t.resolved), "no unresolved threads"),
+            THREADS_PENDING => (self.pending_items(), "no pending comments (c queues one)"),
+            THREADS_CLAUDE => (self.thread_items(|t| t.claude.is_some()), "no comments from Claude (Space a asks for a review)"),
+            THREADS_NEW => (self.thread_items(|t| self.is_new(t)), "nothing new: you've seen every comment"),
+            _ => (self.thread_items(|_| true), "no review threads"),
+        };
+        if items.is_empty() {
+            items.push(Item::new(none, Target::Nothing));
+        }
+        if tab == THREADS_PENDING {
+            self.msg = "Enter jumps there · Ctrl-d deletes it".into();
+        }
+        self.picker = Some(Picker { title: THREAD_TABS[tab], items, query, sel: 0 });
     }
 
-    /// `Space A`: Claude's comments, `[waiting]` where your reply hasn't been answered,
-    /// `[answered]` where Claude has answered you (type either to pick from just those).
-    pub(super) fn claude_picker(&mut self) {
-        self.threads_picker_of(" Claude's comments ", |_, t| t.claude.is_some(), "no comments from Claude (Space a asks for a review)");
-    }
-
-    fn threads_picker_of(&mut self, title: &'static str, keep: impl Fn(usize, &Thread) -> bool, none: &str) {
-        let items: Vec<Item> = self
-            .threads
+    /// A card per thread that `keep`s: where, what state, who; then the start of what was said.
+    fn thread_items(&self, keep: impl Fn(&Thread) -> bool) -> Vec<Item> {
+        self.threads
             .iter()
             .enumerate()
-            .filter(|&(ti, t)| keep(ti, t))
+            .filter(|(_, t)| keep(t))
             .filter_map(|(ti, t)| {
                 let c = t.comments.first()?;
                 let line = t.line.or(t.original_line).map_or(String::new(), |n| format!(":{n}"));
@@ -827,24 +837,14 @@ impl App {
                     1 => "1 reply · ".into(),
                     n => format!("{n} replies · "),
                 };
-                // A card: where, what state, who; then the start of what was said.
                 let label = format!("{}{line}  {replies}{tags}@{}", t.path, c.author);
                 Some(Item { detail: self.snippet(&c.body, 2), ..Item::new(label, Target::Comment(ti, 0)) })
             })
-            .collect();
-        match items.is_empty() {
-            true => self.msg = none.into(),
-            false => self.picker = Some(Picker { title, items, query: String::new(), sel: 0 }),
-        }
+            .collect()
     }
 
-    /// `Space n`: the threads with comments you haven't seen.
-    pub(super) fn new_picker(&mut self) {
-        let new: HashSet<usize> = (0..self.threads.len()).filter(|&t| self.is_new(&self.threads[t])).collect();
-        self.threads_picker_of(" new comments ", |ti, _| new.contains(&ti), "nothing new: you've seen every comment");
-    }
-
-    pub(super) fn pending_picker(&mut self) {
+    /// Each comment of your pending review (replies too).
+    fn pending_items(&self) -> Vec<Item> {
         let mut items = vec![];
         for (ti, t) in self.threads.iter().enumerate() {
             for (ci, c) in t.comments.iter().enumerate().filter(|(_, c)| c.pending) {
@@ -858,13 +858,7 @@ impl App {
                 items.push(Item { detail: self.snippet(&c.body, 2), ..item });
             }
         }
-        match items.is_empty() {
-            true => self.msg = "no pending comments".into(),
-            false => self.picker = Some(Picker { title: " pending comments ", items, query: String::new(), sel: 0 }),
-        }
-        if self.picker.is_some() {
-            self.msg = "Enter jumps there · Ctrl-d deletes it".into();
-        }
+        items
     }
 
     /// `]a` / `[a`: the next / previous Claude comment.

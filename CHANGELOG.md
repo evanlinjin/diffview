@@ -6,6 +6,11 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Changed
+- One threads picker: `Space t`, with filters `Tab` / `Shift-Tab` go round (all, unresolved,
+  pending, Claude, new); `Space p`, `Space A` and `Space n` open it on theirs.
+- The pending view is the comments pane's `Pending` tab (between `Claude` and `PR`), not
+  `Ctrl-w p`.
+- Updating the checkout (`Space u`) is in `Space g` now: "Update the checkout".
 - Todo: a PR with CI still running goes after what you can act on now (before what Claude's
   at), and back up once CI is done.
 - A comment or reply for Claude (`a` on lines, `r` on its comment) first asks what you want of

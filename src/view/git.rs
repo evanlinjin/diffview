@@ -42,6 +42,14 @@ impl App {
             },
             Err(e) => items.push(Item::new(format!("Can't push: {e:#}"), Target::Nothing)),
         }
+        // Diverged, that's "Update to …" above (fast-forward can't).
+        if !items.iter().any(|i| matches!(i.target, Target::GitTakeTheirs(_))) {
+            let label = match &self.pr {
+                Some(p) => format!("Update the checkout to #{}'s head (fast-forward only; your commits stay)", p.number),
+                None => "Update the checkout (git pull --ff-only)".into(),
+            };
+            items.push(Item::new(label, Target::GitUpdate));
+        }
         if self.awaiting > 0 {
             let s = if self.awaiting == 1 { "" } else { "s" };
             items.insert(0, Item::new(format!("Approve its {} workflow run{s} (waiting for a maintainer: a first-time contributor's, say)", self.awaiting), Target::GitApproveRuns));

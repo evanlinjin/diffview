@@ -74,7 +74,7 @@ impl App {
         // and no PR yet (what it replaces is atop its description).
         let tabs: &[_] = match self.unpublished() {
             true => &[(Bar::Claude, " Claude ")],
-            false => &[(Bar::Comments, " Comments "), (Bar::Claude, " Claude "), (Bar::Pr, " PR ")],
+            false => &[(Bar::Comments, " Comments "), (Bar::Claude, " Claude "), (Bar::Pending, " Pending "), (Bar::Pr, " PR ")],
         };
         tabs.iter()
             .copied()
@@ -85,21 +85,27 @@ impl App {
             .collect()
     }
 
-    /// The tab that's lit: the PR's text, Claude's review (the Claude view), or the comments.
+    /// The tab that's lit: the PR's text, Claude's review (the Claude view), your pending one
+    /// (the pending view), or the comments.
     pub(super) fn bar(&self) -> Bar {
         match (self.pane_tab, self.view) {
             _ if self.unpublished() => Bar::Claude,
             (_, View::Claude) => Bar::Claude,
+            (_, View::Pending) => Bar::Pending,
             (Tab::Pr, _) => Bar::Pr,
             _ => Bar::Comments,
         }
     }
 
     /// To tab `b` (a click on it, `gn` / `gp`): each tab its view: Claude's, the Claude view
-    /// beside its comments; the comments' and the PR's, the whole diff.
+    /// beside its comments; Pending, the pending view; the comments' and the PR's, the whole diff.
     pub(super) fn bar_to(&mut self, b: Bar) {
         // In a draft, Claude's tab is the whole diff: every comment there is Claude's or yours.
-        let v = if b == Bar::Claude && !self.unpublished() { View::Claude } else { View::All };
+        let v = match b {
+            Bar::Claude if !self.unpublished() => View::Claude,
+            Bar::Pending => View::Pending,
+            _ => View::All,
+        };
         if v != self.view {
             self.toggle_view(if v == View::All { self.view } else { v });
         }
