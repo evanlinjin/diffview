@@ -13,10 +13,16 @@ pub(super) type Fetched = (Result<gh::Review>, Result<gh::Info>);
 
 /// Both at once (each is a ~1s GitHub round-trip), kept in `cache` when both came.
 fn fetch_github(n: u64, cache: Option<&Path>) -> Fetched {
-    let (threads, info) = std::thread::scope(|s| {
+    let (threads, mut info) = std::thread::scope(|s| {
         let info = s.spawn(|| gh::info_json(n));
         (gh::threads_json(n), info.join().unwrap_or_else(|_| Err(anyhow!("panicked"))))
     });
+    // Signatures GitHub couldn't give this time: the last it gave, kept.
+    if let (Some(p), Ok(i)) = (cache, &mut info)
+        && let Some(old) = std::fs::read_to_string(p).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok())
+    {
+        gh::keep_signatures(i, &old["info"]);
+    }
     if let (Some(p), Ok(t), Ok(i)) = (cache, &threads, &info) {
         // Not keeping it only costs the next start its head start.
         _ = p.parent().map(std::fs::create_dir_all);

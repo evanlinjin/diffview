@@ -1295,6 +1295,22 @@ changedFiles,labels,assignees,reviewDecision,reviewRequests,latestReviews,status
 
 /// PR info lines, plus the current (title, head commit, url) so a refresh picks up new pushes.
 /// GitHub's answer, as JSON (dv caches it; `parse_info` reads it).
+/// GitHub couldn't say whose commits are signed this time (`new`), but did before (`old`, as
+/// dv kept it) for the same head: that answer, as of then. A commit's signature is part of it,
+/// so it still holds (only the base's rule may have changed since).
+pub fn keep_signatures(new: &mut Value, old: &Value) {
+    if new["dvCommitsUnknown"].is_null() || old["dvCommits"].as_array().is_none_or(|c| c.is_empty()) || new["headRefOid"] != old["headRefOid"] {
+        return;
+    }
+    for k in ["dvCommits", "dvCommitsTotal", "dvSignaturesRequired", "dvCommitsAt"] {
+        new[k] = old[k].clone();
+    }
+    new["dvCommitsKept"] = true.into();
+    if let Some(o) = new.as_object_mut() {
+        o.remove("dvCommitsUnknown");
+    }
+}
+
 pub fn info_json(n: u64) -> Result<Value> {
     let mut v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", INFO_FIELDS])?)?;
     // Whether its commits are signed, and whether its base wants them to be (`gh pr view` says
@@ -1313,6 +1329,7 @@ pub fn info_json(n: u64) -> Result<Value> {
             v["dvCommits"] = s.commits.into_iter().map(|(oid, signed)| json!({ "oid": oid, "signed": signed })).collect();
             v["dvCommitsTotal"] = s.total.into();
             v["dvSignaturesRequired"] = s.required.into();
+            v["dvCommitsAt"] = crate::claude::now().into();
         }
         // Unknown, and why: said among its facts.
         Err(why) => v["dvCommitsUnknown"] = why.into(),
@@ -1498,6 +1515,11 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         if required {
             let st = if unsigned.is_empty() { Mark::Dim } else { Mark::Fail };
             l.put(" · ", None).put(&format!("{} requires signed commits", s(&v["baseRefName"])), Some(st));
+        }
+        // GitHub couldn't say this time: what it said last (`keep_signatures`).
+        if v["dvCommitsKept"] == true {
+            let when = Some(s(&v["dvCommitsAt"])).filter(|t| !t.is_empty()).map_or("an earlier look".to_owned(), |t| ago(&t));
+            l.put(&format!(" (as of {when})"), Some(Mark::Dim));
         }
         out.push(l);
     } else if let Some(why) = v["dvCommitsUnknown"].as_str() {
@@ -1926,4 +1948,18 @@ fn info_lines_keep_their_keys() {
     for k in ["conversation", "IC_0", "IC_0/text"] {
         assert!(one.iter().any(|x| x == k) && two.iter().any(|x| x == k), "{k}: {one:?} {two:?}");
     }
+}
+
+#[test]
+fn signatures_kept_when_github_cant_say() {
+    let old = json!({ "headRefOid": "abc", "dvCommits": [{ "oid": "abc12345", "signed": true }], "dvCommitsTotal": 1, "dvSignaturesRequired": false, "dvCommitsAt": "2026-10-19T07:00:00Z" });
+    let mut new = json!({ "headRefOid": "abc", "dvCommitsUnknown": "timed out" });
+    keep_signatures(&mut new, &old);
+    assert!(new["dvCommitsUnknown"].is_null() && new["dvCommitsKept"] == true);
+    let line = info_lines(&new).into_iter().find(|l| l.text.starts_with("commits:")).unwrap().text;
+    assert!(line.contains("✓ 1 signed") && line.contains("(as of"), "{line}");
+    // Pushed since: not kept (other commits); and nothing to keep when GitHub said.
+    let mut moved = json!({ "headRefOid": "def", "dvCommitsUnknown": "timed out" });
+    keep_signatures(&mut moved, &old);
+    assert!(moved["dvCommitsKept"].is_null() && !moved["dvCommitsUnknown"].is_null());
 }
