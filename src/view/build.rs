@@ -462,17 +462,18 @@ impl App {
         if self.pr.is_none() {
             return self.msg = "no PR here".into();
         }
-        if !self.info.iter().any(|l| l.heading && l.text.starts_with("conversation (") && l.text != "conversation (0)") {
-            return self.msg = "no conversation on this PR yet".into();
+        let start = self.info.iter().position(|l| l.key == "activity");
+        if !start.is_some_and(|s| self.info[s + 1..].iter().any(|l| l.heading)) {
+            return self.msg = "no activity on this PR yet".into();
         }
         // From another tab: to the whole diff, with all of it.
         self.conversation_all = self.view != View::All || !self.conversation_all;
         if self.view != View::All {
-            (self.view, self.msg) = (View::All, "the whole diff, with all of the conversation".into());
+            (self.view, self.msg) = (View::All, "the whole diff, with all of the PR's activity".into());
         }
         self.sections_folded.remove(&DESCRIPTION);
         self.info_collapsed = false;
-        self.rebuild_at(|r| r.attached && r.line.text.starts_with("conversation ("));
+        self.rebuild_at(|r| r.attached && r.line.text.starts_with("activity ("));
     }
 
     /// A section of PR text in the diff's column: a header like a file's (`name` folds it),
@@ -512,13 +513,14 @@ impl App {
     fn conversation(&self, latest: Option<usize>) -> Vec<Row> {
         let mk = |kind, text| Row::text(INFO, kind, text);
         let width = self.info_w();
-        // Its comments: (heading, body) in `info`, after its own heading.
-        let Some(start) = self.info.iter().position(|l| l.heading && l.text.starts_with("conversation")) else { return vec![] };
+        // Its items, after its own heading: a comment's or a review's heading then its text, or
+        // what else happened (`event`) and the lines under it.
+        let Some(start) = self.info.iter().position(|l| l.key == "activity") else { return vec![] };
         let items: Vec<usize> = (start + 1..self.info.len()).filter(|&i| self.info[i].heading).collect();
         // What the latest shows (`LATEST`, or `n`), all of it or not.
         let latest_shown: Vec<usize> = {
             let n = latest.unwrap_or(LATEST);
-                let asked = |h: usize| self.threads.iter().any(|t| t.conversation == self.info[h].url && self.in_view(t));
+                let asked = |h: usize| !self.info[h].url.is_empty() && self.threads.iter().any(|t| t.conversation == self.info[h].url && self.in_view(t));
                 // New: after your own last word there (you'd read up to it, as GitHub has it),
                 // and not seen in dv since.
                 let me = format!("@{} ·", self.me);
@@ -533,19 +535,26 @@ impl App {
         };
         let shown = if latest.is_some() { &latest_shown } else { &items };
         let mut rows = vec![];
-        if !items.is_empty() {
+        // (Not GitHub's answer: what went wrong, in its place.)
+        if !items.is_empty() || !self.info[start].heading {
             rows.push(Row { info: None, ..mk(Kind::Thread, self.info[start].text.clone()) });
         }
         // What's left out is older (newest last): said first, under its heading.
         let more = items.len() - shown.len();
         if more > 0 {
-            let what = if more == 1 { "1 older comment or review".to_owned() } else { format!("{more} older comments and reviews") };
+            let what = if more == 1 { "1 earlier".to_owned() } else { format!("{more} earlier") };
             rows.push(Row { info: Some(MORE_CONVERSATION), ..mk(Kind::Comment, format!("… {what}: Space o shows them")) });
         } else if latest.is_none() && latest_shown.len() < items.len() {
             rows.push(Row { info: Some(MORE_CONVERSATION), ..mk(Kind::Comment, "… all of it: Space o shows only the latest".into()) });
         }
         for h in shown.iter().copied() {
             let body = h + 1;
+            // What else happened: its line, and those under it (a push's commits), no box.
+            if self.info[h].event {
+                let under = self.info[body..].iter().take_while(|l| l.event && !l.heading).count();
+                rows.extend((h..body + under).map(|i| Row { info: Some(i), ..self.info_row(&self.info[i], mk(Kind::Comment, self.info[i].text.clone())) }));
+                continue;
+            }
             // Hidden on GitHub: a line, as a folded thread is (Tab shows it), and what's under it.
             if let Some(note) = self.hidden_note(&self.info[h].hidden, &self.info[h].node) {
                 // (The note right after who: a long line cut at the box's edge still says so.)
@@ -957,7 +966,7 @@ impl App {
         let key = |r: &Row| match (r.thread, r.info) {
             (Some(t), _) => Some((Some(t), None)),
             // (A section's text: plain, as code; the line saying there's more conversation, too.)
-            (None, Some(i)) if r.file == INFO && r.main.is_none() && i != MORE_CONVERSATION && !self.hidden_row(r) => Some((None, Some(i))),
+            (None, Some(i)) if r.file == INFO && r.main.is_none() && i != MORE_CONVERSATION && !self.hidden_row(r) && !self.info.get(i).is_some_and(|l| l.event) => Some((None, Some(i))),
             _ => None,
         };
         let row = &self.rows[r];

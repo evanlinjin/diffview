@@ -90,7 +90,11 @@ fn review_pages() {
 fn live_info() {
     let n: u64 = std::env::var("DV_LIVE_PR").expect("DV_LIVE_PR").parse().unwrap();
     let v = info_json(n).unwrap();
-    assert!(v["dvCommits"].is_array() && v["dvMine"].is_object(), "{}", v["dvCommits"]);
+    assert!(v["dvCommits"].is_array() && v["dvActivity"]["items"].is_array(), "{} {}", v["dvCommits"], v["dvActivity"]);
+    // Its activity, as dv shows it.
+    for l in crate::view::info_lines_of(&v) {
+        eprintln!("{l}");
+    }
 }
 
 #[test]
@@ -104,7 +108,7 @@ fn rerun_summary() {
 fn github_refusals() {
     let commits = json!({ "totalCount": 1, "nodes": [{ "commit": { "oid": "a", "signature": null } }] });
     let answer = |errors: Value| json!({ "data": { "repository": { "pullRequest": { "commits": commits, "baseRef": null } } }, "errors": errors });
-    // Only its reactions (comments) refused: the signatures stand.
+    // Only another part refused: the signatures stand.
     let a = pr_answer(&answer(json!([{ "path": ["repository", "pullRequest", "comments"] }])), "").unwrap();
     assert!(signatures_whole(&a).is_ok());
     // Its commits refused, or an error that doesn't say where: not taken as unsigned.
@@ -118,39 +122,13 @@ fn github_refusals() {
     // Every error's kind kept; the reason, the one that isn't about size.
     let both = json!({ "data": null, "errors": [{ "type": "MAX_NODE_LIMIT_EXCEEDED", "message": "too many nodes" }, { "type": "RATE_LIMITED", "message": "API rate limit exceeded" }] });
     let e = pr_answer(&both, "").unwrap_err();
-    let r = e.downcast_ref::<Refused>().unwrap();
-    assert_eq!((r.kinds.len(), too_big(r), format!("{e:#}").as_str()), (2, false, "GitHub: API rate limit exceeded"));
+    assert!(e.is::<Refused>() && format!("{e:#}") == "GitHub: API rate limit exceeded");
     // A body with only a message (a bad token): that, and not a refusal (asked again for).
     let e = pr_answer(&json!({ "message": "Bad credentials" }), "gh: Bad credentials (HTTP 401)").unwrap_err();
     assert_eq!(format!("{e:#}"), "GitHub: Bad credentials");
     assert!(!e.is::<Refused>());
-    // Its commits refused: GitHub's word for why, its first line.
+    // Its commits refused: GitHub's word for why.
     let a = pr_answer(&answer(json!([{ "path": ["repository", "pullRequest", "commits"], "message": "timed out\nmore" }])), "").unwrap();
-    assert_eq!(extras(Ok(a), || unreachable!()).1.unwrap_err(), "timed out");
-    // Refused whole for its size or time: asked again alone (none of the reactions then);
-    // anything that would refuse it again, among its errors: not.
-    let refused = |kinds: &[&str]| -> Result<PrAnswer> { Err(Refused { kinds: kinds.iter().map(|k| k.to_string()).collect(), why: "too big".into() }.into()) };
-    let alone = || pr_answer(&answer(json!([])), "");
-    for kinds in [&["MAX_NODE_LIMIT_EXCEEDED"][..], &["TIMEOUT"], &["RESOURCE_LIMITS_EXCEEDED", "TIMEOUT"]] {
-        let (node, sig) = extras(refused(kinds), alone);
-        let mut mine = serde_json::Map::new();
-        mine_of(&node, &mut mine);
-        assert!(sig.is_ok() && mine.is_empty(), "{kinds:?}"); // none known
-    }
-    let never: [&[&str]; 7] = [&[""], &["RATE_LIMITED"], &["SECONDARY_RATE_LIMIT"], &["FORBIDDEN"], &["NOT_FOUND"], &["EXCESSIVE_PAGINATION"], &["MAX_NODE_LIMIT_EXCEEDED", "RATE_LIMITED"]];
-    for kinds in never {
-        let (_, sig) = extras(refused(kinds), || unreachable!());
-        assert_eq!(sig.unwrap_err(), "GitHub: too big");
-    }
-}
-
-#[test]
-fn gateway_timeout_asked_again_smaller() {
-    let refused = |v: Value, stderr: &str| pr_answer(&v, stderr).err().and_then(|e| e.downcast::<Refused>().ok());
-    let late = refused(serde_json::json!({ "message": "We couldn't respond to your request in time. Sorry about that." }), "gh: HTTP 504");
-    assert!(late.is_some_and(|r| too_big(&r)));
-    assert!(refused(serde_json::json!(null), "HTTP 502: Bad Gateway").is_some_and(|r| too_big(&r)));
-    // Not about time: not asked again.
-    assert!(refused(serde_json::json!({ "message": "Bad credentials" }), "HTTP 401").is_none());
+    assert_eq!(first_line(&signatures_whole(&a).unwrap_err()), "timed out");
 }
 

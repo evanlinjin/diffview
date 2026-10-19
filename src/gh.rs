@@ -629,52 +629,6 @@ pub(crate) fn reactions(v: &Value, mine: &[&str]) -> Vec<Reaction> {
         .collect()
 }
 
-/// The `pr_query` fields saying which reactions on a PR's conversation (itself, its
-/// comments, its reviews) are yours: `gh pr view` doesn't say.
-const MINE: &str = "id reactionGroups { content viewerHasReacted } comments(last: 100) { pageInfo { hasPreviousPage startCursor } nodes { id reactionGroups { content viewerHasReacted } } } reviews(last: 100) { pageInfo { hasPreviousPage startCursor } nodes { id reactionGroups { content viewerHasReacted } } }";
-
-/// Yours, from a pull request's node with `MINE` (or a page of its comments or reviews), into
-/// `mine`: every node looked at, by id, with the reactions on it that are yours (none: empty).
-/// A node not in it: which are yours isn't known.
-fn mine_of(p: &Value, mine: &mut serde_json::Map<String, Value>) {
-    let nodes = std::iter::once(p).chain(["comments", "reviews"].iter().flat_map(|k| p[k]["nodes"].as_array().into_iter().flatten()));
-    for node in nodes {
-        let Some(id) = node["id"].as_str() else { continue };
-        let yours: Vec<Value> = node["reactionGroups"].as_array().into_iter().flatten().filter(|g| g["viewerHasReacted"] == true).map(|g| g["content"].clone()).collect();
-        mine.insert(id.to_owned(), yours.into());
-    }
-}
-
-/// Which reactions on PR node `p` (with `MINE`) and its whole conversation are yours (as
-/// `mine_of`): its comments and reviews before the last 100 asked for too, 100 at a time (a
-/// PR that has so many), the two at once.
-fn mine_all(p: &Value) -> Value {
-    let mut mine = serde_json::Map::new();
-    mine_of(p, &mut mine);
-    let older = |kind: &str| {
-        let mut out = serde_json::Map::new();
-        let mut page = p[kind]["pageInfo"].clone();
-        // ponytail: 20 pages (2,000 more) at most; beyond, not known (dimmed).
-        for _ in 0..20 {
-            let Some(before) = page["startCursor"].as_str().filter(|_| page["hasPreviousPage"] == true) else { break };
-            let q = format!(
-                "query($id: ID!, $b: String) {{ node(id: $id) {{ ... on PullRequest {{ {kind}(last: 100, before: $b) {{ pageInfo {{ hasPreviousPage startCursor }} nodes {{ id reactionGroups {{ content viewerHasReacted }} }} }} }} }} }}"
-            );
-            let Ok(d) = mutate(&q, json!({ "id": p["id"], "b": before })) else { break };
-            mine_of(&json!({ kind: d["node"][kind] }), &mut out);
-            page = d["node"][kind]["pageInfo"].clone();
-        }
-        out
-    };
-    std::thread::scope(|s| {
-        let pages: Vec<_> = ["comments", "reviews"].into_iter().map(|k| s.spawn(move || older(k))).collect();
-        for p in pages {
-            mine.extend(p.join().unwrap_or_default());
-        }
-    });
-    mine.into()
-}
-
 /// The reactions on comment (or review) `node` now: each kind's (name, count, yours).
 pub fn reactions_of(node: &str) -> Result<Vec<(String, u64, bool)>> {
     let q = "query($id: ID!) { node(id: $id) { ... on Reactable { reactionGroups { content viewerHasReacted reactors { totalCount } } } } }";
@@ -1084,29 +1038,6 @@ fn first_line(s: &str) -> String {
 /// GitHub's kinds of refusal for a query's size or time: a smaller one may go through.
 const TOO_BIG: [&str; 3] = ["MAX_NODE_LIMIT_EXCEEDED", "RESOURCE_LIMITS_EXCEEDED", "TIMEOUT"];
 
-/// Whether GitHub refused a query for its size or time (asked again smaller), every error
-/// saying so: not anything that would refuse it again (a rate limit, a permission, a field
-/// that isn't there, an error that says no kind).
-fn too_big(r: &Refused) -> bool {
-    r.kinds.iter().all(|k| TOO_BIG.contains(&k.as_str())) // (never empty: see `pr_answer`)
-}
-
-/// What PR info adds from one `pr_query` with `MINE` (`first`): which reactions are yours (of
-/// what GitHub answered: none of them asked again alone), and its commits' signatures (else
-/// why not). Refused for its size, the signatures are asked on their own (`alone`).
-fn extras(first: Result<PrAnswer>, alone: impl FnOnce() -> Result<PrAnswer>) -> (Value, std::result::Result<Signatures, String>) {
-    let answer = match first {
-        // (Too big, and then the smaller one failed too: both said, the second's reason the one
-        // to act on.)
-        Err(e) if e.downcast_ref::<Refused>().is_some_and(too_big) => alone().map_err(|e2| anyhow::anyhow!("{e:#}; and asked alone: {e2:#}")),
-        r => r,
-    };
-    match answer {
-        Ok(a) => (a.node.clone(), signatures_whole(&a).map_err(|w| first_line(&w))),
-        Err(e) => (Value::Null, Err(first_line(&format!("{e:#}")))),
-    }
-}
-
 /// What GitHub answered to a `pr_query`: the pull request's node, and the parts of it refused
 /// (null there), with GitHub's word: its fields (`commits`, `comments`, …), or `?` for an
 /// error that doesn't say.
@@ -1121,8 +1052,6 @@ struct PrAnswer {
 /// token.
 #[derive(Debug)]
 struct Refused {
-    /// Each error's kind (empty when it gave none).
-    kinds: Vec<String>,
     why: String,
 }
 
@@ -1147,16 +1076,10 @@ fn pr_answer(v: &Value, stderr: &str) -> Result<PrAnswer> {
             // asked again); else the first.
             let telling = |i: &usize| !kinds[*i].is_empty() && !TOO_BIG.contains(&kinds[*i].as_str()) && errors[*i]["message"].is_string();
             let why = (0..errors.len()).find(telling).map_or(first, |i| &errors[i]);
-            return Err(Refused { why: why_of(why), kinds }.into());
+            return Err(Refused { why: why_of(why) }.into());
         }
         // Not GraphQL's answer: the body's word (`Bad credentials`), else gh's.
         let why = v["message"].as_str().unwrap_or(stderr.trim());
-        // GitHub out of time before it could answer (a gateway's 502 / 504, "We couldn't
-        // respond to your request in time"): as its own TIMEOUT, so asked again, smaller.
-        let late = ["HTTP 502", "HTTP 504", "in time"].iter().any(|w| why.contains(w) || stderr.contains(w));
-        if late {
-            return Err(Refused { kinds: vec!["TIMEOUT".into()], why: why.trim().to_owned() }.into());
-        }
         anyhow::bail!("GitHub: {}", if why.is_empty() { "no answer" } else { why });
     }
     // repository.pullRequest.<field>: an error elsewhere, or with no path, is about who knows.
@@ -1205,7 +1128,7 @@ pub fn unsigned_blocking(n: u64) -> Result<Option<String>> {
 }
 
 const INFO_FIELDS: &str = "headRefOid,title,author,state,isDraft,url,baseRefName,headRefName,additions,deletions,\
-changedFiles,labels,assignees,reviewDecision,reviewRequests,latestReviews,statusCheckRollup,body,comments,reviews,id,reactionGroups";
+changedFiles,labels,assignees,reviewDecision,reviewRequests,latestReviews,statusCheckRollup,body,id";
 
 /// PR info lines, plus the current (title, head commit, url) so a refresh picks up new pushes.
 /// GitHub's answer, as JSON (dv caches it; `parse_info` reads it).
@@ -1225,7 +1148,64 @@ pub fn keep_signatures(new: &mut Value, old: &Value) {
     }
 }
 
+/// The PR's activity, as its page on GitHub lists it: comments, reviews, commits pushed, and
+/// what happened to it (labels, reviewers, force-pushes, renames, merged or closed, …), oldest
+/// first; and its own reactions. One query for the last 100 (fewer, asked again, if GitHub
+/// runs out of time), then those before, 100 at a time. `id`: the PR's node id.
+pub fn activity(id: &str) -> Result<Value> {
+    let q = format!(
+        "query($id: ID!, $b: String, $n: Int!) {{ node(id: $id) {{ ... on PullRequest {{ {REACTED} timelineItems(last: $n, before: $b, itemTypes: [{ACTIVITY_TYPES}]) {{ pageInfo {{ hasPreviousPage startCursor }} nodes {{ {ACTIVITY} }} }} }} }} }}"
+    );
+    let page = |b: Option<&str>, n: u32| mutate(&q, json!({ "id": id, "b": b, "n": n }));
+    let first = page(None, 100).or_else(|_| page(None, 25))?;
+    let pr = &first["node"];
+    let mut items = pr["timelineItems"]["nodes"].as_array().cloned().unwrap_or_default();
+    let mut at = pr["timelineItems"]["pageInfo"].clone();
+    // ponytail: 10 pages (1,000) before the last at most; older than that, left out.
+    for _ in 0..10 {
+        let Some(before) = at["startCursor"].as_str().filter(|_| at["hasPreviousPage"] == true).map(str::to_owned) else { break };
+        let Ok(d) = page(Some(&before), 100) else { break };
+        let mut older = d["node"]["timelineItems"]["nodes"].as_array().cloned().unwrap_or_default();
+        older.append(&mut items);
+        items = older;
+        at = d["node"]["timelineItems"]["pageInfo"].clone();
+    }
+    Ok(json!({ "reactions": pr["reactionGroups"], "items": items }))
+}
+
+/// A node's reactions, with which are yours.
+const REACTED: &str = "reactionGroups { content viewerHasReacted reactors { totalCount } }";
+
+/// What GitHub's PR page shows of its timeline (not who subscribed or was mentioned, say).
+const ACTIVITY_TYPES: &str = "ISSUE_COMMENT, PULL_REQUEST_REVIEW, PULL_REQUEST_COMMIT, HEAD_REF_FORCE_PUSHED_EVENT, \
+LABELED_EVENT, UNLABELED_EVENT, REVIEW_REQUESTED_EVENT, REVIEW_REQUEST_REMOVED_EVENT, ASSIGNED_EVENT, UNASSIGNED_EVENT, \
+RENAMED_TITLE_EVENT, MERGED_EVENT, CLOSED_EVENT, REOPENED_EVENT, READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT, \
+BASE_REF_CHANGED_EVENT, CROSS_REFERENCED_EVENT, REVIEW_DISMISSED_EVENT";
+
+/// Each of those, with what `view::info` says of it.
+const ACTIVITY: &str = "__typename \
+... on IssueComment { id url body createdAt author { login } isMinimized minimizedReason reactionGroups { content viewerHasReacted reactors { totalCount } } } \
+... on PullRequestReview { id body state submittedAt createdAt author { login } reactionGroups { content viewerHasReacted reactors { totalCount } } } \
+... on PullRequestCommit { commit { abbreviatedOid messageHeadline committedDate author { user { login } name } } } \
+... on HeadRefForcePushedEvent { createdAt actor { login } beforeCommit { abbreviatedOid } afterCommit { abbreviatedOid } } \
+... on LabeledEvent { createdAt actor { login } label { name color } } \
+... on UnlabeledEvent { createdAt actor { login } label { name color } } \
+... on ReviewRequestedEvent { createdAt actor { login } requestedReviewer { ... on User { login } ... on Team { name } } } \
+... on ReviewRequestRemovedEvent { createdAt actor { login } requestedReviewer { ... on User { login } ... on Team { name } } } \
+... on AssignedEvent { createdAt actor { login } assignee { ... on User { login } } } \
+... on UnassignedEvent { createdAt actor { login } assignee { ... on User { login } } } \
+... on RenamedTitleEvent { createdAt actor { login } previousTitle currentTitle } \
+... on MergedEvent { createdAt actor { login } commit { abbreviatedOid } mergeRefName } \
+... on ClosedEvent { createdAt actor { login } } \
+... on ReopenedEvent { createdAt actor { login } } \
+... on ReadyForReviewEvent { createdAt actor { login } } \
+... on ConvertToDraftEvent { createdAt actor { login } } \
+... on BaseRefChangedEvent { createdAt actor { login } previousRefName currentRefName } \
+... on CrossReferencedEvent { createdAt actor { login } source { ... on Issue { number title url } ... on PullRequest { number title url } } } \
+... on ReviewDismissedEvent { createdAt actor { login } }";
+
 pub fn info_json(n: u64) -> Result<Value> {
+    let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
     let mut v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", INFO_FIELDS])?)?;
     // Whether its commits are signed, and whether its base wants them to be (`gh pr view` says
     // neither): with the rest, so the cache has them too.
@@ -1235,9 +1215,14 @@ pub fn info_json(n: u64) -> Result<Value> {
     {
         v["dvAwaiting"] = w.get(&sha).map_or(0, Vec::len).into();
     }
-    // One query for both: its commits' signatures, and which reactions are yours (`extras`).
-    let (node, signatures) = extras(pr_query(n, MINE), || pr_query(n, ""));
-    v["dvMine"] = mine_all(&node);
+    // Its activity (comments, reviews, commits, events), and its commits' signatures, at once.
+    let id = s(&v["id"]);
+    let (activity, signatures) = std::thread::scope(|sc| {
+        let activity = sc.spawn(|| activity(&id));
+        let signatures = pr_query(n, "").map_err(|e| format!("{e:#}")).and_then(|a| signatures_whole(&a));
+        (activity.join().unwrap_or_else(|_| Err(anyhow::anyhow!("panicked"))), signatures.map_err(|w| first_line(&w)))
+    });
+    v["dvActivity"] = activity.unwrap_or_else(|e| json!({ "error": first_line(&format!("{e:#}")) }));
     match signatures {
         Ok(s) => {
             v["dvCommits"] = s.commits.into_iter().map(|(oid, signed)| json!({ "oid": oid, "signed": signed })).collect();

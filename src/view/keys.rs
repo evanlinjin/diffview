@@ -221,7 +221,7 @@ impl App {
                 ("g", "git: uncommitted only / commit / push / update"),
                 ("m", "messages, in full"),
                 ("s", "a shell in the checkout's directory"),
-                ("o", "the PR's whole conversation / its latest"),
+                ("o", "the PR's whole activity / its latest"),
                 ("r", "resolve thread"),
                 ("=", "react to the comment (👍 🎉 …)"),
                 ("l", "the PR's labels, assignees, reviewers"),

@@ -171,7 +171,7 @@ impl App {
             return Some(("PR", &[("gf", "open on GitHub"), ("Tab", "fold")]));
         }
         if row.info == Some(MORE_CONVERSATION) {
-            return Some(("conversation", &[("Enter", "all of it, or only the latest"), ("Space o", "the same")]));
+            return Some(("activity", &[("Enter", "all of it, or only the latest"), ("Space o", "the same")]));
         }
         if row.info == Some(SUMMARY) {
             return Some(("Claude's review", &[("r", "reply (Claude answers)"), ("c", "add to your review summary"), ("C", "post it as your PR comment")]));

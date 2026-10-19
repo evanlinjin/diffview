@@ -339,7 +339,7 @@ fn quote_into_conversation() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
     app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new(), ..Default::default() });
     let line = |heading, md, text: &str| InfoLine { heading, md, text: text.into(), ..Default::default() };
-    app.info = vec![line(true, false, "conversation (1)"), line(true, false, "@bo · 2d ago"), line(false, true, "Looks good\nbut fix CI")];
+    app.info = vec![activity_heading(1), line(true, false, "@bo · 2d ago"), line(false, true, "Looks good\nbut fix CI")];
     app.build();
     let quoted = |app: &mut App, row: usize| {
         app.goto(row, 0);
@@ -353,7 +353,7 @@ fn quote_into_conversation() {
     assert_eq!(quoted(&mut app, body), "> Looks good\n> but fix CI\n\n");
     let author = app.rows.iter().position(|r| r.line.text == "@bo · 2d ago").unwrap();
     assert_eq!(quoted(&mut app, author), "> Looks good\n> but fix CI\n\n"); // the author line quotes its comment
-    let heading = app.rows.iter().position(|r| r.line.text == "conversation (1)").unwrap();
+    let heading = app.rows.iter().position(|r| r.line.text == "activity (1)").unwrap();
     assert_eq!(quoted(&mut app, heading), ""); // other PR lines: an empty conversation comment
     // `c` quotes it at the end of your review summary (saved on GitHub), without checking git state.
     let c = |app: &mut App, row: usize| {
@@ -556,7 +556,7 @@ fn copy_refs() {
     }];
     let heading = |text: &str, url: &str| InfoLine { heading: true, md: false, text: text.into(), url: url.into(), ..Default::default() };
     let body = |text: &str| InfoLine { heading: false, md: true, text: text.into(), ..Default::default() };
-    app.info = vec![heading("conversation (1)", ""), heading("@bo · 1d ago", "https://github.com/o/r/pull/1#issuecomment-5"), body("Looks good")];
+    app.info = vec![activity_heading(1), heading("@bo · 1d ago", "https://github.com/o/r/pull/1#issuecomment-5"), body("Looks good")];
     app.build();
     let at = |app: &mut App, text: &str| {
         let r = app.rows.iter().position(|r| r.line.text == text).unwrap();
@@ -850,9 +850,9 @@ fn pr_text_attached_to_the_description() {
     let draw = |app: &mut App| _ = screen(220, 40, |f| app.draw(f));
     let mut app = fixture();
     // A conversation of five, the second new to you.
-    let heading = |text: &str, node: &str| InfoLine { heading: true, md: false, text: text.into(), marks: vec![], hidden: String::new(), key: String::new(), url: format!("u-{node}"), node: node.into() };
+    let heading = |text: &str, node: &str| InfoLine { heading: true, md: false, text: text.into(), url: format!("u-{node}"), node: node.into(), ..Default::default() };
     let body = |text: &str| InfoLine { heading: false, md: true, text: text.into(), ..Default::default() };
-    app.info.push(heading("conversation (5)", ""));
+    app.info.push(activity_heading(5));
     for k in 1..=5 {
         app.info.push(heading(&format!("@cy · c{k}"), &format!("n{k}")));
         app.info.push(body(&format!("comment {k}")));
@@ -868,7 +868,7 @@ fn pr_text_attached_to_the_description() {
     assert!(desc < facts && facts < c2 && c2 < c3 && c3 < c5, "{facts:?} {desc:?} {c2:?} {c3:?} {c5:?}");
     assert!(at(&app, "comment 1").is_none());
     let more = app.rows.iter().position(|r| r.info == Some(MORE_CONVERSATION)).expect("the more line");
-    assert!(app.rows[more].line.text.contains("1 older") && more < c2.unwrap()); // first: what's left out is older
+    assert!(app.rows[more].line.text.contains("1 earlier") && more < c2.unwrap()); // first: what's left out is older
     assert!(app.in_pane(c2.unwrap())); // in the pane, beside the description
     // The pane hidden: after the description, in the diff's column.
     app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
@@ -2002,7 +2002,7 @@ fn comments_in_folded_files_and_empty_reviews() {
     assert!(app.rows[app.head.row].thread.is_some() && app.rows[app.head.row].file == a_rs && !app.collapsed.contains("src/a.rs"));
     // A review with no text (a verdict alone): its box closed, saying so.
     let line = |heading, md, text: &str| InfoLine { heading, md, text: text.into(), ..Default::default() };
-    app.info = vec![line(true, false, "conversation (1)"), line(true, false, "@bo · requested changes · 2m ago"), line(false, true, "")];
+    app.info = vec![activity_heading(1), line(true, false, "@bo · requested changes · 2m ago"), line(false, true, "")];
     app.build();
     let r = app.rows.iter().position(|r| r.line.text == "(no comment)").unwrap();
     assert_eq!(app.box_part(r + 1), Some(BoxPart::Bottom));
@@ -2198,7 +2198,7 @@ fn ask_claude_about_a_conversation_comment() {
     let mut app = fixture();
     let url = "https://github.com/o/r/pull/7#issuecomment-5";
     let head = InfoLine { heading: true, md: false, text: "@cy · commented".into(), url: url.into(), ..Default::default() };
-    app.info.push(InfoLine { heading: true, md: false, text: "conversation (1)".into(), ..Default::default() });
+    app.info.push(activity_heading(1));
     app.info.push(head);
     app.info.push(InfoLine { heading: false, md: true, text: "Can we rename it?".into(), ..Default::default() });
     // A question about it in Claude's review file: under it, on the PR tab.
@@ -2617,7 +2617,7 @@ fn hidden_on_github_folded() {
 fn hidden_conversation_comment_folded() {
     let mut app = fixture();
     let line = |heading, md, text: &str, node: &str, hidden: &str| InfoLine { heading, md, text: text.into(), hidden: hidden.into(), node: node.into(), ..Default::default() };
-    app.info.extend([line(true, false, "conversation (1)", "", ""), line(true, false, "@bo · 1d ago", "IC_1", "spam"), line(false, true, "buy now", "", "")]);
+    app.info.extend([activity_heading(1), line(true, false, "@bo · 1d ago", "IC_1", "spam"), line(false, true, "buy now", "", "")]);
     app.build();
     let s = screen(220, 45, |f| app.draw(f));
     let line = s.lines().find(|l| l.contains("hidden on GitHub (spam)")).unwrap_or_else(|| panic!("{s}"));
@@ -2749,13 +2749,18 @@ fn code_blocks_shaded_to_the_box_edge() {
 fn cursor_on_a_comment_stays_as_lines_come_before_it() {
     let mut app = fixture();
     let line = |heading, md, text: &str, node: &str| InfoLine { heading, md, text: text.into(), node: node.into(), ..Default::default() };
-    app.info.extend([line(true, false, "conversation (2)", ""), line(true, false, "@a · 2d ago", "IC_1"), line(false, true, "first", ""), line(true, false, "@b · 1d ago", "IC_2"), line(false, true, "second", "")]);
+    app.info.extend([activity_heading(2), line(true, false, "@a · 2d ago", "IC_1"), line(false, true, "first", ""), line(true, false, "@b · 1d ago", "IC_2"), line(false, true, "second", "")]);
     app.build();
     let r = app.rows.iter().position(|r| r.line.text == "second").unwrap();
     app.goto(r, 0);
     let keep = app.cursor_key();
-    // A refresh: a line before the conversation (a reaction, a check).
+    // A refresh: a line before the activity (a reaction, a check).
     app.info.insert(1, line(false, false, "reactions 👀 1", ""));
     app.rebuild(keep);
     assert_eq!(app.rows[app.head.row].line.text, "second");
+}
+
+/// The heading of the PR's activity, `n` items under it.
+fn activity_heading(n: usize) -> InfoLine {
+    InfoLine { heading: true, text: format!("activity ({n})"), key: "activity".into(), ..Default::default() }
 }

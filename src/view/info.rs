@@ -1,5 +1,5 @@
 //! The PR section's lines from GitHub's answer (`gh::info_json`): its facts, description and
-//! conversation, as text with marks for the view to color.
+//! activity, as text with marks for the view to color.
 use crate::gh::{ago, hidden, reactions, verdict, Reaction, REACTIONS};
 use serde_json::Value;
 
@@ -25,15 +25,10 @@ fn reactions_text(r: &[Reaction]) -> String {
 }
 
 impl InfoLine {
-    /// Reactions, yours in the accent color (as GitHub lights them); all dimmed when which
-    /// are yours isn't `known`.
-    fn put_reactions(&mut self, r: &[Reaction], known: bool) {
+    /// Reactions, yours in the accent color (as GitHub lights them).
+    fn put_reactions(&mut self, r: &[Reaction]) {
         for (i, (text, mine)) in reaction_parts(r).into_iter().enumerate() {
-            let mark = match known {
-                true => mine.then_some(Mark::Mine),
-                false => Some(Mark::Dim),
-            };
-            self.put(if i == 0 { "" } else { "  " }, None).put(&text, mark);
+            self.put(if i == 0 { "" } else { "  " }, None).put(&text, mine.then_some(Mark::Mine));
         }
     }
 }
@@ -66,6 +61,9 @@ pub struct InfoLine {
     pub node: String,
     /// On a conversation comment's heading: hidden on GitHub, and why; empty if it isn't.
     pub hidden: String,
+    /// In the PR's activity, what happened that isn't a comment or a review (a push, a label,
+    /// a rename, …): a line of its own, no box (the commits of a push, under it).
+    pub event: bool,
     /// What the line is, the same across refreshes (its text may not be: counts, times): a
     /// comment's node id (its text: `<node>/text`), else what the line is about (`checks`,
     /// `conversation`, …). For the cursor to stay on it.
@@ -131,6 +129,11 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
     let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
     let list = |v: &Value| v.as_array().map(Vec::as_slice).unwrap_or(&[]).to_vec();
     let mut out = vec![];
+    // Each line with its key (`InfoLine::key`): what it is, whatever it says.
+    let mut push = |key: String, mut l: InfoLine| {
+        l.key = key;
+        out.push(l);
+    };
     let plain = |text: String| {
         let mut l = InfoLine::new(false, false);
         l.put(&text, None);
@@ -146,7 +149,7 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         .put(" ", None)
         .put(&format!("−{}", v["deletions"]), Some(Mark::Fail))
         .put(&format!(" in {} files", v["changedFiles"]), None);
-    out.push(l);
+    push("author".into(), l);
 
     let labels = list(&v["labels"]);
     if !labels.is_empty() {
@@ -155,7 +158,7 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         for lb in &labels {
             l.put(" ", None).put(&format!(" {} ", s(&lb["name"])), Some(Mark::Chip(s(&lb["color"]))));
         }
-        out.push(l);
+        push("labels".into(), l);
     }
     let assigned = list(&v["assignees"]);
     if !assigned.is_empty() {
@@ -164,19 +167,15 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         for a in &assigned {
             l.put(&format!(" @{}", s(&a["login"])), None);
         }
-        out.push(l);
+        push("assigned".into(), l);
     }
-    // The PR's own reactions (Space = on its description reacts).
-    // Yours, by node id (`mine_json`).
-    let mine = |id: &Value| -> Vec<&str> { id.as_str().and_then(|id| v["dvMine"][id].as_array()).into_iter().flatten().filter_map(Value::as_str).collect() };
-    // Whether which of a node's reactions are yours is known (asked of GitHub): else they're
-    // dimmed, not shown as not yours.
-    let known = |id: &Value| id.as_str().is_some_and(|id| v["dvMine"].get(id).is_some());
-    let own = reactions(&v["reactionGroups"], &mine(&v["id"]));
+    // The PR's own reactions (Space = on its description reacts), yours lit.
+    let activity = &v["dvActivity"];
+    let own = reactions(&activity["reactions"], &[]);
     if !own.is_empty() {
         let mut l = InfoLine::new(false, false);
-        l.put("reactions ", Some(Mark::Dim)).put_reactions(&own, known(&v["id"]));
-        out.push(l);
+        l.put("reactions ", Some(Mark::Dim)).put_reactions(&own);
+        push("reactions".into(), l);
     }
 
     // Who did what, one reviewer a line (no scrolling sideways for them all): "✗ @bo requested
@@ -195,18 +194,18 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         let decision = s(&v["reviewDecision"]).to_lowercase().replace('_', " ");
         l.put(" ", None).put(if decision.is_empty() { "none yet" } else { &decision }, Some(Mark::Dim));
     }
-    out.push(l);
+    push("reviews".into(), l);
     for (sign, what, who, mark) in groups {
         for name in who {
             let mut l = InfoLine::new(false, false);
             l.put(&format!("{sign} @{name}"), Some(mark.clone())).put(&format!(" {what}"), None);
-            out.push(l);
+            push(format!("reviewer/{name}"), l);
         }
     }
 
     let checks = list(&v["statusCheckRollup"]);
     if checks.is_empty() {
-        out.push(plain("checks: none".into()));
+        push("checks".into(), plain("checks: none".into()));
     } else {
         let count = |m| checks.iter().filter(|c| verdict(c) == m).count();
         let (pass, fail, pending) = (count('✓'), count('✗'), count('●'));
@@ -221,7 +220,7 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
             }
             l.put(&format!("{sym} {n} {what}"), Some(m));
         }
-        out.push(l);
+        push("checks".into(), l);
         for c in checks.iter().filter(|c| verdict(c) != '✓') {
             let name = c["name"].as_str().or(c["context"].as_str()).unwrap_or("?");
             let m = if verdict(c) == '✗' { Mark::Fail } else { Mark::Pending };
@@ -232,7 +231,7 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
                 Some(u) => l.put(name, Some(Mark::Link(u.to_owned()))),
                 None => l.put(name, Some(m)),
             };
-            out.push(l);
+            push(format!("check/{name}"), l);
         }
     }
 
@@ -243,7 +242,7 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
             let mut l = InfoLine::new(false, false);
             let s = if k == 1 { "" } else { "s" };
             l.put(&format!("⏸ {k} workflow run{s} awaiting approval"), Some(Mark::Pending)).put(" (Space g approves)", Some(Mark::Dim));
-            out.push(l);
+            push("awaiting".into(), l);
         }
     }
     // Its commits signed, or which aren't (and whether its base requires them to be).
@@ -270,11 +269,11 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
             let when = Some(s(&v["dvCommitsAt"])).filter(|t| !t.is_empty()).map_or("an earlier look".to_owned(), |t| ago(&t));
             l.put(&format!(" (as of {when})"), Some(Mark::Dim));
         }
-        out.push(l);
+        push("commits".into(), l);
     } else if let Some(why) = v["dvCommitsUnknown"].as_str() {
         let mut l = InfoLine::new(false, false);
         l.put("commits: ", None).put(&format!("signatures unknown ({why})"), Some(Mark::Dim));
-        out.push(l);
+        push("commits".into(), l);
     }
 
     let heading = |t: String| {
@@ -282,74 +281,160 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         l.put(&t, None);
         l
     };
-    let markdown = |t: String| {
-        let mut l = InfoLine::new(false, true);
-        l.put(&t, None);
-        l
-    };
     // The PR itself takes reactions: its node id on the description's heading.
-    out.push(InfoLine { url: s(&v["url"]), node: s(&v["id"]), ..heading("description".into()) });
+    push("description".into(), InfoLine { url: s(&v["url"]), node: s(&v["id"]), ..heading("description".into()) });
     let body = s(&v["body"]).replace("\r\n", "\n");
-    out.push(markdown(body)); // empty: the view shows a placeholder
+    push("description/text".into(), markdown(body)); // empty: the view shows a placeholder
 
-    // The conversation: comments, and reviews with something to read (their text, or a
-    // verdict: a plain review's inline comments are threads on the code), in time order:
-    // (when, who, what they did, link, text).
-    // (when, who, what they did, link, text, node id, reactions, why it's hidden).
-    type Said<'a> = (String, String, &'a str, String, String, String, Vec<Reaction>, String);
-    let mut said: Vec<Said> = list(&v["comments"])
-        .iter()
-        .map(|c| (s(&c["createdAt"]), s(&c["author"]["login"]), "", s(&c["url"]), s(&c["body"]), s(&c["id"]), reactions(&c["reactionGroups"], &mine(&c["id"])), hidden(c)))
-        .collect();
-    for r in list(&v["reviews"]) {
-        let what = match s(&r["state"]).as_str() {
-            "APPROVED" => "✓ approved · ",
-            "CHANGES_REQUESTED" => "✗ requested changes · ",
-            "DISMISSED" => "reviewed (dismissed) · ",
-            "COMMENTED" if !s(&r["body"]).trim().is_empty() => "reviewed · ",
-            _ => continue, // pending, or nothing to read here
-        };
-        // Its own: questions about it (`a`) are kept by it. (The fragment is the review's id:
-        // the link opens the PR.)
-        let url = format!("{}#review-{}", s(&v["url"]), s(&r["id"]));
-        said.push((s(&r["submittedAt"]), s(&r["author"]["login"]), what, url, s(&r["body"]), s(&r["id"]), reactions(&r["reactionGroups"], &mine(&r["id"])), String::new()));
+    // Its activity, as GitHub's page has it (`gh::activity`).
+    if let Some(why) = activity["error"].as_str() {
+        push("activity".into(), plain(format!("activity: not known ({why})")));
+        return out;
     }
-    said.sort_by(|a, b| a.0.cmp(&b.0)); // ISO times sort as text
-    out.push(heading(format!("conversation ({})", said.len())));
-    for (at, who, what, url, body, node, r, hidden) in said {
-        let sure = known(&Value::from(node.as_str()));
-        // A verdict in its color, so an approval doesn't read as just another comment.
-        let mut h = InfoLine { url, node, hidden, ..InfoLine::new(true, false) };
-        let mark = match what {
-            "✓ approved · " => Some(Mark::Pass),
-            "✗ requested changes · " => Some(Mark::Fail),
-            _ => None,
-        };
-        h.put(&format!("@{who} · "), None).put(what.trim_end_matches(" · "), mark).put(if what.is_empty() { "" } else { " · " }, None);
-        h.put(&ago(&at), None);
-        if !r.is_empty() {
-            h.put(" · ", None).put_reactions(&r, sure);
+    let items = activity_items(v, &list(&activity["items"]));
+    push("activity".into(), heading(format!("activity ({})", items.len())));
+    for item in items {
+        for (key, l) in item {
+            push(key, l);
         }
-        out.push(h);
-        out.push(markdown(body.replace("\r\n", "\n")));
-    }
-    for i in 0..out.len() {
-        out[i].key = line_key(&out[..=i]);
     }
     out
 }
 
-/// What the last of `lines` is (`InfoLine::key`): its node; else the node of the heading it's
-/// the text of; else its label, what it says up to its first `:`, `(` or digit (`checks`,
-/// `conversation`, `reactions`).
-fn line_key(lines: &[InfoLine]) -> String {
-    let (l, before) = lines.split_last().unwrap_or_else(|| unreachable!());
-    match before.last().filter(|h| h.heading && !l.heading && !h.node.is_empty()) {
-        _ if !l.node.is_empty() => l.node.clone(),
-        Some(h) => format!("{}/text", h.node),
-        None => l.text.split([':', '(']).next().unwrap_or("").split(|c: char| c.is_ascii_digit()).next().unwrap_or("").trim().to_owned(),
-    }
+/// The PR section's lines' text, for a live test to look at.
+#[cfg(test)]
+pub(crate) fn info_lines_of(v: &Value) -> Vec<String> {
+    info_lines(v).into_iter().map(|l| l.text).collect()
 }
+
+/// A comment's or a review's text, rendered as markdown.
+fn markdown(t: String) -> InfoLine {
+    let mut l = InfoLine::new(false, true);
+    l.put(&t, None);
+    l
+}
+
+/// Each of the PR's activity `items` (`gh::activity`, oldest first), as its lines with their
+/// keys: a comment or a review, its heading (who, what, when, its reactions) then its text; the
+/// rest, a line (`event`) each, and a push its commits under it.
+fn activity_items(v: &Value, items: &[Value]) -> Vec<Vec<(String, InfoLine)>> {
+    let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
+    let mut out: Vec<Vec<(String, InfoLine)>> = vec![];
+    // A comment, or a review with something to read: (who, what they did, its verdict's color).
+    let said = |c: &Value, url: String, what: &str, mark: Option<Mark>, hidden: String| {
+        let node = s(&c["id"]);
+        let at = c["submittedAt"].as_str().or(c["createdAt"].as_str()).unwrap_or("").to_owned();
+        let mut h = InfoLine { url, node: node.clone(), hidden, ..InfoLine::new(true, false) };
+        h.put(&format!("@{} · ", s(&c["author"]["login"])), None);
+        if !what.is_empty() {
+            h.put(what, mark).put(" · ", None);
+        }
+        h.put(&ago(&at), None);
+        let r = reactions(&c["reactionGroups"], &[]);
+        if !r.is_empty() {
+            h.put(" · ", None).put_reactions(&r);
+        }
+        vec![(node.clone(), h), (format!("{node}/text"), markdown(s(&c["body"]).replace("\r\n", "\n")))]
+    };
+    // What else happened: a dim line, `@who did what · when`.
+    let event = |key: String, who: &str, parts: &[(String, Option<Mark>)], at: &str| {
+        let mut l = InfoLine { event: true, ..InfoLine::new(true, false) };
+        l.put(&format!("● @{who} "), Some(Mark::Dim));
+        for (t, m) in parts {
+            l.put(t, m.clone().or(Some(Mark::Dim)));
+        }
+        l.put(&format!(" · {}", ago(at)), Some(Mark::Dim));
+        vec![(key, l)]
+    };
+    let t = |t: &str| (t.to_owned(), None);
+    for it in items {
+        let at = s(&it["createdAt"]);
+        let who = it["actor"]["login"].as_str().unwrap_or("ghost");
+        let key = format!("{}@{at}", s(&it["__typename"]));
+        let item = match it["__typename"].as_str().unwrap_or("") {
+            "IssueComment" => said(it, s(&it["url"]), "", None, hidden(it)),
+            "PullRequestReview" => {
+                // Its own link: questions about it (`a`) are kept by it. (The fragment is the
+                // review's id: the link opens the PR.)
+                let url = format!("{}#review-{}", s(&v["url"]), s(&it["id"]));
+                let reviewer = it["author"]["login"].as_str().unwrap_or("ghost");
+                let at = it["submittedAt"].as_str().unwrap_or(&at);
+                match s(&it["state"]).as_str() {
+                    "APPROVED" => said(it, url, "✓ approved", Some(Mark::Pass), String::new()),
+                    "CHANGES_REQUESTED" => said(it, url, "✗ requested changes", Some(Mark::Fail), String::new()),
+                    "DISMISSED" => said(it, url, "reviewed (dismissed)", None, String::new()),
+                    "COMMENTED" if !s(&it["body"]).trim().is_empty() => said(it, url, "reviewed", None, String::new()),
+                    // Only comments on the code: they're threads there.
+                    "COMMENTED" => event(key, reviewer, &[t("reviewed")], at),
+                    _ => continue, // pending: not on GitHub yet
+                }
+            }
+            "PullRequestCommit" => {
+                // Pushed: one line for a run of them by the same author, each commit under it.
+                let c = &it["commit"];
+                let by = c["author"]["user"]["login"].as_str().or(c["author"]["name"].as_str()).unwrap_or("ghost").to_owned();
+                let oid = s(&c["abbreviatedOid"]);
+                let mut line = InfoLine { event: true, ..InfoLine::new(false, false) };
+                line.put("  ", None).put(&oid, Some(Mark::Dim)).put(&format!(" {}", s(&c["messageHeadline"])), None);
+                match out.last_mut().filter(|i| i.first().is_some_and(|f| f.0.starts_with(&format!("push/{by}/")))) {
+                    Some(push) => {
+                        push.push((format!("commit/{oid}"), line));
+                        let n = push.len() - 1;
+                        let head = &mut push[0].1;
+                        let when = head.text.rsplit(" · ").next().unwrap_or("").to_owned();
+                        *head = InfoLine { event: true, ..InfoLine::new(true, false) };
+                        head.put(&format!("○ @{by} pushed {n} commits · {when}"), Some(Mark::Dim));
+                    }
+                    None => {
+                        let mut head = InfoLine { event: true, ..InfoLine::new(true, false) };
+                        head.put(&format!("○ @{by} pushed 1 commit · {}", ago(&s(&c["committedDate"]))), Some(Mark::Dim));
+                        out.push(vec![(format!("push/{by}/{oid}"), head), (format!("commit/{oid}"), line)]);
+                    }
+                }
+                continue;
+            }
+            "HeadRefForcePushedEvent" => {
+                let (a, b) = (s(&it["beforeCommit"]["abbreviatedOid"]), s(&it["afterCommit"]["abbreviatedOid"]));
+                event(key, who, &[t(&format!("force-pushed {a} → {b}"))], &at)
+            }
+            k @ ("LabeledEvent" | "UnlabeledEvent") => {
+                let what = if k == "LabeledEvent" { "added" } else { "removed" };
+                let l = &it["label"];
+                event(key, who, &[t(&format!("{what} ")), (format!(" {} ", s(&l["name"])), Some(Mark::Chip(s(&l["color"]))))], &at)
+            }
+            k @ ("ReviewRequestedEvent" | "ReviewRequestRemovedEvent") => {
+                let r = &it["requestedReviewer"];
+                let whom = r["login"].as_str().map(|l| format!("@{l}")).or(r["name"].as_str().map(str::to_owned)).unwrap_or("?".into());
+                let what = if k == "ReviewRequestedEvent" { "requested a review from" } else { "removed the review request for" };
+                event(key, who, &[t(&format!("{what} {whom}"))], &at)
+            }
+            k @ ("AssignedEvent" | "UnassignedEvent") => {
+                let what = if k == "AssignedEvent" { "assigned" } else { "unassigned" };
+                event(key, who, &[t(&format!("{what} @{}", s(&it["assignee"]["login"])))], &at)
+            }
+            "RenamedTitleEvent" => event(key, who, &[t(&format!("changed the title: {} → {}", s(&it["previousTitle"]), s(&it["currentTitle"])))], &at),
+            "MergedEvent" => {
+                let what = format!("merged {} into {}", s(&it["commit"]["abbreviatedOid"]), s(&it["mergeRefName"]));
+                event(key, who, &[(what, Some(Mark::Chip("8957e5".into())))], &at)
+            }
+            "ClosedEvent" => event(key, who, &[("closed it".into(), Some(Mark::Fail))], &at),
+            "ReopenedEvent" => event(key, who, &[("reopened it".into(), Some(Mark::Pass))], &at),
+            "ReadyForReviewEvent" => event(key, who, &[t("marked it ready for review")], &at),
+            "ConvertToDraftEvent" => event(key, who, &[t("marked it as a draft")], &at),
+            "BaseRefChangedEvent" => event(key, who, &[t(&format!("changed the base from {} to {}", s(&it["previousRefName"]), s(&it["currentRefName"])))], &at),
+            "CrossReferencedEvent" => {
+                let src = &it["source"];
+                let what = format!("#{} {}", src["number"], s(&src["title"]));
+                event(key, who, &[t("mentioned this in "), (what, Some(Mark::Link(s(&src["url"]))))], &at)
+            }
+            "ReviewDismissedEvent" => event(key, who, &[t("dismissed a review")], &at),
+            _ => continue,
+        };
+        out.push(item);
+    }
+    out
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -386,28 +471,40 @@ mod tests {
     }
 
     #[test]
-    fn reviews_in_the_conversation() {
-        let v = serde_json::json!({
+    fn activity_as_github_has_it() {
+        let item = |t: &str, more: Value| {
+            let mut v = json!({ "__typename": t, "createdAt": "2026-01-01T00:00:00Z", "actor": { "login": "amy" } });
+            v.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+            v
+        };
+        let commit = |oid: &str, by: &str| item("PullRequestCommit", json!({ "commit": { "abbreviatedOid": oid, "messageHeadline": format!("subject {oid}"), "committedDate": "2026-01-01T00:00:00Z", "author": { "user": { "login": by } } } }));
+        let v = json!({
             "url": "https://github.com/o/r/pull/1", "body": "",
-            "comments": [{ "author": { "login": "amy" }, "body": "first", "createdAt": "2026-01-01T00:00:00Z", "url": "c1" }],
-            "reviews": [
-                { "id": "R3", "author": { "login": "me" }, "state": "COMMENTED", "body": "looks close", "submittedAt": "2026-01-03T00:00:00Z" },
-                { "id": "R2", "author": { "login": "bo" }, "state": "APPROVED", "body": "", "submittedAt": "2026-01-02T00:00:00Z" },
-                { "author": { "login": "cy" }, "state": "COMMENTED", "body": "", "submittedAt": "2026-01-04T00:00:00Z" },
-                { "author": { "login": "me" }, "state": "PENDING", "body": "draft", "submittedAt": "" },
-            ],
+            "dvActivity": { "reactions": [], "items": [
+                item("IssueComment", json!({ "id": "IC_1", "author": { "login": "amy" }, "body": "first", "url": "c1" })),
+                commit("aaa1", "bo"), commit("aaa2", "bo"),
+                item("LabeledEvent", json!({ "label": { "name": "bug", "color": "d73a4a" } })),
+                item("PullRequestReview", json!({ "id": "R2", "author": { "login": "bo" }, "state": "APPROVED", "body": "", "submittedAt": "2026-01-02T00:00:00Z" })),
+                item("PullRequestReview", json!({ "id": "R3", "author": { "login": "cy" }, "state": "COMMENTED", "body": "", "submittedAt": "2026-01-04T00:00:00Z" })),
+                item("PullRequestReview", json!({ "author": { "login": "me" }, "state": "PENDING", "body": "draft" })),
+                item("SubscribedEvent", json!({})),
+            ] },
         });
         let lines = info_lines(&v);
         let text: Vec<&str> = lines.iter().map(|l| l.text.as_str()).collect();
-        let at = text.iter().position(|t| t.starts_with("conversation")).unwrap();
-        assert_eq!(text[at], "conversation (3)"); // the empty plain review and the pending one aren't
+        let at = text.iter().position(|t| t.starts_with("activity")).unwrap();
+        // A comment, a push (its two commits under it), a label, an approval, a plain review: not
+        // the pending one, nor what GitHub's page doesn't show.
+        assert_eq!(text[at], "activity (5)");
         let rest = &text[at + 1..];
         assert!(rest[0].starts_with("@amy · ") && rest[1] == "first");
-        assert!(rest[2].starts_with("@bo · ✓ approved · ") && rest[3].is_empty());
-        assert!(rest[4].starts_with("@me · reviewed · ") && rest[5] == "looks close");
-        // Each its own link (what `a` keeps a question about it by): not the PR's, nor another's.
-        let urls: Vec<&str> = lines[lines.len() - 6..].iter().step_by(2).map(|l| l.url.as_str()).collect();
-        assert_eq!(urls, ["c1", "https://github.com/o/r/pull/1#review-R2", "https://github.com/o/r/pull/1#review-R3"]);
+        assert!(rest[2].starts_with("○ @bo pushed 2 commits · ") && rest[3] == "  aaa1 subject aaa1" && rest[4] == "  aaa2 subject aaa2", "{rest:?}");
+        assert!(rest[5].starts_with("● @amy added  bug "));
+        assert!(rest[6].starts_with("@bo · ✓ approved · ") && rest[7].is_empty());
+        assert!(rest[8].starts_with("● @cy reviewed · ") && rest.len() == 9);
+        // Events are lines of their own (no box); each comment and review its own link.
+        assert!(lines[at + 3].event && lines[at + 6].event && !lines[at + 1].event);
+        assert_eq!(lines[at + 7].url, "https://github.com/o/r/pull/1#review-R2");
     }
 
     #[test]
@@ -459,11 +556,12 @@ mod tests {
     #[test]
     fn info_lines_keep_their_keys() {
         let keys = |v: Value| info_lines(&v).into_iter().map(|l| l.key).collect::<Vec<_>>();
-        let pr = |n: usize| json!({ "id": "PR_1", "statusCheckRollup": [], "comments": (0..n).map(|i| json!({ "id": format!("IC_{i}"), "author": { "login": "amy" }, "body": "hi", "createdAt": "2026-10-01T00:00:00Z" })).collect::<Vec<_>>() });
+        let comment = |i: usize| json!({ "__typename": "IssueComment", "id": format!("IC_{i}"), "author": { "login": "amy" }, "body": "hi", "createdAt": "2026-10-01T00:00:00Z" });
+        let pr = |n: usize| json!({ "id": "PR_1", "statusCheckRollup": [], "dvActivity": { "items": (0..n).map(comment).collect::<Vec<_>>() } });
         let (one, two) = (keys(pr(1)), keys(pr(2)));
         // The same lines keep their keys though their text (counts) changed; a comment's text is
         // keyed by its comment.
-        for k in ["conversation", "IC_0", "IC_0/text"] {
+        for k in ["activity", "IC_0", "IC_0/text", "checks", "description"] {
             assert!(one.iter().any(|x| x == k) && two.iter().any(|x| x == k), "{k}: {one:?} {two:?}");
         }
     }

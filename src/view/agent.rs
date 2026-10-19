@@ -686,7 +686,7 @@ impl App {
         let row = &self.rows[self.head.row];
         let body = row.info.filter(|_| row.file == INFO && row.thread.is_none() && row.main.is_none())?;
         let text = self.info.get(body).filter(|l| l.md)?;
-        let head = self.info.get(body.checked_sub(1)?).filter(|h| h.heading && !h.url.is_empty() && h.text.starts_with('@'))?;
+        let head = self.info.get(body.checked_sub(1)?).filter(|h| h.heading && !h.url.is_empty() && !h.event)?;
         let who = head.text.split(" · ").next().unwrap_or("");
         // What's selected of it, else all of it.
         // (Hidden on GitHub, unseen: not quoted; Claude reads it at the link.)
