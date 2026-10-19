@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.95] - 2026-10-19
+
+### Fixed
+- Claude's review vanishing ("Claude hasn't reviewed this") while its file couldn't be read
+  (Claude mid-edit, a slip in its JSON): what was last read of it stays shown, and dv says
+  why it can't read the file; it updates once the file is fixed.
+- Amending with conflicted files is refused before anything changes (files marked with
+  `git add -N` came back added); git's reason is its last line when it says it on stdout.
+
 ## [0.34.94] - 2026-10-19
 
 ### Fixed
