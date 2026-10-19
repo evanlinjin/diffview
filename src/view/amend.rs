@@ -163,7 +163,7 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], reword: Option<(&str
     anyhow::ensure!(!targets.is_empty(), "nothing placed to amend");
     // (Its own rebase it aborts if it fails: not one stopped part way, yours or Claude's.)
     anyhow::ensure!(!super::rebase::rebasing(dir), "a rebase is stopped part way here: finish or abort it first");
-    anyhow::ensure!(git_in(dir, &["ls-files", "-u"])?.trim().is_empty(), "unmerged files here: resolve them first");
+    anyhow::ensure!(git_in(dir, &["ls-files", "-u", "--", ":/"])?.trim().is_empty(), "unmerged files here: resolve them first");
     // New files only marked (`git add -N`): added for real, as `--autostash` can't stash them,
     // and `write-tree` would leave them out (untracked, back as it was).
     let marked = git_in(dir, &["diff", "--name-only", "--no-relative", "--no-renames", "--diff-filter=A", "-z"])?;
