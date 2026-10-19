@@ -795,9 +795,9 @@ pub fn rerun_failed(head: &str) -> Result<usize> {
     let q = ".[] | select(.conclusion == \"failure\" or .conclusion == \"timed_out\" or .conclusion == \"cancelled\") | .databaseId";
     let out = gh(&["run", "list", "--commit", head, "--limit", "100", "--json", "databaseId,conclusion", "-q", q])?;
     let ids: Vec<&str> = out.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
-    for id in &ids {
-        gh(&["run", "rerun", id, "--failed"])?;
-    }
+    // Each one tried (one that can't be, too old say, doesn't keep the others from it).
+    let failed: Vec<String> = ids.iter().filter_map(|id| gh(&["run", "rerun", id, "--failed"]).err().map(|e| format!("{id}: {e:#}"))).collect();
+    anyhow::ensure!(failed.is_empty(), "{} of {} runs not rerun: {}", failed.len(), ids.len(), failed.join("; "));
     Ok(ids.len())
 }
 
@@ -822,9 +822,17 @@ pub enum Field {
 /// labels, the people it can be assigned to (or asked to review: not its author). Each
 /// (name, on it), sorted, those on it first.
 pub fn pr_fields(n: u64) -> Result<(Choices, Choices, Choices)> {
-    let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", "labels,assignees,reviewRequests,author"])?)?;
+    let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", "labels,assignees,reviewRequests,author,url"])?)?;
     let on = |k: &str, f: &str| -> Vec<String> { v[k].as_array().into_iter().flatten().filter_map(|x| x[f].as_str().map(str::to_owned)).collect() };
-    let (labels, assigned, asked) = (on("labels", "name"), on("assignees", "login"), on("reviewRequests", "login"));
+    let (labels, assigned) = (on("labels", "name"), on("assignees", "login"));
+    // Requested of people (their login), or of teams (`org/slug`, the PR's repo's org).
+    let org = v["url"].as_str().and_then(|u| u.split('/').nth(3)).unwrap_or("").to_owned();
+    let asked: Vec<String> = v["reviewRequests"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|r| r["login"].as_str().map(str::to_owned).or_else(|| r["slug"].as_str().map(|s| format!("{org}/{s}"))))
+        .collect();
     let all: Value = serde_json::from_str(&gh(&["label", "list", "--limit", "500", "--json", "name"])?)?;
     let all: Vec<String> = all.as_array().into_iter().flatten().filter_map(|x| x["name"].as_str().map(str::to_owned)).collect();
     let people = gh(&["api", "--paginate", "repos/{owner}/{repo}/assignees", "-q", ".[].login"]).unwrap_or_default();
@@ -854,8 +862,7 @@ pub fn set_field(n: u64, field: Field, name: &str, on: bool) -> Result<()> {
         };
     }
     let flag = match (field, on) {
-        (Field::Label, true) => "--add-label",
-        (Field::Label, false) => "--remove-label",
+        (Field::Label, _) => unreachable!("labels go through the API, above"),
         (Field::Assignee, true) => "--add-assignee",
         (Field::Assignee, false) => "--remove-assignee",
         (Field::Reviewer, true) => "--add-reviewer",
@@ -1106,11 +1113,12 @@ pub fn info_json(n: u64) -> Result<Value> {
         v["dvAwaiting"] = w.get(&sha).map_or(0, Vec::len).into();
     }
     // One query for both: its commits' signatures, and which reactions are yours.
-    let extra = pr_query(n, MINE);
+    // (Which failing, the signatures alone: they matter more.)
+    let extra = pr_query(n, MINE).or_else(|_| pr_query(n, ""));
     if let Ok(p) = &extra {
         v["dvMine"] = mine_of(p);
     }
-    if let Ok(s) = extra.as_ref().map_err(|e| anyhow::anyhow!("{e:#}")).and_then(signatures_of) {
+    if let Some(s) = extra.ok().and_then(|p| signatures_of(&p).ok()) {
         v["dvCommits"] = s.commits.into_iter().map(|(oid, signed)| json!({ "oid": oid, "signed": signed })).collect();
         v["dvCommitsTotal"] = s.total.into();
         v["dvSignaturesRequired"] = s.required.into();

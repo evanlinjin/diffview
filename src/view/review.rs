@@ -748,6 +748,10 @@ impl App {
     /// from it (fetched), when dv chose the diff's base (no `--base` given).
     fn retarget(&mut self, base: String) {
         let Some(old) = self.pr.as_ref().map(|p| p.base.clone()) else { return };
+        // Not mid-rebase (onto the old base): tried again on a refresh once it's through.
+        if super::rebase::rebasing(&self.root) {
+            return self.msg = format!("the PR's base is {base} now: the diff follows once the rebase is through");
+        }
         let follows = self.follow_base.as_deref() == Some(format!("origin/{old}").as_str());
         let onto = format!("origin/{base}");
         if follows {

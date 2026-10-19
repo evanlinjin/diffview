@@ -454,7 +454,8 @@ impl App {
             KeyCode::Char('j') | KeyCode::Down if !ctrl && self.in_commits => self.commit_cur = (self.commit_cur + 1).min(self.commits.len() + usize::from(self.dirty.has())),
             KeyCode::Char('k') | KeyCode::Up if !ctrl && self.in_commits && self.commit_cur == 0 => self.in_commits = false,
             KeyCode::Char('k') | KeyCode::Up if !ctrl && self.in_commits => self.commit_cur -= 1,
-            KeyCode::Char('v') if self.in_commits && self.commit_cur <= self.commits.len() => self.commit_anchor = if self.commit_anchor.is_some() { None } else { Some(self.commit_cur) },
+            KeyCode::Char('v') if self.in_commits && self.commit_cur > self.commits.len() => {} // (no range from "uncommitted")
+            KeyCode::Char('v') if self.in_commits => self.commit_anchor = if self.commit_anchor.is_some() { None } else { Some(self.commit_cur) },
             KeyCode::Enter if self.in_commits => self.pick_commits(),
             // Between the files and the commits, without going through every file.
             KeyCode::Tab | KeyCode::BackTab => self.focus_list(!self.in_commits),

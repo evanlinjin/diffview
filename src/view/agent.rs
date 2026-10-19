@@ -36,14 +36,16 @@ const ALLOWED: &[&str] = &[
     // Why CI fails, to fix it.
     "Bash(gh pr checks:*)",
     "Bash(gh run view:*)",
-    // A transient failure: its failed jobs once more (once a head: see `fix_checks_prompt`).
-    "Bash(gh run rerun:*)",
     // To check a change it made still builds and passes.
     "Bash(cargo check:*)",
     "Bash(cargo build:*)",
     "Bash(cargo test:*)",
     "Bash(cargo clippy:*)",
 ];
+
+/// What fixing CI needs on top: a transient failure's failed jobs once more (once a head: see
+/// `fix_checks_prompt`). Only for that run: no other may rerun workflows.
+pub(crate) const FIX_CHECKS_TOOLS: &[&str] = &["Bash(gh run rerun:*)"];
 
 /// What drafting a replacement needs on top: reading the PRs it replaces, and committing (to
 /// its own local branch; dv never pushes it without you).
@@ -789,7 +791,7 @@ impl App {
                 Ok(s) => (format!("zellij run failed ({s})"), false),
                 Err(e) => (format!("running zellij: {e}"), false),
             },
-            false => match self.spawn_claude(&prompt, label, false, &[]) {
+            false => match self.spawn_claude(&prompt, label, false, if matches!(ask, Ask::FixChecks) { FIX_CHECKS_TOOLS } else { &[] }) {
                 Ok(job) => {
                     self.claude.job = Some(job);
                     (format!("Claude is {label} in the background…"), true)
@@ -1271,7 +1273,8 @@ pub(crate) fn fix_checks_prompt(n: u64) -> String {
          it>\", \"rerun\": false}}: the user can have a PR drafted from it. If the failure looks transient (a \
          network error, a timeout, a runner problem, a test known to be flaky), also rerun the failed jobs once \
          (`gh run rerun <run id> --failed`, for each failed run) and set \"rerun\": true; but not if {note} \
-         already has \"rerun\": true for this head (CI was rerun once already: it isn't transient). First run \
+         already has \"rerun\": true for this head (CI was rerun once already: it isn't transient), and then \
+         keep \"rerun\": true in the note you write. First run \
          `dv review-info`: if the notes it lists exist, read them and follow them."
     )
 }

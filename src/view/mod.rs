@@ -23,7 +23,7 @@ use std::time::Duration;
 mod agent;
 mod amend;
 mod rebase;
-pub(crate) use agent::{REPLACE_TOOLS, answer_prompt, close_if_done, pane_screen, asking, working, claude_command, claude_wrote, fix_checks_prompt, review_prompt, turn, update_prompt, with_instructions};
+pub(crate) use agent::{FIX_CHECKS_TOOLS, REPLACE_TOOLS, answer_prompt, close_if_done, pane_screen, asking, working, claude_command, claude_wrote, fix_checks_prompt, review_prompt, turn, update_prompt, with_instructions};
 mod build;
 use build::*;
 mod files;
