@@ -1,6 +1,6 @@
 [package]
 name = "dv-review"
-version = "0.34.29"
+version = "0.34.30"
 edition = "2024"
 rust-version = "1.89"
 description = "A terminal diff viewer for reviewing GitHub PRs: Helix keys, rust-analyzer, inline review comments, and Claude Code reviews"

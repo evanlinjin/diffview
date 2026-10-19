@@ -5,6 +5,26 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.30] - 2026-10-19
+
+### Added
+- `Space g` → "Amend it all into the commits Claude finds it belongs in": Claude places every
+  uncommitted change (git blame's place a hint), and dv amends them in when it's done, a
+  backup branch first; what it can't place stays uncommitted.
+
+### Changed
+- `dv list`: the top bar is the tabs (and where you are); the status bar has the message on
+  its left and the list's state on its right: how it's ordered (or Claude's ranking: how long
+  ago, its cost, what's changed since), auto on (in the warning color) or off, and the flags
+  PRs open with. No badge that looks like a tab, nothing said twice.
+
+### Fixed
+- Removed lines take the base's syntax colors after the base changes (the uncommitted view, a
+  rebase, a retargeted PR), not the old base's.
+- After an editor action, a reload's error is said.
+- The latest activity beside the description is bounded when comments are few (at most nine
+  items), and each event keeps the cursor through a refresh (keyed by GitHub's id).
+
 ## [0.34.29] - 2026-10-19
 
 ### Fixed
