@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.55] - 2026-10-19
+
+### Changed
+- The pane's tabs say how many of their threads are open when some are resolved
+  (`Comments 2/3`).
+
+### Fixed
+- The key hints' popup stays below the pinned title in a short window.
+
 ## [0.34.54] - 2026-10-19
 
 ### Changed

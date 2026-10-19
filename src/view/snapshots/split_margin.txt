@@ -1,4 +1,4 @@
-          PR #7 · Fix the thing  @bo · main ← amy:fix                                                 3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)│ Comments 4  Claude 1  Pending 1                                             gn
+          PR #7 · Fix the thing  @bo · main ← amy:fix                                                 3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)│ Comments 3/4  Claude 1  Pending 1                                           gn
  ▾        description                                                                                                                                          │
           Fixes the thing, see new_call.                                                                                                                       ├─ status ──────────────────────────────────────────────────────────────────────╮
                                                                                                                                                                │  OPEN @bo · main ← fix · +2 −2 in 3 files                                     │

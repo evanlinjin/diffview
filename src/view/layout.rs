@@ -107,10 +107,13 @@ impl App {
                     Bar::Pending => View::Pending,
                     _ => View::All,
                 };
-                let n = about_code.iter().filter(|t| self.in_view_of(v, t)).count();
-                let l = match n {
-                    0 => format!(" {name} "),
-                    n => format!(" {name} {n} "),
+                let shown: Vec<&&Thread> = about_code.iter().filter(|t| self.in_view_of(v, t)).collect();
+                // How many are open of them, when some are resolved: "2/3".
+                let open = shown.iter().filter(|t| !t.resolved).count();
+                let l = match (shown.len(), open) {
+                    (0, _) => format!(" {name} "),
+                    (n, o) if o == n => format!(" {name} {n} "),
+                    (n, o) => format!(" {name} {o}/{n} "),
                 };
                 let w = l.chars().count();
                 x += w;
