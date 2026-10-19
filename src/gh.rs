@@ -416,7 +416,7 @@ pub(crate) fn reactions(v: &Value, mine: &[&str]) -> Vec<Reaction> {
 
 /// The reactions on comment (or review) `node` now: each kind's (name, count, yours).
 pub fn reactions_of(node: &str) -> Result<Vec<Reaction>> {
-    let d = mutate(&format!("query($id: ID!) {{ node(id: $id) {{ ... on Reactable {{ {REACTED} }} }} }}"), json!({ "id": node }))?;
+    let d = graphql(&format!("query($id: ID!) {{ node(id: $id) {{ ... on Reactable {{ {REACTED} }} }} }}"), json!({ "id": node }))?;
     Ok(reactions(&d["node"]["reactionGroups"], &[]))
 }
 
@@ -424,11 +424,11 @@ pub fn reactions_of(node: &str) -> Result<Vec<Reaction>> {
 pub fn react(node: &str, content: &str, add: bool) -> Result<()> {
     let op = if add { "addReaction" } else { "removeReaction" };
     let q = format!("mutation($id: ID!, $c: ReactionContent!) {{ {op}(input: {{ subjectId: $id, content: $c }}) {{ clientMutationId }} }}");
-    mutate(&q, json!({ "id": node, "c": content })).map(drop)
+    graphql(&q, json!({ "id": node, "c": content })).map(drop)
 }
 
-/// Run a GraphQL mutation; variables go in a JSON body so strings need no escaping.
-pub(crate) fn mutate(query: &str, vars: Value) -> Result<Value> {
+/// Run a GraphQL query or mutation; variables go in a JSON body so strings need no escaping.
+pub(crate) fn graphql(query: &str, vars: Value) -> Result<Value> {
     let body = json!({ "query": query, "variables": vars }).to_string();
     let v: Value = serde_json::from_str(&gh_input(&["api", "graphql", "--input", "-"], Some(&body))?)?;
     if let Some(e) = v["errors"].get(0) {
@@ -444,7 +444,7 @@ fn side(left: bool) -> &'static str {
 /// Start a pending review on `commit`, with `body` as its text if there is one; returns its id.
 /// (GitHub can't give a review started without text any until it's submitted.)
 pub fn start_review(pr_id: &str, commit: &str, body: &str) -> Result<String> {
-    let d = mutate(
+    let d = graphql(
         "mutation($pr: ID!, $commit: GitObjectID!, $body: String) {
           addPullRequestReview(input: { pullRequestId: $pr, commitOID: $commit, body: $body }) { pullRequestReview { id } } }",
         json!({ "pr": pr_id, "commit": commit, "body": (!body.is_empty()).then_some(body) }),
@@ -454,7 +454,7 @@ pub fn start_review(pr_id: &str, commit: &str, body: &str) -> Result<String> {
 
 /// A review with no comments, created and submitted at once (so a refusal leaves nothing behind).
 pub fn review_now(pr_id: &str, commit: &str, event: &str, body: &str) -> Result<()> {
-    mutate(
+    graphql(
         "mutation($pr: ID!, $commit: GitObjectID!, $event: PullRequestReviewEvent!, $body: String) {
           addPullRequestReview(input: { pullRequestId: $pr, commitOID: $commit, event: $event, body: $body }) {
             pullRequestReview { id } } }",
@@ -465,7 +465,7 @@ pub fn review_now(pr_id: &str, commit: &str, event: &str, body: &str) -> Result<
 
 pub fn add_thread(review: &str, a: &Anchor, body: &str) -> Result<()> {
     let (start_line, start_side) = a.start.map_or((None, None), |(l, left)| (Some(l), Some(side(left))));
-    mutate(
+    graphql(
         "mutation($review: ID!, $path: String!, $body: String!, $line: Int!, $side: DiffSide!,
                   $startLine: Int, $startSide: DiffSide) {
           addPullRequestReviewThread(input: { pullRequestReviewId: $review, path: $path, body: $body,
@@ -477,7 +477,7 @@ pub fn add_thread(review: &str, a: &Anchor, body: &str) -> Result<()> {
 }
 
 pub fn add_reply(review: &str, thread: &str, body: &str) -> Result<()> {
-    mutate(
+    graphql(
         "mutation($review: ID!, $thread: ID!, $body: String!) {
           addPullRequestReviewThreadReply(input: { pullRequestReviewId: $review,
             pullRequestReviewThreadId: $thread, body: $body }) { comment { id } } }",
@@ -488,7 +488,7 @@ pub fn add_reply(review: &str, thread: &str, body: &str) -> Result<()> {
 
 /// `event`: COMMENT, APPROVE or REQUEST_CHANGES.
 pub fn submit_review(review: &str, event: &str, body: &str) -> Result<()> {
-    mutate(
+    graphql(
         "mutation($review: ID!, $event: PullRequestReviewEvent!, $body: String) {
           submitPullRequestReview(input: { pullRequestReviewId: $review, event: $event, body: $body }) {
             pullRequestReview { id } } }",
@@ -499,7 +499,7 @@ pub fn submit_review(review: &str, event: &str, body: &str) -> Result<()> {
 
 /// Replace a pending review's text (its summary).
 pub fn set_review_body(review: &str, body: &str) -> Result<()> {
-    mutate(
+    graphql(
         "mutation($review: ID!, $body: String!) {
           updatePullRequestReview(input: { pullRequestReviewId: $review, body: $body }) { pullRequestReview { id } } }",
         json!({ "review": review, "body": body }),
@@ -508,7 +508,7 @@ pub fn set_review_body(review: &str, body: &str) -> Result<()> {
 }
 
 pub fn delete_review(review: &str) -> Result<()> {
-    mutate(
+    graphql(
         "mutation($review: ID!) { deletePullRequestReview(input: { pullRequestReviewId: $review }) {
           pullRequestReview { id } } }",
         json!({ "review": review }),
@@ -517,7 +517,7 @@ pub fn delete_review(review: &str) -> Result<()> {
 }
 
 pub fn delete_comment(comment: &str) -> Result<()> {
-    mutate(
+    graphql(
         "mutation($c: ID!) { deletePullRequestReviewComment(input: { id: $c }) { clientMutationId } }",
         json!({ "c": comment }),
     )
@@ -525,7 +525,7 @@ pub fn delete_comment(comment: &str) -> Result<()> {
 }
 
 pub fn edit_comment(comment: &str, body: &str) -> Result<()> {
-    mutate(
+    graphql(
         "mutation($c: ID!, $body: String!) {
           updatePullRequestReviewComment(input: { pullRequestReviewCommentId: $c, body: $body }) {
             pullRequestReviewComment { id } } }",
@@ -540,7 +540,7 @@ pub fn set_viewed(pr_id: &str, path: &str, viewed: bool) -> Result<()> {
         true => "mutation($pr: ID!, $path: String!) { markFileAsViewed(input: { pullRequestId: $pr, path: $path }) { clientMutationId } }",
         false => "mutation($pr: ID!, $path: String!) { unmarkFileAsViewed(input: { pullRequestId: $pr, path: $path }) { clientMutationId } }",
     };
-    mutate(q, json!({ "pr": pr_id, "path": path })).map(drop)
+    graphql(q, json!({ "pr": pr_id, "path": path })).map(drop)
 }
 
 /// `s` for a URL path segment: all but unreserved characters percent-encoded.
@@ -617,7 +617,7 @@ pub fn set_resolved(thread: &str, resolved: bool) -> Result<()> {
         true => "mutation($t: ID!) { resolveReviewThread(input: { threadId: $t }) { thread { isResolved } } }",
         false => "mutation($t: ID!) { unresolveReviewThread(input: { threadId: $t }) { thread { isResolved } } }",
     };
-    mutate(q, json!({ "t": thread })).map(drop)
+    graphql(q, json!({ "t": thread })).map(drop)
 }
 
 impl Thread {
@@ -876,7 +876,7 @@ pub fn activity(id: &str) -> Result<Value> {
     let q = format!(
         "query($id: ID!, $b: String, $n: Int!) {{ node(id: $id) {{ ... on PullRequest {{ {REACTED} timelineItems(last: $n, before: $b, itemTypes: [{ACTIVITY_TYPES}]) {{ pageInfo {{ hasPreviousPage startCursor }} nodes {{ {ACTIVITY} }} }} }} }} }}"
     );
-    let page = |b: Option<&str>, n: u32| mutate(&q, json!({ "id": id, "b": b, "n": n }));
+    let page = |b: Option<&str>, n: u32| graphql(&q, json!({ "id": id, "b": b, "n": n }));
     let first = page(None, 100).or_else(|_| page(None, 25))?;
     let pr = &first["node"];
     let mut items = pr["timelineItems"]["nodes"].as_array().cloned().unwrap_or_default();
