@@ -71,7 +71,7 @@ impl App {
     pub(super) fn cursor_ref(&self) -> Option<String> {
         let row = &self.rows[self.head.row];
         // A commit's message (its section): the commit's hash.
-        if let Some(c) = row.main.and_then(|m| m.checked_sub(1)).filter(|_| row.main != Some(CLAUDE_REVIEW)).and_then(|i| self.commits.get(i)) {
+        if let Some(c) = row.main.and_then(|m| m.checked_sub(1)).and_then(|i| self.commits.get(i)) {
             return Some(c.sha.clone());
         }
         if let Some(t) = row.thread {

@@ -188,7 +188,9 @@ impl App {
         // view's: Claude's summary (or your questions about the PR), and what's said under it.
         // (Folded with it: Tab on it, or on them.)
         let mut attached: Vec<Row> = match self.view {
-            _ if self.unpublished() || self.sections_folded.contains(&DESCRIPTION) => vec![],
+            _ if self.sections_folded.contains(&DESCRIPTION) => vec![],
+            // An unpublished draft's one tab is Claude's: as the Claude view's.
+            _ if self.unpublished() => self.claude_attached(),
             View::All if self.info_collapsed => vec![],
             View::All => {
                 let latest = (!self.conversation_all).then_some(LATEST);
@@ -247,18 +249,6 @@ impl App {
         }
         // No description to attach to (a branch): after the title.
         rows.append(&mut attached);
-        // A draft's one tab (Claude's): Claude's summary in full, a section before the files.
-        // With no review yet, your questions about the PR (and Claude's answers) all the same.
-        let questions = self.threads.iter().any(|t| t.conversation == ON_SUMMARY && self.in_view(t));
-        let summary = !self.claude.summary.trim().is_empty();
-        if self.unpublished() && (summary || questions) {
-            // (No summary: nothing of it to quote or post, so not the summary's rows.)
-            let (title, info) = if summary { ("claude's review", Some(SUMMARY)) } else { ("questions for Claude", None) };
-            rows.extend(self.section(CLAUDE_REVIEW, title.into(), &self.claude.summary, info));
-            if !self.sections_folded.contains(&CLAUDE_REVIEW) {
-                rows.extend(self.summary_threads(Some(CLAUDE_REVIEW)));
-            }
-        }
         if self.view == View::All {
             // A replacement's closing note (for the PRs it replaces), after its description.
             if let Some(h) = (0..self.info.len()).find(|&i| self.is_closing_note(i)) {
@@ -428,13 +418,11 @@ impl App {
         lines.into_iter().map(|l| Row { syn: l.styles, links: l.links, nowrap: l.nowrap, ..mk(Kind::Comment, l.text) }).collect()
     }
 
-    /// Your replies to Claude's review summary (and its answers), under it: in the Claude view's
-    /// section (`main`), or (no PR) the top section's.
-    fn summary_threads(&self, main: Option<usize>) -> Vec<Row> {
+    /// Your replies to Claude's review summary (and its answers), under it.
+    fn summary_threads(&self) -> Vec<Row> {
         (0..self.threads.len())
             .filter(|&t| self.threads[t].conversation == ON_SUMMARY && self.in_view(&self.threads[t]))
             .flat_map(|t| self.thread_rows(t, INFO))
-            .map(|r| Row { main, ..r })
             .collect()
     }
 
@@ -623,7 +611,7 @@ impl App {
                 rows
             }
         };
-        rows.extend(self.summary_threads(None));
+        rows.extend(self.summary_threads());
         rows
     }
 

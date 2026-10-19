@@ -1382,6 +1382,12 @@ fn replacement_in_the_pr_section() {
     let mut r = app.replacement.clone().unwrap();
     r.drafting = None;
     app.show_replacement(r);
+    // Claude's review is beside the description, in the pane, as on a PR's Claude view.
+    app.claude.summary = "**What it does.** Builds for the target.".into();
+    let keep = app.cursor_key();
+    app.rebuild(keep);
+    let review = app.rows.iter().position(|r| r.line.text == "claude's review").expect("claude's review");
+    assert!(app.rows[review].attached && app.rows[review].main.is_none());
     // S: publish first; closing what it replaces comes after.
     let s = |app: &mut App| {
         app.review_menu();

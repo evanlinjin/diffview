@@ -5,6 +5,10 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Changed
+- A replacement's (or new PR's) view shows Claude's review beside its description, in the
+  pane, as a PR's Claude view does, not as a section in the code's column.
+
 ## [0.34.40] - 2026-10-19
 
 ### Fixed
