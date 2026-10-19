@@ -415,6 +415,12 @@ impl Issues {
         }
     }
 
+    /// Why Claude would close issue `n`: its triage says, or its ranking of the todo did.
+    fn close_why(&self, n: u64) -> Option<String> {
+        let triage = self.triage.get(&n).map(|t| t.close.clone()).filter(|c| !c.is_empty());
+        triage.or_else(|| self.ranked.as_ref()?.closes.get(&format!("issue-{n}")).cloned())
+    }
+
     /// Issues auto would triage: not triaged, not deferred.
     fn untriaged(&self) -> usize {
         self.todo.iter().filter(|it| it.deferred.is_none() && it.needs.contains(&crate::todo::Need::Untriaged)).count()
@@ -441,7 +447,7 @@ impl Issues {
                 ITab::Todo => true,
                 ITab::Open => true,
                 ITab::Mine => i.author == self.me || i.assignees.contains(&self.me),
-                ITab::CanClose => self.triage.get(&i.number).is_some_and(|t| !t.close.is_empty()),
+                ITab::CanClose => self.close_why(i.number).is_some(),
             })
             .filter(|i| self.matches(i))
             .collect()
@@ -962,7 +968,7 @@ impl Issues {
         let shown_n = self.shown().len();
         let sel_now = self.sel.min(shown_n.saturating_sub(1));
         let mine = self.items.iter().filter(|i| i.author == self.me || i.assignees.contains(&self.me)).count();
-        let close = self.items.iter().filter(|i| self.triage.get(&i.number).is_some_and(|t| !t.close.is_empty())).count();
+        let close = self.items.iter().filter(|i| self.close_why(i.number).is_some()).count();
         let names = [
             (ITab::Todo, format!("todo {}", self.todo_now())),
             (ITab::Open, format!("open {}", self.items.len())),

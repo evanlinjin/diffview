@@ -158,7 +158,8 @@ disk: rust-analyzer can index it and `hx` can open it.
    which it is (`PRs`, `Issues`) and `I I` the other. A card each: number, title
    and labels, comments and 👍, its age; who opened it and who it's assigned to; the PRs that
    would close it (`fixed by #N (open)`). Tabs (`gn` / `gp`): todo, open, mine (assigned to you or
-   opened by you), can close (Claude's triage says why). Todo: what needs you of an issue (the PR
+   opened by you), can close (Claude's triage says why, or its ranking of the todo
+   does: the issues ranking says which to close). Todo: what needs you of an issue (the PR
    fixing it merged: close it; Claude would close it; assigned to you; a PR would fix it: review
    that; changed since Claude triaged it; not triaged), in the rules' order, or Claude's (`r r`,
    one reading-only run: why each is where it is and what next, in the message column as dv
@@ -173,8 +174,10 @@ disk: rust-analyzer can index it and `hx` can open it.
    search`, `gh label list`, the code): the skill's "Triage an issue", to `issue-N.json` beside
    the reviews (kind, priority, a summary, labels, what next, whether to close it and a closing
    comment); the card shows its kind and priority (or `✕ close: why`) and `→ next`. Enter opens
-   the issue in dv, under its own title bar (`Issue #N · title`, who, labels; not the list's tabs):
-   Claude's triage first, then its text and comments (markdown, as comments in dv are). The triage:
+   the issue in dv, under its own title bar (`Issue #N · title`, who, labels; not the list's tabs),
+   laid out as the PR view: its description on the left, and a pane beside it (a third of the
+   window, 60–80 columns) with Claude's triage in its `◆` box, then the conversation, a bubble a
+   comment; too narrow for both, one column. The triage:
    (its summary, kind and priority, what next, the labels it would add, a better title, why to
    close it and the comment to close it with). There: `C` comments, `L L` adds Claude's labels,
    `T T` gives it Claude's title, `X X` closes it with Claude's closing comment (your editor

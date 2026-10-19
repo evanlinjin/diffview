@@ -91,33 +91,59 @@ impl IssueView {
         task
     }
 
-    /// The issue and Claude's triage as lines `width` wide: its title, labels and who; its
-    /// text; each comment; then the triage.
+    /// The issue as the PR view shows a PR: its description on the left (as the PR's text), and
+    /// beside it a pane (a third of the window, 60–80 columns) with Claude's triage in its box,
+    /// then the conversation, a bubble a comment. Too narrow for two: one column, the pane's
+    /// boxes after the description.
     fn render(&mut self, ui: &Ui, width: usize) {
-        let w = width.saturating_sub(4).clamp(20, 100);
+        let pane_w = (width / 3).clamp(60, 80);
+        let two = width >= pane_w + 60;
+        let (left_w, right_w) = match two {
+            true => (width - pane_w - 1, pane_w),
+            false => (width, width),
+        };
         // (`#123` linked to the repo's, as the PR view's.)
         let repo = self.url.rsplit_once("/issues/").map(|(r, _)| r.to_owned());
-        let md = |text: &str, out: &mut Vec<Line<'static>>| {
-            for l in crate::md::render(text, w, &ui.md, &self.hl, repo.as_deref()) {
-                let mut line = l.into_line();
-                line.spans.insert(0, Span::raw("  "));
-                out.push(line);
-            }
-        };
-        let head = |text: String, out: &mut Vec<Line<'static>>| out.push(Line::from(Span::styled(text, ui.heading.add_modifier(ratatui::style::Modifier::BOLD))));
+        let md = |text: &str, w: usize| -> Vec<Line<'static>> { crate::md::render(text, w, &ui.md, &self.hl, repo.as_deref()).into_iter().map(crate::md::MdLine::into_line).collect() };
         let dim = ui.stale;
-        // (Its number, title, who and labels: on its title bar.)
-        let mut out = vec![Line::from(Span::styled(format!("  {}", self.url), dim)), Line::default()];
-        // Claude's triage first, where it's seen (then the issue, however long its thread).
+        let border = ui.linenr;
+        // A bubble: `╭─ title ──╮`, its lines between `│ … │`, `╰──╯`, `w` wide.
+        let bubble = |title: Vec<Span<'static>>, body: Vec<Line<'static>>, w: usize| -> Vec<Line<'static>> {
+            let tw: usize = title.iter().map(Span::width).sum();
+            let mut top = vec![Span::styled("╭─ ", border)];
+            top.extend(title);
+            top.push(Span::styled(format!(" {}╮", "─".repeat(w.saturating_sub(tw + 5))), border));
+            let mut out = vec![Line::from(top)];
+            for l in body {
+                let pad = (w.saturating_sub(4)).saturating_sub(l.width());
+                let mut v = vec![Span::styled("│ ", border)];
+                v.extend(l.spans);
+                v.extend([Span::raw(" ".repeat(pad)), Span::styled(" │", border)]);
+                out.push(Line::from(v));
+            }
+            out.push(Line::from(Span::styled(format!("╰{}╯", "─".repeat(w.saturating_sub(2))), border)));
+            out
+        };
+        // The description, as the PR view's text.
+        let mut left = vec![Line::from(Span::styled(format!("  {}", self.url), dim)), Line::default(), Line::from(Span::styled("  description", ui.heading.add_modifier(ratatui::style::Modifier::BOLD)))];
+        let body = if self.body.trim().is_empty() { "_(no description)_" } else { &self.body };
+        left.extend(md(body, left_w.saturating_sub(4).max(20)).into_iter().map(|mut l| {
+            l.spans.insert(0, Span::raw("  "));
+            l
+        }));
+        // The pane: Claude's triage, then the conversation.
+        let inner = right_w.saturating_sub(4).max(20);
+        let claude = |text: String| vec![Span::styled("◆ ", ui.key), Span::styled(text, ui.thread)];
+        let mut right = vec![];
         match self.triage.is_null() {
-            true => head("claude's triage: none yet (a a)".into(), &mut out),
+            true => right.extend(bubble(claude("claude's triage".into()), vec![Line::from(Span::styled("none yet: a a triages it", dim))], right_w)),
             false => {
                 let what = [self.t("kind"), self.t("priority")].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ");
-                head(format!("claude's triage · {what}"), &mut out);
-                md(&self.t("summary"), &mut out);
+                let mut b = md(&self.t("summary"), inner);
                 let mut said = |k: &str, v: String| {
                     if !v.is_empty() {
-                        out.push(Line::from(vec![Span::styled(format!("  {k}: "), ui.key), Span::raw(v)]));
+                        b.push(Line::default());
+                        b.push(Line::from(vec![Span::styled(format!("{k}: "), ui.key), Span::raw(v)]));
                     }
                 };
                 said("next", self.t("next"));
@@ -125,20 +151,35 @@ impl IssueView {
                 said("title (T T)", self.new_title().unwrap_or_default());
                 said("close (X X)", self.t("close"));
                 if let Some(c) = self.closing().filter(|c| !c.is_empty()) {
-                    out.push(Line::from(Span::styled("  closing comment:", ui.key)));
-                    md(&c, &mut out);
+                    b.extend([Line::default(), Line::from(Span::styled("closing comment:", ui.key))]);
+                    b.extend(md(&c, inner));
                 }
+                right.extend(bubble(claude(format!("claude's triage · {what}")), b, right_w));
             }
         }
-        out.push(Line::default());
-        out.push(Line::from(Span::styled("─".repeat(w + 2), dim)));
-        out.push(Line::default());
-        md(if self.body.trim().is_empty() { "_(no description)_" } else { &self.body }, &mut out);
+        right.push(Line::default());
+        right.push(Line::from(Span::styled(format!("activity ({})", self.comments.len()), ui.heading)));
         for (who, when, body) in &self.comments {
-            out.push(Line::default());
-            head(format!("@{who} · {}", gh::ago(when)), &mut out);
-            md(body, &mut out);
+            let title = vec![Span::styled(format!("@{who}"), ui.thread), Span::styled(format!(" · {}", gh::ago(when)), dim)];
+            right.extend(bubble(title, md(body, inner), right_w));
         }
+        // Side by side, a dim line between; or one after the other.
+        let out = match two {
+            true => (0..left.len().max(right.len()))
+                .map(|k| {
+                    let mut l = left.get(k).cloned().unwrap_or_default();
+                    let pad = left_w.saturating_sub(l.width());
+                    l.spans.extend([Span::raw(" ".repeat(pad)), Span::styled("│", border)]);
+                    l.spans.extend(right.get(k).cloned().unwrap_or_default().spans);
+                    l
+                })
+                .collect(),
+            false => {
+                left.push(Line::default());
+                left.extend(right);
+                left
+            }
+        };
         (self.lines, self.width) = (out, width);
     }
 
@@ -237,6 +278,13 @@ fn an_issue_and_its_triage() {
     assert!(v.fix_task().starts_with("Fix #7: panic\n\nFrom triaging it:\nStill on master"));
     let ui = Theme::load().ui();
     snapshot("issue_view", &screen(80, 22, |f| {
+        let a = f.area();
+        v.title_bar(f, &ui, Rect { height: 1, ..a });
+        v.draw(f, &ui, Rect { y: 1, height: a.height - 1, ..a });
+    }));
+    // Wide: the description, and the pane beside it (triage, then the conversation in bubbles).
+    v.redraw();
+    snapshot("issue_view_wide", &screen(160, 22, |f| {
         let a = f.area();
         v.title_bar(f, &ui, Rect { height: 1, ..a });
         v.draw(f, &ui, Rect { y: 1, height: a.height - 1, ..a });
