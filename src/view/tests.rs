@@ -2575,6 +2575,11 @@ fn hidden_on_github_folded() {
     // Tab on one: shown; again, hidden.
     let r = app.rows.iter().position(|r| r.line.text.ends_with("hidden on GitHub (off topic)")).unwrap();
     app.goto(r, 0);
+    // A reply to it doesn't quote it unseen.
+    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), url: "https://github.com/o/r/pull/1".into(), ..Default::default() });
+    app.start_reply(true);
+    assert!(matches!(app.action.take(), Some(Action::Reply { ref quote, .. }) if quote.is_empty()));
+    app.pr = None;
     app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     assert!(text(&app).contains("secret2"));
     // Into its text, Tab hides it again: the cursor on its heading.

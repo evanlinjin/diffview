@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.11] - 2026-10-19
+
+### Fixed
+- `a` (ask Claude) on a comment hidden on GitHub no longer quotes its text unseen (Claude
+  reads it at the link); `C` on a hidden conversation comment opens a new comment, unquoted.
+- The hint on a hidden comment offers what works there (`r` on a thread, `C` in the
+  conversation); once shown, its text has the usual hints.
+- Tab showing or hiding a comment keeps the cursor's column.
+
 ## [0.34.10] - 2026-10-19
 
 ### Fixed

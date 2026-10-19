@@ -1245,7 +1245,7 @@ impl App {
         }
         match (pr_text, self.rows[self.head.row].thread) {
             // (Not quoting what's hidden on GitHub, unseen.)
-            (true, _) if self.hidden_line(self.head.row) => self.msg = "it's hidden on GitHub: Tab shows it first".into(),
+            (true, _) if review && self.hidden_line(self.head.row) => self.msg = "it's hidden on GitHub: Tab shows it first".into(),
             (true, _) if review => self.quote_into_summary(),
             (true, _) => self.start_conversation_comment(),
             // `r` replies (in the review); `C` here replies right away, as `C` posts what `c` queues.
@@ -1324,7 +1324,8 @@ impl App {
             return self.msg = "no PR for this branch".into();
         }
         let row = &self.rows[self.head.row];
-        let text = row.info.and_then(|i| self.info.get(i)).map(|l| l.text.as_str());
+        // (Not what's hidden on GitHub, unseen.)
+        let text = row.info.and_then(|i| self.info.get(i)).map(|l| l.text.as_str()).filter(|_| !self.hidden_line(self.head.row));
         let quote = text.map_or(String::new(), quote);
         self.action = Some(Action::Converse { quote, as_is: false });
     }
@@ -1386,7 +1387,7 @@ impl App {
             (Some(t), Some(comment)) if self.pr.is_some() => {
                 let thread = self.threads[t].id.clone();
                 // (Not what's hidden on GitHub, unseen.)
-                let shown = |c: &&gh::Comment| c.hidden.is_empty() || self.revealed.contains(&c.node_id);
+                let shown = |c: &&gh::Comment| !self.unseen(&c.hidden, &c.node_id);
                 let quote = self.comment_under_cursor(t).filter(shown).map_or(String::new(), |c| quote(&c.body));
                 self.action = Some(Action::Reply { thread, comment, review, quote });
             }

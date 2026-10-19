@@ -131,10 +131,11 @@ impl App {
                 ("Space c", "copy file:line ref"),
             ]));
         }
-        if let Some(n) = self.hidden_here() {
-            return Some(match self.revealed.contains(&n) {
-                false => ("hidden on GitHub", &[("Tab", "show it"), ("r", "reply")]),
-                true => ("hidden on GitHub", &[("Tab", "hide it again"), ("r", "reply")]),
+        // (Shown, its text has the usual hints.)
+        if self.hidden_here().is_some_and(|n| !self.revealed.contains(&n)) {
+            return Some(match row.thread {
+                Some(_) => ("hidden on GitHub", &[("Tab", "show it"), ("r", "reply")]),
+                None => ("hidden on GitHub", &[("Tab", "show it"), ("C", "comment on the PR")]),
             });
         }
         // On a link: what can be done with it (before what the row it's in offers).
@@ -432,7 +433,7 @@ impl App {
                         // column; floating, the code runs full width under it, and is covered
                         // only where there's a comment.
                         let lit = |_: usize| tint && !pane_cur;
-                        let related = |r: usize| !self.files_focus && lit_code.is_some_and(|(a, b)| (a..=b).contains(&r));
+                        let related = |r: usize| lit_code.is_some_and(|(a, b)| (a..=b).contains(&r));
                         let diff_line = |r: usize| matches!(self.rows[r].line.kind, Kind::Ctx | Kind::Add | Kind::Del);
                         let cw = if float { tw } else { ctw };
                         let code = match (l, rr) {

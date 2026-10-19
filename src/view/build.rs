@@ -590,6 +590,12 @@ impl App {
         Some(format!(" · {}", gh::hidden_words(why)))
     }
 
+    /// Whether a comment (`hidden` on GitHub, why; its node id) is hidden here still: not to be
+    /// quoted (`c`, `C`, `r`, `a`) before you've seen it.
+    pub(super) fn unseen(&self, hidden: &str, node: &str) -> bool {
+        self.hidden_note(hidden, node).is_some()
+    }
+
     /// Whether row `r` is the folded line of a conversation comment hidden on GitHub.
     pub(super) fn hidden_line(&self, r: usize) -> bool {
         self.hidden_row(&self.rows[r])
@@ -597,7 +603,7 @@ impl App {
 
     fn hidden_row(&self, row: &Row) -> bool {
         let head = row.info.and_then(|b| self.info.get(b.checked_sub(1)?)).filter(|l| l.heading);
-        row.file == INFO && row.thread.is_none() && row.line.kind == Kind::Thread && head.is_some_and(|l| self.hidden_note(&l.hidden, &l.node).is_some())
+        row.file == INFO && row.thread.is_none() && row.line.kind == Kind::Thread && head.is_some_and(|l| self.unseen(&l.hidden, &l.node))
     }
 
     /// The comment hidden on GitHub under the cursor (its node id), for Tab to show or hide:
@@ -621,7 +627,7 @@ impl App {
         flip(&mut self.revealed, node.clone());
         // The cursor on its heading, whether its text went or came (else where it was).
         let at = self.rows[self.head.row].thread.map(|t| (self.root_id(t), self.comment_index_under_cursor(t)));
-        let keep = self.cursor_key();
+        let (keep, col) = (self.cursor_key(), self.head.col);
         self.rebuild(keep);
         let row = match at {
             Some((id, k)) => {
@@ -634,7 +640,7 @@ impl App {
             }),
         };
         if let Some(row) = row {
-            self.goto(row, self.head.col);
+            self.goto(row, col);
         }
         true
     }
@@ -804,7 +810,7 @@ impl App {
         };
         let mut out = vec![];
         // A hidden comment's note (columns `a..b` of its heading), dimmed.
-        let dim = |mut syn: Vec<Option<Style>>, a: usize, b: usize| {
+        let dim_note = |mut syn: Vec<Option<Style>>, a: usize, b: usize| {
             if b > a {
                 syn.resize(a, None);
                 syn.resize(b, Some(self.ui.stale));
@@ -836,7 +842,7 @@ impl App {
                     false => [tag_syn.clone(), author_syn(c)].concat(),
                 };
                 let syn = if rs.is_empty() { syn } else { with(syn, at, rs) };
-                out.push(Row { syn: dim(syn, ns, ne), ..mk(Kind::Thread, head) });
+                out.push(Row { syn: dim_note(syn, ns, ne), ..mk(Kind::Thread, head) });
                 if tags_below {
                     out.push(Row { syn: tag_syn.clone(), ..mk(Kind::Comment, tag_text.trim_end().to_owned()) });
                 }
@@ -857,7 +863,7 @@ impl App {
                 let head = format!("{head}{rt}");
                 let ns = head.chars().count();
                 let head = head + note.as_deref().unwrap_or("");
-                out.push(Row { syn: dim(syn, ns, head.chars().count()), ..mk(Kind::Thread, head) });
+                out.push(Row { syn: dim_note(syn, ns, head.chars().count()), ..mk(Kind::Thread, head) });
             }
             // Hidden on GitHub: its heading says so, and that's all (Tab shows it).
             if note.is_some() {

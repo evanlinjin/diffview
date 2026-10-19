@@ -381,7 +381,8 @@ impl App {
 
     /// With the cursor in a margin comment: the code lines it's about (tinted like the cursor's).
     pub(super) fn lit_code(&self) -> Option<(usize, usize)> {
-        self.margin_side().then(|| self.code_span(self.rows[self.head.row].thread?)).flatten()
+        // (Not with the files' list focused: only its selection's lit then.)
+        (self.margin_side() && !self.files_focus).then(|| self.code_span(self.rows[self.head.row].thread?)).flatten()
     }
 
     /// The rows of the code thread `t` is about, first to last (its anchor row): a range

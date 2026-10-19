@@ -665,7 +665,11 @@ impl App {
         let head = self.info.get(body.checked_sub(1)?).filter(|h| h.heading && !h.url.is_empty() && h.text.starts_with('@'))?;
         let who = head.text.split(" · ").next().unwrap_or("");
         // What's selected of it, else all of it.
-        let quote = self.selected_quote().unwrap_or_else(|| super::quote(&text.text));
+        // (Hidden on GitHub, unseen: not quoted; Claude reads it at the link.)
+        let quote = match self.unseen(&head.hidden, &head.node) {
+            true => String::new(),
+            false => self.selected_quote().unwrap_or_else(|| super::quote(&text.text)),
+        };
         Some((head.url.clone(), format!("About {who}'s comment ({}):\n{quote}", head.url)))
     }
 
@@ -698,7 +702,10 @@ impl App {
             return self.msg = "those lines aren't in this diff".into();
         };
         let link = self.pr.as_ref().map(|p| format!(" ({}#discussion_r{})", p.url, c.id)).unwrap_or_default();
-        let quote: String = c.body.lines().map(|l| format!("> {l}\n")).collect();
+        let quote: String = match self.unseen(&c.hidden, &c.node_id) {
+            true => String::new(), // (hidden on GitHub, unseen: Claude reads it at the link)
+            false => c.body.lines().map(|l| format!("> {l}\n")).collect(),
+        };
         let prefill = format!("About @{}'s comment{link}:\n{quote}\n", c.author);
         self.action = Some(Action::AskClaude { anchor, code, about: Some((c.id, prefill)), want: "" });
     }
