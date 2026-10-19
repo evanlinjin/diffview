@@ -95,12 +95,12 @@ pub(super) fn zellij_pane(prog: &str, args: &[String], name: &str, cwd: &Path, w
         .stdin(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .output()?;
-    let said = String::from_utf8_lossy(&out.stdout);
     // (Waited for, it's gone: no id to find.)
-    let id = said.lines().map(str::trim).find(|l| l.starts_with("terminal_")).map(str::to_owned).filter(|_| !wait).or_else(|| {
-        if wait {
-            return None;
-        }
+    if wait {
+        return Ok((out.status, None));
+    }
+    let said = String::from_utf8_lossy(&out.stdout);
+    let id = said.lines().map(str::trim).find(|l| l.starts_with("terminal_")).map(str::to_owned).or_else(|| {
         let id = zellij_panes(&[])?.iter().filter(|p| p["title"] == name && p["is_plugin"] != true).filter_map(|p| p["id"].as_u64()).max()?;
         Some(format!("terminal_{id}"))
     });

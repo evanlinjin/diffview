@@ -18,10 +18,10 @@ use std::time::Duration;
 
 mod card;
 use card::*;
-pub(crate) mod todo;
+mod todo;
 pub(crate) mod github;
 pub(crate) use github::{Extra, Listed, LOOKING};
-use todo::ago_secs;
+use crate::gh::ago_secs;
 #[cfg(test)]
 mod tests;
 
@@ -29,12 +29,12 @@ mod tests;
 type Lookups = Vec<(u64, Option<Listed>)>;
 /// By PR, in its worktree: (changed files, commits beyond the PR's head, when that head was made).
 type Unpushed = HashMap<u64, (usize, usize, Option<i64>)>;
-type Checks = anyhow::Result<crate::list::github::ListChecks>;
+type Checks = anyhow::Result<github::ListChecks>;
 /// The open PRs, as fetched (in the background).
 type Fetched = Result<Vec<Listed>>;
 
-/// You, and what GitHub says of each PR beyond its card (`crate::list::github::list_extra`).
-type Extras = anyhow::Result<(String, HashMap<u64, crate::list::Extra>)>;
+/// You, and what GitHub says of each PR beyond its card (`github::list_extra`).
+type Extras = anyhow::Result<(String, HashMap<u64, Extra>)>;
 
 const HELP: &str = "\
   j k, Up Down         move
@@ -152,7 +152,7 @@ pub struct List {
     /// `checks`); what needs you, in order, and whether Claude's ranking of it is stale; the
     /// last ranking, and the next on its way (`R` there, or by itself when it's old).
     me: String,
-    extra: HashMap<u64, crate::list::Extra>,
+    extra: HashMap<u64, Extra>,
     extra_rx: Option<Receiver<Extras>>,
     /// The selected PR, looked up on GitHub in the background for Enter (`prefetch`).
     pr_cache: PrCache,
@@ -317,7 +317,7 @@ impl List {
             None => self.watch_github(),
             Some((tx, _)) => {
                 let tx = tx.clone();
-                std::thread::spawn(move || _ = tx.send(crate::list::github::list()));
+                std::thread::spawn(move || _ = tx.send(github::list()));
             }
         }
         if self.prs.is_empty() {
@@ -751,7 +751,7 @@ impl List {
     fn refresh(&mut self, term: &mut DefaultTerminal) -> Result<()> {
         self.msg = "loading PRs…".into();
         term.draw(|f| self.draw(f))?;
-        self.apply_list(crate::list::github::list(), false);
+        self.apply_list(github::list(), false);
         Ok(())
     }
 
@@ -763,17 +763,17 @@ impl List {
         let (tx, rx) = mpsc::channel();
         let sender = tx.clone();
         std::thread::spawn(move || {
-            let mut etag = crate::list::github::list_etag("").ok().flatten().unwrap_or_default();
+            let mut etag = github::list_etag("").ok().flatten().unwrap_or_default();
             let mut fetched = std::time::Instant::now();
             loop {
                 std::thread::sleep(Duration::from_secs(5));
-                let changed = match crate::list::github::list_etag(&etag) {
+                let changed = match github::list_etag(&etag) {
                     Ok(Some(e)) => (etag = e, true).1,
                     _ => false,
                 };
                 if changed || fetched.elapsed() >= Duration::from_secs(300) {
                     fetched = std::time::Instant::now();
-                    if sender.send(crate::list::github::list()).is_err() {
+                    if sender.send(github::list()).is_err() {
                         return; // dv list is done
                     }
                 }
@@ -801,10 +801,10 @@ impl List {
                     }
                 }
                 let (tx, rx) = mpsc::channel();
-                std::thread::spawn(move || tx.send(crate::list::github::list_checks()));
+                std::thread::spawn(move || tx.send(github::list_checks()));
                 self.checks = Some(rx);
                 let (tx, rx) = mpsc::channel();
-                std::thread::spawn(move || tx.send(crate::list::github::list_extra()));
+                std::thread::spawn(move || tx.send(github::list_extra()));
                 self.extra_rx = Some(rx);
                 if !quiet {
                     self.msg = if prs.is_empty() { "no open PRs".into() } else { String::new() };
@@ -823,13 +823,13 @@ impl List {
                             if self.gone_pending.insert(n) {
                                 missing.push(n);
                             }
-                            prs.push(Listed { number: n, title: "(looking it up…)".into(), state: crate::list::LOOKING.into(), ..Listed::default() });
+                            prs.push(Listed { number: n, title: "(looking it up…)".into(), state: LOOKING.into(), ..Listed::default() });
                         }
                     }
                 }
                 if !missing.is_empty() {
                     let (tx, rx) = mpsc::channel();
-                    std::thread::spawn(move || _ = tx.send(missing.into_iter().map(|n| (n, crate::list::github::listed_one(n).ok())).collect()));
+                    std::thread::spawn(move || _ = tx.send(missing.into_iter().map(|n| (n, github::listed_one(n).ok())).collect()));
                     self.gone_rx.push(rx);
                 }
                 self.prs = prs;
@@ -1181,7 +1181,7 @@ impl List {
         };
         let names = [
             (Tab::Todo, format!("todo {}", self.todo_now())),
-            (Tab::Open, format!("open {open}{}", if self.prs.len() >= crate::list::github::LIST_MAX { "+" } else { "" })),
+            (Tab::Open, format!("open {open}{}", if self.prs.len() >= github::LIST_MAX { "+" } else { "" })),
             (Tab::Worktrees, format!("worktrees {}", self.local.len())),
             (Tab::Replacements, format!("drafts {}", self.reps.len())),
         ];

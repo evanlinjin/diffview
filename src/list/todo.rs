@@ -233,7 +233,7 @@ impl List {
     /// ranking, to judge whether it's worth it.
     pub(super) fn rank_offer(&self) -> String {
         let last = match &self.ranked {
-            Some(r) => format!("the last, {} ago, {}", ago_secs(crate::claude::now_secs() - r.at), cost_text(r.cost)),
+            Some(r) => format!("the last, {} ago, {}", crate::gh::ago_secs(crate::claude::now_secs() - r.at), cost_text(r.cost)),
             None => "never ranked before".into(),
         };
         let since = self.since_text();
@@ -598,16 +598,6 @@ impl List {
 /// A ranking's cost: "cost $0.38" (one from before dv kept it: not recorded).
 pub(super) fn cost_text(c: f64) -> String {
     if c > 0.0 { format!("cost ${c:.2}") } else { "cost not recorded".into() }
-}
-
-/// `s` seconds as "40s", "3m", "2h", "5d".
-pub(crate) fn ago_secs(s: i64) -> String {
-    match s.max(0) {
-        s if s < 60 => format!("{s}s"),
-        s if s < 3600 => format!("{}m", s / 60),
-        s if s < 86400 => format!("{}h", s / 3600),
-        s => format!("{}d", s / 86400),
-    }
 }
 
 /// A zellij pane: its id, command and working directory.

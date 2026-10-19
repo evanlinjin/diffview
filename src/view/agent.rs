@@ -1357,7 +1357,7 @@ fn data_env() -> Option<std::ffi::OsString> {
 
 /// How long since `t`, for the status bar: "40s", "3m".
 pub(super) fn ago(t: std::time::Instant) -> String {
-    crate::list::todo::ago_secs(t.elapsed().as_secs() as i64)
+    crate::gh::ago_secs(t.elapsed().as_secs() as i64)
 }
 
 /// Live: on someone else's PR, a comment saying `"want": "change"` gets the code changed (not

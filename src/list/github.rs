@@ -73,8 +73,6 @@ pub fn list() -> Result<Vec<Listed>> {
     Ok(v.as_array().context("gh pr list")?.iter().map(listed).collect())
 }
 
-
-
 pub fn listed_one(n: u64) -> Result<Listed> {
     let v: Value = gh_json(&["pr", "view", &n.to_string(), "--json", LISTED])?;
     Ok(listed(&v))

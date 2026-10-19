@@ -910,6 +910,16 @@ pub fn info_json(n: u64) -> Result<Value> {
     Ok(v)
 }
 
+/// `s` seconds as "40s", "3m", "2h", "5d".
+pub fn ago_secs(s: i64) -> String {
+    match s.max(0) {
+        s if s < 60 => format!("{s}s"),
+        s if s < 3600 => format!("{}m", s / 60),
+        s if s < 86400 => format!("{}h", s / 3600),
+        s => format!("{}d", s / 86400),
+    }
+}
+
 pub fn ago(iso: &str) -> String {
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
     ago_at(iso, now)
