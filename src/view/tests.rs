@@ -1271,6 +1271,18 @@ fn claude_view() {
     // Its keys there: going to it, not the PR text's (nothing of it to quote or react to).
     app.goto(app.rows.iter().position(|r| r.line.text.starts_with("◆ ")).unwrap(), 0);
     assert_eq!(app.context_keys().map(|k| k.0), Some("Claude's activity"));
+    // A newer one landing above: the cursor stays on its comment (not its place in the box).
+    let item = app.rows.iter().position(|r| r.line.text.starts_with("◆ ")).unwrap();
+    app.goto(item + 1, 0);
+    let was = app.rows[app.head.row].goes;
+    let newer = gh::Comment { id: 2, node_id: String::new(), can_edit: false, can_delete: false, author: "claude".into(), body: "Later.".into(), created: "2099-01-01T00:00:00Z".into(), pending: false, reactions: vec![], hidden: String::new() };
+    app.threads[0].comments.push(newer);
+    let keep = app.cursor_key();
+    app.rebuild(keep);
+    assert!(app.rows[app.head.row].goes == was && app.rows.iter().position(|r| r.line.text == "  Later.").unwrap() < app.head.row);
+    app.threads[0].comments.pop();
+    let keep = app.cursor_key();
+    app.rebuild(keep);
     // Enter there: to that comment (wherever the cursor was on the line).
     app.head.col = 3;
     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));

@@ -87,7 +87,7 @@ impl App {
     }
 
     fn key_at(&self, row: usize) -> CursorKey {
-        let Some(r) = self.rows.get(row) else { return CursorKey { line: None, thread: None, info: None, section: None } };
+        let Some(r) = self.rows.get(row) else { return CursorKey { line: None, thread: None, info: None, section: None, goes: None } };
         CursorKey {
             line: self.files.get(r.file).map(|f| (f.path.clone(), r.line.old, r.line.new)),
             thread: r.thread.and_then(|t| {
@@ -101,6 +101,7 @@ impl App {
                 (id.clone(), before().filter(|x| id.is_some() && self.info_id(x.info) == id).count(), before().count())
             }),
             section: r.main.and_then(|m| Some((m, row - self.rows.iter().position(|x| x.main == Some(m))?))),
+            goes: r.goes.and_then(|(t, c)| Some(((self.root_id(t)?, c), row - self.rows.iter().position(|x| x.goes == r.goes)?))),
         }
     }
 
@@ -114,6 +115,17 @@ impl App {
 
     /// The row `key` is on now.
     fn find_key(&self, key: CursorKey) -> Option<usize> {
+        // (A line standing for a comment: that comment's, wherever the list put it.)
+        let goes = key.goes.and_then(|((id, c), off)| {
+            let first = self.rows.iter().position(|r| r.goes.is_some_and(|(t, k)| k == c && self.root_id(t) == Some(id)))?;
+            let g = self.rows[first].goes;
+            Some((first..=first + off).take_while(|&r| self.rows.get(r).is_some_and(|r| r.goes == g)).last().unwrap_or(first))
+        });
+        goes.or_else(|| self.find_key_rest(key))
+    }
+
+    /// (`find_key`, but a line standing for a comment.)
+    fn find_key_rest(&self, key: CursorKey) -> Option<usize> {
         key.thread
             .and_then(|(id, off)| {
                 let first = self.rows.iter().position(|r| r.thread.and_then(|t| self.root_id(t)) == Some(id))?;

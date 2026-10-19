@@ -198,11 +198,17 @@ impl App {
             let when = if created.is_empty() { String::new() } else { format!("{} · ", crate::gh::ago(created)) };
             let head = super::cut(&format!("◆ {when}{at}"), w.saturating_sub(1));
             rows.push(Row { goes: Some(goes), syn: vec![dim; head.chars().count()], ..mk(Kind::Comment, head) });
-            let para: Vec<&str> = body.lines().map(str::trim).skip_while(|l| l.is_empty()).take_while(|l| !l.is_empty()).collect();
-            let lines = super::wrap(&para.join(" "), w.saturating_sub(3).max(10));
-            for (k, l) in lines.iter().take(2).enumerate() {
-                let l = if k == 1 && lines.len() > 2 { super::cut(&format!("{l} …"), w.saturating_sub(3)) } else { l.clone() };
-                rows.push(Row { goes: Some(goes), ..mk(Kind::Comment, format!("  {l}")) });
+            let lines: Vec<&str> = body.lines().map(str::trim).skip_while(|l| l.is_empty()).collect();
+            let para = lines.iter().take_while(|l| !l.is_empty()).copied().collect::<Vec<_>>().join(" ");
+            let tw = w.saturating_sub(3).max(1);
+            let wrapped = super::wrap(&para, tw);
+            // (More than shows: past two lines, or past its first paragraph.)
+            let more = wrapped.len() > 2 || lines.len() > lines.iter().take_while(|l| !l.is_empty()).count();
+            let shown = wrapped.len().min(2);
+            for (k, l) in wrapped.iter().take(2).enumerate() {
+                let l = if more && k + 1 == shown { format!("{l} …") } else { l.clone() };
+                // (Cut too: a word longer than a line isn't broken by `wrap`.)
+                rows.push(Row { goes: Some(goes), ..mk(Kind::Comment, format!("  {}", super::cut(&l, tw))) });
             }
         }
         rows.push(Row { edge: true, ..mk(Kind::Comment, String::new()) });

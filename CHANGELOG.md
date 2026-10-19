@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.81] - 2026-10-19
+
+### Fixed
+- Claude's activity: a long word (a path, a URL) doesn't run past the box; `…` says when Claude
+  said more than its first paragraph; the cursor stays on its comment as newer ones come in
+  above it (it kept its place in the box, on another).
+
 ## [0.34.80] - 2026-10-19
 
 ### Changed
