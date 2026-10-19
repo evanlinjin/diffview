@@ -518,7 +518,7 @@ fn closed_worktree_prs_looked_up_in_the_background() {
     // A worktree's PR not in the list shows as being looked up (not open: not on the open tab
     // nor the todo), then as GitHub has it; a closed one's mark goes, a failed lookup says so.
     let mut l = List::new("-wb".into());
-    let looking = |n| Listed { number: n, title: "(looking it up…)".into(), state: super::LOOKING.into(), ..Listed::default() };
+    let looking = |n| Listed { number: n, title: "(looking it up…)".into(), state: super::github::LOOKING.into(), ..Listed::default() };
     l.prs = vec![looking(3), looking(9)];
     l.marked = HashSet::from([3, 9]);
     l.gone_pending = HashSet::from([3, 9]);
