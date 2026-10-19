@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.36.2] - 2026-10-19
+
+### Fixed
+- The todo column: a why with a dash in it and no next step isn't split at the dash any more
+  (one ranked before 0.36.1 shows whole, till ranked again). A narrow window's cards keep their
+  number too, however many badges.
+
 ## [0.36.1] - 2026-10-19
 
 ### Fixed
