@@ -174,7 +174,7 @@ impl List {
             let remove = if self.tab == Tab::Replacements { "remove replacement" } else { "remove worktree" };
             let keys = [
                 ("Enter", enter.as_str()),
-                ("Tab", tab),
+                ("gn", tab),
                 ("/", "filter"),
                 ("o O", "sort / reverse"),
                 ("R", "refresh (from GitHub)"),

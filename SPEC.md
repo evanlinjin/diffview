@@ -318,7 +318,7 @@ a merge that succeeds deletes the script's branches for the PR (`pull/N/base`, `
 failed one keeps them, to look into); elsewhere the terminal, and dv waits for Enter after it.
 
 `dv list` (the 1000 most recently updated open PRs; a `#N` filter's Enter opens PR N even if it
-isn't listed; `Tab` switches to the PRs with a local
+isn't listed; `gn` / `gp` switch tabs (as in dv), to the PRs with a local
 `<repo>-N` worktree, open or not, which `Enter` opens in that worktree as it was made:
 detached or on its branch) shows each PR as a card, a blank line between cards. It keeps up
 with GitHub in the background: the open PRs' ETag every 5s, as a PR does (a 304 is free), fetching them
@@ -348,7 +348,7 @@ the background (after your editor, for optional instructions to every one of tho
 from your last review instructions in this repo, as `Space a` → review does; `:cq` cancels), two at a time, each in its `<repo>-N` worktree (made if need be; one on the
 PR's branch stays on it) and its own session; cards show `claude: reviewing…` and then
 `claude ✓`. `A A` has Claude draft one replacement for the marked PRs (or the selected
-one): see Replacements below. Tab cycles open / worktrees / replacements. `[new]` (before the age) marks a PR with something you haven't seen: GitHub updated
+one): see Replacements below. `gn` / `gp` go round todo / open / worktrees / replacements. `[new]` (before the age) marks a PR with something you haven't seen: GitHub updated
 it, or Claude's review changed, since you last left it in dv (`seen/pr-N.looked`); of PRs
 you've never opened, only those Claude has reviewed. `D D` in the worktrees tab removes the worktree (not with local changes; the branch
 stays). Quitting the review returns to the list; if opening a PR fails, the

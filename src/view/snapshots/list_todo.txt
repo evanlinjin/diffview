@@ -1,6 +1,6 @@
   todo 3   open 3   worktrees 0   drafts 0          keys
 ▌   #3  Mine                                        Enter see to it (opens the PR or replacement)
-▌   2.  → y                                         Tab   open PRs
+▌   2.  → y                                         gn    open PRs
 ▌       @me   +0 −0 in 1 file                       /     filter
 ▌                                                   R     refresh (from GitHub)
 ▌       b                                           r r   Claude ranks what needs you (a run)

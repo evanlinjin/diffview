@@ -63,7 +63,8 @@ fn filter_and_keys() {
     l.local.insert(9, ("/x/r-9".into(), None));
     l.local.insert(22, ("/x/r-22".into(), Some("feat".into())));
     assert_eq!(shown(&l), [1, 22, 333]); // open tab: not the merged one
-    k(&mut l, KeyCode::Tab);
+    k(&mut l, KeyCode::Char('g'));
+    k(&mut l, KeyCode::Char('n'));
     assert_eq!(shown(&l), [9, 22]); // (still by number, ascending)
     k(&mut l, KeyCode::Char('j'));
     assert!(matches!(k(&mut l, KeyCode::Enter), Some(Do::Open(22))));
@@ -73,7 +74,8 @@ fn filter_and_keys() {
     assert!(k(&mut l, KeyCode::Char('D')).is_none());
     assert!(matches!(k(&mut l, KeyCode::Char('D')), Some(Do::Remove(22))));
     // m marks (and moves on); a asks, a again has Claude review the marked ones.
-    k(&mut l, KeyCode::BackTab); // open PRs: 1, 22, 333
+    k(&mut l, KeyCode::Char('g'));
+    k(&mut l, KeyCode::Char('p')); // open PRs: 1, 22, 333
     k(&mut l, KeyCode::Char('g'));
     k(&mut l, KeyCode::Char('g'));
     k(&mut l, KeyCode::Char('m'));
@@ -108,8 +110,10 @@ fn filter_and_keys() {
     assert_eq!(l.claude_state(22), Some(("replacement ✓".into(), true)));
     l.drafting.insert(1, batch::Status::Reviewing);
     assert_eq!(l.draft_state(1, "claude"), Some(("claude: drafting…".into(), true)));
-    k(&mut l, KeyCode::Tab);
-    k(&mut l, KeyCode::Tab);
+    k(&mut l, KeyCode::Char('g'));
+    k(&mut l, KeyCode::Char('n'));
+    k(&mut l, KeyCode::Char('g'));
+    k(&mut l, KeyCode::Char('n'));
     assert_eq!(l.tab, Tab::Replacements);
     assert_eq!(shown(&l), [1]);
     assert!(k(&mut l, KeyCode::Char('a')).is_none() && l.msg.starts_with("a draft: Enter opens it"));
@@ -204,9 +208,11 @@ fn screens() {
     k(&mut l, KeyCode::Char('?'));
     snapshot("list_help", &screen(100, 60, |f| l.draw(f)));
     k(&mut l, KeyCode::Esc);
-    k(&mut l, KeyCode::Tab);
+    k(&mut l, KeyCode::Char('g'));
+    k(&mut l, KeyCode::Char('n'));
     snapshot("list_worktrees", &screen(100, 8, |f| l.draw(f)));
-    k(&mut l, KeyCode::Tab);
+    k(&mut l, KeyCode::Char('g'));
+    k(&mut l, KeyCode::Char('n'));
     snapshot("list_replacements", &screen(100, 8, |f| l.draw(f)));
 }
 

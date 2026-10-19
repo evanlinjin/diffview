@@ -5,7 +5,7 @@ pub(super) const HELP: &str = "\
   j k, Up Down         move
   gg ge                first / last PR
   Ctrl-d Ctrl-u        half a page down / up
-  Tab                  todo (what needs you, ranked) / open PRs / PRs with a local worktree
+  gn gp                todo (what needs you, ranked) / open PRs / PRs with a local worktree
                        (<repo>-N, as dv N -w makes) / replacements (Claude's drafts, unpublished)
                        On todo: a PR or replacement waiting on you (Claude's review or answers,
                        your review requested or none yet, pushed since you reviewed, ready to
@@ -94,6 +94,12 @@ impl List {
                 KeyCode::Char('u') => return Some(Do::DeferUntil(key)),
                 _ => self.msg = "not deferred".into(),
             }
+            return None;
+        }
+        // `gn` / `gp`: the next / previous tab, as in dv (before `p` and such on a tab).
+        if let (true, KeyCode::Char(c @ ('n' | 'p'))) = (g, k.code) {
+            let tab = if c == 'n' { self.tab.next() } else { self.tab.prev() };
+            (self.tab, self.sel, self.top) = (tab, 0, 0);
             return None;
         }
         match k.code {
@@ -254,11 +260,6 @@ impl List {
                 }
             }
             KeyCode::Char('?') => self.help = true,
-            KeyCode::Tab | KeyCode::BackTab => {
-                let tab = if k.code == KeyCode::Tab { self.tab.next() } else { self.tab.prev() };
-                (self.tab, self.sel, self.top) = (tab, 0, 0);
-
-            }
             KeyCode::Char('/') => self.filtering = true, // edits the current filter
             KeyCode::Char('o') => self.sort(self.order.next(), self.rev),
             KeyCode::Char('O') => self.sort(self.order, !self.rev),
