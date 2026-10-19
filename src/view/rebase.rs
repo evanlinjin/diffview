@@ -7,7 +7,7 @@ use std::path::Path;
 pub(super) const REBASE_LABEL: &str = "resolving the rebase's conflicts";
 
 /// What Claude may run on top of the usual, to carry a rebase on.
-const REBASE_TOOLS: &[&str] = &["Bash(git status:*)", "Bash(git add:*)", "Bash(git rm:*)", "Bash(git rebase --continue:*)", "Bash(git rebase --skip:*)", "Bash(git rebase --abort:*)"];
+pub(super) const REBASE_TOOLS: &[&str] = &["Bash(git status:*)", "Bash(git add:*)", "Bash(git rm:*)", "Bash(git rebase --continue:*)", "Bash(git rebase --skip:*)", "Bash(git rebase --abort:*)"];
 
 use diff::git_in;
 
@@ -20,15 +20,36 @@ pub(super) fn rebasing(dir: &Path) -> bool {
     merge.is_some_and(|m| m.exists()) || apply.is_some_and(|a| a.exists() && !a.join("applying").exists())
 }
 
+/// Where dv notes a rebase it started (the backup branch's name), in the checkout's git dir:
+/// so a rebase you started yourself isn't taken for one.
+fn marker(dir: &Path) -> Option<std::path::PathBuf> {
+    git_in(dir, &["rev-parse", "--git-path", "dv-rebase"]).ok().map(|p| dir.join(p.trim()))
+}
+
+/// The rebase dv started in `dir` that isn't through yet: its backup branch.
+pub(super) fn dv_rebase(dir: &Path) -> Option<String> {
+    std::fs::read_to_string(marker(dir)?).ok().map(|s| s.trim().to_owned()).filter(|s| !s.is_empty())
+}
+
+fn forget_rebase(dir: &Path) {
+    if let Some(m) = marker(dir) {
+        _ = std::fs::remove_file(m);
+    }
+}
+
 /// Rebase HEAD in `dir` onto `onto`, HEAD kept on `backup` first: `Ok(true)` done, `Ok(false)`
-/// stopped on conflicts (left so, for resolving), an error otherwise (then as it was).
+/// stopped on conflicts (left so, for resolving; noted as dv's), an error otherwise (then as
+/// it was).
 pub(super) fn rebase(dir: &Path, onto: &str, backup: &str) -> Result<bool> {
     anyhow::ensure!(git_in(dir, &["status", "--porcelain", "--untracked-files=no"])?.trim().is_empty(), "there are uncommitted changes: commit (or amend) them first");
     git_in(dir, &["branch", "-f", backup, "HEAD"])?;
     // The backup branch stays where it is (no editor: see `diff::git`).
     match git_in(dir, &["-c", "rebase.updateRefs=false", "rebase", "-q", onto]) {
         Ok(_) => Ok(true),
-        Err(_) if rebasing(dir) && !git_in(dir, &["diff", "--name-only", "--diff-filter=U"])?.trim().is_empty() => Ok(false),
+        Err(_) if rebasing(dir) && git_in(dir, &["diff", "--name-only", "--diff-filter=U"]).is_ok_and(|f| !f.trim().is_empty()) => {
+            std::fs::write(marker(dir).context("no git dir")?, backup)?;
+            Ok(false)
+        }
         Err(e) => {
             _ = git_in(dir, &["rebase", "--abort"]);
             Err(e)
@@ -36,10 +57,26 @@ pub(super) fn rebase(dir: &Path, onto: &str, backup: &str) -> Result<bool> {
     }
 }
 
+/// Claude's prompt for carrying on a rebase onto `onto` that stopped on conflicts.
+fn rebase_prompt(onto: &str) -> String {
+    format!(
+        "This branch is being rebased onto {onto}, and the rebase stopped on conflicts. Resolve them: for each \
+         conflicted file (`git status`), keep what both sides meant (this branch's change, made on top of what \
+         {onto} has now), remove the conflict markers, and `git add` it; then `git rebase --continue`. Repeat \
+         until the rebase is done. Run each git command on its own and as it is (`git add <file>`, then \
+         `git rebase --continue`): not chained with `&&`, not prefixed, no `-c` (no editor opens: GIT_EDITOR is \
+         set already); only those are allowed. Check it still builds and its tests pass before you `--continue` \
+         past the last commit, and fix what the rebase broke in that commit (you can't commit afterwards). \
+         Don't push. If a conflict is beyond you (you can't tell what's meant), run `git rebase --abort` and say \
+         why. First run `dv review-info`: if the notes it lists exist, read them and follow them."
+    )
+}
+
 impl App {
-    /// The branch the PR goes into, as fetched: `origin/<base>` (as the diff's base is).
+    /// The branch the PR goes into, as fetched: the one the diff's base follows, else
+    /// `origin/<base>`.
     pub(super) fn rebase_onto(&self) -> Option<String> {
-        self.pr.as_ref().map(|p| format!("origin/{}", p.base))
+        self.follow_base.clone().or_else(|| self.pr.as_ref().map(|p| format!("origin/{}", p.base)))
     }
 
     /// `Space g` → rebase: fetch the base, then rebase onto it; on conflicts, Claude resolves
@@ -49,9 +86,13 @@ impl App {
             anyhow::ensure!(self.claude.job.is_none(), "Claude is still at work here: rebase once it's done");
             let onto = self.rebase_onto().context("no base branch to rebase onto")?;
             let (remote, branch) = onto.split_once('/').context("no remote base branch")?;
-            git_in(&self.root, &["fetch", "-q", remote, branch])?;
+            // Into that ref whatever the remote's refspec covers (a single-branch clone, say).
+            git_in(&self.root, &["fetch", "-q", remote, &format!("+refs/heads/{branch}:refs/remotes/{onto}")])?;
             let (short, backup) = self.backup_name()?;
             let done = rebase(&self.root, &onto, &backup)?;
+            if done && git_in(&self.root, &["rev-parse", "HEAD"])?.trim() == git_in(&self.root, &["rev-parse", &backup])?.trim() {
+                return Ok(format!("already on {onto}: nothing to rebase"));
+            }
             if done {
                 self.follow(&onto);
                 self.reload_tree();
@@ -70,16 +111,8 @@ impl App {
     pub(super) fn rebase_claude(&mut self) -> Result<()> {
         anyhow::ensure!(self.claude.job.is_none(), "Claude is still working on the last request");
         let onto = self.rebase_onto().unwrap_or_else(|| "its base".into());
-        let prompt = format!(
-            "This branch is being rebased onto {onto}, and the rebase stopped on conflicts. Resolve them: for each \
-             conflicted file (`git status`), keep what both sides meant (this branch's change, made on top of what \
-             {onto} has now), remove the conflict markers, and `git add` it; then `git rebase --continue`. Repeat \
-             until the rebase is done. Then check it still builds and its tests pass. Don't push. If a conflict is \
-             beyond you (you can't tell what's meant), run `git rebase --abort` and say why. First run `dv review-info`: \
-             if the notes it lists exist, read them and follow them."
-        );
         let forked = self.claude_pane().is_some();
-        self.claude.job = Some(self.spawn_claude(&prompt, REBASE_LABEL, forked, REBASE_TOOLS)?);
+        self.claude.job = Some(self.spawn_claude(&rebase_prompt(&onto), REBASE_LABEL, forked, REBASE_TOOLS)?);
         Ok(())
     }
 
@@ -97,6 +130,7 @@ impl App {
         if self.claude.job.is_some() {
             return self.msg = "Claude is still at the rebase: stop it first (Space a), then abort".into();
         }
+        forget_rebase(&self.root);
         self.msg = match git_in(&self.root, &["rebase", "--abort"]) {
             Ok(_) => "rebase aborted: as it was before".into(),
             Err(e) => format!("{e:#}"),
@@ -109,13 +143,25 @@ impl App {
     pub(super) fn rebase_ended(&mut self) {
         let onto = self.rebase_onto().unwrap_or_default();
         if rebasing(&self.root) {
-            self.msg += " · the rebase is still stopped: Space g finishes it (Claude again) or aborts it";
-        } else if git_in(&self.root, &["reflog", "-1", "--format=%gs"]).is_ok_and(|l| l.starts_with("rebase (finish)")) {
+            return self.msg += " · the rebase is still stopped: Space g finishes it (Claude again) or aborts it";
+        }
+        // Done: HEAD moved on from where it was, onto the base (on a branch or detached; an
+        // abort puts it back where it was).
+        let backup = dv_rebase(&self.root);
+        forget_rebase(&self.root);
+        let head = git_in(&self.root, &["rev-parse", "HEAD"]).unwrap_or_default();
+        let was = backup.and_then(|b| git_in(&self.root, &["rev-parse", &b]).ok()).unwrap_or_default();
+        let moved = head.trim() != was.trim() && git_in(&self.root, &["merge-base", "--is-ancestor", &onto, "HEAD"]).is_ok();
+        if moved {
             // (poll_claude has reloaded: the diff followed, unless it didn't follow till now.)
             if self.follow(&onto) {
                 self.reload_tree();
             }
-            self.msg += " · rebased: Space g force-pushes (with a lease)";
+            let dirty = !git_in(&self.root, &["status", "--porcelain", "--untracked-files=no"]).unwrap_or_default().trim().is_empty();
+            self.msg += match dirty {
+                true => " · rebased, but Claude left changes uncommitted: check them, commit or amend (Space g), then force-push",
+                false => " · rebased: Space g force-pushes (with a lease)",
+            };
         } else {
             self.msg += " · Claude aborted the rebase: nothing changed (its answer says why: Space a → its pane)";
         }
@@ -158,10 +204,51 @@ fn rebase_clean_and_conflicting() {
     git(&["checkout", "-q", "pr"]);
     assert!(!rebase(&dir, "main", "dv-backup/t2").unwrap());
     assert!(rebasing(&dir));
+    assert_eq!(dv_rebase(&dir).as_deref(), Some("dv-backup/t2")); // dv's: not one you started
+    forget_rebase(&dir);
     git(&["rebase", "--abort"]);
     assert!(!rebasing(&dir));
     // Uncommitted changes: refused.
     write("a", "5\n");
     assert!(rebase(&dir, "main", "dv-backup/t3").is_err());
+    _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Live: Claude carries a conflicted rebase on to the end. Runs `claude`; costs a run.
+/// `cargo test live_claude_rebase -- --ignored --nocapture`
+#[test]
+#[ignore]
+fn live_claude_rebase() {
+    let dir = std::env::temp_dir().join(format!("dv-live-rebase-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let git = |args: &[&str]| git_in(&dir, args).unwrap();
+    let write = |f: &str, s: &str| std::fs::write(dir.join(f), s).unwrap();
+    git(&["init", "-q", "-b", "main"]);
+    for (k, v) in [("user.name", "t"), ("user.email", "t@t"), ("commit.gpgsign", "false"), ("core.hooksPath", "/dev/null")] {
+        git(&["config", k, v]);
+    }
+    write("greet.py", "def greet(name):\n    return 'Hello, ' + name\n");
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "greet"]);
+    git(&["checkout", "-q", "-b", "pr"]);
+    // The branch: an exclamation mark. Main meanwhile: a name check. Both on the same line.
+    write("greet.py", "def greet(name):\n    return 'Hello, ' + name + '!'\n");
+    git(&["commit", "-q", "-am", "greet: excitedly"]);
+    git(&["checkout", "-q", "main"]);
+    write("greet.py", "def greet(name):\n    return 'Hello, ' + (name or 'stranger')\n");
+    git(&["commit", "-q", "-am", "greet: a stranger when no name"]);
+    git(&["checkout", "-q", "pr"]);
+    assert!(!rebase(&dir, "main", "dv-backup/live").unwrap(), "should stop on the conflict");
+    let out = crate::view::claude_command(&rebase_prompt("main"), &dir, &[], REBASE_TOOLS, None).stdin(std::process::Stdio::null()).output().unwrap();
+    let said: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
+    println!("claude: {}", said["result"].as_str().unwrap_or(&String::from_utf8_lossy(&out.stderr)));
+    println!("refused: {}", said["permission_denials"]);
+    assert!(!rebasing(&dir), "still stopped");
+    assert!(git(&["reflog", "-1", "--format=%gs"]).starts_with("rebase (finish)"), "not finished: {}", git(&["reflog", "-3"]));
+    let now = git(&["show", "HEAD:greet.py"]);
+    println!("greet.py:\n{now}");
+    assert!(!now.contains("<<<<<<<") && now.contains("stranger") && now.contains('!'), "both sides kept");
+    assert_eq!(git(&["rev-parse", "HEAD~1"]).trim(), git(&["rev-parse", "main"]).trim());
     _ = std::fs::remove_dir_all(&dir);
 }

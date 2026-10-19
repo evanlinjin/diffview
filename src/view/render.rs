@@ -181,6 +181,9 @@ impl App {
 
     /// The Claude or pending view with nothing in it: what the code side and the pane say.
     fn empty_note(&self) -> Option<(&'static str, &'static str)> {
+        if self.before_head() {
+            return None; // (comments hide on an earlier commit: not empty, out of sight)
+        }
         let any = self.threads.iter().any(|t| self.in_view(t));
         match self.view {
             View::Claude if !any && self.claude.summary.is_empty() && !self.unpublished() => {
@@ -517,6 +520,12 @@ impl App {
                     let say = note.filter(|_| y == rows_shown + 1);
                     let code: String = say.map_or("", |n| n.0).chars().take(code_w).collect();
                     let mut spans = vec![Span::raw(" ".repeat(relw + gw)), Span::styled(format!("{code:<code_w$}"), self.ui.stale)];
+                    // The summaries' strip goes on past the code's last row.
+                    if let Some(line) = strip.get(y).filter(|_| column) {
+                        spans.push(sep.clone());
+                        spans.extend(raise(pane_cell(line.clone())));
+                        return Line::from(spans);
+                    }
                     if column {
                         spans.push(sep.clone());
                         let pane: String = say.map_or("", |n| n.1).chars().take(mw.saturating_sub(1)).collect();

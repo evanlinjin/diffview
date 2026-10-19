@@ -772,12 +772,12 @@ impl App {
     /// processes on one session. Replies made while it's working get one more run when it
     /// finishes. Returns what to tell the user.
     pub(super) fn answer_now(&mut self) -> String {
-        if super::rebase::rebasing(&self.root) {
-            return "reply saved; a rebase is stopped here: Space g finishes or aborts it, then Space a has Claude answer".into();
-        }
         if self.claude.job.is_some() {
             self.claude.again = true;
             return "reply saved; Claude answers it when it's done with what it's doing".into();
+        }
+        if super::rebase::rebasing(&self.root) {
+            return "reply saved; a rebase is stopped here: Space g finishes or aborts it, then Space a has Claude answer".into();
         }
         let prompt = self.claude_prompt(Ask::Answer, "");
         let forked = self.claude_pane().is_some();
@@ -1285,4 +1285,50 @@ pub(super) fn ago(t: std::time::Instant) -> String {
         s if s < 60 => format!("{s}s"),
         s => format!("{}m", s / 60),
     }
+}
+
+/// Live: on someone else's PR, a comment saying `"want": "change"` gets the code changed (not
+/// a suggestion). Runs `claude` with the installed skill and `dv`.
+/// `cargo test live_claude_change_on_their_pr -- --ignored --nocapture`
+#[test]
+#[ignore]
+fn live_claude_change_on_their_pr() {
+    let dir = std::env::temp_dir().join(format!("dv-live-change-{}", std::process::id()));
+    let data = std::env::temp_dir().join(format!("dv-live-change-data-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    // dv's directory for this run (Claude's `dv review-info` and its access follow it).
+    unsafe { std::env::set_var("XDG_DATA_HOME", &data) };
+    let git = |args: &[&str]| crate::diff::git_in(&dir, args).unwrap();
+    git(&["init", "-q", "-b", "main"]);
+    for (k, v) in [("user.name", "t"), ("user.email", "t@t"), ("commit.gpgsign", "false"), ("core.hooksPath", "/dev/null")] {
+        git(&["config", k, v]);
+    }
+    std::fs::write(dir.join("count.py"), "def total(xs):\n    return 0\n").unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "base"]);
+    git(&["checkout", "-q", "-b", "feat"]);
+    std::fs::write(dir.join("count.py"), "def total(xs):\n    x = 0\n    for v in xs:\n        x += v\n    return x\n").unwrap();
+    git(&["commit", "-q", "-am", "total: sum them"]);
+    let info = std::process::Command::new("dv").arg("review-info").current_dir(&dir).output().unwrap();
+    let info = String::from_utf8_lossy(&info.stdout);
+    let file = info.lines().find_map(|l| l.strip_prefix("file: ")).expect("review-info's file").trim().to_owned();
+    std::fs::create_dir_all(Path::new(&file).parent().unwrap()).unwrap();
+    let review = serde_json::json!({ "comments": [{
+        "path": "count.py", "line": 2, "side": "new", "author": "user", "code": ["    x = 0"],
+        "body": "Rename `x` to `acc`, here and below.", "created": crate::claude::now(), "want": "change",
+    }]});
+    std::fs::write(&file, review.to_string()).unwrap();
+    // (As dv grants the repo it runs in: here the test is elsewhere, so this run's directory.)
+    let out = claude_command(&answer_prompt("the current branch", true), &dir, &[], &[], Some(&data.join("dv"))).stdin(std::process::Stdio::null()).output().unwrap();
+    let said: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
+    println!("claude: {}\nrefused: {}", said["result"].as_str().unwrap_or(&String::from_utf8_lossy(&out.stderr)), said["permission_denials"]);
+    let code = std::fs::read_to_string(dir.join("count.py")).unwrap();
+    println!("count.py:\n{code}");
+    let after: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    println!("review: {after:#}");
+    assert!(code.contains("acc = 0") && !code.contains(" x "), "the code wasn't changed");
+    assert!(!after.to_string().contains("```suggestion"), "suggested instead");
+    _ = std::fs::remove_dir_all(&dir);
+    _ = std::fs::remove_dir_all(&data);
 }

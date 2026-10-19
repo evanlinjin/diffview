@@ -1410,3 +1410,28 @@ fn reactions_both_ways() {
     assert_eq!(reactions(&g), [("THUMBS_UP".to_owned(), 2)]);
     assert_eq!(reactions_text(&[reactions(&g), reactions(&v)].concat()), "👍 2  🎉 1");
 }
+
+/// Live: react to comments (and a PR) on GitHub and take it back. Changes GitHub: give it a
+/// throwaway PR. `DV_LIVE_PR=<n> DV_LIVE_NODES=<PR's id>,<a comment's id> cargo test
+/// live_reactions -- --ignored --nocapture`
+#[test]
+#[ignore]
+fn live_reactions() {
+    let nodes = std::env::var("DV_LIVE_NODES").expect("DV_LIVE_NODES");
+    let pr: u64 = std::env::var("DV_LIVE_PR").expect("DV_LIVE_PR").parse().unwrap();
+    for node in nodes.split(',') {
+        let mine = |n: &str| reactions_of(n).unwrap().into_iter().find(|r| r.0 == "EYES").map(|r| (r.1, r.2));
+        react(node, "EYES", true).unwrap();
+        assert_eq!(mine(node), Some((1, true)), "{node}: added");
+        if node.starts_with("PR_") {
+            // Shown among the PR's facts; and its comments' on their headings.
+            let lines = info_lines(&info_json(pr).unwrap());
+            assert!(lines.iter().any(|l| l.text == "reactions 👀 1"), "PR's reactions not shown");
+        } else {
+            let lines = info_lines(&info_json(pr).unwrap());
+            assert!(lines.iter().any(|l| l.node == node && l.text.ends_with("· 👀 1")), "comment's reactions not shown");
+        }
+        react(node, "EYES", false).unwrap();
+        assert_eq!(mine(node), Some((0, false)), "{node}: taken back");
+    }
+}

@@ -13,10 +13,17 @@ impl App {
         // Stopped part way through a rebase: finish it or abort it, nothing else (HEAD is
         // detached, conflicts may be in the tree).
         if super::rebase::rebasing(&self.root) {
-            let items = vec![
-                Item::new("Ask Claude to finish the rebase (it resolves the conflicts)", Target::RebaseClaude),
-                Item::new("Abort the rebase (back to before it)", Target::RebaseAbort),
-            ];
+            // One you started yourself is yours to finish (in a terminal); dv's, Claude's.
+            let items = match super::rebase::dv_rebase(&self.root) {
+                Some(_) => vec![
+                    Item::new("Ask Claude to finish the rebase (it resolves the conflicts)", Target::RebaseClaude),
+                    Item::new("Abort the rebase (back to before it)", Target::RebaseAbort),
+                ],
+                None => vec![
+                    Item::new("A rebase you started is stopped: finish it with git (git rebase --continue)", Target::Nothing),
+                    Item::new("Abort it (back to before it)", Target::RebaseAbort),
+                ],
+            };
             return self.picker = Some(Picker { title: " git: a rebase is stopped ", items, query: String::new(), sel: 0 });
         }
         let changed = diff::git(&["status", "--porcelain"]).unwrap_or_default().lines().count();

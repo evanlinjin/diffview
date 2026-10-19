@@ -321,25 +321,8 @@ impl App {
             }
             let (hunks, commits) = self.amend_plan()?;
             let head = git_in(&self.root, &["rev-parse", "HEAD"])?.trim().to_owned();
-            let ask: Vec<serde_json::Value> = hunks
-                .iter()
-                .filter(|h| h.to.is_none())
-                .map(|h| serde_json::json!({ "path": h.path, "diff": h.text(), "commit": "", "why": "" }))
-                .collect();
-            let list: Vec<serde_json::Value> = commits.iter().map(|c| serde_json::json!({ "sha": c.0, "subject": c.1 })).collect();
-            std::fs::create_dir_all(p.parent().context("no dir")?)?;
-            crate::claude::write(&p, &serde_json::json!({ "head": head, "commits": list, "hunks": ask }))?;
-            let prompt = format!(
-                "dv is about to amend the uncommitted changes in this checkout into the commits of the branch they belong \
-                 in. git blame placed some; these it couldn't (new lines, or lines from more than one commit): read {}. \
-                 For each entry in \"hunks\" (a change, as a diff of {}'s file), decide which of the commits in \"commits\" \
-                 it belongs in: the one whose change it completes or fixes (look at them: `git show <sha>`; `git diff` shows \
-                 all the uncommitted changes). Set its \"commit\" to that commit's full sha, and \"why\" to a few words why; \
-                 leave \"commit\" empty if none fits (it then stays uncommitted). Edit only that file: don't change the \
-                 code, and don't commit.",
-                p.display(),
-                &head[..7.min(head.len())],
-            );
+            ask_request(&p, &head, &hunks, &commits)?;
+            let prompt = ask_prompt(&p, &head);
             let forked = self.claude_pane().is_some();
             self.claude.job = Some(self.spawn_claude(&prompt, AMEND_LABEL, forked, &[])?);
             Ok(())
@@ -349,6 +332,33 @@ impl App {
             Err(e) => format!("{e:#}"),
         };
     }
+}
+
+/// Write the request Claude answers in `p`: the hunks blame couldn't place, at HEAD `head`.
+fn ask_request(p: &Path, head: &str, hunks: &[Hunk], commits: &[(String, String)]) -> Result<()> {
+    let ask: Vec<serde_json::Value> = hunks
+        .iter()
+        .filter(|h| h.to.is_none())
+        .map(|h| serde_json::json!({ "path": h.path, "diff": h.text(), "commit": "", "why": "" }))
+        .collect();
+    let list: Vec<serde_json::Value> = commits.iter().map(|c| serde_json::json!({ "sha": c.0, "subject": c.1 })).collect();
+    std::fs::create_dir_all(p.parent().context("no dir")?)?;
+    crate::claude::write(p, &serde_json::json!({ "head": head, "commits": list, "hunks": ask }))
+}
+
+/// Claude's prompt for answering the request in `p`.
+fn ask_prompt(p: &Path, head: &str) -> String {
+    format!(
+        "dv is about to amend the uncommitted changes in this checkout into the commits of the branch they belong \
+         in. git blame placed some; these it couldn't (new lines, or lines from more than one commit): read {}. \
+         For each entry in \"hunks\" (a change, as a diff of {}'s file), decide which of the commits in \"commits\" \
+         it belongs in: the one whose change it completes or fixes (look at them: `git show <sha>`; `git diff` shows \
+         all the uncommitted changes). Set its \"commit\" to that commit's full sha, and \"why\" to a few words why; \
+         leave \"commit\" empty if none fits (it then stays uncommitted). Edit only that file, with your Edit \
+         tool: don't change the code, and don't commit.",
+        p.display(),
+        &head[..7.min(head.len())],
+    )
 }
 
 /// The background run placing changes: when it's done, the amend picker opens again.
@@ -452,4 +462,50 @@ fn amend_same_subjects_renames_crlf() {
     assert_eq!(git(&["show", "HEAD~1:y.rs"]), "a\r\nb\r\n");
     assert!(git(&["status", "--porcelain"]).trim().is_empty());
     _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Live: Claude says which commit changes blame can't place belong in. Runs `claude`.
+/// `cargo test live_claude_amend_ask -- --ignored --nocapture`
+#[test]
+#[ignore]
+fn live_claude_amend_ask() {
+    let dir = std::env::temp_dir().join(format!("dv-live-amend-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let git = |args: &[&str]| git_in(&dir, args).unwrap();
+    let write = |f: &str, s: &str| std::fs::write(dir.join(f), s).unwrap();
+    git(&["init", "-q", "-b", "main"]);
+    for (k, v) in [("user.name", "t"), ("user.email", "t@t"), ("commit.gpgsign", "false"), ("core.hooksPath", "/dev/null")] {
+        git(&["config", k, v]);
+    }
+    write("lib.rs", "pub fn one() -> u32 {\n    1\n}\n");
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "one"]);
+    let base = git(&["rev-parse", "HEAD"]).trim().to_owned();
+    write("lib.rs", "pub fn one() -> u32 {\n    1\n}\n\npub fn parse(s: &str) -> u32 {\n    s.parse().unwrap()\n}\n");
+    git(&["commit", "-q", "-am", "add parse"]);
+    let parse = git(&["rev-parse", "HEAD"]).trim().to_owned();
+    write("README.md", "# lib\n");
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "readme"]);
+    // New lines: a doc comment on parse (blame can't say whose; Claude should: "add parse").
+    write("lib.rs", "pub fn one() -> u32 {\n    1\n}\n\n/// Parses `s`; panics if it isn't a number.\npub fn parse(s: &str) -> u32 {\n    s.parse().unwrap()\n}\n");
+    let (hunks, commits) = plan(&dir, &base, true).unwrap();
+    assert!(hunks.iter().all(|h| h.to.is_none()));
+    let head = git(&["rev-parse", "HEAD"]).trim().to_owned();
+    // Outside the checkout, as dv's own directory is (Claude gets to it as it does there).
+    let data = std::env::temp_dir().join(format!("dv-live-amend-data-{}", std::process::id()));
+    let p = data.join("amend/pr-1.json");
+    ask_request(&p, &head, &hunks, &commits).unwrap();
+    let out = crate::view::claude_command(&ask_prompt(&p, &head), &dir, &[], &[], Some(&data)).stdin(std::process::Stdio::null()).output().unwrap();
+    let said: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
+    println!("claude: {}\nrefused: {}", said["result"].as_str().unwrap_or(&String::from_utf8_lossy(&out.stderr)), said["permission_denials"]);
+    let mut hunks = hunks;
+    claude_answers(&p, &head, &mut hunks, &commits);
+    println!("placed: {:?}", hunks.iter().map(|h| (h.place(), h.to.clone(), h.why.clone())).collect::<Vec<_>>());
+    assert_eq!(hunks[0].to.as_deref(), Some(parse.as_str()));
+    amend(&dir, &base, &hunks, "dv-backup/live").unwrap();
+    assert!(git(&["show", "HEAD~1:lib.rs"]).contains("/// Parses"));
+    _ = std::fs::remove_dir_all(&dir);
+    _ = std::fs::remove_dir_all(&data);
 }

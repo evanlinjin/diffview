@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Fixed
+- Rebasing with Claude: it couldn't carry the rebase on (its `git` commands came prefixed or
+  chained, and were refused); it now runs them plainly, and fixes what the rebase broke
+  before the last commit. A rebase finished on a detached worktree is no longer taken for an
+  abort; an up-to-date branch says so; a rebase you started yourself isn't taken for dv's;
+  the base is fetched whatever the remote's refspec.
+- The summaries' strip in the pane isn't cut where a short diff ends; an earlier commit shown
+  doesn't make the Claude or Pending tab say it's empty.
+
 ### Changed
 - `Ctrl-w a` is gone: the Claude view is the comments pane's `Claude` tab (`gn` / `gp`, or a
   click), as the pending view is the `Pending` tab.
