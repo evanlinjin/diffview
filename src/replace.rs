@@ -191,9 +191,9 @@ pub fn prepare(prs: &[u64], root: &Path) -> Result<(Record, PathBuf)> {
     let mut originals = vec![];
     let mut bases: Vec<(u64, String)> = vec![];
     for &n in prs {
-        let (title, author, url, base) = crate::gh::brief(n)?;
-        bases.push((n, base));
-        originals.push(Original { number: n, title, author, url });
+        let p = crate::gh::pr(Some(n))?;
+        bases.push((n, p.base));
+        originals.push(Original { number: n, title: p.title, author: p.author, url: p.url });
     }
     // One replacement can only target one branch.
     if let Some((n, b)) = bases.iter().find(|b| b.1 != bases[0].1) {
@@ -392,7 +392,7 @@ pub fn note(r: &Record) -> String {
 pub fn close_originals(r: &mut Record, note: &str) -> Result<Vec<u64>> {
     let mut done = vec![];
     for n in r.replaces.iter().map(|o| o.number).filter(|n| !r.closed.contains(n)).collect::<Vec<_>>() {
-        let res = crate::gh::close_with(n, note).with_context(|| format!("closing #{n}"));
+        let res = crate::gh::close(n, Some(note)).with_context(|| format!("closing #{n}"));
         if res.is_ok() {
             r.closed.push(n);
             done.push(n);

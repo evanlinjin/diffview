@@ -434,7 +434,7 @@ pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool) -> anyhow::Res
     let msg = format!("{e:#}");
     let diverged = ["Not possible to fast-forward", "Diverging branches"].iter().any(|p| msg.contains(p));
     let here = diff::git(&["branch", "--show-current"]).unwrap_or_default().trim().to_owned();
-    let (theirs, owner) = gh::head_branch(n).unwrap_or_default();
+    let (theirs, owner) = gh::pr(Some(n)).map(|p| (p.head_branch, p.head_owner)).unwrap_or_default();
     // gh names the local branch as the PR's, or `<owner>-<branch>` when that name is taken.
     let on_it = !theirs.is_empty() && (here == theirs || here == format!("{owner}-{theirs}"));
     match (diverged && !force && !detach, on_it) {

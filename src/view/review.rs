@@ -243,7 +243,7 @@ impl App {
                 if !close {
                     return Ok("review submitted");
                 }
-                gh::close(&pr).context("the review went in, but closing the PR failed")?;
+                gh::close(pr.number, None).context("the review went in, but closing the PR failed")?;
                 Ok("PR closed")
             }
         }

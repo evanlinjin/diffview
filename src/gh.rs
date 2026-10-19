@@ -12,7 +12,7 @@ pub struct Pr {
     pub title: String,
     pub base: String,
     pub head_oid: String,
-    /// e.g. https://github.com/o/r/pull/1; filled in by `info`.
+    /// e.g. https://github.com/o/r/pull/1.
     pub url: String,
     /// The base as of the PR's last push (not the base branch's tip now).
     pub base_oid: String,
@@ -101,22 +101,25 @@ pub struct Anchor {
     pub start: Option<(u32, bool)>,
 }
 
+/// `gh args`, its output as JSON.
+fn gh_json(args: &[&str]) -> Result<Value> {
+    Ok(serde_json::from_str(&gh(args)?)?)
+}
+
 fn gh(args: &[&str]) -> Result<String> {
     gh_input(args, None)
 }
 
 /// PR `n`'s description as it is on GitHub now.
 pub fn body(n: u64) -> Result<String> {
-    let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", "body"])?)?;
+    let v: Value = gh_json(&["pr", "view", &n.to_string(), "--json", "body"])?;
     Ok(v["body"].as_str().unwrap_or("").replace("\r\n", "\n"))
 }
 
 /// PR `n`'s CI checks on GitHub now: (passed, failed, pending).
 pub fn checks(n: u64) -> Result<(usize, usize, usize)> {
-    let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", "statusCheckRollup"])?)?;
-    let checks = v["statusCheckRollup"].as_array().map(Vec::as_slice).unwrap_or(&[]);
-    let count = |m| checks.iter().filter(|c| verdict(c) == m).count();
-    Ok((count('✓'), count('✗'), count('●')))
+    let v: Value = gh_json(&["pr", "view", &n.to_string(), "--json", "statusCheckRollup"])?;
+    Ok(tally(v["statusCheckRollup"].as_array().map(Vec::as_slice).unwrap_or(&[])))
 }
 
 /// Mark draft PR `n` ready for review (`gh pr ready`): only once CI passes, nothing failing
@@ -179,16 +182,16 @@ pub fn checkout(n: u64, force: bool, detach: bool) -> Result<()> {
 /// The PR `n`, or the PR for the current branch.
 pub fn pr(n: Option<u64>) -> Result<Pr> {
     let n = n.map(|n| n.to_string());
-    let mut args = vec!["pr", "view", "--json", "number,title,baseRefName,headRefOid,baseRefOid,headRefName,headRepositoryOwner,author,isCrossRepository,headRepository,maintainerCanModify"];
+    let mut args = vec!["pr", "view", "--json", "number,title,url,baseRefName,headRefOid,baseRefOid,headRefName,headRepositoryOwner,author,isCrossRepository,headRepository,maintainerCanModify"];
     args.extend(n.as_deref());
-    let v: Value = serde_json::from_str(&gh(&args)?)?;
+    let v: Value = gh_json(&args)?;
     Ok(Pr {
         number: v["number"].as_u64().context("pr number")?,
         node_id: String::new(),
         title: v["title"].as_str().unwrap_or("").to_owned(),
         base: v["baseRefName"].as_str().unwrap_or("main").to_owned(),
         head_oid: v["headRefOid"].as_str().unwrap_or("").to_owned(),
-        url: String::new(),
+        url: v["url"].as_str().unwrap_or("").to_owned(),
         base_oid: v["baseRefOid"].as_str().unwrap_or("").to_owned(),
         head_branch: v["headRefName"].as_str().unwrap_or("").to_owned(),
         head_owner: v["headRepositoryOwner"]["login"].as_str().unwrap_or("").to_owned(),
@@ -211,7 +214,7 @@ pub fn issue_ref(url: &str) -> Option<(&str, &str, u64)> {
 /// An issue or PR as (popup title, markdown): its state, author, age, labels, then its body.
 pub fn issue_preview(url: &str) -> Result<(String, String)> {
     let (owner, repo, n) = issue_ref(url).context("not a GitHub issue or PR link")?;
-    let v: Value = serde_json::from_str(&gh(&["api", &format!("repos/{owner}/{repo}/issues/{n}")])?)?;
+    let v: Value = gh_json(&["api", &format!("repos/{owner}/{repo}/issues/{n}")])?;
     let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
     let pr = v["pull_request"].is_object();
     let state = match (s(&v["state"]).as_str(), pr) {
@@ -304,27 +307,14 @@ fn listed(p: &Value) -> Listed {
 pub const LIST_MAX: usize = 1000;
 
 pub fn list() -> Result<Vec<Listed>> {
-    let v: Value = serde_json::from_str(&gh(&["pr", "list", "--limit", &LIST_MAX.to_string(), "--json", LISTED])?)?;
+    let v: Value = gh_json(&["pr", "list", "--limit", &LIST_MAX.to_string(), "--json", LISTED])?;
     Ok(v.as_array().context("gh pr list")?.iter().map(listed).collect())
 }
 
-/// The PR's head branch and the login of the repo it's in, e.g. (`add_persist_test_utils`,
-/// `110CodingP`).
-pub fn head_branch(n: u64) -> Result<(String, String)> {
-    let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", "headRefName,headRepositoryOwner"])?)?;
-    Ok((v["headRefName"].as_str().unwrap_or("").to_owned(), v["headRepositoryOwner"]["login"].as_str().unwrap_or("").to_owned()))
-}
 
-/// One PR, open or not (for a worktree whose PR has since closed or merged).
-/// PR `n`'s title, author, URL and base branch.
-pub fn brief(n: u64) -> Result<(String, String, String, String)> {
-    let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", "title,author,url,baseRefName"])?)?;
-    let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
-    Ok((s(&v["title"]), s(&v["author"]["login"]), s(&v["url"]), s(&v["baseRefName"])))
-}
 
 pub fn listed_one(n: u64) -> Result<Listed> {
-    let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", LISTED])?)?;
+    let v: Value = gh_json(&["pr", "view", &n.to_string(), "--json", LISTED])?;
     Ok(listed(&v))
 }
 
@@ -367,7 +357,7 @@ pub fn list_extra() -> Result<(String, std::collections::HashMap<u64, Extra>)> {
                  latestReviews(first: 50) {{ nodes {{ author {{ login }} state commit {{ oid }} }} }}
                  comments(last: 20) {{ nodes {{ author {{ login }} authorAssociation body }} }} }} }} }} }}"
         );
-        let v: Value = serde_json::from_str(&gh(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-f", &format!("query={q}")])?)?;
+        let v: Value = gh_json(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-f", &format!("query={q}")])?;
         me = v["data"]["viewer"]["login"].as_str().unwrap_or("").to_owned();
         let list = &v["data"]["repository"]["pullRequests"];
         let prs = list["nodes"].as_array().context("gh api graphql: pull requests")?;
@@ -410,7 +400,7 @@ fn extra(p: &Value, me: &str) -> Extra {
 
 /// PR `n`'s state on GitHub now: OPEN, CLOSED or MERGED (`None` if gh doesn't say).
 pub fn pr_state(n: u64) -> Result<Option<String>> {
-    let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", "state"])?)?;
+    let v: Value = gh_json(&["pr", "view", &n.to_string(), "--json", "state"])?;
     Ok(v["state"].as_str().map(str::to_owned))
 }
 
@@ -424,21 +414,25 @@ pub type ListChecks = std::collections::HashMap<u64, ((usize, usize, usize), Str
 /// CI check counts for the PRs `list` returns: number → ((passed, failed, pending), the head
 /// they're on).
 pub fn list_checks() -> Result<ListChecks> {
-    let v: Value = serde_json::from_str(&gh(&["pr", "list", "--limit", &LIST_MAX.to_string(), "--json", "number,headRefOid,statusCheckRollup"])?)?;
+    let v: Value = gh_json(&["pr", "list", "--limit", &LIST_MAX.to_string(), "--json", "number,headRefOid,statusCheckRollup"])?;
     let prs = v.as_array().context("gh pr list")?;
     Ok(prs
         .iter()
         .map(|p| {
-            let checks = p["statusCheckRollup"].as_array().map(Vec::as_slice).unwrap_or(&[]);
-            let count = |m| checks.iter().filter(|c| verdict(c) == m).count();
             let head = p["headRefOid"].as_str().unwrap_or("").to_owned();
-            (p["number"].as_u64().unwrap_or(0), ((count('✓'), count('✗'), count('●')), head))
+            (p["number"].as_u64().unwrap_or(0), (tally(p["statusCheckRollup"].as_array().map(Vec::as_slice).unwrap_or(&[])), head))
         })
         .collect())
 }
 
 /// A CI check's outcome: ✓ passed, ✗ failed, ● pending. CheckRun has status/conclusion;
 /// StatusContext has state.
+/// How many of `checks` passed, failed, are pending.
+pub(crate) fn tally(checks: &[Value]) -> (usize, usize, usize) {
+    let count = |m| checks.iter().filter(|c| verdict(c) == m).count();
+    (count('✓'), count('✗'), count('●'))
+}
+
 pub(crate) fn verdict(c: &Value) -> char {
     match (c["status"].as_str(), c["conclusion"].as_str().or(c["state"].as_str())) {
         (Some(st), _) if st != "COMPLETED" => '●',
@@ -465,7 +459,7 @@ pub fn threads_json(n: u64) -> Result<Value> {
         for v in &vars {
             args.extend(["-f", v]);
         }
-        let v: Value = serde_json::from_str(&gh(&args)?)?;
+        let v: Value = gh_json(&args)?;
         if let Some(e) = v["errors"].get(0) {
             bail!("GitHub: {}", e["message"].as_str().unwrap_or("GraphQL error"));
         }
@@ -630,15 +624,9 @@ pub(crate) fn reactions(v: &Value, mine: &[&str]) -> Vec<Reaction> {
 }
 
 /// The reactions on comment (or review) `node` now: each kind's (name, count, yours).
-pub fn reactions_of(node: &str) -> Result<Vec<(String, u64, bool)>> {
-    let q = "query($id: ID!) { node(id: $id) { ... on Reactable { reactionGroups { content viewerHasReacted reactors { totalCount } } } } }";
-    let d = mutate(q, json!({ "id": node }))?;
-    Ok(d["node"]["reactionGroups"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(|g| (g["content"].as_str().unwrap_or("").to_owned(), g["reactors"]["totalCount"].as_u64().unwrap_or(0), g["viewerHasReacted"] == true))
-        .collect())
+pub fn reactions_of(node: &str) -> Result<Vec<Reaction>> {
+    let d = mutate(&format!("query($id: ID!) {{ node(id: $id) {{ ... on Reactable {{ {REACTED} }} }} }}"), json!({ "id": node }))?;
+    Ok(reactions(&d["node"]["reactionGroups"], &[]))
 }
 
 /// React to comment (or review) `node` with `content` (`add`), or take yours back.
@@ -816,7 +804,7 @@ pub enum Field {
 /// labels, the people it can be assigned to (or asked to review: not its author). Each
 /// (name, on it), sorted, those on it first.
 pub fn pr_fields(n: u64) -> Result<(Choices, Choices, Choices)> {
-    let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", "labels,assignees,reviewRequests,author"])?)?;
+    let v: Value = gh_json(&["pr", "view", &n.to_string(), "--json", "labels,assignees,reviewRequests,author"])?;
     let on = |k: &str, f: &str| -> Vec<String> { v[k].as_array().into_iter().flatten().filter_map(|x| x[f].as_str().map(str::to_owned)).collect() };
     let (labels, assigned) = (on("labels", "name"), on("assignees", "login"));
     // Requested of people (their login), or of teams (gh gives their slug as `org/team`).
@@ -826,7 +814,7 @@ pub fn pr_fields(n: u64) -> Result<(Choices, Choices, Choices)> {
         .flatten()
         .filter_map(|r| r["login"].as_str().or_else(|| r["slug"].as_str()).map(str::to_owned))
         .collect();
-    let all: Value = serde_json::from_str(&gh(&["label", "list", "--limit", "500", "--json", "name"])?)?;
+    let all: Value = gh_json(&["label", "list", "--limit", "500", "--json", "name"])?;
     let all: Vec<String> = all.as_array().into_iter().flatten().filter_map(|x| x["name"].as_str().map(str::to_owned)).collect();
     let people = gh(&["api", "--paginate", "repos/{owner}/{repo}/assignees", "-q", ".[].login"]).unwrap_or_default();
     let mark = |all: Vec<String>, on: &[String]| {
@@ -953,14 +941,13 @@ pub fn create_pr(base: &str, head: &str, title: &str, body: &str) -> Result<u64>
 }
 
 /// Close PR `n` with a comment saying why.
-pub fn close_with(n: u64, comment: &str) -> Result<()> {
-    gh(&["pr", "close", &n.to_string(), "--comment", comment]).map(drop)
+pub fn close(n: u64, comment: Option<&str>) -> Result<()> {
+    let n = n.to_string();
+    let mut args = vec!["pr", "close", &n];
+    args.extend(comment.map(|c| ["--comment", c]).into_iter().flatten());
+    gh(&args).map(drop)
 }
 
-/// Close the PR (it can be reopened on GitHub).
-pub fn close(pr: &Pr) -> Result<()> {
-    gh(&["pr", "close", &pr.number.to_string()]).map(drop)
-}
 
 /// A single reply, posted immediately.
 pub fn reply(pr: &Pr, comment_id: u64, body: &str) -> Result<()> {
@@ -975,7 +962,7 @@ pub fn awaiting_approval(sha: Option<&str>) -> Result<std::collections::HashMap<
     if let Some(s) = sha {
         ep += &format!("&head_sha={s}");
     }
-    let v: Value = serde_json::from_str(&gh(&["api", &ep])?)?;
+    let v: Value = gh_json(&["api", &ep])?;
     let mut out: std::collections::HashMap<String, Vec<u64>> = Default::default();
     for r in v["workflow_runs"].as_array().into_iter().flatten() {
         if let (Some(sha), Some(id)) = (r["head_sha"].as_str(), r["id"].as_u64()) {
@@ -1206,7 +1193,7 @@ const ACTIVITY: &str = "__typename \
 
 pub fn info_json(n: u64) -> Result<Value> {
     let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
-    let mut v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", INFO_FIELDS])?)?;
+    let mut v: Value = gh_json(&["pr", "view", &n.to_string(), "--json", INFO_FIELDS])?;
     // Whether its commits are signed, and whether its base wants them to be (`gh pr view` says
     // neither): with the rest, so the cache has them too.
     // Workflow runs on its head waiting for approval (`gh pr view` doesn't say).

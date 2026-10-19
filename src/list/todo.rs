@@ -601,7 +601,7 @@ pub(super) fn cost_text(c: f64) -> String {
 }
 
 /// `s` seconds as "40s", "3m", "2h", "5d".
-pub(super) fn ago_secs(s: i64) -> String {
+pub(crate) fn ago_secs(s: i64) -> String {
     match s.max(0) {
         s if s < 60 => format!("{s}s"),
         s if s < 3600 => format!("{}m", s / 60),

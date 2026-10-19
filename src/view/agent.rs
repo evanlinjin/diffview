@@ -477,7 +477,7 @@ impl App {
         let Some(text) = compose_with(&what, false, self.claude.closing.trim(), true)?.filter(|t| !t.trim().is_empty()) else {
             return Ok(format!("#{n} not closed"));
         };
-        keep_on_error(crate::gh::close_with(n, text.trim()), &text)?;
+        keep_on_error(crate::gh::close(n, Some(text.trim())), &text)?;
         _ = crate::claude::clear_closing(&path);
         self.pr_state = Some(("CLOSED", "da3633"));
         self.github_changed();
@@ -1357,10 +1357,7 @@ fn data_env() -> Option<std::ffi::OsString> {
 
 /// How long since `t`, for the status bar: "40s", "3m".
 pub(super) fn ago(t: std::time::Instant) -> String {
-    match t.elapsed().as_secs() {
-        s if s < 60 => format!("{s}s"),
-        s => format!("{}m", s / 60),
-    }
+    crate::list::todo::ago_secs(t.elapsed().as_secs() as i64)
 }
 
 /// Live: on someone else's PR, a comment saying `"want": "change"` gets the code changed (not

@@ -1,6 +1,6 @@
 //! The PR section's lines from GitHub's answer (`gh::info_json`): its facts, description and
 //! activity, as text with marks for the view to color.
-use crate::gh::{ago, hidden, reactions, verdict, Reaction, REACTIONS};
+use crate::gh::{ago, hidden, reactions, tally, verdict, Reaction, REACTIONS};
 use serde_json::Value;
 
 /// What a comment hidden on GitHub (`why`, from `hidden`) says it is: "hidden on GitHub
@@ -207,8 +207,7 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
     if checks.is_empty() {
         push("checks".into(), plain("checks: none".into()));
     } else {
-        let count = |m| checks.iter().filter(|c| verdict(c) == m).count();
-        let (pass, fail, pending) = (count('✓'), count('✗'), count('●'));
+        let (pass, fail, pending) = tally(&checks);
         let mut l = InfoLine::new(false, false);
         l.put("checks", Some(Mark::Link(format!("{}/checks", s(&v["url"])))));
         l.put(": ", None);
