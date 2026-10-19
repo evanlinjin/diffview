@@ -227,6 +227,9 @@ pub fn git(args: &[&str]) -> Result<String> {
         .args(args)
         .env("GIT_EDITOR", "true")
         .env("GIT_SEQUENCE_EDITOR", "true")
+        // dv's reads (`git status` every few seconds) never take the index lock from a commit
+        // or rebase at work in the same checkout (Claude's `dv amend`, yours).
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .output()
         .context("running git")?;
     if !out.status.success() {
