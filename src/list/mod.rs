@@ -390,8 +390,7 @@ impl List {
             match self.key(k) {
                 Some(Do::Quit) => return Ok(None),
                 Some(Do::Open(n)) => {
-                    let todo_rep = self.tab == Tab::Todo && self.todo_shown().iter().any(|(c, it)| c.number == n && it.rep);
-                    let replacement = self.tab == Tab::Replacements || todo_rep;
+                    let replacement = self.selected().is_some_and(|(m, rep)| m == n && rep);
                     let worktree = (self.tab == Tab::Worktrees).then(|| self.local.get(&n).is_some_and(|w| w.1.is_some()));
                     // Used once: after the review it may have moved on (a push), so it's looked up again.
                     let pr = self.pr_cache.lock().ok().and_then(|mut c| c.remove(&n)).filter(|(t, _)| t.elapsed().as_secs() < 120).map(|(_, p)| p);
@@ -506,8 +505,7 @@ impl List {
     /// on its comments (most of what opening a PR takes).
     fn prefetch(&mut self) {
         // Not a replacement (its number is its own, not a PR's).
-        let rep = |n: u64| self.tab == Tab::Todo && self.todo_shown().iter().any(|(c, it)| c.number == n && it.rep);
-        let n = self.shown().get(self.sel).map(|p| p.number).filter(|&n| self.tab != Tab::Replacements && !rep(n));
+        let n = self.selected().filter(|s| !s.1).map(|s| s.0);
         if n != self.prefetched.0 {
             self.prefetched = (n, std::time::Instant::now(), false);
         }
@@ -843,21 +841,44 @@ impl List {
     }
 
     /// The tab's PRs matching every filter term, in the chosen order.
+    /// The selected card's number, and whether it's a replacement's draft.
+    fn selected(&self) -> Option<(u64, bool)> {
+        self.shown_cards().get(self.sel).map(|(c, rep)| (c.number, *rep))
+    }
+
+    /// The selected card's PR, for what's done to a PR on GitHub (not a draft replacement's:
+    /// said so).
+    fn selected_pr(&mut self) -> Option<u64> {
+        match self.selected()? {
+            (_, true) => {
+                self.msg = "a draft replacement, not on GitHub: Enter opens it (its own keys are on the drafts tab)".into();
+                None
+            }
+            (n, false) => Some(n),
+        }
+    }
+
     fn shown(&self) -> Vec<&Listed> {
+        self.shown_cards().into_iter().map(|(card, _)| card).collect()
+    }
+
+    /// The cards shown, each with whether it's a replacement's draft (whose number is the PR
+    /// it replaces': not that PR, for what's done with it).
+    fn shown_cards(&self) -> Vec<(&Listed, bool)> {
         let in_tab = |p: &&Listed| match self.tab {
             Tab::Worktrees => self.local.contains_key(&p.number),
             _ => p.open(),
         };
-        let all: Vec<&Listed> = match self.tab {
-            Tab::Replacements => self.reps.iter().collect(),
-            Tab::Todo => self.todo_shown().into_iter().map(|(card, _)| card).collect(),
-            _ => self.prs.iter().filter(in_tab).collect(),
+        let all: Vec<(&Listed, bool)> = match self.tab {
+            Tab::Replacements => self.reps.iter().map(|r| (r, true)).collect(),
+            Tab::Todo => self.todo_shown().into_iter().map(|(card, it)| (card, it.rep)).collect(),
+            _ => self.prs.iter().filter(in_tab).map(|p| (p, false)).collect(),
         };
-        let mut prs: Vec<&Listed> = all.into_iter().filter(|p| self.query.split_whitespace().all(|t| term(p, t))).collect();
+        let mut prs: Vec<(&Listed, bool)> = all.into_iter().filter(|p| self.query.split_whitespace().all(|t| term(p.0, t))).collect();
         if self.tab == Tab::Todo {
             return prs; // in the order of what needs you most
         }
-        prs.sort_by(|a, b| {
+        prs.sort_by(|(a, _), (b, _)| {
             let o = match self.order {
                 Order::Updated => b.updated.cmp(&a.updated), // ISO times sort as text
                 Order::Created => b.created.cmp(&a.created),
@@ -962,8 +983,8 @@ impl List {
                 self.msg = self.rank_offer();
                 self.confirm = Some(('r', 0));
             }
-            KeyCode::Char('b') if self.tab != Tab::Replacements => {
-                let p = self.shown().get(self.sel).map(|p| p.number)?;
+            KeyCode::Char('b') => {
+                let p = self.selected_pr()?;
                 if armed == Some(('b', p)) {
                     return Some(Do::AskRebase(p));
                 }
@@ -977,8 +998,8 @@ impl List {
                 self.msg = "N again: Claude drafts a new PR, unpublished (your editor opens first: what it should do; issues by #N); any other key doesn't".into();
                 self.confirm = Some(('N', 0));
             }
-            KeyCode::Char('W') if self.tab != Tab::Replacements => {
-                let p = self.shown().get(self.sel).map(|p| p.number)?;
+            KeyCode::Char('W') => {
+                let p = self.selected_pr()?;
                 let Some(head) = self.extra.get(&p).filter(|e| e.awaiting > 0).map(|e| e.head_oid.clone()) else {
                     self.msg = format!("#{p} has no workflow runs waiting for approval");
                     return None;
@@ -999,8 +1020,8 @@ impl List {
                 self.msg = format!("W again: approve the workflow runs waiting on #{p} (they run then); any other key doesn't");
                 self.confirm = Some(('W', p));
             }
-            KeyCode::Char('M') if self.tab != Tab::Replacements => {
-                let p = self.shown().get(self.sel).map(|p| p.number)?;
+            KeyCode::Char('M') => {
+                let p = self.selected_pr()?;
                 if armed == Some(('M', p)) {
                     return Some(Do::Merge(p));
                 }
@@ -1009,7 +1030,8 @@ impl List {
                 self.confirm = Some(('M', p));
             }
             KeyCode::Char('m') => {
-                let (p, state) = self.shown().get(self.sel).map(|p| (p.number, p.state.clone()))?;
+                let state = self.shown().get(self.sel).map(|p| p.state.clone())?;
+                let p = self.selected_pr()?;
                 if !matches!(state.as_str(), "OPEN" | "") && !self.marked.contains(&p) {
                     return (self.msg = format!("#{p} isn't open: nothing to mark it for"), None).1;
                 }
@@ -1044,7 +1066,7 @@ impl List {
             }
             KeyCode::Char('a') => {
                 let mut prs: Vec<u64> = match self.marked.is_empty() {
-                    true => self.shown().get(self.sel).map(|p| vec![p.number]).unwrap_or_default(),
+                    true => self.selected_pr().into_iter().collect(),
                     false => self.marked.iter().copied().collect(),
                 };
                 prs.retain(|n| !self.batch.get(n).is_some_and(batch::Status::running));
@@ -1064,7 +1086,7 @@ impl List {
             }
             KeyCode::Char('A') => {
                 let mut prs: Vec<u64> = match self.marked.is_empty() {
-                    true => self.shown().get(self.sel).map(|p| vec![p.number]).unwrap_or_default(),
+                    true => self.selected().map(|s| vec![s.0]).unwrap_or_default(), // (on a draft: its PR's, drafted again)
                     false => self.marked.iter().copied().collect(),
                 };
                 prs.sort();

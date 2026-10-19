@@ -467,6 +467,13 @@ fn drafting_a_replacement_on_the_todo_tab() {
     assert_eq!(l.todo.last().unwrap().busy.as_deref(), Some("working (in its pane)"));
     l.running_reps.clear();
     assert_eq!(order(&mut l)[0], (true, first));
+    // On it, what's done to a PR on GitHub isn't done to the one it replaces: said so.
+    (l.reps, l.tab, l.sel) = (vec![pr(first, "me")], Tab::Todo, 0);
+    for k in ['M', 'b', 'W', 'm'] {
+        l.msg.clear();
+        assert!(l.key(KeyEvent::new(KeyCode::Char(k), KeyModifiers::NONE)).is_none() && l.confirm.is_none());
+        assert!(l.msg.contains("draft replacement"), "{k}: {}", l.msg);
+    }
 }
 
 #[test]
