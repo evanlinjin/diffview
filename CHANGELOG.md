@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.36.1] - 2026-10-19
+
+### Fixed
+- The todo column: a dash in Claude's why no longer turns its end into the `→` next step
+  (rankings from now on; re-rank with `r r` for those before). A title with many tags keeps
+  its PR number.
+- A base whose protection can't be read is asked again after 30 seconds, not once for each of
+  its PRs on every refresh.
+
 ## [0.36.0] - 2026-10-19
 
 ### Changed
