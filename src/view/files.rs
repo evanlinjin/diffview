@@ -79,6 +79,14 @@ pub(super) struct Entry {
 }
 
 impl App {
+    /// The list's tints: its cursor's (the cursor line's, as in the diff and the pane), and
+    /// what's shown in the diff when the list hasn't focus (the related tint: not the cursor).
+    fn list_tints(&self) -> (Style, Style) {
+        let ui = &self.ui;
+        let line = |c: Option<Color>| ui.base.bg(c.or(ui.menu_selected.bg).unwrap_or(Color::DarkGray));
+        (line(ui.cursorline), line(ui.related.or(ui.cursorline)))
+    }
+
     /// The list's width (its divider included), or 0 when it's hidden.
     pub(super) fn files_width(&self, full: usize) -> usize {
         let shown = self.files_pref.unwrap_or(full >= FILES_AUTO) && full >= 100 && !self.files.is_empty();
@@ -166,6 +174,7 @@ impl App {
         // Under the heading, one list that scrolls: the contents, a blank line, the commits.
         let room = avail.saturating_sub(1);
         let sel = self.files_sel.filter(|_| self.files_focus && !self.in_commits);
+        let (cursor, here) = self.list_tints();
         let bar = Style { bg: ui.bar, ..ui.header };
         let heading = Line::from(Span::styled(format!("{:<w$}", format!(" CONTENTS · {} files", self.files.len())), bar));
         let dim = Style { fg: ui.stale.fg, ..Style::new() };
@@ -173,8 +182,8 @@ impl App {
         for e in &entries {
             // The list's cursor (while it has focus), else where the diff is.
             let lit = |on: bool| match (sel == Some(e.spot), on) {
-                (true, _) => ui.menu_selected,
-                (_, true) => ui.base.bg(ui.cursorline.or(ui.menu_selected.bg).unwrap_or(Color::DarkGray)),
+                (true, _) => cursor,
+                (_, true) => here,
                 _ => ui.base,
             };
             let line = match e.spot {
@@ -271,12 +280,13 @@ impl App {
         };
         let picking = self.commit_anchor.map(|a| (a.min(self.commit_cur), a.max(self.commit_cur)));
         let focus = self.files_focus && self.in_commits;
-        let lit = ui.base.bg(ui.cursorline.or(ui.menu_selected.bg).unwrap_or(Color::DarkGray));
+        let (cursor, here) = self.list_tints();
         for r in 0..=last {
             let on = focus && r == self.commit_cur;
             let row = match (on, picking.is_some_and(|(a, b)| r >= a && r <= b), shown(r)) {
-                (true, _, _) | (_, true, _) => ui.menu_selected,
-                (_, _, true) => lit,
+                (true, _, _) => cursor,
+                (_, true, _) => ui.menu_selected, // (a range being picked)
+                (_, _, true) => here,
                 _ => ui.base,
             };
             let (hash, text) = match r {
