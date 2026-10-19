@@ -5,12 +5,18 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.33.1] - 2026-10-19
+
 ### Fixed
 - Only Claude's CI-fixing runs may rerun workflows (no other background run), and its "reran
   it once" note stays, so it doesn't rerun the same head again.
-- "Rerun the failed checks" reruns them all at once; one that can't be (too old) doesn't keep
-  the others from it, and dv says how many went.
+- "Rerun the failed checks" reruns them a few at a time; one that can't be (too old) doesn't
+  keep the others from it, dv says how many went, and looks at the checks again shortly after.
 - `Space l` lists a review requested of a team (`org/team`), and withdraws it.
+- A PR retargeted during a stopped rebase: the diff follows its new base once the rebase is
+  through (it was forgotten).
+- A GitHub hiccup over one commit's signature no longer marks it unsigned (which could refuse
+  a merge); with `log.showSignature` set, dv's reading of `git log` isn't thrown off.
 
 ## [0.33.0] - 2026-10-19
 
@@ -974,6 +980,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.33.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.33.1
 [0.33.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.33.0
 [0.32.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.32.0
 [0.31.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.31.0
