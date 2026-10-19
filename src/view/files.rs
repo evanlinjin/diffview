@@ -9,6 +9,41 @@ const FILES_AUTO: usize = 150;
 /// The narrowest it goes (`Ctrl-w ,`).
 const FILES_MIN: usize = 16;
 
+/// What isn't committed, by kind: staged (in the index), changed (not staged), new (untracked).
+#[derive(Clone, Copy, Default, PartialEq, Debug)]
+pub(super) struct Dirty {
+    pub(super) staged: usize,
+    pub(super) changed: usize,
+    pub(super) new: usize,
+}
+
+impl Dirty {
+    /// From `git status --porcelain` (a file can be staged and changed after).
+    pub(super) fn of(status: &str) -> Dirty {
+        let mut d = Dirty::default();
+        for l in status.lines() {
+            let (x, y) = (l.chars().next().unwrap_or(' '), l.chars().nth(1).unwrap_or(' '));
+            match (x, y) {
+                ('?', _) => d.new += 1,
+                _ => {
+                    d.staged += usize::from(x != ' ');
+                    d.changed += usize::from(y != ' ');
+                }
+            }
+        }
+        d
+    }
+
+    pub(super) fn has(&self) -> bool {
+        *self != Dirty::default()
+    }
+
+    /// `2 staged, 3 changed, 1 new` (those there are).
+    pub(super) fn says(&self) -> String {
+        [(self.staged, "staged"), (self.changed, "changed"), (self.new, "new")].iter().filter(|k| k.0 > 0).map(|(n, k)| format!("{n} {k}")).collect::<Vec<_>>().join(", ")
+    }
+}
+
 /// One of the PR's commits.
 #[derive(Clone, PartialEq, Debug)]
 pub(super) struct Commit {
@@ -225,15 +260,17 @@ impl App {
             None => format!(" COMMITS {n}"),
         };
         let mut lines = vec![(Line::from(Span::styled(format!("{title:<w$}"), Style { bg: ui.bar, ..ui.header })), Hit::Nothing)];
-        // Rows: 0 "all commits", r the commit r - 1.
-        let shown = |r: usize| match self.commit_shown {
-            None => r == 0,
-            Some((a, b)) => r > a && r <= b + 1,
+        // Rows: 0 "all commits", r the commit r - 1; then, if anything isn't, "uncommitted".
+        let last = n + usize::from(self.dirty.has());
+        let shown = |r: usize| match (self.uncommitted(), self.commit_shown) {
+            (true, _) => r == n + 1,
+            (_, None) => r == 0,
+            (_, Some((a, b))) => r > a && r <= b + 1,
         };
         let picking = self.commit_anchor.map(|a| (a.min(self.commit_cur), a.max(self.commit_cur)));
         let focus = self.files_focus && self.in_commits;
         let lit = ui.base.bg(ui.cursorline.or(ui.menu_selected.bg).unwrap_or(Color::DarkGray));
-        for r in 0..=n {
+        for r in 0..=last {
             let on = focus && r == self.commit_cur;
             let row = match (on, picking.is_some_and(|(a, b)| r >= a && r <= b), shown(r)) {
                 (true, _, _) | (_, true, _) => ui.menu_selected,
@@ -242,10 +279,11 @@ impl App {
             };
             let (hash, text) = match r {
                 0 => (String::new(), "all commits".to_owned()),
+                r if r > n => (String::new(), format!("uncommitted · {}", self.dirty.says())),
                 r => (format!("{} ", self.commits[r - 1].short), self.commits[r - 1].subject.clone()),
             };
             // An unsigned commit: marked (a repo may refuse it on its base).
-            let unsigned = if r > 0 && !self.commits[r - 1].signed { "✗ " } else { "" };
+            let unsigned = if r > 0 && r <= n && !self.commits[r - 1].signed { "✗ " } else { "" };
             let text = cut(&text, w.saturating_sub(2 + hash.chars().count() + unsigned.chars().count()));
             let pad = w.saturating_sub(2 + hash.chars().count() + unsigned.chars().count() + text.chars().count());
             let line = Line::from(vec![
@@ -292,8 +330,9 @@ impl App {
                 Some(Commit { sha: sha.into(), short: short.into(), signed, subject: p.next().unwrap_or("").into() })
             })
             .collect();
+        self.dirty = Dirty::of(&diff::git(&["status", "--porcelain"]).unwrap_or_default());
         let n = self.commits.len();
-        self.commit_cur = self.commit_cur.min(n);
+        self.commit_cur = self.commit_cur.min(n + usize::from(self.dirty.has()));
         if self.commit_shown.is_some_and(|(_, b)| b >= n) {
             (self.commit_shown, self.to) = (None, None);
             self.base = self.full_base.clone();
@@ -351,6 +390,17 @@ impl App {
     /// `Enter` in the commits: the one under the cursor, or the range from `v`'s anchor to it
     /// ("all commits" in it: the whole diff).
     fn pick_commits(&mut self) {
+        // "uncommitted": what isn't committed (as Space g shows it).
+        if self.commit_cur > self.commits.len() {
+            self.commit_anchor = None;
+            if !self.uncommitted() {
+                self.toggle_uncommitted();
+            }
+            return;
+        }
+        if self.uncommitted() {
+            self.toggle_uncommitted(); // back to the commits' diff, then the one picked
+        }
         let (a, b) = match self.commit_anchor.take() {
             Some(a) => (a.min(self.commit_cur), a.max(self.commit_cur)),
             None => (self.commit_cur, self.commit_cur),
@@ -399,7 +449,7 @@ impl App {
         let last_file = at.is_some_and(|i| i + 1 == spots.len()) || spots.is_empty();
         match k.code {
             // In the commits: j / k move, v marks a range's start, Enter shows it.
-            KeyCode::Char('j') | KeyCode::Down if !ctrl && self.in_commits => self.commit_cur = (self.commit_cur + 1).min(self.commits.len()),
+            KeyCode::Char('j') | KeyCode::Down if !ctrl && self.in_commits => self.commit_cur = (self.commit_cur + 1).min(self.commits.len() + usize::from(self.dirty.has())),
             KeyCode::Char('k') | KeyCode::Up if !ctrl && self.in_commits && self.commit_cur == 0 => self.in_commits = false,
             KeyCode::Char('k') | KeyCode::Up if !ctrl && self.in_commits => self.commit_cur -= 1,
             KeyCode::Char('v') if self.in_commits => self.commit_anchor = if self.commit_anchor.is_some() { None } else { Some(self.commit_cur) },
@@ -501,4 +551,12 @@ fn cut(s: &str, n: usize) -> String {
         true => format!("{}…", s.chars().take(n.saturating_sub(1)).collect::<String>()),
         false => s.to_owned(),
     }
+}
+
+#[test]
+fn what_isnt_committed() {
+    let d = Dirty::of("M  a.rs\nMM b.rs\n M c.rs\n?? d.rs\nA  e.rs\n");
+    assert_eq!((d.staged, d.changed, d.new), (3, 2, 1));
+    assert_eq!(d.says(), "3 staged, 2 changed, 1 new");
+    assert!(!Dirty::of("").has());
 }

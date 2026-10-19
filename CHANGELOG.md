@@ -9,6 +9,8 @@ on GitHub are its section here.
 - `Space l`: the PR's labels and assignees, and what it could have (the repo's labels, who it
   can be assigned to), ✓ on those it has; Enter adds or removes one. Its assignees show among
   its facts (`assigned @amy`).
+- The commits list ends with `uncommitted · 2 staged, 3 changed, 1 new` while anything isn't
+  committed: Enter there shows only that (as `Space g` does).
 - Your own reactions are lit (in the accent color), as on GitHub: on review comments, the
   conversation's, and the PR's.
 

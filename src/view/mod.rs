@@ -584,6 +584,8 @@ pub struct App {
     picker: Option<Picker>,
     /// A comment or reply for Claude, waiting on the picker for what you want of it.
     wanting: Option<Action>,
+    /// What isn't committed (the commits list's last row), as of the last reload.
+    dirty: files::Dirty,
     /// The commits (shas) questions about them were last matched to (`rekey_commits`).
     rekeyed: Vec<String>,
     search: String,
@@ -843,6 +845,7 @@ impl App {
             picker: None,
             wanting: None,
             rekeyed: vec![],
+            dirty: Default::default(),
             search: String::new(),
             msg: String::new(),
             top: 0,
