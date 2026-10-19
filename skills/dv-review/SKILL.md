@@ -105,7 +105,11 @@ you about another reviewer's comment on GitHub (it quotes it): find it in `dv re
 comment with that `id`, and its thread), and answer what the user asks about it. One with
 `"conversation": "<url>"` (and no `path` or `line`) asks about a comment in the PR's conversation,
 at that URL (quoted in it; `gh pr view <n> --comments` has the rest): answer it the same way, with
-a reply; it has no lines, so don't add any. One with `"conversation": "summary"` is the user
+a reply; it has no lines, so don't add any. One whose `"conversation"` is a commit's URL
+(`…/commits/<sha>`, or `commit:<sha>` with no PR) is about that commit (`git show <sha>`): a
+question about it, or (its `"want"`) a change to it. Make such a change in the code here, as
+any other, and say in your reply that it's for that commit (the user folds it in with `f` on
+the commit in dv's commits list). One with `"conversation": "summary"` is the user
 replying to your review summary, or asking about the PR in general (there may be no review yet:
 read the PR to answer): answer it the same way (and if they've changed your mind, update the
 `summary` too, saying so in your reply).

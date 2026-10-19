@@ -154,11 +154,26 @@ impl App {
         self.picker = Some(Picker { title: " what do you want of Claude? ", items, query: String::new(), sel });
     }
 
+    /// `a` on a commit in the list: a question about it, or a change to it, for Claude (on no
+    /// lines: a thread of its own, under "about commit …").
+    pub(super) fn ask_commit(&mut self, i: usize) {
+        let Some(c) = self.commits.get(i) else { return };
+        let url = match &self.pr {
+            Some(p) => format!("{}/commits/{}", p.url, c.sha),
+            None => format!("commit:{}", c.sha),
+        };
+        let prefill = format!("About commit {} ({}):\n", c.short, c.subject);
+        // A thread about it already: what you last wanted there.
+        let t = self.threads.iter().rposition(|t| t.conversation == url);
+        self.pick_want(Action::AskConversation { url, prefill, want: "" }, t);
+    }
+
     /// The want picked: on to the editor.
     pub(super) fn want(&mut self, w: &'static str) {
         self.action = match self.wanting.take() {
             Some(Action::AskClaude { anchor, code, about, .. }) => Some(Action::AskClaude { anchor, code, about, want: w }),
             Some(Action::ClaudeReply(k, _, q)) => Some(Action::ClaudeReply(k, w, q)),
+            Some(Action::AskConversation { url, prefill, .. }) => Some(Action::AskConversation { url, prefill, want: w }),
             other => other,
         };
     }
@@ -574,7 +589,7 @@ impl App {
                 None => String::new(),
             };
             self.select = false;
-            return self.action = Some(Action::AskConversation { url: ON_SUMMARY.into(), prefill });
+            return self.action = Some(Action::AskConversation { url: ON_SUMMARY.into(), prefill, want: "" });
         }
         // On the PR's description: Claude proposes a new one (more changes, if it has).
         if self.section_of(self.head.row) == Some(DESCRIPTION) {
@@ -586,7 +601,7 @@ impl App {
         }
         // On a comment in the PR's conversation: a question about it, under it.
         if let Some((url, prefill)) = self.conversation_at_cursor() {
-            return self.action = Some(Action::AskConversation { url, prefill });
+            return self.action = Some(Action::AskConversation { url, prefill, want: "" });
         }
         // On a thread of Claude's review (its comment, or your question and its answer): a reply
         // there, quoting what's selected of it.

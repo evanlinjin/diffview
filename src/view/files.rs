@@ -308,7 +308,8 @@ impl App {
                 ("v", "start a range"),
                 ("m", "its whole message"),
                 ("y", "copy its hash"),
-                ("a", "amend what isn't committed into it"),
+                ("a", "ask Claude about it / for a change to it"),
+                ("f", "fold what isn't committed into it"),
                 ("Tab", "to the contents"),
                 ("Ctrl-l", "back to the code"),
             ]),
@@ -406,9 +407,13 @@ impl App {
             // Between the files and the commits, without going through every file.
             KeyCode::Tab | KeyCode::BackTab => self.focus_list(!self.in_commits),
             KeyCode::Char('m') if self.in_commits => self.commit_popup(),
-            KeyCode::Char('a') if self.in_commits => match self.commit_cur.checked_sub(1).and_then(|i| self.commits.get(i)).map(|c| c.sha.clone()) {
+            KeyCode::Char('a') if self.in_commits => match self.commit_cur.checked_sub(1) {
+                Some(i) => self.ask_commit(i),
+                None => self.msg = "a on a commit asks Claude about it, or for a change to it".into(),
+            },
+            KeyCode::Char('f') if self.in_commits => match self.commit_cur.checked_sub(1).and_then(|i| self.commits.get(i)).map(|c| c.sha.clone()) {
                 Some(sha) => self.amend_into(&sha),
-                None => self.msg = "a on a commit amends what isn't committed into it".into(),
+                None => self.msg = "f on a commit folds what isn't committed into it (amends it)".into(),
             },
             KeyCode::Char('y') if self.in_commits => match self.commit_cur.checked_sub(1).and_then(|i| self.commits.get(i)).map(|c| c.sha.clone()) {
                 Some(sha) => {

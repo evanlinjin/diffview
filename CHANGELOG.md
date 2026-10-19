@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- `a` on a commit in the commits list (`Ctrl-w e`): ask Claude about it, or for a change to it
+  (Ask / Suggest / Change first, as on lines). Its thread is under "about commit …"; a change
+  is made uncommitted, for `f` on the commit to fold in.
+
+### Changed
+- In the commits list, amending what isn't committed into a commit is `f` (fold), not `a`.
+
 ### Fixed
 - Rebasing with Claude: it couldn't carry the rebase on (its `git` commands came prefixed or
   chained, and were refused); it now runs them plainly, and fixes what the rebase broke

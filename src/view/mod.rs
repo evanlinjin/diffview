@@ -84,7 +84,8 @@ VIEW
   Ctrl-w n             relative line numbers on / off (kept for next time)
   Ctrl-w e             the contents on the left (description, messages, files), on / off
                        and the PR's commits under it: Enter shows one, v … Enter a range,
-                       m its whole message, a amends what isn't committed into it;
+                       m its whole message, a asks Claude about it (or for a change),
+                       f folds what isn't committed into it;
                        Ctrl-w j / Ctrl-w k (or Tab there) go to the commits / the files
   Ctrl-w h  Ctrl-w l   pane left / right: files, old / new side, comments (or Ctrl-h Ctrl-l)
   Ctrl-w c             show / hide the comments pane (╎ ● mark their lines)
@@ -297,7 +298,8 @@ enum Action {
     /// the GitHub review comment it asks about (its id, and a quote of it for the editor).
     AskClaude { anchor: Anchor, code: Vec<String>, about: Option<(u64, String)>, want: &'static str },
     /// `a` on a PR conversation comment: a question about it (its URL), starting from `prefill`.
-    AskConversation { url: String, prefill: String },
+    /// On a commit (its URL): a question about it, or a change to it (`want`).
+    AskConversation { url: String, prefill: String, want: &'static str },
     /// Run Claude (review, or make the changes) after your own instructions for it.
     ClaudeWith(agent::Ask),
     /// Have Claude draft a replacement for these PRs, after your instructions for it (starting
@@ -445,6 +447,12 @@ impl Item {
     fn new(label: impl Into<String>, target: Target) -> Item {
         Item { label: label.into(), detail: vec![], target }
     }
+}
+
+/// The commit a question (its `"conversation"`) is about: a commit's URL on GitHub
+/// (`…/commits/<sha>`), or `commit:<sha>` without a PR.
+pub(super) fn commit_of(url: &str) -> Option<&str> {
+    url.rsplit_once("/commits/").map(|(_, s)| s).or_else(|| url.strip_prefix("commit:"))
 }
 
 /// The threads picker's titles, one per filter (Tab goes round them): its title says which.
@@ -1013,14 +1021,15 @@ impl App {
                 self.load_claude();
                 Ok(self.answer_now())
             }
-            Action::AskConversation { url, prefill } => {
+            Action::AskConversation { url, prefill, want } => {
                 let p = self.claude.path.clone().context("no review file")?;
-                let what = match url == ON_SUMMARY {
-                    true => "a question for Claude about the PR, or a reply to its review (it answers in the Claude tab; nothing goes to GitHub)",
-                    false => "ask Claude about this conversation comment (it answers under it; nothing goes to GitHub)",
+                let what = match (url == ON_SUMMARY, commit_of(&url)) {
+                    (true, _) => "a question for Claude about the PR, or a reply to its review (it answers in the Claude tab; nothing goes to GitHub)".to_owned(),
+                    (_, Some(sha)) => format!("for Claude, about commit {}{}", &sha[..8.min(sha.len())], agent::want_hint(want)),
+                    _ => "ask Claude about this conversation comment (it answers under it; nothing goes to GitHub)".to_owned(),
                 };
-                let Some(body) = compose_with(what, false, &prefill, false)? else { return Ok("question cancelled".into()) };
-                keep_on_error(crate::claude::add_conversation(&p, &url, &body).map(drop), &body)?;
+                let Some(body) = compose_with(&what, false, &prefill, false)? else { return Ok("question cancelled".into()) };
+                keep_on_error(crate::claude::add_conversation(&p, &url, &body, want).map(drop), &body)?;
                 self.load_claude();
                 Ok(self.answer_now())
             }

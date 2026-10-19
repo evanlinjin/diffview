@@ -1217,7 +1217,7 @@ impl App {
             }
             return self.action = Some(match self.threads.iter().find(|t| t.conversation == ON_SUMMARY).and_then(|t| t.claude.clone()) {
                 Some(k) => Action::ClaudeReply(k, "", String::new()),
-                None => Action::AskConversation { url: ON_SUMMARY.into(), prefill: String::new() },
+                None => Action::AskConversation { url: ON_SUMMARY.into(), prefill: String::new(), want: "" },
             });
         }
         // On lines, say what you want of Claude; under a conversation comment it's a question.

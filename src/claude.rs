@@ -623,8 +623,13 @@ pub fn add_comment(path: &std::path::Path, a: &crate::gh::Anchor, code: Vec<Stri
 }
 
 /// A question the user asks Claude about the PR conversation's comment at `url` (`a` on it).
-pub fn add_conversation(path: &std::path::Path, url: &str, body: &str) -> Result<String> {
-    push_comment(path, serde_json::json!({ "conversation": url, "author": USER, "body": body, "created": now() }))
+/// (Or about a commit, its URL: `want` then says what of it, as on a comment.)
+pub fn add_conversation(path: &std::path::Path, url: &str, body: &str, want: &str) -> Result<String> {
+    let mut c = serde_json::json!({ "conversation": url, "author": USER, "body": body, "created": now() });
+    if !want.is_empty() {
+        c["want"] = want.into();
+    }
+    push_comment(path, c)
 }
 
 /// Add comment `c` to the review file at `path` (starting it if there isn't one); its id.
@@ -864,7 +869,7 @@ fn questions_about_the_conversation() {
     let p = std::env::temp_dir().join(format!("dv-claude-conv-{}.json", std::process::id()));
     _ = std::fs::remove_file(&p);
     let url = "https://github.com/o/r/pull/7#issuecomment-5";
-    let id = add_conversation(&p, url, "what do they mean?").unwrap();
+    let id = add_conversation(&p, url, "what do they mean?", "").unwrap();
     let rep = check(&p, &[]).unwrap();
     assert!(rep.errors.is_empty() && rep.warnings.is_empty(), "{:?}", rep.errors);
     let t = &load(&p).unwrap().unwrap().threads[0];

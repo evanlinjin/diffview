@@ -318,7 +318,16 @@ impl App {
                 .collect(),
         };
         // By file (stable: in order within one); questions about the conversation, on no file, last.
-        gone.sort_by_key(|&t| (self.threads[t].path.is_empty(), self.threads[t].path.clone()));
+        // (Questions on no lines: about a commit, under it; else about the conversation.)
+        let label = |t: usize| {
+            let th = &self.threads[t];
+            match (th.path.is_empty(), commit_of(&th.conversation)) {
+                (false, _) => th.path.clone(),
+                (true, Some(sha)) => format!("about commit {}", &sha[..8.min(sha.len())]),
+                (true, None) => "questions about the PR's conversation".into(),
+            }
+        };
+        gone.sort_by_key(|&t| (self.threads[t].path.is_empty(), label(t)));
         if !gone.is_empty() {
             let heading = |text: String| Row::text(INFO, Kind::Thread, text);
             let on_files = gone.iter().filter(|&&t| !self.threads[t].path.is_empty()).count();
@@ -327,10 +336,10 @@ impl App {
             }
             let mut last = None;
             for &t in &gone {
-                let path = self.threads[t].path.as_str();
-                if last != Some(path) {
-                    last = Some(path);
-                    rows.push(heading(if path.is_empty() { "questions about the PR's conversation".into() } else { path.to_owned() }));
+                let l = label(t);
+                if last.as_ref() != Some(&l) {
+                    rows.push(heading(l.clone()));
+                    last = Some(l);
                 }
                 rows.extend(self.thread_rows(t, INFO));
             }

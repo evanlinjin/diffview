@@ -1014,6 +1014,29 @@ fn whose_turn_and_severity() {
 }
 
 #[test]
+fn ask_claude_about_a_commit() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let dir = std::env::temp_dir().join(format!("dv-ask-commit-{}", std::process::id()));
+    app.claude.path = Some(dir.join("pr-1.json"));
+    app.pr = Some(gh::Pr { number: 1, url: "https://github.com/o/r/pull/1".into(), ..Default::default() });
+    app.commits = vec![files::Commit { sha: "abcdef1234".into(), short: "abcdef1".into(), subject: "add parse".into(), signed: true }];
+    // `a` on it: what you want, then the editor, starting from which commit.
+    app.ask_commit(0);
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let Some(Action::AskConversation { url, prefill, want: "change" }) = app.action.take() else { panic!("no question about the commit") };
+    assert_eq!(url, "https://github.com/o/r/pull/1/commits/abcdef1234");
+    assert!(prefill.starts_with("About commit abcdef1 (add parse)"));
+    // Saved, it's under the commit, waiting, a change.
+    crate::claude::add_conversation(app.claude.path.as_ref().unwrap(), &url, "Split this.", "change").unwrap();
+    app.load_claude();
+    _ = std::fs::remove_dir_all(&dir);
+    app.build();
+    assert!(app.rows.iter().any(|r| r.line.text == "about commit abcdef12"));
+    assert!(app.rows.iter().any(|r| r.line.text.starts_with("[waiting] [change] you")));
+    assert_eq!(app.change_requests(), 1);
+}
+
+#[test]
 fn commit_draft_from_claudes_changes() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
     let p = std::env::temp_dir().join(format!("dv-claude-draft-{}.json", std::process::id()));
@@ -2219,7 +2242,7 @@ fn ask_claude_about_a_conversation_comment() {
     app.claude.path = Some(std::env::temp_dir().join("dv-unused-review.json"));
     app.goto(body, 0);
     app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
-    let Some(Action::AskConversation { url: u, prefill }) = app.action.take() else { panic!("no question: {}", app.msg) };
+    let Some(Action::AskConversation { url: u, prefill, .. }) = app.action.take() else { panic!("no question: {}", app.msg) };
     assert_eq!(u, url);
     assert!(prefill.starts_with("About @cy's comment (https://") && prefill.contains("> Can we rename it?"), "{prefill}");
     // In the Claude view (no conversation there): under a heading of their own, not lost.
@@ -2378,7 +2401,7 @@ fn reply_to_claudes_summary() {
     app.anchor = Pos { row, col: 0 };
     app.head = Pos { row, col: "Looks right".len() - 1 };
     app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
-    let Some(Action::AskConversation { url, prefill }) = app.action.take() else { panic!("no reply: {}", app.msg) };
+    let Some(Action::AskConversation { url, prefill, .. }) = app.action.take() else { panic!("no reply: {}", app.msg) };
     assert_eq!((url.as_str(), prefill.as_str()), (ON_SUMMARY, "About this part of your review:\n> Looks right\n\n"));
     // With that thread there: under the summary, and r on the summary goes on in it.
     let c = |who: &str, body: &str| gh::Comment { author: who.into(), body: body.into(), ..Default::default() };
@@ -2593,7 +2616,7 @@ fn a_question_about_the_pr_before_any_review() {
     app.claude.path = Some(path.clone());
     app.claude_menu();
     assert!(app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::ClaudeQuestion)));
-    crate::claude::add_conversation(&path, ON_SUMMARY, "Why a new trait?").unwrap();
+    crate::claude::add_conversation(&path, ON_SUMMARY, "Why a new trait?", "").unwrap();
     app.load_claude();
     app.toggle_view(View::Claude);
     let head = app.rows.iter().position(|r| r.main == Some(CLAUDE_REVIEW)).expect("its section");
