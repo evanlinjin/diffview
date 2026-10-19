@@ -384,3 +384,17 @@ fn hunk_windows() {
     assert_eq!(lines[0].text, "@@ -8,6 +8,7 @@ fn x");
     assert_eq!(lines.len(), 2 + 7 + 7);
 }
+
+/// A new repo for a test, in the temp dir (named after `name` and the process): `main`, an
+/// identity of its own (CI has none), none of the user's signing or hooks.
+#[cfg(test)]
+pub fn scratch_repo(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("dv-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    git_in(&dir, &["init", "-q", "-b", "main"]).unwrap();
+    for (k, v) in [("user.name", "t"), ("user.email", "t@t"), ("commit.gpgsign", "false"), ("core.hooksPath", "/dev/null")] {
+        git_in(&dir, &["config", k, v]).unwrap();
+    }
+    dir
+}

@@ -26,9 +26,28 @@ fn marker(dir: &Path) -> Option<std::path::PathBuf> {
     git_in(dir, &["rev-parse", "--git-path", "dv-rebase"]).ok().map(|p| dir.join(p.trim()))
 }
 
-/// The rebase dv started in `dir` that isn't through yet: its backup branch.
-pub(super) fn dv_rebase(dir: &Path) -> Option<String> {
+/// The backup branch of the rebase dv last started in `dir`, as noted.
+fn noted(dir: &Path) -> Option<String> {
     std::fs::read_to_string(marker(dir)?).ok().map(|s| s.trim().to_owned()).filter(|s| !s.is_empty())
+}
+
+/// The rebase stopped in `dir`, if it's the one dv started (its backup branch): the note is
+/// checked against the rebase's own `orig-head`, so a stale one (dv's rebase ended some other
+/// way) doesn't claim a rebase you started.
+pub(super) fn dv_rebase(dir: &Path) -> Option<String> {
+    let backup = noted(dir)?;
+    let at = git_in(dir, &["rev-parse", "--verify", "-q", &backup]).ok()?;
+    let out = git_in(dir, &["rev-parse", "--git-path", "rebase-merge/orig-head", "--git-path", "rebase-apply/orig-head"]).ok()?;
+    let orig = out.lines().find_map(|p| std::fs::read_to_string(dir.join(p.trim())).ok())?;
+    (orig.trim() == at.trim()).then_some(backup)
+}
+
+/// What a stopped rebase asks of you before anything else: dv's, Space g; yours, git.
+pub(super) fn stopped_says(dir: &Path) -> &'static str {
+    match dv_rebase(dir) {
+        Some(_) => "a rebase is stopped here: Space g finishes it (Claude) or aborts it first",
+        None => "a rebase you started is stopped here: finish it with git (or Space g aborts it) first",
+    }
 }
 
 fn forget_rebase(dir: &Path) {
@@ -46,9 +65,14 @@ pub(super) fn rebase(dir: &Path, onto: &str, backup: &str) -> Result<bool> {
     // The backup branch stays where it is (no editor: see `diff::git`).
     match git_in(dir, &["-c", "rebase.updateRefs=false", "rebase", "-q", onto]) {
         Ok(_) => Ok(true),
-        Err(_) if rebasing(dir) && git_in(dir, &["diff", "--name-only", "--diff-filter=U"]).is_ok_and(|f| !f.trim().is_empty()) => {
-            std::fs::write(marker(dir).context("no git dir")?, backup)?;
-            Ok(false)
+        Err(e) if rebasing(dir) && git_in(dir, &["diff", "--name-only", "--diff-filter=U"]).is_ok_and(|f| !f.trim().is_empty()) => {
+            match marker(dir).map(|m| std::fs::write(m, backup)) {
+                Some(Ok(())) => Ok(false),
+                _ => {
+                    _ = git_in(dir, &["rebase", "--abort"]);
+                    Err(e.context("couldn't note the rebase as dv's: aborted"))
+                }
+            }
         }
         Err(e) => {
             _ = git_in(dir, &["rebase", "--abort"]);
@@ -73,10 +97,10 @@ fn rebase_prompt(onto: &str) -> String {
 }
 
 impl App {
-    /// The branch the PR goes into, as fetched: the one the diff's base follows, else
-    /// `origin/<base>`.
+    /// The branch the PR goes into (as it is now: its base may change), as fetched:
+    /// `origin/<base>`; without a PR, the one the diff's base follows.
     pub(super) fn rebase_onto(&self) -> Option<String> {
-        self.follow_base.clone().or_else(|| self.pr.as_ref().map(|p| format!("origin/{}", p.base)))
+        self.pr.as_ref().map(|p| format!("origin/{}", p.base)).or_else(|| self.follow_base.clone())
     }
 
     /// `Space g` → rebase: fetch the base, then rebase onto it; on conflicts, Claude resolves
@@ -88,11 +112,11 @@ impl App {
             let (remote, branch) = onto.split_once('/').context("no remote base branch")?;
             // Into that ref whatever the remote's refspec covers (a single-branch clone, say).
             git_in(&self.root, &["fetch", "-q", remote, &format!("+refs/heads/{branch}:refs/remotes/{onto}")])?;
-            let (short, backup) = self.backup_name()?;
-            let done = rebase(&self.root, &onto, &backup)?;
-            if done && git_in(&self.root, &["rev-parse", "HEAD"])?.trim() == git_in(&self.root, &["rev-parse", &backup])?.trim() {
+            if git_in(&self.root, &["merge-base", "--is-ancestor", &onto, "HEAD"]).is_ok() {
                 return Ok(format!("already on {onto}: nothing to rebase"));
             }
+            let (short, backup) = self.backup_name()?;
+            let done = rebase(&self.root, &onto, &backup)?;
             if done {
                 self.follow(&onto);
                 self.reload_tree();
@@ -130,9 +154,11 @@ impl App {
         if self.claude.job.is_some() {
             return self.msg = "Claude is still at the rebase: stop it first (Space a), then abort".into();
         }
-        forget_rebase(&self.root);
         self.msg = match git_in(&self.root, &["rebase", "--abort"]) {
-            Ok(_) => "rebase aborted: as it was before".into(),
+            Ok(_) => {
+                forget_rebase(&self.root);
+                "rebase aborted: as it was before".into()
+            }
             Err(e) => format!("{e:#}"),
         };
         self.reload_tree();
@@ -147,7 +173,7 @@ impl App {
         }
         // Done: HEAD moved on from where it was, onto the base (on a branch or detached; an
         // abort puts it back where it was).
-        let backup = dv_rebase(&self.root);
+        let backup = noted(&self.root);
         forget_rebase(&self.root);
         let head = git_in(&self.root, &["rev-parse", "HEAD"]).unwrap_or_default();
         let was = backup.and_then(|b| git_in(&self.root, &["rev-parse", &b]).ok()).unwrap_or_default();
@@ -170,15 +196,9 @@ impl App {
 
 #[test]
 fn rebase_clean_and_conflicting() {
-    let dir = std::env::temp_dir().join(format!("dv-rebase-onto-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = crate::diff::scratch_repo("rebase-onto");
     let git = |args: &[&str]| git_in(&dir, args).unwrap();
     let write = |f: &str, s: &str| std::fs::write(dir.join(f), s).unwrap();
-    git(&["init", "-q", "-b", "main"]);
-    for (k, v) in [("user.name", "t"), ("user.email", "t@t"), ("commit.gpgsign", "false"), ("core.hooksPath", "/dev/null")] {
-        git(&["config", k, v]);
-    }
     write("a", "1\n");
     git(&["add", "."]);
     git(&["commit", "-q", "-m", "base"]);
@@ -219,15 +239,9 @@ fn rebase_clean_and_conflicting() {
 #[test]
 #[ignore]
 fn live_claude_rebase() {
-    let dir = std::env::temp_dir().join(format!("dv-live-rebase-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = crate::diff::scratch_repo("live-rebase");
     let git = |args: &[&str]| git_in(&dir, args).unwrap();
     let write = |f: &str, s: &str| std::fs::write(dir.join(f), s).unwrap();
-    git(&["init", "-q", "-b", "main"]);
-    for (k, v) in [("user.name", "t"), ("user.email", "t@t"), ("commit.gpgsign", "false"), ("core.hooksPath", "/dev/null")] {
-        git(&["config", k, v]);
-    }
     write("greet.py", "def greet(name):\n    return 'Hello, ' + name\n");
     git(&["add", "."]);
     git(&["commit", "-q", "-m", "greet"]);

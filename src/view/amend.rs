@@ -366,17 +366,10 @@ pub(super) const AMEND_LABEL: &str = "placing changes in commits";
 
 #[test]
 fn amend_by_blame() {
-    let dir = std::env::temp_dir().join(format!("dv-amend-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = crate::diff::scratch_repo("amend");
     let git = |args: &[&str]| git_in(&dir, args).unwrap();
     let commit = |m: &str| git(&["commit", "-q", "-am", m]);
     let write = |f: &str, s: &str| std::fs::write(dir.join(f), s).unwrap();
-    git(&["init", "-q"]);
-    // Its own identity (CI has none), and none of the user's signing or hooks.
-    for (k, v) in [("user.name", "t"), ("user.email", "t@t"), ("commit.gpgsign", "false"), ("core.hooksPath", "/dev/null")] {
-        git(&["config", k, v]);
-    }
     write("a.rs", "base\n");
     git(&["add", "."]);
     commit("base");
@@ -435,15 +428,10 @@ fn amend_by_blame() {
 
 #[test]
 fn amend_same_subjects_renames_crlf() {
-    let dir = std::env::temp_dir().join(format!("dv-amend2-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = crate::diff::scratch_repo("amend2");
     let git = |args: &[&str]| git_in(&dir, args).unwrap();
     let write = |f: &str, s: &str| std::fs::write(dir.join(f), s).unwrap();
-    git(&["init", "-q"]);
-    for (k, v) in [("user.name", "t"), ("user.email", "t@t"), ("commit.gpgsign", "false"), ("core.hooksPath", "/dev/null"), ("core.autocrlf", "false")] {
-        git(&["config", k, v]);
-    }
+    git(&["config", "core.autocrlf", "false"]);
     write("x.rs", "a\r\nb\r\n");
     git(&["add", "."]);
     git(&["commit", "-q", "-m", "base"]);
@@ -469,15 +457,9 @@ fn amend_same_subjects_renames_crlf() {
 #[test]
 #[ignore]
 fn live_claude_amend_ask() {
-    let dir = std::env::temp_dir().join(format!("dv-live-amend-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = crate::diff::scratch_repo("live-amend");
     let git = |args: &[&str]| git_in(&dir, args).unwrap();
     let write = |f: &str, s: &str| std::fs::write(dir.join(f), s).unwrap();
-    git(&["init", "-q", "-b", "main"]);
-    for (k, v) in [("user.name", "t"), ("user.email", "t@t"), ("commit.gpgsign", "false"), ("core.hooksPath", "/dev/null")] {
-        git(&["config", k, v]);
-    }
     write("lib.rs", "pub fn one() -> u32 {\n    1\n}\n");
     git(&["add", "."]);
     git(&["commit", "-q", "-m", "one"]);

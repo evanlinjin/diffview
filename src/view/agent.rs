@@ -123,7 +123,7 @@ impl App {
         self.view = if self.view == v { View::All } else { v };
         let keep = self.cursor_key();
         self.rebuild(keep);
-        let any = self.threads.iter().any(|t| self.in_view(t));
+        let any = self.any_in_view();
         self.msg = match self.view {
             View::Claude if !any && self.claude.summary.is_empty() => "Claude view: Claude hasn't reviewed this yet (Space a asks it; gn / gp: the other tabs)",
             View::Claude => "Claude view: its summary and the code it commented on (gn / gp: the other tabs)",
@@ -163,6 +163,12 @@ impl App {
         };
     }
 
+    /// Whether the view has threads in it (on an earlier commit, they're there but hidden:
+    /// it isn't empty).
+    pub(super) fn any_in_view(&self) -> bool {
+        self.before_head() || self.threads.iter().any(|t| self.in_view(t))
+    }
+
     /// Replies of yours that Claude hasn't answered yet.
     pub(super) fn waiting_replies(&self) -> usize {
         self.threads.iter().filter(|t| turn(t) == Some("[waiting] ")).count()
@@ -194,7 +200,7 @@ impl App {
         }
         // A rebase stopped part way: the tree has its conflicts, HEAD is detached.
         if super::rebase::rebasing(&self.root) {
-            return Some("a rebase is stopped here: Space g finishes it (Claude) or aborts it first".into());
+            return Some(super::rebase::stopped_says(&self.root).into());
         }
         let (_, cmd) = self.claude_pane_cmd()?;
         let dv = crate::claude::dv_dir().map(|d| d.display().to_string()).unwrap_or_default();
@@ -777,7 +783,7 @@ impl App {
             return "reply saved; Claude answers it when it's done with what it's doing".into();
         }
         if super::rebase::rebasing(&self.root) {
-            return "reply saved; a rebase is stopped here: Space g finishes or aborts it, then Space a has Claude answer".into();
+            return format!("reply saved; {} (then Space a has Claude answer)", super::rebase::stopped_says(&self.root));
         }
         let prompt = self.claude_prompt(Ask::Answer, "");
         let forked = self.claude_pane().is_some();
@@ -1293,24 +1299,17 @@ pub(super) fn ago(t: std::time::Instant) -> String {
 #[test]
 #[ignore]
 fn live_claude_change_on_their_pr() {
-    let dir = std::env::temp_dir().join(format!("dv-live-change-{}", std::process::id()));
+    let dir = crate::diff::scratch_repo("live-change");
     let data = std::env::temp_dir().join(format!("dv-live-change-data-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    // dv's directory for this run (Claude's `dv review-info` and its access follow it).
-    unsafe { std::env::set_var("XDG_DATA_HOME", &data) };
     let git = |args: &[&str]| crate::diff::git_in(&dir, args).unwrap();
-    git(&["init", "-q", "-b", "main"]);
-    for (k, v) in [("user.name", "t"), ("user.email", "t@t"), ("commit.gpgsign", "false"), ("core.hooksPath", "/dev/null")] {
-        git(&["config", k, v]);
-    }
     std::fs::write(dir.join("count.py"), "def total(xs):\n    return 0\n").unwrap();
     git(&["add", "."]);
     git(&["commit", "-q", "-m", "base"]);
     git(&["checkout", "-q", "-b", "feat"]);
     std::fs::write(dir.join("count.py"), "def total(xs):\n    x = 0\n    for v in xs:\n        x += v\n    return x\n").unwrap();
     git(&["commit", "-q", "-am", "total: sum them"]);
-    let info = std::process::Command::new("dv").arg("review-info").current_dir(&dir).output().unwrap();
+    // dv's directory for this run: on each command (not the test process's, shared).
+    let info = std::process::Command::new("dv").arg("review-info").current_dir(&dir).env("XDG_DATA_HOME", &data).output().unwrap();
     let info = String::from_utf8_lossy(&info.stdout);
     let file = info.lines().find_map(|l| l.strip_prefix("file: ")).expect("review-info's file").trim().to_owned();
     std::fs::create_dir_all(Path::new(&file).parent().unwrap()).unwrap();
@@ -1320,7 +1319,7 @@ fn live_claude_change_on_their_pr() {
     }]});
     std::fs::write(&file, review.to_string()).unwrap();
     // (As dv grants the repo it runs in: here the test is elsewhere, so this run's directory.)
-    let out = claude_command(&answer_prompt("the current branch", true), &dir, &[], &[], Some(&data.join("dv"))).stdin(std::process::Stdio::null()).output().unwrap();
+    let out = claude_command(&answer_prompt("the current branch", true), &dir, &[], &[], Some(&data.join("dv"))).env("XDG_DATA_HOME", &data).stdin(std::process::Stdio::null()).output().unwrap();
     let said: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
     println!("claude: {}\nrefused: {}", said["result"].as_str().unwrap_or(&String::from_utf8_lossy(&out.stderr)), said["permission_denials"]);
     let code = std::fs::read_to_string(dir.join("count.py")).unwrap();
