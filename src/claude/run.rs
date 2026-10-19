@@ -11,6 +11,12 @@ pub(crate) const ALLOWED: &[&str] = &[
     "Bash(git show:*)",
     "Bash(git log:*)",
     "Bash(git rev-parse:*)",
+    // A change the user asked to be committed, or amended into the commit it belongs in
+    // (`git commit --fixup`, `git rebase --autosquash`): local, pushed only by the user.
+    "Bash(git status:*)",
+    "Bash(git add:*)",
+    "Bash(git commit:*)",
+    "Bash(git rebase:*)",
     // The PR's description and conversation, to propose a new description from.
     "Bash(gh pr view:*)",
     // Why CI fails, to fix it.
@@ -29,16 +35,12 @@ pub(crate) fn tools_for(fixing_ci: Option<u64>) -> Option<String> {
     fixing_ci.map(|n| format!("Bash(dv rerun-failed -p {n})"))
 }
 
-/// What drafting a replacement needs on top: reading the PRs it replaces, and committing (to
-/// its own local branch; dv never pushes it without you).
+/// What drafting a replacement needs on top: reading the PRs it replaces.
 pub(crate) const REPLACE_TOOLS: &[&str] = &[
     "Bash(dv replace-info:*)",
     "Bash(gh pr view:*)",
     "Bash(gh pr diff:*)",
     "Bash(gh issue view:*)",
-    "Bash(git status:*)",
-    "Bash(git add:*)",
-    "Bash(git commit:*)",
 ];
 
 /// Asking Claude to review `what` ("PR #12").
@@ -113,8 +115,8 @@ pub(crate) fn claude_dirs() -> Vec<std::ffi::OsString> {
 /// Claude may write to (`None`: all of dv's).
 pub(crate) fn claude_command(prompt: &str, dir: &Path, session: &[String], more: &[&str], access: Option<&Path>) -> std::process::Command {
     let mut cmd = std::process::Command::new("claude");
-    // No editor to wait on (`git rebase --continue`, `git commit` without -m).
-    cmd.env("PATH", path_for_claude()).env("GIT_EDITOR", "true")
+    // No editor to wait on (`git rebase --continue`, `git commit` without -m, `rebase -i`).
+    cmd.env("PATH", path_for_claude()).env("GIT_EDITOR", "true").env("GIT_SEQUENCE_EDITOR", "true")
         .args(["-p", prompt, "--output-format", "json", "--permission-mode", "acceptEdits"])
         .args(session);
     match access {

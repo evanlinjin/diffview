@@ -110,7 +110,7 @@ disk: rust-analyzer can index it and `hx` can open it.
    you not looking at it (shown and focused); by dv or `dv list`, whichever sees it first. Its
    session is kept for the next ask to resume; dv says when it's
    asking you something, a permission prompt, checking its screen every 3s), else `claude -p` in the background
-   (`acceptEdits`, Bash limited to `dv review-*` and read-only git), with "Claude working…"
+   (`acceptEdits`, Bash limited to `dv review-*`, read-only git, and `git add/commit/rebase` for a change you asked to have committed or amended in: never a push), with "Claude working…"
    in the status bar and its log path if it fails. Comments get stable `id`s (assigned by dv on
    load and by review-check); both write the file atomically and re-read it before a change.
    Each PR has one Claude Code session per checkout (`pr-N.session` next to its review file,
@@ -129,7 +129,7 @@ disk: rust-analyzer can index it and `hx` can open it.
    `closing_note` (`{replacement}` where the new PR's link goes), and `session`. `dv replace
    N [M…]` (and `A A` in `dv list`, `Space a` in dv, which run it in the background) prepares
    them and runs Claude (`claude -p`, the skill's section 6, with `dv replace-info`; allowed
-   to read PRs and issues with `gh` and to `git add` / `git commit`, never to push). Drafting
+   to read PRs and issues with `gh` too). Drafting
    again resumes the session. dv on a replacement's branch shows, in the PR section, what it
    replaces (linked) and `UNPUBLISHED` on the header line, its drafts of the description and the
    closing note as sections before the files (as a PR's description is; `a` there redrafts), and shows it again
