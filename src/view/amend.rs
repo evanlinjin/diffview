@@ -143,29 +143,43 @@ pub(super) fn plan(dir: &Path, base: &str, blame: bool) -> Result<Plan> {
     Ok((hunks, commits))
 }
 
-/// Amend `hunks` (those with a commit to go in) into their commits: a fixup commit each, then
-/// `rebase --autosquash` from the merge-base with `base`. HEAD is kept on `backup` first; what
-/// isn't placed stays uncommitted. A conflict leaves everything as it was. How many commits
-/// were amended.
-pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], backup: &str) -> Result<usize> {
+/// Amend `hunks` (those with a commit to go in) into their commits: for each commit, newest
+/// first, a fixup commit and `rebase --autosquash` from the merge-base with `base` (newest first:
+/// the older ones' shas stay as they were). One that conflicts (a later commit changed those
+/// lines) is undone and its changes stay uncommitted; the rest go in. HEAD is kept on `backup`
+/// first. How many commits were amended, and those that weren't (with git's word why); none
+/// amended: an error, all as it was.
+pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], backup: &str) -> Result<(usize, Vec<(String, String)>)> {
     let mb = git_in(dir, &["merge-base", base, "HEAD"])?.trim().to_owned();
-    let orig = git_in(dir, &["rev-parse", "HEAD"])?.trim().to_owned();
+    let order = git_in(dir, &["rev-list", "--first-parent", &format!("{mb}..HEAD")])?; // newest first
     let mut targets: Vec<&str> = vec![];
     for t in hunks.iter().filter_map(|h| h.to.as_deref()) {
         if !targets.contains(&t) {
             targets.push(t);
         }
     }
+    targets.sort_by_key(|t| order.lines().position(|l| l == *t));
     anyhow::ensure!(!targets.is_empty(), "nothing placed to amend");
     // (Its own rebase it aborts if it fails: not one stopped part way, yours or Claude's.)
     anyhow::ensure!(!super::rebase::rebasing(dir), "a rebase is stopped part way here: finish or abort it first");
-    anyhow::ensure!(nothing_staged(dir), "some changes are staged (git add): unstage them first (git reset), so none are lost");
+    // What you staged, to put back if nothing goes in (and a conflicted file: refused here).
+    let staged = git_in(dir, &["write-tree"]).context("unmerged files here: resolve them first")?.trim().to_owned();
+    let orig = git_in(dir, &["rev-parse", "HEAD"])?.trim().to_owned();
     git_in(dir, &["branch", "-f", backup, "HEAD"])?;
-    let patch = Path::new(git_in(dir, &["rev-parse", "--absolute-git-dir"])?.trim()).join("dv-amend.patch");
+    let gitdir = std::path::PathBuf::from(git_in(dir, &["rev-parse", "--absolute-git-dir"])?.trim());
+    let (patch, index) = (gitdir.join("dv-amend.patch"), gitdir.join("dv-amend.index"));
+    // The fixup commits are made in an index of dv's own: yours (what you staged) isn't touched.
+    let own = |args: &[&str]| -> Result<()> {
+        let out = std::process::Command::new("git").arg("-C").arg(dir).args(args).env("GIT_INDEX_FILE", &index).output()?;
+        anyhow::ensure!(out.status.success(), "git {}: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim());
+        Ok(())
+    };
     let mut done: Vec<&Hunk> = vec![];
-    let fixups = (|| -> Result<()> {
-        for &t in &targets {
-            let mine: Vec<&Hunk> = hunks.iter().filter(|h| h.to.as_deref() == Some(t)).collect();
+    let mut skipped = vec![];
+    for &t in &targets {
+        let was = git_in(dir, &["rev-parse", "HEAD"])?.trim().to_owned();
+        let mine: Vec<&Hunk> = hunks.iter().filter(|h| h.to.as_deref() == Some(t)).collect();
+        let one = (|| -> Result<()> {
             let mut text = String::new();
             for (i, h) in mine.iter().enumerate() {
                 if i == 0 || mine[i - 1].head != h.head {
@@ -174,43 +188,51 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], backup: &str) -> Res
                 text += &h.patch(&done, &mine[..i]);
             }
             std::fs::write(&patch, text)?;
-            git_in(dir, &["apply", "--cached", "--unidiff-zero", &patch.to_string_lossy()])?;
+            own(&["read-tree", "HEAD"])?;
+            own(&["apply", "--cached", "--unidiff-zero", &patch.to_string_lossy()])?;
             // By its sha, not its subject: two commits may share one ("wip").
-            git_in(dir, &["commit", "-q", "--no-verify", "-m", &format!("fixup! {t}")])?;
-            done.extend(mine);
+            own(&["commit", "-q", "--no-verify", "-m", &format!("fixup! {t}")])?;
+            // Merges kept (not flattened), and the backup branch left where it is.
+            // (No editor: see `diff::git`.)
+            git_in(dir, &["-c", "rebase.updateRefs=false", "rebase", "-q", "-i", "--autosquash", "--autostash", "--rebase-merges", &mb])?;
+            Ok(())
+        })();
+        match one {
+            Ok(()) => done.extend(mine),
+            Err(e) => {
+                _ = git_in(dir, &["rebase", "--abort"]);
+                _ = git_in(dir, &["reset", "-q", &was]); // this one's changes uncommitted again
+                // git's own words for it: the line saying what it couldn't do.
+                let msg = format!("{e:#}");
+                let why = msg.lines().find(|l| l.contains("could not apply") || l.contains("CONFLICT")).unwrap_or(msg.lines().last().unwrap_or("")).trim().to_owned();
+                skipped.push((t.to_owned(), why));
+            }
         }
-        // Merges kept (not flattened), and the backup branch left where it is.
-        // (No editor: see `diff::git`.)
-        git_in(dir, &["-c", "rebase.updateRefs=false", "rebase", "-q", "-i", "--autosquash", "--autostash", "--rebase-merges", &mb])?;
-        Ok(())
-    })();
-    _ = std::fs::remove_file(&patch);
-    if let Err(e) = fixups {
-        _ = git_in(dir, &["rebase", "--abort"]);
-        _ = git_in(dir, &["reset", "-q", &orig]); // back as it was: all of it uncommitted again
-        return Err(e.context("nothing amended: it's all as it was"));
     }
-    Ok(targets.len())
+    _ = std::fs::remove_file(&patch);
+    _ = std::fs::remove_file(&index);
+    if done.is_empty() {
+        _ = git_in(dir, &["reset", "-q", &orig]);
+        _ = git_in(dir, &["read-tree", &staged]); // staged as it was
+        _ = git_in(dir, &["branch", "-D", backup]);
+        let why = skipped.first().map(|s| s.1.as_str()).unwrap_or("");
+        anyhow::bail!("nothing amended: it's all as it was ({why})");
+    }
+    Ok((targets.len() - skipped.len(), skipped))
 }
 
 /// Everything uncommitted (`paths`: in those files) folded into the branch's commit `sha` (full;
 /// one of `base`'s branch's own), HEAD kept on `backup` first.
 pub(super) fn fold(dir: &Path, base: &str, sha: &str, paths: &[String], backup: &str) -> Result<()> {
-    // Staged too (a new file has to be, to be seen): unstaged first, new files kept in sight.
-    if !nothing_staged(dir) {
-        let new = git_in(dir, &["diff", "--cached", "--name-only", "-z", "--diff-filter=A"])?;
-        git_in(dir, &["reset", "-q"])?;
-        for f in new.split('\0').filter(|f| !f.is_empty()) {
-            git_in(dir, &["add", "-N", "--", f])?;
-        }
-    }
     let (mut hunks, commits) = plan(dir, base, false)?;
     anyhow::ensure!(commits.iter().any(|c| c.0 == sha), "that isn't one of the branch's own commits (a merge?): amend into another");
     // (A name git still quotes: no knowing its file. It stays.)
     hunks.retain(|h| !h.path.is_empty() && (paths.is_empty() || paths.contains(&h.path)));
     anyhow::ensure!(!hunks.is_empty(), "nothing uncommitted to amend");
     hunks.iter_mut().for_each(|h| h.to = Some(sha.to_owned()));
-    amend(dir, base, &hunks, backup).map(|_| ())
+    let (_, skipped) = amend(dir, base, &hunks, backup)?;
+    anyhow::ensure!(skipped.is_empty(), "nothing amended: it's all as it was"); // (one commit: all or nothing)
+    Ok(())
 }
 
 /// `dv amend <commit> [file…]` (for Claude: dv's amend, not a rebase by hand): what isn't
@@ -226,10 +248,6 @@ pub(crate) fn fold_cli(args: &[String], base: &str) -> Result<String> {
     Ok(format!("amended into {} (HEAD was {short}: {backup})", &sha[..7]))
 }
 
-/// Nothing in the index that isn't in HEAD: amending applies hunks there, one commit at a time.
-fn nothing_staged(dir: &Path) -> bool {
-    git_in(dir, &["diff", "--cached", "--quiet"]).is_ok()
-}
 
 /// Claude's answers for what blame couldn't place, from the request file at `p` (written at
 /// HEAD `head`): each hunk's commit, where it gave one (of `commits`).
@@ -314,9 +332,6 @@ impl App {
         if hunks.is_empty() {
             return self.msg = "nothing uncommitted to amend (new files stay untracked: commit them)".into();
         }
-        if !nothing_staged(&self.root) {
-            return self.msg = "some changes are staged (git add): unstage them first (git reset), so none are lost".into();
-        }
         if self.claude_busy() {
             return self.msg = "Claude is still at work here: amend once it's done (its changes would be half made)".into();
         }
@@ -362,11 +377,19 @@ impl App {
         anyhow::ensure!(!self.claude_busy(), "Claude is still at work here: amend once it's done");
         let (hunks, _) = self.amend_plan()?;
         let (short, backup) = self.backup_name()?;
-        let n = amend(&self.root, &self.full_base, &hunks, &backup)?;
+        let (n, skipped) = amend(&self.root, &self.full_base, &hunks, &backup)?;
         if let Some(p) = self.amend_file() {
             _ = std::fs::remove_file(p); // answered for a HEAD that's gone
         }
-        Ok(self.and_reload(format!("amended into {n} commit(s) (was {short}: {backup}); {}", self.next_step(true))))
+        let left = match skipped.as_slice() {
+            [] => String::new(),
+            [(t, why), ..] => format!(
+                "; {} left uncommitted, as a later commit changes those lines ({}: {why}): f on a later commit folds them there",
+                match skipped.len() { 1 => format!("{}'s changes", &t[..7.min(t.len())]), k => format!("the changes for {k} commits") },
+                &t[..7.min(t.len())],
+            ),
+        };
+        Ok(self.and_reload(format!("amended into {n} commit(s) (was {short}: {backup}){left}; {}", self.next_step(true))))
     }
 
     /// `f` on a commit in the list: everything uncommitted folded into that one (new lines too).
@@ -391,7 +414,6 @@ impl App {
             }
             let (hunks, commits) = self.amend_plan()?;
             anyhow::ensure!(!hunks.is_empty(), "nothing uncommitted to amend (new files stay untracked: commit them)");
-            anyhow::ensure!(nothing_staged(&self.root), "some changes are staged (git add): unstage them first (git reset), so none are lost");
             let head = git_in(&self.root, &["rev-parse", "HEAD"])?.trim().to_owned();
             ask_request(&p, &head, &hunks, &commits, all)?;
             let prompt = ask_prompt(&p, &head, all);
@@ -476,8 +498,8 @@ fn amend_by_blame() {
             ("a.rs:9".into(), None),
         ]
     );
-    let n = amend(&dir, &base, &hunks, "dv-backup/t").unwrap();
-    assert_eq!(n, 2);
+    let (n, skipped) = amend(&dir, &base, &hunks, "dv-backup/t").unwrap();
+    assert_eq!((n, skipped.len()), (2, 0));
     // Each change in its commit; the history still two commits; the rest uncommitted.
     assert_eq!(git(&["log", "--format=%s", &format!("{base}..HEAD")]).lines().collect::<Vec<_>>(), ["second", "first"]);
     assert_eq!(git(&["show", "HEAD~1:a.rs"]), "base\n/// one\n/// one, more\n// two\nkeep\n");
@@ -502,11 +524,27 @@ fn amend_by_blame() {
     amend(&dir, &base, &hunks, "dv-backup/t2").unwrap();
     assert_eq!(git(&["show", "HEAD~1:a.rs"]), "base\n/// one\n/// one, more\n// two\nadded\nkeep\n");
     assert_eq!(git(&["diff", "HEAD", "--stat"]).lines().count(), 2); // "new" still uncommitted
-    // Staged changes: refused, so none are lost.
+    // Staged changes, a staged new file too: amended all the same (dv's own index makes the fixups).
     git(&["add", "a.rs"]);
-    let (mut hunks, _) = plan(&dir, &base, true).unwrap();
-    hunks.iter_mut().for_each(|h| h.to = Some(head.clone()));
-    assert!(amend(&dir, &base, &hunks, "dv-backup/t3").is_err());
+    std::fs::write(dir.join("n.rs"), "n\n").unwrap();
+    git(&["add", "n.rs"]);
+    let (mut hunks, commits) = plan(&dir, &base, true).unwrap();
+    let last = commits.last().unwrap().0.clone();
+    hunks.iter_mut().for_each(|h| h.to = Some(last.clone()));
+    amend(&dir, &base, &hunks, "dv-backup/t3").unwrap();
+    assert_eq!(git(&["status", "--porcelain", "--untracked-files=no"]), "");
+    // Into a commit a later one changes those lines of: that one's left uncommitted, the rest go in.
+    let now = git(&["show", "HEAD:a.rs"]);
+    write("a.rs", &now.replace("// two", "// TWO").replace("/// three", "/// THREE"));
+    let (mut hunks, commits) = plan(&dir, &base, false).unwrap();
+    let (first, second) = (commits[0].0.clone(), commits[1].0.clone());
+    for h in hunks.iter_mut() {
+        h.to = Some(if h.body.contains("TWO") { second.clone() } else { first.clone() }); // "/// three" is second's
+    }
+    let (n, skipped) = amend(&dir, &base, &hunks, "dv-backup/t4").unwrap();
+    assert_eq!((n, skipped.iter().map(|s| s.0.as_str()).collect::<Vec<_>>()), (1, vec![first.as_str()]));
+    assert!(git(&["show", "HEAD:a.rs"]).contains("// TWO"));
+    assert_eq!(git(&["diff", "HEAD"]).lines().filter(|l| l.starts_with('+') && !l.starts_with("+++")).collect::<Vec<_>>(), ["+/// THREE"]);
     _ = std::fs::remove_dir_all(&dir);
 }
 
