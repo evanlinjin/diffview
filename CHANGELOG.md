@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.32] - 2026-10-19
+
+### Fixed
+- Every GitHub `:shortcode:` shows as its emoji (`:loudspeaker:`, `:snowflake:`, …: dv knew
+  some fifty), in a `<details>` summary's text too.
+
 ## [0.34.31] - 2026-10-19
 
 ### Changed
