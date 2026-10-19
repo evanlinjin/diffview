@@ -34,6 +34,10 @@ fn keys_and_yank() {
     let code = h.iter().find(|l| l.to_string().contains("cargo x")).unwrap();
     assert_eq!((code.width(), code.spans.last().unwrap().style.bg), (40, Some(Color::Indexed(236))));
     assert!(h.iter().any(|l| l.to_string().contains("docs") && l.width() < 40) && w < 40);
+    // Inline code at a line's end, in a theme giving it the same background: not a block.
+    app.ui.md.raw = app.ui.md.raw.bg(Color::Indexed(236));
+    let h = super::render::code_to_edge(app.hover_lines("run `cargo test`"), 40, app.ui.md.code_bg);
+    assert!(h[0].width() < 40);
     let back = KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT);
     app.key(back);
     assert_eq!(app.rows.len(), 3); // only the three file headers

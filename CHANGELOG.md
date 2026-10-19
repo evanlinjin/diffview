@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.53] - 2026-10-19
+
+### Fixed
+- Popups shade only code blocks to their edge: not a line ending in inline code, in a theme
+  giving inline code the code blocks' background.
+
 ## [0.34.52] - 2026-10-19
 
 ### Fixed

@@ -555,13 +555,13 @@ pub(crate) fn popup_frame(ui: &Ui, f: &mut Frame, r: Rect, title: &str, pos: &st
     Rect { x: r.x + 1, y: r.y + 1, width: r.width.saturating_sub(2), height: r.height.saturating_sub(2) }
 }
 
-/// A popup's code blocks' lines (ending in `code_bg`, whatever leads them: a list's indent, a
-/// quote's bar) with their background to its edge, `w`, as in a comment's box.
+/// A popup's code blocks' lines (`hover_lines` gives them `code_bg` as their line's style) with
+/// their background to its edge, `w`, as in a comment's box.
 pub(super) fn code_to_edge(text: Vec<Line<'static>>, w: usize, code_bg: Option<Color>) -> Vec<Line<'static>> {
     let Some(bg) = code_bg else { return text };
     text.into_iter()
         .map(|mut l| {
-            if l.spans.last().is_some_and(|s| s.style.bg == Some(bg)) {
+            if l.style.bg == Some(bg) {
                 let pad = w.saturating_sub(l.width());
                 l.spans.push(Span::styled(" ".repeat(pad), Style::new().bg(bg)));
             }
