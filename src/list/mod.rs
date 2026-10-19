@@ -146,6 +146,8 @@ pub struct List {
     deferred_file: Option<PathBuf>,
     /// The window is wide enough for cards in two zones (set by `draw`; cards are 3 lines then).
     wide: bool,
+    /// The cards' width when the todo tab's messages go in a column beside them (`msg_column`).
+    msg_col: Option<usize>,
     /// PRs Claude has a review of, and when its reviews directory last changed: a review
     /// written from a PR's view (or still being, in Claude's pane) shows up as it lands.
     reviewed: HashSet<u64>,
@@ -187,6 +189,7 @@ impl List {
             deferred: crate::todo::load_deferred(crate::todo::deferred_path().as_deref()),
             deferred_file: crate::todo::deferred_path(),
             wide: true,
+            msg_col: None,
             reviews_dir: crate::claude::dv_dir().ok().map(|d| d.join("reviews")),
             root: std::env::current_dir().unwrap_or_default(),
             ..Default::default()

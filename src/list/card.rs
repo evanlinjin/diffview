@@ -41,6 +41,10 @@ pub(super) struct Mark {
     pub(super) claude: Option<(String, bool)>,
     /// Workflow runs on it waiting for a maintainer's approval.
     pub(super) awaiting: usize,
+    /// On the todo tab, with Claude's word in a column of its own: its place in the order
+    /// (under its number), and what holds it up, in short (on the title line, after `[new]`).
+    pub(super) rank: Option<usize>,
+    pub(super) tags: Vec<String>,
 }
 
 impl List {
@@ -130,10 +134,18 @@ pub(super) fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathB
     if mark.new {
         tags.extend([sp("  ".into(), row), sp("[new]".into(), tint(ui.key).add_modifier(ratatui::style::Modifier::BOLD))]);
     }
+    if !mark.tags.is_empty() {
+        tags.extend([sp("  ".into(), row), sp(format!("[{}]", mark.tags.join(" · ")), tint(ui.warning))]);
+    }
     let age = sp(gh::ago(&p.updated), dim);
     // Who, and how big; labels.
     let who = mark.replaces.clone().unwrap_or_else(|| format!("@{}", p.author));
-    let mut people = vec![indent(), sp(who, dim), gap()];
+    // (Its place in the order, when it's said here: under the number.)
+    let first = match mark.rank {
+        Some(r) => sp(format!("{}{:>w$}  ", " ".repeat(MARK_W), format!("{r}."), w = num_w - 1), tint(ui.key)),
+        None => indent(),
+    };
+    let mut people = vec![first, sp(who, dim), gap()];
     people.extend([
         sp(format!("+{}", p.additions), tint(ui.plus)),
         sp(" ".into(), row),
@@ -278,15 +290,14 @@ pub(super) fn close_line(why: &str, cx: &Cards, selected: bool) -> Line<'static>
     Line::from(vec![bar, Span::styled(lead, row), Span::styled(text, row.patch(Style { bg: None, ..cx.ui.warning }))])
 }
 
-/// A todo card's reason line, under the title: its place in the order, and what needs you
-/// (Claude's word, or the needs).
-pub(super) fn todo_line(rank: usize, it: &crate::todo::Item, cx: &Cards, selected: bool) -> Line<'static> {
-    let ui = cx.ui;
-    let row = card_row(ui, selected);
-    let st = row.patch(Style { bg: None, ..ui.key });
-    let bar = Span::styled(if selected { "▌" } else { " " }, st);
-    // Its place in the number's column, the arrow under the title.
-    let lead = format!("{}{:>w$}  → ", " ".repeat(MARK_W), format!("{rank}."), w = cx.num_w - 1);
+/// What a todo card says: what holds it up, in short (with Claude's word: its needs' tags), and
+/// what it says (Claude's word, "why — what to do", or the needs), with when it's back
+/// (deferred), what it waits on, or Claude at it.
+pub(super) fn todo_says(it: &crate::todo::Item) -> (Vec<String>, String) {
+    let (tags, core) = match &it.reason {
+        Some(r) => (it.needs.iter().filter_map(crate::todo::Need::tag).collect(), r.clone()),
+        None => (vec![], it.says()),
+    };
     // Placed by the rules since Claude ranked (new, or its needs changed): said so. Deferred:
     // when it's back.
     let says = match &it.deferred {
@@ -294,18 +305,102 @@ pub(super) fn todo_line(rank: usize, it: &crate::todo::Item, cx: &Cards, selecte
         _ if it.waits.is_some() => {
             let (c, who) = it.waits.as_ref().map(|(c, w)| (c.says(), w.clone())).unwrap_or_default();
             let from = if who.is_empty() { "as Claude read the PR's conversation".to_owned() } else { format!("@{who} said, on the PR") };
-            format!("waiting until {c} ({from}) · {}", it.says())
+            format!("waiting until {c} ({from}) · {core}")
         }
         Some(d) => {
             let when = d.cond.as_ref().map_or_else(|| format!("in {}", crate::todo::in_secs(d.until - crate::claude::now_secs())), |c| format!("until {}", c.says()));
-            format!("deferred, back {when} (or sooner if it changes; s brings it back now) · {}", it.says())
+            format!("deferred, back {when} (or sooner if it changes; s brings it back now) · {core}")
         }
-        None if it.changed => format!("{}  (since Claude ranked)", it.says()),
-        None => it.says(),
+        None if it.changed => format!("(placed since Claude ranked) {core}"),
+        None => core,
+    };
+    (tags, says)
+}
+
+/// The todo tab's message column, beside the cards: at least this wide, else the message goes
+/// under the title.
+const MSG_MIN: usize = 40;
+/// Its rows: the card's three, and one more.
+pub(super) const MSG_ROWS: usize = 4;
+
+/// In a window `width` wide, the cards' width when the todo tab's messages go in a column of
+/// their own beside them (a two-zone card and the column's least both fit).
+pub(super) fn msg_column(width: usize) -> Option<usize> {
+    let content = width.checked_sub(3 + MSG_MIN)?.min(CARD_MAX);
+    (content >= TWO_ZONES).then_some(content)
+}
+
+/// A todo card's reason line under its title (the window too narrow for the message column):
+/// its place in the order, and what needs you, cut where the window ends.
+pub(super) fn todo_line(rank: usize, it: &crate::todo::Item, cx: &Cards, selected: bool) -> Line<'static> {
+    let ui = cx.ui;
+    let row = card_row(ui, selected);
+    let st = row.patch(Style { bg: None, ..ui.key });
+    let bar = Span::styled(if selected { "▌" } else { " " }, st);
+    // Its place in the number's column, the arrow under the title.
+    let lead = format!("{}{:>w$}  → ", " ".repeat(MARK_W), format!("{rank}."), w = cx.num_w - 1);
+    let (tags, says) = todo_says(it);
+    let says = match tags.is_empty() {
+        true => says,
+        false => format!("[{}] {says}", tags.join(" · ")),
     };
     let says = cut(&says, cx.width.saturating_sub(lead.chars().count() + 1));
     let pad = cx.width.saturating_sub(1 + lead.chars().count() + says.chars().count());
     Line::from(vec![bar, Span::styled(lead, st), Span::styled(says, st), Span::styled(" ".repeat(pad), row)]).style(row)
+}
+
+/// `lines` (a card, as wide as the cards are) with the todo tab's message column beside them,
+/// out to the window's `width`: why it's where it is, wrapped, then `→ what to do` in the
+/// accent colour, in `MSG_ROWS` rows (what doesn't fit is cut, the why first).
+pub(super) fn with_message(mut lines: Vec<Line<'static>>, says: &str, cx: &Cards, card_w: usize, width: usize, selected: bool) -> Vec<Line<'static>> {
+    let ui = cx.ui;
+    let row = card_row(ui, selected);
+    let st = |s: Style| row.patch(Style { bg: None, ..s });
+    let w = width.saturating_sub(card_w + 3);
+    let (why, todo) = match says.rsplit_once(" — ") {
+        Some((a, b)) => (a, Some(b)),
+        None => (says, None),
+    };
+    let mut todo = todo.map(|t| wrap(&format!("→ {t}"), w)).unwrap_or_default();
+    todo.truncate(2);
+    let mut why = wrap(why, w);
+    let room = MSG_ROWS - todo.len();
+    if why.len() > room {
+        let rest = why[room.saturating_sub(1)..].join(" ");
+        why.truncate(room.saturating_sub(1));
+        why.push(cut(&rest, w));
+    }
+    let text: Vec<(String, Style)> = why.into_iter().map(|l| (l, st(ui.base))).chain(todo.into_iter().map(|l| (l, st(ui.key)))).collect();
+    while lines.len() < MSG_ROWS {
+        let bar = Span::styled(if selected { "▌" } else { " " }, st(ui.key));
+        lines.push(Line::from(vec![bar, Span::styled(" ".repeat(card_w - 1), row)]).style(row));
+    }
+    for (k, line) in lines.iter_mut().enumerate() {
+        let (t, s) = text.get(k).cloned().unwrap_or_default();
+        let pad = w.saturating_sub(t.chars().count());
+        line.spans.extend([Span::styled(" │ ", st(ui.stale)), Span::styled(t, s), Span::styled(" ".repeat(pad), row)]);
+    }
+    lines
+}
+
+/// `s` in lines at most `w` wide, broken between words (a word longer than that: cut).
+fn wrap(s: &str, w: usize) -> Vec<String> {
+    let mut out: Vec<String> = vec![];
+    let mut cur = String::new();
+    for word in s.split_whitespace() {
+        let word = cut(word, w.max(1));
+        if !cur.is_empty() && cur.chars().count() + 1 + word.chars().count() > w {
+            out.push(std::mem::take(&mut cur));
+        }
+        if !cur.is_empty() {
+            cur.push(' ');
+        }
+        cur.push_str(&word);
+    }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
+    out
 }
 
 /// A card's background: the window's, or on the selected one a quiet tint (the theme's cursor

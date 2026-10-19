@@ -11,12 +11,19 @@ impl List {
     /// the todo and can close tabs, one more under the title (what needs you, why to close it).
     pub(super) fn card_rows(&self) -> usize {
         let lines = if self.wide { 3 } else { 4 };
-        lines + usize::from(matches!(self.tab, Tab::Todo | Tab::CanClose)) + 1
+        let more = match self.tab {
+            // The message beside the card (`msg_column`), or a line under its title.
+            Tab::Todo if self.msg_col.is_some() => MSG_ROWS - lines,
+            Tab::Todo | Tab::CanClose => 1,
+            _ => 0,
+        };
+        lines + more + 1
     }
 
     pub(super) fn draw(&mut self, f: &mut Frame) {
         let area = f.area();
         self.wide = area.width as usize >= TWO_ZONES;
+        self.msg_col = msg_column(area.width as usize);
         let rows = self.card_rows();
         let h = area.height.saturating_sub(2) as usize / rows;
         let sel = self.sel.min(self.shown().len().saturating_sub(1));
@@ -68,7 +75,11 @@ impl List {
         let cx = Cards {
             ui,
             num_w: shown.iter().map(|p| crate::replace::shown(p.number).chars().count()).max().unwrap_or(2),
-            width: area.width as usize,
+            // (The todo tab's messages in a column of their own: the cards stop short of it.)
+            width: match self.msg_col.filter(|_| self.tab == Tab::Todo) {
+                Some(w) => w,
+                None => area.width as usize,
+            },
             checks_loading: self.checks.is_some(),
             usual: &usual,
         };
@@ -90,7 +101,7 @@ impl List {
                                 format!("replaces {}", each.join(", "))
                             }
                         });
-                        Mark { marked: false, claude: self.draft_state(p.number, "claude"), new: false, replaces, awaiting: 0 }
+                        Mark { marked: false, claude: self.draft_state(p.number, "claude"), new: false, replaces, awaiting: 0, rank: None, tags: vec![] }
                     }
                     false => {
                         // On the todo tab, what Claude could do there (`a a`), when it isn't at it.
@@ -101,13 +112,22 @@ impl List {
                             (s, None) => s,
                         };
                         let awaiting = self.extra.get(&p.number).map_or(0, |e| e.awaiting);
-                        Mark { marked: self.marked.contains(&p.number), claude, new: self.new.contains(&p.number), replaces: None, awaiting }
+                        // Beside the card: its place under its number, its tags on its title line.
+                        let (rank, tags) = match item.filter(|_| self.msg_col.is_some()) {
+                            Some(it) => (Some(i + 1), todo_says(it).0),
+                            None => (None, vec![]),
+                        };
+                        Mark { marked: self.marked.contains(&p.number), claude, new: self.new.contains(&p.number), replaces: None, awaiting, rank, tags }
                     }
                 };
                 let local = if rep_card { None } else { self.local.get(&p.number) };
                 let mut lines = card(p, &cx, i == sel, local, mark);
-                if let Some(it) = item {
-                    lines.insert(1, todo_line(i + 1, it, &cx, i == sel)); // under the title
+                match (item, self.msg_col) {
+                    (Some(it), Some(card_w)) => lines = with_message(lines, &todo_says(it).1, &cx, card_w, area.width as usize, i == sel),
+                    (Some(it), None) => {
+                        lines.insert(1, todo_line(i + 1, it, &cx, i == sel)); // under the title
+                    }
+                    (None, _) => {}
                 }
                 // What Claude would close it for, under the title.
                 if let Some(why) = self.closable.get(&p.number).filter(|_| self.tab == Tab::CanClose) {
@@ -136,6 +156,7 @@ impl List {
             (true, _, _) => format!(" /{}▏  author: label: base: branch: is:draft review: ci:  -x negates", self.query),
             (_, _, false) => format!(" {}", self.msg),
             (_, false, _) => format!(" filter: {}  (Esc clears)", self.query),
+            _ if self.tab == Tab::Todo && self.msg_col.is_some() => " ? keys".into(),
             _ => String::new(), // the keys are in the bottom-right popup
         };
         // On the right, the list's state: how it's ordered (on the todo tab, Claude's ranking: how
@@ -162,7 +183,9 @@ impl List {
             f.render_widget(Paragraph::new(state).alignment(Alignment::Right).style(bar), status);
         }
         f.render_widget(Paragraph::new(left).style(bar), Rect { width: status.width - right, ..status });
-        if !self.help && !self.filtering {
+        // (Not over the todo tab's message column: `?` shows them, the status bar says.)
+        let column = self.tab == Tab::Todo && self.msg_col.is_some();
+        if !self.help && !self.filtering && !column {
             // The keys for this tab, bottom right, as dv's diff view shows them.
             let enter = match self.tab {
                 Tab::Todo => "see to it (opens the PR or replacement)".to_owned(),

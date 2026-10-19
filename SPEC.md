@@ -260,10 +260,13 @@ until it changes), Claude's review new to you (since
 you last left the PR in dv), Claude's comments you haven't touched, no review from you (not your
 PRs, not drafts), else activity since you looked. It orders them by the most pressing of those,
 then the longest waiting; then Claude (one read-only `claude -p`, `gh pr view/diff` only, the repo's
-notes in its prompt) puts them in order with a few words on each ("why — what next", the card's
-third line; what holds the PR up on GitHub before them, in short, as its ranking may be older:
+notes in its prompt) puts them in order with a few words on each ("why — what next": in a wide window,
+a column beside the card, the why wrapped and `→ what next` after it in the accent colour, four
+rows, the card's place in the order under its number and the keys popup left to `?`; else a
+line under the title; what holds the PR up on GitHub, in short, as its ranking may be older, on
+the title line, or before the words on that line:
 `[⏸ 3 runs to approve (W W) · ✗ 2 checks failing · 1 unsigned commit · conflicts]`), saved in dv's directory (`todo.json`) with what it ranked. Items it didn't rank (new,
-or changed) go before the first ranked one that needs you less, their cards saying "since Claude
+or changed) go before the first ranked one that needs you less, their cards saying "placed since Claude
 ranked". Whatever the order, a PR with CI still running (a replacement's: on its PR) goes
 after the rest, as what it needs mostly waits on CI, before what Claude's at, and back up once
 CI's done. Claude ranks only when you ask, as it costs a run: `r r` there (`R` refreshes from GitHub
