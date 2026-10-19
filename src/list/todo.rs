@@ -389,7 +389,7 @@ impl List {
             todo::Until::Approved(None) => pr.is_some_and(|p| p.decision == "APPROVED") || reviews.iter().any(|r| r.1 == "APPROVED"),
             todo::Until::Approved(Some(who)) => reviews.iter().any(|r| &r.0 == who && r.1 == "APPROVED"),
             todo::Until::Reviewed(who) => reviews.iter().any(|r| &r.0 == who),
-            todo::Until::Pushed(head) => self.extra.get(&it.number).is_some_and(|e| !head.is_empty() && !e.head_oid.is_empty() && e.head_oid != *head),
+            todo::Until::Pushed(head) => self.extra.get(&it.number).is_some_and(|e| !head.is_empty() && !e.head_oid.is_empty() && !e.head_oid.starts_with(head.as_str())),
         }
     }
 
@@ -408,9 +408,12 @@ impl List {
 
     fn defer_on(&mut self, key: &str, c: todo::Until) {
         let Some(it) = self.todo.iter().find(|it| it.key() == key).cloned() else { return };
-        // A push: from the head it's at now.
+        // A push: from the head it's at now (a PR's: known once its details are in).
         let c = match c {
-            todo::Until::Pushed(_) => todo::Until::Pushed(self.extra.get(&it.number).map(|e| e.head_oid.clone()).unwrap_or_default()),
+            todo::Until::Pushed(_) => match self.extra.get(&it.number).map(|e| e.head_oid.clone()).filter(|h| !h.is_empty() && !it.rep) {
+                Some(h) => todo::Until::Pushed(h),
+                None => return self.msg = "not deferred: its head on GitHub isn't known yet, to see a push by (try again in a moment)".into(),
+            },
             c => c,
         };
         let (until, cond) = match c {

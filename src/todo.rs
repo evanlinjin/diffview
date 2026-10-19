@@ -424,7 +424,8 @@ impl Until {
             Until::Green => "its checks pass".into(),
             Until::Approved(Some(who)) => format!("@{who} approves it"),
             Until::Approved(None) => "it's approved".into(),
-            Until::Pushed(_) => "the author pushes".into(),
+            Until::Pushed(h) if h.is_empty() => "the author pushes".into(),
+            Until::Pushed(h) => format!("the author pushes (past {})", &h[..7.min(h.len())]),
             Until::Reviewed(who) => format!("@{who} reviews it"),
         }
     }
@@ -465,10 +466,15 @@ impl Until {
 
     /// The usual phrasings, without Claude: "#2380 is merged", "2380 closed", "CI is green",
     /// "checks pass", "@amy approves", "it's approved", "@bo reviews", "3h", "2 days", "a week".
+    /// In a sentence ("Can't do anything until …"), what follows its last "until" first, else all
+    /// of it ("#12, until it's merged").
     pub fn parse(text: &str, now: i64) -> Option<Until> {
-        // ("Nothing to do until …": what follows the last "until".)
         let t = text.trim().to_lowercase();
-        let t = t.rsplit_once("until ").map_or(t.as_str(), |(_, after)| after).trim().to_owned();
+        t.rsplit_once("until ").and_then(|(_, after)| Self::parse_one(after, now)).or_else(|| Self::parse_one(&t, now))
+    }
+
+    fn parse_one(t: &str, now: i64) -> Option<Until> {
+        let t = t.trim();
         let words: Vec<&str> = t.split(|c: char| c.is_whitespace() || c == ',').filter(|w| !w.is_empty()).collect();
         let has = |w: &str| words.iter().any(|x| x.starts_with(w));
         let num = words.iter().find_map(|w| w.trim_start_matches('#').parse::<u64>().ok().filter(|_| w.starts_with('#') || words.len() <= 4));
@@ -491,8 +497,17 @@ impl Until {
             _ if has("close") => Until::Closed(num?),
             _ if (has("ci") || has("check") || has("test")) && (has("green") || has("pass")) => Until::Green,
             _ if has("approv") => Until::Approved(who),
-            // What the author does next: "addresses the reviews", "pushes", "updates it".
-            _ if ["address", "push", "updat", "respond", "fixes", "rebase"].iter().any(|w| has(w)) => Until::Pushed(String::new()),
+            // What the author does next: "addresses the reviews", "pushes", "updates it" (no one
+            // else named, no other PR, no time: those are someone else's doing, or a while). As
+            // `p` posts it, past the head it was at: "the author pushes (past abc1234)".
+            _ if who.is_none() && dur.is_none() && ["address", "push", "updat", "respond", "fixes", "rebase"].iter().any(|w| has(w)) => {
+                let head = words.iter().map(|w| w.trim_matches(|c: char| !c.is_ascii_alphanumeric())).find(|w| (7..=40).contains(&w.len()) && w.chars().all(|c| c.is_ascii_hexdigit()));
+                match (head, num) {
+                    (Some(h), _) => Until::Pushed(h.to_owned()),
+                    (None, None) => Until::Pushed(String::new()),
+                    (None, Some(_)) => return None, // (another PR's: for Claude to read)
+                }
+            }
             _ if has("review") => Until::Reviewed(who?),
             _ => Until::Time(now + dur?),
         })
@@ -514,7 +529,8 @@ pub fn waiting_on(said: &[(String, String)], now: i64) -> Option<(Until, String)
             let Some(rest) = LEADS.iter().find_map(|p| l.strip_prefix(p)) else { continue };
             let rest = rest.trim_start_matches([':', ' ']);
             let bare = rest.trim_end_matches(['.', ' ', ')']).trim_start_matches('#').parse::<u64>().ok();
-            if let Some(c) = bare.map(Until::Merged).or_else(|| Until::parse(rest, now)) {
+            // (A push from no known head: nothing to tell it by.)
+            if let Some(c) = bare.map(Until::Merged).or_else(|| Until::parse(rest, now)).filter(|c| *c != Until::Pushed(String::new())) {
                 return Some((c, who.clone()));
             }
         }
@@ -937,7 +953,7 @@ mod tests {
         assert_eq!(waiting_on(&[c("me", "Blocked on #1"), c("me", "Unblocked: #1 is in")], now), None);
         assert_eq!(waiting_on(&[c("me", "I'm waiting to see what amy thinks")], now), None);
         // What `p` posts reads back as itself.
-        for u in [Until::Merged(2380), Until::Green, Until::Approved(Some("amy".into())), Until::Reviewed("bo".into()), Until::Closed(7)] {
+        for u in [Until::Merged(2380), Until::Green, Until::Approved(Some("amy".into())), Until::Reviewed("bo".into()), Until::Closed(7), Until::Pushed("abc1234".into())] {
             assert_eq!(waiting_on(&[c("me", &format!("Waiting on: {}.", u.says()))], now).map(|w| w.0), Some(u));
         }
     }
@@ -959,6 +975,11 @@ mod tests {
         assert_eq!(p("the release is out"), None); // for Claude to read
         assert_eq!(p("Can't do anything until author addresses reviews"), Some(Until::Pushed(String::new())));
         assert_eq!(p("the author pushes"), Some(Until::Pushed(String::new())));
+        assert_eq!(p("the author pushes (past abc1234)"), Some(Until::Pushed("abc1234".into())));
+        assert_eq!(p("Blocked on #12 until it's merged"), Some(Until::Merged(12)));
+        assert_eq!(p("CI to pass until Friday"), Some(Until::Green));
+        assert_eq!(p("@amy reviews the fixes"), Some(Until::Reviewed("amy".into())));
+        assert_eq!(p("3 days after the push"), Some(Until::Time(now + 3 * 86400)));
         // Round trip, as kept and as Claude answers.
         for u in [Until::Merged(1), Until::Green, Until::Approved(None), Until::Reviewed("x".into()), Until::Time(5), Until::Pushed("abc".into())] {
             assert_eq!(Until::from_json(&u.to_json()), Some(u));
