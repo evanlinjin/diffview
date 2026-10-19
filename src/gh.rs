@@ -1102,11 +1102,14 @@ fn first_line(s: &str) -> String {
     s.lines().next().unwrap_or("").to_owned()
 }
 
-/// Whether GitHub refused a query for its size or time (asked again smaller: every error's
-/// kind says so), not for what would refuse it again: a rate or abuse limit, a permission, a PR
-/// not found, paging the smaller one has too.
+/// GitHub's kinds of refusal for a query's size or time: a smaller one may go through.
+const TOO_BIG: [&str; 3] = ["MAX_NODE_LIMIT_EXCEEDED", "RESOURCE_LIMITS_EXCEEDED", "TIMEOUT"];
+
+/// Whether GitHub refused a query for its size or time (asked again smaller), every error
+/// saying so: not anything that would refuse it again (a rate limit, a permission, a field
+/// that isn't there, an error that says no kind).
 fn too_big(r: &Refused) -> bool {
-    r.kinds.iter().all(|k| !(k.contains("RATE") || k.contains("ABUSE")) && (k.is_empty() || ["LIMIT", "TIMEOUT"].iter().any(|w| k.contains(w))))
+    !r.kinds.is_empty() && r.kinds.iter().all(|k| TOO_BIG.contains(&k.as_str()))
 }
 
 /// What PR info adds from one `pr_query` with `MINE` (`first`): which reactions are yours (of
@@ -1132,8 +1135,9 @@ struct PrAnswer {
     refused: Vec<(String, String)>,
 }
 
-/// GitHub refused a GraphQL query whole (its errors, no answer): its kind (`RATE_LIMITED`,
-/// …) and reason. Not the same as not being reached, nor as a bad token.
+/// GitHub refused a GraphQL query whole (its errors, no answer): each error's kind
+/// (`RATE_LIMITED`, …), and the reason to give. Not the same as not being reached, nor as a bad
+/// token.
 #[derive(Debug)]
 struct Refused {
     /// Each error's kind (empty when it gave none).
@@ -1154,10 +1158,13 @@ impl std::error::Error for Refused {}
 fn pr_answer(v: &Value, stderr: &str) -> Result<PrAnswer> {
     let node = &v["data"]["repository"]["pullRequest"];
     let errors = v["errors"].as_array().map(Vec::as_slice).unwrap_or(&[]);
+    let why_of = |e: &Value| e["message"].as_str().unwrap_or("refused").to_owned();
     if !node.is_object() {
-        if let Some(e) = errors.first() {
-            let kinds = errors.iter().map(|e| e["type"].as_str().unwrap_or("").to_owned()).collect();
-            return Err(Refused { kinds, why: e["message"].as_str().unwrap_or("refused").to_owned() }.into());
+        if let Some(first) = errors.first() {
+            let kind = |e: &Value| e["type"].as_str().unwrap_or("").to_owned();
+            // The reason: one that isn't about size, if any (that's why it isn't asked again).
+            let why = errors.iter().find(|e| !TOO_BIG.contains(&kind(e).as_str())).unwrap_or(first);
+            return Err(Refused { kinds: errors.iter().map(kind).collect(), why: why_of(why) }.into());
         }
         // Not GraphQL's answer: the body's word (`Bad credentials`), else gh's.
         let why = v["message"].as_str().unwrap_or(stderr.trim());
@@ -1166,7 +1173,7 @@ fn pr_answer(v: &Value, stderr: &str) -> Result<PrAnswer> {
     // repository.pullRequest.<field>: an error elsewhere, or with no path, is about who knows.
     let refused = errors
         .iter()
-        .map(|e| (e["path"].get(2).and_then(Value::as_str).unwrap_or("?").to_owned(), e["message"].as_str().unwrap_or("refused").to_owned()))
+        .map(|e| (e["path"].get(2).and_then(Value::as_str).unwrap_or("?").to_owned(), why_of(e)))
         .collect();
     Ok(PrAnswer { node: node.clone(), refused })
 }
@@ -1781,6 +1788,11 @@ fn github_refusals() {
     let e = pr_answer(&json!({ "data": null, "errors": [{ "type": "RATE_LIMITED", "message": "API rate limit exceeded" }] }), "").unwrap_err();
     assert_eq!(format!("{e:#}"), "GitHub: API rate limit exceeded");
     assert!(e.is::<Refused>());
+    // Every error's kind kept; the reason, the one that isn't about size.
+    let both = json!({ "data": null, "errors": [{ "type": "MAX_NODE_LIMIT_EXCEEDED", "message": "too many nodes" }, { "type": "RATE_LIMITED", "message": "API rate limit exceeded" }] });
+    let e = pr_answer(&both, "").unwrap_err();
+    let r = e.downcast_ref::<Refused>().unwrap();
+    assert_eq!((r.kinds.len(), too_big(r), format!("{e:#}").as_str()), (2, false, "GitHub: API rate limit exceeded"));
     // A body with only a message (a bad token): that, and not a refusal (asked again for).
     let e = pr_answer(&json!({ "message": "Bad credentials" }), "gh: Bad credentials (HTTP 401)").unwrap_err();
     assert_eq!(format!("{e:#}"), "GitHub: Bad credentials");
@@ -1792,11 +1804,12 @@ fn github_refusals() {
     // anything that would refuse it again, among its errors: not.
     let refused = |kinds: &[&str]| -> Result<PrAnswer> { Err(Refused { kinds: kinds.iter().map(|k| k.to_string()).collect(), why: "too big".into() }.into()) };
     let alone = || pr_answer(&answer(json!([])), "");
-    for kinds in [&["MAX_NODE_LIMIT_EXCEEDED"][..], &[""], &["TIMEOUT"]] {
+    for kinds in [&["MAX_NODE_LIMIT_EXCEEDED"][..], &["TIMEOUT"], &["RESOURCE_LIMITS_EXCEEDED", "TIMEOUT"]] {
         let (mine, sig) = extras(refused(kinds), alone);
         assert!(sig.is_ok() && mine == json!({}), "{kinds:?}");
     }
-    for kinds in [&["RATE_LIMITED"][..], &["SECONDARY_RATE_LIMIT"], &["FORBIDDEN"], &["NOT_FOUND"], &["EXCESSIVE_PAGINATION"], &["MAX_NODE_LIMIT_EXCEEDED", "RATE_LIMITED"]] {
+    let never: [&[&str]; 8] = [&[], &[""], &["RATE_LIMITED"], &["SECONDARY_RATE_LIMIT"], &["FORBIDDEN"], &["NOT_FOUND"], &["EXCESSIVE_PAGINATION"], &["MAX_NODE_LIMIT_EXCEEDED", "RATE_LIMITED"]];
+    for kinds in never {
         let (_, sig) = extras(refused(kinds), || unreachable!());
         assert_eq!(sig.unwrap_err(), "GitHub: too big");
     }
