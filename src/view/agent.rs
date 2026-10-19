@@ -628,7 +628,11 @@ impl App {
     /// processes on one session. Replies made while it's working get one more run when it
     /// finishes. Returns what to tell the user.
     pub(super) fn answer_now(&mut self) -> String {
-        self.load_claude(); // (what was just written: what it waits on, and wants)
+        // What was just written (what it waits on, and wants): read, and shown (one goes with
+        // the other: the rows point into the threads).
+        let keep = self.cursor_key();
+        self.load_claude();
+        self.rebuild(keep);
         if self.claude.job.is_some() {
             self.claude.again = true;
             return "reply saved; Claude answers it when it's done with what it's doing".into();

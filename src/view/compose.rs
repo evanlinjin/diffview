@@ -190,7 +190,6 @@ impl App {
                 let prefill = about.as_ref().map_or(String::new(), |(_, q)| q.clone());
                 let Some(body) = compose_with(&what, false, &prefill, false)? else { return Ok("comment cancelled".into()) };
                 keep_on_error(crate::claude::add_comment(&p, &anchor, code, &body, about.map(|a| a.0), want).map(drop), &body)?;
-                self.load_claude();
                 Ok(self.answer_now())
             }
             Action::AskConversation { url, prefill, want } => {
@@ -202,7 +201,6 @@ impl App {
                 };
                 let Some(body) = compose_with(&what, false, &prefill, false)? else { return Ok("question cancelled".into()) };
                 keep_on_error(crate::claude::add_conversation(&p, &url, &body, want).map(drop), &body)?;
-                self.load_claude();
                 Ok(self.answer_now())
             }
             Action::ClaudeWith(ask) => {

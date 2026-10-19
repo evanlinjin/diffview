@@ -45,7 +45,11 @@ pub(crate) fn help_lines(help: &str, ui: &Ui, width: usize, query: &str) -> Vec<
                 "" => {}
                 h if !h.starts_with(' ') => entries.push((h, vec![])),
                 e => match entries.last_mut() {
-                    Some((_, es)) if e.starts_with(&" ".repeat(KEY_COL)) && !es.is_empty() => es.last_mut().into_iter().for_each(|x| x.push(e)),
+                    Some((_, es)) if e.starts_with(&" ".repeat(KEY_COL)) && !es.is_empty() => {
+                        if let Some(x) = es.last_mut() {
+                            x.push(e);
+                        }
+                    }
                     Some((_, es)) => es.push(vec![e]),
                     None => {}
                 },

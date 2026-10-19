@@ -213,7 +213,7 @@ impl App {
             // a link): what's under the cursor (`open_link`: a link, a file:line, a name).
             KeyCode::Enter => {
                 let row = &self.rows[self.head.row];
-                let code = row.file != INFO && row.thread.is_none();
+                let code = row.file < self.files.len() && row.thread.is_none();
                 match code && self.link_at_cursor().is_none() {
                     true => self.action = self.open_target().map(Action::Open),
                     false => self.open_link(),

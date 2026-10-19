@@ -128,6 +128,17 @@ fn help_search() {
     k(&mut app, KeyCode::Char('/'));
     "bracket".chars().for_each(|c| k(&mut app, KeyCode::Char(c)));
     assert_eq!(text(&app), [" MOVE", "  mm                   matching bracket"]);
+    // A match on an entry's second line keeps the entry, whole.
+    k(&mut app, KeyCode::Char('/'));
+    k(&mut app, KeyCode::Esc);
+    k(&mut app, KeyCode::Char('/'));
+    "comes back".chars().for_each(|c| k(&mut app, KeyCode::Char(c)));
+    let t = text(&app);
+    assert!(t.iter().any(|l| l.trim_start().starts_with("Enter")) && t.iter().any(|l| l.contains("comes back")), "{t:?}");
+    k(&mut app, KeyCode::Char('/'));
+    k(&mut app, KeyCode::Esc);
+    k(&mut app, KeyCode::Char('/'));
+    "bracket".chars().for_each(|c| k(&mut app, KeyCode::Char(c)));
     k(&mut app, KeyCode::Enter); // keep the filter; j/k scroll again, popup stays
     k(&mut app, KeyCode::Char('j'));
     assert!(app.popup.is_some() && text(&app).len() == 2);
