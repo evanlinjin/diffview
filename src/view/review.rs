@@ -359,36 +359,39 @@ impl App {
     /// Claude's review file, replacing its threads (GitHub's stay).
     pub(super) fn load_claude(&mut self) {
         let had_new = self.new_paths();
+        let loaded = self.claude.path.as_ref().map(|p| crate::claude::load_with_ids(p));
+        self.claude.mtime = self.claude.path.as_ref().and_then(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok()); // after any id write
+        // Unreadable: what was read of it last stays, not "Claude hasn't reviewed this".
+        if let Some(Err(e)) = &loaded {
+            let why = format!("{e:#}");
+            self.msg = format!("Claude's review file can't be read (shown as it last was): {why}");
+            self.claude.broken = Some(why);
+            return;
+        }
+        self.claude.broken = None;
         self.threads.retain(|t| t.claude.is_none());
         self.claude.summary.clear();
         self.claude.head.clear();
         self.claude.description.clear();
         self.claude.closing.clear();
-        let Some(p) = &self.claude.path else { return };
-        let loaded = crate::claude::load_with_ids(p);
-        self.claude.mtime = std::fs::metadata(p).and_then(|m| m.modified()).ok(); // after any id write
-        match loaded {
-            Ok(Some(mut r)) => {
-                // Comments with their code recorded follow it; others can only trust their lines.
-                let head = diff::git(&["rev-parse", "HEAD"]).unwrap_or_default();
-                let moved = !r.head.is_empty() && !head.trim().starts_with(&r.head) && !r.head.starts_with(head.trim());
-                if moved && r.threads.iter().any(|t| t.hunk.is_empty()) {
-                    self.msg = format!(
-                        "Claude reviewed {}; HEAD has moved since, so its line numbers may be off (`dv review-check` re-anchors)",
-                        &r.head[..r.head.len().min(8)]
-                    );
-                }
-                // Not against HEAD: files without uncommitted changes aren't in that diff, and
-                // their comments would look outdated (and could be dismissed as such).
-                if self.whole_pr() {
-                    crate::claude::reanchor(&mut r.threads, &self.files);
-                }
-                (self.claude.summary, self.claude.head, self.claude.description, self.claude.closing) = (r.summary, r.head, r.description, r.closing);
-                self.threads.extend(r.threads);
-                self.unfold_new(&had_new);
+        if let Some(Ok(Some(mut r))) = loaded {
+            // Comments with their code recorded follow it; others can only trust their lines.
+            let head = diff::git(&["rev-parse", "HEAD"]).unwrap_or_default();
+            let moved = !r.head.is_empty() && !head.trim().starts_with(&r.head) && !r.head.starts_with(head.trim());
+            if moved && r.threads.iter().any(|t| t.hunk.is_empty()) {
+                self.msg = format!(
+                    "Claude reviewed {}; HEAD has moved since, so its line numbers may be off (`dv review-check` re-anchors)",
+                    &r.head[..r.head.len().min(8)]
+                );
             }
-            Ok(None) => {}
-            Err(e) => self.msg = format!("Claude's review: {e:#}"),
+            // Not against HEAD: files without uncommitted changes aren't in that diff, and
+            // their comments would look outdated (and could be dismissed as such).
+            if self.whole_pr() {
+                crate::claude::reanchor(&mut r.threads, &self.files);
+            }
+            (self.claude.summary, self.claude.head, self.claude.description, self.claude.closing) = (r.summary, r.head, r.description, r.closing);
+            self.threads.extend(r.threads);
+            self.unfold_new(&had_new);
         }
     }
 

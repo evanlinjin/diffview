@@ -829,6 +829,7 @@ impl App {
         self.rebuild(keep);
         let any = self.any_in_view();
         self.msg = match self.view {
+            View::Claude if !any && self.claude.summary.is_empty() && self.claude.broken.is_some() => "Claude view: its review file can't be read right now (see the note; it shows again once it's fixed)",
             View::Claude if !any && self.claude.summary.is_empty() => "Claude view: Claude hasn't reviewed this yet (Space a asks it; gn / gp: the other tabs)",
             View::Claude => "Claude view: its summary and the code it commented on (gn / gp: the other tabs)",
             View::Pending if !any && self.summary_draft.is_empty() => "pending view: no pending review yet (c queues a comment; gn / gp: the other tabs)",

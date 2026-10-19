@@ -414,6 +414,15 @@ fn claude_review() {
     app.build();
     let texts: Vec<&str> = app.rows.iter().map(|r| r.line.text.as_str()).collect();
     assert_eq!(&texts[..3], ["Claude's review", "claude's review", "Looks fine."]); // summary up top, no PR needed
+    // Its file unreadable a moment (Claude mid-edit): what was read stays, and dv says why.
+    let good = std::fs::read_to_string(&p).unwrap();
+    std::fs::write(&p, &good[..good.len() / 2]).unwrap();
+    app.load_claude();
+    assert!(app.claude.broken.is_some() && app.msg.contains("can't be read"));
+    assert_eq!((app.claude.summary.as_str(), app.threads.len()), ("Looks fine.", 2));
+    std::fs::write(&p, &good).unwrap();
+    app.load_claude();
+    assert!(app.claude.broken.is_none());
     assert_eq!((app.box_part(1), app.box_part(2), app.box_part(3)), (Some(BoxPart::Top), Some(BoxPart::Body), Some(BoxPart::Bottom)));
     let row = |app: &App, side_left: bool| {
         app.rows.iter().position(|r| r.line.kind == Kind::Thread && r.thread.is_some_and(|t| app.threads[t].left == side_left)).unwrap()

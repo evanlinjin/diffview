@@ -57,6 +57,9 @@ pub(super) struct ClaudeState {
     /// Its review file (see `claude.rs`), and when that last changed.
     pub(super) path: Option<PathBuf>,
     pub(super) mtime: Option<std::time::SystemTime>,
+    /// Why its file can't be read now (Claude mid-edit, a slip in its JSON): what was last read
+    /// of it stays shown meanwhile.
+    pub(super) broken: Option<String>,
     pub(super) summary: String,
     /// The commit the review was made against (its `head`).
     pub(super) head: String,

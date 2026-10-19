@@ -214,6 +214,9 @@ impl App {
     pub(super) fn empty_note(&self) -> Option<(&'static str, &'static str)> {
         let any = self.any_in_view();
         match self.view {
+            View::Claude if !any && self.claude.summary.is_empty() && self.claude.broken.is_some() => {
+                Some(("Claude's review file can't be read right now (Claude mid-edit, or a slip in it): the status line says why; it shows again once it's fixed.", "Claude's review can't be read."))
+            }
             View::Claude if !any && self.claude.summary.is_empty() && !self.unpublished() => {
                 Some(("Nothing here yet: Claude hasn't reviewed this (Space a asks it).", "No comments from Claude."))
             }
