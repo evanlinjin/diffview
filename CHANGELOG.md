@@ -5,6 +5,20 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.24] - 2026-10-19
+
+### Fixed
+- Answering your replies isn't refused because an older dv's Claude pane is open (it never
+  goes to the pane); what goes to the pane is still checked.
+- Where zellij doesn't say a new pane's id, the hx pane is found by its name, so Enter reuses
+  it rather than opening another.
+- Leaving while you write beside dv: another key between the warning and the next quit means
+  it's asked again.
+- One rule for the default branch (a new PR's base, the diff's without a PR), and for which
+  threads are about the code shown (where they're listed, and the tabs' counts).
+- The cursor stays on any line of the PR's text through a refresh, not only on comments.
+- Reactions in dv's cache from before 0.34.23 aren't shown as unknown.
+
 ## [0.34.23] - 2026-10-19
 
 ### Fixed
