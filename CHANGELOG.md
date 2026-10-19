@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.97] - 2026-10-19
+
+### Fixed
+- A Claude comment whose code came back (an amend undone, while its review file couldn't be
+  read) shows on it again, not still outdated.
+
 ## [0.34.96] - 2026-10-19
 
 ### Fixed
