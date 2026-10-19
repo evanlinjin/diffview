@@ -1222,8 +1222,7 @@ fn in_other_tab(pane: u64) -> bool {
 
 /// zellij's panes, in every tab (JSON objects: id, command, tab, state).
 fn zellij_panes() -> Vec<serde_json::Value> {
-    let out = std::process::Command::new("zellij").args(["action", "list-panes", "-j", "-c", "-s", "-t"]).stdin(std::process::Stdio::null()).output();
-    out.ok().and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok()).and_then(|v| v.as_array().cloned()).unwrap_or_default()
+    super::term::zellij_panes().unwrap_or_default()
 }
 
 /// `prompt`, with the user's own instructions (if any) after it.

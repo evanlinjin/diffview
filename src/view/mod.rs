@@ -727,6 +727,8 @@ pub struct App {
     /// What's being written in the editor's pane (inside zellij), dv going on meanwhile, and
     /// what asked for it: done again once it's written, given the text (`term::Writing`).
     writing: Option<(Action, term::Writing)>,
+    /// Quitting while writing beside dv was warned of, by the last key: the next quit goes.
+    quit_armed: bool,
     /// When dv last looked at the working tree, and what it saw (`watch_tree`).
     tree_checked: std::time::Instant,
     tree_seen: Option<(Option<std::time::SystemTime>, u64)>,
@@ -941,6 +943,7 @@ impl App {
             claude: ClaudeState::default(),
             hx: None,
             writing: None,
+            quit_armed: false,
             tree_checked: std::time::Instant::now(),
             tree_seen: None,
             msgs: vec![],
@@ -1001,7 +1004,7 @@ impl App {
             self.watch_claude_pane();
             // Written (the editor's pane closed): what asked for it goes on, given the text
             // (once nothing else is to be done first).
-            let (mut given, mut kept) = (None, None);
+            let (mut given, mut kept) = (None, None); // (set below, once the pane's done)
             if self.action.is_none()
                 && let Some(text) = self.writing.as_mut().and_then(|w| w.1.done())
             {
@@ -1426,8 +1429,7 @@ impl App {
 
 /// How dv's hint lines in the editor start; they're dropped from what's posted.
 const HINT: &str = "<!-- dv:";
-/// What `q` says while you're writing beside dv (and, said, a second `q` quits anyway).
-const QUIT_WRITING: &str = "you're writing in the editor's pane";
+
 
 /// Drop dv's hint line and trim; untouched prefill alone counts as nothing written.
 fn clean_body(text: &str, mark: &str, prefill: &str) -> String {
@@ -1440,9 +1442,9 @@ fn clean_body(text: &str, mark: &str, prefill: &str) -> String {
 fn keep_on_error(res: Result<()>, body: &str) -> Result<()> {
     res.map_err(|e| {
         let saved = term::unsent_path();
-        match std::fs::write(&saved, body) {
+        match body.is_empty() || std::fs::write(&saved, body).is_err() {
             // The reason first: a narrow status bar cuts the end off.
-            Ok(()) if !body.is_empty() => anyhow!("{e:#} (text saved to {})", saved.display()),
+            false => anyhow!("{e:#} (text saved to {})", saved.display()),
             _ => e,
         }
     })

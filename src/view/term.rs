@@ -16,9 +16,13 @@ pub(super) fn pane_alive(id: &str) -> bool {
 /// Whether pane `id` is open (`Some(false)`: zellij says it isn't), or `None`: can't tell.
 fn pane_state(id: &str) -> Option<bool> {
     let n = id.strip_prefix("terminal_").and_then(|n| n.parse::<u64>().ok())?;
-    let out = std::process::Command::new("zellij").args(["action", "list-panes", "-j", "-s"]).stdin(std::process::Stdio::null()).output().ok()?;
-    let panes: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
-    Some(panes.as_array()?.iter().any(|p| p["id"].as_u64() == Some(n) && p["is_plugin"] != true && p["exited"] != true))
+    Some(zellij_panes()?.iter().any(|p| p["id"].as_u64() == Some(n) && p["is_plugin"] != true && p["exited"] != true))
+}
+
+/// zellij's panes (`list-panes -j`), or `None`: it couldn't say.
+pub(super) fn zellij_panes() -> Option<Vec<serde_json::Value>> {
+    let out = std::process::Command::new("zellij").args(["action", "list-panes", "-j", "-c", "-s", "-t"]).stdin(std::process::Stdio::null()).output().ok()?;
+    serde_json::from_slice::<serde_json::Value>(&out.stdout).ok()?.as_array().cloned()
 }
 
 /// Mouse support (wheel, click, drag); `--no-mouse` turns it off, leaving the terminal's own
@@ -153,7 +157,8 @@ impl Writing {
         _ = std::fs::remove_file(&self.done);
         let closed = status.is_empty();
         // Closed from zellij with something saved: kept, not lost.
-        if closed && finish(&text, true, false, &self.prefill, self.untouched_ok).is_some() {
+        // (Something of yours: not just the prefill it started with.)
+        if closed && finish(&text, true, false, &self.prefill, false).is_some() {
             self.kept = Some(unsent_path());
             if self.kept.as_ref().is_some_and(|k| std::fs::rename(&self.path, k).is_ok()) {
                 return Some(None);
@@ -185,9 +190,14 @@ pub(super) fn writing_beside<T>(busy: bool, given: Option<Option<String>>, f: im
 
 /// Where text that couldn't be sent is kept: a file of its own each time.
 pub(super) fn unsent_path() -> PathBuf {
+    temp_file("dv-unsent")
+}
+
+/// A new temp file's path, `<prefix>-<pid>-<n>.md`: one of its own each time.
+fn temp_file(prefix: &str) -> PathBuf {
     static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    std::env::temp_dir().join(format!("dv-unsent-{}-{n}.md", std::process::id()))
+    std::env::temp_dir().join(format!("{prefix}-{}-{n}.md", std::process::id()))
 }
 
 /// What's written in the editor, as `compose_with` returns it: empty (or just the prefill,
@@ -209,9 +219,7 @@ pub(crate) fn compose_with(what: &str, allow_empty: bool, prefill: &str, untouch
         anyhow::bail!("you're writing in the editor's pane already: save and quit there first (:cq cancels)");
     }
     // (One file each: one being written beside dv may outlive the view that asked.)
-    static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let path = std::env::temp_dir().join(format!("dv-comment-{}-{n}.md", std::process::id()));
+    let path = temp_file("dv-comment");
     let hint = if allow_empty { "leave empty for none; :cq to cancel" } else { "leave empty to cancel" };
     std::fs::write(&path, format!("{prefill}\n{HINT} {what}. Save and quit when done; {hint}. -->\n"))?;
     let editor = std::env::var("VISUAL").or_else(|_| std::env::var("EDITOR")).unwrap_or_else(|_| "hx".into());
@@ -290,4 +298,12 @@ fn written_beside_then_done_again() {
     std::fs::write(&done, "0\n").unwrap();
     assert_eq!(w.done(), Some(None));
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(test)]
+/// Something being written beside dv, for tests (in files that never appear).
+pub(super) fn test_writing() -> Writing {
+    let path = temp_file("dv-test-writing");
+    let (done, looked) = (path.with_extension("done"), std::time::Instant::now());
+    Writing { path, done, pane: String::new(), looked, allow_empty: false, prefill: String::new(), untouched_ok: false, kept: None }
 }

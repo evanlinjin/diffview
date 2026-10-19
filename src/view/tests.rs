@@ -2637,3 +2637,22 @@ fn related_code_tinted_apart_from_the_cursor_line() {
     let out = app.related_tint(vec![Span::raw("a"), Span::styled("b", Style::new().bg(add)), Span::styled("c", Style::new().bg(Color::Rgb(9, 9, 9)))]);
     assert_eq!(out.iter().map(|s| s.style.bg).collect::<Vec<_>>(), [Some(rel), Some(Color::Rgb(4, 5, 6)), Some(Color::Rgb(9, 9, 9))]);
 }
+
+#[test]
+fn quitting_while_writing_beside_says_so_first() {
+    let mut app = fixture();
+    let q = || KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE);
+    app.writing = Some((Action::Shell, term::test_writing()));
+    app.key(q());
+    assert!(!app.quit && app.msg.starts_with("you're writing in the editor's pane"));
+    app.key(q());
+    assert!(app.quit);
+    // Said, then another key: said again.
+    app.quit = false;
+    app.key(q());
+    app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+    assert!(!app.quit);
+    app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+    assert!(app.quit);
+}

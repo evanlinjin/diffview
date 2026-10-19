@@ -35,8 +35,19 @@ impl App {
         self.popup = Some((title, self.help_lines(cw, &q), 0));
     }
 
+    /// `q`, Ctrl-c: quit; while you write beside dv (it'd be lost), only once said (`armed`:
+    /// it was, by the last key).
+    fn quit_now(&mut self, armed: bool) {
+        match self.writing.is_some() && !armed {
+            true => (self.quit_armed, self.msg) = (true, "you're writing in the editor's pane: save or :cq it first (quit again: quits anyway)".into()),
+            false => self.quit = true,
+        }
+    }
+
     pub(super) fn key(&mut self, k: KeyEvent) {
         self.msg.clear();
+        // (Quitting while you write beside dv: said once, then the next quit goes.)
+        let armed = std::mem::take(&mut self.quit_armed);
         if let Some((q, typing)) = &mut self.help {
             let handled = match (*typing, k.code) {
                 (true, KeyCode::Char(c)) => {
@@ -148,7 +159,7 @@ impl App {
                         self.goto(p.row, p.col);
                     }
                 }
-                'c' => self.quit = true,
+                'c' => self.quit_now(armed),
                 _ => {}
             }
             return;
@@ -199,9 +210,7 @@ impl App {
                 self.job = Some(Job::Refresh);
                 self.msg = "refreshing…".into();
             }
-            // Not while you write beside dv (it'd be lost): unless asked again.
-            'q' if self.writing.is_some() && !self.msg.starts_with(QUIT_WRITING) => self.msg = format!("{QUIT_WRITING}: save or :cq it first (q again quits anyway)"),
-            'q' => self.quit = true,
+            'q' => self.quit_now(armed),
             'g' | ']' | '[' | ' ' | 'f' | 't' | 'F' | 'T' | 'z' | 'm' => self.pending = Some(c),
             _ => {}
         }

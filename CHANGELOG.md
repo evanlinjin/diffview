@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.17] - 2026-10-19
+
+### Fixed
+- Quitting while you write beside dv: `q` (or Ctrl-c) says so once, and the next quits; a
+  second `q` used to only say it again, and Ctrl-c didn't ask.
+- A pane closed from zellij keeps what's in it only when it's yours, not just what it started
+  with; an empty text that couldn't be sent leaves no empty file behind.
+
 ## [0.34.16] - 2026-10-19
 
 ### Fixed
