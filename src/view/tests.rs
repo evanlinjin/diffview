@@ -25,11 +25,15 @@ fn keys_and_yank() {
     let h = app.hover_lines("```rust\nfn x()\n```\n\ndocs");
     assert_eq!(h.len(), 3); // fences dropped
     assert_eq!(h[0].spans[1].style.fg, Some(Color::Red)); // `fn` highlighted as Rust (after the block's 1-col padding)
-    // A code block's background goes to the popup's edge (the text's width there: window - 7).
-    (app.ui.md.code_bg, app.width) = (Some(Color::Indexed(236)), 60);
-    let h = app.hover_lines("```rust\nfn x()\n```\n\ndocs");
-    assert_eq!((h[0].width(), h[0].spans.last().unwrap().style.bg), (53, Some(Color::Indexed(236))));
-    assert!(h[2].width() < 53); // not the text after it
+    // A code block's background goes to the popup's edge as it's drawn (in a list too), not
+    // the text after it; the popup stays as wide as its text.
+    app.ui.md.code_bg = Some(Color::Indexed(236));
+    let h = app.hover_lines("- step:\n  ```sh\n  cargo x\n  ```\n\ndocs");
+    let w = h.iter().map(Line::width).max().unwrap();
+    let h = super::render::code_to_edge(h, 40, app.ui.md.code_bg);
+    let code = h.iter().find(|l| l.to_string().contains("cargo x")).unwrap();
+    assert_eq!((code.width(), code.spans.last().unwrap().style.bg), (40, Some(Color::Indexed(236))));
+    assert!(h.iter().any(|l| l.to_string().contains("docs") && l.width() < 40) && w < 40);
     let back = KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT);
     app.key(back);
     assert_eq!(app.rows.len(), 3); // only the three file headers

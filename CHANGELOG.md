@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.52] - 2026-10-19
+
+### Fixed
+- Hover docs' code blocks: shaded to the popup's edge as it's drawn, so a popup stays as wide
+  as its text (0.34.51 made any with code as wide as the window), and blocks in a list or a
+  quote are shaded too.
+
 ## [0.34.51] - 2026-10-19
 
 ### Fixed

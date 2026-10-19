@@ -508,6 +508,7 @@ impl App {
             let pos = if total > vis { format!("{first}–{} / {total}", (first + vis - 1).min(total)) } else { String::new() };
             let inner = self.popup_frame(f, r, &title, &pos);
             let text_area = Rect { width: inner.width.saturating_sub(1), ..inner }; // room for the scrollbar
+            let text = code_to_edge(text, text_area.width as usize, self.ui.md.code_bg);
             f.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }).scroll((scroll, 0)), text_area);
             self.scrollbar(f, inner, total, vis, scroll as usize);
         }
@@ -552,6 +553,21 @@ pub(crate) fn popup_frame(ui: &Ui, f: &mut Frame, r: Rect, title: &str, pos: &st
     // Where you are in the content, on the right of the header.
     f.render_widget(Paragraph::new(format!("{pos} ")).alignment(Alignment::Right).style(head_style), head);
     Rect { x: r.x + 1, y: r.y + 1, width: r.width.saturating_sub(2), height: r.height.saturating_sub(2) }
+}
+
+/// A popup's code blocks' lines (ending in `code_bg`, whatever leads them: a list's indent, a
+/// quote's bar) with their background to its edge, `w`, as in a comment's box.
+pub(super) fn code_to_edge(text: Vec<Line<'static>>, w: usize, code_bg: Option<Color>) -> Vec<Line<'static>> {
+    let Some(bg) = code_bg else { return text };
+    text.into_iter()
+        .map(|mut l| {
+            if l.spans.last().is_some_and(|s| s.style.bg == Some(bg)) {
+                let pad = w.saturating_sub(l.width());
+                l.spans.push(Span::styled(" ".repeat(pad), Style::new().bg(bg)));
+            }
+            l
+        })
+        .collect()
 }
 
 /// How many rows the cursor keeps from the top and bottom of `h` rows (Helix's scrolloff).

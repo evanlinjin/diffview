@@ -102,22 +102,15 @@ impl App {
     /// Hover markdown, highlighted (code fences in their language), with the fence lines dropped.
     pub(super) fn hover_lines(&self, md: &str) -> Vec<Line<'static>> {
         let cw = (self.width.saturating_sub(4).min(100) as usize).saturating_sub(3);
-        let code_bg = self.ui.md.code_bg;
         crate::md::render(md, cw, &self.ui.md, &self.hl, None)
             .into_iter()
             .map(|l| {
-                // A code block's line: its background to the popup's edge, as in a comment's box.
-                let code = l.nowrap && code_bg.is_some() && l.styles.first().copied().flatten().and_then(|s| s.bg) == code_bg;
-                let pad = cw.saturating_sub(Line::from(l.text.as_str()).width());
-                let mut spans: Vec<Span> = l
+                let spans: Vec<Span> = l
                     .text
                     .chars()
                     .zip(l.styles.into_iter().chain(std::iter::repeat(None)))
                     .map(|(ch, st)| Span::styled(ch.to_string(), st.unwrap_or_default()))
                     .collect();
-                if let Some(bg) = code_bg.filter(|_| code) {
-                    spans.push(Span::styled(" ".repeat(pad), Style::new().bg(bg)));
-                }
                 Line::from(spans)
             })
             .collect()
