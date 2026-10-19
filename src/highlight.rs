@@ -148,7 +148,10 @@ impl Highlighter {
     /// rustdoc's attributes only (`ignore`, `should_panic`, ...).
     fn fences(&self, text: &str, colors: &mut Colors, inner: fn(&str) -> Option<&str>, default: Option<&str>) {
         let lines: Vec<&str> = text.lines().collect();
-        let fence = |l| inner(l).map(str::trim_start).filter(|t: &&str| t.starts_with("```") || t.starts_with("~~~"));
+        // (A backtick fence's info has no backtick: "```foo``` bar" is inline code, no fence.)
+        let fence = |l| {
+            inner(l).map(str::trim_start).filter(|t: &&str| t.starts_with("~~~") || t.starts_with("```") && !t.trim_start_matches('`').contains('`'))
+        };
         let mut i = 0;
         while i < lines.len() {
             let Some(open) = fence(lines[i]) else {
@@ -249,6 +252,9 @@ fn code_blocks_in_markdown_and_doc_comments() {
     let c = h.file("a.md", "```\n```\n\n````md\n```rust\n````\n\n```rust\nfn f() {}\n```\n");
     assert_eq!(fg(&c[8][0]), Some(Color::Red)); // fn, in the last block
     assert_eq!(fence_lang("{.rust}"), "rust");
+    // Inline code at a line's start isn't a fence.
+    let c = h.file("a.md", "```foo``` bar\n\n```rust\nfn f() {}\n```\n");
+    assert_eq!(fg(&c[3][0]), Some(Color::Red));
 }
 
 #[test]

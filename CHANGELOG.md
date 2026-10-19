@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.49] - 2026-10-19
+
+### Fixed
+- `a` on the line saying what an unpublished replacement replaces (or what a new PR does)
+  redrafts its description again (0.34.48 said "no PR here"): a draft's row is its section's.
+- Inline code at the start of a Markdown line (```` ```foo``` bar ````) isn't taken for a fence.
+
 ## [0.34.48] - 2026-10-19
 
 ### Fixed

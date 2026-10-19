@@ -207,6 +207,12 @@ impl App {
         // (Published, it's a PR: its description is GitHub's, proposed anew as any PR's.)
         self.replacement.as_ref().filter(|_| self.unpublished())?;
         let row = &self.rows[r];
+        // Its section's; beside one (what you asked of it), the draft its text is.
+        match row.main {
+            Some(DESCRIPTION) => return Some("description"),
+            Some(CLOSING_NOTE) => return Some("closing note"),
+            _ => {}
+        }
         let i = row.info.filter(|_| row.file == INFO)?;
         let heading = self.info.get(i.checked_sub(1)?).filter(|h| h.heading && self.info[i].md)?;
         [("description", "description"), ("closing note", "closing note")].into_iter().find(|(h, _)| heading.text.starts_with(h)).map(|x| x.1)
