@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.93] - 2026-10-19
+
+### Fixed
+- `dv amend -F` with an empty file is refused (it left the commit with no message).
+- An amend whose changes came to nothing is reported as such again, not as amended.
+- Claude may run `cargo fmt -- --check` (and `+nightly`), as CI often spells it.
+
 ## [0.34.92] - 2026-10-19
 
 ### Added
