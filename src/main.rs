@@ -175,13 +175,8 @@ fn run() -> anyhow::Result<()> {
         Some("replace") => {
             let prs: Vec<u64> = o.pr.into_iter().chain(o.more.iter().copied()).collect();
             anyhow::ensure!(!prs.is_empty(), "dv replace needs the PRs to replace, e.g. `dv replace 123`");
-            // A first draft: your last instructions for replacements (dv saves them as you write
-            // them). Drafted already, what you want is asked of its drafts, in its record; a new
-            // PR has its task there.
-            let first = !replace::is_new(prs[0]) && !replace::drafted(prs[0]);
-            let extra = if first { claude::instructions("replace") } else { String::new() };
             eprintln!("Claude is drafting {} (dv list's drafts tab shows it)…", replace::label(prs[0]));
-            let took = replace::draft(&prs, &root, &extra, || {})?;
+            let took = replace::draft(&prs, &root, "", || {})?;
             println!("drafted ({took}): `dv list`, drafts tab, or {}", worktree_dir_named(&root, &replace::name(prs[0]))?.display());
             return Ok(());
         }

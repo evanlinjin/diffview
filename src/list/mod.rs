@@ -482,7 +482,13 @@ impl List {
         }
         let which: Vec<String> = groups.iter().map(|g| g.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join("+")).collect();
         let what = format!("instructions for Claude's replacement of {} (optional)", which.join(", "));
-        let Some(extra) = self.instructions(term, "replace", &what) else { return };
+        // Drafted already: what else you want of it (asked of its drafts), not your instructions
+        // for first drafts (nor saved as them).
+        let extra = match groups.iter().any(|g| crate::replace::drafted(g[0])) {
+            true => self.edit_text(term, &format!("what else Claude should do in its redraft of {} (optional)", which.join(", ")), "", true),
+            false => self.instructions(term, "replace", &what),
+        };
+        let Some(extra) = extra else { return };
         self.msg = format!("Claude is drafting {} replacement(s): the replacements tab shows them", groups.len());
         self.marked.clear();
         for g in groups {

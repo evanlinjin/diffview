@@ -54,6 +54,11 @@ impl Record {
         }
     }
 
+    /// Claude has drafted it (so drafting it again carries on, in the same session).
+    pub fn drafted(&self) -> bool {
+        !self.title.is_empty() || !self.body.is_empty()
+    }
+
     /// Claude is drafting it now (from any dv): its process is still running.
     pub fn drafting_now(&self) -> bool {
         self.drafting.is_some_and(|pid| {
@@ -309,9 +314,9 @@ pub fn prompt(r: &Record, extra: &str) -> String {
     crate::claude::with_instructions(&p, &extra)
 }
 
-/// Whether replacement `id` has drafts (so drafting it again carries on from them).
+/// Whether replacement `id` has drafts (`Record::drafted`).
 pub fn drafted(id: u64) -> bool {
-    load(id).is_ok_and(|r| !r.title.is_empty() || !r.body.is_empty())
+    load(id).is_ok_and(|r| r.drafted())
 }
 
 /// Ask Claude for a change to replacement `id`'s drafts: kept in its record (shown with them),
@@ -346,21 +351,31 @@ pub fn writable() -> Result<PathBuf> {
 }
 
 /// Draft replacement `prs` with Claude, in its worktree, in the foreground of this thread:
-/// what it took ("12 turns, $0.40"). `extra`: your instructions for a first draft; for one
-/// drafted already, it's asked of its drafts (as `ask`), as what else you want.
+/// what it took ("12 turns, $0.40"). `extra`: what you wrote for it just now: your
+/// instructions for a first draft (none: your last ones for replacements); for one drafted
+/// already, asked of its drafts (as `ask`).
 pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> Result<String> {
     let id = *prs.first().context("no PR to replace")?;
     // Under way first, before the slow setting up: others (dv list, another dv) see it, and
     // don't start another.
+    let existed = path(id)?.exists();
+    anyhow::ensure!(existed || !is_new(id), "no new PR {}", label(id));
     let (first, _) = update(id, |r| {
         anyhow::ensure!(!r.drafting_now(), "Claude is already drafting {}", label(id));
         r.drafting = Some(std::process::id());
-        let first = r.title.is_empty() && r.body.is_empty(); // as `drafted`
-        if !first && !extra.trim().is_empty() {
+        if r.drafted() && !extra.trim().is_empty() {
             r.asks.push((extra.trim().to_owned(), false));
         }
-        Ok(first)
+        Ok(!r.drafted())
     })?;
+    let saved;
+    let extra = match extra.trim() {
+        "" if first && !is_new(id) => {
+            saved = crate::claude::instructions("replace");
+            saved.as_str()
+        }
+        e => e,
+    };
     let res = (|| {
         let dir = match prs {
             [id] if is_new(*id) => prepare_new(*id, root)?,
@@ -383,14 +398,17 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
         }
         Ok(())
     });
+    // Not set up (PRs on different bases, one that isn't there): no record left of it.
+    if res.is_err() && !existed {
+        _ = std::fs::remove_file(path(id)?);
+    }
     res
 }
 
 fn run_claude(r: &Record, dir: &Path, extra: &str, prepared: impl FnOnce()) -> Result<String> {
     prepared();
     // A record that exists from before has a session that saw it: carry on there.
-    let fresh = r.title.is_empty() && r.body.is_empty();
-    let session = match fresh {
+    let session = match !r.drafted() {
         true => ["--session-id".to_owned(), r.session.clone()],
         false => ["--resume".to_owned(), r.session.clone()],
     };

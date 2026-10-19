@@ -228,7 +228,10 @@ impl App {
                         crate::replace::ask(prs[0], &ask)?;
                     }
                     if drafting() {
-                        return Ok("kept with the drafts: Claude is drafting now, so Space a → Redraft once it's done takes it in".into());
+                        return Ok(match ask.trim() {
+                            "" => format!("Claude is already drafting the replacement of #{}", prs[0]),
+                            _ => "kept with the drafts, for Claude's redraft: shown as it takes it in (else Space a → Redraft once it's done)".into(),
+                        });
                     }
                 } else {
                     if drafting() {

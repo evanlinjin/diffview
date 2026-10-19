@@ -9,6 +9,13 @@ on GitHub are its section here.
 - Comment boxes from Claude's review file have the same dim border as GitHub's (not the hint
   color): the `◆ claude` heading and the thread's tags say whose they are.
 
+### Fixed
+- `dv list`'s `A` on replacements drafted already opens an empty editor for what else you
+  want (asked of their drafts), rather than your instructions for first drafts, which it no
+  longer adds as a request every time, nor overwrites with a redraft's request.
+- A replacement whose drafting fails before it starts (PRs on different bases, one that isn't
+  there) leaves no empty record on the replacements tab.
+
 ## [0.34.38] - 2026-10-19
 
 ### Fixed
