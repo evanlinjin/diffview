@@ -702,10 +702,8 @@ fn mine_all(p: &Value) -> Value {
         }
         out
     };
-    // (Only those with more than the last 100: most PRs have neither.)
-    let more: Vec<&str> = ["comments", "reviews"].into_iter().filter(|k| p[k]["pageInfo"]["hasPreviousPage"] == true).collect();
     std::thread::scope(|s| {
-        let pages: Vec<_> = more.into_iter().map(|k| s.spawn(move || older(k))).collect();
+        let pages: Vec<_> = ["comments", "reviews"].into_iter().map(|k| s.spawn(move || older(k))).collect();
         for p in pages {
             mine.extend(p.join().unwrap_or_default());
         }
@@ -1421,8 +1419,7 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
     let mine = |id: &Value| -> Vec<&str> { id.as_str().and_then(|id| v["dvMine"][id].as_array()).into_iter().flatten().filter_map(Value::as_str).collect() };
     // Whether which of a node's reactions are yours is known (asked of GitHub): else they're
     // dimmed, not shown as not yours.
-    // (dv's cache from 0.34.22 or before listed those looked at apart, in dvMineSeen.)
-    let known = |id: &Value| id.as_str().is_some_and(|id| v["dvMine"].get(id).is_some()) || v["dvMineSeen"].as_array().is_some_and(|s| s.contains(id));
+    let known = |id: &Value| id.as_str().is_some_and(|id| v["dvMine"].get(id).is_some());
     let own = reactions(&v["reactionGroups"], &mine(&v["id"]));
     if !own.is_empty() {
         let mut l = InfoLine::new(false, false);
