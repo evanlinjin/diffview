@@ -652,29 +652,57 @@ fn reactions_text(r: &[Reaction]) -> String {
 }
 
 impl InfoLine {
-    /// Reactions, yours in the accent color (as GitHub lights them).
-    fn put_reactions(&mut self, r: &[Reaction]) {
+    /// Reactions, yours in the accent color (as GitHub lights them); all dimmed when which
+    /// are yours isn't `known`.
+    fn put_reactions(&mut self, r: &[Reaction], known: bool) {
         for (i, (text, mine)) in reaction_parts(r).into_iter().enumerate() {
-            self.put(if i == 0 { "" } else { "  " }, None).put(&text, mine.then_some(Mark::Mine));
+            let mark = match known {
+                true => mine.then_some(Mark::Mine),
+                false => Some(Mark::Dim),
+            };
+            self.put(if i == 0 { "" } else { "  " }, None).put(&text, mark);
         }
     }
 }
 
 /// The `pr_query` fields saying which reactions on a PR's conversation (itself, its
 /// comments, its reviews) are yours: `gh pr view` doesn't say.
-const MINE: &str = "id reactionGroups { content viewerHasReacted } comments(last: 100) { nodes { id reactionGroups { content viewerHasReacted } } } reviews(last: 100) { nodes { id reactionGroups { content viewerHasReacted } } }";
+const MINE: &str = "id reactionGroups { content viewerHasReacted } comments(last: 100) { pageInfo { hasPreviousPage startCursor } nodes { id reactionGroups { content viewerHasReacted } } } reviews(last: 100) { pageInfo { hasPreviousPage startCursor } nodes { id reactionGroups { content viewerHasReacted } } }";
 
-/// Yours, by node id, from a pull request's node with `MINE`.
-fn mine_of(p: &Value) -> Value {
-    let mut out = serde_json::Map::new();
+/// Yours, by node id, from a pull request's node with `MINE` (or a page of its comments or
+/// reviews), into `yours`; and the ids looked at (what's yours there is known), into `seen`.
+fn mine_of(p: &Value, yours: &mut serde_json::Map<String, Value>, seen: &mut Vec<Value>) {
     let nodes = std::iter::once(p).chain(["comments", "reviews"].iter().flat_map(|k| p[k]["nodes"].as_array().into_iter().flatten()));
     for node in nodes {
+        let Some(id) = node["id"].as_str() else { continue };
+        seen.push(id.into());
         let mine: Vec<Value> = node["reactionGroups"].as_array().into_iter().flatten().filter(|g| g["viewerHasReacted"] == true).map(|g| g["content"].clone()).collect();
-        if let Some(id) = node["id"].as_str().filter(|_| !mine.is_empty()) {
-            out.insert(id.to_owned(), mine.into());
+        if !mine.is_empty() {
+            yours.insert(id.to_owned(), mine.into());
         }
     }
-    out.into()
+}
+
+/// Which reactions on PR node `p` (with `MINE`) and its whole conversation are yours: its
+/// comments and reviews before the last 100 asked for too, 100 at a time (a PR that has so
+/// many). Yours by node id, and every id looked at; what's not among them isn't known.
+fn mine_all(p: &Value) -> (Value, Value) {
+    let (mut yours, mut seen) = (serde_json::Map::new(), vec![]);
+    mine_of(p, &mut yours, &mut seen);
+    for kind in ["comments", "reviews"] {
+        let mut page = p[kind]["pageInfo"].clone();
+        // ponytail: 20 pages (2,000 more) at most; beyond, not known (dimmed).
+        for _ in 0..20 {
+            let Some(before) = page["startCursor"].as_str().filter(|_| page["hasPreviousPage"] == true) else { break };
+            let q = format!(
+                "query($id: ID!, $b: String) {{ node(id: $id) {{ ... on PullRequest {{ {kind}(last: 100, before: $b) {{ pageInfo {{ hasPreviousPage startCursor }} nodes {{ id reactionGroups {{ content viewerHasReacted }} }} }} }} }} }}"
+            );
+            let Ok(d) = mutate(&q, json!({ "id": p["id"], "b": before })) else { break };
+            mine_of(&json!({ kind: d["node"][kind] }), &mut yours, &mut seen);
+            page = d["node"][kind]["pageInfo"].clone();
+        }
+    }
+    (yours.into(), seen.into())
 }
 
 /// The reactions on comment (or review) `node` now: each kind's (name, count, yours).
@@ -1148,7 +1176,7 @@ fn extras(first: Result<PrAnswer>, alone: impl FnOnce() -> Result<PrAnswer>) -> 
         r => r,
     };
     match answer {
-        Ok(a) => (mine_of(&a.node), signatures_whole(&a).map_err(|w| first_line(&w))),
+        Ok(a) => (a.node.clone(), signatures_whole(&a).map_err(|w| first_line(&w))),
         Err(e) => (Value::Null, Err(first_line(&format!("{e:#}")))),
     }
 }
@@ -1226,10 +1254,9 @@ fn pr_query(n: u64, more: &str) -> Result<PrAnswer> {
         .stdin(Stdio::null())
         .output()
         .context("running gh")?;
-    match serde_json::from_slice::<Value>(&out.stdout) {
-        Ok(v) => pr_answer(&v, &String::from_utf8_lossy(&out.stderr)),
-        Err(_) => anyhow::bail!("gh api graphql: {}", String::from_utf8_lossy(&out.stderr).trim()),
-    }
+    // (Not JSON at all: a gateway's page, or nothing; what gh said is all there is.)
+    let v = serde_json::from_slice::<Value>(&out.stdout).unwrap_or_default();
+    pr_answer(&v, &String::from_utf8_lossy(&out.stderr))
 }
 
 fn signatures_of(p: &Value) -> Result<Signatures> {
@@ -1267,8 +1294,8 @@ pub fn info_json(n: u64) -> Result<Value> {
         v["dvAwaiting"] = w.get(&sha).map_or(0, Vec::len).into();
     }
     // One query for both: its commits' signatures, and which reactions are yours (`extras`).
-    let (mine, signatures) = extras(pr_query(n, MINE), || pr_query(n, ""));
-    v["dvMine"] = mine;
+    let (node, signatures) = extras(pr_query(n, MINE), || pr_query(n, ""));
+    (v["dvMine"], v["dvMineSeen"]) = mine_all(&node);
     match signatures {
         Ok(s) => {
             v["dvCommits"] = s.commits.into_iter().map(|(oid, signed)| json!({ "oid": oid, "signed": signed })).collect();
@@ -1363,10 +1390,17 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
     // The PR's own reactions (Space = on its description reacts).
     // Yours, by node id (`mine_json`).
     let mine = |id: &Value| -> Vec<&str> { id.as_str().and_then(|id| v["dvMine"][id].as_array()).into_iter().flatten().filter_map(Value::as_str).collect() };
+    // Whether which of a node's reactions are yours is known (asked of GitHub, as for the
+    // last 100 comments or more): else they're dimmed, not shown as not yours. (dv's cache
+    // from before this said nothing: as it was.)
+    let known = |id: &Value| match v["dvMineSeen"].as_array() {
+        Some(seen) => seen.contains(id),
+        None => v["dvMine"].is_object(),
+    };
     let own = reactions(&v["reactionGroups"], &mine(&v["id"]));
     if !own.is_empty() {
         let mut l = InfoLine::new(false, false);
-        l.put("reactions ", Some(Mark::Dim)).put_reactions(&own);
+        l.put("reactions ", Some(Mark::Dim)).put_reactions(&own, known(&v["id"]));
         out.push(l);
     }
 
@@ -1503,6 +1537,7 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
     said.sort_by(|a, b| a.0.cmp(&b.0)); // ISO times sort as text
     out.push(heading(format!("conversation ({})", said.len())));
     for (at, who, what, url, body, node, r, hidden) in said {
+        let sure = known(&Value::from(node.as_str()));
         // A verdict in its color, so an approval doesn't read as just another comment.
         let mut h = InfoLine { url, node, hidden, ..InfoLine::new(true, false) };
         let mark = match what {
@@ -1513,7 +1548,7 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         h.put(&format!("@{who} · "), None).put(what.trim_end_matches(" · "), mark).put(if what.is_empty() { "" } else { " · " }, None);
         h.put(&ago(&at), None);
         if !r.is_empty() {
-            h.put(" · ", None).put_reactions(&r);
+            h.put(" · ", None).put_reactions(&r, sure);
         }
         out.push(h);
         out.push(markdown(body.replace("\r\n", "\n")));
@@ -1835,8 +1870,10 @@ fn github_refusals() {
     let refused = |kinds: &[&str]| -> Result<PrAnswer> { Err(Refused { kinds: kinds.iter().map(|k| k.to_string()).collect(), why: "too big".into() }.into()) };
     let alone = || pr_answer(&answer(json!([])), "");
     for kinds in [&["MAX_NODE_LIMIT_EXCEEDED"][..], &["TIMEOUT"], &["RESOURCE_LIMITS_EXCEEDED", "TIMEOUT"]] {
-        let (mine, sig) = extras(refused(kinds), alone);
-        assert!(sig.is_ok() && mine == json!({}), "{kinds:?}");
+        let (node, sig) = extras(refused(kinds), alone);
+        let (mut yours, mut seen) = (serde_json::Map::new(), vec![]);
+        mine_of(&node, &mut yours, &mut seen);
+        assert!(sig.is_ok() && yours.is_empty() && seen.is_empty(), "{kinds:?}"); // none known
     }
     let never: [&[&str]; 7] = [&[""], &["RATE_LIMITED"], &["SECONDARY_RATE_LIMIT"], &["FORBIDDEN"], &["NOT_FOUND"], &["EXCESSIVE_PAGINATION"], &["MAX_NODE_LIMIT_EXCEEDED", "RATE_LIMITED"]];
     for kinds in never {

@@ -232,7 +232,24 @@ pub fn git(args: &[&str]) -> Result<String> {
 /// said when dv asked: `ensure_remote`), else its only remote, else the one gh took for the
 /// base repo (`gh-resolved`), else `origin`.
 pub fn remote() -> String {
-    found_remote(std::path::Path::new(".")).unwrap_or_else(|| "origin".into())
+    // (Once found, it stays: `ensure_remote` decides it before anything asks.)
+    static R: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    R.get_or_init(|| found_remote(std::path::Path::new(".")).unwrap_or_else(|| "origin".into())).clone()
+}
+
+/// Branch `b` on the remote (`remote`), as git tracks it: `origin/main`.
+pub fn remote_branch(b: &str) -> String {
+    format!("{}/{b}", remote())
+}
+
+/// The remote's default branch (`<remote>/HEAD`), as git tracks it: asked of the remote once
+/// when git doesn't know (a remote added by hand has no HEAD until then).
+pub fn remote_head() -> Option<String> {
+    let head = || git(&["rev-parse", "--abbrev-ref", &remote_branch("HEAD")]).ok().map(|s| s.trim().to_owned());
+    head().or_else(|| {
+        git(&["remote", "set-head", &remote(), "--auto"]).ok()?;
+        head()
+    })
 }
 
 /// The remote as `remote` finds it, in the repo at `dir`, if anything says.
@@ -267,7 +284,8 @@ pub fn ensure_remote() -> Result<()> {
     for (i, n) in names.iter().enumerate() {
         eprintln!("  {}. {n}  {}", i + 1, git(&["remote", "get-url", n]).unwrap_or_default().trim());
     }
-    let default = names.iter().position(|n| n == "origin");
+    // (A fork's usual setup: `upstream` the PRs' repo, `origin` yours.)
+    let default = names.iter().position(|n| n == "upstream").or_else(|| names.iter().position(|n| n == "origin"));
     let pick = loop {
         eprint!("{}: ", default.map_or("number".to_owned(), |d| format!("number [{}]", d + 1)));
         _ = std::io::stderr().flush();
@@ -284,15 +302,17 @@ pub fn ensure_remote() -> Result<()> {
         }
     };
     git(&["config", "dv.remote", &names[pick]])?;
+    // gh too (its own `gh-resolved`): or it may take another repo for the PRs than dv fetches.
+    let url = git(&["remote", "get-url", &names[pick]])?;
+    let quiet = std::process::Stdio::null;
+    _ = std::process::Command::new("gh").args(["repo", "set-default", url.trim()]).stdin(quiet()).stdout(quiet()).stderr(quiet()).status();
     Ok(())
 }
 
 pub fn merge_base(base: Option<&str>) -> Result<String> {
     let base = match base {
         Some(b) => b.to_owned(),
-        None => git(&["rev-parse", "--abbrev-ref", &format!("{}/HEAD", remote())])
-            .map(|s| s.trim().to_owned())
-            .unwrap_or_else(|_| "main".to_owned()),
+        None => remote_head().unwrap_or_else(|| "main".to_owned()),
     };
     Ok(git(&["merge-base", &base, "HEAD"])
         .with_context(|| format!("no merge-base with {base}"))?

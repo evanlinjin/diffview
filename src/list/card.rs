@@ -8,7 +8,7 @@ pub(super) fn rep_card(r: &crate::replace::Record, root: &std::path::Path) -> Li
     let branch = crate::replace::branch(r.id);
     let git = |args: &[&str]| crate::diff::git(&[&["-C", &root.to_string_lossy()], args].concat()).unwrap_or_default();
     // " 3 files changed, 10 insertions(+), 2 deletions(-)"
-    let stat = git(&["diff", "--shortstat", &format!("origin/{}...{branch}", r.base)]);
+    let stat = git(&["diff", "--shortstat", &format!("{}...{branch}", crate::diff::remote_branch(&r.base))]);
     let count = |what: &str| -> u64 {
         stat.split(',').find(|p| p.contains(what)).and_then(|p| p.split_whitespace().next()?.parse().ok()).unwrap_or(0)
     };

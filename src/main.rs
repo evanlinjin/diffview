@@ -264,7 +264,7 @@ fn review_replacement(id: u64, root: &Path) -> anyhow::Result<()> {
     anyhow::ensure!(dir.exists(), "its worktree {} is gone (A A on the PR drafts it again)", dir.display());
     ensure_worktree_of(&dir, root)?;
     std::env::set_current_dir(&dir)?;
-    let base = diff::merge_base(Some(&format!("{}/{}", crate::diff::remote(), r.base)))?;
+    let base = diff::merge_base(Some(&crate::diff::remote_branch(&r.base)))?;
     let mut app = view::App::new(base, None)?;
     progress(None);
     let mut term = view::init_terminal();
@@ -322,7 +322,7 @@ fn review(o: &Opts, pr_num: Option<u64>, known: Option<gh::Pr>) -> anyhow::Resul
     let pr = known.or_else(|| gh::pr(pr_num).ok());
     let base = diff_base(o, pr.as_ref())?;
     // The branch the base follows (not one you named): a rebase onto it moves the diff's base.
-    let follow = pr.as_ref().filter(|_| o.base.is_none()).map(|p| format!("{}/{}", crate::diff::remote(), p.base));
+    let follow = pr.as_ref().filter(|_| o.base.is_none()).map(|p| crate::diff::remote_branch(&p.base));
     let app = view::App::new(base, pr);
     progress(None);
     let mut app = app?;
@@ -347,7 +347,7 @@ fn diff_base(o: &Opts, pr: Option<&gh::Pr>) -> anyhow::Result<String> {
             false => {
                 progress(Some(&format!("fetching {}/{}", crate::diff::remote(), p.base)));
                 _ = diff::git(&["fetch", "-q", &crate::diff::remote(), &p.base]);
-                format!("{}/{}", crate::diff::remote(), p.base)
+                crate::diff::remote_branch(&p.base)
             }
         });
     }

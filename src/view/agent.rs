@@ -43,13 +43,16 @@ const ALLOWED: &[&str] = &[
     "Bash(cargo clippy:*)",
 ];
 
-/// What fixing CI needs on top: a transient failure's failed jobs once more (once a head: see
-/// `fix_checks_prompt`). Only for that run: no other may rerun workflows.
-const FIX_CHECKS_TOOLS: &[&str] = &["Bash(dv rerun-failed:*)"];
+/// (Fixing CI, a transient failure's failed jobs once more: once a head, see `fix_checks_prompt`.)
+/// What a background run may do beyond `ALLOWED`: rerun the failed jobs of PR `n`'s CI only
+/// when fixing it (that PR's: no other).
+pub(crate) fn tools_for(fixing_ci: Option<u64>) -> Vec<String> {
+    fixing_ci.map(|n| format!("Bash(dv rerun-failed -p {n})")).into_iter().collect()
+}
 
-/// What a background run may do beyond `ALLOWED`: rerun workflows only when fixing CI.
-pub(crate) fn tools_for(fixing_ci: bool) -> &'static [&'static str] {
-    if fixing_ci { FIX_CHECKS_TOOLS } else { &[] }
+/// `v`'s strings, borrowed (for `claude_command`'s list).
+pub(crate) fn strs(v: &[String]) -> Vec<&str> {
+    v.iter().map(String::as_str).collect()
 }
 
 /// What drafting a replacement needs on top: reading the PRs it replaces, and committing (to
@@ -206,6 +209,16 @@ impl App {
     }
 
     /// Replies of yours that Claude hasn't answered yet.
+    /// Whether `ask` may change the code (or reads it whole: a review): answering does when a
+    /// reply waiting wants a change.
+    pub(super) fn edits(&self, ask: Ask) -> bool {
+        match ask {
+            Ask::Describe | Ask::Close => false,
+            Ask::Answer => self.threads.iter().any(|t| turn(t) == Some("[waiting] ") && t.want == "change"),
+            _ => true,
+        }
+    }
+
     pub(super) fn waiting_replies(&self) -> usize {
         self.threads.iter().filter(|t| turn(t) == Some("[waiting] ")).count()
     }
@@ -229,13 +242,15 @@ impl App {
     /// Why Claude can't take a request right now (checked before asking you for instructions,
     /// so nothing you write is lost to it): still busy, or the PR's pane is from an older dv
     /// that can't reach the review files (when the request needs them).
-    pub(super) fn claude_blocked(&self, needs_files: bool) -> Option<String> {
+    /// `edits`: what's asked may change the code (or reads it whole: a review), which a stopped
+    /// rebase's conflicts are in the way of; a question, a description, a closing comment aren't.
+    pub(super) fn claude_blocked(&self, needs_files: bool, edits: bool) -> Option<String> {
         let busy = self.claude.job.is_some();
         if busy {
             return Some("Claude is still working on the last request".into());
         }
         // A rebase stopped part way: the tree has its conflicts, HEAD is detached.
-        if super::rebase::rebasing(&self.root) {
+        if edits && super::rebase::rebasing(&self.root) {
             return Some(super::rebase::stopped_says(&self.root).into());
         }
         let (_, cmd) = self.claude_pane_cmd()?;
@@ -717,7 +732,7 @@ impl App {
     /// taking it is checked first, so what you write isn't lost.
     pub(super) fn pick_claude(&mut self, ask: Ask) {
         let needs_files = !matches!(ask, Ask::Fix | Ask::Edit) || self.change_requests() > 0;
-        if let Some(why) = self.claude_blocked(needs_files) {
+        if let Some(why) = self.claude_blocked(needs_files, self.edits(ask)) {
             return self.msg = why;
         }
         match ask {
@@ -739,7 +754,7 @@ impl App {
             self.msg = "nothing to change: no open comments, and no instructions written".into();
             return false;
         }
-        if let Some(why) = self.claude_blocked(!matches!(ask, Ask::Fix | Ask::Edit) || requests > 0) {
+        if let Some(why) = self.claude_blocked(!matches!(ask, Ask::Fix | Ask::Edit) || requests > 0, self.edits(ask)) {
             self.msg = why;
             return false;
         }
@@ -804,7 +819,7 @@ impl App {
                 Ok(s) => (format!("zellij run failed ({s})"), false),
                 Err(e) => (format!("running zellij: {e}"), false),
             },
-            false => match self.spawn_claude(&prompt, label, false, tools_for(matches!(ask, Ask::FixChecks))) {
+            false => match self.spawn_claude(&prompt, label, false, &strs(&tools_for(self.pr.as_ref().filter(|_| matches!(ask, Ask::FixChecks)).map(|p| p.number)))) {
                 Ok(job) => {
                     self.claude.job = Some(job);
                     (format!("Claude is {label} in the background…"), true)
@@ -826,7 +841,7 @@ impl App {
             self.claude.again = true;
             return "reply saved; Claude answers it when it's done with what it's doing".into();
         }
-        if super::rebase::rebasing(&self.root) {
+        if self.edits(Ask::Answer) && super::rebase::rebasing(&self.root) {
             return format!("reply saved; {} (then Space a has Claude answer)", super::rebase::stopped_says(&self.root));
         }
         let prompt = self.claude_prompt(Ask::Answer, "");

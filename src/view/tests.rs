@@ -2592,13 +2592,21 @@ fn hidden_on_github_folded() {
     app.goto(r + 1, 0);
     app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     assert!(!text(&app).contains("secret2") && app.head.row == r);
-    // On the thread's first line: shows the first; then it folds the thread, as Tab does.
+    // On the thread's first line, Tab goes round: shown, hidden again, the thread folded; and
+    // unfolded, it starts over.
     let first = app.rows.iter().position(|r| r.thread == Some(0)).unwrap();
+    let tab = |app: &mut App| app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     app.goto(first, 0);
-    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    tab(&mut app);
     assert!(text(&app).contains("secret1"));
-    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    tab(&mut app);
+    assert!(!text(&app).contains("secret1") && app.thread_open(0));
+    tab(&mut app);
     assert!(!app.thread_open(0));
+    tab(&mut app);
+    assert!(app.thread_open(0) && !text(&app).contains("secret1"));
+    tab(&mut app);
+    assert!(text(&app).contains("secret1"));
     // The tabs say how many threads each shows.
     assert_eq!(app.pane_tabs().iter().map(|t| t.1.as_str()).collect::<Vec<_>>(), [" Comments 1 ", " Claude ", " Pending "]);
     assert_eq!(gh::hidden(&serde_json::json!({"isMinimized": true, "minimizedReason": "OFF_TOPIC"})), "off topic");
@@ -2679,7 +2687,7 @@ fn retarget_waits_for_a_rebase() {
     let mut app = fixture();
     app.root = dir.clone();
     app.pr = Some(gh::Pr { number: 1, base: "main".into(), ..Default::default() });
-    (app.follow_base, app.github_base, app.job) = (Some("origin/main".into()), Some("dev".into()), None);
+    (app.follow_base, app.github_base, app.job) = (Some(diff::remote_branch("main")), Some("dev".into()), None);
     let merge = dir.join(".git/rebase-merge");
     std::fs::create_dir_all(&merge).unwrap();
     app.follow_github_base(true);
@@ -2693,5 +2701,18 @@ fn retarget_waits_for_a_rebase() {
     (app.job, app.follow_base) = (None, Some("v1.0".into()));
     app.follow_github_base(false);
     assert!(matches!(app.job, Some(Job::Retarget(_))));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn a_stopped_rebase_holds_only_what_changes_code() {
+    let dir = diff::scratch_repo("rebase-holds");
+    let mut app = fixture();
+    app.root = dir.clone();
+    std::fs::create_dir_all(dir.join(".git/rebase-merge")).unwrap();
+    assert!(app.claude_blocked(false, app.edits(agent::Ask::Fix)).is_some());
+    assert!(app.claude_blocked(false, app.edits(agent::Ask::Describe)).is_none());
+    // Answering: held only when a reply waiting wants a change.
+    assert_eq!(app.edits(agent::Ask::Answer), app.threads.iter().any(|t| agent::turn(t) == Some("[waiting] ") && t.want == "change"));
     std::fs::remove_dir_all(dir).unwrap();
 }

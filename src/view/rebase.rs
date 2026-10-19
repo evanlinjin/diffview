@@ -100,9 +100,9 @@ fn rebase_prompt(onto: &str) -> String {
 
 impl App {
     /// The branch the PR goes into (as it is now: its base may change), as fetched:
-    /// `origin/<base>`; without a PR, the one the diff's base follows.
+    /// `<remote>/<base>` (`diff::remote`); without a PR, the one the diff's base follows.
     pub(super) fn rebase_onto(&self) -> Option<String> {
-        self.pr.as_ref().map(|p| format!("{}/{}", crate::diff::remote(), p.base)).or_else(|| self.follow_base.clone())
+        self.pr.as_ref().map(|p| crate::diff::remote_branch(&p.base)).or_else(|| self.follow_base.clone())
     }
 
     /// `Space g` → rebase: fetch the base, then rebase onto it; on conflicts, Claude resolves

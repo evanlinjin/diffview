@@ -5,6 +5,32 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.20] - 2026-10-19
+
+### Added
+- With the cursor on code, the pane's box about that line has its heading tinted as the code a
+  comment is about is (the same tint, not the cursor line's).
+- Reactions on PRs with more than 100 comments or reviews: which are yours is asked for the
+  older ones too (100 at a time); where it isn't known, they're dimmed, not shown as not yours.
+
+### Changed
+- A stopped rebase holds back only what would change the code (making changes, fixing CI,
+  amending, a review, answering a reply that wants a change); questions, a description, a
+  closing comment go ahead.
+- Tab on a thread's first line whose comment is hidden on GitHub goes round: shown, hidden
+  again, the thread folded.
+- Claude's `"ask"` doesn't stop it editing its own comments when you ask it to (the want is
+  about the code and GitHub, not its drafts in the review file).
+- Choosing the remote: `upstream` is the default offered (a fork's usual setup), and gh is
+  set to the same repo (`gh repo set-default`).
+
+### Fixed
+- The remote's default branch is asked of it when git doesn't know it (a remote added by
+  hand); the drafts tab's sizes, and messages naming the base, use the chosen remote.
+- `dv rerun-failed` is allowed Claude for the PR it's fixing only.
+- A gateway's timeout page that isn't JSON at all is asked again smaller too; a hidden
+  comment with no time has no dangling separator.
+
 ## [0.34.19] - 2026-10-19
 
 ### Added

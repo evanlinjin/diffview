@@ -23,7 +23,7 @@ use std::time::Duration;
 mod agent;
 mod amend;
 mod rebase;
-pub(crate) use agent::{REPLACE_TOOLS, tools_for, answer_prompt, close_if_done, pane_screen, asking, working, claude_command, claude_wrote, fix_checks_prompt, review_prompt, turn, update_prompt, with_instructions};
+pub(crate) use agent::{REPLACE_TOOLS, tools_for, strs, answer_prompt, close_if_done, pane_screen, asking, working, claude_command, claude_wrote, fix_checks_prompt, review_prompt, turn, update_prompt, with_instructions};
 mod build;
 use build::*;
 mod files;
@@ -760,6 +760,9 @@ pub struct App {
     gone_at: usize,
     /// Comments hidden on GitHub that you've shown here (Tab), by node id.
     revealed: HashSet<String>,
+    /// Shown, then hidden again with Tab on their thread's first line: the next Tab there folds
+    /// the thread (Tab goes round: shown, hidden, folded).
+    hid_again: HashSet<String>,
     /// The last note said about the PR's base (`base_note`), to say the next in its place.
     base_said: String,
     /// What's shown came from the cache, and the fresh fetch isn't in yet.
@@ -963,6 +966,7 @@ impl App {
             github_poke: None,
             base_said: String::new(),
             revealed: HashSet::new(),
+            hid_again: HashSet::new(),
             gone_at: 0,
             conversation_all: false,
             github_stale: false,

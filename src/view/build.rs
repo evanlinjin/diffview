@@ -544,7 +544,9 @@ impl App {
                 let l = &self.info[h];
                 let at = l.text.find(" · ").map_or(l.text.chars().count(), |i| l.text[..i].chars().count());
                 let n = note.chars().count();
-                let text: String = l.text.chars().take(at).chain(note.chars()).chain(l.text.chars().skip(at)).collect();
+                let rest = l.text.chars().skip(at).collect::<String>();
+                let rest = if rest.trim() == "·" { String::new() } else { rest }; // (no time to say)
+                let text: String = l.text.chars().take(at).chain(note.chars()).chain(rest.chars()).collect();
                 let mut row = self.info_row(l, mk(Kind::Thread, text.clone()));
                 for link in &mut row.links {
                     if link.0 >= at {
@@ -638,7 +640,8 @@ impl App {
             Some(t) => {
                 let c = self.comment_under_cursor(t).filter(|c| !c.hidden.is_empty())?;
                 let first = r == 0 || self.rows[r - 1].thread != Some(t);
-                (!(first && self.revealed.contains(&c.node_id))).then(|| c.node_id.clone())
+                // On the thread's first line, Tab goes round: shown, hidden again, the thread folded.
+                (!(first && self.hid_again.contains(&c.node_id))).then(|| c.node_id.clone())
             }
             None => self.conversation_node().filter(|n| self.info.iter().any(|l| l.node == *n && !l.hidden.is_empty())),
         }
@@ -646,7 +649,18 @@ impl App {
 
     /// Tab on a comment hidden on GitHub: its text shown, or hidden again. Whether it was one.
     pub(super) fn toggle_hidden(&mut self) -> bool {
-        let Some(node) = self.hidden_here() else { return false };
+        let r = self.head.row;
+        let first = self.rows[r].thread.filter(|&t| r == 0 || self.rows[r - 1].thread != Some(t)).and_then(|t| self.comment_under_cursor(t)).map(|c| c.node_id.clone());
+        let Some(node) = self.hidden_here() else {
+            // Hidden again there: this Tab folds the thread, and unfolded, it starts over.
+            if let Some(n) = first {
+                self.hid_again.remove(&n);
+            }
+            return false;
+        };
+        if first.as_ref() == Some(&node) && self.revealed.contains(&node) {
+            self.hid_again.insert(node.clone());
+        }
         flip(&mut self.revealed, node.clone());
         // The cursor on its heading, whether its text went or came (else where it was).
         let at = self.rows[self.head.row].thread.map(|t| (self.root_id(t), self.comment_index_under_cursor(t)));

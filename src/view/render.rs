@@ -365,6 +365,13 @@ impl App {
             true => Span::styled(" ", Style { bg: raised, ..Style::new() }),
         };
         let pane_cur = self.margin_side();
+        // The cursor in the code: the box about its line has its heading tinted as the code a
+        // comment's about is the other way round (the same tint, not the cursor line's).
+        let lit_box = (!pane_cur && self.settings.cursorline).then(|| self.lit_thread()).flatten();
+        let head_tint = |r: usize, spans: Vec<Span<'static>>| match lit_box.is_some() && self.rows[r].thread == lit_box && (r == 0 || self.rows[r - 1].thread != lit_box) {
+            true => self.related_tint(spans),
+            false => spans,
+        };
         let base_bg = self.ui.base.bg;
         let raise = |v: Vec<Span<'static>>| match (float, raised) {
             // Its own colors (the cursor line, a selection) stay; the window's give way.
@@ -455,14 +462,14 @@ impl App {
                                     Some(r) if self.open_left(r) && self.box_part(r).is_some_and(|p| p != BoxPart::Body) => {
                                         spans.pop();
                                         spans.push(Span::styled(format!("├{}", "─".repeat(pad)), self.box_edge(r).bg(self.ui.base.bg.unwrap_or(Color::Reset))));
-                                        spans.extend(raise(clip(self.render_row(r, s, e, (lw, self.pane_gw(), ptw), None, tint && pane_cur, &overlay), mw - pad)));
+                                        spans.extend(raise(clip(head_tint(r, self.render_row(r, s, e, (lw, self.pane_gw(), ptw), None, tint && pane_cur, &overlay)), mw - pad)));
                                     }
                                     // Not in a box (a folded thread, a heading): its mark where the
                                     // space would be, so its text lines up with the boxes'.
                                     Some(r) if self.open_left(r) && self.box_part(r).is_none() => {
-                                        spans.extend(raise(clip(self.render_row(r, s, e, (lw, pad + self.pane_gw(), ptw), None, tint && pane_cur, &overlay), mw)));
+                                        spans.extend(raise(clip(head_tint(r, self.render_row(r, s, e, (lw, pad + self.pane_gw(), ptw), None, tint && pane_cur, &overlay)), mw)));
                                     }
-                                    Some(r) => spans.extend(raise(pane_cell(self.render_row(r, s, e, (lw, self.pane_gw(), ptw), None, tint && pane_cur, &overlay)))),
+                                    Some(r) => spans.extend(raise(pane_cell(head_tint(r, self.render_row(r, s, e, (lw, self.pane_gw(), ptw), None, tint && pane_cur, &overlay))))),
                                     None => spans.push(Span::raw(" ".repeat(mw))),
                                 }
                             }

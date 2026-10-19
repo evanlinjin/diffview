@@ -136,6 +136,13 @@ Do exactly that, whoever's PR it is, and whatever the wording suggests:
 | `"suggest"` | propose the change as in 5 (a suggestion block they can post), reply `"Suggested: …"` | edit the code |
 | `"change"` | make the change in the code here (commit or amend only when they say so), reply `"Changed: …"`, resolve | ask whether to; only suggest it |
 
+The `want` is about the code and about GitHub: it doesn't limit your own comments. Whatever
+it is, when the user asks you to edit, shorten, correct or rewrite your comment (its text, or
+a suggestion block already in it), do it, in the review file: it's your draft, not posted
+anywhere, and not the code. Under `"ask"`, don't *start* a new suggestion on your own; one
+they ask for in so many words ("put this in the comment", "update the suggestion") you write.
+Never answer "re-send it as …" for what you're allowed to do: do it.
+
 Once a thread is settled, resolve it: set `"resolved": true` on the comment after your reply.
 It's settled when you've made the change it asked for, or you and the user agree it doesn't
 apply. Don't resolve one where you've only answered a question: the user may have more to say.

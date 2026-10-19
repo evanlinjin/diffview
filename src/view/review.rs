@@ -349,7 +349,7 @@ impl App {
             // Only commits are published: what isn't committed would be left out.
             None if dirty => vec![item("Commit the uncommitted changes first (they'd be left out)…".into(), Target::GitCommit)],
             None => {
-                let mut v = vec![item(format!("Publish as a draft PR (rebased on origin/{}, pushed {to})…", r.base), Target::Publish(false))];
+                let mut v = vec![item(format!("Publish as a draft PR (rebased on {}, pushed {to})…", diff::remote_branch(&r.base)), Target::Publish(false))];
                 if !open.is_empty() {
                     v.push(item(format!("Publish, then close {} with the closing note…", open.join(", ")), Target::Publish(true)));
                 }
@@ -784,7 +784,7 @@ impl App {
         if self.job.is_some() {
             return;
         }
-        let follows = self.pr.as_ref().is_some_and(|p| self.follow_base.as_deref() == Some(format!("{}/{}", crate::diff::remote(), p.base).as_str()));
+        let follows = self.pr.as_ref().is_some_and(|p| self.follow_base.as_deref() == Some(crate::diff::remote_branch(&p.base).as_str()));
         if follows && super::rebase::rebasing(&self.root) {
             if say {
                 self.base_note(&format!("the PR's base is {base} now: the diff follows once the rebase is through"));
@@ -807,8 +807,8 @@ impl App {
     /// from it (fetched), when dv chose the diff's base (no `--base` given).
     fn retarget(&mut self, base: String) {
         let Some(old) = self.pr.as_ref().map(|p| p.base.clone()) else { return };
-        let follows = self.follow_base.as_deref() == Some(format!("{}/{old}", crate::diff::remote()).as_str());
-        let onto = format!("{}/{base}", crate::diff::remote());
+        let follows = self.follow_base.as_deref() == Some(crate::diff::remote_branch(&old).as_str());
+        let onto = crate::diff::remote_branch(&base);
         if follows {
             let fetched = diff::git_in(&self.root, &["fetch", "-q", &crate::diff::remote(), &format!("+refs/heads/{base}:refs/remotes/{onto}")]);
             let Ok(mb) = fetched.and_then(|_| diff::git_in(&self.root, &["merge-base", &onto, "HEAD"])) else {

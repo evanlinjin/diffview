@@ -214,7 +214,7 @@ pub fn prepare(prs: &[u64], root: &Path) -> Result<(Record, PathBuf)> {
         let (b, d) = (branch(id), dir.to_string_lossy().into_owned());
         match git(&["rev-parse", "--verify", "-q", &format!("refs/heads/{b}")]) {
             Ok(_) => git(&["worktree", "add", &d, &b])?,
-            Err(_) => git(&["worktree", "add", "-b", &b, &d, &format!("{}/{}", crate::diff::remote(), r.base)])?,
+            Err(_) => git(&["worktree", "add", "-b", &b, &d, &crate::diff::remote_branch(&r.base)])?,
         };
     }
     save(&r)?;
@@ -230,7 +230,7 @@ pub fn create_new(task: &str, root: &Path) -> Result<u64> {
     let r = Record { id, base: base.clone(), session: crate::claude::new_session_id(), task: task.trim().to_owned(), ..Record::default() };
     let dir = crate::worktree_dir_named(root, &name(id))?;
     _ = git(&["fetch", "-q", &crate::diff::remote(), &base]);
-    git(&["worktree", "add", "-b", &branch(id), &dir.to_string_lossy(), &format!("{}/{base}", crate::diff::remote())])?;
+    git(&["worktree", "add", "-b", &branch(id), &dir.to_string_lossy(), &crate::diff::remote_branch(&base)])?;
     save(&r)?;
     Ok(id)
 }
@@ -251,9 +251,9 @@ fn prepare_new(id: u64, root: &Path) -> Result<(Record, PathBuf)> {
 pub fn rebase(r: &Record, dir: &Path) -> Result<()> {
     let git = |args: &[&str]| crate::diff::git(&[&["-C", &dir.to_string_lossy()], args].concat());
     git(&["fetch", "-q", &crate::diff::remote(), &r.base])?;
-    if let Err(e) = git(&["rebase", "-q", &format!("{}/{}", crate::diff::remote(), r.base)]) {
+    if let Err(e) = git(&["rebase", "-q", &crate::diff::remote_branch(&r.base)]) {
         _ = git(&["rebase", "--abort"]);
-        anyhow::bail!("it doesn't rebase cleanly onto origin/{} ({e:#}): ask Claude to redraft it on the new base", r.base);
+        anyhow::bail!("it doesn't rebase cleanly onto {} ({e:#}): ask Claude to redraft it on the new base", crate::diff::remote_branch(&r.base));
     }
     Ok(())
 }
@@ -425,7 +425,7 @@ pub fn remove(id: u64, root: &Path) -> Result<String> {
 pub fn info() -> Result<()> {
     let id = current().context("not on a replacement's branch (dv/replace-N) or a new PR's (dv/new-K)")?;
     let r = load(id)?;
-    let base = crate::diff::merge_base(Some(&format!("{}/{}", crate::diff::remote(), r.base)))?;
+    let base = crate::diff::merge_base(Some(&crate::diff::remote_branch(&r.base)))?;
     match is_new(id) {
         true => {
             println!("record: {}    (write title and body here)", path(id)?.display());
@@ -437,7 +437,7 @@ pub fn info() -> Result<()> {
         println!("replaces: #{} {} (@{}) {}", o.number, o.title, o.author, o.url);
     }
     println!("branch: {}    (commit your work here; never push)", branch(id));
-    println!("base: {base}    (origin/{}: `git diff {base}` is what dv shows)", r.base);
+    println!("base: {base}    ({}: `git diff {base}` is what dv shows)", crate::diff::remote_branch(&r.base));
     println!("notes: the user's notes on this repo are in your prompt (read-only for a replacement)");
     Ok(())
 }
