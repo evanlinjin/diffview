@@ -87,7 +87,7 @@ ON CLAUDE'S REVIEW (its summary)
   C                    post it now, as your PR comment
 
 REVIEW
-  S                    submit (comment / approve / request changes), or discard
+  S                    submit (comment / approve / request changes), close the PR, or discard
   Space g              git: show only what isn't committed (Claude's changes), commit, amend
                        it into the commits it belongs in, push, update the checkout, rebase
                        onto the base (Claude resolves conflicts)
@@ -509,7 +509,8 @@ impl App {
         }
     }
 
-    /// Picker items whose label contains the query as a (case-insensitive) subsequence.
+    /// Picker items with each word of the query in them (case-insensitive, in any order: not
+    /// its letters scattered, which matched nearly anything); those with it whole first.
     pub(super) fn matches(&self) -> Vec<usize> {
         let Some(p) = &self.picker else { return vec![] };
         let q = p.query.to_lowercase();
@@ -517,9 +518,7 @@ impl App {
         let mut m: Vec<(bool, usize)> = (0..p.items.len())
             .filter_map(|i| {
                 let text = text(&p.items[i]);
-                let mut chars = text.chars();
-                // What has the query as typed comes first ("check": "Check …", not "Edit Claude's notes").
-                q.chars().all(|c| chars.any(|x| x == c)).then(|| (!text.contains(&q), i))
+                q.split_whitespace().all(|w| text.contains(w)).then(|| (!text.contains(q.trim()), i))
             })
             .collect();
         m.sort();

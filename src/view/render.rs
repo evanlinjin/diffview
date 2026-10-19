@@ -658,20 +658,19 @@ impl App {
             let vis = ((ph as usize).saturating_sub(3) / item_h).max(1);
             let off = sel.saturating_sub(vis.saturating_sub(1));
             let mut lines = vec![Line::from(format!("> {}", p.query))];
-            let q: Vec<char> = p.query.to_lowercase().chars().collect();
+            let q = p.query.to_lowercase();
             for (i, &it) in m.iter().enumerate().skip(off).take(vis) {
                 let st = if i == sel { self.ui.menu_selected } else { Style::new() };
-                // Highlight the letters the filter matched (first fit, as `matches` checks).
-                let mut j = 0;
-                let spans: Vec<Span> = p.items[it]
-                    .label
-                    .chars()
-                    .map(|c| {
-                        let hit = j < q.len() && c.to_lowercase().eq(std::iter::once(q[j]));
-                        j += hit as usize;
-                        Span::styled(c.to_string(), if hit { st.patch(self.ui.key) } else { st })
-                    })
-                    .collect();
+                // Highlight the words the filter matched, where they are (as `matches` checks).
+                let label: Vec<char> = p.items[it].label.chars().collect();
+                let lower: Vec<char> = p.items[it].label.to_lowercase().chars().collect();
+                let mut hit = vec![false; label.len()];
+                for w in q.split_whitespace().map(|w| w.chars().collect::<Vec<_>>()) {
+                    for k in (0..lower.len().saturating_sub(w.len() - 1)).filter(|&k| lower.len() == label.len() && lower[k..].starts_with(&w)) {
+                        hit[k..k + w.len()].iter_mut().for_each(|h| *h = true);
+                    }
+                }
+                let spans: Vec<Span> = label.iter().zip(&hit).map(|(c, &h)| Span::styled(c.to_string(), if h { st.patch(self.ui.key) } else { st })).collect();
                 lines.push(Line::from(spans).style(st));
                 let detail = &p.items[it].detail;
                 for k in 0..per - 1 {

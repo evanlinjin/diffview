@@ -320,7 +320,7 @@ fn comments_placed_and_anchored() {
     assert!(matches!(app.action.take(), Some(Action::Reply { review: false, .. })));
     press(&mut app, 'S');
     let labels: Vec<String> = app.picker.take().unwrap().items.into_iter().map(|i| i.label).collect();
-    assert_eq!(labels[..4], ["Comment", "Approve", "Request changes", "Comment and close the PR"]); // no pending review → no discard option
+    assert_eq!(labels[..4], ["Comment", "Approve", "Request changes", "Close the PR (with a comment, optional)"]); // no pending review → no discard option
     // Then what's still open: the thread here is unresolved (and the test's PR head isn't HEAD).
     assert_eq!(labels[4], "  ! 1 unresolved thread(s) on GitHub");
     assert!(labels[5].starts_with("  ! your checkout isn't the PR's head") && labels.len() == 6);
@@ -2817,4 +2817,20 @@ fn labels_picker_comes_back_as_left() {
     // Enter on one: its job, and where you were kept for the picker to come back to.
     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert!(matches!(app.job, Some(Job::SetField(..))) && app.fields_at == Some(("o".into(), 1)));
+}
+
+#[test]
+fn picker_matches_words_not_scattered_letters() {
+    let mut app = fixture();
+    let items = ["Ask Claude to draft a comment closing the PR (you edit it, then close)…", "Update Claude's review", "Check Claude's review now"];
+    app.picker = Some(Picker::new(" claude ", items.iter().map(|l| Item::new(*l, Target::Nothing)).collect()));
+    let found = |app: &mut App, q: &str| {
+        app.picker.as_mut().unwrap().query = q.into();
+        app.matches().iter().map(|&i| app.picker.as_ref().unwrap().items[i].label.clone()).collect::<Vec<_>>()
+    };
+    // "close": only what says it ("Update Claude's review" has its letters, scattered).
+    assert_eq!(found(&mut app, "close"), [items[0]]);
+    // Words in any order; what has the query whole first.
+    assert_eq!(found(&mut app, "review check"), [items[2]]);
+    assert_eq!(found(&mut app, "claude's review"), [items[1], items[2]]);
 }
