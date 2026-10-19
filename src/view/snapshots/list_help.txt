@@ -4,7 +4,9 @@
    gg ge                first / last PR
    Ctrl-d Ctrl-u        half a page down / up
    gn gp                todo (what needs you, ranked) / open PRs / PRs with a local worktree
-                        (<repo>-N, as dv N -w makes) / replacements (Claude's drafts, unpublished)
+                        (<repo>-N, as dv N -w makes) / replacements (Claude's drafts, unpublished).
+                        Can close (after open): what Claude's reviews would close, and why (its
+                        premise is wrong, or a competing PR does it better)
                         On todo: a PR or replacement waiting on you (Claude's review or answers,
                         your review requested or none yet, pushed since you reviewed, ready to
                         merge, a replacement to publish or close for), in the order Claude puts
@@ -55,6 +57,4 @@
                         (Waiting on: #N is merged.), which dv reads back for everyone: a
                         comment like that (by you or anyone with write access) defers the PR
                         till then, until a later Unblocked
-   r r                  todo: Claude ranks what needs you (one Claude run: the header says what
-                        the last cost and what's changed since, to judge if it's worth it)
 

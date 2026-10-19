@@ -44,6 +44,11 @@ the file as JSON:
 }
 ```
 
+- `close` (optional, top level): when you'd recommend closing the PR rather than reviewing
+  it on, one line saying why: its premise is wrong (what it fixes isn't broken, or it can't
+  work), or a competing PR does it better (name it: `#123 does this better: …`). dv lists
+  these PRs on its own (`dv list`'s "can close" tab). Leave it out otherwise; when updating a
+  review, remove it if it no longer holds.
 - `path` is relative to the repo root, as in the diff.
 - `line` is the line the comment is on. Add `start_line` for a range (`start_line < line`).
   These are **file line numbers**, not diff positions: on `"side": "new"` (the default) the

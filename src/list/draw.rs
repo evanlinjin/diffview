@@ -39,6 +39,7 @@ impl List {
         let names = [
             (Tab::Todo, format!("todo {}", self.todo_now())),
             (Tab::Open, format!("open {open}{}", if self.prs.len() >= github::LIST_MAX { "+" } else { "" })),
+            (Tab::CanClose, format!("can close {}", self.prs.iter().filter(|p| p.open() && self.closable.contains_key(&p.number)).count())),
             (Tab::Worktrees, format!("worktrees {}", self.local.len())),
             (Tab::Replacements, format!("drafts {}", self.reps.len())),
         ];
@@ -108,12 +109,17 @@ impl List {
                 if let Some(it) = item {
                     lines.insert(1, todo_line(i + 1, it, &cx, i == sel)); // under the title
                 }
+                // What Claude would close it for, under the title.
+                if let Some(why) = self.closable.get(&p.number).filter(|_| self.tab == Tab::CanClose) {
+                    lines.insert(1, close_line(why, &cx, i == sel));
+                }
                 lines.push(Line::raw("")); // room between cards
                 lines
             })
             .collect();
         let typed = self.query.trim().trim_start_matches('#').parse::<u64>().ok();
         let none = match (self.tab, self.query.is_empty(), typed) {
+            (Tab::CanClose, true, _) => " nothing Claude would close: its reviews say when a PR's premise is wrong, or a competing PR does it better".into(),
             (Tab::Worktrees, true, _) => " no PR worktrees here yet: `dv N -w` (or dv list -w, then Enter) makes one".into(),
             (Tab::Replacements, true, _) => " no replacements yet: A A on a PR (or marked ones) has Claude draft one".into(),
             (_, _, Some(n)) => format!(" #{n} isn't listed: Enter opens it anyway"),
@@ -161,13 +167,15 @@ impl List {
             let enter = match self.tab {
                 Tab::Todo => "see to it (opens the PR or replacement)".to_owned(),
                 Tab::Worktrees => "review, in its worktree".to_owned(),
+                Tab::CanClose => "review (Space a there drafts a closing comment)".to_owned(),
                 Tab::Replacements => "review it, in its worktree".to_owned(),
                 Tab::Open if self.flags.is_empty() => "review".to_owned(),
                 Tab::Open => format!("review (dv N {})", self.flags),
             };
             let tab = match self.tab {
                 Tab::Todo => "open PRs",
-                Tab::Open => "PRs with a worktree",
+                Tab::Open => "what Claude would close",
+                Tab::CanClose => "PRs with a worktree",
                 Tab::Worktrees => "replacements",
                 Tab::Replacements => "what needs you",
             };

@@ -153,6 +153,8 @@ pub struct List {
     reviews_mtime: Option<std::time::SystemTime>,
     /// PRs with something you haven't seen (`fresh`).
     new: HashSet<u64>,
+    /// PRs Claude's review would close, and why: the "can close" tab.
+    closable: HashMap<u64, String>,
     /// The repo, for the reviews' worktrees.
     root: PathBuf,
     pub msg: String,
@@ -588,6 +590,8 @@ impl List {
     /// Claude's review since you last left it in dv. Of those you've never opened, only the ones
     /// Claude has reviewed (else every PR would be new).
     fn find_new(&mut self) {
+        // (Claude's reviews changed meanwhile, as what's new: which it would close too.)
+        self.closable = self.reviews_dir.as_deref().map(crate::batch::closable_in).unwrap_or_default();
         self.new = self
             .prs
             .iter()
@@ -645,6 +649,7 @@ impl List {
     fn shown_cards(&self) -> Vec<(&Listed, Option<&crate::todo::Item>)> {
         let in_tab = |p: &&Listed| match self.tab {
             Tab::Worktrees => self.local.contains_key(&p.number),
+            Tab::CanClose => p.open() && self.closable.contains_key(&p.number),
             _ => p.open(),
         };
         let all: Vec<(&Listed, Option<&crate::todo::Item>)> = match self.tab {
@@ -707,6 +712,8 @@ enum Tab {
     Todo,
     #[default]
     Open,
+    /// What Claude's reviews would close: the premise is wrong, a competing PR is better.
+    CanClose,
     Worktrees,
     Replacements,
 }
@@ -715,14 +722,15 @@ impl Tab {
     fn next(self) -> Tab {
         match self {
             Tab::Todo => Tab::Open,
-            Tab::Open => Tab::Worktrees,
+            Tab::Open => Tab::CanClose,
+            Tab::CanClose => Tab::Worktrees,
             Tab::Worktrees => Tab::Replacements,
             Tab::Replacements => Tab::Todo,
         }
     }
 
     fn prev(self) -> Tab {
-        self.next().next().next()
+        self.next().next().next().next()
     }
 }
 

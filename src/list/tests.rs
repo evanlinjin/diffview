@@ -65,6 +65,9 @@ fn filter_and_keys() {
     assert_eq!(shown(&l), [1, 22, 333]); // open tab: not the merged one
     k(&mut l, KeyCode::Char('g'));
     k(&mut l, KeyCode::Char('n'));
+    // (past "can close")
+    k(&mut l, KeyCode::Char('g'));
+    k(&mut l, KeyCode::Char('n'));
     assert_eq!(shown(&l), [9, 22]); // (still by number, ascending)
     k(&mut l, KeyCode::Char('j'));
     assert!(matches!(k(&mut l, KeyCode::Enter), Some(Do::Open(22))));
@@ -74,6 +77,8 @@ fn filter_and_keys() {
     assert!(k(&mut l, KeyCode::Char('D')).is_none());
     assert!(matches!(k(&mut l, KeyCode::Char('D')), Some(Do::Remove(22))));
     // m marks (and moves on); a asks, a again has Claude review the marked ones.
+    k(&mut l, KeyCode::Char('g'));
+    k(&mut l, KeyCode::Char('p')); // (past "can close")
     k(&mut l, KeyCode::Char('g'));
     k(&mut l, KeyCode::Char('p')); // open PRs: 1, 22, 333
     k(&mut l, KeyCode::Char('g'));
@@ -110,6 +115,9 @@ fn filter_and_keys() {
     assert_eq!(l.claude_state(22), Some(("replacement ✓".into(), true)));
     l.drafting.insert(1, batch::Status::Reviewing);
     assert_eq!(l.draft_state(1, "claude"), Some(("claude: drafting…".into(), true)));
+    k(&mut l, KeyCode::Char('g'));
+    k(&mut l, KeyCode::Char('n'));
+    // (past "can close")
     k(&mut l, KeyCode::Char('g'));
     k(&mut l, KeyCode::Char('n'));
     k(&mut l, KeyCode::Char('g'));
@@ -210,6 +218,9 @@ fn screens() {
     k(&mut l, KeyCode::Esc);
     k(&mut l, KeyCode::Char('g'));
     k(&mut l, KeyCode::Char('n'));
+    // (past "can close")
+    k(&mut l, KeyCode::Char('g'));
+    k(&mut l, KeyCode::Char('n'));
     snapshot("list_worktrees", &screen(100, 8, |f| l.draw(f)));
     k(&mut l, KeyCode::Char('g'));
     k(&mut l, KeyCode::Char('n'));
@@ -261,6 +272,14 @@ fn todo_tab() {
     let review = r#"{"head": "h", "summary": "ok", "comments": [{"path": "a.rs", "line": 1, "body": "x",
         "replies": [{"author": "user", "body": "why?"}, {"author": "claude", "body": "because"}]}]}"#;
     std::fs::write(dir.join("reviews/pr-3.json"), review).unwrap();
+    // #2: Claude would close it; the "can close" tab (after open) has it, and why.
+    std::fs::write(dir.join("reviews/pr-2.json"), r##"{"head": "h", "summary": "no", "close": "#1 does this better"}"##).unwrap();
+    l.find_new();
+    l.tab = Tab::CanClose;
+    assert_eq!(l.shown().iter().map(|p| p.number).collect::<Vec<_>>(), [2]);
+    assert_eq!((Tab::Open.next(), Tab::CanClose.prev()), (Tab::CanClose, Tab::Open));
+    _ = std::fs::remove_file(dir.join("reviews/pr-2.json"));
+    l.find_new();
     l.find_todo();
     l.tab = Tab::Todo;
     let shown = |l: &List| l.shown().iter().map(|p| p.number).collect::<Vec<_>>();

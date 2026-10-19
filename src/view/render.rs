@@ -647,8 +647,8 @@ impl App {
             (n, 0) => format!("{n} threads"),
             (n, c) => format!("{n} threads + {c} Claude"),
         };
-        // (The pane's tabs shown: they count the threads, one way.)
-        let tabs = self.margin_active;
+        // (The pane's tabs shown, on the pinned title: they count the threads, one way.)
+        let tabs = self.pin && self.margin_active;
         match &self.pr {
             Some(_) if tabs => format!("{seen}/{on_github} viewed{pending}"),
             Some(_) => format!("{threads} · {seen}/{on_github} viewed{pending}"),

@@ -267,6 +267,15 @@ fn cut_spans(spans: Vec<Span<'static>>, w: usize) -> Vec<Span<'static>> {
 
 /// A todo card's reason line, under the title: its place in the order, and what needs you
 /// (Claude's word, or the needs).
+/// Under a card's title on the "can close" tab: why Claude's review would close the PR.
+pub(super) fn close_line(why: &str, cx: &Cards, selected: bool) -> Line<'static> {
+    let row = card_row(cx.ui, selected);
+    let bar = Span::styled(if selected { "▌" } else { " " }, row.patch(Style { bg: None, ..cx.ui.key }));
+    let lead = format!("{}{:w$}  ✕ ", " ".repeat(MARK_W), "", w = cx.num_w - 1);
+    let text: String = why.lines().next().unwrap_or("").chars().take(cx.width.saturating_sub(lead.chars().count() + 2)).collect();
+    Line::from(vec![bar, Span::styled(lead, row), Span::styled(text, row.patch(Style { bg: None, ..cx.ui.warning }))])
+}
+
 pub(super) fn todo_line(rank: usize, it: &crate::todo::Item, cx: &Cards, selected: bool) -> Line<'static> {
     let ui = cx.ui;
     let row = card_row(ui, selected);

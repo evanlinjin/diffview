@@ -5,6 +5,17 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.59] - 2026-10-19
+
+### Added
+- `dv list`'s "can close" tab (after open): the PRs Claude's review would close, and why, under
+  each card's title: its premise is wrong, or a competing PR does it better. Claude says so in
+  the review file's new top-level `"close"` (the skill asks it to when it would).
+
+### Fixed
+- The title's thread counts give way to the pane's tabs only where the tabs are drawn (on a
+  pinned title), not when there's none.
+
 ## [0.34.58] - 2026-10-19
 
 ### Changed

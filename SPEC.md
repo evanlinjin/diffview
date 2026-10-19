@@ -348,7 +348,7 @@ the background (after your editor, for optional instructions to every one of tho
 from your last review instructions in this repo, as `Space a` → review does; `:cq` cancels), two at a time, each in its `<repo>-N` worktree (made if need be; one on the
 PR's branch stays on it) and its own session; cards show `claude: reviewing…` and then
 `claude ✓`. `A A` has Claude draft one replacement for the marked PRs (or the selected
-one): see Replacements below. `gn` / `gp` go round todo / open / worktrees / replacements. `[new]` (before the age) marks a PR with something you haven't seen: GitHub updated
+one): see Replacements below. `gn` / `gp` go round todo / open / can close / worktrees / replacements. Can close: the open PRs Claude's review would close (its `"close"`: one line on why, its premise is wrong or a competing PR does it better, which the card shows under its title, `✕ …`); Enter reviews one, where `Space a` drafts a comment closing it. `[new]` (before the age) marks a PR with something you haven't seen: GitHub updated
 it, or Claude's review changed, since you last left it in dv (`seen/pr-N.looked`); of PRs
 you've never opened, only those Claude has reviewed. `D D` in the worktrees tab removes the worktree (not with local changes; the branch
 stays). Quitting the review returns to the list; if opening a PR fails, the
