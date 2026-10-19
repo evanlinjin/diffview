@@ -5,6 +5,21 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-10-19
+
+### Changed
+- Enter does what `gf` did, off code: the link, `file:line` or name under the cursor (on code,
+  as before: the file in your editor). `gf` is gone; the hints say Enter.
+
+### Fixed
+- A new comment for Claude left empty is cancelled again (only a reply's empty editor means
+  "what Claude's comment says", and the editor says so).
+- One reply to several comments: a comment gone meanwhile doesn't stop the others being
+  answered (said which).
+- Making the changes: a comment's own `want` (amend, commit) wins over how the run lands them;
+  on someone else's PR, made here, they land as commits by default (what `Space g` pushes).
+- An amend or commit asked for while Claude's pane is at work in the checkout waits for it.
+
 ## [0.38.1] - 2026-10-19
 
 ### Changed
