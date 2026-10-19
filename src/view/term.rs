@@ -104,8 +104,10 @@ pub(crate) struct Writing {
     path: PathBuf,
     /// Where the editor's exit status lands as it quits.
     done: PathBuf,
-    /// Its pane (`terminal_N`): closed some other way (from zellij), it's cancelled.
-    pane: String,
+    /// Where the shell running the editor in its pane notes its pid: that gone (the pane closed
+    /// from zellij) without the editor quitting, it's cancelled. (Not asked of zellij, which
+    /// can't always list its panes.)
+    pid: PathBuf,
     looked: std::time::Instant,
     /// As `compose_with` was asked: the text's made of what's written as it would have been.
     allow_empty: bool,
@@ -129,11 +131,13 @@ impl Writing {
     pub(super) fn done(&mut self) -> Option<Option<String>> {
         let status = match std::fs::read_to_string(&self.done) {
             Ok(s) => s,
-            // (Its pane looked for every few seconds; gone only if zellij says so, and the
-            // editor didn't quit just then.)
-            Err(_) if !self.pane.is_empty() && self.looked.elapsed() > std::time::Duration::from_secs(3) => {
+            // (Its shell looked for every few seconds; gone only if it's gone, and the editor
+            // didn't quit just then. Not started yet, no pid: still writing.)
+            Err(_) if self.looked.elapsed() > std::time::Duration::from_secs(3) => {
                 self.looked = std::time::Instant::now();
-                if crate::pane::state(&self.pane) != Some(false) {
+                let pid = std::fs::read_to_string(&self.pid).unwrap_or_default();
+                let alive = |p: &str| std::process::Command::new("kill").args(["-0", p.trim()]).stderr(std::process::Stdio::null()).status().is_ok_and(|s| s.success());
+                if pid.trim().is_empty() || alive(&pid) {
                     return None;
                 }
                 std::fs::read_to_string(&self.done).unwrap_or_default()
@@ -142,6 +146,7 @@ impl Writing {
         };
         let text = std::fs::read_to_string(&self.path).unwrap_or_default();
         _ = std::fs::remove_file(&self.done);
+        _ = std::fs::remove_file(&self.pid);
         let closed = status.is_empty();
         // Closed from zellij with something saved: kept, not lost.
         // (Something of yours: not just the prefill it started with.)
@@ -222,17 +227,17 @@ pub(crate) fn compose_with(what: &str, allow_empty: bool, prefill: &str, untouch
     let args: Vec<String> = parts.map(str::to_owned).chain([arg]).collect();
     if beside.is_some() {
         // Not waited for: its exit status lands in `done` as it quits (whole: moved there).
-        let done = path.with_extension("done");
+        let (done, pid) = (path.with_extension("done"), path.with_extension("pid"));
         _ = std::fs::remove_file(&done);
+        _ = std::fs::remove_file(&pid);
         let q = |p: &Path| format!("'{}'", p.to_string_lossy().replace('\'', "'\\''"));
-        let script = format!("\"$0\" \"$@\"; echo $? > {tmp} && mv {tmp} {done}", tmp = q(&path.with_extension("done.tmp")), done = q(&done));
+        let script = format!("echo $$ > {pid}; \"$0\" \"$@\"; echo $? > {tmp} && mv {tmp} {done}", pid = q(&pid), tmp = q(&path.with_extension("done.tmp")), done = q(&done));
         let sh: Vec<String> = ["-c".to_owned(), script, prog.to_owned()].into_iter().chain(args).collect();
-        let (st, pane) = zellij_pane("sh", &sh, &format!("dv: {what}"), &std::env::current_dir()?, false)?;
+        let (st, _) = zellij_pane("sh", &sh, &format!("dv: {what}"), &std::env::current_dir()?, false)?;
         anyhow::ensure!(st.success(), "zellij run failed ({st})");
-        let pane = pane.unwrap_or_default();
         let looked = std::time::Instant::now();
         let prefill = prefill.to_owned();
-        return Err(Writing { path, done, pane, looked, allow_empty, prefill, untouched_ok, kept: None }.into());
+        return Err(Writing { path, done, pid, looked, allow_empty, prefill, untouched_ok, kept: None }.into());
     }
     let st = interactive(prog, &args, &format!("dv: {what}"))?;
     let text = std::fs::read_to_string(&path).unwrap_or_default();
@@ -267,7 +272,7 @@ fn written_beside_then_done_again() {
     let (path, done) = (dir.join("c.md"), dir.join("c.done"));
     std::fs::write(&path, format!("> quote\n\nmy reply\n{HINT} reply. Save and quit when done -->\n")).unwrap();
     let looked = std::time::Instant::now();
-    let mut w = Writing { path: path.clone(), done: done.clone(), pane: String::new(), looked, allow_empty: false, prefill: "> quote".into(), untouched_ok: false, kept: None };
+    let mut w = Writing { path: path.clone(), done: done.clone(), pid: path.with_extension("pid"), looked, allow_empty: false, prefill: "> quote".into(), untouched_ok: false, kept: None };
     assert_eq!(w.done(), None); // still writing
     std::fs::write(&done, "0\n").unwrap();
     let text = w.done().unwrap();
@@ -277,6 +282,16 @@ fn written_beside_then_done_again() {
     assert_eq!((got, left), (text.clone(), None));
     let (_, left) = writing_beside(false, Some(text.clone()), || ());
     assert_eq!(left, Some(text));
+    // Its pane closed from zellij: its shell's gone, the editor never quit. Kept, not lost.
+    std::fs::write(&path, "> quote\n\nhalf a reply\n").unwrap();
+    let mut gone = std::process::Command::new("true").spawn().unwrap();
+    gone.wait().unwrap();
+    std::fs::write(path.with_extension("pid"), gone.id().to_string()).unwrap();
+    w.looked = std::time::Instant::now() - std::time::Duration::from_secs(4);
+    assert_eq!(w.done(), Some(None));
+    let kept = w.kept.take().unwrap();
+    assert_eq!(std::fs::read_to_string(&kept).unwrap(), "> quote\n\nhalf a reply\n");
+    _ = std::fs::remove_file(kept);
     // `:cq`: cancelled; just the prefill: nothing.
     std::fs::write(&path, "x\n").unwrap();
     std::fs::write(&done, "1\n").unwrap();
@@ -292,5 +307,6 @@ fn written_beside_then_done_again() {
 pub(super) fn test_writing() -> Writing {
     let path = temp_file("dv-test-writing");
     let (done, looked) = (path.with_extension("done"), std::time::Instant::now());
-    Writing { path, done, pane: String::new(), looked, allow_empty: false, prefill: String::new(), untouched_ok: false, kept: None }
+    let pid = path.with_extension("pid");
+    Writing { path, done, pid, looked, allow_empty: false, prefill: String::new(), untouched_ok: false, kept: None }
 }
