@@ -610,7 +610,6 @@ pub struct Deferral {
 /// Items deferred (`s`), by key.
 pub type Deferred = std::collections::HashMap<String, Deferral>;
 
-/// Where they're kept: `deferred.json` in dv's directory.
 /// Where `of`'s deferrals are kept (each list its own: neither writes over the other's).
 pub fn deferred_path_of(of: Of) -> Option<std::path::PathBuf> {
     let name = match of {
@@ -651,8 +650,6 @@ pub fn save_deferred(p: Option<&std::path::Path>, d: &Deferred) -> Result<()> {
     Ok(std::fs::write(p, Value::Object(v).to_string())?)
 }
 
-/// `items` with what's deferred (and still needs what it did then, and isn't `met`) moved to the
-/// end, marked.
 /// How long `s` then `c` defers an item for: (seconds, in words). `1` an hour, `4` four hours,
 /// `d` a day, else a week.
 pub fn defer_secs(c: char) -> (i64, &'static str) {
@@ -664,6 +661,8 @@ pub fn defer_secs(c: char) -> (i64, &'static str) {
     }
 }
 
+/// `items` with what's deferred (and still needs what it did then, and isn't `met`) moved to the
+/// end, marked.
 pub fn defer(items: Vec<Item>, deferred: &Deferred, now: i64, met: impl Fn(&Item, &Until) -> bool) -> Vec<Item> {
     let waiting = |it: &Item| {
         deferred.get(&it.key()).filter(|d| d.until > now && d.needs == it.needs_key() && !d.cond.as_ref().is_some_and(|c| met(it, c)))
@@ -704,8 +703,7 @@ pub fn interpret(text: String, root: std::path::PathBuf) -> Receiver<Result<Unti
     rx
 }
 
-/// The last ranking (`todo.json` in dv's directory), if any.
-/// The last ranking of `of`.
+/// The last ranking of `of` (`todo.json`, `todo-issues.json` in dv's directory), if any.
 pub fn load_of(of: Of) -> Option<Ranked> {
     let v: Value = serde_json::from_str(&std::fs::read_to_string(path(of)?).ok()?).ok()?;
     let items = v["items"].as_array()?.iter().map(|i| (i["key"].as_str().unwrap_or("").to_owned(), i["says"].as_str().unwrap_or("").to_owned())).collect();
@@ -742,8 +740,6 @@ pub fn about(it: &Item, pr: &Listed, summary: &str) -> String {
     v.to_string()
 }
 
-/// Claude puts `lines` (from `about`) in order, in the background, and the ranking is saved;
-/// `fingerprint` is what it's of. It only reads (the PRs, on GitHub).
 /// Claude ranks `of`'s items (`lines`, as `about` / `about_issue` put each), in the background;
 /// kept as `of`'s last ranking.
 pub fn rank_of(lines: Vec<String>, fingerprint: String, root: std::path::PathBuf, of: Of) -> Receiver<Result<Ranked>> {
