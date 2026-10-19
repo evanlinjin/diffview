@@ -28,10 +28,14 @@ impl App {
         // On a replacement's drafts: a redraft, with what it's about quoted.
         if let Some(which) = self.replacement_draft(self.head.row) {
             let (s, e) = self.ordered();
-            let info = self.rows[self.head.row].info;
-            // (The draft's own lines: not what you asked of it, beside it.)
+            // The draft's own text: its section's lines of its markdown (not its header, the line
+            // saying what it replaces, what you asked of it beside it, nor another draft's).
+            let text = |r: usize| {
+                let row = &self.rows[r];
+                self.replacement_draft(r) == Some(which) && row.main.is_some() && row.line.kind != Kind::File && row.info.is_some_and(|i| self.info.get(i).is_some_and(|l| l.md))
+            };
             let lines: Vec<String> = (s.row..=e.row)
-                .filter(|&r| self.rows[r].info == info && self.rows[r].main.is_some() && self.rows[r].line.kind != Kind::File)
+                .filter(|&r| text(r))
                 .map(|r| format!("> {}", self.rows[r].line.text.trim_end()))
                 .collect();
             let prs = self.replacement.as_ref().map(crate::replace::Record::ids).unwrap_or_default();
