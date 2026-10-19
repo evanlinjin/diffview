@@ -3,7 +3,7 @@
 //! next (`rank`), and on the top ones does its own part first (`Item::claude`: a review, an
 //! update to one, answers to your replies), so each is ready when you get to it.
 use crate::batch::Task;
-use crate::gh::{Extra, Listed};
+use crate::list::{Extra, Listed};
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use std::sync::mpsc::{self, Receiver};

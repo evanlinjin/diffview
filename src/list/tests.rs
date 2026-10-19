@@ -249,7 +249,7 @@ fn todo_tab() {
     (l.reviews_dir, l.ranked, l.deferred, l.deferred_file) = (Some(dir.join("reviews")), None, Default::default(), None);
     l.prs = vec![pr(1, "Fix fees", "amy"), pr(2, "Docs", "bo"), pr(3, "Mine", "me")];
     l.me = "me".into();
-    let extra = |requested| gh::Extra { requested, mergeable: "MERGEABLE".into(), head_oid: "h".into(), ..Default::default() };
+    let extra = |requested| crate::list::Extra { requested, mergeable: "MERGEABLE".into(), head_oid: "h".into(), ..Default::default() };
     l.extra = HashMap::from([(1, extra(false)), (2, extra(true)), (3, extra(false))]);
     // #3: Claude answered you there.
     let review = r#"{"head": "h", "summary": "ok", "comments": [{"path": "a.rs", "line": 1, "body": "x",
@@ -309,7 +309,7 @@ fn defer_from_the_todo_tab() {
     (l.reviews_dir, l.ranked, l.deferred_file, l.deferred) = (Some(dir.join("reviews")), None, Some(dir.join("deferred.json")), Default::default());
     l.prs = vec![pr(1, "amy"), pr(2, "bo")];
     l.me = "me".into();
-    let extra = |requested| gh::Extra { requested, mergeable: "MERGEABLE".into(), head_oid: "h".into(), ..Default::default() };
+    let extra = |requested| crate::list::Extra { requested, mergeable: "MERGEABLE".into(), head_oid: "h".into(), ..Default::default() };
     l.extra = HashMap::from([(1, extra(true)), (2, extra(false))]);
     l.find_todo();
     l.tab = Tab::Todo;
@@ -441,7 +441,7 @@ fn drafting_a_replacement_on_the_todo_tab() {
     (l.ranked, l.deferred, l.deferred_file) = (None, Default::default(), None);
     l.prs = vec![pr(1, "amy"), pr(2, "bo"), pr(3, "cy")];
     l.me = "me".into();
-    let extra = || gh::Extra { requested: true, mergeable: "MERGEABLE".into(), head_oid: "h".into(), ..Default::default() };
+    let extra = || crate::list::Extra { requested: true, mergeable: "MERGEABLE".into(), head_oid: "h".into(), ..Default::default() };
     l.extra = HashMap::from([(1, extra()), (2, extra()), (3, extra())]);
     let order = |l: &mut List| {
         l.find_todo();
@@ -511,7 +511,7 @@ fn closed_worktree_prs_looked_up_in_the_background() {
     // A worktree's PR not in the list shows as being looked up (not open: not on the open tab
     // nor the todo), then as GitHub has it; a closed one's mark goes, a failed lookup says so.
     let mut l = List::new("-wb".into());
-    let looking = |n| Listed { number: n, title: "(looking it up…)".into(), state: gh::LOOKING.into(), ..Listed::default() };
+    let looking = |n| Listed { number: n, title: "(looking it up…)".into(), state: crate::list::LOOKING.into(), ..Listed::default() };
     l.prs = vec![looking(3), looking(9)];
     l.marked = HashSet::from([3, 9]);
     l.gone_pending = HashSet::from([3, 9]);
