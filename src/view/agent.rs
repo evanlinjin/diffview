@@ -122,7 +122,9 @@ impl App {
     /// conflicts are in the way; a question, a description, a closing comment don't.
     pub(super) fn claude_blocked(&self, ask: Option<Ask>) -> Option<String> {
         let edits = ask.is_none_or(|a| self.edits(a));
-        if self.claude_busy() {
+        // (Its pane working is no bar: what you send there waits in its input, as Claude Code
+        // has it.)
+        if self.claude.job.is_some() || self.replacement.as_ref().is_some_and(|r| r.drafting_now()) {
             return Some("Claude is still working on the last request".into());
         }
         // A rebase stopped part way: the tree has its conflicts, HEAD is detached.
@@ -132,10 +134,11 @@ impl App {
         None
     }
 
-    /// Claude is at work in this checkout: a run of this dv's, or (a replacement) its redraft,
-    /// from any dv. Nothing here rewrites the branch or commits under it meanwhile.
+    /// Claude is at work in this checkout: a run of this dv's, its pane working, or (a
+    /// replacement) its redraft, from any dv. Nothing here rewrites the branch or commits under
+    /// it meanwhile.
     pub(super) fn claude_busy(&self) -> bool {
-        self.claude.job.is_some() || self.replacement.as_ref().is_some_and(|r| r.drafting_now())
+        self.claude.job.is_some() || self.claude.pane_busy || self.replacement.as_ref().is_some_and(|r| r.drafting_now())
     }
 
     /// Why `ask` can't go to the PR's Claude pane, where it would (one is open): the pane is
@@ -245,7 +248,7 @@ impl App {
                 format!("Draft a replacement for #{} (Claude writes it properly, unpublished, in the background)", p.number),
                 Target::Do(Action::Replace(vec![p.number], None)),
             )),
-            (None, Some(r)) if r.drafting_now() => items.push(Item::new("Claude is drafting this replacement (dv shows it as it goes)", Target::Nothing)),
+            (None, Some(r)) if r.drafting_now() => items.push(Item::new("Claude is at work on this replacement (dv shows it as it goes)", Target::Nothing)),
             (None, Some(r)) => items.push(Item::new(
                 "Redraft this (Claude carries on, with your instructions)",
                 Target::Do(Action::Replace(r.ids(), None)),

@@ -248,8 +248,8 @@ impl List {
                 };
                 prs.sort();
                 let id = *prs.first()?;
-                if self.drafting.get(&id).is_some_and(batch::Status::running) || self.drafting_elsewhere.contains(&id) {
-                    return (self.msg = format!("Claude is already drafting {}", crate::replace::label(id)), None).1;
+                if self.rep_busy(id) {
+                    return (self.msg = format!("Claude is already at work on {}", crate::replace::label(id)), None).1;
                 }
                 let which = prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(" ");
                 let again = if self.rep_of.contains_key(&id) { " (again: it has one, which Claude carries on from)" } else { "" };

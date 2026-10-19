@@ -11,7 +11,7 @@ impl App {
         let dirty = !diff::git(&["-C", &self.root.to_string_lossy(), "status", "--porcelain"]).unwrap_or_default().trim().is_empty();
         let to = crate::replace::remote().map_or("your remote: dv asks which".to_owned(), |r| format!("to {r}"));
         let mut items = match r.published {
-            _ if r.drafting_now() => vec![item("Claude is drafting it: wait for it to finish".into(), Target::Nothing)],
+            _ if r.drafting_now() => vec![item("Claude is at work on it: wait for it to finish".into(), Target::Nothing)],
             None if r.title.is_empty() => vec![item("Claude hasn't drafted it yet (Space a → Redraft)".into(), Target::Nothing)],
             // Only commits are published: what isn't committed would be left out.
             None if dirty => {

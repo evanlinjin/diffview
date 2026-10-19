@@ -457,6 +457,8 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
         e => e,
     };
     let mut set_up = false;
+    // What it was given of what you asked (by text and draft: Claude may reorder the record).
+    let mut given: Vec<(String, String)> = vec![];
     let res = (|| {
         let dir = match prs {
             [id] if is_new(*id) => prepare_new(*id, root)?,
@@ -468,15 +470,16 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
             r.taking = r.asks.len();
             Ok(r.clone())
         })?;
+        given = r.asks.iter().filter(|a| !a.done()).map(|a| (a.text.clone(), a.on.clone())).collect();
         run_claude(&r, &dir, first, if first { extra } else { "" }, prepared)
     })();
     // Claude has written to the record meanwhile (its answers): the mark comes off; a change
     // it was given and made (it finished) without saying so is done all the same, not asked
     // again and again.
     _ = update(id, |now| {
-        let taken = std::mem::take(&mut now.taking);
-        now.drafting = None;
-        for a in now.asks.iter_mut().take(taken).filter(|a| res.is_ok() && a.want != "ask" && !a.done()) {
+        (now.drafting, now.taking) = (None, 0);
+        let was_given = |a: &Request| given.iter().any(|(t, on)| *t == a.text && *on == a.on);
+        for a in now.asks.iter_mut().filter(|a| res.is_ok() && a.want != "ask" && !a.done() && was_given(a)) {
             a.answer = NO_ANSWER.into();
         }
         Ok(())

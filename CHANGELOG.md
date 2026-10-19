@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.69] - 2026-10-19
+
+### Fixed
+- Claude at work in a replacement's pane (zellij: dv's, or one you started there) holds back a
+  redraft from dv list or from dv, and dv's commit, amend, rebase and publish (only its
+  background runs did); asking Claude more still goes to its pane.
+- A redraft marks done what you asked that it was given, by text, whatever Claude did to the
+  record's order.
+- Menus say "Claude is at work on it", not "drafting", while dv's own run holds a replacement.
+
 ## [0.34.68] - 2026-10-19
 
 ### Changed

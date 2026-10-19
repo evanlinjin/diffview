@@ -487,6 +487,12 @@ impl List {
 
     /// What Claude is doing on PR `n` now, if anything: a run from here (`a a`), or any dv's
     /// (its marker in dv's directory, `running`).
+    /// Claude at work on replacement `id`'s checkout: drafting it (here, another dv), or in a pane
+    /// there (dv's run, or one you started): nothing else starts there meanwhile.
+    pub(super) fn rep_busy(&self, id: u64) -> bool {
+        self.drafting.get(&id).is_some_and(batch::Status::running) || self.drafting_elsewhere.contains(&id) || self.running_reps.contains_key(&id)
+    }
+
     /// Claude is drafting a replacement of PR `n` (here, or in another dv).
     pub(super) fn drafting_replacement(&self, n: u64) -> bool {
         self.rep_of.values().filter(|r| r.id == n || r.replaces.iter().any(|o| o.number == n)).any(|r| {

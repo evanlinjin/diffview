@@ -489,7 +489,7 @@ impl List {
                 Err(e) => return self.msg = format!("{e:#}"),
             }
         }
-        groups.retain(|g| !g.is_empty() && !self.drafting_elsewhere.contains(&g[0]) && !self.drafting.get(&g[0]).is_some_and(batch::Status::running));
+        groups.retain(|g| !g.is_empty() && !self.rep_busy(g[0]));
         if groups.is_empty() {
             return self.msg = "nothing to draft".into();
         }

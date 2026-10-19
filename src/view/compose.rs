@@ -215,7 +215,10 @@ impl App {
                 Ok(keep_on_error(Err(anyhow::anyhow!(why)), &extra).err().map_or(String::new(), |e| format!("{e:#}")))
             }
             Action::Replace(prs, about) => {
-                let drafting = || crate::replace::load(prs[0]).is_ok_and(|r| r.drafting_now());
+                // Claude at work in its checkout: drafting it (from anywhere), or this dv's run or
+                // pane there (a replacement's view is its checkout).
+                let here = self.claude.job.is_some() || self.claude.pane_busy;
+                let drafting = || here || crate::replace::load(prs[0]).is_ok_and(|r| r.drafting_now());
                 let which = prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(", ");
                 // Drafted already: what you want is asked of its drafts (kept with them, shown
                 // there), for the redraft to take in.
