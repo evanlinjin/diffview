@@ -29,14 +29,15 @@ impl App {
         if let Some(which) = self.replacement_draft(self.head.row) {
             let (s, e) = self.ordered();
             let info = self.rows[self.head.row].info;
+            // (The draft's own lines: not what you asked of it, beside it.)
             let lines: Vec<String> = (s.row..=e.row)
-                .filter(|&r| self.rows[r].info == info)
+                .filter(|&r| self.rows[r].info == info && self.rows[r].main.is_some() && self.rows[r].line.kind != Kind::File)
                 .map(|r| format!("> {}", self.rows[r].line.text.trim_end()))
                 .collect();
             let prs = self.replacement.as_ref().map(crate::replace::Record::ids).unwrap_or_default();
             self.select = false;
             // What you want of it first, as on a PR's comments.
-            return self.pick_want(Action::Replace(prs, Some((which, format!("About the {which}:\n{}\n\n", lines.join("\n")), ""))), None);
+            return self.pick_want(Action::Replace(prs, Some((which, format!("About the {which}:\n{}\n", lines.iter().map(|l| format!("{l}\n")).collect::<String>()), ""))), None);
         }
         if self.claude.path.is_none() {
             return self.msg = "no review file here (not in a git repo?)".into();
@@ -50,6 +51,10 @@ impl App {
             };
             self.select = false;
             return self.action = Some(Action::AskConversation { url: ON_SUMMARY.into(), prefill, want: "" });
+        }
+        // A published replacement's closing note: yours to change as it goes out.
+        if self.section_of(self.head.row) == Some(CLOSING_NOTE) {
+            return self.msg = "S closes what it replaces with it, after your editor has it to change".into();
         }
         // On the PR's description: Claude proposes a new one (more changes, if it has).
         if self.section_of(self.head.row) == Some(DESCRIPTION) {

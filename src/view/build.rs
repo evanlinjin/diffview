@@ -755,6 +755,7 @@ impl App {
         let mut rows = vec![];
         for (i, a) in r.asks.iter().enumerate().filter(|(_, a)| on.contains(&a.on.as_str())) {
             let state = match (a.done(), drafting && i < r.taking) {
+                (true, _) if a.want == "ask" => "answered",
                 (true, _) => "redrafted with it",
                 (false, true) => "Claude is redrafting with it",
                 (false, false) => "not redrafted with it yet",
@@ -1017,7 +1018,9 @@ impl App {
         if row.thread.is_some_and(|t| !self.thread_open(t)) {
             return None; // a folded thread stays a single line
         }
-        let first = r == 0 || key(&self.rows[r - 1]) != Some(k);
+        // (After a box's bottom edge, another box: boxes in a row on the same text, as what
+        // you asked of a draft.)
+        let first = r == 0 || self.rows[r - 1].edge || key(&self.rows[r - 1]) != Some(k);
         Some(match (row.edge, row.line.kind, first) {
             (true, ..) => BoxPart::Bottom,
             (_, _, true) => BoxPart::Top,
@@ -1112,11 +1115,14 @@ impl App {
             return self.msg = "nothing to fold here".into();
         }
         if attached && self.view != View::Pending {
-            if !self.rows.iter().any(|r| r.main == Some(DESCRIPTION) && r.line.kind == Kind::File) {
+            // The section it's beside: its text's (what you asked of a draft), else the description.
+            let info = self.rows[self.head.row].info;
+            let id = self.rows.iter().find(|r| r.main.is_some() && info.is_some() && r.info == info).and_then(|r| r.main).unwrap_or(DESCRIPTION);
+            if !self.rows.iter().any(|r| r.main == Some(id) && r.line.kind == Kind::File) {
                 return self.msg = "nothing to fold here".into();
             }
-            flip(&mut self.sections_folded, DESCRIPTION);
-            return self.rebuild_at(|r| r.main == Some(DESCRIPTION) && r.line.kind == Kind::File);
+            flip(&mut self.sections_folded, id);
+            return self.rebuild_at(move |r| r.main == Some(id) && r.line.kind == Kind::File);
         }
         if let Some(id) = self.section_of(self.head.row) {
             if !self.sections_folded.remove(&id) {

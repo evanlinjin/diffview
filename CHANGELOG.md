@@ -5,10 +5,18 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.47] - 2026-10-19
+
 ### Added
 - Code blocks in Markdown files and in Rust doc comments (`///`, `//!`) are highlighted in
   their language: a fence's first word (`rust,no_run` is Rust), and in doc comments, as rustdoc
   has it, Rust when it names none (or only `ignore`, `no_run`, ...).
+
+### Fixed
+- What you asked of a replacement's drafts: each in a box of its own (several on one draft ran
+  together); `a` on one doesn't quote it as the draft's text; Tab on one beside the closing note
+  folds the closing note (not the description); an answered question says "answered".
+- `a` on a published replacement's closing note says `S` closes what it replaces with it.
 
 ## [0.34.46] - 2026-10-19
 

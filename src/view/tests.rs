@@ -1389,10 +1389,17 @@ fn replacement_in_the_pr_section() {
     let at = |s: &str| text.iter().position(|t| t.contains(s)).unwrap();
     // (Answered: done, Claude's answer under what you asked, in its box.)
     assert!(at("Claude is redrafting with it") < at("Say why.") && at("Say why.") < at("[change] · not redrafted with it yet") && at("[change] · not redrafted with it yet") < at("Shorter."), "{text:#?}");
-    assert!(at("Shorter.") < at("[ask] · redrafted with it") && at("[ask] · redrafted with it") < at("Why two?") && at("Why two?") < at("◆ claude") && at("◆ claude") < at("One per original."), "{text:#?}");
-    // a on a box: about the draft it's beside, as on the draft.
+    assert!(at("Shorter.") < at("[ask] · answered") && at("[ask] · answered") < at("Why two?") && at("Why two?") < at("◆ claude") && at("◆ claude") < at("One per original."), "{text:#?}");
+    // Each ask its own box (one after another on the same draft).
+    let tops = (0..app.rows.len()).filter(|&r| app.rows[r].line.text.starts_with("you · asked of the drafts") && app.box_part(r) == Some(BoxPart::Top)).count();
+    assert_eq!(tops, 3);
+    // a on a box: about the draft it's beside, as on the draft, not quoting the box as its text.
     app.goto(at("Why two?"), 0);
     assert_eq!(app.replacement_draft(app.head.row), Some("description"));
+    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+    app.picker = None;
+    app.want("ask");
+    assert!(matches!(app.action.take(), Some(Action::Replace(_, Some(("description", q, "ask")))) if q == "About the description:\n\n"), "the box quoted");
     let mut r = app.replacement.clone().unwrap();
     r.drafting = None;
     app.show_replacement(r);
