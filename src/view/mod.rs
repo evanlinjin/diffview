@@ -112,6 +112,7 @@ ON A REVIEW THREAD
   r                    reply, in your pending review (C: post it now)
   Space r              resolve / unresolve
   Space =              react (👍 🎉 …), or take your reaction back (PR comments too)
+  Space l              the PR's labels and assignees: add or remove
   Space e  Space d     edit / delete your comment (delete asks first)
 
 ON CLAUDE'S COMMENT
@@ -343,6 +344,10 @@ enum Job {
     Reactions(String),
     /// Fetch the base branch and rebase onto it (Claude resolving conflicts).
     Rebase,
+    /// Ask GitHub for the PR's labels and assignees, and what it could have, for the picker.
+    Labels,
+    /// Add (`true`) or remove a label (`true`) or an assignee, by name.
+    SetLabel(bool, String, bool),
     /// Push HEAD to the PR's branch (`true`: force, with a lease on the PR's head).
     Push(bool),
     /// Send what was written in the editor.
@@ -390,6 +395,8 @@ enum Target {
     ClaudeStop,
     GitView,
     GitCommit,
+    /// Add (`true`) or remove a label (`true`) or an assignee, by name.
+    SetLabel(bool, String, bool),
     /// React to a comment (node id, reaction), or take yours back (`false`).
     React(String, &'static str, bool),
     /// Update the checkout: to the PR's head (fast-forward only), or `git pull --ff-only`.

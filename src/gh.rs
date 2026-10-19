@@ -794,6 +794,35 @@ pub fn set_viewed(pr_id: &str, path: &str, viewed: bool) -> Result<()> {
     mutate(q, json!({ "pr": pr_id, "path": path })).map(drop)
 }
 
+/// PR `n`'s labels and assignees, and what it could have: the repo's labels and the people it
+/// can be assigned to. ((name, on it), (login, on it)), sorted, those on it first.
+pub fn labels_and_assignees(n: u64) -> Result<(Vec<(String, bool)>, Vec<(String, bool)>)> {
+    let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", "labels,assignees"])?)?;
+    let on = |k: &str, f: &str| -> Vec<String> { v[k].as_array().into_iter().flatten().filter_map(|x| x[f].as_str().map(str::to_owned)).collect() };
+    let (labels, assigned) = (on("labels", "name"), on("assignees", "login"));
+    let all: Value = serde_json::from_str(&gh(&["label", "list", "--limit", "500", "--json", "name"])?)?;
+    let all: Vec<String> = all.as_array().into_iter().flatten().filter_map(|x| x["name"].as_str().map(str::to_owned)).collect();
+    let people = gh(&["api", "--paginate", "repos/{owner}/{repo}/assignees", "-q", ".[].login"]).unwrap_or_default();
+    let mark = |all: Vec<String>, on: &[String]| {
+        let mut out: Vec<(String, bool)> = all.into_iter().chain(on.iter().cloned()).map(|x| (x.clone(), on.contains(&x))).collect();
+        out.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.to_lowercase().cmp(&b.0.to_lowercase())));
+        out.dedup();
+        out
+    };
+    Ok((mark(all, &labels), mark(people.lines().map(str::to_owned).collect(), &assigned)))
+}
+
+/// Add (`on`) or remove a label on PR `n`, or (`label` false) an assignee.
+pub fn set_label_or_assignee(n: u64, label: bool, name: &str, on: bool) -> Result<()> {
+    let flag = match (label, on) {
+        (true, true) => "--add-label",
+        (true, false) => "--remove-label",
+        (false, true) => "--add-assignee",
+        (false, false) => "--remove-assignee",
+    };
+    gh(&["pr", "edit", &n.to_string(), flag, name]).map(drop)
+}
+
 pub fn set_resolved(thread: &str, resolved: bool) -> Result<()> {
     let q = match resolved {
         true => "mutation($t: ID!) { resolveReviewThread(input: { threadId: $t }) { thread { isResolved } } }",
@@ -1012,7 +1041,7 @@ pub fn unsigned_blocking(n: u64) -> Result<Option<String>> {
 }
 
 const INFO_FIELDS: &str = "headRefOid,title,author,state,isDraft,url,baseRefName,headRefName,additions,deletions,\
-changedFiles,labels,reviewDecision,reviewRequests,latestReviews,statusCheckRollup,body,comments,reviews,id,reactionGroups";
+changedFiles,labels,assignees,reviewDecision,reviewRequests,latestReviews,statusCheckRollup,body,comments,reviews,id,reactionGroups";
 
 /// PR info lines, plus the current (title, head commit, url) so a refresh picks up new pushes.
 /// GitHub's answer, as JSON (dv caches it; `parse_info` reads it).
@@ -1088,6 +1117,15 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         l.put("labels", Some(Mark::Dim));
         for lb in &labels {
             l.put(" ", None).put(&format!(" {} ", s(&lb["name"])), Some(Mark::Chip(s(&lb["color"]))));
+        }
+        out.push(l);
+    }
+    let assigned = list(&v["assignees"]);
+    if !assigned.is_empty() {
+        let mut l = InfoLine::new(false, false);
+        l.put("assigned", Some(Mark::Dim));
+        for a in &assigned {
+            l.put(&format!(" @{}", s(&a["login"])), None);
         }
         out.push(l);
     }
@@ -1487,4 +1525,25 @@ fn live_reactions() {
         react(node, "EYES", false).unwrap();
         assert_eq!(mine(node), Some((0, false)), "{node}: taken back");
     }
+}
+
+/// Live: label and assign a PR, then take both back. Changes GitHub: give it a throwaway PR.
+/// `DV_LIVE_PR=<n> cargo test live_labels -- --ignored --nocapture`
+#[test]
+#[ignore]
+fn live_labels() {
+    let n: u64 = std::env::var("DV_LIVE_PR").expect("DV_LIVE_PR").parse().unwrap();
+    let (labels, people) = labels_and_assignees(n).unwrap();
+    println!("labels: {labels:?}\npeople: {people:?}");
+    let (label, me) = (labels[0].0.clone(), people[0].0.clone());
+    set_label_or_assignee(n, true, &label, true).unwrap();
+    set_label_or_assignee(n, false, &me, true).unwrap();
+    let (labels, people) = labels_and_assignees(n).unwrap();
+    assert!(labels.contains(&(label.clone(), true)) && people.contains(&(me.clone(), true)));
+    let lines = info_lines(&info_json(n).unwrap());
+    assert!(lines.iter().any(|l| l.text == format!("assigned @{me}")), "assignee not among the facts");
+    set_label_or_assignee(n, true, &label, false).unwrap();
+    set_label_or_assignee(n, false, &me, false).unwrap();
+    let (labels, people) = labels_and_assignees(n).unwrap();
+    assert!(labels.iter().all(|l| !l.1) && people.iter().all(|p| !p.1));
 }

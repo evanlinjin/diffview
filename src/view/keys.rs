@@ -219,6 +219,7 @@ impl App {
                 ("m", "messages, in full"),
                 ("r", "resolve thread"),
                 ("=", "react to the comment (👍 🎉 …)"),
+                ("l", "the PR's labels and assignees"),
                 ("e", "edit your comment"),
                 ("d", "delete / dismiss comment"),
                 ("y", "copy"),
@@ -378,6 +379,10 @@ impl App {
             (' ', 'c') => self.copy_ref(),
             (' ', 'r') => self.toggle_resolved(),
             (' ', '=' | '+') => self.start_react(),
+            (' ', 'l') => match self.pr {
+                Some(_) => (self.msg, self.job) = ("asking GitHub for labels and assignees…".into(), Some(Job::Labels)),
+                None => self.msg = "no PR here".into(),
+            },
             (' ', 'e') => self.start_edit(),
             (' ', 'd') => self.start_delete(),
             (' ', 't') => self.threads_picker(THREADS_ALL),
@@ -491,6 +496,10 @@ impl App {
                         Target::RebaseAbort => self.abort_rebase(),
                         Target::Amend => self.amend_now(),
                         Target::AmendAsk => self.amend_ask(),
+                        Target::SetLabel(label, name, on) => {
+                            self.msg = "editing the PR…".into();
+                            self.job = Some(Job::SetLabel(label, name, on));
+                        }
                         Target::React(node, what, add) => {
                             self.msg = "reacting…".into();
                             self.job = Some(Job::React(node, what, add));

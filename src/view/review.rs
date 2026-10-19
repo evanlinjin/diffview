@@ -81,11 +81,14 @@ impl App {
             return;
         }
         // Read-only: no reload after.
-        if !matches!(job, Job::Preview(_) | Job::Reactions(_) | Job::Rebase) {
+        if !matches!(job, Job::Preview(_) | Job::Reactions(_) | Job::Labels | Job::Rebase) {
             self.ensure_fresh();
         }
         if let Job::Rebase = job {
             return self.start_rebase();
+        }
+        if let Job::Labels = job {
+            return self.labels_menu();
         }
         if let Job::Reactions(node) = job {
             return self.react_menu(&node);
@@ -106,8 +109,17 @@ impl App {
                 "pending review discarded"
             }),
             Job::DeleteComment(c) => gh::delete_comment(&c).map(|_| "comment deleted"),
+            Job::SetLabel(label, name, on) => {
+                let n = self.pr.as_ref().map_or(0, |p| p.number);
+                gh::set_label_or_assignee(n, label, &name, on).map(|_| match (label, on) {
+                    (true, true) => "label added",
+                    (true, false) => "label removed",
+                    (false, true) => "assigned",
+                    (false, false) => "unassigned",
+                })
+            }
             Job::React(node, what, add) => gh::react(&node, what, add).map(|_| if add { "reacted" } else { "reaction taken back" }),
-            Job::Preview(_) | Job::Reactions(_) | Job::Rebase | Job::Pull | Job::Push(_) => unreachable!("handled above"),
+            Job::Preview(_) | Job::Reactions(_) | Job::Labels | Job::Rebase | Job::Pull | Job::Push(_) => unreachable!("handled above"),
             Job::Post(p) => self.post(p),
             Job::Viewed(path, on) => {
                 let pr_id = self.pr.as_ref().map(|p| p.node_id.clone()).unwrap_or_default();
@@ -867,6 +879,27 @@ impl App {
             Some(node) => (self.msg, self.job) = ("asking GitHub for its reactions…".into(), Some(Job::Reactions(node))),
             None => self.msg = "move onto a GitHub comment (or the description) to react to it".into(),
         }
+    }
+
+    /// `Space l`: the PR's labels and assignees, and what it could have (✓: on it); Enter
+    /// adds or removes one. Type to find one (`@` for people).
+    fn labels_menu(&mut self) {
+        self.msg.clear();
+        let Some(n) = self.pr.as_ref().map(|p| p.number) else { return };
+        let (labels, people) = match gh::labels_and_assignees(n) {
+            Ok(x) => x,
+            Err(e) => return self.msg = format!("{e:#}"),
+        };
+        let item = |label: bool, name: &str, on: bool| {
+            let shown = if label { format!("label {name}") } else { format!("assignee @{name}") };
+            let tick = if on { "✓ " } else { "  " };
+            Item::new(format!("{tick}{shown}"), Target::SetLabel(label, name.to_owned(), !on))
+        };
+        let items: Vec<Item> = labels.iter().map(|(l, on)| item(true, l, *on)).chain(people.iter().map(|(p, on)| item(false, p, *on))).collect();
+        if items.is_empty() {
+            return self.msg = "no labels in this repo, nor anyone to assign".into();
+        }
+        self.picker = Some(Picker { title: " labels & assignees (✓: on it; Enter adds or removes) ", items, query: String::new(), sel: 0 });
     }
 
     fn react_menu(&mut self, node: &str) {

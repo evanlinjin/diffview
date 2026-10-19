@@ -6,6 +6,9 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Added
+- `Space l`: the PR's labels and assignees, and what it could have (the repo's labels, who it
+  can be assigned to), ✓ on those it has; Enter adds or removes one. Its assignees show among
+  its facts (`assigned @amy`).
 - Your own reactions are lit (in the accent color), as on GitHub: on review comments, the
   conversation's, and the PR's.
 
