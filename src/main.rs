@@ -264,6 +264,8 @@ fn review_replacement(id: u64, root: &Path) -> anyhow::Result<()> {
     std::env::set_current_dir(&dir)?;
     let base = diff::merge_base(Some(&crate::diff::remote_branch(&r.base)))?;
     let mut app = view::App::new(base, None)?;
+    // Its base followed as a PR's is: a rebase (a redraft's, publishing's) moves the diff's base.
+    app.follow_base = Some(crate::diff::remote_branch(&r.base));
     progress(None);
     let mut term = view::init_terminal();
     let res = app.run(&mut term);
