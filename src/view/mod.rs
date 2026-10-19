@@ -344,6 +344,8 @@ enum Job {
     Reactions(String),
     /// Fetch the base branch and rebase onto it (Claude resolving conflicts).
     Rebase,
+    /// The PR's base changed on GitHub to this one: fetch it, and the diff follows.
+    Retarget(String),
     /// Rerun the failed checks' jobs on the PR's head.
     Rerun,
     /// Ask GitHub for the PR's labels, assignees and reviewers, and what it could have.
@@ -769,6 +771,7 @@ impl App {
             true => app.load_claude(),
             false => app.load_threads(),
         }
+        app.rekey_commits(); // (commits rewritten while dv was closed)
         if let Some(n) = n {
             app.start_github_watch(n, cached);
         }

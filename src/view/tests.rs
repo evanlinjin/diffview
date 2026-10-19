@@ -1030,7 +1030,7 @@ fn ask_claude_about_a_commit() {
     let dir = std::env::temp_dir().join(format!("dv-ask-commit-{}", std::process::id()));
     app.claude.path = Some(dir.join("pr-1.json"));
     app.pr = Some(gh::Pr { number: 1, url: "https://github.com/o/r/pull/1".into(), ..Default::default() });
-    app.commits = vec![files::Commit { sha: "abcdef1234".into(), short: "abcdef1".into(), subject: "add parse".into(), signed: true }];
+    app.commits = vec![files::Commit { sha: "abcdef1234".into(), short: "abcdef1".into(), subject: "add parse".into(), at: "1".into(), signed: true }];
     // `a` on it: what you want, then the editor, starting from which commit.
     app.ask_commit(0);
     // On no lines, no suggestion to post: ask (preselected) or change.
@@ -2160,7 +2160,7 @@ fn commits_under_the_files() {
     let draw = |app: &mut App| screen(220, 24, |f| app.draw(f));
     let mut app = fixture();
     app.files_pref = Some(true);
-    app.commits = (1..=3).map(|n| files::Commit { sha: format!("{n}{}", "0".repeat(39)), short: format!("c{n}"), signed: true, subject: format!("commit {n}") }).collect();
+    app.commits = (1..=3).map(|n| files::Commit { sha: format!("{n}{}", "0".repeat(39)), short: format!("c{n}"), at: String::new(), signed: true, subject: format!("commit {n}") }).collect();
     let s = draw(&mut app);
     // Under the files: the heading, "all commits" (shown), then each, oldest first.
     let list: Vec<String> = s.lines().map(|l| l.chars().take(app.files_w - 1).collect::<String>().trim_end().to_owned()).collect();
@@ -2465,7 +2465,7 @@ fn reply_to_claudes_summary() {
 fn key_hints_at_the_bottom_of_the_contents() {
     let mut app = fixture();
     app.files_pref = Some(true);
-    app.commits = (1..=2).map(|n| files::Commit { sha: format!("{n}{}", "0".repeat(39)), short: format!("c{n}"), signed: true, subject: format!("commit {n}") }).collect();
+    app.commits = (1..=2).map(|n| files::Commit { sha: format!("{n}{}", "0".repeat(39)), short: format!("c{n}"), at: String::new(), signed: true, subject: format!("commit {n}") }).collect();
     let list = |app: &mut App| -> Vec<String> {
         let s = screen(220, 30, |f| app.draw(f));
         s.lines().map(|l| l.chars().take(app.files_w - 1).collect::<String>().trim_end().to_owned()).collect()
@@ -2493,7 +2493,7 @@ fn contents_and_commits_scroll_together() {
     // the list's cursor; its heading stays at the top, and the key hints at the bottom.
     let mut app = fixture();
     app.files_pref = Some(true);
-    app.commits = (1..=40).map(|n| files::Commit { sha: format!("{n:040}"), short: format!("c{n}"), signed: true, subject: format!("commit {n}") }).collect();
+    app.commits = (1..=40).map(|n| files::Commit { sha: format!("{n:040}"), short: format!("c{n}"), at: String::new(), signed: true, subject: format!("commit {n}") }).collect();
     let list = |app: &mut App| -> Vec<String> {
         let s = screen(220, 20, |f| app.draw(f));
         s.lines().map(|l| l.chars().take(app.files_w - 1).collect::<String>().trim_end().to_owned()).collect()

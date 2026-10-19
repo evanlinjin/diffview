@@ -81,11 +81,14 @@ impl App {
             return;
         }
         // Read-only: no reload after.
-        if !matches!(job, Job::Preview(_) | Job::Reactions(_) | Job::Labels | Job::Rebase) {
+        if !matches!(job, Job::Preview(_) | Job::Reactions(_) | Job::Labels | Job::Retarget(_) | Job::Rebase) {
             self.ensure_fresh();
         }
         if let Job::Rebase = job {
             return self.start_rebase();
+        }
+        if let Job::Retarget(base) = job {
+            return self.retarget(base);
         }
         if let Job::Labels = job {
             return self.labels_menu();
@@ -125,7 +128,7 @@ impl App {
                 gh::rerun_failed(&head).map(|n| if n == 0 { "no failed runs to rerun (they may be running already)" } else { "failed checks rerunning" })
             }
             Job::React(node, what, add) => gh::react(&node, what, add).map(|_| if add { "reacted" } else { "reaction taken back" }),
-            Job::Preview(_) | Job::Reactions(_) | Job::Labels | Job::Rebase | Job::Pull | Job::Push(_) => unreachable!("handled above"),
+            Job::Preview(_) | Job::Reactions(_) | Job::Labels | Job::Retarget(_) | Job::Rebase | Job::Pull | Job::Push(_) => unreachable!("handled above"),
             Job::Post(p) => self.post(p),
             Job::Viewed(path, on) => {
                 let pr_id = self.pr.as_ref().map(|p| p.node_id.clone()).unwrap_or_default();
@@ -734,35 +737,40 @@ impl App {
             }
             Err(e) => self.msg = format!("loading PR info: {e:#}"),
         }
-        // Its base changed on GitHub (retargeted): the diff starts from the new one.
-        if let Some(base) = retarget {
-            self.retarget(base);
+        // Its base changed on GitHub (retargeted): the diff starts from the new one, once
+        // fetched (a job: a frame says so first; tried again on the next refresh if it fails).
+        if let Some(base) = retarget.filter(|_| self.job.is_none()) {
+            (self.msg, self.job) = (format!("the PR's base is {base} now: fetching it…"), Some(Job::Retarget(base)));
         }
     }
 
     /// The PR's base changed on GitHub to `base`: a rebase goes onto it, and the diff starts
     /// from it (fetched), when dv chose the diff's base (no `--base` given).
     fn retarget(&mut self, base: String) {
-        let Some(pr) = &mut self.pr else { return };
-        let old = std::mem::replace(&mut pr.base, base.clone());
-        if self.follow_base.as_deref() != Some(format!("origin/{old}").as_str()) {
-            return;
-        }
+        let Some(old) = self.pr.as_ref().map(|p| p.base.clone()) else { return };
+        let follows = self.follow_base.as_deref() == Some(format!("origin/{old}").as_str());
         let onto = format!("origin/{base}");
-        self.follow_base = Some(onto.clone());
-        let fetched = diff::git_in(&self.root, &["fetch", "-q", "origin", &format!("+refs/heads/{base}:refs/remotes/{onto}")]);
-        let Ok(mb) = fetched.and_then(|_| diff::git_in(&self.root, &["merge-base", &onto, "HEAD"])) else {
-            return self.msg = format!("the PR's base is {base} now, but {onto} couldn't be fetched: the diff still starts from {old}");
-        };
-        let mb = mb.trim().to_owned();
-        if !self.uncommitted() {
-            self.base = mb.clone();
+        if follows {
+            let fetched = diff::git_in(&self.root, &["fetch", "-q", "origin", &format!("+refs/heads/{base}:refs/remotes/{onto}")]);
+            let Ok(mb) = fetched.and_then(|_| diff::git_in(&self.root, &["merge-base", &onto, "HEAD"])) else {
+                return self.msg = format!("the PR's base is {base} now, but {onto} couldn't be fetched: the diff still starts from {old} (tried again on the next refresh)");
+            };
+            let mb = mb.trim().to_owned();
+            if !self.uncommitted() {
+                self.base = mb.clone();
+            }
+            (self.full_base, self.follow_base) = (mb, Some(onto));
+            (self.to, self.commit_shown, self.commit_anchor) = (None, None, None);
+            self.hl_cache.retain(|k, _| !k.1);
         }
-        self.full_base = mb;
-        (self.to, self.commit_shown, self.commit_anchor) = (None, None, None);
-        self.hl_cache.retain(|k, _| !k.1);
+        if let Some(pr) = &mut self.pr {
+            pr.base = base.clone();
+        }
         self.reload_tree();
-        self.msg = format!("the PR's base is {base} now: the diff starts from there");
+        self.msg = match follows {
+            true => format!("the PR's base is {base} now: the diff starts from there"),
+            false => format!("the PR's base is {base} now (the diff keeps the base you gave)"),
+        };
     }
 
     /// The link under the cursor, if any.

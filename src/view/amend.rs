@@ -247,15 +247,17 @@ impl App {
             .collect();
         lost.sort();
         lost.dedup();
-        let who = |sha: &str| git_in(&self.root, &["log", "-1", "--format=%s%x00%at", sha]).map(|s| s.trim().to_owned()).ok();
-        let now: Vec<(Option<String>, &str)> = self.commits.iter().map(|c| (who(&c.sha), c.sha.as_str())).collect();
+        if lost.is_empty() {
+            return;
+        }
         let moves: Vec<(String, String)> = lost
             .into_iter()
             .filter_map(|(url, sha)| {
-                let was = who(&sha)?;
-                let mut same = now.iter().filter(|n| n.0.as_deref() == Some(was.as_str()));
+                let was = git_in(&self.root, &["log", "-1", "--format=%at%x09%s", &sha]).ok()?;
+                let (at, subject) = was.trim().split_once('\t')?;
+                let mut same = self.commits.iter().filter(|c| c.at == at && c.subject == subject);
                 match (same.next(), same.next()) {
-                    (Some(n), None) => Some((url.clone(), url.replace(&sha, n.1))),
+                    (Some(c), None) => Some((url.clone(), url.replace(&sha, &c.sha))),
                     _ => None,
                 }
             })

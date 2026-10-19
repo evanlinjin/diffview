@@ -50,6 +50,8 @@ pub(super) struct Commit {
     pub(super) sha: String,
     pub(super) short: String,
     pub(super) subject: String,
+    /// When it was authored (seconds), which a rebase or an amend keeps.
+    pub(super) at: String,
     /// GitHub verifies a signature on it (as the PR's info says; no PR: taken as signed).
     pub(super) signed: bool,
 }
@@ -320,14 +322,14 @@ impl App {
     /// The PR's commits as checked out (first parents: the branch's own line), oldest first.
     pub(super) fn load_commits(&mut self) {
         let range = format!("{}..HEAD", self.full_base);
-        let Ok(out) = diff::git(&["log", "--reverse", "--first-parent", "--format=%H%x09%h%x09%s", &range]) else { return };
+        let Ok(out) = diff::git(&["log", "--reverse", "--first-parent", "--format=%H%x09%h%x09%at%x09%s", &range]) else { return };
         self.commits = out
             .lines()
             .filter_map(|l| {
-                let mut p = l.splitn(3, '\t');
-                let (sha, short) = (p.next()?, p.next()?);
+                let mut p = l.splitn(4, '\t');
+                let (sha, short, at) = (p.next()?, p.next()?, p.next()?);
                 let signed = !self.unsigned.iter().any(|u| u == sha);
-                Some(Commit { sha: sha.into(), short: short.into(), signed, subject: p.next().unwrap_or("").into() })
+                Some(Commit { sha: sha.into(), short: short.into(), at: at.into(), signed, subject: p.next().unwrap_or("").into() })
             })
             .collect();
         self.dirty = Dirty::of(&diff::git(&["status", "--porcelain"]).unwrap_or_default());
@@ -390,7 +392,8 @@ impl App {
     /// `Enter` in the commits: the one under the cursor, or the range from `v`'s anchor to it
     /// ("all commits" in it: the whole diff).
     fn pick_commits(&mut self) {
-        // "uncommitted": what isn't committed (as Space g shows it).
+        // "uncommitted": what isn't committed (as Space g shows it). (Picking commits leaves it:
+        // show_commits sets the base.)
         if self.commit_cur > self.commits.len() {
             self.commit_anchor = None;
             if !self.uncommitted() {
@@ -398,9 +401,8 @@ impl App {
             }
             return;
         }
-        if self.uncommitted() {
-            self.toggle_uncommitted(); // back to the commits' diff, then the one picked
-        }
+        // (A range starts on a commit, not on "uncommitted".)
+        self.commit_anchor = self.commit_anchor.filter(|&a| a <= self.commits.len());
         let (a, b) = match self.commit_anchor.take() {
             Some(a) => (a.min(self.commit_cur), a.max(self.commit_cur)),
             None => (self.commit_cur, self.commit_cur),
@@ -452,7 +454,7 @@ impl App {
             KeyCode::Char('j') | KeyCode::Down if !ctrl && self.in_commits => self.commit_cur = (self.commit_cur + 1).min(self.commits.len() + usize::from(self.dirty.has())),
             KeyCode::Char('k') | KeyCode::Up if !ctrl && self.in_commits && self.commit_cur == 0 => self.in_commits = false,
             KeyCode::Char('k') | KeyCode::Up if !ctrl && self.in_commits => self.commit_cur -= 1,
-            KeyCode::Char('v') if self.in_commits => self.commit_anchor = if self.commit_anchor.is_some() { None } else { Some(self.commit_cur) },
+            KeyCode::Char('v') if self.in_commits && self.commit_cur <= self.commits.len() => self.commit_anchor = if self.commit_anchor.is_some() { None } else { Some(self.commit_cur) },
             KeyCode::Enter if self.in_commits => self.pick_commits(),
             // Between the files and the commits, without going through every file.
             KeyCode::Tab | KeyCode::BackTab => self.focus_list(!self.in_commits),

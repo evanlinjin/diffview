@@ -638,16 +638,12 @@ impl InfoLine {
     }
 }
 
-/// Which reactions on PR `n`'s conversation (itself, its comments, its reviews) are yours,
-/// by node id: `gh pr view` doesn't say.
-fn mine_json(n: u64) -> Result<Value> {
-    let groups = "reactionGroups { content viewerHasReacted }";
-    let q = format!(
-        "query($owner: String!, $name: String!, $n: Int!) {{ repository(owner: $owner, name: $name) {{ pullRequest(number: $n) {{
-           id {groups} comments(last: 100) {{ nodes {{ id {groups} }} }} reviews(last: 100) {{ nodes {{ id {groups} }} }} }} }} }}"
-    );
-    let v: Value = serde_json::from_str(&gh(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-F", &format!("n={n}"), "-f", &format!("query={q}")])?)?;
-    let p = &v["data"]["repository"]["pullRequest"];
+/// The `pr_query` fields saying which reactions on a PR's conversation (itself, its
+/// comments, its reviews) are yours: `gh pr view` doesn't say.
+const MINE: &str = "id reactionGroups { content viewerHasReacted } comments(last: 100) { nodes { id reactionGroups { content viewerHasReacted } } } reviews(last: 100) { nodes { id reactionGroups { content viewerHasReacted } } }";
+
+/// Yours, by node id, from a pull request's node with `MINE`.
+fn mine_of(p: &Value) -> Value {
     let mut out = serde_json::Map::new();
     let nodes = std::iter::once(p).chain(["comments", "reviews"].iter().flat_map(|k| p[k]["nodes"].as_array().into_iter().flatten()));
     for node in nodes {
@@ -656,7 +652,7 @@ fn mine_json(n: u64) -> Result<Value> {
             out.insert(id.to_owned(), mine.into());
         }
     }
-    Ok(out.into())
+    out.into()
 }
 
 /// The reactions on comment (or review) `node` now: each kind's (name, count, yours).
@@ -805,6 +801,14 @@ pub fn rerun_failed(head: &str) -> Result<usize> {
     Ok(ids.len())
 }
 
+/// `s` for a URL path segment: all but unreserved characters percent-encoded.
+fn percent(s: &str) -> String {
+    s.bytes().map(|b| match b {
+        b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => (b as char).to_string(),
+        b => format!("%{b:02X}"),
+    }).collect()
+}
+
 /// What `Space l` sets on a PR.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Field {
@@ -841,6 +845,14 @@ pub type Choices = Vec<(String, bool)>;
 
 /// Add (`on`) or remove a label, an assignee or a requested reviewer on PR `n`.
 pub fn set_field(n: u64, field: Field, name: &str, on: bool) -> Result<()> {
+    // A label's name may have a comma in it, which `gh pr edit` splits on: the API takes it whole.
+    if field == Field::Label {
+        let ep = format!("repos/{{owner}}/{{repo}}/issues/{n}/labels");
+        return match on {
+            true => gh(&["api", "-X", "POST", &ep, "-f", &format!("labels[]={name}")]).map(drop),
+            false => gh(&["api", "-X", "DELETE", &format!("{ep}/{}", percent(name))]).map(drop),
+        };
+    }
     let flag = match (field, on) {
         (Field::Label, true) => "--add-label",
         (Field::Label, false) => "--remove-label",
@@ -1045,12 +1057,21 @@ fn requires_signatures(p: &Value) -> bool {
 
 /// PR `n`'s commits' signatures, and whether its base requires them: one GraphQL query.
 pub fn signatures(n: u64) -> Result<Signatures> {
+    signatures_of(&pr_query(n, "")?)
+}
+
+/// PR `n`'s commits' signatures and its base's rules, and `more` of it: one GraphQL query; the
+/// pull request's node.
+fn pr_query(n: u64, more: &str) -> Result<Value> {
     let q = format!(
         "query($owner: String!, $name: String!, $n: Int!) {{ repository(owner: $owner, name: $name) {{ pullRequest(number: $n) {{
-           {SIGNATURE_RULES} commits(last: 100) {{ totalCount nodes {{ commit {{ oid signature {{ isValid }} }} }} }} }} }} }}"
+           {SIGNATURE_RULES} commits(last: 100) {{ totalCount nodes {{ commit {{ oid signature {{ isValid }} }} }} }} {more} }} }} }}"
     );
     let v: Value = serde_json::from_str(&gh(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-F", &format!("n={n}"), "-f", &format!("query={q}")])?)?;
-    let p = &v["data"]["repository"]["pullRequest"];
+    Ok(v["data"]["repository"]["pullRequest"].clone())
+}
+
+fn signatures_of(p: &Value) -> Result<Signatures> {
     let nodes = p["commits"]["nodes"].as_array().context("gh api graphql: commits")?;
     Ok(Signatures {
         commits: nodes.iter().map(|c| (c["commit"]["oid"].as_str().unwrap_or("").to_owned(), c["commit"]["signature"]["isValid"] == true)).collect(),
@@ -1084,10 +1105,12 @@ pub fn info_json(n: u64) -> Result<Value> {
     {
         v["dvAwaiting"] = w.get(&sha).map_or(0, Vec::len).into();
     }
-    if let Ok(m) = mine_json(n) {
-        v["dvMine"] = m;
+    // One query for both: its commits' signatures, and which reactions are yours.
+    let extra = pr_query(n, MINE);
+    if let Ok(p) = &extra {
+        v["dvMine"] = mine_of(p);
     }
-    if let Ok(s) = signatures(n) {
+    if let Ok(s) = extra.as_ref().map_err(|e| anyhow::anyhow!("{e:#}")).and_then(signatures_of) {
         v["dvCommits"] = s.commits.into_iter().map(|(oid, signed)| json!({ "oid": oid, "signed": signed })).collect();
         v["dvCommitsTotal"] = s.total.into();
         v["dvSignaturesRequired"] = s.required.into();
@@ -1597,4 +1620,14 @@ fn live_labels() {
         set_field(n, Field::Reviewer, &who, false).unwrap();
         assert!(!pr_fields(n).unwrap().2.contains(&(who, true)));
     }
+}
+
+/// Live: PR info's one extra query (signatures, yours) answers. `DV_LIVE_PR=<n> cargo test
+/// live_info -- --ignored`
+#[test]
+#[ignore]
+fn live_info() {
+    let n: u64 = std::env::var("DV_LIVE_PR").expect("DV_LIVE_PR").parse().unwrap();
+    let v = info_json(n).unwrap();
+    assert!(v["dvCommits"].is_array() && v["dvMine"].is_object(), "{}", v["dvCommits"]);
 }
