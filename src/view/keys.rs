@@ -571,6 +571,7 @@ impl App {
                         Target::Comment(ti, ci) => self.goto_comment(ti, ci),
                         Target::Claude(ask) => self.pick_claude(ask),
                         Target::Want(w) => self.want(w),
+                        Target::Land(ask, l) => self.land(ask, l),
                         Target::ClaudeNotes => self.edit_claude_notes(),
                         Target::ClaudeQuestion => {
                             self.bar_to(Bar::Claude); // where it's answered

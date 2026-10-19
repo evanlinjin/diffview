@@ -54,6 +54,9 @@ pub(super) fn turn(t: &Thread) -> Option<&'static str> {
 /// Claude's review for this PR/branch, and the background `claude -p` runs that write it.
 #[derive(Default)]
 pub(super) struct ClaudeState {
+    /// How "make the changes" lands them: `""` uncommitted, `"amend"` into the commits they
+    /// belong in, `"commit"` as new commits (`Space a` asks; the last answer comes first).
+    pub(super) land: &'static str,
     /// Its review file (see `claude.rs`), and when that last changed.
     pub(super) path: Option<PathBuf>,
     pub(super) mtime: Option<std::time::SystemTime>,
@@ -86,13 +89,20 @@ pub(super) struct ClaudeState {
     pub(super) pane_busy: bool,
 }
 
+/// How "make the changes" can land them: the key (`ClaudeState::land`), the picker's item.
+pub(super) const LANDS: [(&str, &str); 3] = [
+    ("", "Leave them uncommitted (you commit them)"),
+    ("amend", "Amend each into the commit it belongs in (dv's amend: a backup branch first)"),
+    ("commit", "As new commits"),
+];
+
 impl App {
     /// Whether `ask` may change the code (or reads it whole: a review): answering does when a
     /// reply waiting wants a change.
     pub(super) fn edits(&self, ask: Ask) -> bool {
         match ask {
             Ask::Describe | Ask::Close => false,
-            Ask::Answer => self.threads.iter().any(|t| t.waiting() && t.want == "change"),
+            Ask::Answer => self.threads.iter().any(|t| t.waiting() && super::ask::edits_code(&t.want)),
             _ => true,
         }
     }
@@ -194,7 +204,7 @@ impl App {
                 false => "they don't allow maintainer edits: the commits stay here",
             };
             let what = if open == 0 { "a change (you say what)".to_owned() } else { format!("the changes ({open} open comments)") };
-            items.push(Item::new(format!("Ask Claude to make {what} here, as commits ({push})"), Target::Claude(Ask::Edit)));
+            items.push(Item::new(format!("Ask Claude to make {what} here ({push})"), Target::Claude(Ask::Edit)));
         }
         // Your PR's CI failing: Claude finds out why; or found it isn't the PR's doing, and had
         // a fix of its own in mind, a new PR's.
@@ -470,8 +480,18 @@ impl App {
                  replying on each with what you changed and resolving the ones you addressed."
             ),
         };
+        // Making them: how they land, as you picked.
+        let land = match ask {
+            Ask::Fix if self.theirs => "",
+            Ask::Fix | Ask::Edit => match self.claude.land {
+                "amend" => " Amend each change into the commit of the branch it belongs in (`dv amend <sha> <files>`, as the dv-review skill says), and say in its reply which commit it went in.",
+                "commit" => " Commit the changes as new commits (`git add`, `git commit`, messages in the repo's style): one for each comment, or one for those that belong together; say in each reply which commit has it.",
+                _ => " Leave the changes uncommitted: the user commits them.",
+            },
+            _ => "",
+        };
         // Claude Code knows the date but not the time, and makes one up for `created`.
-        with_instructions(&format!("{prompt} (It's {} now.)", crate::claude::now()), extra)
+        with_instructions(&format!("{prompt}{land} (It's {} now.)", crate::claude::now()), extra)
     }
 
     /// Claude's note that PR `n`'s failing CI isn't its doing, written at its head now.
@@ -501,9 +521,21 @@ impl App {
         }
         match ask {
             Ask::Describe | Ask::Close if self.pr.is_none() => self.msg = "no PR here".into(),
+            // Making the changes (not suggesting them): how they land, first.
+            Ask::Fix | Ask::Edit if !(self.theirs && matches!(ask, Ask::Fix)) => {
+                let items: Vec<Item> = LANDS.iter().map(|&(key, label)| Item::new(label, Target::Land(ask, key))).collect();
+                let sel = LANDS.iter().position(|l| l.0 == self.claude.land).unwrap_or(0);
+                self.picker = Some(Picker { sel, ..Picker::new(" how should the changes land? ", items) });
+            }
             Ask::Review | Ask::Fix | Ask::Edit | Ask::Describe | Ask::Close => self.action = Some(Action::ClaudeWith(ask)),
             ask => _ = self.run_claude(ask, ""),
         }
+    }
+
+    /// How the changes land picked (`Space a` → make the changes): on to your instructions.
+    pub(super) fn land(&mut self, ask: Ask, land: &'static str) {
+        self.claude.land = land;
+        self.action = Some(Action::ClaudeWith(ask));
     }
 
     /// Ask Claude (`extra`: your instructions, may be empty). Whether it was asked: if not,

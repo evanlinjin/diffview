@@ -731,6 +731,11 @@ impl App {
                 None => Action::AskConversation { url: ON_SUMMARY.into(), prefill: String::new(), want: "" },
             });
         }
+        // Several of Claude's threads selected: one reply to them all.
+        if let Some(keys) = self.selected_claude_threads() {
+            self.select = false;
+            return self.pick_want(Action::ClaudeReplyAll(keys, ""), None);
+        }
         // On lines, say what you want of Claude; under a conversation comment it's a question.
         if let Some((t, k)) = self.claude_at_cursor() {
             return match self.threads[t].conversation.is_empty() {

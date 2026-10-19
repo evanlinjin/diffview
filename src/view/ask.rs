@@ -8,9 +8,14 @@ pub(super) fn want_hint(want: &str) -> &'static str {
     WANTS.iter().find(|w| w.0 == want).map_or(" (it answers right away; nothing goes to GitHub)", |w| w.2)
 }
 
+/// Whether wanting `w` has Claude change the code: here, amended into a commit, or as a new one.
+pub(super) fn edits_code(w: &str) -> bool {
+    matches!(w, "change" | "amend" | "commit")
+}
+
 /// What you can want of Claude on a comment or reply (its `"want"` in the review file): the
 /// key, the thread's tag while it waits, what the editor says, the picker's item.
-pub(super) const WANTS: [(&str, &str, &str, &str); 3] = [
+pub(super) const WANTS: [(&str, &str, &str, &str); 5] = [
     ("ask", "[ask] ", " (Claude answers; it changes nothing)", "Ask: Claude answers (it changes nothing)"),
     (
         "suggest",
@@ -18,7 +23,19 @@ pub(super) const WANTS: [(&str, &str, &str, &str); 3] = [
         " (Claude drafts a suggestion for you to post; it doesn't edit the code)",
         "Suggest: Claude drafts a suggestion for you to post on GitHub (no code changes)",
     ),
-    ("change", "[change] ", " (Claude makes the change in the code here; nothing goes to GitHub)", "Change: Claude edits the code here"),
+    ("change", "[change] ", " (Claude makes the change in the code here, uncommitted; nothing goes to GitHub)", "Change: Claude edits the code here (left uncommitted)"),
+    (
+        "amend",
+        "[amend] ",
+        " (Claude makes the change and amends it into the commit it belongs in; nothing goes to GitHub; empty: what the comment says)",
+        "Amend: Claude makes the change and amends it into the commit it belongs in",
+    ),
+    (
+        "commit",
+        "[commit] ",
+        " (Claude makes the change as a new commit; nothing goes to GitHub; empty: what the comment says)",
+        "Commit: Claude makes the change as a new commit",
+    ),
 ];
 
 impl App {
@@ -72,6 +89,11 @@ impl App {
         if let Some((url, prefill)) = self.conversation_at_cursor() {
             return self.action = Some(Action::AskConversation { url, prefill, want: "" });
         }
+        // Several of Claude's threads selected: one reply to them all.
+        if let Some(keys) = self.selected_claude_threads() {
+            self.select = false;
+            return self.pick_want(Action::ClaudeReplyAll(keys, ""), None);
+        }
         // On a thread of Claude's review (its comment, or your question and its answer): a reply
         // there, quoting what's selected of it.
         if let Some((t, k)) = self.claude_at_cursor() {
@@ -115,7 +137,8 @@ impl App {
         // draft's: nothing goes to GitHub from it either; the change, unless you said.
         let commit = matches!(&action, Action::AskConversation { url, .. } if commit_of(url).is_some());
         let draft = matches!(&action, Action::Replace(..));
-        let wants: Vec<_> = WANTS.iter().filter(|w| !((commit || draft) && w.0 == "suggest")).collect();
+        // (A draft's commits are Claude's to make as it redrafts: no amend or commit to ask for.)
+        let wants: Vec<_> = WANTS.iter().filter(|w| !((commit || draft) && w.0 == "suggest") && !(draft && matches!(w.0, "amend" | "commit"))).collect();
         let last = t.and_then(|t| wants.iter().position(|w| w.0 == self.threads[t].want));
         let usual = match (commit, draft, self.theirs) {
             (true, ..) => "ask",
@@ -140,10 +163,31 @@ impl App {
         self.action = match self.wanting.take() {
             Some(Action::AskClaude { anchor, code, about, .. }) => Some(Action::AskClaude { anchor, code, about, want: w }),
             Some(Action::ClaudeReply(k, _, q)) => Some(Action::ClaudeReply(k, w, q)),
+            Some(Action::ClaudeReplyAll(ks, _)) => Some(Action::ClaudeReplyAll(ks, w)),
             Some(Action::AskConversation { url, prefill, .. }) => Some(Action::AskConversation { url, prefill, want: w }),
             Some(Action::Replace(prs, Some((on, quote, _)))) => Some(Action::Replace(prs, Some((on, quote, w)))),
             other => other,
         };
+    }
+
+    /// Claude's threads on lines in the selection, when it spans more than one (`r`/`a` reply to
+    /// them all, once): their keys, in order.
+    pub(super) fn selected_claude_threads(&self) -> Option<Vec<String>> {
+        if !self.select {
+            return None;
+        }
+        let (s, e) = self.ordered();
+        let mut keys: Vec<String> = vec![];
+        for r in s.row..=e.row {
+            let Some(t) = self.rows[r].thread else { continue };
+            let th = &self.threads[t];
+            if let Some(k) = th.claude.as_ref().filter(|_| th.conversation.is_empty())
+                && !keys.contains(k)
+            {
+                keys.push(k.clone());
+            }
+        }
+        (keys.len() > 1).then_some(keys)
     }
 
     /// `a` on a commit in the list: a question about it, or a change to it, for Claude (on no

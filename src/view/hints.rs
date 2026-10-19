@@ -128,6 +128,10 @@ impl App {
     /// to keep it quiet.
     pub(super) fn context_keys(&self) -> Option<(&'static str, &'static [(&'static str, &'static str)])> {
         let row = &self.rows[self.head.row];
+        // Over several of Claude's threads: one reply to them all.
+        if self.selected_claude_threads().is_some() {
+            return Some(("Claude's comments, selected", &[("r", "one reply to them all (Claude answers, or makes the changes)"), ("a", "the same"), ("y", "copy")]));
+        }
         if self.select || self.anchor.row != self.head.row {
             return Some(("selection", &[
                 ("c", "comment (review)"),

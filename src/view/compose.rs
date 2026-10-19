@@ -19,6 +19,8 @@ pub(super) enum Action {
     /// with what you want of it ("ask", "suggest", "change"; empty: unsaid).
     /// (And what the editor starts from: a quote of what's selected, say.)
     ClaudeReply(String, &'static str, String),
+    /// One reply to several of Claude's threads (their keys), with what you want of it.
+    ClaudeReplyAll(Vec<String>, &'static str),
     /// A comment for Claude on these lines (with their text), then Claude answers it; `about`:
     /// the GitHub review comment it asks about (its id, and a quote of it for the editor).
     AskClaude { anchor: Anchor, code: Vec<String>, about: Option<(u64, String)>, want: &'static str },
@@ -158,8 +160,17 @@ impl App {
             Action::ClaudeReply(k, want, prefill) => {
                 let p = self.claude.path.clone().context("no review file")?;
                 let what = format!("reply to Claude{}", ask::want_hint(want));
-                let Some(body) = compose_with(&what, false, &prefill, false)? else { return Ok("reply cancelled".into()) };
+                let Some(body) = compose_change(&what, want, &prefill)? else { return Ok("reply cancelled".into()) };
                 keep_on_error(crate::claude::reply(&p, &k, &body, want), &body)?;
+                Ok(self.answer_now())
+            }
+            Action::ClaudeReplyAll(keys, want) => {
+                let p = self.claude.path.clone().context("no review file")?;
+                let what = format!("one reply to Claude's {} comments{}", keys.len(), ask::want_hint(want));
+                let Some(body) = compose_change(&what, want, "")? else { return Ok("reply cancelled".into()) };
+                for k in &keys {
+                    keep_on_error(crate::claude::reply(&p, k, &body, want), &body)?;
+                }
                 Ok(self.answer_now())
             }
             Action::AskClaude { anchor, code, about, want } => {
@@ -170,7 +181,7 @@ impl App {
                     None => format!("a comment for Claude on {}:{range}{}", anchor.path, ask::want_hint(want)),
                 };
                 let prefill = about.as_ref().map_or(String::new(), |(_, q)| q.clone());
-                let Some(body) = compose_with(&what, false, &prefill, false)? else { return Ok("comment cancelled".into()) };
+                let Some(body) = compose_change(&what, want, &prefill)? else { return Ok("comment cancelled".into()) };
                 keep_on_error(crate::claude::add_comment(&p, &anchor, code, &body, about.map(|a| a.0), want).map(drop), &body)?;
                 self.load_claude();
                 Ok(self.answer_now())
@@ -420,4 +431,16 @@ impl App {
             }
         }
     }
+}
+
+/// What you write to Claude (`compose_with`): wanting the code changed, left empty (or only
+/// the quote it started with) it's "what your comment says".
+fn compose_change(what: &str, want: &str, prefill: &str) -> Result<Option<String>> {
+    if !ask::edits_code(want) {
+        return compose_with(what, false, prefill, false);
+    }
+    Ok(compose_with(what, true, prefill, true)?.map(|b| match b.trim().is_empty() || b.trim() == prefill.trim() {
+        true => format!("{prefill}Make the change your comment describes.").trim_start().to_owned(),
+        false => b,
+    }))
 }

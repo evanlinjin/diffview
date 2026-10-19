@@ -500,10 +500,16 @@ fn claude_menu() {
     assert!(p.items[0].label.starts_with("Update Claude's review"));
     assert!(p.items[1].label.contains("(1 waiting)") && p.sel == 1); // answering preselected
     assert!(p.items[2].label.contains("make the changes (2 open comments")); // the resolved one is skipped
-    // Picking it asks for your own instructions first (an editor), then runs Claude.
+    // Picking it asks how they land, then for your own instructions (an editor), then runs Claude.
     app.picker = None;
     app.pick_claude(agent::Ask::Fix);
+    let p = app.picker.take().unwrap();
+    assert!(matches!(p.items[1].target, Target::Land(agent::Ask::Fix, "amend")) && p.sel == 0);
+    app.land(agent::Ask::Fix, "amend");
     assert!(matches!(app.action.take(), Some(Action::ClaudeWith(agent::Ask::Fix))));
+    assert!(app.claude_prompt(agent::Ask::Fix, "").contains("`dv amend <sha> <files>`"));
+    app.pick_claude(agent::Ask::Fix); // the last answer first, next time
+    assert_eq!(app.picker.take().map(|p| p.sel), Some(1));
     app.pick_claude(agent::Ask::Review); // reviewing asks too
     assert!(matches!(app.action.take(), Some(Action::ClaudeWith(agent::Ask::Review))));
     assert!(app.claude_prompt(agent::Ask::Fix, "keep the API").ends_with("The user adds:\nkeep the API"));
@@ -987,7 +993,7 @@ fn make_changes_without_comments() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
     app.claude.path = Some(std::env::temp_dir().join(format!("dv-fix-{}", std::process::id())).join("pr-1.json"));
     // No open comments: still asks for instructions; with none written, nothing to do.
-    app.pick_claude(agent::Ask::Fix);
+    app.land(agent::Ask::Fix, "");
     assert!(matches!(app.action.take(), Some(Action::ClaudeWith(agent::Ask::Fix))));
     assert!(!app.run_claude(agent::Ask::Fix, "  "));
     assert!(app.msg.starts_with("nothing to change") && app.claude.job.is_none());
@@ -1055,9 +1061,9 @@ fn ask_claude_about_a_commit() {
     app.commits = vec![files::Commit { sha: "abcdef1234".into(), short: "abcdef1".into(), subject: "add parse".into(), at: "1".into(), signed: true }];
     // `a` on it: what you want, then the editor, starting from which commit.
     app.ask_commit(0);
-    // On no lines, no suggestion to post: ask (preselected) or change.
+    // On no lines, no suggestion to post: ask (preselected), change, amend or commit.
     let p = app.picker.as_mut().unwrap();
-    assert_eq!((p.items.len(), p.sel), (2, 0));
+    assert_eq!((p.items.len(), p.sel), (4, 0));
     p.sel = 1;
     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     let Some(Action::AskConversation { url, prefill, want: "change" }) = app.action.take() else { panic!("no question about the commit") };
@@ -2999,4 +3005,29 @@ fn a_failed_reload_is_said_after_what_was_done() {
     let said = with_reload("amended (was abc: dv-backup/x)".into(), Err(anyhow!("git diff failed")));
     assert!(said.starts_with("amended (was abc: dv-backup/x)") && said.contains("git diff failed"), "{said}");
     assert_eq!(with_reload(String::new(), Err(anyhow!("git diff failed"))), "git diff failed");
+}
+
+#[test]
+fn one_reply_to_several_claude_comments() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let p = std::env::temp_dir().join(format!("dv-claude-many-{}.json", std::process::id()));
+    std::fs::write(&p, r#"{ "summary": "s", "comments": [
+        { "path": "src/a.rs", "line": 2, "body": "rename it" },
+        { "path": "src/a.rs", "line": 2, "side": "old", "body": "keep this" } ] }"#).unwrap();
+    app.claude.path = Some(p.clone());
+    app.load_claude();
+    app.build();
+    // A selection over both: one reply to them all, after what you want (amend, here).
+    let rows: Vec<usize> = app.rows.iter().enumerate().filter(|(_, r)| r.thread.is_some()).map(|(i, _)| i).collect();
+    app.goto(rows[0], 0);
+    app.select = true;
+    app.goto(rows[rows.len() - 1], 0);
+    assert_eq!(app.selected_claude_threads().map(|k| k.len()), Some(2));
+    assert_eq!(app.context_keys().map(|c| c.0), Some("Claude's comments, selected"));
+    app.start_reply(false);
+    let picker = app.picker.take().unwrap();
+    assert!(picker.items.iter().any(|i| matches!(i.target, Target::Want("amend"))) && picker.items.iter().any(|i| matches!(i.target, Target::Want("commit"))));
+    app.want("amend");
+    assert!(matches!(app.action.take(), Some(Action::ClaudeReplyAll(ref ks, "amend")) if ks.len() == 2));
+    _ = std::fs::remove_file(&p);
 }

@@ -139,7 +139,14 @@ Do exactly that, whoever's PR it is, and whatever the wording suggests:
 |---|---|---|
 | `"ask"` | answer (explain, discuss, give your opinion) | edit the code; draft a suggestion |
 | `"suggest"` | propose the change as in 5 (a suggestion block they can post), reply `"Suggested: …"` | edit the code |
-| `"change"` | make the change in the code here (commit or amend only when they say so), reply `"Changed: …"`, resolve | ask whether to; only suggest it |
+| `"change"` | make the change in the code here, uncommitted (commit or amend only when they say so), reply `"Changed: …"`, resolve | ask whether to; only suggest it |
+| `"amend"` | make the change, then amend it into the branch's commit it belongs in (`dv amend <sha> <files>`: the commit whose change it completes or fixes; `git blame` hints), reply `"Changed: … (amended into <short sha> \"<subject>\")"`, resolve | leave it uncommitted; make a new commit |
+| `"commit"` | make the change as a new commit (`git add <files>`, `git commit`, a message in the repo's style), reply `"Changed: … (commit <short sha>)"`, resolve | amend an existing commit |
+
+A reply that only says "Make the change your comment describes." (the user wrote nothing
+else) means just that: do what your comment asks, as its `want` says. The same reply on several
+threads (the user answered them together) asks it of each: for `"commit"`, one commit for those
+that belong together, else one each; say which in each reply.
 
 The `want` is about the code and about GitHub: it doesn't limit your own comments. Whatever
 it is, when the user asks you to edit, shorten, correct or rewrite your comment (its text, or
