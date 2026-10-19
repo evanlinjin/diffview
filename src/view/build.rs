@@ -284,16 +284,15 @@ impl App {
         // base) would show nowhere: list them here, by file. Not when showing only what isn't
         // committed, where most files are out of the diff on purpose.
         // (Questions about a commit are on no lines: listed whatever's shown.)
-        let about_commit = |t: usize| commit_of(&self.threads[t].conversation).is_some() && self.in_view(&self.threads[t]);
-        let mut gone: Vec<usize> = match self.uncommitted() || self.commit_shown.is_some() {
-            true => (0..self.threads.len()).filter(|&t| about_commit(t)).collect(),
-            _ => (0..self.threads.len())
-                .filter(|&t| self.in_view(&self.threads[t]) && !self.files.iter().any(|f| f.path == self.threads[t].path))
-                // Questions about the conversation are under their comment, in the whole diff.
-                .filter(|&t| self.threads[t].conversation.is_empty() || self.view != View::All || self.conversation_item(&self.threads[t].conversation).is_none())
-                .filter(|&t| self.threads[t].conversation != ON_SUMMARY) // under the summary
-                .collect(),
-        };
+        // Questions about the conversation are under their comment, in the whole diff (else
+        // here), and those about the summary under it.
+        let unplaced = |th: &Thread| th.conversation != ON_SUMMARY && (self.view != View::All || self.conversation_item(&th.conversation).is_none());
+        let mut gone: Vec<usize> = (0..self.threads.len())
+            .filter(|&t| {
+                let th = &self.threads[t];
+                self.in_view(th) && !self.has_file(&th.path) && (self.on_code(th) || self.gone_listed() && unplaced(th))
+            })
+            .collect();
         // By file (stable: in order within one); questions about the conversation, on no file, last.
         // (Questions on no lines: about a commit, under it; else about the conversation.)
         let label = |t: usize| {
@@ -606,6 +605,23 @@ impl App {
         };
         rows.extend(self.summary_threads(None));
         rows
+    }
+
+    /// Whether thread `t` is about the code shown: on one of its files, or on one gone from the
+    /// diff (listed after the PR's text: `gone_listed`), or a question about a commit. The one
+    /// rule for where a thread goes, and what the pane's tabs count.
+    pub(super) fn on_code(&self, t: &Thread) -> bool {
+        commit_of(&t.conversation).is_some() || !t.path.is_empty() && (self.gone_listed() || self.has_file(&t.path))
+    }
+
+    /// Whether threads on files gone from the diff are listed (not when showing only what isn't
+    /// committed, or a commit: most files are out of the diff on purpose then).
+    fn gone_listed(&self) -> bool {
+        !(self.uncommitted() || self.commit_shown.is_some())
+    }
+
+    fn has_file(&self, path: &str) -> bool {
+        self.files.iter().any(|f| f.path == path)
     }
 
     /// A comment hidden on GitHub (`why`), not shown here (Tab): what its heading says after

@@ -50,12 +50,8 @@ impl App {
             true => &[(Bar::Claude, "Claude")],
             false => &[(Bar::Comments, "Comments"), (Bar::Claude, "Claude"), (Bar::Pending, "Pending")],
         };
-        // The threads about the code each tab's view shows (as the view decides it): on its
-        // files, or on commits, or listed after the PR's text as on files gone from the diff.
-        let paths: HashSet<&str> = self.files.iter().map(|f| f.path.as_str()).collect();
-        let gone_listed = !(self.uncommitted() || self.commit_shown.is_some());
-        let on_code = |t: &&Thread| commit_of(&t.conversation).is_some() || !t.path.is_empty() && (gone_listed || paths.contains(t.path.as_str()));
-        let about_code: Vec<&Thread> = self.threads.iter().filter(on_code).collect();
+        // The threads about the code each tab's view shows (as the view decides it).
+        let about_code: Vec<&Thread> = self.threads.iter().filter(|t| self.on_code(t)).collect();
         tabs.iter()
             .map(|&(b, name)| {
                 let v = match b {
