@@ -116,8 +116,6 @@ impl App {
         }
     }
 
-    /// The row and column under screen cell (`x`, `y`), and whether it's in the gutter (line
-    /// numbers, fold arrows), as the last frame drew it.
     /// Where the comment pane's text starts on screen: after the code column and a 1-column
     /// gap, behind its own gutter (as the last frame drew it).
     pub(super) fn pane_x(&self) -> usize {
@@ -131,6 +129,8 @@ impl App {
         g.relw + g.half + 1 + g.ghw
     }
 
+    /// The row and column under screen cell (`x`, `y`), and whether it's in the gutter (line
+    /// numbers, fold arrows), as the last frame drew it.
     pub(super) fn at_screen(&self, x: usize, y: usize) -> Option<(usize, usize, bool)> {
         let g = self.geom;
         if self.pin && y == 0 {

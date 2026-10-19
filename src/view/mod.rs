@@ -38,6 +38,7 @@ mod links;
 use info::*;
 #[cfg(test)]
 pub(crate) use info::info_lines_of;
+pub(crate) use files::cut;
 mod keys;
 mod layout;
 mod mouse;

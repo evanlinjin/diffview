@@ -317,10 +317,4 @@ fn card_row(ui: &Ui, selected: bool) -> Style {
     }
 }
 
-/// `s` cut to `n` chars, ending in `…` if it was longer.
-pub(super) fn cut(s: &str, n: usize) -> String {
-    match s.chars().count() > n {
-        true => format!("{}…", s.chars().take(n.saturating_sub(1)).collect::<String>()),
-        false => s.to_owned(),
-    }
-}
+pub(super) use crate::view::cut;

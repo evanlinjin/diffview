@@ -557,8 +557,8 @@ impl App {
     }
 }
 
-/// `s` in at most `n` chars, ending in `…` if it was longer.
-fn cut(s: &str, n: usize) -> String {
+/// `s` in at most `n` chars, ending in `…` if it was longer (dv list's too).
+pub(crate) fn cut(s: &str, n: usize) -> String {
     match s.chars().count() > n {
         true => format!("{}…", s.chars().take(n.saturating_sub(1)).collect::<String>()),
         false => s.to_owned(),

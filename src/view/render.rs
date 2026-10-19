@@ -414,33 +414,29 @@ impl App {
         let (s, e) = self.ordered();
         let overlay = self.label_overlay();
         let sep = self.pane_sep(float);
-        {
-            let bar = Style { bg: self.ui.bar, ..self.ui.header };
-            let mut spans = vec![Span::styled(" ".repeat(relw), bar)];
-            // With the pane: the title over the code, and the pane's tabs over the pane.
-            let title_w = code_tw;
-            spans.extend(self.render_row(0, s, e, (lw, gw, title_w), None, self.head.row == 0, &overlay));
-            if margin {
-                let dim = bar.remove_modifier(ratatui::style::Modifier::BOLD).patch(Style { fg: self.ui.linenr.fg, ..Style::new() });
-                let mut used = 0;
-                let lit = self.bar();
-                for (tab, label, cols) in self.pane_tabs() {
-                    // The line between the code and the pane goes on up through the title.
-                    if used == 0 && !float {
-                        spans.push(Span::styled(sep.content.clone(), dim.patch(Style { fg: sep.style.fg, ..Style::new() })));
-                        used = 1;
-                    }
-                    spans.push(Span::styled(" ".repeat(cols.start - used), dim));
-                    let on = tab == lit;
-                    spans.push(Span::styled(label, if on { self.ui.menu_selected } else { dim }));
-                    used = cols.end;
+        let bar = Style { bg: self.ui.bar, ..self.ui.header };
+        let mut spans = vec![Span::styled(" ".repeat(relw), bar)];
+        // With the pane: the title over the code, and the pane's tabs over the pane.
+        spans.extend(self.render_row(0, s, e, (lw, gw, code_tw), None, self.head.row == 0, &overlay));
+        if margin {
+            let dim = bar.remove_modifier(ratatui::style::Modifier::BOLD).patch(Style { fg: self.ui.linenr.fg, ..Style::new() });
+            let mut used = 0;
+            let lit = self.bar();
+            for (tab, label, cols) in self.pane_tabs() {
+                // The line between the code and the pane goes on up through the title.
+                if used == 0 && !float {
+                    spans.push(Span::styled(sep.content.clone(), dim.patch(Style { fg: sep.style.fg, ..Style::new() })));
+                    used = 1;
                 }
-                let rest = (area.width as usize).saturating_sub(relw + gw + title_w + used);
-                spans.push(Span::styled(format!("{:>rest$}", "gn ", rest = rest), dim));
+                spans.push(Span::styled(" ".repeat(cols.start - used), dim));
+                let on = tab == lit;
+                spans.push(Span::styled(label, if on { self.ui.menu_selected } else { dim }));
+                used = cols.end;
             }
-            f.render_widget(Paragraph::new(Line::from(spans)), Rect { height: 1, ..area });
+            let rest = (area.width as usize).saturating_sub(relw + gw + code_tw + used);
+            spans.push(Span::styled(format!("{:>rest$}", "gn ", rest = rest), dim));
         }
-
+        f.render_widget(Paragraph::new(Line::from(spans)), Rect { height: 1, ..area });
     }
 
     /// While the cursor is on a link, its URL just under (or over) it.

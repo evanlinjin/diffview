@@ -1266,6 +1266,9 @@ fn claude_view() {
     assert!(v.iter().any(|t| t == "Long story") && !v.iter().any(|t| t.starts_with("review:")));
     // Claude's activity: what it wrote last, a line each (when, where, its first line).
     assert!(v.iter().any(|t| t == "claude's activity") && v.iter().any(|t| t.starts_with("◆ ") && t.contains("big.rs:20 · hm")), "{v:?}");
+    // Its keys there: going to it, not the PR text's (nothing of it to quote or react to).
+    app.goto(app.rows.iter().position(|r| r.line.text.starts_with("◆ ")).unwrap(), 0);
+    assert_eq!(app.context_keys().map(|k| k.0), Some("Claude's activity"));
     // Only the file Claude commented on, and only lines 17-23 of it.
     let code: Vec<&str> = v.iter().filter(|t| t.starts_with("line ")).map(String::as_str).collect();
     assert_eq!(code, (17..=23).map(|n| format!("line {n}")).collect::<Vec<_>>());

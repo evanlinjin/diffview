@@ -202,7 +202,11 @@ impl App {
         if row.info == Some(DRAFT) {
             return Some(("your review", &[("S", "edit it and submit"), ("C", "new conversation comment"), ("Space c", "copy link")]));
         }
-        (row.file == INFO && row.info.is_some() && self.pr.is_some())
+        if row.info == Some(CLAUDE_ACTIVITY) {
+            return Some(("Claude's activity", &[("gf", "go to it")]));
+        }
+        // (A line of the PR's own text: not one of dv's boxes.)
+        (row.file == INFO && row.info.is_some_and(|i| i < self.info.len()) && self.pr.is_some())
             .then_some(("PR text", &[("c", "quote in your review summary"), ("C", "quote in a new conversation comment"), ("Space =", "react"), ("Space c", "copy link")]))
     }
 

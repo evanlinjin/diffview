@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.76] - 2026-10-19
+
+### Fixed
+- Claude's activity: its lines' keys are its own (`gf` goes to it), not the PR text's; a thread
+  on code that's changed says the line it was on; it shows when Claude's review has no summary.
+
 ## [0.34.75] - 2026-10-19
 
 ### Added

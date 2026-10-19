@@ -605,7 +605,7 @@ impl App {
         let questions = self.threads.iter().any(|t| t.conversation == ON_SUMMARY && self.in_view(t));
         let summary = !self.claude.summary.trim().is_empty();
         if !summary && !questions {
-            return vec![];
+            return self.claude_activity(); // (what it did all the same)
         }
         let mk = |kind, text| Row::text(INFO, kind, text);
         let mut rows = match summary {
@@ -633,7 +633,8 @@ impl App {
             .iter()
             .filter(|t| t.claude.is_some())
             .flat_map(|t| {
-                let at = match (t.path.as_str(), t.line, t.conversation.as_str()) {
+                // (Outdated: where it was.)
+                let at = match (t.path.as_str(), t.line.or(t.original_line), t.conversation.as_str()) {
                     ("", _, ON_SUMMARY) => "on its review".to_owned(),
                     ("", _, c) if commit_of(c).is_some() => format!("on commit {}", self.commit_short(commit_of(c).unwrap_or(""))),
                     ("", ..) => "on the conversation".to_owned(),
@@ -654,8 +655,7 @@ impl App {
             let first = body.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
             let when = if created.is_empty() { String::new() } else { format!("{} · ", crate::gh::ago(created)) };
             let line = format!("◆ {when}{at} · {first}");
-            let cut: String = line.chars().take(w.saturating_sub(1)).collect();
-            rows.push(mk(Kind::Comment, if cut.chars().count() < line.chars().count() { format!("{}…", cut.chars().take(w.saturating_sub(2)).collect::<String>()) } else { cut }));
+            rows.push(mk(Kind::Comment, super::cut(&line, w.saturating_sub(1))));
         }
         rows.push(Row { edge: true, ..mk(Kind::Comment, String::new()) });
         rows
