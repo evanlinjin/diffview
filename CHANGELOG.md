@@ -5,9 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-10-19
+
 ### Added
 - Emoji reactions: a GitHub comment's (review thread or conversation) show after who and when
-  (`👍 2  🎉 1`); `Space =` on one reacts, or takes yours back (✓ marks yours).
+  (`👍 2  🎉 1`); `Space =` on one (or on the description, for the PR's) reacts, or takes
+  yours back (✓ marks yours).
 - Amend what isn't committed (Claude's changes, say) into the PR's commits it belongs in:
   `Space g` → "Amend it into the PR's commits…" shows where each change goes (the commit that
   wrote the lines it changes, by `git blame`) before anything happens; Claude can be asked
@@ -872,6 +875,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.30.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.30.0
 [0.29.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.29.0
 [0.28.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.28.1
 [0.28.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.28.0
