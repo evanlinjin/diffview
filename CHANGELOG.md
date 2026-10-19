@@ -5,6 +5,22 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.34] - 2026-10-19
+
+### Changed
+- Pickers match the words you type (each as it is, case-insensitive, in any order), not your
+  letters scattered through an entry: "close" finds what says close.
+- `S`'s close entry is "Close the PR (with a comment, optional)", and `?` says `S` closes.
+
+### Fixed
+- `dv list`: on a draft replacement's row, `M M`, `b b`, `W W`, `m` and `a a` no longer act on
+  the PR it replaces (they say it's a draft).
+- After an amend or taking GitHub's branch, a failed reload is said.
+- The latest activity keeps the last three comments however many events follow them.
+- Syntax colors in the uncommitted view follow a commit or amend.
+- `dv list`'s message (and press-again prompts) has the status bar first.
+- Opening `Space g` no longer works out a commit message you may not use.
+
 ## [0.34.33] - 2026-10-19
 
 ### Changed
