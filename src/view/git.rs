@@ -3,6 +3,23 @@
 use super::*;
 
 impl App {
+    /// `Space g` → update the checkout: on a PR, up to its head as `gh pr checkout` does (fast-forward only: a branch
+    /// with commits that aren't on the PR is left as it is, and said so); else `git pull
+    /// --ff-only`. Local changes in the way are git's to refuse, so nothing is overwritten.
+    pub(super) fn pull(&self) -> Result<String> {
+        match &self.pr {
+            Some(p) => {
+                let detached = diff::git(&["branch", "--show-current"])?.trim().is_empty();
+                let note = crate::checkout_or_keep(p.number, false, detached)?;
+                Ok(note.unwrap_or_else(|| format!("up to date with PR #{}", p.number)))
+            }
+            None => {
+                diff::git(&["pull", "--ff-only"])?;
+                Ok("pulled".into())
+            }
+        }
+    }
+
     /// Diffing against HEAD: only what isn't committed yet.
     pub(super) fn uncommitted(&self) -> bool {
         self.base == "HEAD"

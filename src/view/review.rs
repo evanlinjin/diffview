@@ -201,23 +201,6 @@ impl App {
         }
     }
 
-    /// `Space g` → update the checkout: on a PR, up to its head as `gh pr checkout` does (fast-forward only: a branch
-    /// with commits that aren't on the PR is left as it is, and said so); else `git pull
-    /// --ff-only`. Local changes in the way are git's to refuse, so nothing is overwritten.
-    pub(super) fn pull(&self) -> Result<String> {
-        match &self.pr {
-            Some(p) => {
-                let detached = diff::git(&["branch", "--show-current"])?.trim().is_empty();
-                let note = crate::checkout_or_keep(p.number, false, detached)?;
-                Ok(note.unwrap_or_else(|| format!("up to date with PR #{}", p.number)))
-            }
-            None => {
-                diff::git(&["pull", "--ff-only"])?;
-                Ok("pulled".into())
-            }
-        }
-    }
-
     /// Viewed files fold, like on GitHub: on first load, and when newly marked; not with
     /// comments you haven't seen on them. Files you unfold yourself stay unfolded across
     /// refreshes.
@@ -228,25 +211,6 @@ impl App {
             }
         }
         self.viewed = viewed;
-    }
-
-    /// Whether file `path` has comments you haven't seen.
-    pub(super) fn new_on(&self, path: &str) -> bool {
-        self.threads.iter().any(|t| t.path == path && self.is_new(t))
-    }
-
-    /// The files with comments you haven't seen.
-    pub(super) fn new_paths(&self) -> HashSet<String> {
-        self.threads.iter().filter(|t| self.is_new(t)).map(|t| t.path.clone()).collect()
-    }
-
-    /// New comments came (GitHub's or Claude's): the viewed files they're on unfold, so
-    /// they're seen; not those that had some already (`before`: folded since, by you).
-    pub(super) fn unfold_new(&mut self, before: &HashSet<String>) {
-        let open: Vec<String> = self.collapsed.iter().filter(|p| self.viewed.get(*p).is_some_and(|s| s == "VIEWED") && self.new_on(p) && !before.contains(*p)).cloned().collect();
-        for p in open {
-            self.collapsed.remove(&p);
-        }
     }
 
     /// `Space v`: toggle GitHub's "Viewed" mark for the file under the cursor.
@@ -291,63 +255,6 @@ impl App {
         // What's still open, to see before you say you're done (approving most of all).
         items.extend(self.submit_notes().iter().map(|n| item(&format!("  ! {n}"), Target::Nothing)));
         self.picker = Some(Picker { title: " submit review ", items, query: String::new(), sel: 0 });
-    }
-
-    /// `S` on a replacement: publish it as a draft PR (ready for review once CI passes: `Space g`
-    /// checks), then close what it replaces.
-    pub(super) fn replacement_menu(&mut self) {
-        let Some(r) = &self.replacement else { return };
-        let item = |label: String, target| Item::new(label, target);
-        let open: Vec<String> = r.replaces.iter().filter(|o| !r.closed.contains(&o.number)).map(|o| format!("#{}", o.number)).collect();
-        let dirty = !diff::git(&["-C", &self.root.to_string_lossy(), "status", "--porcelain"]).unwrap_or_default().trim().is_empty();
-        let to = crate::replace::remote().map_or("your remote: dv asks which".to_owned(), |r| format!("to {r}"));
-        let mut items = match r.published {
-            _ if r.drafting_now() => vec![item("Claude is drafting it: wait for it to finish".into(), Target::Nothing)],
-            None if r.title.is_empty() => vec![item("Claude hasn't drafted it yet (Space a → Redraft)".into(), Target::Nothing)],
-            // Only commits are published: what isn't committed would be left out.
-            None if dirty => vec![item("Commit the uncommitted changes first (they'd be left out)…".into(), Target::GitCommit)],
-            None => {
-                let mut v = vec![item(format!("Publish as a draft PR (rebased on {}, pushed {to})…", diff::remote_branch(&r.base)), Target::Publish(false))];
-                if !open.is_empty() {
-                    v.push(item(format!("Publish, then close {} with the closing note…", open.join(", ")), Target::Publish(true)));
-                }
-                v
-            }
-            Some(n) => vec![item(format!("Published as PR #{n}"), Target::Nothing)],
-        };
-        match (r.published, open.is_empty()) {
-            (_, true) => items.push(item("  the PRs it replaces are closed".into(), Target::Nothing)),
-            (Some(_), false) => items.push(item(format!("Close {} with the closing note (now)…", open.join(", ")), Target::CloseOriginals)),
-            (None, false) => {}
-        }
-        self.picker = Some(Picker { title: " replacement ", items, query: String::new(), sel: 0 });
-    }
-
-    /// Which remote keeps replacement branches: asked once, then kept in `dv.replaceRemote`.
-    pub(super) fn ask_replace_remote(&mut self, close: bool) -> String {
-        let choices = crate::replace::remote_choices();
-        if choices.is_empty() {
-            return "replacement branches go to a remote of your own, not origin: add one (git remote add <name> <your fork's URL>), then S again".into();
-        }
-        let items = choices.into_iter().map(|(n, url)| Item::new(format!("{n}  {url}"), Target::ReplaceRemote(n, close))).collect();
-        self.picker = Some(Picker { title: " which remote keeps replacement branches? ", items, query: String::new(), sel: 0 });
-        "dv remembers it (git config dv.replaceRemote)".into()
-    }
-
-    /// The replacement here, shown again when its record changes (Claude redrafting it).
-    pub(super) fn watch_replacement(&mut self) {
-        let Some(id) = self.replacement.as_ref().map(|r| r.id) else { return };
-        let mtime = crate::replace::path(id).ok().and_then(|p| std::fs::metadata(p).ok()?.modified().ok());
-        if mtime == self.replacement_mtime {
-            return;
-        }
-        let first = self.replacement_mtime.is_none();
-        self.replacement_mtime = mtime;
-        if let (false, Ok(r)) = (first, crate::replace::load(id)) {
-            let keep = self.cursor_key();
-            self.show_replacement(r);
-            self.rebuild(keep);
-        }
     }
 
     /// What's still open in the review: threads waiting on someone, pending comments whose
@@ -527,51 +434,6 @@ impl App {
             Ok(anchor) => self.action = Some(Action::Comment { anchor, review, prefill: body, claude: Some(key) }),
             Err(e) => self.msg = format!("{e:#}"),
         }
-    }
-
-    /// The replacement checked out here (no PR), as PR info: what it replaces, and Claude's
-    /// drafts of its description and closing note.
-    pub(super) fn load_replacement(&mut self) {
-        if let Some(r) = crate::replace::current().and_then(|id| crate::replace::load(id).ok()) {
-            self.show_replacement(r);
-        }
-    }
-
-    pub(super) fn show_replacement(&mut self, r: crate::replace::Record) {
-        let line = |heading, md, text: &str| InfoLine { heading, md, text: text.into(), ..Default::default() };
-        let mut replaces = line(false, false, "replaces ");
-        for (i, o) in r.replaces.iter().enumerate() {
-            let sep = if i == 0 { "" } else { ", " };
-            replaces.text.push_str(sep);
-            let at = replaces.text.chars().count();
-            let num = format!("#{}", o.number);
-            replaces.text.push_str(&format!("{num} {} (@{})", o.title, o.author));
-            replaces.marks.push((at, at + num.chars().count(), Mark::Link(o.url.clone())));
-        }
-        let mut status = vec![];
-        if let Some(n) = r.published {
-            let url = r.replaces.first().and_then(|o| Some(format!("{}/{n}", o.url.rsplit_once('/')?.0))).unwrap_or_default();
-            let mut l = line(false, false, &format!("published as PR #{n}"));
-            l.marks.push((l.text.chars().count() - format!("#{n}").len(), l.text.chars().count(), Mark::Link(url)));
-            status.push(l);
-        }
-        if !r.closed.is_empty() {
-            let closed: Vec<String> = r.closed.iter().map(|n| format!("#{n}")).collect();
-            status.push(line(false, false, &format!("closed {}, with the note", closed.join(", "))));
-        }
-        // A new PR: what you asked for, in place of what it replaces (and no closing note).
-        let new = r.replaces.is_empty();
-        if new {
-            replaces = line(false, false, &format!("asked: {}", r.task.lines().next().unwrap_or("")));
-        }
-        self.info = vec![replaces];
-        self.info.extend(status);
-        self.info.extend([line(true, false, "description (Claude's draft)"), line(false, true, &r.body)]);
-        if !new {
-            self.info.extend([line(true, false, "closing note, for the PRs it replaces (Claude's draft)"), line(false, true, &r.closing_note)]);
-        }
-        self.pr_state = Some(if r.published.is_some() { ("PUBLISHED", "238636") } else { ("UNPUBLISHED", "6e7681") });
-        self.replacement = Some(r);
     }
 
     /// The GitHub comment (or review) under the cursor, to react to: its node id. A review
@@ -1038,75 +900,7 @@ impl App {
 /// What `c`, `Space e` and the like say on a comment hidden on GitHub, not shown here.
 const HIDDEN_FIRST: &str = "it's hidden on GitHub: Tab on it shows it first";
 
-/// How long the cursor stays on a thread before its comments count as seen.
-const SEEN_AFTER: std::time::Duration = std::time::Duration::from_secs(3);
-
-/// A comment's key in what you've seen: its GitHub id, or its place in Claude's review file.
-fn comment_key(t: &Thread, ci: usize) -> String {
-    match &t.claude {
-        Some(id) => format!("claude:{id}:{ci}"),
-        None => t.comments[ci].node_id.clone(),
-    }
-}
-
 impl App {
-    /// What you've seen of this PR's (or branch's) threads, in dv's directory: `seen/` beside
-    /// `reviews/`, by the same name.
-    pub(super) fn load_seen(&mut self) {
-        self.seen.path = self.claude.path.as_ref().and_then(|p| Some(p.parent()?.parent()?.join("seen").join(p.file_name()?)));
-        let text = self.seen.path.as_ref().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
-        self.seen.keys = serde_json::from_str(&text).unwrap_or_default();
-        self.seen.before = self.seen.keys.clone();
-    }
-
-    /// Thread `t` has comments you haven't seen, not counting your own. (Never, with nowhere
-    /// to keep what you've seen.)
-    pub(super) fn is_new(&self, t: &Thread) -> bool {
-        self.seen.path.is_some()
-            && t.comments.iter().enumerate().any(|(ci, c)| !self.wrote(c) && !self.seen.keys.contains(&comment_key(t, ci)))
-    }
-
-    pub(super) fn wrote(&self, c: &gh::Comment) -> bool {
-        c.pending || c.author == "you" || (!self.me.is_empty() && c.author == self.me)
-    }
-
-    /// A thread's comments are seen once the cursor leaves it (as they were when it got
-    /// there), or has been on it for `SEEN_AFTER`.
-    pub(super) fn watch_seen(&mut self) {
-        if self.select {
-            return; // the rebuild would drop the selection: later
-        }
-        let here = self.rows.get(self.head.row).and_then(|r| r.thread).map(|ti| {
-            let t = &self.threads[ti];
-            (0..t.comments.len()).map(|ci| comment_key(t, ci)).collect::<Vec<_>>()
-        });
-        // A conversation comment (its heading or text): its node id.
-        let on_thread = here.is_some();
-        let here = here.or_else(|| self.conversation_node().map(|n| vec![n])).unwrap_or_default();
-        let (seen, conversation) = match here == self.seen.current {
-            true if self.seen.since.elapsed() >= SEEN_AFTER => (self.seen.current.clone(), self.seen.conversation),
-            true => return,
-            false => {
-                self.seen.since = std::time::Instant::now();
-                let was = std::mem::replace(&mut self.seen.conversation, !on_thread);
-                (std::mem::replace(&mut self.seen.current, here), was)
-            }
-        };
-        let before = self.seen.keys.len();
-        self.seen.keys.extend(seen.into_iter().filter(|k| !k.is_empty()));
-        if self.seen.keys.len() != before
-            && let Some(p) = &self.seen.path
-        {
-            let mut keys: Vec<&String> = self.seen.keys.iter().collect();
-            keys.sort();
-            // ponytail: rewrites the whole set; fine for a PR's worth of comments.
-            _ = std::fs::create_dir_all(p.parent().unwrap_or(p)).and_then(|_| std::fs::write(p, serde_json::to_string(&keys).unwrap_or_default()));
-            if !conversation {
-                let keep = self.cursor_key();
-                self.rebuild(keep); // without its [new] tag
-            }
-        }
-    }
 }
 
 /// `S` → "Comment and close the PR": a comment review (if there's anything to say), then closing.
