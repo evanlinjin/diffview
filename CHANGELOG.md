@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.49.1] - 2026-10-19
+
+### Fixed
+- An issue in dv: a code block's background runs its full width, not just under its text.
+
 ## [0.49.0] - 2026-10-19
 
 ### Added
