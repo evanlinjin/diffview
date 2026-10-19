@@ -594,7 +594,6 @@ impl List {
             .collect();
     }
 
-    /// The tab's PRs matching every filter term, in the chosen order.
     /// A key that asks to be pressed again (what it'd do, `ask`, said): whether it was (`armed`
     /// is what the last key armed), else it's armed now.
     fn again(&mut self, armed: Option<(char, u64)>, key: (char, u64), ask: impl Into<String>) -> bool {
@@ -628,6 +627,7 @@ impl List {
         }
     }
 
+    /// The tab's PRs matching every filter term, in the chosen order.
     fn shown(&self) -> Vec<&Listed> {
         self.shown_cards().into_iter().map(|(card, _)| card).collect()
     }

@@ -150,7 +150,7 @@ impl List {
             Span::styled(if self.flags.is_empty() { "  ".to_owned() } else { format!("  ·  opens with {}  ", self.flags) }, bar),
         ]);
         // The message first: the state where there's room beside it.
-        let (lw, sw) = (left.chars().count() as u16, state.width() as u16);
+        let (lw, sw) = (Line::from(left.as_str()).width() as u16, state.width() as u16);
         let right = if lw + 2 + sw <= status.width { sw } else { 0 };
         if right > 0 {
             f.render_widget(Paragraph::new(state).alignment(Alignment::Right).style(bar), status);

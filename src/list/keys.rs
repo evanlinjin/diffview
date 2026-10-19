@@ -274,8 +274,6 @@ impl List {
         None
     }
 
-    /// The wheel moves the selection; a click selects a card, and on the selected one opens it
-    /// (`true`: open).
     /// A click selects a card, a double-click opens it (`true`: as Enter); a click on a tab
     /// switches to it; the wheel moves the selection.
     pub(super) fn mouse(&mut self, m: event::MouseEvent) -> bool {
