@@ -536,12 +536,19 @@ impl App {
         }
         for h in shown.iter().copied() {
             let body = h + 1;
+            // Hidden on GitHub: a line, as a folded thread is (Tab shows it), and what's under it.
+            if let Some(note) = self.hidden_note(&self.info[h].hidden, &self.info[h].node) {
+                let text = format!("{}{note}", self.info[h].text);
+                let row = self.info_row(&self.info[h], mk(Kind::Thread, text.clone()));
+                rows.push(Row { info: Some(h), syn: vec![Some(self.ui.stale); text.chars().count()], ..row });
+                rows.extend(self.conversation_rows(body));
+                continue;
+            }
             rows.push(Row { info: self.info.get(body).filter(|n| n.md).map(|_| body), ..self.info_row(&self.info[h], mk(Kind::Thread, self.info[h].text.clone())) });
             let text = self.info.get(body).map_or("", |l| l.text.as_str());
             // A review with no text, just its verdict: GitHub's placeholder, in its box.
             let text = if text.trim().is_empty() { "_(no comment)_" } else { text };
-            let note = self.hidden_note(&self.info[h].hidden, &self.info[h].node);
-            rows.extend(self.md_rows_at(note.as_deref().unwrap_or(text), width, mk).into_iter().map(|r| Row { info: Some(body), ..r }));
+            rows.extend(self.md_rows_at(text, width, mk).into_iter().map(|r| Row { info: Some(body), ..r }));
             rows.push(Row { info: Some(body), edge: true, ..mk(Kind::Comment, String::new()) });
             rows.extend(self.conversation_rows(body));
         }
@@ -572,26 +579,41 @@ impl App {
         rows
     }
 
-    /// A comment hidden on GitHub (`why`), not shown here (Tab): the line in place of its text.
+    /// A comment hidden on GitHub (`why`), not shown here (Tab): what its heading says after
+    /// who and when, in place of its text.
     fn hidden_note(&self, why: &str, node: &str) -> Option<String> {
         if why.is_empty() || self.revealed.contains(node) {
             return None;
         }
         // (GitHub gave no reason: just that it's hidden.)
         let why = if why == "hidden" { String::new() } else { format!(" ({why})") };
-        Some(format!("_hidden on GitHub{why}: Tab shows it_"))
+        Some(format!(" · hidden on GitHub{why}"))
+    }
+
+    /// Whether row `r` is the folded line of a conversation comment hidden on GitHub.
+    pub(super) fn hidden_line(&self, r: usize) -> bool {
+        let row = &self.rows[r];
+        row.file == INFO && row.thread.is_none() && row.info.and_then(|i| self.info.get(i)).is_some_and(|l| l.heading && !l.hidden.is_empty())
+    }
+
+    /// The comment hidden on GitHub under the cursor (its node id), for Tab to show or hide:
+    /// not on an open thread's first line once it's shown (Tab there folds the thread).
+    pub(super) fn hidden_here(&self) -> Option<String> {
+        let r = self.head.row;
+        match self.rows[r].thread {
+            Some(t) if !self.thread_open(t) => None,
+            Some(t) => {
+                let c = self.comment_under_cursor(t).filter(|c| !c.hidden.is_empty())?;
+                let first = self.rows[r - 1].thread != Some(t);
+                (!(first && self.revealed.contains(&c.node_id))).then(|| c.node_id.clone())
+            }
+            None => self.conversation_node().filter(|n| self.info.iter().any(|l| l.node == *n && !l.hidden.is_empty())),
+        }
     }
 
     /// Tab on a comment hidden on GitHub: its text shown, or hidden again. Whether it was one.
     pub(super) fn toggle_hidden(&mut self) -> bool {
-        let r = self.head.row;
-        let node = match self.rows[r].thread {
-            // (Not on a thread's first line: Tab there folds it.)
-            Some(t) if !self.thread_open(t) || self.rows[r - 1].thread != Some(t) => None,
-            Some(t) => self.comment_under_cursor(t).filter(|c| !c.hidden.is_empty()).map(|c| c.node_id.clone()),
-            None => self.conversation_node().filter(|n| self.info.iter().any(|l| l.node == *n && !l.hidden.is_empty())),
-        };
-        let Some(node) = node else { return false };
+        let Some(node) = self.hidden_here() else { return false };
         flip(&mut self.revealed, node);
         let keep = self.cursor_key();
         self.rebuild(keep);
@@ -634,12 +656,18 @@ impl App {
 
     /// The width comments and PR text wrap to: the pane's, when it's shown (they're there).
     pub(super) fn info_w(&self) -> usize {
-        if self.margin_active { self.margin_w - 3 - 2 - self.pane_pad() } else { self.wrap_w }
+        if self.margin_active { self.margin_w - self.pane_gw() - 2 - self.pane_pad() } else { self.wrap_w }
     }
 
     /// The space inside the line between the code and the pane, as a column.
     pub(super) fn pane_pad(&self) -> usize {
         usize::from(!self.margin_float)
+    }
+
+    /// The pane's gutter: a box's left side and a space (`│  `); as a column, where boxes are
+    /// open on their left, just a space (their rules come from the line beside the code).
+    pub(super) fn pane_gw(&self) -> usize {
+        if self.margin_float { 3 } else { 1 }
     }
 
     /// Color a PR info line by its marks: badges, pass/fail colors, links.
@@ -757,6 +785,7 @@ impl App {
         };
         let mut out = vec![];
         for (k, c) in t.comments.iter().enumerate() {
+            let note = self.hidden_note(&c.hidden, &c.node_id);
             if k == 0 {
                 // In the margin the tags get a line of their own, under the header, so the header
                 // keeps room for who, when and where.
@@ -766,6 +795,7 @@ impl App {
                 let mut head = format!("{lead}{}{re}{}{range}", name(c), when(c));
                 let at = head.chars().count();
                 head += &rt;
+                head += note.as_deref().unwrap_or("");
                 if !open {
                     head += &match t.comments.len() {
                         1 => " · 1 comment".to_owned(),
@@ -795,12 +825,19 @@ impl App {
                 let (rt, rs) = reacts(c);
                 let head = format!("{tag}{}{}", name(c), when(c));
                 let syn = if rs.is_empty() { syn } else { with(syn, head.chars().count(), rs) };
-                out.push(Row { syn, ..mk(Kind::Thread, format!("{head}{rt}")) });
+                out.push(Row { syn, ..mk(Kind::Thread, format!("{head}{rt}{}", note.as_deref().unwrap_or(""))) });
+            }
+            // Hidden on GitHub: its heading says so, and that's all (Tab shows it).
+            if let Some(note) = &note {
+                let row = out.iter_mut().rev().find(|r| r.line.kind == Kind::Thread).unwrap();
+                let n = row.line.text.chars().count();
+                row.syn.resize(n - note.chars().count(), None);
+                row.syn.resize(n, Some(self.ui.stale));
+                continue;
             }
             // In the margin, comments wrap to its width (less the gutter mark and box sides).
             let w = self.info_w();
-            let note = self.hidden_note(&c.hidden, &c.node_id);
-            let rows = self.md_rows_at(note.as_deref().unwrap_or(&c.body), w, mk);
+            let rows = self.md_rows_at(&c.body, w, mk);
             match t.stale() {
                 // Resolved/outdated: rendered the same, but dimmed throughout (links still open).
                 true => out.extend(rows.into_iter().map(|mut r| {
@@ -822,7 +859,7 @@ impl App {
         let key = |r: &Row| match (r.thread, r.info) {
             (Some(t), _) => Some((Some(t), None)),
             // (A section's text: plain, as code; the line saying there's more conversation, too.)
-            (None, Some(i)) if r.file == INFO && r.main.is_none() && i != MORE_CONVERSATION => Some((None, Some(i))),
+            (None, Some(i)) if r.file == INFO && r.main.is_none() && i != MORE_CONVERSATION && !self.info.get(i).is_some_and(|l| l.heading) => Some((None, Some(i))),
             _ => None,
         };
         let row = &self.rows[r];

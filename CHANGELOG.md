@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.7] - 2026-10-19
+
+### Changed
+- A comment hidden on GitHub is a line, as a folded thread is: `▸ @who · 3d ago · hidden on
+  GitHub (spam)` (no box, dimmed); in a thread, just its heading says so. `Tab` shows it
+  (on a thread's first line, Tab then folds the thread, as usual); the key hints say so.
+- In the pane, as a column, comment text starts nearer the line beside the code, and has
+  two more columns to wrap in; folded threads' `▸` sits where the box's side would be.
+
 ## [0.34.6] - 2026-10-19
 
 ### Changed

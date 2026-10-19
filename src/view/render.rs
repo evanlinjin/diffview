@@ -131,6 +131,9 @@ impl App {
                 ("Space c", "copy file:line ref"),
             ]));
         }
+        if self.hidden_here().is_some() {
+            return Some(("hidden on GitHub", &[("Tab", "show it, or hide it again"), ("r", "reply")]));
+        }
         // On a link: what can be done with it (before what the row it's in offers).
         if self.link_at_cursor().is_some() {
             return Some(("link", &[("Enter", "open it in the browser"), ("Space c", "copy it"), ("Space k", "preview it (an issue or PR)")]));
@@ -249,7 +252,7 @@ impl App {
         }
         let margin = shown && width > gw + 12;
         let float = margin && (tiny || self.margin_float_pref.unwrap_or(!room));
-        let mtw = mw - 3;
+        let mtw = mw - if float { 3 } else { 1 }; // (`pane_gw`, before it's set)
         // The code's columns: the whole width, or what's left of the margin beside it; split
         // view's halves (one line-number column each, a 1-col divider between) within that.
         let code_w = if margin && !float { width.saturating_sub(1 + mw) } else { width };
@@ -441,9 +444,14 @@ impl App {
                                     Some(r) if self.open_left(r) && self.box_part(r).is_some_and(|p| p != BoxPart::Body) => {
                                         spans.pop();
                                         spans.push(Span::styled(format!("├{}", "─".repeat(pad)), self.box_edge(r).bg(self.ui.base.bg.unwrap_or(Color::Reset))));
-                                        spans.extend(raise(clip(self.render_row(r, s, e, (lw, 3, ptw), None, cur, &overlay), mw - pad)));
+                                        spans.extend(raise(clip(self.render_row(r, s, e, (lw, self.pane_gw(), ptw), None, cur, &overlay), mw - pad)));
                                     }
-                                    Some(r) => spans.extend(raise(pane_cell(self.render_row(r, s, e, (lw, 3, ptw), None, cur, &overlay)))),
+                                    // Not in a box (a folded thread, a heading): its mark where the
+                                    // space would be, so its text lines up with the boxes'.
+                                    Some(r) if self.open_left(r) && self.box_part(r).is_none() => {
+                                        spans.extend(raise(clip(self.render_row(r, s, e, (lw, pad + self.pane_gw(), ptw), None, cur, &overlay), mw)));
+                                    }
+                                    Some(r) => spans.extend(raise(pane_cell(self.render_row(r, s, e, (lw, self.pane_gw(), ptw), None, cur, &overlay)))),
                                     None => spans.push(Span::raw(" ".repeat(mw))),
                                 }
                             }
@@ -535,7 +543,7 @@ impl App {
             let y = (hd - self.top) as u16 + pin as u16;
             // In the margin, the text starts after the code column, the gap and its own gutter.
             let start = match self.drows[hd] {
-                _ if self.margin_side() => relw + self.geom.gw + self.geom.ctw + 1 + self.pane_pad() + 3,
+                _ if self.margin_side() => relw + self.geom.gw + self.geom.ctw + 1 + self.pane_pad() + self.pane_gw(),
                 DRow::Pair(..) | DRow::Margin(Some(_), Some(_), _) if self.right => relw + half + 1 + ghw,
                 DRow::Pair(..) => relw + ghw,
                 DRow::Margin(Some(_), Some(_), _) if self.split => relw + ghw,
@@ -831,8 +839,10 @@ impl App {
             }
             Kind::Thread | Kind::Comment => {
                 let resolved = row.thread.is_some_and(|t| self.threads[t].stale());
+                let hidden = self.hidden_line(r);
                 let st = match (l.kind, resolved) {
                     (_, true) => ui.stale,
+                    _ if hidden => ui.stale,
                     (Kind::Thread, _) if row.file == INFO => ui.heading,
                     (Kind::Thread, _) => ui.thread,
                     _ => Style::new(),
@@ -845,13 +855,13 @@ impl App {
                 let mark = match part {
                     Some(p) if self.open_left(r) => {
                         gstyle = self.box_edge(r);
-                        if p == BoxPart::Body { "   " } else if p == BoxPart::Bottom { "───" } else { "── " }
+                        if p == BoxPart::Bottom { "─" } else { " " }
                     }
                     Some(BoxPart::Top) => "╭─ ",
                     Some(BoxPart::Divider) => "├─ ",
                     Some(BoxPart::Body) => "│  ",
                     Some(BoxPart::Bottom) => "╰──",
-                    None if first => " ▸ ",
+                    None if first || hidden => " ▸ ",
                     None if row.file == INFO => "   ", // PR facts: the boxes below set them apart
                     None => " ┃ ",
                 };
@@ -862,6 +872,8 @@ impl App {
                     gstyle = ui.key;
                 }
                 gstyle = gstyle.bg(ui.base.bg.unwrap_or(Color::Reset));
+                // (A narrower gutter, in the pane: the mark's end, ` ▸ ` → `▸ `.)
+                let mark: String = mark.chars().skip(mark.chars().count().saturating_sub(gw)).collect();
                 (format!("{:>gw$}", mark), st)
             }
             k => {

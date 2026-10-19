@@ -2565,23 +2565,44 @@ fn hidden_on_github_folded() {
     };
     app.threads = vec![Thread {
         id: "T".into(), path: "src/a.rs".into(), left: true, line: Some(2), start_line: None, original_line: Some(2), resolved: false, outdated: false,
-        hunk: vec![], comments: vec![c(1, "off topic"), c(2, "")], claude: None, severity: String::new(), about: None, conversation: String::new(), want: String::new(),
+        hunk: vec![], comments: vec![c(1, "spam"), c(2, "off topic"), c(3, "")], claude: None, severity: String::new(), about: None, conversation: String::new(), want: String::new(),
     }];
     app.build();
     let text = |app: &App| app.rows.iter().map(|r| r.line.text.clone()).collect::<Vec<_>>().join("\n");
-    assert!(!text(&app).contains("secret1") && text(&app).contains("hidden on GitHub (off topic): Tab shows it"));
-    assert!(text(&app).contains("secret2"));
-    // Tab on it: shown; again, hidden.
-    let r = app.rows.iter().position(|r| r.line.text.starts_with("hidden on GitHub")).unwrap();
-    // (Its first line, the thread's, folds the thread.)
-    assert_eq!(app.rows[r - 1].thread, app.rows[r].thread);
+    // Just their headings say so.
+    assert!(!text(&app).contains("secret1") && !text(&app).contains("secret2") && text(&app).contains("secret3"));
+    assert!(text(&app).contains("amy · hidden on GitHub (off topic)"));
+    // Tab on one: shown; again, hidden.
+    let r = app.rows.iter().position(|r| r.line.text.ends_with("hidden on GitHub (off topic)")).unwrap();
     app.goto(r, 0);
+    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert!(text(&app).contains("secret2"));
+    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert!(!text(&app).contains("secret2"));
+    // On the thread's first line: shows the first; then it folds the thread, as Tab does.
+    let first = app.rows.iter().position(|r| r.thread == Some(0)).unwrap();
+    app.goto(first, 0);
     app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     assert!(text(&app).contains("secret1"));
     app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    assert!(!text(&app).contains("secret1"));
+    assert!(!app.thread_open(0));
     // The tabs say how many threads each shows.
     assert_eq!(app.pane_tabs().iter().map(|t| t.1.as_str()).collect::<Vec<_>>(), [" Comments 1 ", " Claude ", " Pending "]);
     assert_eq!(gh::hidden(&serde_json::json!({"isMinimized": true, "minimizedReason": "OFF_TOPIC"})), "off topic");
     assert_eq!(gh::hidden(&serde_json::json!({"isMinimized": false})), "");
+}
+
+#[test]
+fn hidden_conversation_comment_folded() {
+    let mut app = fixture();
+    let line = |heading, md, text: &str, node: &str, hidden: &str| gh::InfoLine { heading, md, text: text.into(), marks: vec![], hidden: hidden.into(), url: String::new(), node: node.into() };
+    app.info.extend([line(true, false, "conversation (1)", "", ""), line(true, false, "@bo · 1d ago", "IC_1", "spam"), line(false, true, "buy now", "", "")]);
+    app.build();
+    let s = screen(220, 45, |f| app.draw(f));
+    let line = s.lines().find(|l| l.contains("hidden on GitHub (spam)")).unwrap_or_else(|| panic!("{s}"));
+    assert!(line.contains("▸ @bo · 1d ago · hidden on GitHub (spam)") && !s.contains("buy now"), "{line}");
+    let r = app.rows.iter().position(|r| r.line.text.ends_with("hidden on GitHub (spam)")).unwrap();
+    app.goto(r, 0);
+    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert!(!app.rows.iter().any(|r| r.line.text.contains("hidden on GitHub")) && app.rows.iter().any(|r| r.line.text == "buy now"));
 }
