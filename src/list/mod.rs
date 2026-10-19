@@ -784,6 +784,16 @@ impl List {
     }
 
     /// The tab's PRs matching every filter term, in the chosen order.
+    /// A key that asks to be pressed again (what it'd do, `ask`, said): whether it was (`armed`
+    /// is what the last key armed), else it's armed now.
+    fn again(&mut self, armed: Option<(char, u64)>, key: (char, u64), ask: impl Into<String>) -> bool {
+        if armed == Some(key) {
+            return true;
+        }
+        (self.msg, self.confirm) = (ask.into(), Some(key));
+        false
+    }
+
     /// The selected card's number, and whether it's a replacement's draft.
     fn selected(&self) -> Option<(u64, bool)> {
         self.shown_cards().get(self.sel).map(|(c, rep)| (c.number, *rep))
@@ -881,19 +891,18 @@ impl List {
             }
             KeyCode::Esc if !self.query.is_empty() => (self.query.clear(), self.sel = 0).1,
             // Reviews running: they'd stop with dv (the ones started finish; queued ones don't start).
-            KeyCode::Char('q') | KeyCode::Esc if self.batch.values().any(batch::Status::running) && armed != Some(('q', 0)) => {
-                self.msg = "Claude is still reviewing: q again quits (reviews under way finish; queued ones don't start)".into();
-                self.confirm = Some(('q', 0));
+            KeyCode::Char('q') | KeyCode::Esc => {
+                let running = self.batch.values().any(batch::Status::running);
+                if !running || self.again(armed, ('q', 0), "Claude is still reviewing: q again quits (reviews under way finish; queued ones don't start)") {
+                    return Some(Do::Quit);
+                }
             }
-            KeyCode::Char('q') | KeyCode::Esc => return Some(Do::Quit),
             KeyCode::Char('R') => return Some(Do::Refresh),
             KeyCode::Char('D') if self.tab == Tab::Replacements => {
                 let id = self.shown().get(self.sel).map(|p| p.number)?;
-                if armed == Some(('D', id)) {
+                if self.again(armed, ('D', id), format!("D again removes {} (its worktree and record; its branch stays); any other key keeps it", crate::replace::label(id))) {
                     return Some(Do::RemoveReplacement(id));
                 }
-                self.msg = format!("D again removes {} (its worktree and record; its branch stays); any other key keeps it", crate::replace::label(id));
-                self.confirm = Some(('D', id));
             }
             KeyCode::Char('m' | 'a' | 'A') if self.tab == Tab::Replacements => {
                 self.msg = "a draft: Enter opens it in dv, D D removes it (N N drafts a new PR)".into();
@@ -901,11 +910,9 @@ impl List {
             KeyCode::Char('D') if self.tab == Tab::Worktrees => {
                 let p = self.shown().get(self.sel).map(|p| p.number)?;
                 let (dir, _) = self.local.get(&p)?;
-                if armed == Some(('D', p)) {
+                if self.again(armed, ('D', p), format!("D again removes {} (its branch stays); any other key keeps it", dir.display())) {
                     return Some(Do::Remove(p));
                 }
-                self.msg = format!("D again removes {} (its branch stays); any other key keeps it", dir.display());
-                self.confirm = Some(('D', p));
             }
             KeyCode::Char('s') if self.tab == Tab::Todo => self.defer_key(),
             KeyCode::Char('p') if self.tab == Tab::Todo => {
@@ -919,27 +926,21 @@ impl List {
                 if self.rank_rx.is_some() {
                     return (self.msg = "Claude is ranking already".into(), None).1;
                 }
-                if armed == Some(('r', 0)) {
+                if self.again(armed, ('r', 0), self.rank_offer()) {
                     self.rank_now();
                     return None;
                 }
-                self.msg = self.rank_offer();
-                self.confirm = Some(('r', 0));
             }
             KeyCode::Char('b') => {
                 let p = self.selected_pr()?;
-                if armed == Some(('b', p)) {
+                if self.again(armed, ('b', p), format!("b again: ask #{p}'s author for a rebase (a comment; your editor opens first); any other key doesn't")) {
                     return Some(Do::AskRebase(p));
                 }
-                self.msg = format!("b again: ask #{p}'s author for a rebase (a comment; your editor opens first); any other key doesn't");
-                self.confirm = Some(('b', p));
             }
             KeyCode::Char('N') => {
-                if armed == Some(('N', 0)) {
+                if self.again(armed, ('N', 0), "N again: Claude drafts a new PR, unpublished (your editor opens first: what it should do; issues by #N); any other key doesn't") {
                     return Some(Do::NewPr);
                 }
-                self.msg = "N again: Claude drafts a new PR, unpublished (your editor opens first: what it should do; issues by #N); any other key doesn't".into();
-                self.confirm = Some(('N', 0));
             }
             KeyCode::Char('W') => {
                 let p = self.selected_pr()?;
@@ -947,7 +948,7 @@ impl List {
                     self.msg = format!("#{p} has no workflow runs waiting for approval");
                     return None;
                 };
-                if armed == Some(('W', p)) {
+                if self.again(armed, ('W', p), format!("W again: approve the workflow runs waiting on #{p} (they run then); any other key doesn't")) {
                     self.msg = match crate::gh::approve_runs(&head) {
                         Ok(k) => {
                             if let Some(e) = self.extra.get_mut(&p) {
@@ -960,17 +961,13 @@ impl List {
                     };
                     return None;
                 }
-                self.msg = format!("W again: approve the workflow runs waiting on #{p} (they run then); any other key doesn't");
-                self.confirm = Some(('W', p));
             }
             KeyCode::Char('M') => {
                 let p = self.selected_pr()?;
-                if armed == Some(('M', p)) {
+                let wt = if self.local.contains_key(&p) { " (its worktree goes first, if nothing in it is unpushed)" } else { "" };
+                if self.again(armed, ('M', p), format!("M again: merge #{p} with github-merge.py{wt}; any other key doesn't")) {
                     return Some(Do::Merge(p));
                 }
-                let wt = if self.local.contains_key(&p) { " (its worktree goes first, if nothing in it is unpushed)" } else { "" };
-                self.msg = format!("M again: merge #{p} with github-merge.py{wt}; any other key doesn't");
-                self.confirm = Some(('M', p));
             }
             KeyCode::Char('m') => {
                 let state = self.shown().get(self.sel).map(|p| p.state.clone())?;
@@ -999,13 +996,11 @@ impl List {
                 if self.marked.is_empty() {
                     return (self.msg = "nothing marked".into(), None).1;
                 }
-                if armed == Some(('U', 0)) {
+                if self.again(armed, ('U', 0), format!("U again unmarks all {} marked PRs; any other key doesn't", self.marked.len())) {
                     self.msg = format!("unmarked {}", self.marked.len());
                     self.marked.clear();
                     return None;
                 }
-                self.msg = format!("U again unmarks all {} marked PRs; any other key doesn't", self.marked.len());
-                self.confirm = Some(('U', 0));
             }
             KeyCode::Char('a') => {
                 let mut prs: Vec<u64> = match self.marked.is_empty() {
@@ -1017,15 +1012,13 @@ impl List {
                 if prs.is_empty() {
                     return None;
                 }
-                if armed == Some(('a', 0)) {
-                    return Some(Do::Review(prs));
-                }
                 let which = match self.tab {
                     Tab::Todo => prs.iter().map(|&n| format!("{} #{n}", self.todo_task(n).doing())).collect::<Vec<_>>().join(", "),
                     _ => format!("reviews {}", prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(" ")),
                 };
-                self.msg = format!("a again: Claude {which} in the background, each in its worktree (<repo>-N); your editor opens first, for any instructions");
-                self.confirm = Some(('a', 0));
+                if self.again(armed, ('a', 0), format!("a again: Claude {which} in the background, each in its worktree (<repo>-N); your editor opens first, for any instructions")) {
+                    return Some(Do::Review(prs));
+                }
             }
             KeyCode::Char('A') => {
                 let mut prs: Vec<u64> = match self.marked.is_empty() {
@@ -1037,16 +1030,15 @@ impl List {
                 if self.drafting.get(&id).is_some_and(batch::Status::running) || self.drafting_elsewhere.contains(&id) {
                     return (self.msg = format!("Claude is already drafting {}", crate::replace::label(id)), None).1;
                 }
-                if armed == Some(('A', 0)) {
-                    return Some(Do::Replace(prs));
-                }
                 let which = prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(" ");
                 let again = if self.rep_of.contains_key(&id) { " (again: it has one, which Claude carries on from)" } else { "" };
-                self.msg = match prs.len() {
+                let ask = match prs.len() {
                     1 => format!("A again: Claude drafts a replacement for {which}{again}, unpublished; your editor opens first, for instructions"),
                     _ => format!("A again: Claude suggests how to group {which} into replacements (you decide, in your editor), then drafts them, unpublished"),
                 };
-                self.confirm = Some(('A', 0));
+                if self.again(armed, ('A', 0), ask) {
+                    return Some(Do::Replace(prs));
+                }
             }
             KeyCode::Char('?') => self.help = true,
             KeyCode::Tab | KeyCode::BackTab => {
