@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-10-19
+
+### Added
+- `dv issues`: Enter opens the issue in dv: its text and comments, then Claude's triage (its
+  summary, what next, the labels it would add, a better title, why to close it and how). From
+  there: `C` comments, `L L` adds Claude's labels, `T T` gives it Claude's title, `X X` closes it
+  with Claude's closing comment (your editor first), `N N` has Claude draft a PR fixing it (on
+  dv list's drafts tab), `a a` triages it again, `o` opens it in the browser.
+- Claude's triage may suggest a clearer title.
+
 ## [0.42.1] - 2026-10-19
 
 ### Fixed
