@@ -5,16 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-10-19
+
 ### Added
 - `Space s`: a shell in the checkout's directory (a PR's worktree): in zellij, a floating pane
   (`exit` closes it); otherwise in this terminal, back to dv when it exits.
-
-### Fixed
-- A long line of the PR's facts (its branches, say) ran past the box, hiding its edge: it's cut
-  there with `›` now, and scrolls sideways as the cursor moves along it, as code in comments
-  does.
-
-### Added
 - `Space g` → "Rerun the failed checks" when the PR's checks fail: their failed jobs, on
   GitHub (a flaky test, a network blip).
 - Fixing CI, Claude reruns the failed jobs itself, once a head, when the failure looks
@@ -22,6 +17,14 @@ on GitHub are its section here.
   says so, and the todo then says it reran it once already.
 - `Space l` requests reviews too, and withdraws them: `review from @amy` (✓ when requested),
   among the labels and assignees.
+
+### Fixed
+- A long line of the PR's facts (its branches, say) ran past the box, hiding its edge: it's cut
+  there with `›` now, and scrolls sideways as the cursor moves along it, as code in comments
+  does.
+- A retargeted PR: its new base is fetched without holding up the screen, Claude's threads
+  aren't shown twice, and a failed fetch is tried again. Label names with commas work. A
+  range of commits picked from the "uncommitted" view is kept.
 
 ## [0.32.0] - 2026-10-19
 
@@ -964,6 +967,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.33.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.33.0
 [0.32.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.32.0
 [0.31.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.31.0
 [0.30.2]: https://github.com/evanlinjin/diffview/releases/tag/v0.30.2
