@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.57] - 2026-10-19
+
+### Changed
+- The pane's tabs count a thread on code that's changed since (outdated) as settled, as a
+  resolved one: as dv folds them, and the files' open counts leave them out.
+
 ## [0.34.56] - 2026-10-19
 
 ### Changed
