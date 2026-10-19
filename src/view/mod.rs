@@ -537,6 +537,10 @@ impl App {
         (app.hl, app.ui) = (Highlighter::new(&theme), theme.ui());
         app.settings = crate::theme::settings();
         app.load_pane();
+        // A replacement published as this PR: its draft's review is the PR's now.
+        if let Some(p) = &pr {
+            crate::replace::adopt_review(p.number);
+        }
         app.claude.path = crate::claude::path(pr.as_ref().map(|p| p.number)).ok();
         app.load_seen();
         // The PR's Claude Code session, if an earlier run (any dv, any worktree) started one.
@@ -548,6 +552,7 @@ impl App {
             crate::progress(Some("loading comments and PR info"));
         }
         app.pr = pr;
+        app.load_replacement();
         // What dv saw last time, if it kept it, while it fetches the PR afresh.
         let n = app.pr.as_ref().map(|p| p.number);
         let cached = n.is_some_and(|n| app.show_cached(n));

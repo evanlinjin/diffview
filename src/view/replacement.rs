@@ -39,15 +39,14 @@ impl App {
     /// Published as PR `n`: dv is on that PR now, as if opened on it (its comments, CI, review),
     /// Claude's review of the draft going with it.
     pub(super) fn become_pr(&mut self, n: u64) {
-        let Ok(to) = crate::claude::path(Some(n)) else { return };
-        if let Some(from) = &self.claude.path {
-            _ = crate::claude::move_review(from, &to);
-        }
-        self.claude.path = Some(to);
-        self.pr = crate::gh::pr(Some(n)).ok();
-        if self.pr.is_some() {
-            self.start_github_watch(n, false);
-        }
+        // (GitHub not answering: still the draft here; opened again, it's the PR.)
+        let Ok(pr) = crate::gh::pr(Some(n)) else { return };
+        crate::replace::adopt_review(n);
+        self.claude.path = crate::claude::path(Some(n)).ok();
+        self.pr = Some(pr);
+        self.load_seen();
+        self.load_github();
+        self.start_github_watch(n, false);
     }
 
     /// Which remote keeps replacement branches: asked once, then kept in `dv.replaceRemote`.
@@ -77,10 +76,10 @@ impl App {
         }
     }
 
-    /// The replacement checked out here (no PR), as PR info: what it replaces, and Claude's
-    /// drafts of its description and closing note.
+    /// The replacement checked out here (`replace::here`): unpublished, as PR info (what it
+    /// replaces, Claude's drafts of its description and closing note); published, its record.
     pub(super) fn load_replacement(&mut self) {
-        if let Some(r) = crate::replace::current().and_then(|id| crate::replace::load(id).ok()) {
+        if let Some(r) = crate::replace::here(self.pr.as_ref().map(|p| p.number)) {
             self.show_replacement(r);
         }
     }

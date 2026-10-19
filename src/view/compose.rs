@@ -248,6 +248,8 @@ impl App {
                 Ok(format!("Claude is drafting a replacement for {which} in the background: dv list's replacements tab shows it"))
             }
             Action::Publish(close) => {
+                // (It rebases and pushes the branch.)
+                anyhow::ensure!(!self.claude_busy(), "Claude is still at work here: publish once it's done");
                 let mut r = self.replacement.clone().context("not a replacement")?;
                 if crate::replace::remote().is_none() {
                     return Ok(self.ask_replace_remote(close));

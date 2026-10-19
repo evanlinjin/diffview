@@ -125,6 +125,23 @@ pub fn current() -> Option<u64> {
     }
 }
 
+/// The replacement checked out here, if it's PR `pr`'s: the PR it was published as (not one
+/// someone else's dv published from a record of its own), or no PR (GitHub not asked, or not
+/// answering).
+pub fn here(pr: Option<u64>) -> Option<Record> {
+    load(current()?).ok().filter(|r| pr.is_none() || r.published == pr)
+}
+
+/// Published as PR `n`: Claude's review of the draft (and its session) moved to the PR's, for
+/// dv on the PR to carry on with. Once: not over one the PR has.
+pub fn adopt_review(n: u64) {
+    if here(Some(n)).is_some()
+        && let (Ok(from), Ok(to)) = (crate::claude::path(None), crate::claude::path(Some(n)))
+    {
+        _ = crate::claude::move_review(&from, &to);
+    }
+}
+
 /// The next new PR's id: one past the last there's a record of.
 pub fn new_id() -> u64 {
     all().iter().map(|r| r.id).filter(|&id| is_new(id)).max().map_or(NEW + 1, |m| m + 1)

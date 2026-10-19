@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.44] - 2026-10-19
+
 ### Changed
 - What you ask of a replacement's drafts is in the pane, beside the draft it's about (as a PR's
   comments are), not a section in the code's column.
@@ -12,6 +14,14 @@ on GitHub are its section here.
 ### Fixed
 - A question asked of a replacement's drafts gets an answer: the redraft writes what it did,
   or its answer, on each request, shown under it (it went only to Claude's log).
+- Publishing a replacement shows the PR at once (GitHub's text, comments and CI), not the draft
+  until something changed on GitHub; what you've seen is the PR's.
+- Opening a published replacement again keeps its record (closing what it replaces, Claude's
+  redraft counted as at work), not only the first time.
+- Claude's review of a draft moves to the PR only once GitHub has answered (offline, it stays
+  where dv finds it), and for any dv on that PR, `dv` in its worktree too.
+- Publishing waits for Claude at work in the checkout (it rebases and pushes the branch).
+- A PR checked out on a `dv/replace-N` branch takes no local record that isn't that PR's.
 
 ## [0.34.43] - 2026-10-19
 

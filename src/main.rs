@@ -263,11 +263,8 @@ fn review_replacement(id: u64, root: &Path) -> anyhow::Result<()> {
     ensure_worktree_of(&dir, root)?;
     std::env::set_current_dir(&dir)?;
     let base = diff::merge_base(Some(&crate::diff::remote_branch(&r.base)))?;
-    // Published: it's that PR (its comments, CI, review), Claude's review of the draft with it.
-    let pr = r.published.and_then(|n| {
-        _ = claude::move_review(&claude::path(None).ok()?, &claude::path(Some(n)).ok()?);
-        gh::pr(Some(n)).ok()
-    });
+    // Published: it's that PR (its comments, CI, review).
+    let pr = r.published.and_then(|n| gh::pr(Some(n)).ok());
     let mut app = view::App::new(base, pr)?;
     // Its base followed as a PR's is: a rebase (a redraft's, publishing's) moves the diff's base.
     app.follow_base = Some(crate::diff::remote_branch(&r.base));
