@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.82] - 2026-10-19
+
+### Fixed
+- Claude's activity: an item ending in blank lines isn't marked `…`; the cursor stays on its
+  comment when one before it in its thread is deleted.
+
 ## [0.34.81] - 2026-10-19
 
 ### Fixed

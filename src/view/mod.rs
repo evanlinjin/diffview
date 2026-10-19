@@ -153,8 +153,8 @@ struct CursorKey {
     /// A section before the files (the description, a commit's message, Claude's summary): its
     /// `Row::main` and how far into it. (By index, the PR text before it growing would move it.)
     section: Option<(usize, usize)>,
-    /// A line standing for a comment (`Row::goes`: Claude's activity): that comment (its
-    /// thread's root id, which of it), and how far into its lines.
+    /// A line standing for a comment (`Row::goes`: Claude's activity): that comment's id (not
+    /// its place in its thread, which a deleted one before it moves), how far into its lines.
     goes: Option<((u64, usize), usize)>,
 }
 

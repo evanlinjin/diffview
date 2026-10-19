@@ -101,7 +101,7 @@ impl App {
                 (id.clone(), before().filter(|x| id.is_some() && self.info_id(x.info) == id).count(), before().count())
             }),
             section: r.main.and_then(|m| Some((m, row - self.rows.iter().position(|x| x.main == Some(m))?))),
-            goes: r.goes.and_then(|(t, c)| Some(((self.root_id(t)?, c), row - self.rows.iter().position(|x| x.goes == r.goes)?))),
+            goes: r.goes.and_then(|(t, c)| Some(((self.root_id(t)?, self.threads[t].comments.get(c)?.id), row - self.rows.iter().position(|x| x.goes == r.goes)?))),
         }
     }
 
@@ -116,8 +116,8 @@ impl App {
     /// The row `key` is on now.
     fn find_key(&self, key: CursorKey) -> Option<usize> {
         // (A line standing for a comment: that comment's, wherever the list put it.)
-        let goes = key.goes.and_then(|((id, c), off)| {
-            let first = self.rows.iter().position(|r| r.goes.is_some_and(|(t, k)| k == c && self.root_id(t) == Some(id)))?;
+        let goes = key.goes.and_then(|((root, id), off)| {
+            let first = self.rows.iter().position(|r| r.goes.is_some_and(|(t, k)| self.root_id(t) == Some(root) && self.threads[t].comments.get(k).is_some_and(|c| c.id == id)))?;
             let g = self.rows[first].goes;
             Some((first..=first + off).take_while(|&r| self.rows.get(r).is_some_and(|r| r.goes == g)).last().unwrap_or(first))
         });
