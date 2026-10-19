@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.80] - 2026-10-19
+
+### Changed
+- Claude's activity is readable: each item says when and where (the file's name and line), dim,
+  then what Claude said, wrapped over two lines (it was one line, the path taking most of it).
+
 ## [0.34.79] - 2026-10-19
 
 ### Fixed

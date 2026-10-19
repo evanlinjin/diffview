@@ -741,7 +741,7 @@ const QUIT_AFTER: std::time::Duration = std::time::Duration::from_millis(300);
 const QUIT_WITHIN: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Word-wrap long lines at `w` chars, keeping their indent; short lines are kept as they are.
-fn wrap(text: &str, w: usize) -> Vec<String> {
+pub(super) fn wrap(text: &str, w: usize) -> Vec<String> {
     let mut out = vec![];
     for line in text.lines() {
         if line.chars().count() <= w {

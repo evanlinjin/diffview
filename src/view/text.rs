@@ -177,8 +177,9 @@ impl App {
                     ("", _, ON_SUMMARY) => "on its review".to_owned(),
                     ("", _, c) if commit_of(c).is_some() => format!("on commit {}", self.commit_short(commit_of(c).unwrap_or(""))),
                     ("", ..) => "on the conversation".to_owned(),
-                    (p, Some(l), _) => format!("{p}:{l}"),
-                    (p, None, _) => p.to_owned(),
+                    // (The file's name: its path is in the comment it goes to.)
+                    (p, Some(l), _) => format!("{}:{l}", p.rsplit('/').next().unwrap_or(p)),
+                    (p, None, _) => p.rsplit('/').next().unwrap_or(p).to_owned(),
                 };
                 t.comments.iter().enumerate().filter(|(_, c)| c.author == crate::claude::AUTHOR).map(move |(ci, c)| (c.created.as_str(), at.clone(), c.body.as_str(), (ti, ci)))
             })
@@ -190,11 +191,19 @@ impl App {
         let mk = |kind, text| Row { info: Some(CLAUDE_ACTIVITY), ..Row::text(INFO, kind, text) };
         let mut rows = vec![mk(Kind::Thread, "claude's activity".into())];
         let w = self.info_w();
+        // Each: when and where, dim; then what it said (its first paragraph), wrapped, two lines
+        // at most (Enter: all of it).
+        let dim = Some(self.ui.linenr);
         for (created, at, body, goes) in said.into_iter().take(CLAUDE_LATEST) {
-            let first = body.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
             let when = if created.is_empty() { String::new() } else { format!("{} · ", crate::gh::ago(created)) };
-            let line = format!("◆ {when}{at} · {first}");
-            rows.push(Row { goes: Some(goes), ..mk(Kind::Comment, super::cut(&line, w.saturating_sub(1))) });
+            let head = super::cut(&format!("◆ {when}{at}"), w.saturating_sub(1));
+            rows.push(Row { goes: Some(goes), syn: vec![dim; head.chars().count()], ..mk(Kind::Comment, head) });
+            let para: Vec<&str> = body.lines().map(str::trim).skip_while(|l| l.is_empty()).take_while(|l| !l.is_empty()).collect();
+            let lines = super::wrap(&para.join(" "), w.saturating_sub(3).max(10));
+            for (k, l) in lines.iter().take(2).enumerate() {
+                let l = if k == 1 && lines.len() > 2 { super::cut(&format!("{l} …"), w.saturating_sub(3)) } else { l.clone() };
+                rows.push(Row { goes: Some(goes), ..mk(Kind::Comment, format!("  {l}")) });
+            }
         }
         rows.push(Row { edge: true, ..mk(Kind::Comment, String::new()) });
         rows

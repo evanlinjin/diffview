@@ -1265,7 +1265,9 @@ fn claude_view() {
     assert!(!v.contains(&"OPEN @bo · main ← x".to_owned()) && v.contains(&"Looks fine.".to_owned()), "{v:?}");
     assert!(v.iter().any(|t| t == "Long story") && !v.iter().any(|t| t.starts_with("review:")));
     // Claude's activity: what it wrote last, a line each (when, where, its first line).
-    assert!(v.iter().any(|t| t == "claude's activity") && v.iter().any(|t| t.starts_with("◆ ") && t.contains("big.rs:20 · hm")), "{v:?}");
+    // (When and where, a line; what it said under it.)
+    let at = v.iter().position(|t| t.starts_with("◆ ") && t.ends_with("big.rs:20")).expect("its line");
+    assert!(v.iter().any(|t| t == "claude's activity") && v[at + 1] == "  hm", "{v:?}");
     // Its keys there: going to it, not the PR text's (nothing of it to quote or react to).
     app.goto(app.rows.iter().position(|r| r.line.text.starts_with("◆ ")).unwrap(), 0);
     assert_eq!(app.context_keys().map(|k| k.0), Some("Claude's activity"));

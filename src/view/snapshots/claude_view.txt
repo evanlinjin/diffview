@@ -4,7 +4,8 @@
                                                   │  Looks right; one nit.                         │
                                                   ╰────────────────────────────────────────────────╯
                                                   ╭─ claude's activity ────────────────────────────╮
-                                                  │  ◆ src/big.rs:12 · Name it `new_value`; see …  │
+                                                  │  ◆ big.rs:12                                   │
+                                                  │    Name it `new_value`; see src/a.rs:2.        │
                                                   ╰────────────────────────────────────────────────╯
  ▾        src/big.rs  +1 −1  · 1 comment
           ───────────────────────────────────────────────────────────────────────────────── L10–15 ─
@@ -26,5 +27,4 @@
 
 
 
-
- NOR       Claude view: its summary and the code it commented on (gn / gp: the… claude view    1/22
+ NOR       Claude view: its summary and the code it commented on (gn / gp: the… claude view    1/23
