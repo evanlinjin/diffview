@@ -21,6 +21,10 @@ pub struct Request {
     pub answer: String,
 }
 
+/// What dv puts for an answer when a redraft took a request in without one (Claude didn't
+/// say): done, not to ask again. Shown as dv's note, not as Claude's.
+pub const NO_ANSWER: &str = "_(redrafted with it)_";
+
 impl Request {
     /// A redraft has taken it in: Claude has answered it (one rule, whatever Claude did to the
     /// record's order).
@@ -194,7 +198,7 @@ fn parse(id: u64, text: &str) -> Result<Record> {
                     on: s(&a["on"]),
                     // (Records from before answers: taken in, unanswered.)
                     answer: match (s(&a["answer"]), a["done"] == true) {
-                        (ans, true) if ans.trim().is_empty() => "_(redrafted with it)_".into(),
+                        (ans, true) if ans.trim().is_empty() => NO_ANSWER.into(),
                         (ans, _) => ans,
                     },
                 }).collect(),
@@ -452,9 +456,15 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
         })?;
         run_claude(&r, &dir, first, if first { extra } else { "" }, prepared)
     })();
-    // Claude has written to the record meanwhile (its answers): only the mark comes off.
+    // Claude has written to the record meanwhile (its answers): the mark comes off; a change
+    // it was given and made (it finished) without saying so is done all the same, not asked
+    // again and again.
     _ = update(id, |now| {
-        (now.drafting, now.taking) = (None, 0);
+        let taken = std::mem::take(&mut now.taking);
+        now.drafting = None;
+        for a in now.asks.iter_mut().take(taken).filter(|a| res.is_ok() && a.want != "ask" && !a.done()) {
+            a.answer = NO_ANSWER.into();
+        }
         Ok(())
     });
     // Not set up (PRs on different bases, one that isn't there): no record left of it.

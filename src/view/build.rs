@@ -772,9 +772,14 @@ impl App {
             };
             rows.push(mk(Kind::Thread, format!("you · asked of the drafts{want} · {state}")));
             rows.extend(self.md_rows_at(&a.text, self.info_w(), mk));
-            if !a.answer.trim().is_empty() {
-                rows.push(mk(Kind::Thread, "◆ claude".into()));
-                rows.extend(self.md_rows_at(&a.answer, self.info_w(), mk));
+            match a.answer.trim() {
+                "" => {}
+                // dv's note (Claude said nothing): not as Claude's answer.
+                crate::replace::NO_ANSWER => rows.extend(self.md_rows_at(crate::replace::NO_ANSWER, self.info_w(), mk)),
+                ans => {
+                    rows.push(mk(Kind::Thread, "◆ claude".into()));
+                    rows.extend(self.md_rows_at(ans, self.info_w(), mk));
+                }
             }
             rows.push(Row { edge: true, ..mk(Kind::Comment, String::new()) });
         }

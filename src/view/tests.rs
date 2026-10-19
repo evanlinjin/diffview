@@ -1424,6 +1424,14 @@ fn replacement_in_the_pr_section() {
     let mut r = app.replacement.clone().unwrap();
     r.drafting = None;
     app.show_replacement(r);
+    // A change taken in without Claude saying so: dv's note, not as Claude's answer.
+    let mut r = app.replacement.clone().unwrap();
+    r.asks = vec![crate::replace::Request { text: "Tidy it.".into(), want: "change".into(), answer: crate::replace::NO_ANSWER.into(), ..Default::default() }];
+    app.show_replacement(r);
+    let keep = app.cursor_key();
+    app.rebuild(keep);
+    let text: Vec<String> = app.rows.iter().map(|r| r.line.text.clone()).collect();
+    assert!(text.iter().any(|t| t.contains("(redrafted with it)")) && !text.iter().any(|t| t == "◆ claude"), "{text:#?}");
     // Claude's review is beside the description, in the pane, as on a PR's Claude view.
     app.claude.summary = "**What it does.** Builds for the target.".into();
     let keep = app.cursor_key();
