@@ -530,7 +530,10 @@ impl App {
                 let new = |k: usize, h: usize| {
                     self.seen.path.is_some() && k >= after && !yours(h) && !self.info[h].node.is_empty() && !self.seen.before.contains(&self.info[h].node)
                 };
-                let last = items.len().saturating_sub(n);
+                // The last `n` comments and reviews, and what happened among them (events don't
+                // count: three of those would leave out the comment before them).
+                let said: Vec<usize> = (0..items.len()).filter(|&k| !self.info[items[k]].event).collect();
+                let last = said.len().checked_sub(n).map_or(0, |k| said[k]);
                 items.iter().enumerate().filter(|&(k, &h)| k >= last || new(k, h) || asked(h)).map(|(_, &h)| h).collect()
         };
         let shown = if latest.is_some() { &latest_shown } else { &items };

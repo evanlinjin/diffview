@@ -2773,3 +2773,20 @@ fn a_failed_refresh_keeps_the_comments() {
     app.apply_github((Err(anyhow!("rate limited")), Err(anyhow!("rate limited"))), true);
     assert_eq!(app.threads.len(), before);
 }
+
+#[test]
+fn latest_activity_counts_comments_not_events() {
+    let mut app = fixture();
+    let said = |who: &str, node: &str| vec![InfoLine { heading: true, text: format!("@{who} · 1d ago"), node: node.into(), url: format!("u-{node}"), key: node.into(), ..Default::default() }, InfoLine { md: true, text: format!("{who} said"), key: format!("{node}/text"), ..Default::default() }];
+    let event = |what: &str| InfoLine { heading: true, event: true, text: format!("● @x {what}"), key: what.into(), ..Default::default() };
+    app.info.push(activity_heading(7));
+    for (w, n) in [("a", "IC_1"), ("b", "IC_2"), ("c", "IC_3"), ("d", "IC_4")] {
+        app.info.extend(said(w, n));
+    }
+    app.info.extend([event("labelled"), event("pushed"), event("renamed")]);
+    app.build();
+    let text: Vec<&str> = app.rows.iter().map(|r| r.line.text.as_str()).collect();
+    // The last three comments, and the events after them; not the first comment.
+    assert!(["b said", "c said", "d said", "● @x labelled", "● @x renamed"].iter().all(|t| text.contains(t)), "{text:?}");
+    assert!(!text.contains(&"a said"));
+}
