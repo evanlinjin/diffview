@@ -794,12 +794,22 @@ pub fn set_viewed(pr_id: &str, path: &str, viewed: bool) -> Result<()> {
     mutate(q, json!({ "pr": pr_id, "path": path })).map(drop)
 }
 
-/// PR `n`'s labels and assignees, and what it could have: the repo's labels and the people it
-/// can be assigned to. ((name, on it), (login, on it)), sorted, those on it first.
-pub fn labels_and_assignees(n: u64) -> Result<(Choices, Choices)> {
-    let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", "labels,assignees"])?)?;
+/// What `Space l` sets on a PR.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Field {
+    Label,
+    Assignee,
+    /// A review requested of someone.
+    Reviewer,
+}
+
+/// PR `n`'s labels, assignees and requested reviewers, and what it could have: the repo's
+/// labels, the people it can be assigned to (or asked to review: not its author). Each
+/// (name, on it), sorted, those on it first.
+pub fn pr_fields(n: u64) -> Result<(Choices, Choices, Choices)> {
+    let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", "labels,assignees,reviewRequests,author"])?)?;
     let on = |k: &str, f: &str| -> Vec<String> { v[k].as_array().into_iter().flatten().filter_map(|x| x[f].as_str().map(str::to_owned)).collect() };
-    let (labels, assigned) = (on("labels", "name"), on("assignees", "login"));
+    let (labels, assigned, asked) = (on("labels", "name"), on("assignees", "login"), on("reviewRequests", "login"));
     let all: Value = serde_json::from_str(&gh(&["label", "list", "--limit", "500", "--json", "name"])?)?;
     let all: Vec<String> = all.as_array().into_iter().flatten().filter_map(|x| x["name"].as_str().map(str::to_owned)).collect();
     let people = gh(&["api", "--paginate", "repos/{owner}/{repo}/assignees", "-q", ".[].login"]).unwrap_or_default();
@@ -809,19 +819,24 @@ pub fn labels_and_assignees(n: u64) -> Result<(Choices, Choices)> {
         out.dedup();
         out
     };
-    Ok((mark(all, &labels), mark(people.lines().map(str::to_owned).collect(), &assigned)))
+    let people: Vec<String> = people.lines().map(str::to_owned).collect();
+    let author = v["author"]["login"].as_str().unwrap_or("");
+    let reviewers = people.iter().filter(|p| *p != author).cloned().collect();
+    Ok((mark(all, &labels), mark(people, &assigned), mark(reviewers, &asked)))
 }
 
 /// Names, each with whether it's on the PR.
 pub type Choices = Vec<(String, bool)>;
 
-/// Add (`on`) or remove a label on PR `n`, or (`label` false) an assignee.
-pub fn set_label_or_assignee(n: u64, label: bool, name: &str, on: bool) -> Result<()> {
-    let flag = match (label, on) {
-        (true, true) => "--add-label",
-        (true, false) => "--remove-label",
-        (false, true) => "--add-assignee",
-        (false, false) => "--remove-assignee",
+/// Add (`on`) or remove a label, an assignee or a requested reviewer on PR `n`.
+pub fn set_field(n: u64, field: Field, name: &str, on: bool) -> Result<()> {
+    let flag = match (field, on) {
+        (Field::Label, true) => "--add-label",
+        (Field::Label, false) => "--remove-label",
+        (Field::Assignee, true) => "--add-assignee",
+        (Field::Assignee, false) => "--remove-assignee",
+        (Field::Reviewer, true) => "--add-reviewer",
+        (Field::Reviewer, false) => "--remove-reviewer",
     };
     gh(&["pr", "edit", &n.to_string(), flag, name]).map(drop)
 }
@@ -1551,17 +1566,24 @@ fn live_reactions() {
 #[ignore]
 fn live_labels() {
     let n: u64 = std::env::var("DV_LIVE_PR").expect("DV_LIVE_PR").parse().unwrap();
-    let (labels, people) = labels_and_assignees(n).unwrap();
+    let (labels, people, _) = pr_fields(n).unwrap();
     println!("labels: {labels:?}\npeople: {people:?}");
     let (label, me) = (labels[0].0.clone(), people[0].0.clone());
-    set_label_or_assignee(n, true, &label, true).unwrap();
-    set_label_or_assignee(n, false, &me, true).unwrap();
-    let (labels, people) = labels_and_assignees(n).unwrap();
+    set_field(n, Field::Label, &label, true).unwrap();
+    set_field(n, Field::Assignee, &me, true).unwrap();
+    let (labels, people, _) = pr_fields(n).unwrap();
     assert!(labels.contains(&(label.clone(), true)) && people.contains(&(me.clone(), true)));
     let lines = info_lines(&info_json(n).unwrap());
     assert!(lines.iter().any(|l| l.text == format!("assigned @{me}")), "assignee not among the facts");
-    set_label_or_assignee(n, true, &label, false).unwrap();
-    set_label_or_assignee(n, false, &me, false).unwrap();
-    let (labels, people) = labels_and_assignees(n).unwrap();
+    set_field(n, Field::Label, &label, false).unwrap();
+    set_field(n, Field::Assignee, &me, false).unwrap();
+    let (labels, people, _) = pr_fields(n).unwrap();
     assert!(labels.iter().all(|l| !l.1) && people.iter().all(|p| !p.1));
+    // A review asked of someone (not the author): `DV_LIVE_REVIEWER`, if given.
+    if let Ok(who) = std::env::var("DV_LIVE_REVIEWER") {
+        set_field(n, Field::Reviewer, &who, true).unwrap();
+        assert!(pr_fields(n).unwrap().2.contains(&(who.clone(), true)));
+        set_field(n, Field::Reviewer, &who, false).unwrap();
+        assert!(!pr_fields(n).unwrap().2.contains(&(who, true)));
+    }
 }

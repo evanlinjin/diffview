@@ -109,13 +109,15 @@ impl App {
                 "pending review discarded"
             }),
             Job::DeleteComment(c) => gh::delete_comment(&c).map(|_| "comment deleted"),
-            Job::SetLabel(label, name, on) => {
+            Job::SetField(field, name, on) => {
                 let n = self.pr.as_ref().map_or(0, |p| p.number);
-                gh::set_label_or_assignee(n, label, &name, on).map(|_| match (label, on) {
-                    (true, true) => "label added",
-                    (true, false) => "label removed",
-                    (false, true) => "assigned",
-                    (false, false) => "unassigned",
+                gh::set_field(n, field, &name, on).map(|_| match (field, on) {
+                    (gh::Field::Label, true) => "label added",
+                    (gh::Field::Label, false) => "label removed",
+                    (gh::Field::Assignee, true) => "assigned",
+                    (gh::Field::Assignee, false) => "unassigned",
+                    (gh::Field::Reviewer, true) => "review requested",
+                    (gh::Field::Reviewer, false) => "review request withdrawn",
                 })
             }
             Job::React(node, what, add) => gh::react(&node, what, add).map(|_| if add { "reacted" } else { "reaction taken back" }),
@@ -905,25 +907,32 @@ impl App {
         }
     }
 
-    /// `Space l`: the PR's labels and assignees, and what it could have (✓: on it); Enter
-    /// adds or removes one. Type to find one (`@` for people).
+    /// `Space l`: the PR's labels, assignees and requested reviewers, and what it could have
+    /// (✓: on it); Enter adds or removes one. Type to find one (`review`, `@` for people).
     fn labels_menu(&mut self) {
         self.msg.clear();
         let Some(n) = self.pr.as_ref().map(|p| p.number) else { return };
-        let (labels, people) = match gh::labels_and_assignees(n) {
+        let (labels, people, reviewers) = match gh::pr_fields(n) {
             Ok(x) => x,
             Err(e) => return self.msg = format!("{e:#}"),
         };
-        let item = |label: bool, name: &str, on: bool| {
-            let shown = if label { format!("label {name}") } else { format!("assignee @{name}") };
+        let item = |field: gh::Field, name: &str, on: bool| {
+            let shown = match field {
+                gh::Field::Label => format!("label {name}"),
+                gh::Field::Assignee => format!("assignee @{name}"),
+                gh::Field::Reviewer => format!("review from @{name}"),
+            };
             let tick = if on { "✓ " } else { "  " };
-            Item::new(format!("{tick}{shown}"), Target::SetLabel(label, name.to_owned(), !on))
+            Item::new(format!("{tick}{shown}"), Target::SetField(field, name.to_owned(), !on))
         };
-        let items: Vec<Item> = labels.iter().map(|(l, on)| item(true, l, *on)).chain(people.iter().map(|(p, on)| item(false, p, *on))).collect();
+        let items: Vec<Item> = [(gh::Field::Reviewer, &reviewers), (gh::Field::Label, &labels), (gh::Field::Assignee, &people)]
+            .into_iter()
+            .flat_map(|(f, xs)| xs.iter().map(move |(x, on)| item(f, x, *on)))
+            .collect();
         if items.is_empty() {
-            return self.msg = "no labels in this repo, nor anyone to assign".into();
+            return self.msg = "no labels in this repo, nor anyone to assign or ask".into();
         }
-        self.picker = Some(Picker { title: " labels & assignees (✓: on it; Enter adds or removes) ", items, query: String::new(), sel: 0 });
+        self.picker = Some(Picker { title: " labels, assignees, reviewers (✓: on it; Enter adds or removes) ", items, query: String::new(), sel: 0 });
     }
 
     fn react_menu(&mut self, node: &str) {

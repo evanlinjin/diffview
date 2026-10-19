@@ -5,6 +5,10 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- `Space l` requests reviews too, and withdraws them: `review from @amy` (✓ when requested),
+  among the labels and assignees.
+
 ## [0.32.0] - 2026-10-19
 
 ### Added
