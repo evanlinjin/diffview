@@ -5,10 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.30.2] - 2026-10-19
+
 ### Fixed
 - The line between the code and the comments pane goes on to the bottom of the window (it
   stopped where the rows did). The Claude and Pending tabs, with nothing in them, say so on
   both sides.
+- Rebasing: no aborting a rebase Claude is at; while one is stopped, Claude takes no other
+  requests (nor answers replies); a rebase Claude gave up on is told apart from one it
+  finished; a stopped `git am` isn't taken for a rebase.
+- `gf` opens only GitHub comments, not the PR from other headings there.
 
 ## [0.30.1] - 2026-10-19
 
@@ -895,6 +901,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.30.2]: https://github.com/evanlinjin/diffview/releases/tag/v0.30.2
 [0.30.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.30.1
 [0.30.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.30.0
 [0.29.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.29.0
