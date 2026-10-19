@@ -16,10 +16,75 @@ pub(crate) fn chip(hex: &str) -> Style {
     Style::new().bg(Color::Rgb(r, g, b)).fg(fg).add_modifier(ratatui::style::Modifier::BOLD)
 }
 
+/// The frame's columns for one draw (`frame_cols`): the whole window and the part beside the
+/// files' list, the pinned title, the rows' height; the code's line-number width, gutter (a
+/// split half's), relative numbers' column, its text width; the pane's width and
+/// text width, whether it's shown and floating; the code beside it, a split half's middle and
+/// text widths; where the pane starts; the cursor's display row.
+#[derive(Clone, Copy)]
+struct Cols {
+    full: Rect,
+    area: Rect,
+    sw: usize,
+    pin: usize,
+    h: usize,
+    lw: usize,
+    gw: usize,
+    ghw: usize,
+    relw: usize,
+    tw: usize,
+    mw: usize,
+    mtw: usize,
+    margin: bool,
+    float: bool,
+    ctw: usize,
+    half: usize,
+    htw_l: usize,
+    htw_r: usize,
+    mx: usize,
+    hd: usize,
+}
+
 impl App {
     pub(super) fn draw(&mut self, f: &mut Frame) {
+        let c = self.frame_cols(f.area());
+        self.scroll_to_cursor(&c);
+        self.draw_body(f, &c);
+        let Cols { full, area, sw, pin, h, .. } = c;
+        // Like Helix's which-key: what can follow a pending prefix key, else what the keys do where
+        // the cursor is (when no other popup is up). At the bottom of the contents list when it's
+        // shown; else a popup (below).
+        let keys = match self.pending {
+            Some(p) => App::which(p),
+            // The list has focus: its keys.
+            None if self.files_focus && self.files_w > 0 && self.picker.is_none() && self.popup.is_none() => Some(self.list_keys()),
+            None if self.picker.is_none() && self.popup.is_none() && self.prompt.is_none() => self.context_keys(),
+            None => None,
+        };
+        if sw > 0 {
+            self.draw_files(f, Rect { x: full.x, y: full.y, width: sw as u16, height: (h + pin) as u16 }, keys);
+        }
+        self.draw_title(f, &c);
+        self.draw_link_tip(f, &c);
+        self.draw_status(f, Rect { y: area.y + (h + pin) as u16, height: 1, ..full });
+
+        self.draw_picker(f, full);
+
+        // The key hints, without the contents list: bottom right, as Helix has them; bottom left
+        // while the cursor is in the comment margin, so they don't cover the comments there.
+        if let Some((title, keys)) = keys.filter(|_| sw == 0) {
+            self.draw_key_popup(f, Rect { y: area.y + pin as u16, height: h as u16, ..area }, title, keys);
+        }
+
+        self.draw_popup(f, full);
+    }
+
+
+    /// The frame's columns (`Cols`) for this draw: the files' list's, the pinned title, the code's
+    /// and its gutters, the pane's (shown or not, floating or a column), as the window allows and
+    /// as set; the rows rebuilt when what they wrap to changes.
+    fn frame_cols(&mut self, full: Rect) -> Cols {
         // The changed files' list on the left (`Ctrl-w e`), the rest beside it.
-        let full = f.area();
         let sw = self.files_width(full.width as usize);
         self.files_w = sw;
         let area = Rect { x: full.x + sw as u16, width: full.width - sw as u16, ..full };
@@ -32,8 +97,6 @@ impl App {
         let h = (area.height as usize).saturating_sub(1 + pin);
         self.height = h.max(1);
         self.width = full.width; // pickers and popups: over the whole window, the contents too
-        let so = scrolloff(h);
-
         let maxno = self.rows.iter().filter_map(|r| r.line.old.max(r.line.new)).max().unwrap_or(0);
         let lw = maxno.to_string().len().max(3);
         let gw = lw * 2 + 4;
@@ -87,8 +150,18 @@ impl App {
         if !self.margin_side() {
             self.code_head = self.head;
         }
-        // Scroll the code to the cursor.
+        // Where the margin starts (floating: over the code's right end).
+        let mx = width.saturating_sub(mw).saturating_sub(gw + 1);
         let hd = self.hd();
+        Cols { full, area, sw, pin, h, lw, gw, ghw, relw, tw, mw, mtw, margin, float, ctw, half, htw_l, htw_r, mx, hd }
+    }
+
+    /// The code scrolled to the cursor, up and down, and sideways: in a comment's code block by
+    /// that block only, in the diff by `left`.
+    fn scroll_to_cursor(&mut self, c: &Cols) {
+        let Cols { pin, h, gw, ghw, relw, tw, mtw, float, ctw, half, htw_l, htw_r, mx, hd, .. } = *c;
+        let so = scrolloff(h);
+        // Scroll the code to the cursor.
         if hd < self.top + so {
             self.top = hd.saturating_sub(so);
         }
@@ -96,8 +169,6 @@ impl App {
             self.top = hd + so + 1 - h;
         }
         self.top = self.top.max(pin); // the title is above, not in, what scrolls
-        // Where the margin starts (floating: over the code's right end).
-        let mx = width.saturating_sub(mw).saturating_sub(gw + 1);
         self.geom = mouse::Geom { relw, gw, ghw, half, ctw: if float { mx } else { ctw }, picker: None };
         let code_line = self.rows[self.head.row].line.kind.is_code();
         let cur_w = match self.drows[self.hd()] {
@@ -133,6 +204,13 @@ impl App {
             (None, None) => follow(&mut self.left, cur_w),
         }
 
+    }
+
+    /// The rows on screen: the code (split view's halves), the pane beside it (a column) or over
+    /// it (floating), the file the top is in pinned over its code; below the last, the line
+    /// between them on to the bottom, and what an empty view says.
+    fn draw_body(&mut self, f: &mut Frame, c: &Cols) {
+        let Cols { full, area, pin, h, lw, gw, ghw, relw, tw, mw, mtw, margin, float, ctw, htw_l, htw_r, mx, hd, .. } = *c;
         let (s, e) = self.ordered();
         let overlay = self.label_overlay();
         self.highlight_visible();
@@ -153,10 +231,7 @@ impl App {
         // pane in the popup color (on the rows it covers), with no line.
         let raised = self.ui.popup.bg.or(self.ui.bar);
         // (Which side has focus: the cursor line's tint is on that side only.)
-        let sep = match float {
-            false => Span::styled("│", Style { fg: self.ui.linenr.fg, ..Style::new() }),
-            true => Span::styled(" ", Style { bg: raised, ..Style::new() }),
-        };
+        let sep = self.pane_sep(float);
         let pane_cur = self.margin_side();
         // The cursor in the code: the box about its line has its heading tinted as the code a
         // comment's about is the other way round (the same tint, not the cursor line's).
@@ -304,20 +379,27 @@ impl App {
             let at = area.y + (pin + rows_shown) as u16;
             f.render_widget(Paragraph::new(filler), Rect { y: at, height: (h - rows_shown) as u16, ..area });
         }
-        // Like Helix's which-key: what can follow a pending prefix key, else what the keys do where
-        // the cursor is (when no other popup is up). At the bottom of the contents list when it's
-        // shown; else a popup (below).
-        let keys = match self.pending {
-            Some(p) => App::which(p),
-            // The list has focus: its keys.
-            None if self.files_focus && self.files_w > 0 && self.picker.is_none() && self.popup.is_none() => Some(self.list_keys()),
-            None if self.picker.is_none() && self.popup.is_none() && self.prompt.is_none() => self.context_keys(),
-            None => None,
-        };
-        if sw > 0 {
-            self.draw_files(f, Rect { x: full.x, y: full.y, width: sw as u16, height: (h + pin) as u16 }, keys);
+    }
+
+    /// Where the pane meets the code: as a column, a dim line; floating, the pane's color.
+    fn pane_sep(&self, float: bool) -> Span<'static> {
+        match float {
+            false => Span::styled("│", Style { fg: self.ui.linenr.fg, ..Style::new() }),
+            true => Span::styled(" ", Style { bg: self.ui.popup.bg.or(self.ui.bar), ..Style::new() }),
         }
-        if self.pin {
+    }
+
+    /// The PR's title pinned at the top, its counts beside it when they fit (`bar_counts`); with
+    /// the pane, its tabs over it.
+    fn draw_title(&mut self, f: &mut Frame, c: &Cols) {
+        let Cols { area, lw, gw, relw, tw, margin, float, .. } = *c;
+        let (s, e) = self.ordered();
+        let overlay = self.label_overlay();
+        let sep = self.pane_sep(float);
+        if !self.pin {
+            return;
+        }
+        {
             let bar = Style { bg: self.ui.bar, ..self.ui.header };
             let mut spans = vec![Span::styled(" ".repeat(relw), bar)];
             // With the pane: the title over the code, and the pane's tabs over the pane.
@@ -349,6 +431,11 @@ impl App {
             f.render_widget(Paragraph::new(Line::from(spans)), Rect { height: 1, ..area });
         }
 
+    }
+
+    /// While the cursor is on a link, its URL just under (or over) it.
+    fn draw_link_tip(&self, f: &mut Frame, c: &Cols) {
+        let Cols { area, pin, h, gw, ghw, relw, half, hd, .. } = *c;
         // Link tooltip: while the cursor is on a link, show its URL just under (or over) it.
         // Not on the PR header (where dv starts): the status hint says it links there.
         let header = self.rows[self.head.row].line.kind == Kind::File;
@@ -374,17 +461,6 @@ impl App {
             f.render_widget(Paragraph::new(text).style(self.ui.base.patch(self.ui.popup)), r);
         }
 
-        self.draw_status(f, Rect { y: area.y + (h + pin) as u16, height: 1, ..full });
-
-        self.draw_picker(f, full);
-
-        // The key hints, without the contents list: bottom right, as Helix has them; bottom left
-        // while the cursor is in the comment margin, so they don't cover the comments there.
-        if let Some((title, keys)) = keys.filter(|_| sw == 0) {
-            self.draw_key_popup(f, Rect { y: area.y + pin as u16, height: h as u16, ..area }, title, keys);
-        }
-
-        self.draw_popup(f, full);
     }
 
     /// The status bar: the mode, where you are, the message; on the right, what's going on.
