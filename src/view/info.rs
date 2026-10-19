@@ -171,7 +171,7 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
     }
     // The PR's own reactions (Space = on its description reacts), yours lit.
     let activity = &v["dvActivity"];
-    let own = reactions(&activity["reactions"], &[]);
+    let own = reactions(&activity["reactions"]);
     if !own.is_empty() {
         let mut l = InfoLine::new(false, false);
         l.put("reactions ", Some(Mark::Dim)).put_reactions(&own);
@@ -331,7 +331,7 @@ fn activity_items(v: &Value, items: &[Value]) -> Vec<Vec<(String, InfoLine)>> {
             h.put(what, mark).put(" · ", None);
         }
         h.put(&ago(&at), None);
-        let r = reactions(&c["reactionGroups"], &[]);
+        let r = reactions(&c["reactionGroups"]);
         if !r.is_empty() {
             h.put(" · ", None).put_reactions(&r);
         }
@@ -543,15 +543,10 @@ mod tests {
 
     #[test]
     fn reactions_both_ways() {
-        // GraphQL's reactors, `gh pr view`'s users; none-left groups dropped.
-        let g = json!([{ "content": "THUMBS_UP", "reactors": { "totalCount": 2 } }, { "content": "EYES", "reactors": { "totalCount": 0 } }]);
-        let v = json!([{ "content": "HOORAY", "users": { "totalCount": 1 } }]);
-        assert_eq!(reactions(&g, &[]), [("THUMBS_UP".to_owned(), 2, false)]);
-        assert_eq!(reactions_text(&[reactions(&g, &[]), reactions(&v, &[])].concat()), "👍 2  🎉 1");
-        // Yours: as GraphQL says, or (gh pr view's) as dv asked.
-        let g = json!([{ "content": "EYES", "viewerHasReacted": true, "reactors": { "totalCount": 1 } }]);
-        assert_eq!(reactions(&g, &[]), [("EYES".to_owned(), 1, true)]);
-        assert_eq!(reactions(&v, &["HOORAY"]), [("HOORAY".to_owned(), 1, true)]);
+        // Those with any; yours as GitHub says.
+        let g = json!([{ "content": "THUMBS_UP", "reactors": { "totalCount": 2 } }, { "content": "EYES", "reactors": { "totalCount": 0 } }, { "content": "HOORAY", "viewerHasReacted": true, "reactors": { "totalCount": 1 } }]);
+        assert_eq!(reactions(&g), [("THUMBS_UP".to_owned(), 2, false), ("HOORAY".to_owned(), 1, true)]);
+        assert_eq!(reactions_text(&reactions(&g)), "👍 2  🎉 1");
     }
 
     #[test]

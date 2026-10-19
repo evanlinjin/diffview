@@ -108,27 +108,15 @@ fn rerun_summary() {
 fn github_refusals() {
     let commits = json!({ "totalCount": 1, "nodes": [{ "commit": { "oid": "a", "signature": null } }] });
     let answer = |errors: Value| json!({ "data": { "repository": { "pullRequest": { "commits": commits, "baseRef": null } } }, "errors": errors });
-    // Only another part refused: the signatures stand.
-    let a = pr_answer(&answer(json!([{ "path": ["repository", "pullRequest", "comments"] }])), "").unwrap();
-    assert!(signatures_whole(&a).is_ok());
-    // Its commits refused, or an error that doesn't say where: not taken as unsigned.
-    for e in [json!([{ "path": ["repository", "pullRequest", "commits", "nodes", 0] }]), json!([{ "message": "timeout" }])] {
-        assert!(signatures_whole(&pr_answer(&answer(e), "").unwrap()).is_err());
+    // Its base's rules refused: the signatures stand (not required).
+    let p = pr_node(&answer(json!([{ "path": ["repository", "pullRequest", "baseRef", "rules"] }])), "").unwrap();
+    assert!(signatures_of(&p).is_ok_and(|s| !s.required));
+    // Anything else refused, or an error that doesn't say where: none of it, GitHub's word why.
+    for e in [json!([{ "path": ["repository", "pullRequest", "commits", "nodes", 0], "message": "timed out" }]), json!([{ "message": "timed out" }])] {
+        assert_eq!(format!("{:#}", pr_node(&answer(e), "").unwrap_err()), "GitHub: timed out");
     }
-    // Refused whole: GitHub's reason.
-    let e = pr_answer(&json!({ "data": null, "errors": [{ "type": "RATE_LIMITED", "message": "API rate limit exceeded" }] }), "").unwrap_err();
-    assert_eq!(format!("{e:#}"), "GitHub: API rate limit exceeded");
-    assert!(e.is::<Refused>());
-    // Every error's kind kept; the reason, the one that isn't about size.
-    let both = json!({ "data": null, "errors": [{ "type": "MAX_NODE_LIMIT_EXCEEDED", "message": "too many nodes" }, { "type": "RATE_LIMITED", "message": "API rate limit exceeded" }] });
-    let e = pr_answer(&both, "").unwrap_err();
-    assert!(e.is::<Refused>() && format!("{e:#}") == "GitHub: API rate limit exceeded");
-    // A body with only a message (a bad token): that, and not a refusal (asked again for).
-    let e = pr_answer(&json!({ "message": "Bad credentials" }), "gh: Bad credentials (HTTP 401)").unwrap_err();
+    // A body with only a message (a bad token): that.
+    let e = pr_node(&json!({ "message": "Bad credentials" }), "gh: Bad credentials (HTTP 401)").unwrap_err();
     assert_eq!(format!("{e:#}"), "GitHub: Bad credentials");
-    assert!(!e.is::<Refused>());
-    // Its commits refused: GitHub's word for why.
-    let a = pr_answer(&answer(json!([{ "path": ["repository", "pullRequest", "commits"], "message": "timed out\nmore" }])), "").unwrap();
-    assert_eq!(first_line(&signatures_whole(&a).unwrap_err()), "timed out");
 }
 

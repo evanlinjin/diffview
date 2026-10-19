@@ -400,16 +400,14 @@ pub fn hidden(c: &Value) -> String {
 /// A reaction on a comment: GitHub's name for it (e.g. THUMBS_UP), how many, one is yours.
 pub type Reaction = (String, u64, bool);
 
-/// A comment's `reactionGroups` (from GraphQL: `reactors`, `viewerHasReacted`; from `gh pr
-/// view`: `users`, and whose isn't said: `mine` has yours, by node id), those with any.
-pub(crate) fn reactions(v: &Value, mine: &[&str]) -> Vec<Reaction> {
+/// A comment's `reactionGroups` (`reactors`, `viewerHasReacted`), those with any.
+pub(crate) fn reactions(v: &Value) -> Vec<Reaction> {
     v.as_array()
         .into_iter()
         .flatten()
         .filter_map(|g| {
-            let n = g["reactors"]["totalCount"].as_u64().or_else(|| g["users"]["totalCount"].as_u64())?;
-            let what = g["content"].as_str().unwrap_or("");
-            (n > 0).then(|| (what.to_owned(), n, g["viewerHasReacted"] == true || mine.contains(&what)))
+            let n = g["reactors"]["totalCount"].as_u64()?;
+            (n > 0).then(|| (g["content"].as_str().unwrap_or("").to_owned(), n, g["viewerHasReacted"] == true))
         })
         .collect()
 }
@@ -417,7 +415,7 @@ pub(crate) fn reactions(v: &Value, mine: &[&str]) -> Vec<Reaction> {
 /// The reactions on comment (or review) `node` now: each kind's (name, count, yours).
 pub fn reactions_of(node: &str) -> Result<Vec<Reaction>> {
     let d = graphql(&format!("query($id: ID!) {{ node(id: $id) {{ ... on Reactable {{ {REACTED} }} }} }}"), json!({ "id": node }))?;
-    Ok(reactions(&d["node"]["reactionGroups"], &[]))
+    Ok(reactions(&d["node"]["reactionGroups"]))
 }
 
 /// React to comment (or review) `node` with `content` (`add`), or take yours back.
@@ -658,7 +656,7 @@ fn parse_thread(t: &Value) -> Thread {
                 body: c["body"].as_str().unwrap_or("").replace("\r\n", "\n"),
                 created: c["createdAt"].as_str().unwrap_or("").to_owned(),
                 pending: c["state"] == "PENDING",
-                reactions: reactions(&c["reactionGroups"], &[]),
+                reactions: reactions(&c["reactionGroups"]),
                 hidden: hidden(c),
             })
             .collect(),
@@ -737,17 +735,7 @@ pub(crate) fn requires_signatures(p: &Value) -> bool {
 
 /// PR `n`'s commits' signatures, and whether its base requires them: one GraphQL query.
 pub fn signatures(n: u64) -> Result<Signatures> {
-    signatures_whole(&pr_query(n, "")?).map_err(anyhow::Error::msg)
-}
-
-/// The signatures in a `pr_query` answer, whole or not at all: a commit GitHub had trouble
-/// with isn't one that isn't signed (else why not: GitHub's word). Its base's rules refused:
-/// taken as not requiring them.
-fn signatures_whole(a: &PrAnswer) -> std::result::Result<Signatures, String> {
-    if let Some((_, why)) = a.refused.iter().find(|r| r.0 == "commits" || r.0 == "?") {
-        return Err(why.clone());
-    }
-    signatures_of(&a.node).map_err(|e| format!("{e:#}"))
+    signatures_of(&pr_query(n)?)
 }
 
 /// The first line of a message (GitHub's can run on), for a line of dv's.
@@ -755,68 +743,30 @@ fn first_line(s: &str) -> String {
     s.lines().next().unwrap_or("").to_owned()
 }
 
-/// GitHub's kinds of refusal for a query's size or time: a smaller one may go through.
-const TOO_BIG: [&str; 3] = ["MAX_NODE_LIMIT_EXCEEDED", "RESOURCE_LIMITS_EXCEEDED", "TIMEOUT"];
-
-/// What GitHub answered to a `pr_query`: the pull request's node, and the parts of it refused
-/// (null there), with GitHub's word: its fields (`commits`, `comments`, …), or `?` for an
-/// error that doesn't say.
-#[derive(Debug)]
-struct PrAnswer {
-    node: Value,
-    refused: Vec<(String, String)>,
-}
-
-/// GitHub refused a GraphQL query whole (its errors, no answer): each error's kind
-/// (`RATE_LIMITED`, …), and the reason to give. Not the same as not being reached, nor as a bad
-/// token.
-#[derive(Debug)]
-struct Refused {
-    why: String,
-}
-
-impl std::fmt::Display for Refused {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "GitHub: {}", self.why)
+/// The pull request's node in GitHub's answer to `pr_query` (`gh api graphql`'s output, and
+/// what gh said, `stderr`). What it says of its base's rules may be refused (a ruleset you can't
+/// read): taken as not requiring signatures. Anything else refused, none of it: a commit GitHub
+/// had trouble with isn't one that isn't signed. GitHub's first word for why.
+fn pr_node(v: &Value, stderr: &str) -> Result<Value> {
+    let not_base = |e: &&Value| e["path"].get(2).and_then(Value::as_str) != Some("baseRef");
+    if let Some(e) = v["errors"].as_array().into_iter().flatten().find(not_base) {
+        bail!("GitHub: {}", e["message"].as_str().unwrap_or("refused"));
     }
-}
-
-impl std::error::Error for Refused {}
-
-/// GitHub's answer (`gh api graphql`'s output, and what gh said, `stderr`): refused whole (no
-/// node: `Refused`, with GitHub's reason) is an error.
-fn pr_answer(v: &Value, stderr: &str) -> Result<PrAnswer> {
     let node = &v["data"]["repository"]["pullRequest"];
-    let errors = v["errors"].as_array().map(Vec::as_slice).unwrap_or(&[]);
-    let why_of = |e: &Value| e["message"].as_str().unwrap_or("refused").to_owned();
     if !node.is_object() {
-        if let Some(first) = errors.first() {
-            let kinds: Vec<String> = errors.iter().map(|e| e["type"].as_str().unwrap_or("").to_owned()).collect();
-            // The reason: a kind that isn't about size, with words, if any (that's why it isn't
-            // asked again); else the first.
-            let telling = |i: &usize| !kinds[*i].is_empty() && !TOO_BIG.contains(&kinds[*i].as_str()) && errors[*i]["message"].is_string();
-            let why = (0..errors.len()).find(telling).map_or(first, |i| &errors[i]);
-            return Err(Refused { why: why_of(why) }.into());
-        }
         // Not GraphQL's answer: the body's word (`Bad credentials`), else gh's.
         let why = v["message"].as_str().unwrap_or(stderr.trim());
-        anyhow::bail!("GitHub: {}", if why.is_empty() { "no answer" } else { why });
+        bail!("GitHub: {}", if why.is_empty() { "no answer" } else { why });
     }
-    // repository.pullRequest.<field>: an error elsewhere, or with no path, is about who knows.
-    let refused = errors
-        .iter()
-        .map(|e| (e["path"].get(2).and_then(Value::as_str).unwrap_or("?").to_owned(), why_of(e)))
-        .collect();
-    Ok(PrAnswer { node: node.clone(), refused })
+    Ok(node.clone())
 }
 
-/// PR `n`'s commits' signatures and its base's rules, and `more` of it: one GraphQL query. A
-/// part GitHub refuses (some reactions, say) comes with the rest (gh exits non-zero then, so
-/// its output is read either way).
-fn pr_query(n: u64, more: &str) -> Result<PrAnswer> {
+/// PR `n`'s commits' signatures and its base's rules: one GraphQL query (`pr_node`). (gh exits
+/// non-zero when a part is refused, so its output is read either way.)
+fn pr_query(n: u64) -> Result<Value> {
     let q = format!(
         "query($owner: String!, $name: String!, $n: Int!) {{ repository(owner: $owner, name: $name) {{ pullRequest(number: $n) {{
-           {SIGNATURE_RULES} commits(last: 100) {{ totalCount nodes {{ commit {{ oid signature {{ isValid }} }} }} }} {more} }} }} }}"
+           {SIGNATURE_RULES} commits(last: 100) {{ totalCount nodes {{ commit {{ oid signature {{ isValid }} }} }} }} }} }} }}"
     );
     let out = Command::new("gh")
         .args(["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-F", &format!("n={n}"), "-f", &format!("query={q}")])
@@ -825,7 +775,7 @@ fn pr_query(n: u64, more: &str) -> Result<PrAnswer> {
         .context("running gh")?;
     // (Not JSON at all: a gateway's page, or nothing; what gh said is all there is.)
     let v = serde_json::from_slice::<Value>(&out.stdout).unwrap_or_default();
-    pr_answer(&v, &String::from_utf8_lossy(&out.stderr))
+    pr_node(&v, &String::from_utf8_lossy(&out.stderr))
 }
 
 fn signatures_of(p: &Value) -> Result<Signatures> {
@@ -943,7 +893,7 @@ pub fn info_json(n: u64) -> Result<Value> {
     let id = s(&v["id"]);
     let (activity, signatures) = std::thread::scope(|sc| {
         let activity = sc.spawn(|| activity(&id));
-        let signatures = pr_query(n, "").map_err(|e| format!("{e:#}")).and_then(|a| signatures_whole(&a));
+        let signatures = pr_query(n).and_then(|p| signatures_of(&p)).map_err(|e| format!("{e:#}"));
         (activity.join().unwrap_or_else(|_| Err(anyhow::anyhow!("panicked"))), signatures.map_err(|w| first_line(&w)))
     });
     v["dvActivity"] = activity.unwrap_or_else(|e| json!({ "error": first_line(&format!("{e:#}")) }));
