@@ -748,7 +748,9 @@ pub struct App {
     github: Option<std::sync::mpsc::Receiver<(u64, review::Fetched)>>,
     github_gen: std::sync::Arc<std::sync::atomic::AtomicU64>,
     /// Tells the background watch to fetch now, whatever the PR's ETag says.
-    github_poke: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    github_poke: Option<std::sync::mpsc::Sender<()>>,
+    /// The last note said about the PR's base (`base_note`), to say the next in its place.
+    base_said: String,
     /// What's shown came from the cache, and the fresh fetch isn't in yet.
     github_stale: bool,
 }
@@ -950,7 +952,8 @@ impl App {
             label_first: None,
             github: None,
             github_gen: Default::default(),
-            github_poke: Default::default(),
+            github_poke: None,
+            base_said: String::new(),
             github_stale: false,
         };
         app.shape();
@@ -981,7 +984,9 @@ impl App {
             self.watch_github();
             if self.refresh_at.is_some_and(|t| t <= std::time::Instant::now()) {
                 self.refresh_at = None;
-                self.github_poke.store(true, std::sync::atomic::Ordering::SeqCst);
+                if let Some(p) = &self.github_poke {
+                    _ = p.send(());
+                }
             }
             self.watch_replacement();
             self.poll_claude();

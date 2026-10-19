@@ -90,7 +90,9 @@ impl App {
             let head = self.pr.as_ref().map(|p| p.head_oid.clone()).unwrap_or_default();
             self.msg = match gh::rerun_failed(&head) {
                 Ok(said) => {
-                    // The watch fetches again by itself, shortly (through `watch_github`).
+                    // What a fetch under way brings back is from before (failing still); the
+                    // watch fetches again by itself, shortly (through `watch_github`).
+                    self.github_changed();
                     self.refresh_at = Some(std::time::Instant::now() + std::time::Duration::from_secs(10));
                     said
                 }
@@ -656,7 +658,8 @@ impl App {
     pub(super) fn start_github_watch(&mut self, n: u64, fetch_now: bool) {
         let (tx, rx) = std::sync::mpsc::channel();
         let loads = self.github_gen.clone();
-        let poke = self.github_poke.clone();
+        let (poke, poked) = std::sync::mpsc::channel();
+        self.github_poke = Some(poke);
         let cache = cache_path(n);
         std::thread::spawn(move || {
             let mut etag = gh::pr_etag(n, "").ok().flatten().unwrap_or_default();
@@ -665,15 +668,15 @@ impl App {
                 return;
             }
             loop {
-                // A second at a time: poked (CI rerun: its checks change, not the PR's ETag),
-                // it fetches whatever the ETag says.
-                let poked = (0..GITHUB_POLL.as_secs().max(1)).any(|_| {
-                    std::thread::sleep(std::time::Duration::from_secs(1));
-                    poke.swap(false, std::sync::atomic::Ordering::SeqCst)
-                });
-                if !poked {
-                    let Ok(Some(e)) = gh::pr_etag(n, &etag) else { continue };
-                    etag = e;
+                // Every so often, or at once when poked (CI rerun: its checks change, not the
+                // PR's ETag: fetched whatever it says, and it's taken anew after).
+                match poked.recv_timeout(GITHUB_POLL) {
+                    Ok(()) => etag = gh::pr_etag(n, "").ok().flatten().unwrap_or(etag),
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        let Ok(Some(e)) = gh::pr_etag(n, &etag) else { continue };
+                        etag = e;
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return, // dv is done
                 }
                 let at = loads.load(std::sync::atomic::Ordering::SeqCst);
                 if tx.send((at, fetch_github(n, cache.as_deref()))).is_err() {
@@ -784,8 +787,8 @@ impl App {
     /// (and of the "as dv last saw it" notice: this is fresh): not piled up, not over a
     /// rebase's ending, say.
     fn base_note(&mut self, note: &str) {
-        let keep: Vec<&str> = self.msg.split(" · ").filter(|p| !p.is_empty() && !p.starts_with("the PR's base is") && *p != STALE).collect();
-        self.msg = keep.into_iter().chain([note]).collect::<Vec<_>>().join(" · ");
+        let last = std::mem::replace(&mut self.base_said, note.to_owned());
+        self.msg = base_note_in(&self.msg, &last, note);
     }
 
     /// The PR's base changed on GitHub to `base`: a rebase goes onto it, and the diff starts
@@ -1515,4 +1518,18 @@ fn file_refs() {
     assert_eq!(at("at 12:30 today", "12"), None); // a time
     assert_eq!(at("note: this", "note"), None);
     assert_eq!(at("x.rs:12:5,", "x.rs"), Some(("x.rs".into(), 12)));
+}
+
+/// `msg` with `note` said after it, in place of `last` (the note before) and of the "as dv
+/// last saw it" notice.
+fn base_note_in(msg: &str, last: &str, note: &str) -> String {
+    let keep = msg.split(" · ").filter(|p| !p.is_empty() && *p != last && *p != STALE);
+    keep.chain([note]).collect::<Vec<_>>().join(" · ")
+}
+
+#[test]
+fn notes_on_the_base() {
+    let a = base_note_in(&format!("rebased · {STALE}"), "", "the base is x now: fetching it…");
+    assert_eq!(a, "rebased · the base is x now: fetching it…");
+    assert_eq!(base_note_in(&a, "the base is x now: fetching it…", "the base is x now"), "rebased · the base is x now");
 }

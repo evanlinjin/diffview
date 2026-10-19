@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Fixed
+- After rerunning failed checks, dv looks at them again through its background watch (a picker
+  open isn't disturbed, nothing said is overwritten), and a fetch from before the rerun isn't
+  shown as current.
+- Notes on a retargeted PR's base replace one another rather than pile up, and the "as dv last
+  saw it" notice goes once GitHub's fresh answer is in.
+- Signatures: GitHub refusing only a PR's reactions keeps them; refusing its commits, or
+  saying an error without where, leaves them unknown (not unsigned); refusing the whole query
+  says GitHub's reason.
+
 ## [0.33.1] - 2026-10-19
 
 ### Fixed
