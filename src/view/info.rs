@@ -1,6 +1,6 @@
 //! The PR section's lines from GitHub's answer (`gh::info_json`): its facts, description and
 //! activity, as text with marks for the view to color.
-use crate::gh::{ago, hidden, reactions, tally, verdict, Reaction, REACTIONS};
+use crate::gh::{ago, gate, hidden, reactions, tally, verdict, Reaction, REACTIONS};
 use serde_json::Value;
 
 /// What a comment hidden on GitHub (`why`, from `hidden`) says it is: "hidden on GitHub
@@ -107,9 +107,21 @@ pub struct Info {
 pub fn parse_info(v: &Value) -> Info {
     let s = |k: &str| v[k].as_str().unwrap_or("").to_owned();
     let unsigned = v["dvCommits"].as_array().map(|cs| cs.iter().filter(|c| c["signed"] != true).filter_map(|c| c["oid"].as_str().map(str::to_owned)).collect());
-    let failing = v["statusCheckRollup"].as_array().into_iter().flatten().filter(|c| verdict(c) == '✗').count();
+    // (What fails that decides: required checks, when its base names any.)
+    let failing = gate(v["statusCheckRollup"].as_array().map(Vec::as_slice).unwrap_or(&[]), &required_of(v)).1;
     let awaiting = v["dvAwaiting"].as_u64().unwrap_or(0) as usize;
     Info { lines: info_lines(v), title: s("title"), head: s("headRefOid"), url: s("url"), state: state(v), unsigned, awaiting, failing, base: s("baseRefName") }
+}
+
+/// The checks the PR's base requires (`dvRequiredChecks`, as dv fetched them): none, and every
+/// check counts.
+fn required_of(v: &Value) -> std::collections::HashSet<String> {
+    v["dvRequiredChecks"].as_array().into_iter().flatten().filter_map(|c| c.as_str().map(str::to_owned)).collect()
+}
+
+/// A check's name (a check run's) or context (a status's).
+fn check_name(c: &Value) -> &str {
+    c["name"].as_str().or(c["context"].as_str()).unwrap_or("?")
 }
 
 /// A PR's state as GitHub shows it, with its color: DRAFT, OPEN, MERGED or CLOSED.
@@ -207,21 +219,38 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
     if checks.is_empty() {
         push("checks".into(), plain("checks: none".into()));
     } else {
-        let (pass, fail, pending) = tally(&checks);
+        let required = required_of(v);
+        let optional = |c: &&Value| !required.is_empty() && !required.contains(check_name(c));
         let mut l = InfoLine::new(false, false);
         l.put("checks", Some(Mark::Link(format!("{}/checks", s(&v["url"])))));
         l.put(": ", None);
-        // Only the counts that aren't zero.
-        let parts = [(pass, "✓", "passed", Mark::Pass), (fail, "✗", "failed", Mark::Fail), (pending, "●", "pending", Mark::Pending)];
-        for (k, (n, sym, what, m)) in parts.into_iter().filter(|p| p.0 > 0).enumerate() {
-            if k > 0 {
-                l.put(" · ", None);
+        // Only the counts that aren't zero; the base's required checks apart from the others,
+        // when it names any.
+        let counts = |l: &mut InfoLine, of: &[Value]| {
+            let (pass, fail, pending) = tally(of);
+            let parts = [(pass, "✓", "passed", Mark::Pass), (fail, "✗", "failed", Mark::Fail), (pending, "●", "pending", Mark::Pending)];
+            for (k, (n, sym, what, m)) in parts.into_iter().filter(|p| p.0 > 0).enumerate() {
+                if k > 0 {
+                    l.put(" · ", None);
+                }
+                l.put(&format!("{sym} {n} {what}"), Some(m));
             }
-            l.put(&format!("{sym} {n} {what}"), Some(m));
+        };
+        match required.is_empty() {
+            true => counts(&mut l, &checks),
+            false => {
+                let (opt, req): (Vec<Value>, Vec<Value>) = checks.iter().cloned().partition(|c| optional(&c));
+                l.put("required ", None);
+                counts(&mut l, &req);
+                if !opt.is_empty() {
+                    l.put(" · optional ", None);
+                    counts(&mut l, &opt);
+                }
+            }
         }
         push("checks".into(), l);
         for c in checks.iter().filter(|c| verdict(c) != '✓') {
-            let name = c["name"].as_str().or(c["context"].as_str()).unwrap_or("?");
+            let name = check_name(c);
             let m = if verdict(c) == '✗' { Mark::Fail } else { Mark::Pending };
             let mut l = InfoLine::new(false, false);
             l.put(&format!("{} ", verdict(c)), Some(m.clone()));
@@ -230,6 +259,9 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
                 Some(u) => l.put(name, Some(Mark::Link(u.to_owned()))),
                 None => l.put(name, Some(m)),
             };
+            if optional(&c) {
+                l.put(" (optional)", Some(Mark::Dim));
+            }
             push(format!("check/{name}"), l);
         }
     }
@@ -469,6 +501,15 @@ mod tests {
         let v = serde_json::json!({ "statusCheckRollup": [{ "name": "build", "status": "COMPLETED", "conclusion": "SUCCESS" }] });
         let t: Vec<String> = info_lines(&v).into_iter().map(|l| l.text).collect();
         assert!(t.contains(&"checks: ✓ 1 passed".to_owned())); // no "✗ 0 failed · ● 0 pending"
+        // Its base requiring some: those apart from the optional ones, which say so; only what's
+        // required decides (an optional one failing isn't the PR failing).
+        let v = serde_json::json!({ "dvRequiredChecks": ["build"], "statusCheckRollup": [
+            { "name": "build", "status": "COMPLETED", "conclusion": "SUCCESS" },
+            { "name": "codecov/patch", "status": "COMPLETED", "conclusion": "FAILURE" },
+        ] });
+        let t: Vec<String> = info_lines(&v).into_iter().map(|l| l.text).collect();
+        assert!(t.contains(&"checks: required ✓ 1 passed · optional ✗ 1 failed".to_owned()) && t.contains(&"✗ codecov/patch (optional)".to_owned()), "{t:?}");
+        assert_eq!(parse_info(&v).failing, 0);
         assert!(t.contains(&"reviews: none yet".to_owned()));
     }
 

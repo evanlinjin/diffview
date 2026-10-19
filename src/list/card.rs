@@ -164,6 +164,10 @@ pub(super) fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathB
             for (k, &(n, m, st)) in counts.iter().filter(|c| c.0 > 0).enumerate() {
                 v.extend([sp(if k == 0 { "" } else { " " }.into(), row), sp(format!("{m}{n}"), tint(st))]);
             }
+            // Optional ones failing (not required by its base): said, apart, dim.
+            if p.optional_failing > 0 {
+                v.push(sp(format!(" · ✗{} optional", p.optional_failing), dim));
+            }
             v
         }
         None if cx.checks_loading && mark.replaces.is_none() => vec![sp("CI …".into(), dim)],

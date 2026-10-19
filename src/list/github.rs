@@ -26,8 +26,11 @@ pub struct Listed {
     pub decision: String,
     /// (name, hex color)
     pub labels: Vec<(String, String)>,
-    /// (passed, failed, pending), filled in by `list_checks` (slow, so fetched separately).
+    /// (passed, failed, pending) of the checks that decide (its base's required ones, when it
+    /// names any; else all), filled in by `list_checks` (slow, so fetched separately).
     pub checks: Option<(usize, usize, usize)>,
+    /// The optional checks (not required) that fail: shown, but they don't hold it back.
+    pub optional_failing: usize,
     /// The commit `checks` are on (the PR's head when they were fetched).
     pub checks_head: String,
 }
@@ -63,6 +66,7 @@ fn listed(p: &Value) -> Listed {
         decision: s(&p["reviewDecision"]),
         labels: p["labels"].as_array().into_iter().flatten().map(|l| (s(&l["name"]), s(&l["color"]))).collect(),
         checks: None,
+        optional_failing: 0,
         checks_head: String::new(),
     }
 }
@@ -160,18 +164,21 @@ fn extra(p: &Value, me: &str) -> Extra {
     }
 }
 
-pub type ListChecks = std::collections::HashMap<u64, ((usize, usize, usize), String)>;
+pub type ListChecks = std::collections::HashMap<u64, ((usize, usize, usize), usize, String)>;
 
-/// CI check counts for the PRs `list` returns: number → ((passed, failed, pending), the head
-/// they're on).
+/// CI check counts for the PRs `list` returns: number → ((passed, failed, pending) of those
+/// that decide (`gh::gate`), how many optional ones fail, the head they're on).
 pub fn list_checks() -> Result<ListChecks> {
-    let v: Value = gh_json(&["pr", "list", "--limit", &LIST_MAX.to_string(), "--json", "number,headRefOid,statusCheckRollup"])?;
+    let v: Value = gh_json(&["pr", "list", "--limit", &LIST_MAX.to_string(), "--json", "number,headRefOid,baseRefName,statusCheckRollup"])?;
     let prs = v.as_array().context("gh pr list")?;
     Ok(prs
         .iter()
         .map(|p| {
             let head = p["headRefOid"].as_str().unwrap_or("").to_owned();
-            (p["number"].as_u64().unwrap_or(0), (tally(p["statusCheckRollup"].as_array().map(Vec::as_slice).unwrap_or(&[])), head))
+            let checks = p["statusCheckRollup"].as_array().map(Vec::as_slice).unwrap_or(&[]);
+            let gated = crate::gh::gate(checks, &crate::gh::required(p["baseRefName"].as_str().unwrap_or("")));
+            let optional_failing = tally(checks).1 - gated.1.min(tally(checks).1);
+            (p["number"].as_u64().unwrap_or(0), (gated, optional_failing, head))
         })
         .collect())
 }
@@ -232,7 +239,7 @@ impl List {
                 if quiet {
                     for p in &mut prs {
                         if let Some(o) = self.prs.iter().find(|o| o.number == p.number) {
-                            (p.checks, p.checks_head) = (o.checks, o.checks_head.clone());
+                            (p.checks, p.optional_failing, p.checks_head) = (o.checks, o.optional_failing, o.checks_head.clone());
                         }
                     }
                 }

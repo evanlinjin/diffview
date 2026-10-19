@@ -907,6 +907,9 @@ pub fn info_json(n: u64) -> Result<Value> {
         // Unknown, and why: said among its facts.
         Err(why) => v["dvCommitsUnknown"] = why.into(),
     }
+    // The checks its base requires: the others are optional (they don't hold it back).
+    let base = v["baseRefName"].as_str().unwrap_or("").to_owned();
+    v["dvRequiredChecks"] = ci::required(&base).into_iter().collect::<Vec<_>>().into();
     Ok(v)
 }
 

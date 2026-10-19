@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.68] - 2026-10-19
+
+### Changed
+- CI is judged by the checks its base requires (its rulesets, its branch protection), when it
+  names any: an optional one failing (codecov's, say) no longer stops marking a draft ready,
+  dv list's "checks green", or sends Claude to fix CI. The PR's status counts required and
+  optional checks apart (`required ✓ 7 passed · optional ✗ 2 failed`; a failing optional check
+  says `(optional)`); dv list's cards count the required ones, `· ✗2 optional` beside them.
+
 ## [0.34.67] - 2026-10-19
 
 ### Changed

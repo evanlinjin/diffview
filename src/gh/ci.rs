@@ -4,10 +4,45 @@ use super::{gh, gh_json};
 use anyhow::{bail, Result};
 use serde_json::Value;
 
-/// PR `n`'s CI checks on GitHub now: (passed, failed, pending).
+/// PR `n`'s CI checks on GitHub now that decide (`gate`): (passed, failed, pending).
 pub fn checks(n: u64) -> Result<(usize, usize, usize)> {
-    let v: Value = gh_json(&["pr", "view", &n.to_string(), "--json", "statusCheckRollup"])?;
-    Ok(tally(v["statusCheckRollup"].as_array().map(Vec::as_slice).unwrap_or(&[])))
+    let v: Value = gh_json(&["pr", "view", &n.to_string(), "--json", "statusCheckRollup,baseRefName"])?;
+    Ok(gate(v["statusCheckRollup"].as_array().map(Vec::as_slice).unwrap_or(&[]), &required(v["baseRefName"].as_str().unwrap_or(""))))
+}
+
+/// The checks branch `base` requires (its rulesets', its protection's), by name; none: it
+/// says none (or can't be read), and every check counts. Asked once a base, per run.
+pub fn required(base: &str) -> std::collections::HashSet<String> {
+    static SEEN: std::sync::Mutex<Option<std::collections::HashMap<String, std::collections::HashSet<String>>>> = std::sync::Mutex::new(None);
+    if let Some(r) = SEEN.lock().ok().and_then(|s| s.as_ref()?.get(base).cloned()) {
+        return r;
+    }
+    let mut names = std::collections::HashSet::new();
+    if let Ok(v) = gh_json(&["api", &format!("repos/{{owner}}/{{repo}}/rules/branches/{base}")]) {
+        let rules = v.as_array().into_iter().flatten().filter(|r| r["type"] == "required_status_checks");
+        names.extend(rules.flat_map(|r| r["parameters"]["required_status_checks"].as_array().cloned().unwrap_or_default()).filter_map(|c| c["context"].as_str().map(str::to_owned)));
+    }
+    let q = "query($owner:String!,$name:String!,$ref:String!){repository(owner:$owner,name:$name){ref(qualifiedName:$ref){branchProtectionRule{requiredStatusCheckContexts}}}}";
+    let r = format!("ref=refs/heads/{base}");
+    if let Ok(v) = gh_json(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-f", &r, "-f", &format!("query={q}")]) {
+        let ctx = v["data"]["repository"]["ref"]["branchProtectionRule"]["requiredStatusCheckContexts"].as_array().cloned().unwrap_or_default();
+        names.extend(ctx.iter().filter_map(|c| c.as_str().map(str::to_owned)));
+    }
+    if let Ok(mut s) = SEEN.lock() {
+        s.get_or_insert_with(Default::default).insert(base.to_owned(), names.clone());
+    }
+    names
+}
+
+/// The checks that decide whether CI passes, tallied: the `required` ones when the base names
+/// any (an optional one failing, codecov's say, doesn't hold the PR back), else all of them.
+pub(crate) fn gate(checks: &[Value], required: &std::collections::HashSet<String>) -> (usize, usize, usize) {
+    if required.is_empty() {
+        return tally(checks);
+    }
+    let name = |c: &Value| c["name"].as_str().or(c["context"].as_str()).unwrap_or("").to_owned();
+    let req: Vec<Value> = checks.iter().filter(|c| required.contains(&name(c))).cloned().collect();
+    tally(&req)
 }
 
 /// Mark draft PR `n` ready for review (`gh pr ready`): only once CI passes, nothing failing
@@ -17,7 +52,7 @@ pub fn mark_ready(n: u64) -> Result<()> {
     match (fail, pending) {
         (0, 0) => gh(&["pr", "ready", &n.to_string()]).map(drop),
         (0, k) => bail!("CI is still running ({k} check{} pending): ready once it passes", if k == 1 { "" } else { "s" }),
-        (k, _) => bail!("CI fails ({k} check{} failed): fix it first (dv list: a a has Claude look)", if k == 1 { "" } else { "s" }),
+        (k, _) => bail!("CI fails ({k} required check{} failed): fix it first (dv list: a a has Claude look)", if k == 1 { "" } else { "s" }),
     }
 }
 
