@@ -163,6 +163,9 @@ impl App {
         if row.file == INFO && row.line.kind == Kind::File && !row.links.is_empty() {
             return Some(("PR", &[("gf", "open on GitHub"), ("Tab", "fold")]));
         }
+        if row.info == Some(MORE_CONVERSATION) {
+            return Some(("conversation", &[("Enter", "show it all"), ("Space o", "the same; again, back")]));
+        }
         if row.info == Some(SUMMARY) {
             return Some(("Claude's review", &[("r", "reply (Claude answers)"), ("c", "add to your review summary"), ("C", "post it as your PR comment")]));
         }
@@ -576,6 +579,7 @@ impl App {
             match self.view {
                 View::Claude => "claude view  ",
                 View::Pending => "pending view  ",
+                View::Conversation => "conversation  ",
                 View::All => "",
             },
             if self.uncommitted() { "uncommitted  ".into() } else { self.commits_label().map(|l| format!("{l}  ")).unwrap_or_default() },

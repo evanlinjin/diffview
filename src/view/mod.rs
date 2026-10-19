@@ -447,6 +447,8 @@ pub(super) enum View {
     All,
     Claude,
     Pending,
+    /// The PR's whole conversation on its own (`Space o`).
+    Conversation,
 }
 
 struct Item {
@@ -742,9 +744,8 @@ pub struct App {
     github_gen: std::sync::Arc<std::sync::atomic::AtomicU64>,
     /// Tells the background watch to fetch now, whatever the PR's ETag says.
     github_poke: Option<std::sync::mpsc::Sender<()>>,
-    /// The whole PR conversation shown, on its own (`Space o`), and where the cursor was.
-    conversation_all: bool,
-    conversation_back: Option<Pos>,
+    /// Where the cursor was when the whole conversation was opened (`Space o`), to go back to.
+    conversation_back: Option<CursorKey>,
     /// The last note said about the PR's base (`base_note`), to say the next in its place.
     base_said: String,
     /// What's shown came from the cache, and the fresh fetch isn't in yet.
@@ -945,7 +946,6 @@ impl App {
             github_gen: Default::default(),
             github_poke: None,
             base_said: String::new(),
-            conversation_all: false,
             conversation_back: None,
             github_stale: false,
         };

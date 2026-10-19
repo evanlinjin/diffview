@@ -6,13 +6,14 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Changed
-- The `PR` tab is gone: the PR's text is in the diff's column, attached to its description:
-  its facts in a box above it, then the conversation's latest (new since you looked, the last
-  three at least, any with a question to Claude), then your pending review's text. `Space o`
-  (or Enter on the line saying how many more) shows the whole conversation on its own, where
-  `a`, `C`, `Space =` and `gf` work as on the latest; Esc goes back. The comments tab no longer
-  starts with your review's text (it's attached to the description).
-- The Claude tab shows the PR's description too, with Claude's summary attached after it.
+- The `PR` tab is gone: the PR's text is attached to its description, beside it in the
+  comments pane (as comments are beside their lines; after it, the pane hidden): its facts,
+  then the conversation's latest (new since you looked, the last three at least, any with a
+  question to Claude), then your pending review's text. `Space o` (or Enter on the line saying
+  how many more) shows the whole conversation on its own, where `a`, `C`, `Space =` and `gf`
+  work as on the latest; Esc goes back. The comments tab no longer starts with your review's
+  text (it's attached to the description).
+- The Claude tab shows the PR's description too, Claude's summary attached beside it.
 
 ### Fixed
 - Signatures asked again on their own only for GitHub's own kinds of refusal for a query's size

@@ -858,17 +858,18 @@ fn pr_text_attached_to_the_description() {
         app.info.push(body(&format!("comment {k}")));
     }
     app.seen.before = ["n1", "n3", "n4", "n5"].map(String::from).into();
+    app.seen.path = Some(std::env::temp_dir().join("dv-seen-unused.json")); // (somewhere to keep it)
     app.build();
     draw(&mut app);
     let at = |app: &App, t: &str| app.rows.iter().position(|r| r.line.text == t);
     // In the diff's column, in order: the facts, the description, then what's new (c2) and the
     // last three; c1 isn't, but a line says there's more.
     let (facts, desc, c2, c3, c5) = (at(&app, "status"), at(&app, "description"), at(&app, "comment 2"), at(&app, "comment 3"), at(&app, "comment 5"));
-    assert!(facts < desc && desc < c2 && c2 < c3 && c3 < c5, "{facts:?} {desc:?} {c2:?} {c3:?} {c5:?}");
+    assert!(desc < facts && facts < c2 && c2 < c3 && c3 < c5, "{facts:?} {desc:?} {c2:?} {c3:?} {c5:?}");
     assert!(at(&app, "comment 1").is_none());
     let more = app.rows.iter().position(|r| r.info == Some(MORE_CONVERSATION)).expect("the more line");
     assert!(app.rows[more].line.text.contains("1 more"));
-    assert!(matches!(app.drows[app.d_of[c2.unwrap()]], DRow::Full(_))); // not in the pane
+    assert!(app.in_pane(c2.unwrap())); // in the pane, beside the description
     assert_eq!(app.pane_tabs().len(), 3); // Comments, Claude, Pending
     // Enter on it: the whole conversation, alone (no files); Esc, back where it was.
     app.goto(more, 0);
@@ -876,6 +877,12 @@ fn pr_text_attached_to_the_description() {
     assert!(at(&app, "comment 1").is_some() && !app.rows.iter().any(|r| r.file < app.files.len()));
     app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert!(at(&app, "comment 1").is_none() && app.head.row == more);
+    // Your own word after c2 (as c3): what's before it you'd read, new or not here.
+    app.me = "me".into();
+    app.info[11].text = "@me · c4".into();
+    app.seen.before.clear();
+    app.build();
+    assert!(at(&app, "comment 2").is_none() && at(&app, "comment 3").is_some());
 }
 
 #[test]
@@ -1103,8 +1110,8 @@ fn threads_on_files_gone_from_the_diff() {
     app.margin_active = true;
     app.build();
     let gone_rows: Vec<usize> = (0..app.rows.len()).filter(|&r| app.rows[r].thread == Some(0)).collect();
-    // In the diff's column, each once (the PR's text is there now, the pane shown or not).
-    assert!(gone_rows.iter().all(|&r| app.drows.iter().filter(|d| matches!(d, DRow::Full(x) if *x == r)).count() == 1));
+    // In the pane, each once (as the PR's text beside the description).
+    assert!(gone_rows.iter().all(|&r| app.drows.iter().filter(|d| matches!(d, DRow::Margin(_, _, Some(x)) if *x == r)).count() == 1));
 }
 
 #[test]
@@ -2297,10 +2304,12 @@ fn claude_tab_is_the_claude_view() {
     assert_eq!((app.bar(), app.view), (Bar::Claude, View::Claude));
     let s = screen(220, 30, |f| app.draw(f));
     assert!(s.lines().next().unwrap().contains("Claude"));
-    // Claude's summary in full, a section before the files (not cut to the pane's strip).
-    let head = app.rows.iter().position(|r| r.main == Some(CLAUDE_REVIEW) && r.line.kind == Kind::File).expect("its section");
-    let text: Vec<&str> = app.rows[head + 1..].iter().take_while(|r| r.main == Some(CLAUDE_REVIEW)).map(|r| r.line.text.as_str()).collect();
-    assert!(text.iter().any(|t| t.starts_with("Third")), "{text:?}");
+    // Claude's summary in full, attached to the description (beside it, in the pane).
+    let desc = app.rows.iter().position(|r| r.main == Some(DESCRIPTION) && r.line.kind == Kind::File).expect("the description");
+    let head = app.rows.iter().position(|r| r.info == Some(SUMMARY) && r.line.text == "claude's review").expect("its box");
+    let text: Vec<&str> = app.rows[head + 1..].iter().take_while(|r| r.info == Some(SUMMARY)).map(|r| r.line.text.as_str()).collect();
+    assert!(desc < head && text.iter().any(|t| t.starts_with("Third")), "{text:?}");
+    assert!(app.in_pane(head));
     app.cycle_bar(true);
     assert_eq!((app.bar(), app.view), (Bar::Pending, View::Pending)); // your pending review
     app.cycle_bar(true);
@@ -2357,10 +2366,10 @@ fn reply_to_claudes_summary() {
     app.build();
     _ = screen(220, 30, |f| app.draw(f));
     let at = |app: &App, t: &str| app.rows.iter().position(|r| r.line.text.contains(t)).expect(t);
-    // Under its summary's section, in the diff's column; not elsewhere.
+    // Under its summary, attached to the description; not elsewhere.
     let s = screen(220, 30, |f| app.draw(f));
     let q = at(&app, "why approve?");
-    assert!(q > row && app.rows[q].main == Some(CLAUDE_REVIEW));
+    assert!(q > row && app.rows[q].thread.is_some());
     assert!(s.contains("Because it's minimal."), "{s}");
     assert!(!app.rows.iter().any(|r| r.line.text.starts_with("questions about") || r.line.text.starts_with("comments on files no longer")));
     let row = app.rows.iter().position(|r| r.info == Some(SUMMARY) && r.thread.is_none() && r.line.text.contains("Looks right")).unwrap();
@@ -2528,9 +2537,9 @@ fn a_question_about_the_pr_before_any_review() {
     crate::claude::add_conversation(&path, ON_SUMMARY, "Why a new trait?", "").unwrap();
     app.load_claude();
     app.toggle_view(View::Claude);
-    let head = app.rows.iter().position(|r| r.main == Some(CLAUDE_REVIEW)).expect("its section");
-    assert_eq!(app.rows[head].line.text, "questions for Claude");
-    assert_eq!(app.rows[head].info, None); // no summary to quote or post from it
+    // Attached to the description (no summary yet: your questions), what's under it with it.
+    let head = app.rows.iter().position(|r| r.line.text == "questions for Claude").expect("its heading");
+    assert!(app.rows[head].main.is_none() && app.rows[head].info.is_none()); // no summary to quote or post from it
     assert!(app.rows[head..].iter().any(|r| r.line.text.contains("Why a new trait?")));
     _ = std::fs::remove_file(&path);
 }

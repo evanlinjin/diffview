@@ -1445,7 +1445,9 @@ impl App {
             let t = &self.threads[ti];
             (0..t.comments.len()).map(|ci| comment_key(t, ci)).collect::<Vec<_>>()
         });
-        // A conversation comment (its heading or text): its node id.
+        // A conversation comment (its heading or text): its node id. (Nothing shown hangs on it
+        // till the PR's loaded again: no rebuild for it.)
+        let conversation = here.is_none();
         let here = here.or_else(|| self.conversation_node().map(|n| vec![n])).unwrap_or_default();
         let seen = match here == self.seen.current {
             true if self.seen.since.elapsed() >= SEEN_AFTER => self.seen.current.clone(),
@@ -1464,8 +1466,10 @@ impl App {
             keys.sort();
             // ponytail: rewrites the whole set; fine for a PR's worth of comments.
             _ = std::fs::create_dir_all(p.parent().unwrap_or(p)).and_then(|_| std::fs::write(p, serde_json::to_string(&keys).unwrap_or_default()));
-            let keep = self.cursor_key();
-            self.rebuild(keep); // without its [new] tag
+            if !conversation {
+                let keep = self.cursor_key();
+                self.rebuild(keep); // without its [new] tag
+            }
         }
     }
 }

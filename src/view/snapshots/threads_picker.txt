@@ -1,30 +1,30 @@
           PR #7 · Fix the thing  @bo · main ← amy:fix
-       ╭─ status ──────────────────────────────────────────────────────────────────────────────────╮
-       │  OP threads: [all] unresolved pending Claude new                        1 / 4             │
-       │  re >                                                                                     │
-       ╰──── src/big.rs:12  [nit] @claude                                              ────────────╯
- ▾        de   Name it new_value; see src/a.rs:2.
-          Fi
-       ╭─ yo src/big.rs:20  1 reply · @amy                                             ────────────╮
-       │  Ne   Why line 20?                                                                        │
-       ╰────                                                                           ────────────╯
- ▾        sr src/a.rs:2  [pending] @you
-          ──   Pass y here.                                                            ───── L9–15 ─
-  9   9   li
- 10  10   li src/a.rs:1  [resolved] @amy
- 11  11   li   Old news.
- 12     -
+ ▾        description
+          Fi threads: [all] unresolved pending Claude new                        1 / 4
+ ▾        sr >
+          ── src/big.rs:12  [nit] @claude                                              ───── L9–15 ─
+  9   9   li   Name it new_value; see src/a.rs:2.
+ 10  10   li
+ 11  11   li src/big.rs:20  1 reply · @amy
+ 12     -      Why line 20?
      12 +                                                                                          ◆
- 13  13   line 13
- 14  14   line 14
- 15  15   line 15
- ▾        src/a.rs  +1 −1  · 1 comment
-          ── fn main ──────────────────────────────────────────────────────────────────────── L1–3 ─
-  1   1   fn main() {                                                                              ○
-  2     -     old();
+ 13  13   li src/a.rs:2  [pending] @you
+ 14  14   li   Pass y here.
+ 15  15   li
+ ▾        sr src/a.rs:1  [resolved] @amy
+          ──   Old news.                                                               ────── L1–3 ─
+  1   1   fn                                                                                       ○
+  2     -
       2 +     new_call(x);                                                                         ●
   3   3   }
  ▾        new.rs (renamed from old.rs)  +0 −0
  ▾        img.png (binary)  +0 −0
+
+
+
+
+
+
+
 
  NOR                              3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)    1/40

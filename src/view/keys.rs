@@ -103,7 +103,7 @@ impl App {
             KeyCode::Char(c) => c,
             KeyCode::Esc => {
                 // Out of the whole conversation, back where it was opened (once nothing's pending).
-                if self.conversation_all && self.pending.is_none() && !self.select {
+                if self.view == View::Conversation && self.pending.is_none() && !self.select {
                     return self.toggle_conversation();
                 }
                 (self.pending, self.count, self.select) = (None, 0, false);

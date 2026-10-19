@@ -66,7 +66,7 @@ impl App {
             _ if self.unpublished() => Bar::Claude,
             View::Claude => Bar::Claude,
             View::Pending => Bar::Pending,
-            View::All => Bar::Comments,
+            View::All | View::Conversation => Bar::Comments,
         }
     }
 
@@ -256,6 +256,8 @@ impl App {
         for (u, comments) in units {
             let (l, r) = match u {
                 DRow::Full(r) if code(r) => (Some(r), None),
+                // A section's text (the description, say): what's attached to it sits beside it.
+                DRow::Full(r) if self.rows[r].main.is_some() && self.rows[r].line.kind != Kind::File => (Some(r), None),
                 DRow::Pair(l, r) => (l, r),
                 DRow::Margin(..) => (None, None),
                 DRow::Full(r) => {
@@ -311,11 +313,15 @@ impl App {
         (self.drows, self.d_of) = (d, d_of);
     }
 
-    /// A comment on a file (not the PR section's): it goes in the margin, or isn't shown while
-    /// that's hidden.
+    /// A comment on a file, or PR text attached to the description (its facts, conversation,
+    /// your review; Claude's summary): it goes in the margin, beside what it's about; a file's
+    /// isn't shown while that's hidden. Not the whole conversation (`Space o`): a view of its own.
     pub(super) fn in_margin(&self, r: usize) -> bool {
         let row = &self.rows[r];
-        row.thread.is_some() && row.file != INFO
+        match row.file == INFO {
+            false => row.thread.is_some(),
+            true => self.view != View::Conversation && row.line.kind != Kind::File && row.main.is_none(),
+        }
     }
 
     /// Comments on files are in the pane: it's shown, on that tab.
