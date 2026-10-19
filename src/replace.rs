@@ -226,9 +226,6 @@ fn prepare(prs: &[u64], root: &Path) -> Result<PathBuf> {
     let base = bases.first().map(|b| b.1.clone()).unwrap_or_default();
     let ((), r) = update(id, |r| {
         (r.base, r.replaces) = (base, originals);
-        if r.session.is_empty() {
-            r.session = crate::claude::new_session_id();
-        }
         Ok(())
     })?;
     let dir = crate::worktree_dir_named(root, &name(id))?;
@@ -366,6 +363,11 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
         if r.drafted() && !extra.trim().is_empty() {
             r.asks.push((extra.trim().to_owned(), false));
         }
+        // A first draft: a session of its own (one that failed before may have made the last
+        // one, which Claude Code won't start again).
+        if !r.drafted() {
+            r.session = crate::claude::new_session_id();
+        }
         Ok(!r.drafted())
     })?;
     let saved;
@@ -376,16 +378,13 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
         }
         e => e,
     };
+    let mut set_up = false;
     let res = (|| {
         let dir = match prs {
-            [id] if is_new(*id) => prepare_new(*id, root),
-            _ => prepare(prs, root),
+            [id] if is_new(*id) => prepare_new(*id, root)?,
+            _ => prepare(prs, root)?,
         };
-        // Not set up (PRs on different bases, one that isn't there): no record left of it.
-        if dir.is_err() && !existed {
-            _ = std::fs::remove_file(path(id)?);
-        }
-        let dir = dir?;
+        set_up = true;
         // What you've asked of it so far goes in its prompt: those are what it takes in.
         let (r, _) = update(id, |r| {
             r.taking = r.asks.len();
@@ -403,6 +402,10 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
         }
         Ok(())
     });
+    // Not set up (PRs on different bases, one that isn't there): no record left of it.
+    if !set_up && !existed {
+        _ = std::fs::remove_file(path(id)?);
+    }
     res
 }
 

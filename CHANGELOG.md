@@ -5,9 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.41] - 2026-10-19
+
 ### Changed
 - A replacement's (or new PR's) view shows Claude's review beside its description, in the
   pane, as a PR's Claude view does, not as a section in the code's column.
+
+### Fixed
+- A replacement's first draft that failed can be drafted again: each first try gets a Claude
+  session of its own (Claude Code wouldn't start the failed one's again).
+- A replacement that couldn't be set up leaves no empty record (the cleanup saved it back).
 
 ## [0.34.40] - 2026-10-19
 
