@@ -551,8 +551,14 @@ impl App {
             KeyCode::Enter => {
                 let mut p = self.picker.take().unwrap();
                 if let Some(&i) = m.get(p.sel) {
+                    let at = (p.query.clone(), p.sel);
                     match p.items.swap_remove(i).target {
                         Target::Do(a) => self.action = Some(a),
+                        // (The labels picker comes back after, as it was: one after another.)
+                        Target::Run(job @ Job::SetField(..)) => {
+                            self.fields_at = Some(at);
+                            self.start(job);
+                        }
                         Target::Run(job) => self.start(job),
                         Target::Row(r) => self.jump(r, 0),
                         Target::Loc(l) => self.jump_loc(&l),

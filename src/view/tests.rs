@@ -2805,3 +2805,16 @@ fn latest_activity_counts_comments_not_events() {
     let shown = app.rows.iter().filter(|r| r.line.text.starts_with("● @x pushed")).count();
     assert_eq!(shown, 9);
 }
+
+#[test]
+fn labels_picker_comes_back_as_left() {
+    let mut app = fixture();
+    let on = |xs: &[(&str, bool)]| xs.iter().map(|(x, o)| (x.to_string(), *o)).collect::<Vec<_>>();
+    app.fields = Some((on(&[("bug", true), ("docs", false)]), on(&[("amy", false)]), on(&[("bo", false)])));
+    app.fields_menu("o".into(), 1);
+    let p = app.picker.as_ref().unwrap();
+    assert_eq!((p.query.as_str(), p.sel), ("o", 1));
+    // Enter on one: its job, and where you were kept for the picker to come back to.
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(matches!(app.job, Some(Job::SetField(..))) && app.fields_at == Some(("o".into(), 1)));
+}

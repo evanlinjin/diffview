@@ -68,14 +68,35 @@ impl App {
             Job::DeleteComment(c) => self.finish(gh::delete_comment(&c).map(|_| "comment deleted")),
             Job::SetField(field, name, on) => {
                 let n = self.pr.as_ref().map_or(0, |p| p.number);
-                self.finish(gh::set_field(n, field, &name, on).map(|_| match (field, on) {
-                    (gh::Field::Label, true) => "label added",
-                    (gh::Field::Label, false) => "label removed",
-                    (gh::Field::Assignee, true) => "assigned",
-                    (gh::Field::Assignee, false) => "unassigned",
-                    (gh::Field::Reviewer, true) => "review requested",
-                    (gh::Field::Reviewer, false) => "review request withdrawn",
-                }));
+                let res = gh::set_field(n, field, &name, on);
+                self.msg = match &res {
+                    Err(e) => format!("{e:#}"),
+                    Ok(()) => match (field, on) {
+                        (gh::Field::Label, true) => format!("label {name} added"),
+                        (gh::Field::Label, false) => format!("label {name} removed"),
+                        (gh::Field::Assignee, true) => format!("@{name} assigned"),
+                        (gh::Field::Assignee, false) => format!("@{name} unassigned"),
+                        (gh::Field::Reviewer, true) => format!("review requested from @{name}"),
+                        (gh::Field::Reviewer, false) => format!("review request to @{name} withdrawn"),
+                    },
+                };
+                // The picker again, as you left it (what's on it as now); the PR's facts, at
+                // GitHub's next look (a moment: no reload of the diff for it).
+                if res.is_ok()
+                    && let Some(f) = &mut self.fields
+                {
+                    let list = match field {
+                        gh::Field::Label => &mut f.0,
+                        gh::Field::Assignee => &mut f.1,
+                        gh::Field::Reviewer => &mut f.2,
+                    };
+                    list.iter_mut().filter(|x| x.0 == name).for_each(|x| x.1 = on);
+                    self.github_changed();
+                    self.refresh_at = Some(std::time::Instant::now());
+                }
+                if let Some((query, sel)) = self.fields_at.take() {
+                    self.fields_menu(query, sel);
+                }
             }
             Job::React(node, what, add) => self.finish(gh::react(&node, what, add).map(|_| if add { "reacted" } else { "reaction taken back" })),
             Job::Post(p) => {
@@ -462,10 +483,17 @@ impl App {
     pub(super) fn labels_menu(&mut self) {
         self.msg.clear();
         let Some(n) = self.pr.as_ref().map(|p| p.number) else { return };
-        let (labels, people, reviewers) = match gh::pr_fields(n) {
-            Ok(x) => x,
+        match gh::pr_fields(n) {
+            Ok(x) => self.fields = Some(x),
             Err(e) => return self.msg = format!("{e:#}"),
         };
+        self.fields_menu(String::new(), 0);
+    }
+
+    /// The labels picker, of what GitHub said (`fields`, kept up as you change it): what was
+    /// typed, and where you were, as given. It stays as you pick (one after another).
+    pub(super) fn fields_menu(&mut self, query: String, sel: usize) {
+        let Some((labels, people, reviewers)) = &self.fields else { return };
         let item = |field: gh::Field, name: &str, on: bool| {
             let shown = match field {
                 gh::Field::Label => format!("label {name}"),
@@ -482,7 +510,8 @@ impl App {
         if items.is_empty() {
             return self.msg = "no labels in this repo, nor anyone to assign or ask".into();
         }
-        self.picker = Some(Picker::new(" labels, assignees, reviewers (✓: on it; Enter adds or removes) ", items));
+        let p = Picker::new(" labels, assignees, reviewers (✓: on it; Enter adds or removes; Esc: done) ", items);
+        self.picker = Some(Picker { query, sel, ..p });
     }
 
     pub(super) fn react_menu(&mut self, node: &str) {
