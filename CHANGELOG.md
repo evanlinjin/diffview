@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-10-19
+
+### Added
+- An issue in dv: `X X` with no closing comment of Claude's yet has Claude draft one (why, how it
+  closes: completed, not planned, a duplicate), then `X X` closes with it, your editor first.
+
+### Changed
+- An issue in dv has its own title bar (`Issue #N · title`, who, labels), not the list's tabs,
+  and shows Claude's triage first, before its text and conversation.
+
 ## [0.45.0] - 2026-10-19
 
 ### Changed
