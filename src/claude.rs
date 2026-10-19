@@ -835,8 +835,10 @@ pub fn reanchor(threads: &mut [Thread], files: &[FileDiff]) {
             None => Found::Gone,
         };
         match found {
-            Found::Unknown | Found::Here => {}
-            Found::Moved(s, l) => (t.start_line, t.line) = (s, Some(l)),
+            // (Back on its code, one marked outdated by an earlier pass isn't any more.)
+            Found::Unknown => {}
+            Found::Here => (t.outdated, t.line) = (false, t.line.or(t.original_line)),
+            Found::Moved(s, l) => (t.start_line, t.line, t.outdated) = (s, Some(l), false),
             Found::Gone => (t.outdated, t.line) = (true, None),
         }
     }
