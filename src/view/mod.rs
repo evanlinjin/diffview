@@ -690,10 +690,6 @@ impl App {
         Ok(())
     }
 
-    /// About once a second: reload the diff when the working tree changed (Claude's edits, a
-    /// save in hx, anything else), keeping the cursor where it is; and notice dv's hx pane
-    /// closing.
-    // ponytail: polls git status each second; a file watcher if that's ever slow on a big repo.
     /// https://github.com/owner/repo, for `#123` links.
     fn repo_url(&self) -> Option<&str> {
         self.pr.as_ref().and_then(|p| p.url.rsplit_once("/pull/")).map(|(r, _)| r)

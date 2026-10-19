@@ -53,7 +53,7 @@ impl App {
             false => Item::new(format!("Show only what isn't committed ({changed} file(s))"), Target::GitView),
         }];
         if changed > 0 {
-            items.push(Item::new(format!("Commit everything that isn't ({changed} file(s))…"), Target::Do(Action::Commit(self.commit_draft()))));
+            items.push(Item::new(format!("Commit everything that isn't ({changed} file(s))…"), Target::Do(Action::Commit)));
             items.push(Item::new("Amend it into the PR's commits it belongs in… (you see where each change goes first)", Target::AmendMenu));
             items.push(Item::new("Amend it all into the commits Claude finds it belongs in (a backup branch first)", Target::AmendAll));
         }
@@ -408,6 +408,10 @@ impl App {
         (newest, h.finish())
     }
 
+    /// About once a second: reload the diff when the working tree changed (Claude's edits, a
+    /// save in hx, anything else), keeping the cursor where it is; and notice dv's hx pane
+    /// closing.
+    // ponytail: polls git status each second; a file watcher if that's ever slow on a big repo.
     pub(super) fn watch_tree(&mut self) {
         if self.tree_checked.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(1)) {
             return;

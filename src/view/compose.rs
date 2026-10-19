@@ -47,7 +47,7 @@ pub(super) enum Action {
     /// Submit the pending review: COMMENT, APPROVE or REQUEST_CHANGES.
     Submit(&'static str),
     /// Commit everything uncommitted, starting from this message.
-    Commit(String),
+    Commit,
 }
 
 /// Something written in the editor, to send to GitHub (as a job, so "posting…" shows first).
@@ -312,7 +312,10 @@ impl App {
                 self.summary_draft.clear();
                 self.post_later(Post::Submit(event, body))
             }
-            Action::Commit(draft) => self.commit(&draft),
+            Action::Commit => {
+                let draft = self.commit_draft();
+                self.commit(&draft)
+            }
         }
     }
 
