@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.89] - 2026-10-19
+
+### Changed
+- The pane's tabs count an outdated thread as done, as a resolved one is (both are shown
+  folded): `Claude 7/8` with one thread left you can see open, not `6/8`.
+
 ## [0.34.88] - 2026-10-19
 
 ### Fixed
