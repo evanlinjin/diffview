@@ -65,15 +65,16 @@ impl ITab {
     }
 }
 
-/// You, and the open issues (`fetch`).
-type Fetch = Result<(String, Vec<Issue>)>;
+/// You, whether you may label issues here, and the open issues (`fetch`).
+type Fetch = Result<(String, bool, Vec<Issue>)>;
 
 /// How many open issues are fetched (the most recently updated).
 pub const ISSUES_MAX: usize = 500;
 
-/// You (your login), and the open issues, most recently updated first.
-pub fn fetch() -> Result<(String, Vec<Issue>)> {
-    let (mut me, mut all, mut after) = (String::new(), vec![], None::<String>);
+/// You (your login), whether you may label issues here (GitHub gives that to triage access and
+/// up), and the open issues, most recently updated first.
+pub fn fetch() -> Fetch {
+    let (mut me, mut can_label, mut all, mut after) = (String::new(), true, vec![], None::<String>);
     while all.len() < ISSUES_MAX {
         let from = after.as_ref().map_or(String::new(), |c| format!(", after: \"{c}\""));
         let q = format!(
@@ -87,6 +88,7 @@ pub fn fetch() -> Result<(String, Vec<Issue>)> {
         let v: Value = gh_json(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-f", &format!("query={q}")])?;
         crate::gh::refused(&v)?;
         me = v["data"]["viewer"]["login"].as_str().unwrap_or("").to_owned();
+        can_label = !matches!(v["data"]["repository"]["viewerPermission"].as_str(), Some("READ") | None);
         let list = &v["data"]["repository"]["issues"];
         all.extend(list["nodes"].as_array().context("gh api graphql: issues")?.iter().map(issue));
         match next_page(list) {
@@ -94,7 +96,7 @@ pub fn fetch() -> Result<(String, Vec<Issue>)> {
             None => break,
         }
     }
-    Ok((me, all))
+    Ok((me, can_label, all))
 }
 
 fn issue(i: &Value) -> Issue {
@@ -269,6 +271,8 @@ pub struct Issues {
     ui: Ui,
     items: Vec<Issue>,
     me: String,
+    /// Whether you may label issues here (triage access and up).
+    can_label: bool,
     tab: ITab,
     sel: usize,
     top: usize,
@@ -500,9 +504,9 @@ impl Issues {
             if let Some(Ok(res)) = self.fetched.as_ref().map(Receiver::try_recv) {
                 self.fetched = None;
                 match res {
-                    Ok((me, items)) => {
+                    Ok((me, can_label, items)) => {
                         let keep = self.shown().get(self.sel).map(|i| i.number);
-                        (self.me, self.items) = (me, items);
+                        (self.me, self.can_label, self.items) = (me, can_label, items);
                         let first = !self.started;
                         // (Not a ranking straight away: once the triages are in, a quarter hour on.)
                         if first {
@@ -716,7 +720,7 @@ impl Issues {
                     self.msg = format!("#{n}…");
                     _ = term.draw(|f| self.draw(f)); // (said while GitHub's asked)
                     self.msg.clear();
-                    match super::issue_view::IssueView::load(n, self.reviews_dir.as_deref()) {
+                    match super::issue_view::IssueView::load(n, self.reviews_dir.as_deref(), self.can_label) {
                         Ok(v) => self.view = Some(v),
                         Err(e) => self.msg = format!("#{n}: {e:#}"),
                     }
@@ -781,6 +785,7 @@ impl Issues {
                 };
                 self.reload_view(n);
             }
+            (Some('L'), KeyCode::Char('L')) if !self.can_label => self.msg = "not labelled: labelling issues here takes triage access, which you don't have".into(),
             (Some('L'), KeyCode::Char('L')) => {
                 let labels = v.new_labels();
                 // (A flag each: a label may have a comma in it.)
@@ -881,7 +886,7 @@ impl Issues {
     /// The issue open, from GitHub again (after a comment, a label, a title).
     fn reload_view(&mut self, n: u64) {
         let keep = self.view.as_ref().map_or(0, |v| v.scroll_at());
-        match super::issue_view::IssueView::load(n, self.reviews_dir.as_deref()) {
+        match super::issue_view::IssueView::load(n, self.reviews_dir.as_deref(), self.can_label) {
             Ok(mut v) => {
                 v.set_scroll(keep);
                 self.view = Some(v);

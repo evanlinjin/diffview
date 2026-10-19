@@ -21,12 +21,14 @@ pub struct IssueView {
     /// The lines as last drawn, and at what width.
     lines: Vec<Line<'static>>,
     width: usize,
+    /// Whether you may label it (triage access and up): Claude's labels are suggestions else.
+    can_label: bool,
     hl: crate::highlight::Highlighter,
 }
 
 impl IssueView {
     /// Issue `n` from GitHub, with its triage from `dir` (the reviews' directory).
-    pub fn load(n: u64, dir: Option<&std::path::Path>) -> Result<IssueView> {
+    pub fn load(n: u64, dir: Option<&std::path::Path>, can_label: bool) -> Result<IssueView> {
         let v: Value = gh::gh_json(&["issue", "view", &n.to_string(), "--json", "number,title,author,url,body,labels,comments"])?;
         let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
         let triage = dir
@@ -45,6 +47,7 @@ impl IssueView {
             scroll: 0,
             lines: vec![],
             width: 0,
+            can_label,
             hl: crate::highlight::Highlighter::new(&Theme::load()),
         })
     }
@@ -167,7 +170,7 @@ impl IssueView {
                     }
                 };
                 said("next", self.t("next"));
-                said("labels to add (L L)", self.new_labels().join(", "));
+                said(if self.can_label { "labels to add (L L)" } else { "labels to suggest (labelling takes triage access)" }, self.new_labels().join(", "));
                 said("title (T T)", self.new_title().unwrap_or_default());
                 said("close (X X)", self.t("close"));
                 if let Some(c) = self.closing().filter(|c| !c.is_empty()) {
@@ -288,7 +291,7 @@ fn an_issue_and_its_triage() {
     let mut v = IssueView {
         number: 7, title: "panic".into(), author: "amy".into(), url: "https://github.com/o/r/issues/7".into(),
         body: "It **panics**.".into(), labels: vec![("bug".into(), "d73a4a".into())],
-        comments: vec![("bo".into(), String::new(), "Same here.".into())], triage, scroll: 0, lines: vec![], width: 0,
+        comments: vec![("bo".into(), String::new(), "Same here.".into())], triage, scroll: 0, lines: vec![], width: 0, can_label: true,
         hl: crate::highlight::Highlighter::default(),
     };
     assert_eq!(v.new_labels(), ["chain"]); // bug it has
