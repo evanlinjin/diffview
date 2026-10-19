@@ -6,6 +6,8 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Added
+- Emoji reactions: a GitHub comment's (review thread or conversation) show after who and when
+  (`👍 2  🎉 1`); `Space =` on one reacts, or takes yours back (✓ marks yours).
 - Amend what isn't committed (Claude's changes, say) into the PR's commits it belongs in:
   `Space g` → "Amend it into the PR's commits…" shows where each change goes (the commit that
   wrote the lines it changes, by `git blame`) before anything happens; Claude can be asked

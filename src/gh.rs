@@ -86,6 +86,8 @@ pub struct Comment {
     pub created: String,
     /// Part of the viewer's unsubmitted review.
     pub pending: bool,
+    /// Its reactions: (GitHub's name for one, e.g. THUMBS_UP; how many).
+    pub reactions: Vec<(String, u64)>,
 }
 
 /// Where a new comment goes. Lines are file line numbers on the given side.
@@ -443,7 +445,8 @@ fn verdict(c: &Value) -> char {
     }
 }
 
-const COMMENT: &str = "id databaseId author { login } body createdAt diffHunk state viewerCanUpdate viewerCanDelete";
+const COMMENT: &str = "id databaseId author { login } body createdAt diffHunk state viewerCanUpdate viewerCanDelete \
+reactionGroups { content reactors { totalCount } }";
 const THREAD: &str = "id path line startLine originalLine diffSide isResolved isOutdated";
 const PAGE: &str = "pageInfo { hasNextPage endCursor }";
 
@@ -582,6 +585,56 @@ fn parse_review(pr: &Value) -> Review {
             .filter_map(|f| Some((f["path"].as_str()?.to_owned(), f["viewerViewedState"].as_str()?.to_owned())))
             .collect(),
     }
+}
+
+/// GitHub's reactions, by its name for each, and how they show.
+pub const REACTIONS: [(&str, &str); 8] = [
+    ("THUMBS_UP", "👍"),
+    ("THUMBS_DOWN", "👎"),
+    ("LAUGH", "😄"),
+    ("HOORAY", "🎉"),
+    ("CONFUSED", "😕"),
+    ("HEART", "❤️"),
+    ("ROCKET", "🚀"),
+    ("EYES", "👀"),
+];
+
+/// A comment's `reactionGroups` (from GraphQL: `reactors`; from `gh pr view`: `users`), those
+/// with any.
+fn reactions(v: &Value) -> Vec<(String, u64)> {
+    v.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|g| {
+            let n = g["reactors"]["totalCount"].as_u64().or_else(|| g["users"]["totalCount"].as_u64())?;
+            (n > 0).then(|| (g["content"].as_str().unwrap_or("").to_owned(), n))
+        })
+        .collect()
+}
+
+/// Reactions as they show: `👍 2  🎉 1`.
+pub fn reactions_text(r: &[(String, u64)]) -> String {
+    let emoji = |c: &str| REACTIONS.iter().find(|e| e.0 == c).map_or("?", |e| e.1);
+    r.iter().map(|(c, n)| format!("{} {n}", emoji(c))).collect::<Vec<_>>().join("  ")
+}
+
+/// The reactions on comment (or review) `node` now: each kind's (name, count, yours).
+pub fn reactions_of(node: &str) -> Result<Vec<(String, u64, bool)>> {
+    let q = "query($id: ID!) { node(id: $id) { ... on Reactable { reactionGroups { content viewerHasReacted reactors { totalCount } } } } }";
+    let d = mutate(q, json!({ "id": node }))?;
+    Ok(d["node"]["reactionGroups"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|g| (g["content"].as_str().unwrap_or("").to_owned(), g["reactors"]["totalCount"].as_u64().unwrap_or(0), g["viewerHasReacted"] == true))
+        .collect())
+}
+
+/// React to comment (or review) `node` with `content` (`add`), or take yours back.
+pub fn react(node: &str, content: &str, add: bool) -> Result<()> {
+    let op = if add { "addReaction" } else { "removeReaction" };
+    let q = format!("mutation($id: ID!, $c: ReactionContent!) {{ {op}(input: {{ subjectId: $id, content: $c }}) {{ clientMutationId }} }}");
+    mutate(&q, json!({ "id": node, "c": content })).map(drop)
 }
 
 /// Run a GraphQL mutation; variables go in a JSON body so strings need no escaping.
@@ -746,6 +799,7 @@ fn parse_thread(t: &Value) -> Thread {
                 body: c["body"].as_str().unwrap_or("").replace("\r\n", "\n"),
                 created: c["createdAt"].as_str().unwrap_or("").to_owned(),
                 pending: c["state"] == "PENDING",
+                reactions: reactions(&c["reactionGroups"]),
             })
             .collect(),
         claude: None,
@@ -823,11 +877,13 @@ pub struct InfoLine {
     pub marks: Vec<(usize, usize, Mark)>,
     /// On a comment's (or the description's) heading: its link on GitHub, for `Space c`.
     pub url: String,
+    /// On a conversation comment's (or review's) heading: its node id, to react to it.
+    pub node: String,
 }
 
 impl InfoLine {
     fn new(heading: bool, md: bool) -> Self {
-        InfoLine { heading, md, text: String::new(), marks: vec![], url: String::new() }
+        InfoLine { heading, md, text: String::new(), marks: vec![], url: String::new(), node: String::new() }
     }
 
     fn put(&mut self, s: &str, mark: Option<Mark>) -> &mut Self {
@@ -1101,8 +1157,12 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
     // The conversation: comments, and reviews with something to read (their text, or a
     // verdict: a plain review's inline comments are threads on the code), in time order:
     // (when, who, what they did, link, text).
-    let mut said: Vec<(String, String, &str, String, String)> =
-        list(&v["comments"]).iter().map(|c| (s(&c["createdAt"]), s(&c["author"]["login"]), "", s(&c["url"]), s(&c["body"]))).collect();
+    // (when, who, what they did, link, text, node id, reactions).
+    type Said<'a> = (String, String, &'a str, String, String, String, Vec<(String, u64)>);
+    let mut said: Vec<Said> = list(&v["comments"])
+        .iter()
+        .map(|c| (s(&c["createdAt"]), s(&c["author"]["login"]), "", s(&c["url"]), s(&c["body"]), s(&c["id"]), reactions(&c["reactionGroups"])))
+        .collect();
     for r in list(&v["reviews"]) {
         let what = match s(&r["state"]).as_str() {
             "APPROVED" => "approved · ",
@@ -1114,12 +1174,13 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         // Its own: questions about it (`a`) are kept by it. (The fragment is the review's id:
         // the link opens the PR.)
         let url = format!("{}#review-{}", s(&v["url"]), s(&r["id"]));
-        said.push((s(&r["submittedAt"]), s(&r["author"]["login"]), what, url, s(&r["body"])));
+        said.push((s(&r["submittedAt"]), s(&r["author"]["login"]), what, url, s(&r["body"]), s(&r["id"]), reactions(&r["reactionGroups"])));
     }
     said.sort_by(|a, b| a.0.cmp(&b.0)); // ISO times sort as text
     out.push(heading(format!("conversation ({})", said.len())));
-    for (at, who, what, url, body) in said {
-        out.push(InfoLine { url, ..heading(format!("@{who} · {what}{}", ago(&at))) });
+    for (at, who, what, url, body, node, r) in said {
+        let r = if r.is_empty() { String::new() } else { format!(" · {}", reactions_text(&r)) };
+        out.push(InfoLine { url, node, ..heading(format!("@{who} · {what}{}{r}", ago(&at))) });
         out.push(markdown(body.replace("\r\n", "\n")));
     }
     out
@@ -1321,4 +1382,13 @@ fn workflow_runs_awaiting_approval() {
     assert!(info_lines(&v).iter().any(|l| l.text == "⏸ 2 workflow runs awaiting approval (Space g approves)"));
     assert_eq!(parse_info(&v).6, (2, 0));
     assert!(!info_lines(&json!({})).iter().any(|l| l.text.contains("awaiting approval")));
+}
+
+#[test]
+fn reactions_both_ways() {
+    // GraphQL's reactors, `gh pr view`'s users; none-left groups dropped.
+    let g = json!([{ "content": "THUMBS_UP", "reactors": { "totalCount": 2 } }, { "content": "EYES", "reactors": { "totalCount": 0 } }]);
+    let v = json!([{ "content": "HOORAY", "users": { "totalCount": 1 } }]);
+    assert_eq!(reactions(&g), [("THUMBS_UP".to_owned(), 2)]);
+    assert_eq!(reactions_text(&[reactions(&g), reactions(&v)].concat()), "👍 2  🎉 1");
 }

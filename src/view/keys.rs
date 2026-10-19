@@ -218,6 +218,7 @@ impl App {
                 ("g", "git: uncommitted only / commit / push / update"),
                 ("m", "messages, in full"),
                 ("r", "resolve thread"),
+                ("=", "react to the comment (👍 🎉 …)"),
                 ("e", "edit your comment"),
                 ("d", "delete / dismiss comment"),
                 ("y", "copy"),
@@ -378,6 +379,7 @@ impl App {
             (' ', 'y') => self.yank(false),
             (' ', 'c') => self.copy_ref(),
             (' ', 'r') => self.toggle_resolved(),
+            (' ', '=' | '+') => self.react_menu(),
             (' ', 'e') => self.start_edit(),
             (' ', 'd') => self.start_delete(),
             (' ', 't') => self.threads_picker(THREADS_ALL),
@@ -479,6 +481,10 @@ impl App {
                         Target::AmendMenu => self.amend_menu(),
                         Target::Amend => self.amend_now(),
                         Target::AmendAsk => self.amend_ask(),
+                        Target::React(node, what, add) => {
+                            self.msg = "reacting…".into();
+                            self.job = Some(Job::React(node, what, add));
+                        }
                         Target::GitUpdate => {
                             self.msg = "updating the checkout…".into();
                             self.job = Some(Job::Pull);

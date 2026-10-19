@@ -110,6 +110,7 @@ ON SELECTED LINES
 ON A REVIEW THREAD
   r                    reply, in your pending review (C: post it now)
   Space r              resolve / unresolve
+  Space =              react (👍 🎉 …), or take your reaction back (PR comments too)
   Space e  Space d     edit / delete your comment (delete asks first)
 
 ON CLAUDE'S COMMENT
@@ -328,6 +329,8 @@ enum Job {
     Resolve(String, bool),
     /// Mark (true) or unmark a file as viewed.
     Viewed(String, bool),
+    /// React to a comment (its node id) with this reaction, or (`false`) take yours back.
+    React(String, &'static str, bool),
     Discard(String),
     DeleteComment(String),
     /// Fetch an issue/PR link's preview into a popup.
@@ -379,6 +382,8 @@ enum Target {
     ClaudeStop,
     GitView,
     GitCommit,
+    /// React to a comment (node id, reaction), or take yours back (`false`).
+    React(String, &'static str, bool),
     /// Update the checkout: to the PR's head (fast-forward only), or `git pull --ff-only`.
     GitUpdate,
     /// The amend picker / amend what isn't committed into the PR's commits / ask Claude where

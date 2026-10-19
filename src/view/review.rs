@@ -100,6 +100,7 @@ impl App {
                 "pending review discarded"
             }),
             Job::DeleteComment(c) => gh::delete_comment(&c).map(|_| "comment deleted"),
+            Job::React(node, what, add) => gh::react(&node, what, add).map(|_| if add { "reacted" } else { "reaction taken back" }),
             Job::Preview(_) | Job::Pull | Job::Push(_) => unreachable!("handled above"),
             Job::Post(p) => self.post(p),
             Job::Viewed(path, on) => {
@@ -533,7 +534,7 @@ impl App {
     }
 
     pub(super) fn show_replacement(&mut self, r: crate::replace::Record) {
-        let line = |heading, md, text: &str| gh::InfoLine { heading, md, text: text.into(), marks: vec![], url: String::new() };
+        let line = |heading, md, text: &str| gh::InfoLine { heading, md, text: text.into(), marks: vec![], url: String::new(), node: String::new() };
         let mut replaces = line(false, false, "replaces ");
         for (i, o) in r.replaces.iter().enumerate() {
             let sep = if i == 0 { "" } else { ", " };
@@ -802,6 +803,48 @@ impl App {
             return self.msg = format!("no definition of {name} found");
         }
         self.show_locations(locs);
+    }
+
+    /// The GitHub comment (or review) under the cursor, to react to: its node id. A review
+    /// thread's comment, or one in the PR's conversation (its heading or text).
+    fn reactable_at_cursor(&self) -> Option<String> {
+        let row = &self.rows[self.head.row];
+        if let Some(t) = row.thread {
+            let c = self.comment_under_cursor(t).filter(|c| self.threads[t].claude.is_none() && !c.pending)?;
+            return Some(c.node_id.clone()).filter(|n| !n.is_empty());
+        }
+        let i = row.info.filter(|_| row.file == INFO && row.main.is_none())?;
+        let head = match self.info.get(i)? {
+            l if l.heading => l,
+            l if l.md => self.info.get(i.checked_sub(1)?).filter(|h| h.heading)?,
+            _ => return None,
+        };
+        Some(head.node.clone()).filter(|n| !n.is_empty())
+    }
+
+    /// `Space =`: react to the comment under the cursor, or take your reaction back (what's
+    /// on it now is asked of GitHub, so yours show).
+    pub(super) fn react_menu(&mut self) {
+        let Some(node) = self.reactable_at_cursor() else {
+            return self.msg = "move onto a GitHub comment to react to it".into();
+        };
+        let now = match gh::reactions_of(&node) {
+            Ok(r) => r,
+            Err(e) => return self.msg = format!("{e:#}"),
+        };
+        let items = gh::REACTIONS
+            .iter()
+            .map(|&(what, emoji)| {
+                let (n, mine) = now.iter().find(|r| r.0 == what).map_or((0, false), |r| (r.1, r.2));
+                let count = if n > 0 { format!(" {n}") } else { String::new() };
+                let label = match mine {
+                    true => format!("{emoji}{count}  ✓ yours: Enter takes it back"),
+                    false => format!("{emoji}{count}"),
+                };
+                Item::new(label, Target::React(node.clone(), what, !mine))
+            })
+            .collect();
+        self.picker = Some(Picker { title: " react ", items, query: String::new(), sel: 0 });
     }
 
     /// `Space t` (and `Space p` / `A` / `n` on their filter): the review threads, with their

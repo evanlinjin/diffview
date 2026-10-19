@@ -155,6 +155,7 @@ impl App {
                     ("Space r", "resolve"),
                     ("Space e", "edit your comment"),
                     ("Space d", "delete your comment"),
+                    ("Space =", "react"),
                     ("Space c", "copy link"),
                 ]),
             });
@@ -175,7 +176,7 @@ impl App {
             return Some(("your review", &[("S", "edit it and submit"), ("C", "new conversation comment"), ("Space c", "copy link")]));
         }
         (row.file == INFO && row.info.is_some())
-            .then_some(("PR text", &[("c", "quote in your review summary"), ("C", "quote in a new conversation comment"), ("Space c", "copy link")]))
+            .then_some(("PR text", &[("c", "quote in your review summary"), ("C", "quote in a new conversation comment"), ("Space =", "react"), ("Space c", "copy link")]))
     }
 
     pub(super) fn draw(&mut self, f: &mut Frame) {

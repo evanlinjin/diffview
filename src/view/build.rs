@@ -601,6 +601,11 @@ impl App {
             a if a.is_empty() => String::new(),
             a => format!(" · {a}"),
         };
+        // Its reactions, after who, when and where.
+        let reacts = |c: &gh::Comment| match c.reactions.is_empty() {
+            true => String::new(),
+            false => format!(" · {}", gh::reactions_text(&c.reactions)),
+        };
         let mut out = vec![];
         for (k, c) in t.comments.iter().enumerate() {
             if k == 0 {
@@ -608,7 +613,7 @@ impl App {
                 // keeps room for who, when and where.
                 let tags_below = self.margin_active && !tag_text.is_empty();
                 let lead = if tags_below { String::new() } else { tag_text.clone() };
-                let mut head = format!("{lead}{}{re}{}{range}", name(c), when(c));
+                let mut head = format!("{lead}{}{re}{}{range}{}", name(c), when(c), reacts(c));
                 if !open {
                     head += &match t.comments.len() {
                         1 => " · 1 comment".to_owned(),
@@ -634,7 +639,7 @@ impl App {
             } else {
                 let tag = if c.pending { "[pending] " } else { "" };
                 let syn = [vec![Some(self.ui.pending); tag.chars().count()], author_syn(c)].concat();
-                out.push(Row { syn, ..mk(Kind::Thread, format!("{tag}{}{}", name(c), when(c))) });
+                out.push(Row { syn, ..mk(Kind::Thread, format!("{tag}{}{}{}", name(c), when(c), reacts(c))) });
             }
             // In the margin, comments wrap to its width (less the gutter mark and box sides).
             let w = self.info_w();
