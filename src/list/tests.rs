@@ -404,6 +404,15 @@ fn defer_from_the_todo_tab() {
     l.extra.get_mut(&2).unwrap().head_oid = "g2".into();
     l.find_todo();
     assert_eq!(l.todo_now(), 2);
+    // Until @bo reviews: not by the review bo had left already, but by one since.
+    l.extra.get_mut(&2).unwrap().reviews = vec![("bo".into(), "COMMENTED".into(), 1)];
+    l.defer_until("pr-2".into(), "@bo reviews it");
+    assert!(l.msg.starts_with("deferred until @bo reviews it"), "{}", l.msg);
+    l.find_todo();
+    assert_eq!(l.todo_now(), 1);
+    l.extra.get_mut(&2).unwrap().reviews = vec![("bo".into(), "APPROVED".into(), crate::claude::now_secs() + 1)];
+    l.find_todo();
+    assert_eq!(l.todo_now(), 2);
     let _ = std::fs::remove_dir_all(&dir);
 }
 

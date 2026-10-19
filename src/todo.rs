@@ -601,12 +601,14 @@ pub fn waiting_on(said: &[(String, String)], now: i64) -> Option<(Until, String)
 }
 
 /// A deferral (`s`): till when (`i64::MAX` for one waiting on `cond`), the item's needs then (it
-/// comes back early when they change), and what it waits for, if not a time.
+/// comes back early when they change), what it waits for, if not a time, and when it was
+/// deferred (a review or approval counts from then: not one it had already; 0: any).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Deferral {
     pub until: i64,
     pub needs: String,
     pub cond: Option<Until>,
+    pub at: i64,
 }
 
 /// Items deferred (`s`), by key.
@@ -630,7 +632,7 @@ pub fn load_deferred(p: Option<&std::path::Path>) -> Deferred {
         .flatten()
         .filter_map(|(k, e)| {
             let cond = e.get("cond").and_then(Until::from_json);
-            Some((k.clone(), Deferral { until: e["until"].as_i64()?, needs: e["needs"].as_str().unwrap_or("").to_owned(), cond }))
+            Some((k.clone(), Deferral { until: e["until"].as_i64()?, needs: e["needs"].as_str().unwrap_or("").to_owned(), cond, at: e["at"].as_i64().unwrap_or(0) }))
         })
         .filter(|(_, d)| d.until > now)
         .collect()
@@ -640,7 +642,7 @@ pub fn save_deferred(p: Option<&std::path::Path>, d: &Deferred) -> Result<()> {
     let v: serde_json::Map<String, Value> = d
         .iter()
         .map(|(k, d)| {
-            let mut e = json!({ "until": d.until, "needs": d.needs });
+            let mut e = json!({ "until": d.until, "needs": d.needs, "at": d.at });
             if let Some(c) = &d.cond {
                 e["cond"] = c.to_json();
             }
@@ -665,9 +667,9 @@ pub fn defer_secs(c: char) -> (i64, &'static str) {
 
 /// `items` with what's deferred (and still needs what it did then, and isn't `met`) moved to the
 /// end, marked.
-pub fn defer(items: Vec<Item>, deferred: &Deferred, now: i64, met: impl Fn(&Item, &Until) -> bool) -> Vec<Item> {
+pub fn defer(items: Vec<Item>, deferred: &Deferred, now: i64, met: impl Fn(&Item, &Until, i64) -> bool) -> Vec<Item> {
     let waiting = |it: &Item| {
-        deferred.get(&it.key()).filter(|d| d.until > now && d.needs == it.needs_key() && !d.cond.as_ref().is_some_and(|c| met(it, c)))
+        deferred.get(&it.key()).filter(|d| d.until > now && d.needs == it.needs_key() && !d.cond.as_ref().is_some_and(|c| met(it, c, d.at)))
     };
     let (mut later, mut out): (Vec<Item>, Vec<Item>) = items.into_iter().partition(|it| waiting(it).is_some());
     later.iter_mut().for_each(|it| it.deferred = deferred.get(&it.key()).cloned());
@@ -1088,9 +1090,9 @@ mod tests {
     fn deferring() {
         let it = |n, needs: Vec<Need>| Item { kind: crate::todo::Kind::Pr, number: n, needs, claude: None, updated: String::new(), reason: None, changed: false, deferred: None, busy: None, waits: None };
         let items = vec![it(1, vec![Need::ReadyToMerge]), it(2, vec![Need::NoReview])];
-        let d: Deferred = [("pr-1".to_owned(), Deferral { until: 200, needs: items[0].needs_key(), cond: None })].into();
+        let d: Deferred = [("pr-1".to_owned(), Deferral { until: 200, needs: items[0].needs_key(), cond: None, at: 0 })].into();
         // Deferred: to the end, marked, until then.
-        let never = |_: &Item, _: &Until| false;
+        let never = |_: &Item, _: &Until, _: i64| false;
         let o = defer(items.clone(), &d, 100, never);
         assert_eq!((o[0].number, o[1].number, o[1].deferred.as_ref().map(|d| d.until)), (2, 1, Some(200)));
         // Past it: back in place.
@@ -1100,9 +1102,9 @@ mod tests {
         changed[0].needs.push(Need::NewActivity);
         assert_eq!(defer(changed, &d, 100, never)[0].deferred, None);
         // Until something happens: deferred till it has.
-        let d: Deferred = [("pr-1".to_owned(), Deferral { until: i64::MAX, needs: items_needs(), cond: Some(Until::Merged(2380)) })].into();
+        let d: Deferred = [("pr-1".to_owned(), Deferral { until: i64::MAX, needs: items_needs(), cond: Some(Until::Merged(2380)), at: 0 })].into();
         let items = vec![it(1, vec![Need::ReadyToMerge]), it(2, vec![Need::NoReview])];
         assert_eq!(defer(items.clone(), &d, 100, never)[1].number, 1);
-        assert_eq!(defer(items, &d, 100, |_, c| *c == Until::Merged(2380))[0].number, 1);
+        assert_eq!(defer(items, &d, 100, |_, c, _| *c == Until::Merged(2380))[0].number, 1);
     }
 }

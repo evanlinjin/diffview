@@ -370,7 +370,7 @@ impl Issues {
             .collect();
         let (items, _) = crate::todo::order(items, self.ranked.as_ref());
         // Deferred: at the bottom till then, or till what it needs changes (as dv list's).
-        self.todo = crate::todo::defer(items, &self.deferred, crate::claude::now_secs(), |_, _| false);
+        self.todo = crate::todo::defer(items, &self.deferred, crate::claude::now_secs(), |_, _, _| false);
         if let Some(i) = keep.and_then(|n| self.shown().iter().position(|i| i.number == n)) {
             self.sel = i;
         }
@@ -947,7 +947,7 @@ impl Issues {
         let Some(key) = self.deferring.take() else { return };
         let Some(it) = self.todo.iter().find(|it| it.key() == key) else { return };
         let (secs, how) = crate::todo::defer_secs(c);
-        self.deferred.insert(key, crate::todo::Deferral { until: crate::claude::now_secs() + secs, needs: it.needs_key(), cond: None });
+        self.deferred.insert(key, crate::todo::Deferral { until: crate::claude::now_secs() + secs, needs: it.needs_key(), cond: None, at: crate::claude::now_secs() });
         self.msg = format!("deferred for {how} (s on it brings it back)");
         self.save_defer();
     }

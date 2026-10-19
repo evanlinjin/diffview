@@ -55,8 +55,10 @@ impl List {
         // What deferrals waited for that has happened: they're over (said so, once).
         let met: Vec<(String, String)> = items
             .iter()
-            .filter_map(|it| Some((it, self.deferred.get(&it.key())?.cond.as_ref()?)))
-            .filter(|(it, c)| self.happened(it, c))
+            .filter_map(|it| Some((it, self.deferred.get(&it.key())?)))
+            .filter_map(|(it, d)| Some((it, d.cond.as_ref()?, d.at)))
+            .filter(|(it, c, at)| self.happened(it, c, *at))
+            .map(|(it, c, _)| (it, c))
             .map(|(it, c)| (it.key(), format!("#{} is back: {}", it.number, c.says())))
             .collect();
         for (key, said) in &met {
@@ -66,7 +68,7 @@ impl List {
         if !met.is_empty() {
             _ = todo::save_deferred(self.deferred_file.as_deref(), &self.deferred);
         }
-        let mut items = todo::defer(items, &self.deferred, now, |it, c| self.happened(it, c));
+        let mut items = todo::defer(items, &self.deferred, now, |it, c, at| self.happened(it, c, at));
         // What a PR's conversation says it waits on (a trusted comment), not happened yet: to
         // the bottom too, for everyone.
         for it in items.iter_mut().filter(|it| !it.is_rep() && it.deferred.is_none()) {
@@ -75,7 +77,7 @@ impl List {
             let claude = self.ranked.as_ref().and_then(|r| r.waits.get(&it.key())).map(|c| (c.clone(), String::new()));
             // (A push from no known head: nothing to tell it by.)
             let claude = claude.filter(|(c, _)| *c != todo::Until::Pushed(String::new()));
-            it.waits = todo::waiting_on(said, now).or(claude).filter(|(c, _)| !self.happened(it, c));
+            it.waits = todo::waiting_on(said, now).or(claude).filter(|(c, _)| !self.happened(it, c, 0));
         }
         let (mut waiting, mut rest): (Vec<Item>, Vec<Item>) = items.into_iter().partition(|it| it.waits.is_some());
         rest.append(&mut waiting);
@@ -428,17 +430,19 @@ impl List {
         }
     }
 
-    /// Whether what deferral condition `c` waits for has happened, for item `it`.
-    pub(super) fn happened(&self, it: &Item, c: &todo::Until) -> bool {
+    /// Whether what deferral condition `c` waits for has happened, for item `it`: a review or an
+    /// approval, one since `since` (when it was deferred: not one it had then; 0, any).
+    pub(super) fn happened(&self, it: &Item, c: &todo::Until, since: i64) -> bool {
         let pr = self.prs.iter().find(|p| p.number == it.number);
         let state = |n: u64| self.prs.iter().find(|p| p.number == n).map(|p| p.state.clone()).or_else(|| self.others.get(&n).cloned());
-        let reviews = self.extra.get(&it.number).map(|e| e.reviews.as_slice()).unwrap_or(&[]);
+        let reviews: Vec<&(String, String, i64)> = self.extra.get(&it.number).into_iter().flat_map(|e| &e.reviews).filter(|r| r.2 > since).collect();
         match c {
             todo::Until::Time(t) => crate::claude::now_secs() >= *t,
             todo::Until::Merged(n) => state(*n).is_some_and(|s| s == "MERGED"),
             todo::Until::Closed(n) => state(*n).is_some_and(|s| s == "MERGED" || s == "CLOSED"),
             todo::Until::Green => todo::green(pr.and_then(|p| p.checks)),
-            todo::Until::Approved(None) => pr.is_some_and(|p| p.decision == "APPROVED") || reviews.iter().any(|r| r.1 == "APPROVED"),
+            // (Approved already when deferred: an approval since, not its standing decision.)
+            todo::Until::Approved(None) => since == 0 && pr.is_some_and(|p| p.decision == "APPROVED") || reviews.iter().any(|r| r.1 == "APPROVED"),
             todo::Until::Approved(Some(who)) => reviews.iter().any(|r| &r.0 == who && r.1 == "APPROVED"),
             todo::Until::Reviewed(who) => reviews.iter().any(|r| &r.0 == who),
             todo::Until::Pushed(head) => self.extra.get(&it.number).is_some_and(|e| !head.is_empty() && !e.head_oid.is_empty() && !e.head_oid.starts_with(head.as_str())),
@@ -473,7 +477,7 @@ impl List {
             c => (i64::MAX, Some(c)),
         };
         let says = cond.as_ref().map_or_else(|| todo::in_secs(until - crate::claude::now_secs()), todo::Until::says);
-        self.deferred.insert(key.to_owned(), todo::Deferral { until, needs: it.needs_key(), cond });
+        self.deferred.insert(key.to_owned(), todo::Deferral { until, needs: it.needs_key(), cond, at: crate::claude::now_secs() });
         self.msg = format!("deferred until {says} (s on it brings it back)");
         // A PR it waits on that isn't listed: its state, now (and on refresh).
         self.find_others();
@@ -646,7 +650,7 @@ impl List {
     pub(super) fn defer_for(&mut self, key: &str, c: char) {
         let Some(it) = self.todo.iter().find(|it| it.key() == key).cloned() else { return };
         let (secs, how) = todo::defer_secs(c);
-        self.deferred.insert(it.key(), todo::Deferral { until: crate::claude::now_secs() + secs, needs: it.needs_key(), cond: None });
+        self.deferred.insert(it.key(), todo::Deferral { until: crate::claude::now_secs() + secs, needs: it.needs_key(), cond: None, at: crate::claude::now_secs() });
         self.msg = format!("deferred for {how} (s on it brings it back)");
         self.save_defer();
     }
