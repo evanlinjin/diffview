@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Changed
+- What you ask of a replacement's drafts is in the pane, beside the draft it's about (as a PR's
+  comments are), not a section in the code's column.
+
+### Fixed
+- A question asked of a replacement's drafts gets an answer: the redraft writes what it did,
+  or its answer, on each request, shown under it (it went only to Claude's log).
+
 ## [0.34.43] - 2026-10-19
 
 ### Changed

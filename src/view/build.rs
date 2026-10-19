@@ -192,7 +192,8 @@ impl App {
         let commits = self.commit_shown.is_some();
         let mut attached: Vec<Row> = match self.view {
             _ if commits || self.sections_folded.contains(&DESCRIPTION) => vec![],
-            _ if self.claude_side() => self.claude_attached(),
+            // (A draft's: what you asked of it, beside it too.)
+            _ if self.claude_side() => [self.claude_attached(), self.request_rows(&["description", ""])].into_iter().flatten().collect(),
             View::All if self.info_collapsed => vec![],
             View::All => {
                 let latest = (!self.conversation_all).then_some(LATEST);
@@ -256,16 +257,9 @@ impl App {
             if let Some(h) = (0..self.info.len()).find(|&i| self.is_closing_note(i)).filter(|_| !commits) {
                 let text = self.info.get(h + 1).filter(|l| l.md).map_or("", |l| l.text.as_str());
                 let text = if text.trim().is_empty() { "_(not drafted yet)_" } else { text };
-                rows.extend(self.section(CLOSING_NOTE, self.info[h].text.clone(), text, Some(h + 1)));
-            }
-            if let Some(r) = self.replacement.as_ref().filter(|r| !commits && self.pr.is_none() && !r.asks.is_empty()) {
-                let drafting = r.drafting_now();
-                let asks: Vec<String> = r.asks.iter().enumerate().map(|(i, (text, done))| match (done, drafting && i < r.taking) {
-                    (true, _) => text.clone(),
-                    (false, true) => format!("{text}\n\n_(Claude is redrafting with it)_"),
-                    (false, false) => format!("{text}\n\n_(not redrafted with it yet)_"),
-                }).collect();
-                rows.extend(self.section(ASKED, "what you asked of the drafts".into(), &asks.join("\n\n---\n\n"), None));
+                let s = self.section(CLOSING_NOTE, self.info[h].text.clone(), text, Some(h + 1));
+                let mut asked: Vec<Row> = self.request_rows(&["closing note"]).into_iter().map(|r| Row { attached: true, ..r }).collect();
+                rows.extend(self.attach(s, &mut asked));
             }
             if let Some((a, _)) = self.commit_shown {
                 for (k, msg) in self.commit_msgs.iter().enumerate() {
@@ -738,6 +732,30 @@ impl App {
         let at = if self.margin_active { 1 } else { s.len() };
         s.splice(at..at, std::mem::take(attached));
         s
+    }
+
+    /// What you asked of an unpublished draft's drafts `on` (`replace::Request::on`), a box
+    /// each, oldest first, saying whether a redraft has taken it in: beside the draft it's about.
+    fn request_rows(&self, on: &[&str]) -> Vec<Row> {
+        let Some(r) = self.replacement.as_ref().filter(|_| self.unpublished()) else { return vec![] };
+        let mk = |kind, text| Row::text(INFO, kind, text);
+        let drafting = r.drafting_now();
+        let mut rows = vec![];
+        for (i, a) in r.asks.iter().enumerate().filter(|(_, a)| on.contains(&a.on.as_str())) {
+            let state = match (a.done, drafting && i < r.taking) {
+                (true, _) => "redrafted with it",
+                (false, true) => "Claude is redrafting with it",
+                (false, false) => "not redrafted with it yet",
+            };
+            rows.push(mk(Kind::Thread, format!("you · asked of the drafts · {state}")));
+            rows.extend(self.md_rows_at(&a.text, self.info_w(), mk));
+            if !a.answer.trim().is_empty() {
+                rows.push(mk(Kind::Thread, "◆ claude".into()));
+                rows.extend(self.md_rows_at(&a.answer, self.info_w(), mk));
+            }
+            rows.push(Row { edge: true, ..mk(Kind::Comment, String::new()) });
+        }
+        rows
     }
 
     /// Your pending review's text, in full, as it goes to GitHub with the review (`S`).

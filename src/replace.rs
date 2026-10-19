@@ -8,6 +8,18 @@ use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
+/// Something you asked of a replacement's drafts (`a` on one, or for a redraft).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Request {
+    pub text: String,
+    /// A redraft has taken it in since.
+    pub done: bool,
+    /// The draft it's about: `"description"`, `"closing note"`; empty: the whole.
+    pub on: String,
+    /// Claude's answer: what it did about it, or (a question) its answer. Claude writes it.
+    pub answer: String,
+}
+
 /// A PR a replacement replaces, as it was when the replacement was drafted.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Original {
@@ -38,9 +50,8 @@ pub struct Record {
     pub drafting: Option<u32>,
     /// A new PR's: what you asked it to do (a replacement's is what it replaces).
     pub task: String,
-    /// What you've asked of its drafts (`a` on them), oldest first, and whether a redraft has
-    /// taken each in since.
-    pub asks: Vec<(String, bool)>,
+    /// What you've asked of its drafts, oldest first.
+    pub asks: Vec<Request>,
     /// How many of `asks` the draft under way was given (the rest wait for the next).
     pub taking: usize,
 }
@@ -151,7 +162,7 @@ fn parse(id: u64, text: &str) -> Result<Record> {
         closed: v["closed"].as_array().into_iter().flatten().filter_map(Value::as_u64).collect(),
         drafting: v["drafting"].as_u64().map(|p| p as u32),
         task: s(&v["task"]),
-        asks: v["asks"].as_array().into_iter().flatten().map(|a| (s(&a["text"]), a["done"] == true)).collect(),
+        asks: v["asks"].as_array().into_iter().flatten().map(|a| Request { text: s(&a["text"]), done: a["done"] == true, on: s(&a["on"]), answer: s(&a["answer"]) }).collect(),
         taking: v["taking"].as_u64().unwrap_or(0) as usize,
     })
 }
@@ -163,7 +174,7 @@ fn to_json(r: &Record) -> String {
         "replaces": replaces, "base": r.base, "title": r.title, "body": r.body,
         "closing_note": r.closing_note, "session": r.session, "published": r.published, "closed": r.closed,
         "drafting": r.drafting, "task": r.task,
-        "asks": r.asks.iter().map(|(text, done)| json!({ "text": text, "done": done })).collect::<Vec<_>>(), "taking": r.taking,
+        "asks": r.asks.iter().map(|a| json!({ "text": a.text, "done": a.done, "on": a.on, "answer": a.answer })).collect::<Vec<_>>(), "taking": r.taking,
     });
     serde_json::to_string_pretty(&v).unwrap_or_default() + "\n"
 }
@@ -305,10 +316,18 @@ pub fn prompt(r: &Record, extra: &str) -> String {
             prs.join(", ")
         ),
     };
-    // What you asked of its drafts that no redraft has taken in yet.
-    let asks: Vec<&str> = r.asks.iter().filter(|a| !a.1).map(|a| a.0.trim()).collect();
-    let extra = [extra.trim()].into_iter().chain(asks).filter(|e| !e.is_empty()).collect::<Vec<_>>().join("\n\n");
-    crate::claude::with_instructions(&p, &extra)
+    // What you asked of its drafts that no redraft has taken in yet: in the record, to answer.
+    let asks: Vec<String> = r.asks.iter().enumerate().filter(|(_, a)| !a.done).map(|(i, a)| format!("`asks[{i}]`: {}", a.text.trim())).collect();
+    let p = match asks.is_empty() {
+        true => p,
+        false => format!(
+            "{p}\n\nThe user asks of your drafts (the record's `asks`): do what each asks, or answer it if it's a question, \
+             and write what you did, or your answer, in a sentence or few, in its `\"answer\"` (in the record; the user reads it \
+             beside your drafts).\n\n{}",
+            asks.join("\n\n")
+        ),
+    };
+    crate::claude::with_instructions(&p, extra)
 }
 
 /// Whether replacement `id` has drafts (`Record::drafted`).
@@ -316,11 +335,11 @@ pub fn drafted(id: u64) -> bool {
     load(id).is_ok_and(|r| r.drafted())
 }
 
-/// Ask Claude for a change to replacement `id`'s drafts: kept in its record (shown with them),
-/// for its next redraft to take in.
-pub fn ask(id: u64, text: &str) -> Result<()> {
+/// Ask Claude for a change to replacement `id`'s drafts (`on`: the one it's about, or ""):
+/// kept in its record (shown beside it), for its next redraft to take in.
+pub fn ask(id: u64, text: &str, on: &str) -> Result<()> {
     update(id, |r| {
-        r.asks.push((text.trim().to_owned(), false));
+        r.asks.push(Request { text: text.trim().to_owned(), on: on.to_owned(), ..Request::default() });
         Ok(())
     })
     .map(drop)
@@ -361,7 +380,7 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
         anyhow::ensure!(!r.drafting_now(), "Claude is already drafting {}", label(id));
         r.drafting = Some(std::process::id());
         if r.drafted() && !extra.trim().is_empty() {
-            r.asks.push((extra.trim().to_owned(), false));
+            r.asks.push(Request { text: extra.trim().to_owned(), ..Request::default() });
         }
         // A first draft: a session of its own (one that failed before may have made the last
         // one, which Claude Code won't start again).
@@ -399,7 +418,7 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
         now.drafting = None;
         let taken = std::mem::take(&mut now.taking);
         for a in now.asks.iter_mut().take(taken).filter(|_| res.is_ok()) {
-            a.1 = true;
+            a.done = true;
         }
         Ok(())
     });
@@ -555,16 +574,19 @@ fn records_round_trip() {
         closed: vec![12],
         drafting: Some(7),
         task: String::new(),
-        asks: vec![("shorter title".into(), true), ("mention #9".into(), false)],
+        asks: vec![
+            Request { text: "shorter title".into(), done: true, on: "description".into(), answer: "Done.".into() },
+            Request { text: "mention #9".into(), ..Request::default() },
+        ],
         taking: 1,
     };
     assert_eq!(parse(12, &to_json(&r)).unwrap(), r);
     // Only what no redraft has taken in yet is asked again.
-    assert!(prompt(&r, "").ends_with("The user adds:\nmention #9"));
+    assert!(prompt(&r, "").ends_with("`asks[1]`: mention #9") && !prompt(&r, "").contains("asks[0]"));
     // As Claude may leave it: fields missing are empty.
     let bare = parse(3, r#"{ "replaces": [{ "number": 3 }], "base": "main" }"#).unwrap();
     assert_eq!((bare.replaces[0].number, bare.title.as_str(), bare.base.as_str()), (3, "", "main"));
-    assert!(prompt(&r, "keep the old API").contains("PR #12, #15") && prompt(&r, "keep the old API").ends_with("keep the old API\n\nmention #9"));
+    assert!(prompt(&r, "keep the old API").contains("PR #12, #15") && prompt(&r, "keep the old API").ends_with("The user adds:\nkeep the old API"));
     let r = Record { closing_note: "Thanks! See {replacement}.".into(), ..r };
     assert_eq!(note(&r), "Thanks! See #20.");
     assert_eq!(note(&Record { published: None, ..r.clone() }), "Thanks! See the replacement.");

@@ -35,7 +35,7 @@ impl App {
                 .collect();
             let prs = self.replacement.as_ref().map(crate::replace::Record::ids).unwrap_or_default();
             self.select = false;
-            return self.action = Some(Action::Replace(prs, Some(format!("About the {which}:\n{}\n\n", lines.join("\n")))));
+            return self.action = Some(Action::Replace(prs, Some((which, format!("About the {which}:\n{}\n\n", lines.join("\n"))))));
         }
         if self.claude.path.is_none() {
             return self.msg = "no review file here (not in a git repo?)".into();

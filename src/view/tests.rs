@@ -1354,31 +1354,33 @@ fn replacement_in_the_pr_section() {
     assert_eq!(app.context_keys().unwrap().0, "Claude's draft");
     app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
     match app.action.take() {
-        Some(Action::Replace(prs, Some(q))) => assert!(prs == [12, 15] && q == "About the closing note:\n> Thanks! Handled in {replacement}.\n\n", "{q:?}"),
+        Some(Action::Replace(prs, Some(("closing note", q)))) => assert!(prs == [12, 15] && q == "About the closing note:\n> Thanks! Handled in {replacement}.\n\n", "{q:?}"),
         _ => panic!("a on the closing note asks for a redraft"),
     }
     let body = app.rows.iter().position(|r| r.line.text == "Replaces #12 and #15.").unwrap();
     app.goto(body, 0);
     app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
-    assert!(matches!(app.action.take(), Some(Action::Replace(_, Some(q))) if q.starts_with("About the description:")));
+    assert!(matches!(app.action.take(), Some(Action::Replace(_, Some(("description", q)))) if q.starts_with("About the description:")));
     // What you asked of the drafts shows with them, until a redraft takes it in and after.
     let mut r = app.replacement.clone().unwrap();
-    r.asks = vec![("About the description:\n> Replaces #12 and #15.\n\nSay why.".into(), false)];
+    r.asks = vec![crate::replace::Request { text: "About the description:\n> Replaces #12 and #15.\n\nSay why.".into(), on: "description".into(), ..Default::default() }];
     app.show_replacement(r);
     let keep = app.cursor_key();
     app.rebuild(keep);
     let text: Vec<&str> = app.rows.iter().map(|r| r.line.text.as_str()).collect();
-    assert!(text.contains(&"what you asked of the drafts") && text.contains(&"Say why.") && text.iter().any(|t| t.contains("not redrafted with it yet")), "{text:#?}");
+    let said = app.rows.iter().position(|r| r.line.text == "Say why.").expect("what you asked");
+    assert!(app.rows[said].attached && text.iter().any(|t| t.ends_with("not redrafted with it yet")), "{text:#?}");
     // Under way: only what the draft was given is being redrafted with; what came after waits.
     let mut r = app.replacement.clone().unwrap();
-    r.asks.push(("Shorter.".into(), false));
+    r.asks.push(crate::replace::Request { text: "Shorter.".into(), answer: "Shortened it to one line.".into(), ..Default::default() });
     (r.drafting, r.taking) = (Some(std::process::id()), 1);
     app.show_replacement(r);
     let keep = app.cursor_key();
     app.rebuild(keep);
     let text: Vec<&str> = app.rows.iter().map(|r| r.line.text.as_str()).collect();
     let at = |s: &str| text.iter().position(|t| t.contains(s)).unwrap();
-    assert!(at("Say why.") < at("Claude is redrafting with it") && at("Shorter.") < at("not redrafted with it yet") && at("Claude is redrafting with it") < at("Shorter."), "{text:#?}");
+    // (Claude's answer under what you asked, in its box.)
+    assert!(at("Claude is redrafting with it") < at("Say why.") && at("Say why.") < at("not redrafted with it yet") && at("not redrafted with it yet") < at("Shorter.") && at("Shorter.") < at("◆ claude") && at("◆ claude") < at("Shortened it"), "{text:#?}");
     let mut r = app.replacement.clone().unwrap();
     r.drafting = None;
     app.show_replacement(r);

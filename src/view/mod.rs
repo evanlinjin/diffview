@@ -87,8 +87,6 @@ const ON_SUMMARY: &str = "summary";
 const CLOSING_NOTE: usize = usize::MAX - 1;
 /// `Row::main` for the comment Claude drafted for closing the PR, a section before the rest.
 const CLOSING_PR: usize = usize::MAX - 2;
-/// `Row::main` for what you've asked of a replacement's drafts, after them.
-const ASKED: usize = usize::MAX - 3;
 
 /// Position in the view: row index into `rows`, char index into the row's text.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
