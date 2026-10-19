@@ -302,10 +302,7 @@ impl App {
             'C' => self.comment_or_reply(false),
             'r' => self.start_reply(true),
             'S' => self.review_menu(),
-            'R' => {
-                self.job = Some(Job::Refresh);
-                self.msg = "refreshing…".into();
-            }
+            'R' => self.start(Job::Refresh),
             'q' => self.quit = true,
             'g' | ']' | '[' | ' ' | 'f' | 't' | 'F' | 'T' | 'z' | 'm' => self.pending = Some(c),
             _ => {}
@@ -397,8 +394,7 @@ impl App {
             ('g', 'w') => self.show_labels(),
             (' ', 'k') => match self.link_at_cursor().filter(|u| gh::issue_ref(u).is_some()).map(str::to_owned) {
                 Some(url) => {
-                    self.msg = format!("loading {url}…");
-                    self.job = Some(Job::Preview(url));
+                    self.start(Job::Preview(url));
                 }
                 None => self.lsp_request("textDocument/hover", Req::Hover),
             },
@@ -493,7 +489,7 @@ impl App {
             (' ', 'r') => self.toggle_resolved(),
             (' ', '=' | '+') => self.start_react(),
             (' ', 'l') => match self.pr {
-                Some(_) => (self.msg, self.job) = ("asking GitHub for labels, assignees, reviewers…".into(), Some(Job::Labels)),
+                Some(_) => self.start(Job::Labels),
                 None => self.msg = "no PR here".into(),
             },
             (' ', 'e') => self.start_edit(),
@@ -556,28 +552,19 @@ impl App {
                 let mut p = self.picker.take().unwrap();
                 if let Some(&i) = m.get(p.sel) {
                     match p.items.swap_remove(i).target {
+                        Target::Do(a) => self.action = Some(a),
+                        Target::Run(job) => self.start(job),
                         Target::Row(r) => self.jump(r, 0),
                         Target::Loc(l) => self.jump_loc(&l),
-                        Target::Submit(ev) => self.action = Some(Action::Submit(ev)),
                         Target::Discard => {
                             let n = self.pending_count();
                             let items = vec![
                                 Item::new("No, keep it", Target::Nothing),
-                                Item::new(format!("Yes, discard {n} pending comment(s)"), Target::DiscardYes),
+                                Item::new(format!("Yes, discard {n} pending comment(s)"), self.review.clone().map_or(Target::Nothing, |r| Target::Run(Job::Discard(r)))),
                             ];
                             self.picker = Some(Picker::new(" discard pending review? ", items));
                         }
-                        Target::DiscardYes => {
-                            if let Some(r) = self.review.clone() {
-                                self.msg = "discarding…".into();
-                                self.job = Some(Job::Discard(r));
-                            }
-                        }
                         Target::Comment(ti, ci) => self.goto_comment(ti, ci),
-                        Target::DeleteComment(id) => {
-                            self.msg = "deleting…".into();
-                            self.job = Some(Job::DeleteComment(id));
-                        }
                         Target::Claude(ask) => self.pick_claude(ask),
                         Target::Want(w) => self.want(w),
                         Target::ClaudeNotes => self.edit_claude_notes(),
@@ -585,26 +572,15 @@ impl App {
                             self.bar_to(Bar::Claude); // where it's answered
                             self.action = Some(Action::AskConversation { url: ON_SUMMARY.into(), prefill: String::new(), want: "" });
                         }
-                        Target::ClaudeReplace(prs) => self.action = Some(Action::Replace(prs, None)),
-                        Target::Publish(close) => self.action = Some(Action::Publish(close)),
                         Target::ReplaceRemote(name, close) => match crate::replace::set_remote(&name) {
                             Ok(()) => self.action = Some(Action::Publish(close)),
                             Err(e) => self.msg = format!("{e:#}"),
                         },
-                        Target::CloseOriginals => self.action = Some(Action::CloseOriginals),
                         Target::ClaudeFresh => self.fresh_claude_session(),
                         Target::ClaudePane => self.show_claude_pane(),
                         Target::ClaudeCheck => self.check_claude(),
                         Target::ClaudeStop => self.stop_claude(),
                         Target::AmendMenu => self.amend_menu(),
-                        Target::GitRerun => {
-                            self.msg = "rerunning the failed checks…".into();
-                            self.job = Some(Job::Rerun);
-                        }
-                        Target::Rebase => {
-                            self.msg = "rebasing…".into();
-                            self.job = Some(Job::Rebase);
-                        }
                         Target::RebaseClaude => {
                             if let Err(e) = self.rebase_claude() {
                                 self.msg = format!("{e:#}");
@@ -616,31 +592,14 @@ impl App {
                         Target::Amend => self.amend_now(),
                         Target::AmendAsk => self.amend_ask(false),
                         Target::AmendAll => self.amend_ask(true),
-                        Target::SetField(field, name, on) => {
-                            self.msg = "editing the PR…".into();
-                            self.job = Some(Job::SetField(field, name, on));
-                        }
-                        Target::React(node, what, add) => {
-                            self.msg = "reacting…".into();
-                            self.job = Some(Job::React(node, what, add));
-                        }
-                        Target::GitUpdate => {
-                            self.msg = "updating the checkout…".into();
-                            self.job = Some(Job::Pull);
-                        }
                         Target::GitView => self.toggle_uncommitted(),
-                        Target::GitCommit => self.action = Some(Action::Commit(self.commit_draft())),
-                        Target::GitPush => (self.msg, self.job) = ("pushing…".into(), Some(Job::Push(false))),
-                        Target::GitForcePush => (self.msg, self.job) = ("force-pushing…".into(), Some(Job::Push(true))),
                         Target::GitMerge => (self.merge, self.quit) = (true, true),
                         Target::GitTakeTheirs(sure) => self.take_theirs(sure),
                         Target::GitReady => self.mark_ready(),
-                        Target::CiFixPr => self.action = Some(Action::CiFixPr),
                         Target::GitApproveRuns => self.approve_runs(),
                         Target::ClaudeDismissOutdated(sure) => self.dismiss_outdated(sure),
                         Target::DescApprove(sure) => self.approve_description(sure),
                         Target::DescDiscard => self.discard_description(),
-                        Target::ClosePr => self.action = Some(Action::ClosePr),
                         Target::CloseDiscard => self.discard_closing(),
                         Target::Nothing => {}
                     }

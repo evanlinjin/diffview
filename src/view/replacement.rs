@@ -14,11 +14,11 @@ impl App {
             _ if r.drafting_now() => vec![item("Claude is drafting it: wait for it to finish".into(), Target::Nothing)],
             None if r.title.is_empty() => vec![item("Claude hasn't drafted it yet (Space a → Redraft)".into(), Target::Nothing)],
             // Only commits are published: what isn't committed would be left out.
-            None if dirty => vec![item("Commit the uncommitted changes first (they'd be left out)…".into(), Target::GitCommit)],
+            None if dirty => vec![item("Commit the uncommitted changes first (they'd be left out)…".into(), Target::Do(Action::Commit(self.commit_draft())))],
             None => {
-                let mut v = vec![item(format!("Publish as a draft PR (rebased on {}, pushed {to})…", diff::remote_branch(&r.base)), Target::Publish(false))];
+                let mut v = vec![item(format!("Publish as a draft PR (rebased on {}, pushed {to})…", diff::remote_branch(&r.base)), Target::Do(Action::Publish(false)))];
                 if !open.is_empty() {
-                    v.push(item(format!("Publish, then close {} with the closing note…", open.join(", ")), Target::Publish(true)));
+                    v.push(item(format!("Publish, then close {} with the closing note…", open.join(", ")), Target::Do(Action::Publish(true))));
                 }
                 v
             }
@@ -26,7 +26,7 @@ impl App {
         };
         match (r.published, open.is_empty()) {
             (_, true) => items.push(item("  the PRs it replaces are closed".into(), Target::Nothing)),
-            (Some(_), false) => items.push(item(format!("Close {} with the closing note (now)…", open.join(", ")), Target::CloseOriginals)),
+            (Some(_), false) => items.push(item(format!("Close {} with the closing note (now)…", open.join(", ")), Target::Do(Action::CloseOriginals))),
             (None, false) => {}
         }
         self.picker = Some(Picker::new(" replacement ", items));

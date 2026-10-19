@@ -120,15 +120,14 @@ impl App {
 
     /// Queue `p` to send after the next frame, which shows what's being sent.
     pub(super) fn post_later(&mut self, p: Post) -> Result<String> {
-        let msg = match &p {
-            Post::Thread { review: true, .. } | Post::Reply { review: true, .. } => "adding to your pending review…",
-            Post::Thread { .. } | Post::Reply { .. } | Post::Converse(_) => "posting…",
-            Post::Summary(_) => "adding to your review summary…",
-            Post::Edit { .. } => "updating the comment…",
-            Post::Submit(..) => "submitting the review…",
-        };
-        self.job = Some(Job::Post(p));
-        Ok(msg.into())
+        self.start(Job::Post(p));
+        Ok(std::mem::take(&mut self.msg))
+    }
+
+    /// `job`, after the next frame, which says what it's doing.
+    pub(super) fn start(&mut self, job: Job) {
+        self.msg = job.doing();
+        self.job = Some(job);
     }
 
     /// Send `p`; if that fails, its text is saved to a file so it isn't lost.
@@ -215,8 +214,7 @@ impl App {
             return self.msg = format!("{path} is untracked: not on GitHub, so it can't be marked viewed there");
         }
         let on = self.viewed.get(&path).is_none_or(|s| s != "VIEWED");
-        self.msg = if on { "marking as viewed…" } else { "unmarking…" }.into();
-        self.job = Some(Job::Viewed(path, on));
+        self.start(Job::Viewed(path, on));
     }
 
     pub(super) fn pending_count(&self) -> usize {
@@ -233,10 +231,10 @@ impl App {
         }
         let item = |label: &str, target| Item::new(label, target);
         let mut items = vec![
-            item("Comment", Target::Submit("COMMENT")),
-            item("Approve", Target::Submit("APPROVE")),
-            item("Request changes", Target::Submit("REQUEST_CHANGES")),
-            item("Comment and close the PR", Target::Submit(CLOSE)),
+            item("Comment", Target::Do(Action::Submit("COMMENT"))),
+            item("Approve", Target::Do(Action::Submit("APPROVE"))),
+            item("Request changes", Target::Do(Action::Submit("REQUEST_CHANGES"))),
+            item("Comment and close the PR", Target::Do(Action::Submit(CLOSE))),
         ];
         if self.review.is_some() {
             let n = self.pending_count();
@@ -292,7 +290,7 @@ impl App {
         };
         let items = vec![
             Item::new("No, keep it", Target::Nothing),
-            Item::new(format!("Yes, delete @{}'s comment: {preview}", c.author), Target::DeleteComment(c.node_id.clone())),
+            Item::new(format!("Yes, delete @{}'s comment: {preview}", c.author), Target::Run(Job::DeleteComment(c.node_id.clone()))),
         ];
         self.picker = Some(Picker::new(" delete comment? ", items));
     }
@@ -324,8 +322,8 @@ impl App {
         }
         match self.rows[self.head.row].thread.map(|t| &self.threads[t]) {
             Some(t) => {
-                self.msg = if t.resolved { "unresolving…" } else { "resolving…" }.into();
-                self.job = Some(Job::Resolve(t.id.clone(), !t.resolved));
+                let job = Job::Resolve(t.id.clone(), !t.resolved);
+                self.start(job);
             }
             None => self.msg = "move onto a comment thread".into(),
         }
@@ -454,7 +452,7 @@ impl App {
     /// on it now is asked of GitHub first (a job, so a frame says so), so yours show.
     pub(super) fn start_react(&mut self) {
         match self.reactable_at_cursor() {
-            Some(node) => (self.msg, self.job) = ("asking GitHub for its reactions…".into(), Some(Job::Reactions(node))),
+            Some(node) => self.start(Job::Reactions(node)),
             None => self.msg = "move onto a GitHub comment (or the description) to react to it".into(),
         }
     }
@@ -475,7 +473,7 @@ impl App {
                 gh::Field::Reviewer => format!("review from @{name}"),
             };
             let tick = if on { "✓ " } else { "  " };
-            Item::new(format!("{tick}{shown}"), Target::SetField(field, name.to_owned(), !on))
+            Item::new(format!("{tick}{shown}"), Target::Run(Job::SetField(field, name.to_owned(), !on)))
         };
         let items: Vec<Item> = [(gh::Field::Reviewer, &reviewers), (gh::Field::Label, &labels), (gh::Field::Assignee, &people)]
             .into_iter()
@@ -502,7 +500,7 @@ impl App {
                     true => format!("{emoji}{count}  ✓ yours: Enter takes it back"),
                     false => format!("{emoji}{count}"),
                 };
-                Item::new(label, Target::React(node.to_owned(), what, !mine))
+                Item::new(label, Target::Run(Job::React(node.to_owned(), what, !mine)))
             })
             .collect();
         self.picker = Some(Picker::new(" react ", items));

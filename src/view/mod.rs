@@ -178,14 +178,45 @@ enum Job {
     Post(Post),
 }
 
+impl Job {
+    /// What it's doing, said on the frame before it's run.
+    fn doing(&self) -> String {
+        match self {
+            Job::Refresh => "refreshing…".into(),
+            Job::Pull => "updating the checkout…".into(),
+            Job::Resolve(_, on) => if *on { "resolving…" } else { "unresolving…" }.into(),
+            Job::Viewed(_, on) => if *on { "marking as viewed…" } else { "unmarking…" }.into(),
+            Job::React(..) => "reacting…".into(),
+            Job::Discard(_) => "discarding…".into(),
+            Job::DeleteComment(_) => "deleting…".into(),
+            Job::Preview(url) => format!("loading {url}…"),
+            Job::Reactions(_) => "asking GitHub for its reactions…".into(),
+            Job::Rebase => "rebasing…".into(),
+            Job::Retarget(base) => format!("the PR's base is {base} now: fetching it…"),
+            Job::Rerun => "rerunning the failed checks…".into(),
+            Job::Labels => "asking GitHub for labels, assignees, reviewers…".into(),
+            Job::SetField(..) => "editing the PR…".into(),
+            Job::Push(force) => if *force { "force-pushing…" } else { "pushing…" }.into(),
+            Job::Post(p) => match p {
+                Post::Thread { review: true, .. } | Post::Reply { review: true, .. } => "adding to your pending review…",
+                Post::Thread { .. } | Post::Reply { .. } | Post::Converse(_) => "posting…",
+                Post::Summary(_) => "adding to your review summary…",
+                Post::Edit { .. } => "updating the comment…",
+                Post::Submit(..) => "submitting the review…",
+            }
+            .into(),
+        }
+    }
+}
+
 enum Target {
+    /// Something done with the editor (`Action`), or after a frame saying so (`Job`).
+    Do(Action),
+    Run(Job),
     Row(usize),
     Loc(Loc),
-    Submit(&'static str),
-    /// Asks for confirmation first; `DiscardYes` does it.
+    /// Asks for confirmation first.
     Discard,
-    DiscardYes,
-    DeleteComment(String),
     /// A comment: (thread index, comment index within it).
     Comment(usize, usize),
     Claude(agent::Ask),
@@ -194,11 +225,6 @@ enum Target {
     ClaudeNotes,
     /// Ask Claude a question about the PR (a thread under its summary, in the Claude tab).
     ClaudeQuestion,
-    /// Have Claude draft (or redraft) a replacement for these PRs, in the background.
-    ClaudeReplace(Vec<u64>),
-    /// Publish the replacement here as a draft PR (then close the PRs it replaces) / close them.
-    Publish(bool),
-    CloseOriginals,
     /// Keep replacement branches on this remote (`dv.replaceRemote`), then publish (as `Publish`).
     ReplaceRemote(String, bool),
     ClaudeFresh,
@@ -206,13 +232,6 @@ enum Target {
     ClaudeCheck,
     ClaudeStop,
     GitView,
-    GitCommit,
-    /// Add (`true`) or remove a label, an assignee or a requested reviewer, by name.
-    SetField(gh::Field, String, bool),
-    /// React to a comment (node id, reaction), or take yours back (`false`).
-    React(String, &'static str, bool),
-    /// Update the checkout: to the PR's head (fast-forward only), or `git pull --ff-only`.
-    GitUpdate,
     /// The amend picker / amend what isn't committed into the PR's commits / ask Claude where
     /// what blame couldn't place goes.
     AmendMenu,
@@ -220,16 +239,9 @@ enum Target {
     AmendAsk,
     /// Claude places every uncommitted change, and dv amends them in once it has.
     AmendAll,
-    /// Rerun the failed checks (their failed jobs).
-    GitRerun,
-    /// Rebase onto the base branch (Claude resolving conflicts) / Claude carrying a stopped
-    /// one on / abort it.
-    Rebase,
+    /// Claude carrying a stopped rebase on / abort it.
     RebaseClaude,
     RebaseAbort,
-    GitPush,
-    /// Force-push (with a lease): HEAD doesn't contain the PR's head (a rebase or amend here).
-    GitForcePush,
     /// Take the branch as it is on GitHub (`true`: confirmed, or nothing here would be lost).
     GitTakeTheirs(bool),
     /// End the review and merge the PR with github-merge.py.
@@ -238,15 +250,11 @@ enum Target {
     ClaudeDismissOutdated(bool),
     /// Mark the PR (a draft) ready for review.
     GitReady,
-    /// Have Claude draft a new PR fixing CI, from its note on this PR (after your editor).
-    CiFixPr,
     /// Approve the workflow runs waiting on the PR's head.
     GitApproveRuns,
     /// Post Claude's proposed description to the PR (`true`: confirmed), or drop it.
     DescApprove(bool),
     DescDiscard,
-    /// Close the PR with Claude's draft comment (after your editor) / drop the draft.
-    ClosePr,
     CloseDiscard,
     Nothing,
 }

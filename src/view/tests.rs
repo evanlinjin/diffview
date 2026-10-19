@@ -288,7 +288,7 @@ fn comments_placed_and_anchored() {
     app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL));
     let confirm = app.picker.take().unwrap();
     assert_eq!((confirm.title, confirm.sel), (" delete comment? ", 0));
-    assert!(matches!(confirm.items[1].target, Target::DeleteComment(ref id) if id == "C2"));
+    assert!(matches!(confirm.items[1].target, Target::Run(Job::DeleteComment(ref id)) if id == "C2"));
     app.goto_comment(ti, ci);
     assert!(app.rows[app.head.row].line.text.starts_with("[pending] amy"));
     app.threads[0].comments[1].body = "unused".into();
@@ -310,7 +310,7 @@ fn comments_placed_and_anchored() {
     press(&mut app, ' ');
     press(&mut app, 'd');
     let p = app.picker.as_ref().unwrap();
-    assert!(matches!(p.items[0].target, Target::Nothing) && matches!(p.items[1].target, Target::DeleteComment(ref id) if id == "C2"));
+    assert!(matches!(p.items[0].target, Target::Nothing) && matches!(p.items[1].target, Target::Run(Job::DeleteComment(ref id)) if id == "C2"));
     app.picker = None;
     assert_eq!(clean_body("> unused\n\n<!-- dv: x -->\n", "<!-- dv:", "> unused\n\n"), ""); // untouched → cancel
     assert_eq!(clean_body("> unused\n\nagreed\n<!-- dv: x -->", "<!-- dv:", "> unused\n\n"), "> unused\n\nagreed");
@@ -1347,7 +1347,7 @@ fn replacement_in_the_pr_section() {
     // Space a offers to redraft it.
     app.claude.path = Some(std::env::temp_dir().join("dv-no-such-review.json"));
     app.claude_menu();
-    assert!(app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::ClaudeReplace(ref p) if p == &[12, 15])));
+    assert!(app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::Do(Action::Replace(ref p, None)) if p == &[12, 15])));
     // a on a draft: a redraft, starting from a quote of what it's about.
     let note = app.rows.iter().position(|r| r.line.text == "Thanks! Handled in {replacement}.").unwrap();
     app.goto(note, 0);
@@ -1373,12 +1373,12 @@ fn replacement_in_the_pr_section() {
     app.root = clean.clone();
     let items = s(&mut app);
     // Only as a draft: ready for review once CI passes.
-    assert!(items[0].0.starts_with("Publish as a draft PR (rebased on origin/") && matches!(items[0].1, Target::Publish(false)));
-    assert!(items[1].0 == "Publish, then close #12, #15 with the closing note…" && matches!(items[1].1, Target::Publish(true)));
+    assert!(items[0].0.starts_with("Publish as a draft PR (rebased on origin/") && matches!(items[0].1, Target::Do(Action::Publish(false))));
+    assert!(items[1].0 == "Publish, then close #12, #15 with the closing note…" && matches!(items[1].1, Target::Do(Action::Publish(true))));
     assert!(!items.iter().any(|i| i.0.contains("ready for review")));
     std::fs::write(clean.join("x"), "").unwrap();
     let items = s(&mut app);
-    assert!(items[0].0.starts_with("Commit the uncommitted changes first") && matches!(items[0].1, Target::GitCommit));
+    assert!(items[0].0.starts_with("Commit the uncommitted changes first") && matches!(items[0].1, Target::Do(Action::Commit(_))));
     assert_eq!(items.len(), 1); // nothing to publish until then
     _ = std::fs::remove_dir_all(&clean);
     let mut r = app.replacement.clone().unwrap();
@@ -1387,7 +1387,7 @@ fn replacement_in_the_pr_section() {
     app.build();
     let items = s(&mut app);
     assert_eq!(items[0].0, "Published as PR #20");
-    assert!(items[1].0 == "Close #15 with the closing note (now)…" && matches!(items[1].1, Target::CloseOriginals));
+    assert!(items[1].0 == "Close #15 with the closing note (now)…" && matches!(items[1].1, Target::Do(Action::CloseOriginals)));
     assert_eq!(app.header_tag(INFO).unwrap().0, " PUBLISHED ");
     assert_eq!(app.pane_tabs().len(), 3); // others comment now
     let replaces = app.rows.iter().position(|r| r.line.text.starts_with("replaces")).unwrap();
@@ -2266,7 +2266,7 @@ fn claude_drafts_a_closing_comment() {
     assert!(app.rows[head].line.text.starts_with("closing comment · Claude's draft") && app.rows[head + 1].line.text == "Thanks! Superseded by #9.");
     app.claude_menu();
     let items = app.picker.take().unwrap().items;
-    assert!(matches!(items[0].target, Target::ClosePr) && matches!(items[1].target, Target::Claude(agent::Ask::Close)) && matches!(items[2].target, Target::CloseDiscard));
+    assert!(matches!(items[0].target, Target::Do(Action::ClosePr)) && matches!(items[1].target, Target::Claude(agent::Ask::Close)) && matches!(items[2].target, Target::CloseDiscard));
     app.goto(head + 1, 0);
     app.start_ask_claude();
     assert!(matches!(app.action.take(), Some(Action::ClaudeWith(agent::Ask::Close))), "{}", app.msg);
@@ -2283,7 +2283,7 @@ fn claude_drafts_a_closing_comment() {
     app.load_claude();
     app.claude_menu();
     let items = app.picker.take().unwrap().items;
-    assert!(matches!(items[0].target, Target::CloseDiscard) && !items.iter().any(|i| matches!(i.target, Target::ClosePr)));
+    assert!(matches!(items[0].target, Target::CloseDiscard) && !items.iter().any(|i| matches!(i.target, Target::Do(Action::ClosePr))));
     _ = std::fs::remove_file(&path);
 }
 

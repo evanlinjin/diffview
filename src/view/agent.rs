@@ -347,7 +347,7 @@ impl App {
             let s = if self.failing == 1 { "" } else { "s" };
             items.push(Item::new(format!("Ask Claude to fix the failing CI ({} check{s}: it reads the failed runs' logs; you push)", self.failing), Target::Claude(Ask::FixChecks)));
             if let Some(c) = self.ci_note(n).filter(|c| !c.task.is_empty()) {
-                items.insert(0, Item::new(format!("Have Claude draft a PR fixing CI (not this PR's doing: {})…", c.why), Target::CiFixPr));
+                items.insert(0, Item::new(format!("Have Claude draft a PR fixing CI (not this PR's doing: {})…", c.why), Target::Do(Action::CiFixPr)));
             }
         }
         items.push(Item::new("Ask Claude a question about this PR… (it answers in the Claude tab)", Target::ClaudeQuestion));
@@ -375,7 +375,7 @@ impl App {
         }
         if drafted && open {
             items.insert(0, Item::new("Ask Claude for changes to the closing comment…", Target::Claude(Ask::Close)));
-            items.insert(0, Item::new("Close the PR with Claude's comment (your editor first)…", Target::ClosePr));
+            items.insert(0, Item::new("Close the PR with Claude's comment (your editor first)…", Target::Do(Action::ClosePr)));
         } else if self.pr.is_some() && open {
             items.push(Item::new("Ask Claude to draft a comment closing the PR (you edit it, then close)…", Target::Claude(Ask::Close)));
         }
@@ -394,12 +394,12 @@ impl App {
         match (&self.pr, &self.replacement) {
             (Some(p), _) => items.push(Item::new(
                 format!("Draft a replacement for #{} (Claude writes it properly, unpublished, in the background)", p.number),
-                Target::ClaudeReplace(vec![p.number]),
+                Target::Do(Action::Replace(vec![p.number], None)),
             )),
             (None, Some(r)) if r.drafting_now() => items.push(Item::new("Claude is drafting this replacement (dv shows it as it goes)", Target::Nothing)),
             (None, Some(r)) => items.push(Item::new(
                 "Redraft this (Claude carries on, with your instructions)",
-                Target::ClaudeReplace(r.ids()),
+                Target::Do(Action::Replace(r.ids(), None)),
             )),
             _ => {}
         }

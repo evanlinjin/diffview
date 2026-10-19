@@ -53,15 +53,15 @@ impl App {
             false => Item::new(format!("Show only what isn't committed ({changed} file(s))"), Target::GitView),
         }];
         if changed > 0 {
-            items.push(Item::new(format!("Commit everything that isn't ({changed} file(s))…"), Target::GitCommit));
+            items.push(Item::new(format!("Commit everything that isn't ({changed} file(s))…"), Target::Do(Action::Commit(self.commit_draft()))));
             items.push(Item::new("Amend it into the PR's commits it belongs in… (you see where each change goes first)", Target::AmendMenu));
             items.push(Item::new("Amend it all into the commits Claude finds it belongs in (a backup branch first)", Target::AmendAll));
         }
         match self.push_target() {
             Ok((remote, branch, name)) => match self.unpushed(&remote, &branch) {
                 Push::Nothing => {}
-                Push::Ahead(n) => items.push(Item::new(format!("Push {n} commit(s) to {name}"), Target::GitPush)),
-                Push::Unknown => items.push(Item::new(format!("Push to {name}"), Target::GitPush)),
+                Push::Ahead(n) => items.push(Item::new(format!("Push {n} commit(s) to {name}"), Target::Run(Job::Push(false)))),
+                Push::Unknown => items.push(Item::new(format!("Push to {name}"), Target::Run(Job::Push(false)))),
                 Push::Diverged => {
                     // Behind only (nothing here it doesn't have): no force-push, just its version.
                     let theirs = self.their_head(&remote, &branch);
@@ -69,7 +69,7 @@ impl App {
                     if ours > 0 {
                         items.push(Item::new(
                             format!("Force-push to {name} (with a lease: it has commits this doesn't, as after a rebase or amend here)"),
-                            Target::GitForcePush,
+                            Target::Run(Job::Push(true)),
                         ));
                     }
                     let label = match ours {
@@ -85,7 +85,7 @@ impl App {
         if let Some(onto) = self.rebase_onto() {
             let behind = diff::git(&["rev-list", "--count", &format!("HEAD..{onto}")]).ok().and_then(|n| n.trim().parse::<usize>().ok()).unwrap_or(0);
             let behind = if behind > 0 { format!("{behind} new commit(s) there as last fetched; ") } else { String::new() };
-            items.push(Item::new(format!("Rebase onto {onto} ({behind}fetched first; Claude resolves any conflicts)"), Target::Rebase));
+            items.push(Item::new(format!("Rebase onto {onto} ({behind}fetched first; Claude resolves any conflicts)"), Target::Run(Job::Rebase)));
         }
         // Diverged, that's "Update to …" above (fast-forward can't).
         if !items.iter().any(|i| matches!(i.target, Target::GitTakeTheirs(_))) {
@@ -93,12 +93,12 @@ impl App {
                 Some(p) => format!("Update the checkout to #{}'s head (fast-forward only; your commits stay)", p.number),
                 None => "Update the checkout (git pull --ff-only)".into(),
             };
-            items.push(Item::new(label, Target::GitUpdate));
+            items.push(Item::new(label, Target::Run(Job::Pull)));
         }
         // Failing for no fault of the PR's (a flaky test, a network blip): once more.
         if self.failing > 0 && self.pr.is_some() {
             let s = if self.failing == 1 { "" } else { "s" };
-            items.push(Item::new(format!("Rerun the failed check{s} ({}: their failed jobs, on GitHub)", self.failing), Target::GitRerun));
+            items.push(Item::new(format!("Rerun the failed check{s} ({}: their failed jobs, on GitHub)", self.failing), Target::Run(Job::Rerun)));
         }
         if self.awaiting > 0 {
             let s = if self.awaiting == 1 { "" } else { "s" };
