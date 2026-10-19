@@ -18,6 +18,7 @@ use std::time::Duration;
 
 mod card;
 use card::*;
+pub mod issues;
 mod todo;
 pub(crate) mod github;
 mod draw;
@@ -169,6 +170,8 @@ pub struct Pick {
     pub replacement: bool,
     /// Merge it (`M M`) instead.
     pub merge: bool,
+    /// The issues instead (`I I`): no PR.
+    pub issues: bool,
     /// The PR as GitHub has it, if the list looked it up just now (while it was selected): the
     /// review needn't wait on that.
     pub pr: Option<gh::Pr>,
@@ -298,11 +301,12 @@ impl List {
                     let worktree = (self.tab == Tab::Worktrees).then(|| self.local.get(&n).is_some_and(|w| w.1.is_some()));
                     // Used once: after the review it may have moved on (a push), so it's looked up again.
                     let pr = self.pr_cache.lock().ok().and_then(|mut c| c.remove(&n)).filter(|(t, _)| t.elapsed().as_secs() < 120).map(|(_, p)| p);
-                    return Ok(Some(Pick { number: n, worktree, replacement, merge: false, pr }));
+                    return Ok(Some(Pick { number: n, worktree, replacement, merge: false, issues: false, pr }));
                 }
                 Some(Do::Merge(n)) => {
-                    return Ok(Some(Pick { number: n, worktree: None, replacement: false, merge: true, pr: None }));
+                    return Ok(Some(Pick { number: n, worktree: None, replacement: false, merge: true, issues: false, pr: None }));
                 }
+                Some(Do::Issues) => return Ok(Some(Pick { number: 0, worktree: None, replacement: false, merge: false, issues: true, pr: None })),
                 Some(Do::Refresh) => {
                     self.refresh(term)?;
                 }
@@ -720,6 +724,8 @@ impl List {
 
 enum Do {
     Quit,
+    /// `I I`: the issues.
+    Issues,
     /// `N N`: Claude drafts a new PR.
     NewPr,
     Open(u64),

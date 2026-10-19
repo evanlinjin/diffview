@@ -21,6 +21,7 @@ const USAGE: &str = "usage: dv [base | PR | list] [-p N] [-f] [-w [-b]]
   dv main          ... vs merge-base of main
   dv 123           review PR 123 (gh pr checkout 123 first); same as -p 123 / --pr 123
   dv list          pick from the open PRs; Enter reviews one with the flags given here
+  dv issues        the open issues (dv list's, I I there): Claude triages them
                    (dv list -wb: each in a worktree on its branch), q goes back to the list
   dv review-info   for Claude Code (or any tool) writing a review dv shows: the review
                    file's path, and the base and head of the diff dv shows (of PR N with -p N)
@@ -75,6 +76,8 @@ struct Opts {
     more: Vec<u64>,
     /// `dv amend`'s commit and files.
     rest: Vec<String>,
+    /// `dv issues`: dv list, on the issues.
+    issues: bool,
     help: bool,
 }
 
@@ -113,6 +116,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Opts> {
             "--rm" | "--remove" => o.rm = true,
             "--no-mouse" => o.no_mouse = true,
             "list" => o.list = true,
+            "issues" => (o.list, o.issues) = (true, true),
             "review-info" => o.cmd = Some("review-info"),
             "review-check" => o.cmd = Some("review-check"),
             "review-comments" => o.cmd = Some("review-comments"),
@@ -250,11 +254,27 @@ fn run() -> anyhow::Result<()> {
 /// `dv list`: review the picked PR with `o`'s flags, then back to the list, until `q` there.
 fn pick_and_review(o: &Opts, root: &Path) -> anyhow::Result<()> {
     let mut list = list::List::new(o.flags());
+    let mut issues = list::issues::Issues::new();
+    let mut on_issues = o.issues;
     loop {
         let mut term = view::init_terminal();
+        // The issues (`dv issues`, `I I`): until you quit there or go back to the PRs.
+        if on_issues {
+            let res = issues.run(&mut term);
+            view::restore_terminal();
+            match res? {
+                list::issues::IssuesDo::Quit => return Ok(()),
+                list::issues::IssuesDo::Prs => on_issues = false,
+            }
+            continue;
+        }
         let picked = list.run(&mut term);
         view::restore_terminal();
         let Some(pick) = picked? else { return Ok(()) };
+        if pick.issues {
+            on_issues = true;
+            continue;
+        }
         let n = pick.number;
         if pick.merge {
             list.msg = merge::merge(n, view::in_zellij()).unwrap_or_else(|e| format!("not merged: {e:#}"));

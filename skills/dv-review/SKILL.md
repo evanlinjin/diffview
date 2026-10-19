@@ -310,6 +310,32 @@ instructions.
 If the record already has drafts, you've been here before (the same session): do what the
 user's new instructions ask, updating the code, commits and drafts to match. Its `asks`: as a replacement's (section 6).
 
+## Triage an issue
+
+Asked to triage issue #N, write its triage to the file the prompt names (`issue-N.json` beside
+the reviews), a JSON object:
+
+```json
+{"issue": 2312, "kind": "bug", "priority": "high",
+ "summary": "What it is, whether it still holds (cite `path:line` on the base branch), related issues and PRs.",
+ "labels": ["bug"], "next": "review #2340, then close this with it",
+ "close": "", "closing": ""}
+```
+
+- Read it all: `gh issue view N --comments`; related ones (`gh issue list --search`, `gh search
+  prs`); and the code (Read, Grep, `git log`). Change nothing, and don't comment or label on GitHub.
+- `kind`: `bug`, `feature`, `question`, `docs` or `chore`. `priority`: `high` (broken for
+  users, data at risk, blocks others), `medium`, `low`.
+- `summary`: markdown, short. For a bug: is it still there on the base branch (where, as
+  `path:line`), and is it reproducible from what's said? For a feature: does it fit, what would it
+  touch? Name duplicates and PRs that fix it (`#N`).
+- `labels`: the repo's labels (`gh label list`) that fit; none made up.
+- `next`: what should happen next, in a few words (a repro from the author, ready to work on,
+  review #N, needs a decision).
+- `close`: only when it should be closed, why in a few words ("duplicate of #12", "fixed by
+  #40", "answered", "won't fix: out of scope", "stale: no repro since March"); `closing`: a
+  comment to close it with, for the user to edit. Else both empty.
+
 ## Your notes on the repo
 
 `notes:` from `dv review-info` is a markdown file that outlives any one review, shared by all

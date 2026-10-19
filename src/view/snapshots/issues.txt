@@ -1,0 +1,12 @@
+ ISSUES   open 2   mine 1   close 1
+▌   #7 Panics on reorg  bug                                                                                   💬  3 · 👍  2
+▌      @amy  → @me
+▌      fixed by #9 (open)
+
+    #8 How do I sync?                                                                                         💬  0 · 👍  0
+       @bo                                                                                                    ✕ close: answered in #3
+       → answer it                                                                                            claude ✓
+
+
+
+ ? keys · I I the PRs                                                                                                                 1 / 2

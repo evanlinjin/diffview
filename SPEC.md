@@ -153,7 +153,18 @@ disk: rust-analyzer can index it and `hx` can open it.
    replacements tab, renamed) as `new K`, reviewed in dv as a replacement is, and `S` publishes
    it. For several marked PRs, `A A` first has Claude suggest groups (a
    `claude -p` that only reads them), edited in `$EDITOR`, a line each.
-4. **Later**:
+4. **Issues** (`dv issues`, or `I I` in `dv list`; `I I` there goes back): the repo's open
+   issues (the 500 most recently updated, one GraphQL query a page), a card each: number, title
+   and labels, comments and 👍, its age; who opened it and who it's assigned to; the PRs that
+   would close it (`fixed by #N (open)`). Tabs (`gn` / `gp`): open, mine (assigned to you or
+   opened by you), can close (Claude's triage says why). `/` filters (`label:`, `author:`,
+   `kind:`, `priority:`, `is:triaged`, `-term`). `m` marks, `a a` has Claude triage the marked
+   (or this one), two at a time, in the main checkout, reading only (`gh issue view/list`, `gh
+   search`, `gh label list`, the code): the skill's "Triage an issue", to `issue-N.json` beside
+   the reviews (kind, priority, a summary, labels, what next, whether to close it and a closing
+   comment); the card shows its kind and priority (or `✕ close: why`) and `→ next`. Enter opens
+   the issue on GitHub (dv's own view of it: later).
+5. **Later**:
    - **Reproducible release builds**, so a binary can be rebuilt bit for bit and signed ahead
      of time (signatures, or the signed hashes, in the release notes or beside the archives).
      Needs a pinned toolchain, `--remap-path-prefix` for absolute paths, `SOURCE_DATE_EPOCH`,

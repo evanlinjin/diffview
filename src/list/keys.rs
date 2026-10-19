@@ -40,6 +40,7 @@ PR
   b b                  ask the author to rebase (a comment; todo waits for their push)
   W W                  approve its workflow runs (GitHub holds a first-timer's)
   M M                  merge with github-merge.py (dv.mergescript: your own copy)
+  I I                  the issues (dv issues opens there)
   D D                  remove its worktree, or the replacement (not with local changes)";
 
 impl List {
@@ -139,6 +140,11 @@ impl List {
             KeyCode::Char('N') => {
                 if self.again(armed, ('N', 0), "N again: Claude drafts a new PR, unpublished (your editor opens first: what it should do; issues by #N); any other key doesn't") {
                     return Some(Do::NewPr);
+                }
+            }
+            KeyCode::Char('I') => {
+                if self.again(armed, ('I', 0), "I again: the issues (I I there comes back)") {
+                    return Some(Do::Issues);
                 }
             }
             KeyCode::Char('W') => {

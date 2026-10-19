@@ -89,8 +89,8 @@ pub(super) struct Cards<'a> {
 pub(super) const TWO_ZONES: usize = 110;
 /// The right zone's width, and the most a card's content spans (wider, the right zone would
 /// drift away from what it's about).
-const RIGHT: usize = 30;
-const CARD_MAX: usize = 140;
+pub(super) const RIGHT: usize = 30;
+pub(super) const CARD_MAX: usize = 140;
 
 /// A PR's card, related things together. Wide (`TWO_ZONES`), three lines in two zones: on the
 /// left what it is (number and title, with a draft / closed badge and `[new]`; who and how big,
@@ -98,7 +98,7 @@ const CARD_MAX: usize = 140;
 /// Claude), a column that lines up from card to card. Narrower, four lines: those, with how it
 /// stands on a line of its own. Each line is cut at its width rather than wrapped.
 /// The mark's column on a card's first line (` ● ` when marked).
-const MARK_W: usize = 3;
+pub(super) const MARK_W: usize = 3;
 
 pub(super) fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathBuf, Option<String>)>, mark: Mark) -> Vec<Line<'static>> {
     let (ui, num_w, width, usual) = (cx.ui, cx.num_w, cx.width, cx.usual);
@@ -258,7 +258,7 @@ pub(super) fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathB
 }
 
 /// `spans` in exactly `w` columns: cut to it, or padded.
-fn fit(spans: Vec<Span<'static>>, w: usize, pad: Style) -> Vec<Span<'static>> {
+pub(super) fn fit(spans: Vec<Span<'static>>, w: usize, pad: Style) -> Vec<Span<'static>> {
     let mut out = cut_spans(spans, w);
     let used: usize = out.iter().map(Span::width).sum();
     if used < w {
@@ -268,7 +268,7 @@ fn fit(spans: Vec<Span<'static>>, w: usize, pad: Style) -> Vec<Span<'static>> {
 }
 
 /// `spans` in at most `w` columns, the last one that doesn't fit ending in `…`.
-fn cut_spans(spans: Vec<Span<'static>>, w: usize) -> Vec<Span<'static>> {
+pub(super) fn cut_spans(spans: Vec<Span<'static>>, w: usize) -> Vec<Span<'static>> {
     let mut out = vec![];
     let mut used = 0;
     for sp in spans {
@@ -413,7 +413,7 @@ fn wrap(s: &str, w: usize) -> Vec<String> {
 
 /// A card's background: the window's, or on the selected one a quiet tint (the theme's cursor
 /// line, as in the diff view; else its menu selection's background), its text keeping its colors.
-fn card_row(ui: &Ui, selected: bool) -> Style {
+pub(super) fn card_row(ui: &Ui, selected: bool) -> Style {
     match selected {
         true => ui.base.bg(ui.cursorline.or(ui.menu_selected.bg).unwrap_or(ratatui::style::Color::DarkGray)),
         false => ui.base,
