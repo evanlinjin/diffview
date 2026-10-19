@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.44.1] - 2026-10-19
+
+### Added
+- The mouse in `dv issues`, as in `dv list`: a click on a tab shows it, on a card selects it, a
+  second click opens it; the wheel moves the cursor (scrolls an open issue).
+
 ## [0.44.0] - 2026-10-19
 
 ### Added
