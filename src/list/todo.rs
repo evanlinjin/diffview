@@ -103,7 +103,7 @@ impl List {
         // now, before what you've put aside or wait on, and what Claude's at. Not with checks
         // failing already: those can be fixed now. Back up once CI's done.
         let ci_running = |it: &Item| {
-            let n = if it.is_rep() { self.rep_of.get(&it.number).and_then(|r| r.published) } else { Some(it.number) };
+            let n = self.pr_of(it);
             n.and_then(|n| self.prs.iter().find(|p| p.number == n)).and_then(|p| p.checks).is_some_and(|c| c.2 > 0 && c.1 == 0)
         };
         let (mut later, todo): (Vec<Item>, Vec<Item>) = todo.into_iter().partition(|it| it.deferred.is_some() || it.waits.is_some());
@@ -481,8 +481,13 @@ impl List {
         let Some(it) = self.todo.iter().find(|it| it.key() == key).cloned() else { return };
         // A push, a review: from where its PR is now (known once its details are in), so
         // what it had already doesn't count.
-        let extra = self.pr_of(&it).and_then(|n| self.extra.get(&n)).cloned();
+        let n = self.pr_of(&it);
+        let extra = n.and_then(|n| self.extra.get(&n)).cloned();
         let c = match c {
+            // (A draft not published: no PR to watch; publishing it brings it back anyway.)
+            todo::Until::Green | todo::Until::Approved(_) | todo::Until::Reviewed(_) | todo::Until::Pushed(_) if n.is_none() => {
+                return self.msg = "not deferred: it isn't published yet, so there's no PR to watch".into();
+            }
             todo::Until::Pushed(_) => match extra.as_ref().map(|e| e.head_oid.clone()).filter(|h| !h.is_empty()) {
                 Some(h) => todo::Until::Pushed(h),
                 None => return self.msg = "not deferred: its head on GitHub isn't known yet, to see a push by (try again in a moment)".into(),

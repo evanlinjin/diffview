@@ -94,7 +94,7 @@ pub struct Extra {
     /// would hide it): (login, state, when submitted).
     pub reviews: Vec<(String, String, i64)>,
     /// The conversation's last comments by people with write access (or you), oldest first:
-    /// (login, body), for what the PR waits on.
+    /// (login, body, when posted; 0 if unknown: any review counts), for what the PR waits on.
     pub said: Vec<(String, String, i64)>,
     pub requested: bool,
     /// MERGEABLE, CONFLICTING or UNKNOWN.
