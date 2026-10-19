@@ -30,6 +30,7 @@ mod files;
 mod git;
 mod github;
 mod info;
+mod links;
 use info::*;
 #[cfg(test)]
 pub(crate) use info::info_lines_of;
