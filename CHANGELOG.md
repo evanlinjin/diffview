@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.42.1] - 2026-10-19
+
+### Fixed
+- `dv issues`' todo: deferrals are kept (they were dropped as it started, and lost once
+  another was saved), and come back when their time's up without waiting for a refresh.
+  `r r` doesn't start a second ranking while one's under way, and ranks only what isn't
+  deferred. "Changed since Claude triaged it" goes by the issue's own update time when it was
+  triaged, not when the triage was written.
+- The issues ranking no longer asks Claude what an issue waits on (dv watches that for PRs).
+
 ## [0.42.0] - 2026-10-19
 
 ### Added
