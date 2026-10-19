@@ -10,6 +10,17 @@ on GitHub are its section here.
   the PR's description, what's attached to it and Claude's drafts are about all of them, and
   come back with the whole diff.
 
+### Fixed
+- A replacement's diff follows its base as a PR's does: after a redraft or publishing rebases
+  it, the diff is its own commits again, `Space g` offers rebasing it, and amending never folds
+  a change into the base branch's commits.
+- While Claude redrafts a replacement (from any dv), dv doesn't commit, amend or rebase under
+  it, nor run another Claude there.
+- Amending is offered only when tracked files changed (new files alone can't be amended).
+- An unpublished draft doesn't offer pushing or pulling (`Space g` says `S` publishes it), its
+  messages after a commit, amend or rebase say `S` publishes it, and Claude's comments and
+  review there don't offer copying to a review or posting (there's no PR).
+
 ## [0.34.42] - 2026-10-19
 
 ### Added

@@ -121,7 +121,7 @@ impl App {
             let done = rebase(&self.root, &onto, &backup)?;
             if done {
                 self.follow(&onto);
-                return Ok(self.and_reload(format!("rebased onto {onto} (was {short}: {backup}); Space g force-pushes (with a lease)")));
+                return Ok(self.and_reload(format!("rebased onto {onto} (was {short}: {backup}); {}", self.next_step(true))));
             }
             let reload = self.reload_all(false); // (the diff's base stays till it's done: see follow_rebase)
             match self.rebase_claude() {
@@ -187,9 +187,9 @@ impl App {
                 self.reload_tree();
             }
             let dirty = !git_in(&self.root, &["status", "--porcelain", "--untracked-files=no"]).unwrap_or_default().trim().is_empty();
-            self.msg += match dirty {
-                true => " · rebased, but Claude left changes uncommitted: check them, commit or amend (Space g), then force-push",
-                false => " · rebased: Space g force-pushes (with a lease)",
+            self.msg += &match dirty {
+                true => " · rebased, but Claude left changes uncommitted: check them, commit or amend (Space g) first".to_owned(),
+                false => format!(" · rebased: {}", self.next_step(true)),
             };
         } else {
             self.msg += " · Claude aborted the rebase: nothing changed (its answer says why: Space a → its pane)";

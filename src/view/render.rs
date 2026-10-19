@@ -160,6 +160,13 @@ impl App {
                 // Yours for Claude: private, so nothing here goes to GitHub.
                 (true, false, _) => ("your comment for Claude", &[("r", "reply"), ("Space r", "resolve"), ("Space d", "remove"), ("Tab", "fold")]),
                 (true, true, true) => ("Claude's comment (outdated)", &[("r", "reply to Claude"), ("Space d", "dismiss"), ("Tab", "fold")]),
+                // No PR (a draft, a branch): nothing to copy to a review or post.
+                (true, true, false) if self.pr.is_none() => ("Claude's comment", &[
+                    ("r", "reply to Claude"),
+                    ("gf", "go to a file:line or name in it"),
+                    ("Space r", "resolve"),
+                    ("Space d", "dismiss"),
+                ]),
                 (true, true, false) => ("Claude's comment", &[
                     ("r", "reply to Claude"),
                     ("gf", "go to a file:line or name in it"),
@@ -185,6 +192,9 @@ impl App {
         if row.info == Some(MORE_CONVERSATION) {
             return Some(("activity", &[("Enter", "all of it, or only the latest"), ("Space o", "the same")]));
         }
+        if row.info == Some(SUMMARY) && self.pr.is_none() {
+            return Some(("Claude's review", &[("r", "reply (Claude answers)")]));
+        }
         if row.info == Some(SUMMARY) {
             return Some(("Claude's review", &[("r", "reply (Claude answers)"), ("c", "add to your review summary"), ("C", "post it as your PR comment")]));
         }
@@ -197,7 +207,7 @@ impl App {
         if row.info == Some(DRAFT) {
             return Some(("your review", &[("S", "edit it and submit"), ("C", "new conversation comment"), ("Space c", "copy link")]));
         }
-        (row.file == INFO && row.info.is_some())
+        (row.file == INFO && row.info.is_some() && self.pr.is_some())
             .then_some(("PR text", &[("c", "quote in your review summary"), ("C", "quote in a new conversation comment"), ("Space =", "react"), ("Space c", "copy link")]))
     }
 

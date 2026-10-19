@@ -1414,6 +1414,18 @@ fn replacement_in_the_pr_section() {
     std::fs::write(clean.join("tracked"), "changed").unwrap();
     let items = s(&mut app);
     assert!(matches!(items[1].1, Target::AmendMenu) && matches!(items[2].1, Target::AmendAll), "changes to tracked files: amend them in, too");
+    // Space g on a draft: no pushing or pulling (it's published with S), and messages say S.
+    app.git_menu();
+    let items = app.picker.take().unwrap().items;
+    assert!(!items.iter().any(|i| matches!(i.target, Target::Run(Job::Push(_) | Job::Pull))), "{:?}", items.iter().map(|i| &i.label).collect::<Vec<_>>());
+    assert!(items.iter().any(|i| i.label.starts_with("Publish it as a draft PR: S")));
+    assert_eq!(app.next_step(true), "S publishes it");
+    // Nor does Claude's review there offer what goes to a PR (there's none).
+    let review = app.rows.iter().position(|r| r.info == Some(SUMMARY)).unwrap_or(0);
+    if app.rows[review].info == Some(SUMMARY) {
+        app.goto(review, 0);
+        assert!(!app.context_keys().unwrap().1.iter().any(|k| k.0 == "C"));
+    }
     _ = std::fs::remove_dir_all(&clean);
     let mut r = app.replacement.clone().unwrap();
     (r.published, r.closed) = (Some(20), vec![12]);

@@ -34,6 +34,16 @@ impl App {
         self.base == "HEAD"
     }
 
+    /// What takes the commits made here to GitHub, for a message after making them: `S` for a
+    /// draft (publishing it), else `Space g` (`force`: a force-push, after a rewrite).
+    pub(super) fn next_step(&self, force: bool) -> &'static str {
+        match (self.unpublished(), force) {
+            (true, _) => "S publishes it",
+            (false, true) => "Space g force-pushes (with a lease)",
+            (false, false) => "Space g pushes it",
+        }
+    }
+
     /// Amending what isn't committed into the branch's commits (`Space g`, a replacement's `S`):
     /// only changes to tracked files can be (new files aren't in `git diff HEAD`).
     pub(super) fn amend_items(&self) -> Vec<Item> {
@@ -77,7 +87,10 @@ impl App {
             items.push(Item::new(format!("Commit everything that isn't ({changed} file(s))…"), Target::Do(Action::Commit)));
             items.extend(self.amend_items());
         }
-        match self.push_target() {
+        // A draft no one has seen: published (S), not pushed.
+        let push = if self.unpublished() { Err(anyhow!("it's a draft: S publishes it")) } else { self.push_target() };
+        match push {
+            Err(_) if self.unpublished() => items.push(Item::new("Publish it as a draft PR: S (nothing to push to before)", Target::Nothing)),
             Ok((remote, branch, name)) => match self.unpushed(&remote, &branch) {
                 Push::Nothing => {}
                 Push::Ahead(n) => items.push(Item::new(format!("Push {n} commit(s) to {name}"), Target::Run(Job::Push(false)))),
@@ -108,7 +121,7 @@ impl App {
             items.push(Item::new(format!("Rebase onto {onto} ({behind}fetched first; Claude resolves any conflicts)"), Target::Run(Job::Rebase)));
         }
         // Diverged, that's "Update to …" above (fast-forward can't).
-        if !items.iter().any(|i| matches!(i.target, Target::GitTakeTheirs(_))) {
+        if !self.unpublished() && !items.iter().any(|i| matches!(i.target, Target::GitTakeTheirs(_))) {
             let label = match &self.pr {
                 Some(p) => format!("Update the checkout to #{}'s head (fast-forward only; your commits stay)", p.number),
                 None => "Update the checkout (git pull --ff-only)".into(),
@@ -231,7 +244,7 @@ impl App {
         _ = std::fs::remove_file(&file);
         keep_on_error(res.map(drop), &msg)?;
         let head = diff::git(&["log", "-1", "--format=%h %s"]).unwrap_or_default();
-        Ok(format!("committed {} (Space g pushes it)", head.trim()))
+        Ok(format!("committed {} ({})", head.trim(), self.next_step(false)))
     }
 
     /// How the checkout stands against the PR (or where it's pushed), for the pinned title:
