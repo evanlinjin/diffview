@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.66] - 2026-10-19
+
+### Fixed
+- `dv list`: a deferral Claude reads the time of leaves the cursor on the card it's on when
+  you've moved on meanwhile (0.34.65 let the list shift under it); on the deferred card, it stays
+  put, on what's next.
+
 ## [0.34.65] - 2026-10-19
 
 ### Fixed

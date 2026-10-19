@@ -233,7 +233,7 @@ impl List {
             term.draw(|f| self.draw(f))?;
             // What comes in below may change the list under the cursor: it stays on its card
             // (`select_card`, after it all; your own keys, after, move it as they do).
-            let keep = self.selected();
+            let mut keep = self.selected();
             self.batch_news();
             self.watch_reviews();
             self.todo_news();
@@ -241,6 +241,11 @@ impl List {
             self.gone_news();
             self.prefetch();
             self.others_news();
+            // Your own deferral (Claude read when): on the card it moved, the cursor stays put,
+            // on what's next; elsewhere, on its card as through the rest.
+            if self.until_news() {
+                keep = None;
+            }
             if self.watch_running() {
                 self.scan_unpushed(); // what it finished with may be waiting to be pushed
                 self.find_todo(); // Claude started or finished somewhere: its item moves
@@ -269,8 +274,6 @@ impl List {
                 self.find_todo(); // green checks: ready to merge
             }
             self.select_card(keep);
-            // Your own deferral, Claude's reading of when: as your keys, after (what's next).
-            self.until_news();
             if !event::poll(Duration::from_millis(100))? {
                 continue;
             }

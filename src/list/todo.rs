@@ -420,12 +420,21 @@ impl List {
     }
 
     /// Claude's reading of a deferral's "until …", when it comes.
-    pub(super) fn until_news(&mut self) {
-        let Some(Ok(res)) = self.until_rx.as_ref().map(|(_, rx)| rx.try_recv()) else { return };
-        let Some((key, _)) = self.until_rx.take() else { return };
+    /// Whether it deferred the item under the cursor (your own move: the cursor stays put, on
+    /// what's next, rather than following it).
+    pub(super) fn until_news(&mut self) -> bool {
+        let Some(Ok(res)) = self.until_rx.as_ref().map(|(_, rx)| rx.try_recv()) else { return false };
+        let Some((key, _)) = self.until_rx.take() else { return false };
         match res {
-            Ok(c) => self.defer_on(&key, c),
-            Err(e) => self.msg = format!("not deferred: {e:#}"),
+            Ok(c) => {
+                let on_it = self.selected_item().is_some_and(|it| it.key() == key);
+                self.defer_on(&key, c);
+                on_it
+            }
+            Err(e) => {
+                self.msg = format!("not deferred: {e:#}");
+                false
+            }
         }
     }
 
