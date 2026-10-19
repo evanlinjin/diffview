@@ -258,6 +258,10 @@ pub struct Issues {
     baseline: Option<HashMap<u64, String>>,
     auto_done: HashSet<(u64, String)>,
     auto_ranked: Option<std::time::Instant>,
+    /// The tabs' columns on the top bar (for clicks), and the last click on a card (when,
+    /// which: a second soon after on the same one opens it).
+    tab_hits: Vec<(std::ops::Range<u16>, ITab)>,
+    last_click: Option<(std::time::Instant, usize)>,
     root: PathBuf,
     pub msg: String,
 }
@@ -479,10 +483,12 @@ impl Issues {
             }
             let k = match event::read()? {
                 Event::Key(k) if k.kind == KeyEventKind::Press => k,
-                // The wheel moves the cursor (scrolls the issue), as j / k.
+                // The wheel moves the cursor (scrolls the issue), as j / k; a click picks a tab or a
+                // card, twice opens it (as dv list's).
                 Event::Mouse(m) => match m.kind {
                     event::MouseEventKind::ScrollDown => KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
                     event::MouseEventKind::ScrollUp => KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
+                    _ if self.click(m) => KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
                     _ => continue,
                 },
                 _ => continue,
@@ -605,6 +611,28 @@ impl Issues {
         }
         self.sel = self.sel.min(self.shown().len().saturating_sub(1));
         None
+    }
+
+    /// A click: on a tab, that tab; on a card, it selected (`true`: the second on it, to open
+    /// it). Not in an issue's view, nor over the help.
+    fn click(&mut self, m: event::MouseEvent) -> bool {
+        use event::{MouseButton, MouseEventKind};
+        if m.kind != MouseEventKind::Down(MouseButton::Left) || self.help || self.view.is_some() {
+            return false;
+        }
+        if m.row == 0 {
+            if let Some(&(_, tab)) = self.tab_hits.iter().find(|(x, _)| x.contains(&m.column)) {
+                (self.tab, self.sel, self.top) = (tab, 0, 0);
+            }
+            return false;
+        }
+        let i = self.top + (m.row as usize - 1) / self.card_rows(); // cards start under the bar
+        if i >= self.shown().len() {
+            return false;
+        }
+        let double = self.last_click.is_some_and(|(at, j)| j == i && at.elapsed() < Duration::from_millis(400));
+        (self.last_click, self.sel) = (if double { None } else { Some((std::time::Instant::now(), i)) }, i);
+        double
     }
 
     /// A key in the issue's view.
@@ -824,9 +852,15 @@ impl Issues {
             (ITab::CanClose, format!("close {close}")),
         ];
         let mut spans = vec![Span::styled(" Issues ", hs.add_modifier(ratatui::style::Modifier::BOLD)), Span::styled(" ", hs)];
+        let (mut hits, mut x) = (vec![], 9u16); // (past " Issues  ")
         for (t, name) in tabs {
-            spans.extend([Span::styled(format!(" {name} "), if self.tab == t { ui.menu_selected } else { dim }), Span::styled(" ", hs)]);
+            let s = Span::styled(format!(" {name} "), if self.tab == t { ui.menu_selected } else { dim });
+            let w = s.width() as u16;
+            hits.push((x..x + w, t));
+            spans.extend([s, Span::styled(" ", hs)]);
+            x += w + 1;
         }
+        self.tab_hits = hits;
         spans.push(Span::styled("   I I the PRs", dim));
         f.render_widget(Paragraph::new(Line::from(spans)).style(hs), Rect { height: 1.min(area.height), ..area });
         // An issue open: it, between the bars.
@@ -1038,6 +1072,15 @@ fn issues_listed_triaged_filtered() {
     l.tab = ITab::Todo;
     snapshot("issues_todo", &screen(140, 14, |f| l.draw(f)));
     snapshot("issues_todo_wide", &screen(200, 14, |f| l.draw(f)));
+    // The mouse: a tab clicked; a card, twice opens it.
+    let click = |l: &mut Issues, column, row| {
+        l.click(event::MouseEvent { kind: event::MouseEventKind::Down(event::MouseButton::Left), column, row, modifiers: KeyModifiers::NONE })
+    };
+    let (open_tab, _) = l.tab_hits.iter().find(|h| h.1 == ITab::Open).cloned().unwrap();
+    assert!(!click(&mut l, open_tab.start, 0) && l.tab == ITab::Open);
+    assert!(!click(&mut l, 10, 5) && l.sel == 1); // the second card (four rows each, after the bar)
+    assert!(click(&mut l, 10, 5)); // again: open it
+    l.tab = ITab::Todo;
     // Auto: not #7, there (untriaged) when dv started; #7 once it's changed since; each once.
     l.baseline = Some(l.items.iter().map(|i| (i.number, i.updated.clone())).collect());
     assert!(l.auto_picks().is_empty());
