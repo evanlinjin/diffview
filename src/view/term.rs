@@ -241,9 +241,17 @@ pub(crate) fn compose_with(what: &str, allow_empty: bool, prefill: &str, untouch
         let q = |p: &Path| format!("'{}'", p.to_string_lossy().replace('\'', "'\\''"));
         let script = format!("\"$0\" \"$@\"; echo $? > {tmp} && mv {tmp} {done}", tmp = q(&path.with_extension("done.tmp")), done = q(&done));
         let sh: Vec<String> = ["-c".to_owned(), script, prog.to_owned()].into_iter().chain(args).collect();
-        let (st, pane) = zellij_pane("sh", &sh, &format!("dv: {what}"), false)?;
+        let name = format!("dv: {what}");
+        let (st, said) = zellij_pane("sh", &sh, &name, false)?;
         anyhow::ensure!(st.success(), "zellij run failed ({st})");
-        let pane = pane.lines().last().unwrap_or("").to_owned();
+        // Its pane: as zellij said (`terminal_N`), else found by its name (the newest of it), so
+        // a pane closed from zellij is noticed either way.
+        let pane = said.lines().map(str::trim).find(|l| l.starts_with("terminal_")).map(str::to_owned).or_else(|| {
+            let panes = zellij_panes(&[])?;
+            let id = panes.iter().filter(|p| p["title"] == name.as_str() && p["is_plugin"] != true).filter_map(|p| p["id"].as_u64()).max()?;
+            Some(format!("terminal_{id}"))
+        });
+        let pane = pane.unwrap_or_default();
         let looked = std::time::Instant::now();
         let prefill = prefill.to_owned();
         return Err(Writing { path, done, pane, looked, allow_empty, prefill, untouched_ok, kept: None }.into());
