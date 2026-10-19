@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.53.2] - 2026-10-19
+
+### Fixed
+- A deferral until a review or approval reads each review, not just everyone's latest (a
+  comment after an approval no longer hides it). It counts reviews newer than what dv had
+  shown you, by GitHub's clock.
+- A sideways scroll left works over a short line.
+- A published replacement's card shows its PR's conflicts.
+
 ## [0.53.1] - 2026-10-19
 
 ### Fixed
