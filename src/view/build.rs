@@ -599,6 +599,18 @@ impl App {
         (!self.unseen(&c.hidden, &c.node_id)).then_some(c.body.as_str())
     }
 
+    /// The same for the PR's text: `info` line `i`, unless it's a conversation comment's,
+    /// hidden on GitHub and not shown here.
+    pub(super) fn seen_info(&self, i: usize) -> Option<&gh::InfoLine> {
+        let head = self.info.get(i.checked_sub(1)?).filter(|h| h.heading);
+        self.info.get(i).filter(|_| !head.is_some_and(|h| self.unseen(&h.hidden, &h.node)))
+    }
+
+    /// A review comment's text for a list, or (hidden on GitHub, unseen) that it's hidden.
+    pub(super) fn gist(&self, c: &gh::Comment) -> String {
+        self.seen_body(c).map_or_else(|| format!("_({})_", gh::hidden_words(&c.hidden)), str::to_owned)
+    }
+
     /// Whether row `r` is the folded line of a conversation comment hidden on GitHub.
     pub(super) fn hidden_line(&self, r: usize) -> bool {
         self.hidden_row(&self.rows[r])

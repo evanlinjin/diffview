@@ -2579,6 +2579,12 @@ fn hidden_on_github_folded() {
     app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), url: "https://github.com/o/r/pull/1".into(), ..Default::default() });
     app.start_reply(true);
     assert!(matches!(app.action.take(), Some(Action::Reply { ref quote, .. }) if quote.is_empty()));
+    // Nor previewed for deleting, nor edited.
+    (app.threads[0].comments[1].can_edit, app.threads[0].comments[1].can_delete) = (true, true);
+    app.confirm_delete(app.threads[0].comments[1].clone());
+    assert!(!app.picker.take().unwrap().items[1].label.contains("secret"));
+    app.start_edit();
+    assert!(app.action.is_none() && app.msg.starts_with("it's hidden on GitHub"));
     app.pr = None;
     app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     assert!(text(&app).contains("secret2"));
@@ -2615,6 +2621,8 @@ fn hidden_conversation_comment_folded() {
     app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), url: "u".into(), ..Default::default() });
     app.start_conversation_comment();
     assert!(matches!(app.action.take(), Some(Action::Converse { ref quote, .. }) if quote.is_empty()));
+    app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+    assert!(app.msg.starts_with("it's hidden on GitHub") && !app.summary_draft.contains("buy now"));
     app.pr = pr;
     app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     assert!(!app.rows.iter().any(|r| r.line.text.contains("hidden on GitHub")) && app.rows.iter().any(|r| r.line.text == "buy now"));

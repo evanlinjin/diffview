@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.13] - 2026-10-19
+
+### Fixed
+- A hidden comment's text is read through one rule everywhere, the PR conversation's too:
+  pickers show a comment once you've shown it; `c` can't quote one unseen from any path.
+- `Space d` on a hidden comment marks it as hidden, not as its quoted text; `a` on one reads
+  "— hidden on GitHub (spam), not shown here", with its id only where there's no link; `a`
+  where no comment's found says so.
+
 ## [0.34.12] - 2026-10-19
 
 ### Fixed

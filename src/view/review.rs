@@ -431,12 +431,13 @@ impl App {
             self.msg = format!("you can't delete @{}'s comment", c.author);
             return;
         }
-        let gist = gh::hidden_words(&c.hidden);
-        let text = self.seen_body(&c).unwrap_or(&gist);
-        let preview: String = text.lines().next().unwrap_or("").chars().take(40).collect();
+        let preview = match self.seen_body(&c) {
+            Some(body) => format!("\"{}\"", body.lines().next().unwrap_or("").chars().take(40).collect::<String>()),
+            None => format!("({})", gh::hidden_words(&c.hidden)),
+        };
         let items = vec![
             Item::new("No, keep it", Target::Nothing),
-            Item::new(format!("Yes, delete @{}'s comment: \"{preview}\"", c.author), Target::DeleteComment(c.node_id.clone())),
+            Item::new(format!("Yes, delete @{}'s comment: {preview}", c.author), Target::DeleteComment(c.node_id.clone())),
         ];
         self.picker = Some(Picker { title: " delete comment? ", items, query: String::new(), sel: 0 });
     }
@@ -450,7 +451,7 @@ impl App {
             return;
         };
         match c.can_edit {
-            true if self.seen_body(c).is_none() => self.msg = "it's hidden on GitHub: Tab shows it first".into(),
+            true if self.seen_body(c).is_none() => self.msg = "it's hidden on GitHub: Tab on it shows it first".into(),
             true => {
                 let (comment, body, author) = (c.node_id.clone(), c.body.clone(), c.author.clone());
                 self.action = Some(Action::Edit { comment, body, author });
@@ -1088,7 +1089,7 @@ impl App {
                     n => format!("{n} replies · "),
                 };
                 let label = format!("{}{line}  {replies}{tags}@{}", t.path, c.author);
-                Some(Item { detail: self.snippet(&c.gist(), 2), ..Item::new(label, Target::Comment(ti, 0)) })
+                Some(Item { detail: self.snippet(&self.gist(c), 2), ..Item::new(label, Target::Comment(ti, 0)) })
             })
             .collect()
     }
@@ -1105,7 +1106,7 @@ impl App {
                     _ => "reply",
                 };
                 let item = Item::new(format!("{}{line}  {kind}", t.path), Target::Comment(ti, ci));
-                items.push(Item { detail: self.snippet(&c.gist(), 2), ..item });
+                items.push(Item { detail: self.snippet(&self.gist(c), 2), ..item });
             }
         }
         items
@@ -1248,7 +1249,6 @@ impl App {
         }
         match (pr_text, self.rows[self.head.row].thread) {
             // (Not quoting what's hidden on GitHub, unseen.)
-            (true, _) if review && self.hidden_line(self.head.row) => self.msg = "it's hidden on GitHub: Tab shows it first".into(),
             (true, _) if review => self.quote_into_summary(),
             (true, _) => self.start_conversation_comment(),
             // `r` replies (in the review); `C` here replies right away, as `C` posts what `c` queues.
@@ -1327,8 +1327,7 @@ impl App {
             return self.msg = "no PR for this branch".into();
         }
         let row = &self.rows[self.head.row];
-        // (Not what's hidden on GitHub, unseen.)
-        let text = row.info.and_then(|i| self.info.get(i)).map(|l| l.text.as_str()).filter(|_| !self.hidden_line(self.head.row));
+        let text = row.info.and_then(|i| self.seen_info(i)).map(|l| l.text.as_str());
         let quote = text.map_or(String::new(), quote);
         self.action = Some(Action::Converse { quote, as_is: false });
     }
@@ -1336,8 +1335,11 @@ impl App {
     /// `c` in the PR section: the comment (or description) under the cursor, quoted at the end
     /// of your pending review's text.
     fn quote_into_summary(&mut self) {
-        let row = &self.rows[self.head.row];
-        match row.info.and_then(|i| self.info.get(i)).filter(|l| l.md && !l.text.trim().is_empty()) {
+        let i = self.rows[self.head.row].info.filter(|&i| i < self.info.len());
+        if i.is_some_and(|i| self.seen_info(i).is_none()) {
+            return self.msg = "it's hidden on GitHub: Tab shows it first".into();
+        }
+        match i.and_then(|i| self.seen_info(i)).filter(|l| l.md && !l.text.trim().is_empty()) {
             Some(l) if self.pr.is_some() => {
                 let q = quote(&l.text);
                 self.add_to_summary(q.trim_end());

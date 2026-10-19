@@ -667,7 +667,7 @@ impl App {
         // What's selected of it, else all of it.
         // (Hidden on GitHub, unseen: not quoted; Claude reads it at the link.)
         let quote = match self.unseen(&head.hidden, &head.node) {
-            true => format!("({}; not shown here)", gh::hidden_words(&head.hidden)),
+            true => format!("— {}, not shown here", gh::hidden_words(&head.hidden)),
             false => self.selected_quote().unwrap_or_else(|| super::quote(&text.text)),
         };
         Some((head.url.clone(), format!("About {who}'s comment ({}):\n{quote}", head.url)))
@@ -692,7 +692,7 @@ impl App {
     fn ask_about(&mut self, t: usize) {
         let th = &self.threads[t];
         let Some(line) = th.line else { return self.msg = "this thread is outdated: its lines aren't in the diff to ask about".into() };
-        let Some(c) = self.comment_under_cursor(t) else { return };
+        let Some(c) = self.comment_under_cursor(t) else { return self.msg = "move onto a comment to ask about it".into() };
         let anchor = Anchor { path: th.path.clone(), line, left: th.left, start: th.start_line.filter(|&s| s < line).map(|s| (s, th.left)) };
         let first_line = anchor.start.map_or(line, |s| s.0);
         let Some(code) = self.files.iter().find(|f| f.path == anchor.path).and_then(|f| crate::claude::code_at(f, anchor.left, first_line, line)) else {
@@ -702,9 +702,11 @@ impl App {
         // (Hidden on GitHub, unseen: not quoted; said so, for Claude to read it there.)
         let quote: String = match self.seen_body(c) {
             Some(body) => body.lines().map(|l| format!("> {l}\n")).collect(),
-            None => format!("({}; not shown here)\n", gh::hidden_words(&c.hidden)),
+            None => format!("— {}, not shown here\n", gh::hidden_words(&c.hidden)),
         };
-        let prefill = format!("About @{}'s comment{link} (id {}):\n{quote}\n", c.author, c.id);
+        // (Its id, where there's no link with it.)
+        let link = if link.is_empty() { format!(" (id {})", c.id) } else { link };
+        let prefill = format!("About @{}'s comment{link}:\n{quote}\n", c.author);
         self.action = Some(Action::AskClaude { anchor, code, about: Some((c.id, prefill)), want: "" });
     }
 
