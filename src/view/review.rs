@@ -255,7 +255,7 @@ impl App {
             item("Comment", Target::Do(Action::Submit("COMMENT"))),
             item("Approve", Target::Do(Action::Submit("APPROVE"))),
             item("Request changes", Target::Do(Action::Submit("REQUEST_CHANGES"))),
-            item("Comment and close the PR", Target::Do(Action::Submit(CLOSE))),
+            item("Close the PR (with a comment, optional)", Target::Do(Action::Submit(CLOSE))),
         ];
         if self.review.is_some() {
             let n = self.pending_count();
@@ -743,5 +743,5 @@ const HIDDEN_FIRST: &str = "it's hidden on GitHub: Tab on it shows it first";
 impl App {
 }
 
-/// `S` → "Comment and close the PR": a comment review (if there's anything to say), then closing.
+/// `S` → "Close the PR": a comment review (if there's anything to say), then closing.
 pub(super) const CLOSE: &str = "CLOSE";
