@@ -283,7 +283,7 @@ pub fn prompt(r: &Record, extra: &str) -> String {
             prs.join(", ")
         ),
     };
-    crate::view::with_instructions(&p, extra)
+    crate::claude::with_instructions(&p, extra)
 }
 
 /// The directory a draft may write to (its record): `--add-dir`.
@@ -319,7 +319,7 @@ fn run_claude(r: &Record, dir: &Path, extra: &str, prepared: impl FnOnce()) -> R
         false => ["--resume".to_owned(), r.session.clone()],
     };
     let log = std::env::temp_dir().join(format!("dv-claude-replace-{}-{}.log", std::process::id(), r.id));
-    let st = crate::view::claude_command(&prompt(r, extra), dir, &session, crate::view::REPLACE_TOOLS, Some(&writable()?))
+    let st = crate::claude::claude_command(&prompt(r, extra), dir, &session, crate::claude::REPLACE_TOOLS, Some(&writable()?))
         .stdin(std::process::Stdio::null())
         .stdout(std::fs::File::create(&log)?)
         .stderr(std::fs::File::create(log.with_extension("err"))?)

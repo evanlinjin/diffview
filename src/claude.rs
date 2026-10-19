@@ -41,6 +41,9 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 use std::path::PathBuf;
 
+mod run;
+pub(crate) use run::*;
+
 /// Author names in the file. The user's replies show as "you".
 pub const AUTHOR: &str = "claude";
 const USER: &str = "user";

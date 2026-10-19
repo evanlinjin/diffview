@@ -257,7 +257,7 @@ fn live_claude_rebase() {
     git(&["commit", "-q", "-am", "greet: a stranger when no name"]);
     git(&["checkout", "-q", "pr"]);
     assert!(!rebase(&dir, "main", "dv-backup/live").unwrap(), "should stop on the conflict");
-    let out = crate::view::claude_command(&rebase_prompt("main"), &dir, &[], REBASE_TOOLS, None).stdin(std::process::Stdio::null()).output().unwrap();
+    let out = crate::claude::claude_command(&rebase_prompt("main"), &dir, &[], REBASE_TOOLS, None).stdin(std::process::Stdio::null()).output().unwrap();
     let said: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
     println!("claude: {}", said["result"].as_str().unwrap_or(&String::from_utf8_lossy(&out.stderr)));
     println!("refused: {}", said["permission_denials"]);

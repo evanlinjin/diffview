@@ -25,7 +25,7 @@ mod amend;
 mod rebase;
 mod replacement;
 mod seen;
-pub(crate) use agent::{REPLACE_TOOLS, tools_for, answer_prompt, close_if_done, pane_screen, asking, working, claude_command, claude_wrote, fix_checks_prompt, review_prompt, turn, update_prompt, with_instructions};
+pub(crate) use agent::{close_if_done, pane_screen, asking, working, claude_wrote, turn};
 mod build;
 mod compose;
 use compose::*;

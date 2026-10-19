@@ -55,10 +55,10 @@ impl Task {
     fn prompt(&self, n: u64) -> String {
         let what = format!("PR #{n}");
         match self {
-            Task::Review => crate::view::review_prompt(&what),
-            Task::Update(old) => crate::view::update_prompt(&what, old),
-            Task::Answer { theirs } => crate::view::answer_prompt(&what, *theirs),
-            Task::FixChecks => crate::view::fix_checks_prompt(n),
+            Task::Review => crate::claude::review_prompt(&what),
+            Task::Update(old) => crate::claude::update_prompt(&what, old),
+            Task::Answer { theirs } => crate::claude::answer_prompt(&what, *theirs),
+            Task::FixChecks => crate::claude::fix_checks_prompt(n),
         }
     }
 }
@@ -111,9 +111,9 @@ fn run(n: u64, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sender<
     let session = crate::claude::session_args(&review, &dir)?;
     _ = tx.send((n, Status::Reviewing));
     let prompt = format!("{} (It's {} now.)", task.prompt(n), crate::claude::now());
-    let prompt = crate::view::with_instructions(&prompt, extra);
+    let prompt = crate::claude::with_instructions(&prompt, extra);
     let log = std::env::temp_dir().join(format!("dv-claude-batch-{}-{n}.log", std::process::id()));
-    let st = crate::view::claude_command(&prompt, &dir, &session, crate::view::tools_for(matches!(task, Task::FixChecks).then_some(n)).as_deref().as_slice(), None)
+    let st = crate::claude::claude_command(&prompt, &dir, &session, crate::claude::tools_for(matches!(task, Task::FixChecks).then_some(n)).as_deref().as_slice(), None)
         .stdin(std::process::Stdio::null())
         .stdout(std::fs::File::create(&log)?)
         .stderr(std::fs::File::create(log.with_extension("err"))?)
@@ -168,7 +168,7 @@ fn suggest_groups(prs: &[(u64, String, String, String)], root: &Path) -> anyhow:
         list.join("\n")
     );
     let tools = ["Bash(gh pr view:*)", "Bash(gh pr diff:*)"];
-    let out = crate::view::claude_command(&prompt, root, &[], &tools, Some(root)).stdin(std::process::Stdio::null()).output()?;
+    let out = crate::claude::claude_command(&prompt, root, &[], &tools, Some(root)).stdin(std::process::Stdio::null()).output()?;
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
     anyhow::ensure!(v["is_error"] == false, "Claude couldn't group them ({})", out.status);
     parse_groups(v["result"].as_str().unwrap_or(""))
