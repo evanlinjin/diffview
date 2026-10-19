@@ -775,11 +775,12 @@ impl App {
         }
         // Placing changes for an amend: its answers, in the picker.
         // (Not over what you're at: a picker, a prompt, an action on its way.)
-        // (Asked to place it all: amended, now.)
+        // (Asked to place it all: amended, now.) Its answers are the file it filled in: a
+        // command it was refused on the way (a `jq` to read it, say) doesn't stop that.
         let then = std::mem::take(&mut self.amend_then);
-        if label == super::amend::AMEND_LABEL && !failed && refused.is_none() && then {
+        if label == super::amend::AMEND_LABEL && !failed && then {
             self.amend_now();
-        } else if label == super::amend::AMEND_LABEL && !failed && refused.is_none() {
+        } else if label == super::amend::AMEND_LABEL && !failed {
             match self.picker.is_none() && self.prompt.is_none() && self.action.is_none() {
                 true => self.amend_menu(),
                 false => self.msg += " (Space g → amend shows where it put them)",
