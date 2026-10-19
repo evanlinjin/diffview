@@ -45,6 +45,24 @@ pub fn rollups(ns: &[u64]) -> Result<std::collections::HashMap<u64, Rollup>> {
     Ok(out)
 }
 
+/// The PRs (by their `p<N>` alias) a batch's errors are about, weighed as `gh::refused` does
+/// (its base's rules unreadable: no matter); an error about no one PR: the batch's error.
+fn refused_prs(v: &serde_json::Value) -> Result<Vec<u64>> {
+    let mut bad = vec![];
+    for e in v["errors"].as_array().into_iter().flatten() {
+        let path = e["path"].as_array().cloned().unwrap_or_default();
+        if path.iter().any(|k| k == "baseRef") {
+            continue;
+        }
+        let pr = path.iter().filter_map(|k| k.as_str()?.strip_prefix('p')?.parse::<u64>().ok()).next();
+        match pr {
+            Some(n) => bad.push(n),
+            None => anyhow::bail!("GitHub: {}", e["message"].as_str().unwrap_or("refused")),
+        }
+    }
+    Ok(bad)
+}
+
 fn rollup_chunk(ns: &[u64]) -> Result<Vec<(u64, Rollup)>> {
     let prs: String = ns
         .iter()
@@ -64,13 +82,14 @@ fn rollup_chunk(ns: &[u64]) -> Result<Vec<(u64, Rollup)>> {
     let v = gh_json(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-f", &format!("query={q}")])?;
     // As a PR's other facts are weighed (`gh::refused`): its base's rules unreadable, its checks
     // stand (only none expected of those not reported yet: what's reported says if it's
-    // required); anything else refused, none of this batch (a check GitHub didn't give isn't
-    // none: `checks` would say passing).
-    super::refused(&v)?;
+    // required); anything else refused, none of that PR's (a check GitHub didn't give isn't
+    // none: `checks` would say passing), the others' kept. Refused about no one PR: none.
+    let bad = refused_prs(&v)?;
     let repo = &v["data"]["repository"];
     anyhow::ensure!(repo.is_object(), "GitHub: no repository in its answer");
     Ok(ns
         .iter()
+        .filter(|n| !bad.contains(n))
         .filter_map(|&n| {
             let pr = repo.get(format!("p{n}")).filter(|p| !p.is_null())?;
             let commit = &pr["commits"]["nodes"][0]["commit"];
@@ -194,4 +213,14 @@ pub fn approve_runs(sha: &str) -> Result<usize> {
         gh(&["api", "-X", "POST", &format!("repos/{{owner}}/{{repo}}/actions/runs/{id}/approve")])?;
     }
     Ok(ids.len())
+}
+
+#[test]
+fn one_refused_pr_leaves_the_others() {
+    let v = serde_json::json!({ "errors": [
+        { "path": ["repository", "p12", "commits", "nodes", 0], "message": "no" },
+        { "path": ["repository", "p13", "baseRef", "rules"], "message": "can't read rules" } ] });
+    assert_eq!(refused_prs(&v).unwrap(), [12]);
+    let whole = serde_json::json!({ "errors": [{ "message": "rate limited" }] });
+    assert!(refused_prs(&whole).is_err());
 }
