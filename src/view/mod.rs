@@ -126,7 +126,7 @@ struct Row {
     /// summary): beside it in the pane, or after it with the pane hidden.
     attached: bool,
     /// A line standing for a comment shown elsewhere (Claude's activity): (thread, comment),
-    /// where `gf` / Enter go.
+    /// where Enter goes.
     goes: Option<(usize, usize)>,
 }
 

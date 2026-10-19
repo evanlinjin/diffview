@@ -44,7 +44,7 @@ impl App {
         self.rows[self.head.row].links.iter().find(|(a, b, _)| *a <= col && col < *b).map(|l| l.2.as_str())
     }
 
-    /// `gf`: the link under the cursor in the browser, or the `file:line` under it (as comments
+    /// Enter off code: the link under the cursor in the browser, or the `file:line` under it (as comments
     /// cite code: `src/a.rs:12`, `a.rs:12-15`, `a.rs#L12`) in dv, or in hx if it isn't shown;
     /// or, on a name (`next_returns_none`), where it's defined.
     pub(super) fn open_link(&mut self) {

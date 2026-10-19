@@ -50,7 +50,7 @@ VIEW
   Ctrl-w ,  Ctrl-w .   the pane you're in narrower / wider (Ctrl-w = usual width)
   Ctrl-w q             hide the pane you're in (files' list or comments)
   Enter                open hx at cursor (on a link: open it)
-  gf                   open the link under the cursor, or go to the file:line under it
+  Enter                code: open in hx; text: its link, file:line or name
                        (as comments cite code) or to where the function / type named
                        under it is defined (Ctrl-o comes back)
 
@@ -211,11 +211,14 @@ impl App {
                 return;
             }
             KeyCode::Enter if self.rows[self.head.row].info == Some(MORE_CONVERSATION) => return self.toggle_conversation(),
-            KeyCode::Enter if self.rows[self.head.row].goes.is_some() => return self.open_link(),
+            // On code: the file in your editor, there. Anywhere else (a comment, the PR's text,
+            // a link): what's under the cursor (`open_link`: a link, a file:line, a name).
             KeyCode::Enter => {
-                match self.link_at_cursor() {
-                    Some(_) => self.open_link(),
-                    None => self.action = self.open_target().map(Action::Open),
+                let row = &self.rows[self.head.row];
+                let code = row.file != INFO && row.thread.is_none() && matches!(row.line.kind, Kind::Add | Kind::Del | Kind::Ctx);
+                match code && self.link_at_cursor().is_none() {
+                    true => self.action = self.open_target().map(Action::Open),
+                    false => self.open_link(),
                 }
                 return;
             }
@@ -344,7 +347,6 @@ impl App {
                 ("r", "references"),
                 ("y", "type definition"),
                 ("i", "implementations"),
-                ("f", "open link / file:line / definition"),
                 ("n", "pane: next tab (comments / PR)"),
                 ("p", "pane: previous tab"),
             ]),
@@ -381,7 +383,6 @@ impl App {
             ('g', 'h') => self.goto(self.head.row, 0),
             ('g', 'l') => self.goto(self.head.row, usize::MAX),
             ('m', 'm') => self.match_bracket(),
-            ('g', 'f') => self.open_link(),
             ('g', 's') => {
                 let col = self.chars(self.head.row).iter().position(|c| !c.is_whitespace()).unwrap_or(0);
                 self.goto(self.head.row, col);

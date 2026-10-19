@@ -162,13 +162,13 @@ impl App {
                 // No PR (a draft, a branch): nothing to copy to a review or post.
                 (true, true, false) if self.pr.is_none() => ("Claude's comment", &[
                     ("r", "reply to Claude"),
-                    ("gf", "go to a file:line or name in it"),
+                    ("Enter", "go to the file:line, name or link under the cursor"),
                     ("Space r", "resolve"),
                     ("Space d", "dismiss"),
                 ]),
                 (true, true, false) => ("Claude's comment", &[
                     ("r", "reply to Claude"),
-                    ("gf", "go to a file:line or name in it"),
+                    ("Enter", "go to the file:line, name or link under the cursor"),
                     ("c", "copy to your review"),
                     ("C", "post it now"),
                     ("Space r", "resolve"),
@@ -186,7 +186,7 @@ impl App {
             });
         }
         if row.file == INFO && row.line.kind == Kind::File && !row.links.is_empty() {
-            return Some(("PR", &[("gf", "open on GitHub"), ("Tab", "fold")]));
+            return Some(("PR", &[("Enter", "open on GitHub"), ("Tab", "fold")]));
         }
         if row.info == Some(MORE_CONVERSATION) {
             return Some(("activity", &[("Enter", "all of it, or only the latest"), ("Space o", "the same")]));

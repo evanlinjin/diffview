@@ -52,7 +52,7 @@ impl App {
 
     /// `gd` / `gy` / `gi` / `gr` on a name in text: rust-analyzer's symbol search for it (its
     /// exact matches), then, for references / implementations, those of what it found. Without
-    /// rust-analyzer (or while it starts), the definition by text search, as `gf` finds it.
+    /// rust-analyzer (or while it starts), the definition by text search, as Enter finds it.
     fn lsp_by_name(&mut self, method: &str) {
         let Some(name) = self.name_at_cursor() else { return self.msg = "no name under the cursor".into() };
         let then = match method.rsplit('/').next() {
@@ -69,8 +69,8 @@ impl App {
                 Err(e) => self.msg = format!("rust-analyzer: {e}"),
             },
             _ if then.is_none() => self.goto_definition(&name),
-            None => self.msg = "rust-analyzer is not running (gf finds the definition by text)".into(),
-            Some(_) => self.msg = "rust-analyzer is starting… (gf finds the definition by text meanwhile)".into(),
+            None => self.msg = "rust-analyzer is not running (Enter finds the definition by text)".into(),
+            Some(_) => self.msg = "rust-analyzer is starting… (Enter finds the definition by text meanwhile)".into(),
         }
     }
 
