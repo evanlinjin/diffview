@@ -482,6 +482,10 @@ impl App {
                         Target::ClaudeCheck => self.check_claude(),
                         Target::ClaudeStop => self.stop_claude(),
                         Target::AmendMenu => self.amend_menu(),
+                        Target::GitRerun => {
+                            self.msg = "rerunning the failed checks…".into();
+                            self.job = Some(Job::Rerun);
+                        }
                         Target::Rebase => {
                             self.msg = "rebasing…".into();
                             self.job = Some(Job::Rebase);

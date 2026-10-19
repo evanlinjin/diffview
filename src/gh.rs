@@ -794,6 +794,17 @@ pub fn set_viewed(pr_id: &str, path: &str, viewed: bool) -> Result<()> {
     mutate(q, json!({ "pr": pr_id, "path": path })).map(drop)
 }
 
+/// Rerun the failed jobs of the workflow runs on commit `head` that failed: how many runs.
+pub fn rerun_failed(head: &str) -> Result<usize> {
+    let q = ".[] | select(.conclusion == \"failure\" or .conclusion == \"timed_out\" or .conclusion == \"cancelled\") | .databaseId";
+    let out = gh(&["run", "list", "--commit", head, "--limit", "100", "--json", "databaseId,conclusion", "-q", q])?;
+    let ids: Vec<&str> = out.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    for id in &ids {
+        gh(&["run", "rerun", id, "--failed"])?;
+    }
+    Ok(ids.len())
+}
+
 /// What `Space l` sets on a PR.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Field {

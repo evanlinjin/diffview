@@ -36,6 +36,8 @@ const ALLOWED: &[&str] = &[
     // Why CI fails, to fix it.
     "Bash(gh pr checks:*)",
     "Bash(gh run view:*)",
+    // A transient failure: its failed jobs once more (once a head: see `fix_checks_prompt`).
+    "Bash(gh run rerun:*)",
     // To check a change it made still builds and passes.
     "Bash(cargo check:*)",
     "Bash(cargo build:*)",
@@ -1266,8 +1268,11 @@ pub(crate) fn fix_checks_prompt(n: u64) -> String {
          its base branch), change nothing here; instead write {note} as JSON: \
          {{\"head\": \"<git rev-parse HEAD>\", \"why\": \"<one line: what fails and why it isn't this PR>\", \
          \"task\": \"<what a separate PR fixing it should do, a few lines; empty if nothing in the repo would fix \
-         it>\"}}: the user can have a PR drafted from it. First run `dv review-info`: if the notes it lists exist, \
-         read them and follow them."
+         it>\", \"rerun\": false}}: the user can have a PR drafted from it. If the failure looks transient (a \
+         network error, a timeout, a runner problem, a test known to be flaky), also rerun the failed jobs once \
+         (`gh run rerun <run id> --failed`, for each failed run) and set \"rerun\": true; but not if {note} \
+         already has \"rerun\": true for this head (CI was rerun once already: it isn't transient). First run \
+         `dv review-info`: if the notes it lists exist, read them and follow them."
     )
 }
 

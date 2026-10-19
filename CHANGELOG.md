@@ -6,6 +6,11 @@ on GitHub are its section here.
 ## [Unreleased]
 
 ### Added
+- `Space g` → "Rerun the failed checks" when the PR's checks fail: their failed jobs, on
+  GitHub (a flaky test, a network blip).
+- Fixing CI, Claude reruns the failed jobs itself, once a head, when the failure looks
+  transient (a network error, a timeout, a runner problem, a test known to be flaky); its note
+  says so, and the todo then says it reran it once already.
 - `Space l` requests reviews too, and withdraws them: `review from @amy` (✓ when requested),
   among the labels and assignees.
 

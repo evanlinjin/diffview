@@ -120,6 +120,10 @@ impl App {
                     (gh::Field::Reviewer, false) => "review request withdrawn",
                 })
             }
+            Job::Rerun => {
+                let head = self.pr.as_ref().map(|p| p.head_oid.clone()).unwrap_or_default();
+                gh::rerun_failed(&head).map(|n| if n == 0 { "no failed runs to rerun (they may be running already)" } else { "failed checks rerunning" })
+            }
             Job::React(node, what, add) => gh::react(&node, what, add).map(|_| if add { "reacted" } else { "reaction taken back" }),
             Job::Preview(_) | Job::Reactions(_) | Job::Labels | Job::Rebase | Job::Pull | Job::Push(_) => unreachable!("handled above"),
             Job::Post(p) => self.post(p),

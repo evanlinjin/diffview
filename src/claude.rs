@@ -134,6 +134,8 @@ pub struct CiNote {
     pub head: String,
     pub why: String,
     pub task: String,
+    /// Claude reran the failed jobs (once a head: a transient failure, it thought).
+    pub rerun: bool,
 }
 
 pub fn ci_note_path(n: u64) -> Result<PathBuf> {
@@ -143,7 +145,7 @@ pub fn ci_note_path(n: u64) -> Result<PathBuf> {
 pub fn ci_note_at(p: &std::path::Path) -> Option<CiNote> {
     let v: Value = serde_json::from_str(&std::fs::read_to_string(p).ok()?).ok()?;
     let s = |k: &str| v[k].as_str().unwrap_or("").trim().to_owned();
-    Some(CiNote { head: s("head"), why: s("why"), task: s("task") })
+    Some(CiNote { head: s("head"), why: s("why"), task: s("task"), rerun: v["rerun"] == true })
 }
 
 /// PR `n`'s note, if Claude wrote it at `head` (the PR's head now): older ones are about

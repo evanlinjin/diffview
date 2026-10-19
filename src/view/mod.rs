@@ -344,6 +344,8 @@ enum Job {
     Reactions(String),
     /// Fetch the base branch and rebase onto it (Claude resolving conflicts).
     Rebase,
+    /// Rerun the failed checks' jobs on the PR's head.
+    Rerun,
     /// Ask GitHub for the PR's labels, assignees and reviewers, and what it could have.
     Labels,
     /// Add (`true`) or remove a label, an assignee or a requested reviewer, by name.
@@ -406,6 +408,8 @@ enum Target {
     AmendMenu,
     Amend,
     AmendAsk,
+    /// Rerun the failed checks (their failed jobs).
+    GitRerun,
     /// Rebase onto the base branch (Claude resolving conflicts) / Claude carrying a stopped
     /// one on / abort it.
     Rebase,

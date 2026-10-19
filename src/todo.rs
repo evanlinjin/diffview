@@ -233,6 +233,7 @@ pub fn needs(f: &Facts) -> (Vec<Need>, Option<Task>) {
     let not_this = f.ci_note.filter(|c| mine && !head.is_empty() && c.head == head);
     if let Some((_, fail, _)) = pr.checks.filter(|c| c.1 > 0 && (!pr.draft || mine)) {
         out.push(match not_this {
+            Some(c) if c.rerun => Need::CiNotThisPr(format!("{}; it reran it once already", c.why), !c.task.is_empty()),
             Some(c) => Need::CiNotThisPr(c.why.clone(), !c.task.is_empty()),
             None => Need::ChecksFailing(fail, mine),
         });

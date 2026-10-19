@@ -77,6 +77,11 @@ impl App {
             };
             items.push(Item::new(label, Target::GitUpdate));
         }
+        // Failing for no fault of the PR's (a flaky test, a network blip): once more.
+        if self.failing > 0 && self.pr.is_some() {
+            let s = if self.failing == 1 { "" } else { "s" };
+            items.push(Item::new(format!("Rerun the failed check{s} ({}: their failed jobs, on GitHub)", self.failing), Target::GitRerun));
+        }
         if self.awaiting > 0 {
             let s = if self.awaiting == 1 { "" } else { "s" };
             items.insert(0, Item::new(format!("Approve its {} workflow run{s} (waiting for a maintainer: a first-time contributor's, say)", self.awaiting), Target::GitApproveRuns));
