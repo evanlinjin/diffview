@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-10-19
+
+### Added
+- Defer a todo until the author pushes: "until the author addresses the reviews", "pushes",
+  "updates it". It's back once the PR's head moves on. A sentence ("Can't do anything until
+  …") is read from its last "until"; Claude, reading the rest, knows this one too. It was
+  refused: dv had no way to watch for it.
+
 ## [0.36.2] - 2026-10-19
 
 ### Fixed
