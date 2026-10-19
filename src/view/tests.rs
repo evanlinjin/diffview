@@ -580,6 +580,11 @@ fn copy_refs() {
     let second = app.rows.iter().enumerate().filter(|(_, r)| r.thread == Some(0) && r.line.text == "hi").nth(1).unwrap().0;
     app.goto(second, 0);
     assert_eq!(app.cursor_ref().unwrap(), "https://github.com/o/r/pull/1#discussion_r12"); // the reply under the cursor
+    // gf there opens it on GitHub (on its author line; in its text, if nothing else is under the cursor).
+    let author = (0..=app.head.row).rev().find(|&r| app.rows[r].line.kind == Kind::Thread).unwrap();
+    app.goto(author, 0);
+    app.open_link();
+    assert_eq!(app.msg, "opened https://github.com/o/r/pull/1#discussion_r12");
     assert_eq!(app.context_keys().unwrap().0, "review thread"); // the bottom-right key popup
     assert_eq!(app.context_keys().unwrap().1[0], ("r", "reply (review)"));
     app.threads[0].claude = Some("c1".into());

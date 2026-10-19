@@ -1238,6 +1238,10 @@ impl App {
     /// a base ahead of the old one, on HEAD's history.
     pub(super) fn follow_rebase(&mut self) {
         let Some(branch) = &self.follow_base else { return };
+        // Not mid-rebase: it may yet be aborted, and the base only ever moves forward.
+        if rebase::rebasing(&self.root) {
+            return;
+        }
         let root = self.root.to_string_lossy().into_owned();
         let git = |args: &[&str]| diff::git(&[&["-C", root.as_str()], args].concat());
         let Ok(now) = git(&["merge-base", branch, "HEAD"]).map(|s| s.trim().to_owned()) else { return };

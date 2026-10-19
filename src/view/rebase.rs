@@ -9,14 +9,11 @@ pub(super) const REBASE_LABEL: &str = "resolving the rebase's conflicts";
 /// What Claude may run on top of the usual, to carry a rebase on.
 const REBASE_TOOLS: &[&str] = &["Bash(git status:*)", "Bash(git add:*)", "Bash(git rm:*)", "Bash(git rebase --continue:*)", "Bash(git rebase --skip:*)", "Bash(git rebase --abort:*)"];
 
-fn git_in(dir: &Path, args: &[&str]) -> Result<String> {
-    let d = dir.to_string_lossy();
-    diff::git(&[&["-C", d.as_ref()], args].concat())
-}
+use diff::git_in;
 
 /// A rebase stopped part way in `dir` (on conflicts, say).
 pub(super) fn rebasing(dir: &Path) -> bool {
-    ["rebase-merge", "rebase-apply"].iter().any(|d| git_in(dir, &["rev-parse", "--git-path", d]).is_ok_and(|p| dir.join(p.trim()).exists() || Path::new(p.trim()).exists()))
+    ["rebase-merge", "rebase-apply"].iter().any(|d| git_in(dir, &["rev-parse", "--git-path", d]).is_ok_and(|p| dir.join(p.trim()).exists())) // (relative to `dir`, or absolute)
 }
 
 /// Rebase HEAD in `dir` onto `onto`, HEAD kept on `backup` first: `Ok(true)` done, `Ok(false)`
@@ -51,13 +48,14 @@ impl App {
             git_in(&self.root, &["fetch", "-q", remote, branch])?;
             let (short, backup) = self.backup_name()?;
             let done = rebase(&self.root, &onto, &backup)?;
-            self.reload_tree();
-            match done {
-                true => Ok(format!("rebased onto {onto} (was {short}: {backup}); Space g force-pushes (with a lease)")),
-                false => {
-                    self.rebase_claude()?;
-                    Ok(format!("conflicts rebasing onto {onto}: Claude is resolving them (was {short}: {backup})"))
-                }
+            if done {
+                self.follow(&onto);
+                return Ok(format!("rebased onto {onto} (was {short}: {backup}); Space g force-pushes (with a lease)"));
+            }
+            self.reload_tree(); // (the diff's base stays till it's done: see follow_rebase)
+            match self.rebase_claude() {
+                Ok(()) => Ok(format!("conflicts rebasing onto {onto}: Claude is resolving them (was {short}: {backup})")),
+                Err(e) => Ok(format!("the rebase stopped on conflicts, and Claude couldn't take it on ({e:#}): Space g aborts it")),
             }
         })();
         self.msg = r.unwrap_or_else(|e| format!("not rebased: {e:#}"));
@@ -82,6 +80,12 @@ impl App {
         Ok(())
     }
 
+    /// Rebased onto `onto`: the diff starts from there now (with `--base` given too).
+    fn follow(&mut self, onto: &str) {
+        self.follow_base.get_or_insert_with(|| onto.to_owned());
+        self.reload_tree();
+    }
+
     /// `Space g` → abort the rebase: back to before it.
     pub(super) fn abort_rebase(&mut self) {
         self.msg = match git_in(&self.root, &["rebase", "--abort"]) {
@@ -91,13 +95,17 @@ impl App {
         self.reload_tree();
     }
 
-    /// Claude's done with a rebase: how it stands.
+    /// Claude's done with a rebase: how it stands (still stopped, done, or aborted: then HEAD
+    /// isn't on the base).
     pub(super) fn rebase_ended(&mut self) {
-        self.reload_tree();
+        let onto = self.rebase_onto().unwrap_or_default();
         if rebasing(&self.root) {
             self.msg += " · the rebase is still stopped: Space g finishes it (Claude again) or aborts it";
+        } else if git_in(&self.root, &["merge-base", "--is-ancestor", &onto, "HEAD"]).is_ok() {
+            self.follow(&onto);
+            self.msg += " · rebased: Space g force-pushes (with a lease)";
         } else {
-            self.msg += " · Space g force-pushes (with a lease)";
+            self.msg += " · Claude aborted the rebase: nothing changed (its answer says why: Space a → its pane)";
         }
     }
 }

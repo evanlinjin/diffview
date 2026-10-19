@@ -206,8 +206,15 @@ pub fn shown(full: &[Line], windows: &[(usize, usize, Vec<usize>)], headers: &[(
     out
 }
 
+/// `git -C dir …`.
+pub fn git_in(dir: &std::path::Path, args: &[&str]) -> Result<String> {
+    let d = dir.to_string_lossy();
+    git(&[&["-C", d.as_ref()], args].concat())
+}
+
 pub fn git(args: &[&str]) -> Result<String> {
-    let out = Command::new("git").args(args).output().context("running git")?;
+    // Never an editor (a rebase's, a commit's): dv holds the terminal. These beat git's config.
+    let out = Command::new("git").args(args).env("GIT_EDITOR", "true").env("GIT_SEQUENCE_EDITOR", "true").output().context("running git")?;
     if !out.status.success() {
         bail!("git {}: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim());
     }

@@ -10,6 +10,15 @@ impl App {
 
     /// `Space g`: what there is to do with the working tree and the branch.
     pub(super) fn git_menu(&mut self) {
+        // Stopped part way through a rebase: finish it or abort it, nothing else (HEAD is
+        // detached, conflicts may be in the tree).
+        if super::rebase::rebasing(&self.root) {
+            let items = vec![
+                Item::new("Ask Claude to finish the rebase (it resolves the conflicts)", Target::RebaseClaude),
+                Item::new("Abort the rebase (back to before it)", Target::RebaseAbort),
+            ];
+            return self.picker = Some(Picker { title: " git: a rebase is stopped ", items, query: String::new(), sel: 0 });
+        }
         let changed = diff::git(&["status", "--porcelain"]).unwrap_or_default().lines().count();
         let mut items = vec![match self.uncommitted() {
             true => Item::new("Show the whole diff again", Target::GitView),
@@ -43,19 +52,11 @@ impl App {
             },
             Err(e) => items.push(Item::new(format!("Can't push: {e:#}"), Target::Nothing)),
         }
-        // Onto the base branch: Claude resolves conflicts. Stopped part way: finish or abort it.
-        match super::rebase::rebasing(&self.root) {
-            true => {
-                items.insert(0, Item::new("Abort the rebase (back to before it)", Target::RebaseAbort));
-                items.insert(0, Item::new("Ask Claude to finish the rebase (it resolves the conflicts)", Target::RebaseClaude));
-            }
-            false => {
-                if let Some(onto) = self.rebase_onto() {
-                    let behind = diff::git(&["rev-list", "--count", &format!("HEAD..{onto}")]).ok().and_then(|n| n.trim().parse::<usize>().ok()).unwrap_or(0);
-                    let behind = if behind > 0 { format!("{behind} new commit(s) there as last fetched; ") } else { String::new() };
-                    items.push(Item::new(format!("Rebase onto {onto} ({behind}fetched first; Claude resolves any conflicts)"), Target::Rebase));
-                }
-            }
+        // Onto the base branch: Claude resolves conflicts.
+        if let Some(onto) = self.rebase_onto() {
+            let behind = diff::git(&["rev-list", "--count", &format!("HEAD..{onto}")]).ok().and_then(|n| n.trim().parse::<usize>().ok()).unwrap_or(0);
+            let behind = if behind > 0 { format!("{behind} new commit(s) there as last fetched; ") } else { String::new() };
+            items.push(Item::new(format!("Rebase onto {onto} ({behind}fetched first; Claude resolves any conflicts)"), Target::Rebase));
         }
         // Diverged, that's "Update to …" above (fast-forward can't).
         if !items.iter().any(|i| matches!(i.target, Target::GitTakeTheirs(_))) {

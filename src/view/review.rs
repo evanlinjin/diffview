@@ -725,7 +725,13 @@ impl App {
     /// cite code: `src/a.rs:12`, `a.rs:12-15`, `a.rs#L12`) in dv, or in hx if it isn't shown;
     /// or, on a name (`next_returns_none`), where it's defined.
     pub(super) fn open_link(&mut self) {
-        let Some(url) = self.link_at_cursor().map(str::to_owned) else {
+        // On a GitHub comment's author line (a review thread's, or the conversation's): that
+        // comment on GitHub. In its text: what's under the cursor, else the comment too.
+        let row = &self.rows[self.head.row];
+        let comment = self.cursor_ref().filter(|u| u.starts_with("https://") && (row.thread.is_some() || row.file == INFO));
+        let on_author = row.line.kind == Kind::Thread;
+        let url = self.link_at_cursor().map(str::to_owned).or_else(|| comment.clone().filter(|_| on_author));
+        let Some(url) = url else {
             let text = &self.rows[self.head.row].line.text;
             // After `w` the cursor is on the space after the word: the selection's start is on it.
             let on_space = text.chars().nth(self.head.col).is_none_or(char::is_whitespace);
@@ -733,14 +739,22 @@ impl App {
             if let Some((path, line)) = file_ref(text, col) {
                 return self.goto_file_line(&path, line);
             }
-            return match self.name_at_cursor() {
-                Some(name) => self.goto_definition(&name),
-                None => self.msg = "no link, file:line or name under the cursor".into(),
+            return match (self.name_at_cursor(), comment) {
+                (Some(name), _) => self.goto_definition(&name),
+                (None, Some(u)) => self.open_url(&u),
+                (None, None) => self.msg = "no link, file:line or name under the cursor".into(),
             };
         };
+        self.open_url(&url);
+    }
+
+    fn open_url(&mut self, url: &str) {
+        if cfg!(test) {
+            return self.msg = format!("opened {url}"); // (no browser from tests)
+        }
         let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
         let spawned = std::process::Command::new(opener)
-            .arg(&url)
+            .arg(url)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())

@@ -51,10 +51,7 @@ impl Hunk {
 /// The changes, placed or not, and the PR's commits (sha, subject), oldest first.
 type Plan = (Vec<Hunk>, Vec<(String, String)>);
 
-fn git_in(dir: &Path, args: &[&str]) -> Result<String> {
-    let d = dir.to_string_lossy();
-    diff::git(&[&["-C", d.as_ref()], args].concat())
-}
+use diff::git_in;
 
 /// `git diff HEAD -U0`'s hunks (binary files have none: they stay).
 fn parse(text: &str) -> Vec<Hunk> {

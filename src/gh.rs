@@ -970,7 +970,7 @@ pub fn unsigned_blocking(n: u64) -> Result<Option<String>> {
 }
 
 const INFO_FIELDS: &str = "headRefOid,title,author,state,isDraft,url,baseRefName,headRefName,additions,deletions,\
-changedFiles,labels,reviewDecision,reviewRequests,latestReviews,statusCheckRollup,body,comments,reviews,id";
+changedFiles,labels,reviewDecision,reviewRequests,latestReviews,statusCheckRollup,body,comments,reviews,id,reactionGroups";
 
 /// PR info lines, plus the current (title, head commit, url) so a refresh picks up new pushes.
 /// GitHub's answer, as JSON (dv caches it; `parse_info` reads it).
@@ -1044,6 +1044,13 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         for lb in &labels {
             l.put(" ", None).put(&format!(" {} ", s(&lb["name"])), Some(Mark::Chip(s(&lb["color"]))));
         }
+        out.push(l);
+    }
+    // The PR's own reactions (Space = on its description reacts).
+    let own = reactions(&v["reactionGroups"]);
+    if !own.is_empty() {
+        let mut l = InfoLine::new(false, false);
+        l.put("reactions", Some(Mark::Dim)).put(&format!(" {}", reactions_text(&own)), None);
         out.push(l);
     }
 

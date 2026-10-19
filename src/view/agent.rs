@@ -931,7 +931,7 @@ impl App {
         // Replies made meanwhile: one more run, unless this one went wrong (then that's the news,
         // and retrying would hit the same wall).
         if std::mem::take(&mut self.claude.again) && self.waiting_replies() > 0 {
-            match failed || refused.is_some() {
+            match failed || refused.is_some() || super::rebase::rebasing(&self.root) {
                 true => self.msg += " · your newer replies wait (Space a to retry)",
                 false => self.msg = self.answer_now(),
             }

@@ -10,6 +10,11 @@ on GitHub are its section here.
   fetches it and rebases (HEAD kept on a backup branch first); if it stops on conflicts,
   Claude resolves them and carries it on, in the background. Stopped part way, `Space g`
   asks Claude to finish it, or aborts it.
+- The PR's own reactions, among its facts (`reactions 👍 2`).
+
+### Fixed
+- `gf` on a GitHub comment (its author line; or its text, with nothing else under the cursor)
+  opens it on GitHub.
 
 ## [0.30.0] - 2026-10-19
 
