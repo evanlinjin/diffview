@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Fixed
+- 0.33.2 showed the last known signatures (and your reactions) when GitHub didn't say: from
+  the cache, as if current, even of an older head, hiding "signatures unknown". It says
+  unknown again. Asked again alone only when refused for its size; reactions partly refused,
+  which are yours is unknown (not "none").
+
 ## [0.33.2] - 2026-10-19
 
 ### Fixed

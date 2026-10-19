@@ -1084,7 +1084,7 @@ fn requires_signatures(p: &Value) -> bool {
 
 /// PR `n`'s commits' signatures, and whether its base requires them: one GraphQL query.
 pub fn signatures(n: u64) -> Result<Signatures> {
-    signatures_whole(&pr_query(n, "")?).map_err(|why| anyhow::anyhow!(why))
+    signatures_whole(&pr_query(n, "")?).map_err(|why| anyhow::anyhow!("its commits' signatures: {}", why.lines().next().unwrap_or("")))
 }
 
 /// The signatures in a `pr_query` answer, whole or not at all: a commit GitHub had trouble
@@ -1101,14 +1101,21 @@ fn signatures_whole(a: &PrAnswer) -> std::result::Result<Signatures, String> {
 /// (`None`: unknown), and its commits' signatures (else why not). Refused whole (too big with
 /// the reactions, say: not rate-limited), the signatures are asked on their own (`alone`).
 fn extras(first: Result<PrAnswer>, alone: impl FnOnce() -> Result<PrAnswer>) -> (Option<Value>, std::result::Result<Signatures, String>) {
-    let retry = matches!(first.as_ref().map_err(|e| e.downcast_ref::<Refused>()), Err(Some(r)) if r.kind != "RATE_LIMITED");
+    // (Refused for its size: asked again smaller. Not when rate-limited, forbidden, not found:
+    // the same again.)
+    let too_big = |r: &Refused| r.kind.is_empty() || r.kind.contains("LIMIT") && r.kind != "RATE_LIMITED";
+    let retry = matches!(first.as_ref().map_err(|e| e.downcast_ref::<Refused>()), Err(Some(r)) if too_big(r));
     let (answer, mine) = match first {
         Err(e) if retry => (alone().map_err(|_| e), false), // (its reason, the first: the real one)
         r => (r, true),
     };
     let first_line = |s: String| s.lines().next().unwrap_or("").to_owned();
     match answer {
-        Ok(a) => (mine.then(|| mine_of(&a.node)), signatures_whole(&a).map_err(first_line)),
+        // (Some of its reactions refused: which are yours is unknown, not "none".)
+        Ok(a) => {
+            let whole = !a.refused.iter().any(|r| matches!(r.0.as_str(), "id" | "reactionGroups" | "comments" | "reviews" | "?"));
+            ((mine && whole).then(|| mine_of(&a.node)), signatures_whole(&a).map_err(first_line))
+        }
         Err(e) => (None, Err(first_line(format!("{e:#}")))),
     }
 }
@@ -1764,6 +1771,8 @@ fn github_refusals() {
     // Only its reactions (comments) refused: the signatures stand.
     let a = pr_answer(&answer(json!([{ "path": ["repository", "pullRequest", "comments"] }])), "").unwrap();
     assert!(signatures_whole(&a).is_ok());
+    // …and which of them are yours is unknown (not "none").
+    assert!(extras(pr_answer(&answer(json!([{ "path": ["repository", "pullRequest", "comments"] }])), ""), || unreachable!()).0.is_none());
     // Its commits refused, or an error that doesn't say where: not taken as unsigned.
     for e in [json!([{ "path": ["repository", "pullRequest", "commits", "nodes", 0] }]), json!([{ "message": "timeout" }])] {
         assert!(signatures_whole(&pr_answer(&answer(e), "").unwrap()).is_err());
@@ -1784,6 +1793,8 @@ fn github_refusals() {
     let alone = || pr_answer(&answer(json!([])), "");
     let (mine, sig) = extras(refused("MAX_NODE_LIMIT_EXCEEDED"), alone);
     assert!(mine.is_none() && sig.is_ok());
-    let (_, sig) = extras(refused("RATE_LIMITED"), || unreachable!());
-    assert_eq!(sig.unwrap_err(), "GitHub: too big");
+    for kind in ["RATE_LIMITED", "FORBIDDEN", "NOT_FOUND"] {
+        let (_, sig) = extras(refused(kind), || unreachable!());
+        assert_eq!(sig.unwrap_err(), "GitHub: too big");
+    }
 }

@@ -17,26 +17,12 @@ fn fetch_github(n: u64, cache: Option<&Path>) -> Fetched {
         let info = s.spawn(|| gh::info_json(n));
         (gh::threads_json(n), info.join().unwrap_or_else(|_| Err(anyhow!("panicked"))))
     });
-    let mut info = info;
-    if let (Some(p), Ok(t), Ok(i)) = (cache, &threads, &mut info) {
-        // GitHub didn't say this time (signatures, your reactions): what it last said stands,
-        // here and in what's kept.
-        let last = cached_info(p);
-        for k in ["dvCommits", "dvCommitsTotal", "dvSignaturesRequired", "dvMine"] {
-            if i.get(k).is_none() && !last[k].is_null() {
-                i[k] = last[k].clone();
-            }
-        }
+    if let (Some(p), Ok(t), Ok(i)) = (cache, &threads, &info) {
         // Not keeping it only costs the next start its head start.
         _ = p.parent().map(std::fs::create_dir_all);
         _ = crate::claude::write(p, &json!({ "threads": t, "info": i }));
     }
     (threads.map(|t| gh::parse_threads(&t)), info.map(|i| gh::parse_info(&i)))
-}
-
-/// The PR info last kept for it (`Null` if none).
-fn cached_info(p: &Path) -> serde_json::Value {
-    std::fs::read_to_string(p).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()).map_or(serde_json::Value::Null, |v| v["info"].clone())
 }
 
 /// Where the PR's last answers from GitHub are kept, to show at once next time.
