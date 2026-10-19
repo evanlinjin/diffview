@@ -1406,7 +1406,8 @@ fn replacement_in_the_pr_section() {
     std::fs::write(clean.join("x"), "").unwrap();
     let items = s(&mut app);
     assert!(items[0].0.starts_with("Commit the uncommitted changes first") && matches!(items[0].1, Target::Do(Action::Commit)));
-    assert_eq!(items.len(), 1); // nothing to publish until then
+    assert!(matches!(items[1].1, Target::AmendMenu) && matches!(items[2].1, Target::AmendAll), "uncommitted: amend them in, too");
+    assert_eq!(items.len(), 3); // nothing to publish until then
     _ = std::fs::remove_dir_all(&clean);
     let mut r = app.replacement.clone().unwrap();
     (r.published, r.closed) = (Some(20), vec![12]);

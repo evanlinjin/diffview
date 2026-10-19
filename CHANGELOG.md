@@ -5,6 +5,10 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- `S` on a replacement with uncommitted changes offers amending them into its commits (you
+  place each change, or Claude finds where they go), besides committing them.
+
 ## [0.34.41] - 2026-10-19
 
 ### Changed

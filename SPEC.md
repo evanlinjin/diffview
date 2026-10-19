@@ -135,7 +135,8 @@ disk: rust-analyzer can index it and `hx` can open it.
    closing note as sections before the files (as a PR's description is; `a` there redrafts), and shows it again
    when the record changes. `S` there publishes it, or publishes then closes the originals
    (editor: title on the first line, then the description; not with uncommitted changes:
-   committing is offered instead; fetch and rebase onto `origin/<base>`, aborted on conflict;
+   committing them is offered instead, or amending them into its commits, as `Space g` offers
+   (you place each change, or Claude does); fetch and rebase onto `origin/<base>`, aborted on conflict;
    push to `dv.replaceRemote` (git config; asked for from the remotes other than origin when
    unset); `gh pr create --draft --head <owner>:dv/replace-N`, always a draft: it's marked ready for
    review once CI passes; `published` saved). Closing
