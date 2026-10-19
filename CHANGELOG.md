@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.37.2] - 2026-10-19
+
+### Fixed
+- A deferral's sentence: only what follows "until" says when ("Don't approve until the release"
+  isn't taken for an approval: Claude reads it), though a PR named before it counts ("#12, until
+  it's merged"). A push's head is only the word after "past", as `p` writes it (a word like
+  "defaced" brought the item straight back).
+
 ## [0.37.1] - 2026-10-19
 
 ### Fixed
