@@ -121,13 +121,12 @@ impl App {
             let done = rebase(&self.root, &onto, &backup)?;
             if done {
                 self.follow(&onto);
-                self.reload_tree();
-                return Ok(format!("rebased onto {onto} (was {short}: {backup}); Space g force-pushes (with a lease)"));
+                return Ok(self.and_reload(format!("rebased onto {onto} (was {short}: {backup}); Space g force-pushes (with a lease)")));
             }
-            self.reload_tree(); // (the diff's base stays till it's done: see follow_rebase)
+            let reload = self.reload_all(false); // (the diff's base stays till it's done: see follow_rebase)
             match self.rebase_claude() {
-                Ok(()) => Ok(format!("conflicts rebasing onto {onto}: Claude is resolving them (was {short}: {backup})")),
-                Err(e) => Ok(format!("the rebase stopped on conflicts, and Claude couldn't take it on ({e:#}): Space g aborts it")),
+                Ok(()) => Ok(with_reload(format!("conflicts rebasing onto {onto}: Claude is resolving them (was {short}: {backup})"), reload)),
+                Err(e) => Ok(with_reload(format!("the rebase stopped on conflicts, and Claude couldn't take it on ({e:#}): Space g aborts it"), reload)),
             }
         })();
         self.msg = r.unwrap_or_else(|e| format!("not rebased: {e:#}"));

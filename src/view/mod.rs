@@ -52,7 +52,7 @@ pub use term::{MOUSE, init_terminal, restore_terminal};
 pub(crate) use term::{compose_with, in_zellij};
 pub(crate) use github::prefetch_github;
 pub(crate) use render::{chip, popup_frame};
-use {agent::ClaudeState, keys::*, layout::*, motion::*, ra::*, seen::Seen, threads::*};
+use {agent::ClaudeState, git::with_reload, keys::*, layout::*, motion::*, ra::*, seen::Seen, threads::*};
 use term::*;
 #[cfg(test)]
 pub(crate) mod tests;

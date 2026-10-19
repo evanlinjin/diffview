@@ -331,8 +331,7 @@ impl App {
         if let Some(p) = self.amend_file() {
             _ = std::fs::remove_file(p); // answered for a HEAD that's gone
         }
-        self.reload_tree_or()?;
-        Ok(format!("amended into {n} commit(s) (was {short}: {backup}); Space g pushes (with a lease)"))
+        Ok(self.and_reload(format!("amended into {n} commit(s) (was {short}: {backup}); Space g pushes (with a lease)")))
     }
 
     /// `f` on a commit in the list: everything uncommitted folded into that one (new lines too).
@@ -346,8 +345,7 @@ impl App {
             hunks.iter_mut().filter(|h| !h.path.is_empty()).for_each(|h| h.to = Some(sha.to_owned()));
             let (short, backup) = self.backup_name()?;
             amend(&self.root, &self.full_base, &hunks, &backup)?;
-            self.reload_tree_or()?;
-            Ok(format!("amended into {} (was {short}: {backup}); Space g pushes (with a lease)", sha.chars().take(7).collect::<String>()))
+            Ok(self.and_reload(format!("amended into {} (was {short}: {backup}); Space g pushes (with a lease)", sha.chars().take(7).collect::<String>())))
         })();
         self.msg = r.unwrap_or_else(|e| format!("{e:#}"));
     }

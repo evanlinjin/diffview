@@ -438,8 +438,8 @@ impl App {
         _ = j.child.kill();
         _ = j.child.wait();
         self.claude.again = false;
-        self.reload_tree(); // what it changed before it stopped
         self.msg = format!("stopped Claude ({} for {}); its log: {} (and .err)", j.label, ago(j.started), j.log.display());
+        self.reload_tree(); // what it changed before it stopped
     }
 
     /// Forget the PR's Claude session, so the next run starts a new one: when it has got

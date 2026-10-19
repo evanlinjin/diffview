@@ -2834,3 +2834,12 @@ fn picker_matches_words_not_scattered_letters() {
     assert_eq!(found(&mut app, "review check"), [items[2]]);
     assert_eq!(found(&mut app, "claude's review"), [items[1], items[2]]);
 }
+
+#[test]
+fn a_failed_reload_is_said_after_what_was_done() {
+    use super::git::with_reload;
+    assert_eq!(with_reload("amended (was abc: dv-backup/x)".into(), Ok(())), "amended (was abc: dv-backup/x)");
+    let said = with_reload("amended (was abc: dv-backup/x)".into(), Err(anyhow!("git diff failed")));
+    assert!(said.starts_with("amended (was abc: dv-backup/x)") && said.contains("git diff failed"), "{said}");
+    assert_eq!(with_reload(String::new(), Err(anyhow!("git diff failed"))), "git diff failed");
+}

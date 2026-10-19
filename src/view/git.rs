@@ -2,6 +2,15 @@
 //! changed), commit it, and push it to the PR, so the review loop doesn't leave dv.
 use super::*;
 
+/// What was done (`said`), and what went wrong reloading after it (`res`), if anything.
+pub(super) fn with_reload(said: String, res: Result<()>) -> String {
+    match (said.is_empty(), res) {
+        (_, Ok(())) => said,
+        (true, Err(e)) => format!("{e:#}"),
+        (false, Err(e)) => format!("{said} (but the diff didn't reload: {e:#})"),
+    }
+}
+
 impl App {
     /// `Space g` → update the checkout: on a PR, up to its head as `gh pr checkout` does (fast-forward only: a branch
     /// with commits that aren't on the PR is left as it is, and said so); else `git pull
@@ -173,9 +182,9 @@ impl App {
         }
         let who = self.pr.as_ref().map_or(branch.replace('/', "-"), |p| format!("pr-{}", p.number));
         let kept = take_branch(std::path::Path::new("."), &theirs, &who)?.map_or(String::new(), |b| format!("; what was only here is on {b}"));
-        self.reload_tree_or()?;
+        let said = self.and_reload(format!("now at {name} as it is on GitHub{kept}"));
         self.refresh_sync();
-        Ok(format!("now at {name} as it is on GitHub{kept}"))
+        Ok(said)
     }
 
     /// Between the whole diff and only what isn't committed.
@@ -427,19 +436,25 @@ impl App {
         self.reload_tree();
     }
 
-    /// Reload the diff after the working tree changed under dv.
-    /// The working tree reloaded (and what follows from it); what went wrong, said, unless
-    /// the caller says it (`reload_tree_or`).
+    /// The diff reloaded after the working tree changed under dv (and what follows from it);
+    /// what went wrong, said after what's said (`and_reload`).
     pub(super) fn reload_tree(&mut self) {
-        if let Err(e) = self.reload_tree_or() {
-            self.msg = format!("{e:#}");
-        }
+        let said = std::mem::take(&mut self.msg);
+        self.msg = self.and_reload(said);
     }
 
-    /// `reload_tree`, its error returned: for a caller saying what came of it after.
-    pub(super) fn reload_tree_or(&mut self) -> Result<()> {
+    /// `said` (what was done), the working tree reloaded after it: with what went wrong
+    /// reloading, if anything, not in its place.
+    pub(super) fn and_reload(&mut self, said: String) -> String {
+        let res = self.reload_all(false);
+        with_reload(said, res)
+    }
+
+    /// The diff reloaded (`threads`: GitHub's too), and what follows from it: commits rewritten
+    /// followed, a retarget that waited on a rebase, the tree as seen now.
+    pub(super) fn reload_all(&mut self, threads: bool) -> Result<()> {
         self.forget_tree_colors();
-        let res = self.reload(false);
+        let res = self.reload(threads);
         self.rekey_commits(); // (commits rewritten here or elsewhere)
         self.follow_github_base(false); // (a retarget that waited on a rebase now through)
         self.tree_seen = Some(self.tree_stamp());

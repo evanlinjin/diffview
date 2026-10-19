@@ -131,11 +131,10 @@ impl App {
     /// The diff reloaded (`threads`: GitHub's too), and what came of `res` said: its error, or
     /// the reload's, or what it did.
     pub(super) fn reloaded(&mut self, res: Result<impl Into<String>>, threads: bool) {
-        self.forget_tree_colors();
-        let reload = self.reload(threads);
-        self.msg = match (res, reload) {
-            (Err(e), _) | (_, Err(e)) => format!("{e:#}"),
-            (Ok(m), Ok(())) => m.into(),
+        let reload = self.reload_all(threads);
+        self.msg = match res {
+            Ok(m) => with_reload(m.into(), reload),
+            Err(e) => format!("{e:#}"),
         };
     }
 
