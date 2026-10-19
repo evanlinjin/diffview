@@ -39,7 +39,20 @@ impl App {
             return;
         }
         let x = if self.picker.is_some() || self.popup.is_some() { x } else { x.saturating_sub(self.files_w) };
-        match m.kind {
+        // Shift and the wheel: sideways (as terminals that don't send it so).
+        let kind = match m.kind {
+            MouseEventKind::ScrollDown if m.modifiers.contains(KeyModifiers::SHIFT) => MouseEventKind::ScrollRight,
+            MouseEventKind::ScrollUp if m.modifiers.contains(KeyModifiers::SHIFT) => MouseEventKind::ScrollLeft,
+            k => k,
+        };
+        match kind {
+            // Sideways: what's under it (a comment's code block or table, or the diff), the
+            // cursor to it first, as a click.
+            MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight if self.picker.is_none() && self.popup.is_none() => {
+                let Some((row, col, _)) = self.at_screen(x, y) else { return };
+                self.goto(row, col);
+                self.hnudge = if kind == MouseEventKind::ScrollRight { 8 } else { -8 };
+            }
             MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => {
                 let down = m.kind == MouseEventKind::ScrollDown;
                 if let Some((_, _, scroll)) = &mut self.popup {

@@ -102,7 +102,8 @@ GENERAL
   Space m              messages so far, in full (the status bar cuts long ones)
   Space s              a shell in the checkout's directory (zellij: a floating pane)
   Space o              the PR's whole activity, or its latest (beside the description)
-  mouse                wheel scrolls, click moves (or folds, on an arrow), drag selects
+  mouse                wheel scrolls (Shift or sideways: the code under it), click moves (or
+                       folds, on an arrow), drag selects
   q, Ctrl-c            quit
 ";
 

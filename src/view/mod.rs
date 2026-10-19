@@ -43,6 +43,7 @@ use info::*;
 #[cfg(test)]
 pub(crate) use info::info_lines_of;
 pub(crate) use files::cut;
+pub(crate) use row::skip_cols;
 mod keys;
 mod layout;
 mod mouse;
@@ -391,6 +392,9 @@ pub struct App {
     /// scrolled sideways: only it, so the code beside it and the comment's text stay put.
     code_at: Option<usize>,
     code_left: usize,
+    /// A sideways scroll of the mouse's, to make (columns): the next frame scrolls what the
+    /// cursor's in by it, the cursor along.
+    hnudge: isize,
     height: usize,
     width: u16,
     action: Option<Action>,

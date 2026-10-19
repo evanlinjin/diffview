@@ -1817,6 +1817,16 @@ fn long_code_cut_at_the_box_edge() {
     assert!(line.contains("‹x") && !line.contains('›') && line.trim_end().ends_with("x│"), "{line}");
     let code = |s: &str| s.lines().take(20).map(|l| l.chars().take(100).collect::<String>()).collect::<Vec<_>>();
     assert_eq!((code(&s), app.left), (code(&t), 0));
+    // The mouse sideways over it (Shift and the wheel): that block scrolls, from its start.
+    use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
+    app.goto(0, 0);
+    let s = screen(220, 45, |f| app.draw(f));
+    let (y, line) = s.lines().enumerate().find(|(_, l)| l.contains("xxx")).unwrap();
+    let x = line.chars().position(|c| c == 'x').unwrap() as u16;
+    app.mouse(MouseEvent { kind: MouseEventKind::ScrollDown, column: x, row: y as u16, modifiers: KeyModifiers::SHIFT });
+    let t = screen(220, 45, |f| app.draw(f));
+    assert!(t.lines().nth(y).unwrap().contains("‹x") && app.code_left == 8, "{}", t.lines().nth(y).unwrap());
+    assert_eq!((code(&s), app.left), (code(&t), 0));
 }
 
 #[test]

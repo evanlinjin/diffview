@@ -26,6 +26,12 @@ pub struct IssueView {
     pane_x: Option<usize>,
     text_at: Vec<[std::ops::Range<usize>; 2]>,
     shown: usize,
+    /// How many lines the description takes (one column: the pane's after them).
+    desc_rows: usize,
+    /// Code blocks and tables scrolled sideways (the mouse's), the description's and the
+    /// pane's, and how far each could go (as last drawn).
+    code_left: [usize; 2],
+    code_over: [usize; 2],
     /// Whether you may label it (triage access and up): Claude's labels are suggestions else.
     can_triage: bool,
     /// Text dragged over (line, column), from where the drag began to where it is.
@@ -57,6 +63,9 @@ impl IssueView {
             pane_x: None,
             text_at: vec![],
             shown: 0,
+            desc_rows: 0,
+            code_left: [0; 2],
+            code_over: [0; 2],
             can_triage,
             sel: None,
             hl: crate::highlight::Highlighter::new(&Theme::load()),
@@ -120,12 +129,21 @@ impl IssueView {
         let repo = self.url.rsplit_once("/issues/").map(|(r, _)| r.to_owned());
         // (A code block's line in its background to the width given, as hover popups have it.)
         let code_bg = ui.md.code_bg;
-        let md = |text: &str, w: usize| -> Vec<Line<'static>> {
+        // (Code and tables scrolled sideways, as far as the side's are; how far they'd go.)
+        let over = std::cell::Cell::new([0; 2]);
+        let md = |text: &str, w: usize, side: usize| -> Vec<Line<'static>> {
             crate::md::render(text, w, &ui.md, &self.hl, repo.as_deref())
                 .into_iter()
                 .map(|l| {
                     let code = code_bg.filter(|&bg| l.nowrap && l.styles.last().copied().flatten().and_then(|s| s.bg) == Some(bg));
+                    let nowrap = l.nowrap;
                     let mut line = l.into_line();
+                    if nowrap {
+                        let mut o = over.get();
+                        o[side] = o[side].max(line.width().saturating_sub(w));
+                        over.set(o);
+                        line.spans = crate::view::skip_cols(line.spans, self.code_left[side]);
+                    }
                     if let Some(bg) = code {
                         line.spans.push(Span::styled(" ".repeat(w.saturating_sub(line.width())), Style::new().bg(bg)));
                     }
@@ -156,7 +174,7 @@ impl IssueView {
         // The description, as the PR view's text.
         let mut left = vec![Line::from(Span::styled(format!("  {}", self.url), dim)), Line::default(), Line::from(Span::styled("  description", ui.heading.add_modifier(ratatui::style::Modifier::BOLD)))];
         let body = if self.body.trim().is_empty() { "_(no description)_" } else { &self.body };
-        left.extend(md(body, left_w.saturating_sub(4).max(20)).into_iter().map(|mut l| {
+        left.extend(md(body, left_w.saturating_sub(4).max(20), 0).into_iter().map(|mut l| {
             l.spans.insert(0, Span::raw("  "));
             l
         }));
@@ -170,7 +188,7 @@ impl IssueView {
         {
             let title = ["claude's triage".to_owned(), self.t("kind"), self.t("priority")].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ");
             let mut b = match triaged {
-                true => md(&self.t("summary"), inner),
+                true => md(&self.t("summary"), inner, 1),
                 false => vec![Line::from(Span::styled("none yet: a a triages it", dim))],
             };
             {
@@ -178,7 +196,7 @@ impl IssueView {
                 let mut said = |k: &str, v: String| {
                     if !v.is_empty() {
                         b.push(Line::default());
-                        b.extend(md(&format!("**{k}:** {v}"), inner));
+                        b.extend(md(&format!("**{k}:** {v}"), inner, 1));
                     }
                 };
                 said("next", self.t("next"));
@@ -187,7 +205,7 @@ impl IssueView {
                 said("close (X X)", self.t("close"));
                 if let Some(c) = self.closing().filter(|c| !c.is_empty()) {
                     b.extend([Line::default(), Line::from(Span::styled("closing comment:", ui.key))]);
-                    b.extend(md(&c, inner));
+                    b.extend(md(&c, inner, 1));
                 }
             }
             right.extend(bubble(claude(title), b, right_w));
@@ -199,11 +217,12 @@ impl IssueView {
             if !when.is_empty() {
                 title.push(Span::styled(format!(" · {}", gh::ago(when)), dim));
             }
-            right.extend(bubble(title, md(body, inner), right_w));
+            right.extend(bubble(title, md(body, inner, 1), right_w));
         }
         // Side by side, a dim line between; or one after the other.
         // (The description's text: after its margin.)
         let desc = 2..left_w;
+        self.desc_rows = left.len();
         let (out, text_at): (Vec<_>, Vec<_>) = match two {
             true => (0..left.len().max(right.len()))
                 .map(|k| {
@@ -223,6 +242,7 @@ impl IssueView {
                 .unzip(),
         };
         (self.lines, self.width, self.pane_x, self.text_at, self.sel) = (out, width, two.then_some(left_w + 1), text_at, None);
+        self.code_over = over.get();
     }
 
     /// How it closes, as its triage says (`--reason` of `gh issue close`, and for a duplicate,
@@ -290,6 +310,16 @@ impl IssueView {
         let at = (self.scroll + y.min(self.shown.saturating_sub(1)), x);
         match kind {
             MouseEventKind::Down(MouseButton::Left) => self.sel = Some((at, at)),
+            // Sideways: the code blocks and tables of the side it's over.
+            MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight => {
+                let side = match self.pane_x {
+                    Some(p) => (x >= p) as usize,
+                    None => (at.0 >= self.desc_rows) as usize,
+                };
+                let by = if kind == MouseEventKind::ScrollRight { 8 } else { -8 };
+                self.code_left[side] = (self.code_left[side] as isize + by).clamp(0, self.code_over[side] as isize) as usize;
+                self.redraw();
+            }
             MouseEventKind::Drag(MouseButton::Left) | MouseEventKind::Up(MouseButton::Left) if self.sel.is_some() => {
                 if let Some((_, b)) = &mut self.sel {
                     *b = at;
@@ -350,7 +380,8 @@ MOVE
   j k, Up Down         scroll
   Ctrl-d Ctrl-u        half a page down / up
   gg ge                top / end
-  mouse                wheel scrolls; a drag copies the text it's over (one side's)
+  mouse                wheel scrolls (Shift or sideways: the code blocks); a drag copies
+                       the text it's over (one side's)
   q, Esc               back to the issues
   ?                    this help
 
@@ -375,7 +406,7 @@ fn an_issue_and_its_triage() {
     let mut v = IssueView {
         number: 7, title: "panic".into(), author: "amy".into(), url: "https://github.com/o/r/issues/7".into(),
         body: "It **panics**.".into(), labels: vec![("bug".into(), "d73a4a".into())],
-        comments: vec![("bo".into(), String::new(), "Same here.".into())], triage, scroll: 0, lines: vec![], width: 0, pane_x: None, text_at: vec![], shown: 0, can_triage: true, sel: None,
+        comments: vec![("bo".into(), String::new(), "Same here.".into())], triage, scroll: 0, lines: vec![], width: 0, pane_x: None, text_at: vec![], shown: 0, desc_rows: 0, code_left: [0; 2], code_over: [0; 2], can_triage: true, sel: None,
         hl: crate::highlight::Highlighter::default(),
     };
     assert_eq!(v.new_labels(), ["chain"]); // bug it has
@@ -414,6 +445,17 @@ fn an_issue_and_its_triage() {
     let row = v.lines.iter().position(|l| l.to_string().contains("It panics.")).unwrap();
     v.mouse(MouseEventKind::Down(MouseButton::Left), 0, row);
     assert_eq!(v.mouse(MouseEventKind::Up(MouseButton::Left), p - 2, row).as_deref(), Some("It panics."));
+    // Sideways over the description: its code, from its start.
+    v.body = format!("```\n{}\n```", "x".repeat(300));
+    v.redraw();
+    let _ = screen(160, 22, |f| v.draw(f, &ui, f.area()));
+    assert!(v.lines.iter().any(|l| l.to_string().contains("  xxx")));
+    v.mouse(MouseEventKind::ScrollRight, 2, 0);
+    let _ = screen(160, 22, |f| v.draw(f, &ui, f.area()));
+    assert_eq!(v.code_left, [8, 0]);
+    v.mouse(MouseEventKind::ScrollLeft, 2, 0);
+    v.mouse(MouseEventKind::ScrollLeft, 2, 0);
+    assert_eq!(v.code_left, [0, 0]);
     // A click: nothing, and nothing left selected.
     v.mouse(MouseEventKind::Down(MouseButton::Left), 2, 0);
     assert_eq!(v.mouse(MouseEventKind::Up(MouseButton::Left), 2, 0), None);

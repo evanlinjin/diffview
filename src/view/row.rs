@@ -49,7 +49,7 @@ pub(super) fn clip(spans: Vec<Span<'static>>, w: usize) -> Vec<Span<'static>> {
 }
 
 /// `spans` without their first `n` columns.
-pub(super) fn skip_cols(spans: Vec<Span<'static>>, n: usize) -> Vec<Span<'static>> {
+pub(crate) fn skip_cols(spans: Vec<Span<'static>>, n: usize) -> Vec<Span<'static>> {
     let mut left = n;
     let mut out = vec![];
     for sp in spans {
