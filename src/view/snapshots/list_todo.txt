@@ -9,4 +9,4 @@
                                                     m     mark
                                                     a a   Claude does its part (marked)
                                                     A A   Claude drafts a replacement
-                                   ranked 0s ago, cost $0.38, nothing's changed since  ·  auto off
+                                   ranked 1h ago, cost $0.38, nothing's changed since  ·  auto off

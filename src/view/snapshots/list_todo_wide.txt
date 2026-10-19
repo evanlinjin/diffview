@@ -9,4 +9,4 @@
         b                                                                                                                       │
                                                                                                                                 │
 
- ? keys                                                                                                         ranked 0s ago, cost $0.38, since: 1 changed  ·  auto off
+ ? keys                                                                                                         ranked 1h ago, cost $0.38, since: 1 changed  ·  auto off
