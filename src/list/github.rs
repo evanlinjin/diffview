@@ -285,6 +285,9 @@ impl List {
         if mtime != self.reviews_mtime {
             self.reviews_mtime = mtime;
             self.reviewed = crate::batch::reviewed_in(dir);
+            // What's new, what needs you, what Claude would close: from the reviews as they are.
+            self.find_new();
+            self.find_todo();
         }
     }
 

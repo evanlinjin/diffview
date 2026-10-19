@@ -281,7 +281,6 @@ fn todo_tab() {
     assert_eq!((Tab::Open.next(), Tab::CanClose.prev()), (Tab::CanClose, Tab::Open));
     _ = std::fs::remove_file(dir.join("reviews/pr-2.json"));
     l.find_todo();
-    l.find_todo();
     l.tab = Tab::Todo;
     let shown = |l: &List| l.shown().iter().map(|p| p.number).collect::<Vec<_>>();
     // Answered (75) before requested (70) before no review (30); yours with nothing else isn't on it.

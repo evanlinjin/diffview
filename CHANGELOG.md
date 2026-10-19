@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.61] - 2026-10-19
+
+### Fixed
+- `dv list` takes in a review Claude writes while you're on it (from a PR's view, another dv):
+  what's new, the todo tab and the can close tab follow at once, not at GitHub's next refresh.
+
 ## [0.34.60] - 2026-10-19
 
 ### Fixed
