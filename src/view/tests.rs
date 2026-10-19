@@ -2620,7 +2620,7 @@ fn hidden_conversation_comment_folded() {
     let pr = app.pr.take();
     app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), url: "u".into(), ..Default::default() });
     app.start_conversation_comment();
-    assert!(matches!(app.action.take(), Some(Action::Converse { ref quote, .. }) if quote.is_empty()));
+    assert!(matches!(app.action.take(), Some(Action::Converse { ref quote, .. }) if !quote.contains("buy now") && quote.contains("not quoted")));
     app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
     assert!(app.msg.starts_with("it's hidden on GitHub") && !app.summary_draft.contains("buy now"));
     app.pr = pr;

@@ -94,6 +94,7 @@ pub struct Comment {
 
 
 /// Where a new comment goes. Lines are file line numbers on the given side.
+#[derive(Clone)]
 pub struct Anchor {
     pub path: String,
     pub line: u32,

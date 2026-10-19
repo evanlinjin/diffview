@@ -284,6 +284,7 @@ const MARGIN_CODE_MIN: usize = 80;
 const MARGIN_CODE_MAX: usize = 200;
 
 /// Work that needs the terminal back (an editor), run between frames.
+#[derive(Clone)]
 enum Action {
     /// A shell in the checkout's directory: a floating pane in zellij, else this terminal.
     Shell,
@@ -723,6 +724,9 @@ pub struct App {
     seen: Seen,
     /// The `hx` pane dv opened (inside zellij), reused for the next file.
     hx: Option<HxPane>,
+    /// What's being written in the editor's pane (inside zellij), dv going on meanwhile: done
+    /// again once it's written, the editor's text taken then (`term::written`).
+    writing: Option<Action>,
     /// When dv last looked at the working tree, and what it saw (`watch_tree`).
     tree_checked: std::time::Instant,
     tree_seen: Option<(Option<std::time::SystemTime>, u64)>,
@@ -936,6 +940,7 @@ impl App {
             seen: Seen { keys: HashSet::new(), before: HashSet::new(), path: None, current: vec![], conversation: false, since: std::time::Instant::now() },
             claude: ClaudeState::default(),
             hx: None,
+            writing: None,
             tree_checked: std::time::Instant::now(),
             tree_seen: None,
             msgs: vec![],
@@ -994,6 +999,11 @@ impl App {
             self.watch_replacement();
             self.poll_claude();
             self.watch_claude_pane();
+            // Written (the editor's pane closed): what asked for it goes on, with the text.
+            if term::written() {
+                self.action = self.writing.take();
+                focus_dv();
+            }
             if let Some(a) = self.action.take() {
                 // In zellij the editor gets a pane on the right and dv stays on screen beside it.
                 let in_pane = in_zellij();
@@ -1002,7 +1012,14 @@ impl App {
                 }
                 // Anything to post is queued as a job (it runs after a "posting…" frame, then
                 // refetches); here only the diff reloads, as hx may have changed files.
-                let res = self.perform(a);
+                let again = a.clone();
+                let res = term::writing_beside(|| self.perform(a));
+                // The editor in its pane, dv going on: the rest once it's written.
+                if res.as_ref().is_err_and(|e| e.is::<term::Writing>()) {
+                    self.writing = Some(again);
+                    self.msg = "writing in the editor's pane: dv's yours meanwhile (save and quit there to send; :cq cancels)".into();
+                    continue;
+                }
                 self.hl_cache.retain(|k, _| !k.1); // working-tree files may have changed; the base can't
                 if !in_pane {
                     *term = init_terminal();

@@ -666,9 +666,9 @@ impl App {
         let who = head.text.split(" · ").next().unwrap_or("");
         // What's selected of it, else all of it.
         // (Hidden on GitHub, unseen: not quoted; Claude reads it at the link.)
-        let quote = match self.unseen(&head.hidden, &head.node) {
-            true => format!("— {}, not shown here", gh::hidden_words(&head.hidden)),
-            false => self.selected_quote().unwrap_or_else(|| super::quote(&text.text)),
+        let quote = match self.seen_info(body) {
+            None => format!("— {}, not shown here", gh::hidden_words(&head.hidden)),
+            Some(_) => self.selected_quote().unwrap_or_else(|| super::quote(&text.text)),
         };
         Some((head.url.clone(), format!("About {who}'s comment ({}):\n{quote}", head.url)))
     }
@@ -688,7 +688,8 @@ impl App {
     }
 
     /// `a` on a GitHub review thread: a comment for Claude on its lines, asking about the comment
-    /// under the cursor (quoted, with its link and id, so Claude reads it and the thread).
+    /// under the cursor (quoted unless it's hidden on GitHub, with its link, else its id, so
+    /// Claude reads it and the thread).
     fn ask_about(&mut self, t: usize) {
         let th = &self.threads[t];
         let Some(line) = th.line else { return self.msg = "this thread is outdated: its lines aren't in the diff to ask about".into() };

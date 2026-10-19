@@ -451,7 +451,7 @@ impl App {
             return;
         };
         match c.can_edit {
-            true if self.seen_body(c).is_none() => self.msg = "it's hidden on GitHub: Tab on it shows it first".into(),
+            true if self.seen_body(c).is_none() => self.msg = HIDDEN_FIRST.into(),
             true => {
                 let (comment, body, author) = (c.node_id.clone(), c.body.clone(), c.author.clone());
                 self.action = Some(Action::Edit { comment, body, author });
@@ -1100,7 +1100,7 @@ impl App {
         for (ti, t) in self.threads.iter().enumerate() {
             for (ci, c) in t.comments.iter().enumerate().filter(|(_, c)| c.pending) {
                 let line = t.line.or(t.original_line).map_or(String::new(), |n| format!(":{n}"));
-                let kind = match (ci, c.body.contains("```suggestion")) {
+                let kind = match (ci, self.seen_body(c).is_some_and(|b| b.contains("```suggestion"))) {
                     (_, true) => "suggestion",
                     (0, _) => "comment",
                     _ => "reply",
@@ -1327,8 +1327,12 @@ impl App {
             return self.msg = "no PR for this branch".into();
         }
         let row = &self.rows[self.head.row];
-        let text = row.info.and_then(|i| self.seen_info(i)).map(|l| l.text.as_str());
-        let quote = text.map_or(String::new(), quote);
+        let i = row.info.filter(|&i| i < self.info.len());
+        // (Hidden on GitHub, unseen: not quoted, and the editor says why.)
+        let quote = match i.map(|i| self.seen_info(i)) {
+            Some(None) => format!("{HINT} not quoted: it's hidden on GitHub (Tab on it shows it) -->\n"),
+            i => i.flatten().map_or(String::new(), |l| quote(&l.text)),
+        };
         self.action = Some(Action::Converse { quote, as_is: false });
     }
 
@@ -1336,11 +1340,9 @@ impl App {
     /// of your pending review's text.
     fn quote_into_summary(&mut self) {
         let i = self.rows[self.head.row].info.filter(|&i| i < self.info.len());
-        if i.is_some_and(|i| self.seen_info(i).is_none()) {
-            return self.msg = "it's hidden on GitHub: Tab shows it first".into();
-        }
-        match i.and_then(|i| self.seen_info(i)).filter(|l| l.md && !l.text.trim().is_empty()) {
-            Some(l) if self.pr.is_some() => {
+        match i.map(|i| self.seen_info(i)) {
+            Some(None) => self.msg = HIDDEN_FIRST.into(),
+            Some(Some(l)) if l.md && !l.text.trim().is_empty() && self.pr.is_some() => {
                 let q = quote(&l.text);
                 self.add_to_summary(q.trim_end());
             }
@@ -1410,6 +1412,9 @@ impl App {
         heads.saturating_sub(1)
     }
 }
+
+/// What `c`, `Space e` and the like say on a comment hidden on GitHub, not shown here.
+const HIDDEN_FIRST: &str = "it's hidden on GitHub: Tab on it shows it first";
 
 /// How long the cursor stays on a thread before its comments count as seen.
 const SEEN_AFTER: std::time::Duration = std::time::Duration::from_secs(3);

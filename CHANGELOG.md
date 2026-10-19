@@ -5,6 +5,18 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.14] - 2026-10-19
+
+### Changed
+- Inside zellij, writing a comment (a reply, a commit message, …) no longer freezes dv: the
+  editor's pane opens beside it and dv stays usable; what you wrote goes once you save and
+  quit (`:cq` cancels). One at a time: starting another says to finish the first.
+
+### Fixed
+- `C` on a hidden conversation comment says in the editor why it isn't quoted; the pending
+  picker doesn't tell a hidden comment's kind from its text; the hidden-comment rule is in
+  one place for the PR's text too.
+
 ## [0.34.13] - 2026-10-19
 
 ### Fixed

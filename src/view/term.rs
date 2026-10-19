@@ -94,10 +94,67 @@ pub(crate) fn focus_dv() {
     }
 }
 
+/// In zellij, dv goes on while you write: the editor in a pane of its own, not waited for.
+/// `compose_with` then fails with this, and what asked is done again once it's written, the
+/// text then at hand (`written`).
+#[derive(Debug)]
+pub(crate) struct Writing;
+
+impl std::fmt::Display for Writing {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("writing in the editor's pane")
+    }
+}
+
+impl std::error::Error for Writing {}
+
+thread_local! {
+    /// Whether the editor may run beside dv, not waited for (`writing_beside`).
+    static BESIDE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// The file being written in the editor's pane, and where its exit status lands once it quits.
+static PANE: std::sync::Mutex<Option<(PathBuf, PathBuf)>> = std::sync::Mutex::new(None);
+/// What was written there (and whether the editor quit cleanly), for the one doing it again.
+static WRITTEN: std::sync::Mutex<Option<(String, bool)>> = std::sync::Mutex::new(None);
+
+/// `f`, with the editor (in zellij) beside dv rather than waited for.
+pub(super) fn writing_beside<T>(f: impl FnOnce() -> T) -> T {
+    BESIDE.set(in_zellij());
+    let out = f();
+    BESIDE.set(false);
+    out
+}
+
+/// Whether what was being written in the editor's pane is done (it quit): its text is then
+/// at hand for `compose_with`.
+pub(super) fn written() -> bool {
+    let mut pane = PANE.lock().unwrap();
+    let Some((path, done)) = pane.as_ref() else { return false };
+    let Ok(status) = std::fs::read_to_string(done) else { return false };
+    let text = std::fs::read_to_string(path).unwrap_or_default();
+    _ = (std::fs::remove_file(path), std::fs::remove_file(done));
+    *WRITTEN.lock().unwrap() = Some((text, status.trim() == "0"));
+    *pane = None;
+    true
+}
+
 /// Like `compose`, with `prefill` above the cursor (e.g. a quote). Leaving only the prefill
 /// counts as empty, unless `untouched_ok` (the prefill is a draft to post as is).
 pub(crate) fn compose_with(what: &str, allow_empty: bool, prefill: &str, untouched_ok: bool) -> Result<Option<String>> {
     const MARK: &str = HINT;
+    let finish = |text: &str, ok: bool| {
+        let body = clean_body(text, MARK, if untouched_ok { "" } else { prefill });
+        Ok((ok && (allow_empty || !body.is_empty())).then_some(body))
+    };
+    // Written beside dv: the text, as the editor left it.
+    if let Some((text, ok)) = WRITTEN.lock().unwrap().take() {
+        return finish(&text, ok);
+    }
+    let beside = BESIDE.get();
+    if beside && PANE.lock().unwrap().is_some() {
+        anyhow::bail!("you're writing in the editor's pane already: save and quit there first (:cq cancels)");
+    }
     let path = std::env::temp_dir().join(format!("dv-comment-{}.md", std::process::id()));
     let hint = if allow_empty { "leave empty for none; :cq to cancel" } else { "leave empty to cancel" };
     std::fs::write(&path, format!("{prefill}\n{MARK} {what}. Save and quit when done; {hint}. -->\n"))?;
@@ -112,11 +169,30 @@ pub(crate) fn compose_with(what: &str, allow_empty: bool, prefill: &str, untouch
         false => path.display().to_string(),
     };
     let args: Vec<String> = parts.map(str::to_owned).chain([arg]).collect();
+    if beside {
+        // Not waited for: its exit status written to `done` as it quits (`written` looks).
+        let done = path.with_extension("done");
+        _ = std::fs::remove_file(&done);
+        let q = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
+        let script = format!("\"$0\" \"$@\"; echo $? > {}", q(&done.to_string_lossy()));
+        let st = std::process::Command::new("zellij")
+            .args(zellij_run())
+            .args(["--close-on-exit", "--name", &format!("dv: {what}"), "--cwd"])
+            .arg(std::env::current_dir()?)
+            .args(["--", "sh", "-c", &script, prog])
+            .args(&args)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()?;
+        anyhow::ensure!(st.success(), "zellij run failed ({st})");
+        *PANE.lock().unwrap() = Some((path, done));
+        return Err(Writing.into());
+    }
     let st = interactive(prog, &args, &format!("dv: {what}"))?;
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     _ = std::fs::remove_file(&path);
-    let body = clean_body(&text, MARK, if untouched_ok { "" } else { prefill });
-    Ok((st.success() && (allow_empty || !body.is_empty())).then_some(body))
+    finish(&text, st.success())
 }
 
 /// Copy to the system clipboard via OSC 52 (handled by the terminal; works over SSH).
@@ -136,4 +212,22 @@ pub(super) fn base64(b: &[u8]) -> String {
         }
     }
     o
+}
+
+#[test]
+fn written_beside_then_done_again() {
+    // The editor's pane quit (status 0), having written this: what asked takes it, once.
+    let dir = std::env::temp_dir().join(format!("dv-beside-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (path, done) = (dir.join("c.md"), dir.join("c.done"));
+    std::fs::write(&path, format!("> quote\n\nmy reply\n{HINT} reply. Save and quit when done -->\n")).unwrap();
+    *PANE.lock().unwrap() = Some((path.clone(), done.clone()));
+    assert!(!written()); // still writing
+    std::fs::write(&done, "0\n").unwrap();
+    assert!(written() && !path.exists() && !written());
+    assert_eq!(compose_with("reply", false, "> quote", false).unwrap().as_deref(), Some("> quote\n\nmy reply"));
+    // `:cq`: cancelled.
+    *WRITTEN.lock().unwrap() = Some(("x\n".into(), false));
+    assert_eq!(compose_with("reply", false, "", false).unwrap(), None);
+    std::fs::remove_dir_all(dir).unwrap();
 }

@@ -602,13 +602,13 @@ impl App {
     /// The same for the PR's text: `info` line `i`, unless it's a conversation comment's,
     /// hidden on GitHub and not shown here.
     pub(super) fn seen_info(&self, i: usize) -> Option<&gh::InfoLine> {
-        let head = self.info.get(i.checked_sub(1)?).filter(|h| h.heading);
+        let head = i.checked_sub(1).and_then(|h| self.info.get(h)).filter(|h| h.heading);
         self.info.get(i).filter(|_| !head.is_some_and(|h| self.unseen(&h.hidden, &h.node)))
     }
 
     /// A review comment's text for a list, or (hidden on GitHub, unseen) that it's hidden.
-    pub(super) fn gist(&self, c: &gh::Comment) -> String {
-        self.seen_body(c).map_or_else(|| format!("_({})_", gh::hidden_words(&c.hidden)), str::to_owned)
+    pub(super) fn gist<'a>(&self, c: &'a gh::Comment) -> std::borrow::Cow<'a, str> {
+        self.seen_body(c).map_or_else(|| format!("_({})_", gh::hidden_words(&c.hidden)).into(), Into::into)
     }
 
     /// Whether row `r` is the folded line of a conversation comment hidden on GitHub.
@@ -617,8 +617,7 @@ impl App {
     }
 
     fn hidden_row(&self, row: &Row) -> bool {
-        let head = row.info.and_then(|b| self.info.get(b.checked_sub(1)?)).filter(|l| l.heading);
-        row.file == INFO && row.thread.is_none() && row.line.kind == Kind::Thread && head.is_some_and(|l| self.unseen(&l.hidden, &l.node))
+        row.file == INFO && row.thread.is_none() && row.line.kind == Kind::Thread && row.info.is_some_and(|i| i < self.info.len() && self.seen_info(i).is_none())
     }
 
     /// The comment hidden on GitHub under the cursor (its node id), for Tab to show or hide:
