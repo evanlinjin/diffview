@@ -8,10 +8,10 @@ impl List {
     }
 
     /// A card's rows: 3 in a wide window (two zones), else 4, and a blank one between cards; on
-    /// the todo tab, one more, for what needs you.
+    /// the todo and can close tabs, one more under the title (what needs you, why to close it).
     pub(super) fn card_rows(&self) -> usize {
         let lines = if self.wide { 3 } else { 4 };
-        lines + usize::from(self.tab == Tab::Todo) + 1
+        lines + usize::from(matches!(self.tab, Tab::Todo | Tab::CanClose)) + 1
     }
 
     pub(super) fn draw(&mut self, f: &mut Frame) {
@@ -39,7 +39,7 @@ impl List {
         let names = [
             (Tab::Todo, format!("todo {}", self.todo_now())),
             (Tab::Open, format!("open {open}{}", if self.prs.len() >= github::LIST_MAX { "+" } else { "" })),
-            (Tab::CanClose, format!("can close {}", self.prs.iter().filter(|p| p.open() && self.closable.contains_key(&p.number)).count())),
+            (Tab::CanClose, format!("close {}", self.prs.iter().filter(|p| p.open() && self.closable.contains_key(&p.number)).count())),
             (Tab::Worktrees, format!("worktrees {}", self.local.len())),
             (Tab::Replacements, format!("drafts {}", self.reps.len())),
         ];

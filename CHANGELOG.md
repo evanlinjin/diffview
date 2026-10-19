@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.60] - 2026-10-19
+
+### Fixed
+- `dv list`'s can close tab: its cards' height counts the line saying why (the last was cut
+  off, clicks picked the wrong card); it's up to date as soon as Claude's review is (it waited
+  for GitHub); a reason from a review of an older head says so; the tab is "close N", so the
+  top bar keeps every tab's count.
+
 ## [0.34.59] - 2026-10-19
 
 ### Added

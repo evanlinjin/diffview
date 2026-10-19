@@ -590,8 +590,6 @@ impl List {
     /// Claude's review since you last left it in dv. Of those you've never opened, only the ones
     /// Claude has reviewed (else every PR would be new).
     fn find_new(&mut self) {
-        // (Claude's reviews changed meanwhile, as what's new: which it would close too.)
-        self.closable = self.reviews_dir.as_deref().map(crate::batch::closable_in).unwrap_or_default();
         self.new = self
             .prs
             .iter()

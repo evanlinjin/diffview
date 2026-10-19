@@ -15,9 +15,17 @@ impl List {
             Some(t.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs() as i64)
         };
         let mut items = vec![];
+        // (Reading each review: which Claude would close too, the "can close" tab.)
+        let mut closable = HashMap::new();
         for p in self.prs.iter().filter(|p| p.open()) {
             let file = dir.as_ref().map(|d| d.join(format!("pr-{}.json", p.number)));
             let review = file.as_ref().and_then(|f| crate::claude::load(f).ok().flatten());
+            if let Some(r) = review.as_ref().filter(|r| !r.close.trim().is_empty()) {
+                // (Reviewed at an older head: as the todo tab has it, its review's to update.)
+                let head = self.extra.get(&p.number).map_or("", |e| e.head_oid.as_str());
+                let older = !r.head.is_empty() && !head.is_empty() && r.head != head;
+                closable.insert(p.number, format!("{}{}", r.close.trim(), if older { " (reviewed at an older head)" } else { "" }));
+            }
             let looked = seen.as_ref().and_then(|s| std::fs::read_to_string(s.join(format!("pr-{}.looked", p.number))).ok()?.trim().parse().ok());
             let (f, c, head_at) = self.unpushed.get(&p.number).copied().unwrap_or((0, 0, None));
             let ci_note = ci.as_ref().and_then(|d| crate::claude::ci_note_at(&d.join(format!("pr-{}.json", p.number))));
@@ -27,6 +35,7 @@ impl List {
                 items.push(Item { rep: false, number: p.number, needs, claude, updated: p.updated.clone(), reason: None, changed: false, deferred: None, busy: None, waits: None });
             }
         }
+        self.closable = closable;
         for r in self.rep_of.values() {
             let needs = todo::rep_needs(r);
             let updated = self.reps.iter().find(|c| c.number == r.id).map_or(String::new(), |c| c.updated.clone());

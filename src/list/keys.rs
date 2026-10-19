@@ -5,10 +5,10 @@ pub(super) const HELP: &str = "\
   j k, Up Down         move
   gg ge                first / last PR
   Ctrl-d Ctrl-u        half a page down / up
-  gn gp                todo (what needs you, ranked) / open PRs / PRs with a local worktree
-                       (<repo>-N, as dv N -w makes) / replacements (Claude's drafts, unpublished).
-                       Can close (after open): what Claude's reviews would close, and why (its
-                       premise is wrong, or a competing PR does it better)
+  gn gp                todo (what needs you, ranked) / open PRs / can close (what Claude's
+                       reviews would close, and why: its premise is wrong, or a competing PR
+                       does it better) / PRs with a local worktree (<repo>-N, as dv N -w
+                       makes) / replacements (Claude's drafts, unpublished)
                        On todo: a PR or replacement waiting on you (Claude's review or answers,
                        your review requested or none yet, pushed since you reviewed, ready to
                        merge, a replacement to publish or close for), in the order Claude puts

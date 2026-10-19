@@ -218,15 +218,6 @@ pub fn reviewed() -> std::collections::HashSet<u64> {
 }
 
 /// The PRs with a review in `dir`.
-/// The PRs Claude's reviews in `dir` would close, and why (`claude::Review::close`).
-pub fn closable_in(dir: &std::path::Path) -> std::collections::HashMap<u64, String> {
-    reviewed_in(dir)
-        .into_iter()
-        .filter_map(|n| Some((n, crate::claude::load(&dir.join(format!("pr-{n}.json"))).ok()??.close)))
-        .filter(|(_, why)| !why.trim().is_empty())
-        .collect()
-}
-
 pub fn reviewed_in(dir: &std::path::Path) -> std::collections::HashSet<u64> {
     let Ok(entries) = std::fs::read_dir(dir) else { return Default::default() };
     entries

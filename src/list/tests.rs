@@ -274,12 +274,13 @@ fn todo_tab() {
     std::fs::write(dir.join("reviews/pr-3.json"), review).unwrap();
     // #2: Claude would close it; the "can close" tab (after open) has it, and why.
     std::fs::write(dir.join("reviews/pr-2.json"), r##"{"head": "h", "summary": "no", "close": "#1 does this better"}"##).unwrap();
-    l.find_new();
+    l.find_todo();
     l.tab = Tab::CanClose;
     assert_eq!(l.shown().iter().map(|p| p.number).collect::<Vec<_>>(), [2]);
+    snapshot("list_can_close", &screen(100, 8, |f| l.draw(f)));
     assert_eq!((Tab::Open.next(), Tab::CanClose.prev()), (Tab::CanClose, Tab::Open));
     _ = std::fs::remove_file(dir.join("reviews/pr-2.json"));
-    l.find_new();
+    l.find_todo();
     l.find_todo();
     l.tab = Tab::Todo;
     let shown = |l: &List| l.shown().iter().map(|p| p.number).collect::<Vec<_>>();

@@ -1,0 +1,8 @@
+  todo 3   open 3   close 1   worktrees 0   keys
+▌   #2  Docs                                Enter review (Space a there drafts a closing comment)
+▌      ✕ #1 does this better                gn gp PRs with a worktree
+▌       @bo   +0 −0 in 1 file               /     filter
+▌                                           o O   sort / reverse
+▌       b                                   R     refresh (from GitHub)
+                                            m     mark
+                                                                         by created ↓  ·  auto off
