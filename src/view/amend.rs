@@ -162,6 +162,13 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], backup: &str) -> Res
     anyhow::ensure!(!targets.is_empty(), "nothing placed to amend");
     // (Its own rebase it aborts if it fails: not one stopped part way, yours or Claude's.)
     anyhow::ensure!(!super::rebase::rebasing(dir), "a rebase is stopped part way here: finish or abort it first");
+    // New files only marked (`git add -N`): added for real, as `--autostash` can't stash them,
+    // and `write-tree` would leave them out (untracked, back as it was).
+    let marked = git_in(dir, &["diff", "--name-only", "--no-relative", "--diff-filter=A", "-z"])?;
+    let marked: Vec<&str> = marked.split('\0').filter(|f| !f.is_empty()).collect();
+    if !marked.is_empty() {
+        git_in(dir, &[&["add", "--"], marked.as_slice()].concat())?;
+    }
     // What you staged, to put back if nothing goes in (and a conflicted file: refused here).
     let staged = git_in(dir, &["write-tree"]).context("unmerged files here: resolve them first")?.trim().to_owned();
     let orig = git_in(dir, &["rev-parse", "HEAD"])?.trim().to_owned();
@@ -169,7 +176,7 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], backup: &str) -> Res
     let gitdir = std::path::PathBuf::from(git_in(dir, &["rev-parse", "--absolute-git-dir"])?.trim());
     let (patch, index) = (gitdir.join("dv-amend.patch"), gitdir.join("dv-amend.index"));
     // The fixup commits are made in an index of dv's own, so what you staged needn't be unstaged
-    // first (it comes back unstaged, as `--autostash` puts it back; new files stay added).
+    // first (what's left may come back staged or not; new files stay added).
     let own = |args: &[&str]| -> Result<()> {
         let out = std::process::Command::new("git").arg("-C").arg(dir).args(args).env("GIT_INDEX_FILE", &index).output()?;
         anyhow::ensure!(out.status.success(), "git {}: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim());
@@ -378,7 +385,7 @@ impl App {
 
     fn try_amend(&mut self) -> Result<String> {
         anyhow::ensure!(!self.claude_busy(), "Claude is still at work here: amend once it's done");
-        let (hunks, _) = self.amend_plan()?;
+        let (hunks, commits) = self.amend_plan()?;
         let (short, backup) = self.backup_name()?;
         let (n, skipped) = amend(&self.root, &self.full_base, &hunks, &backup)?;
         if let Some(p) = self.amend_file() {
@@ -386,10 +393,11 @@ impl App {
         }
         let left = match skipped.as_slice() {
             [] => String::new(),
+            // By its subject: its sha may be gone (an older one amended rewrote it).
             [(t, why), ..] => format!(
-                "; {} left uncommitted ({}: {why}): f on a later commit folds them there",
-                match skipped.len() { 1 => format!("{}'s changes", &t[..7.min(t.len())]), k => format!("the changes for {k} commits") },
-                &t[..7.min(t.len())],
+                "; {} left uncommitted (\"{}\": {why}): f on a later commit folds them there",
+                match skipped.len() { 1 => "a commit's changes".to_owned(), k => format!("the changes for {k} commits") },
+                commits.iter().find(|c| c.0 == *t).map_or("", |c| c.1.as_str()),
             ),
         };
         Ok(self.and_reload(format!("amended into {n} commit(s) (was {short}: {backup}){left}; {}", self.next_step(true))))
