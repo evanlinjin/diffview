@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.39.2] - 2026-10-19
+
+### Fixed
+- Enter on a file's header opens it in your editor again, and on a comment with no link,
+  `file:line` or name under the cursor, the code it's on.
+- A reply asking for an amend or a commit while Claude's pane is at work waits for it (it went
+  ahead: the reply wasn't read yet). One reply to several comments says why one failed.
+- Searching the help keeps an entry's lines together.
+
 ## [0.39.1] - 2026-10-19
 
 ### Changed
