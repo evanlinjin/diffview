@@ -240,17 +240,11 @@ impl App {
     }
 
     /// Why Claude can't take a request right now (checked before asking you for instructions,
-    /// so nothing you write is lost to it): still busy, or the PR's pane is from an older dv
-    /// that can't reach the review files (when the request needs them).
-    /// `ask`: what's asked (`None`: amending, which changes the code but needs no review file).
+    /// so nothing you write is lost to it): still busy, or a rebase stopped (`pane_cant`: where
+    /// it goes to the pane). `ask`: what's asked (`None`: amending, which changes the code but needs no review file).
     /// What changes the code (or reads it whole: a review) waits for a stopped rebase, whose
     /// conflicts are in the way; a question, a description, a closing comment don't.
     pub(super) fn claude_blocked(&self, ask: Option<Ask>) -> Option<String> {
-        let needs_files = match ask {
-            Some(Ask::Fix | Ask::Edit) => self.change_requests() > 0,
-            Some(_) => true,
-            None => false,
-        };
         let edits = ask.is_none_or(|a| self.edits(a));
         let busy = self.claude.job.is_some();
         if busy {
@@ -260,6 +254,14 @@ impl App {
         if edits && super::rebase::rebasing(&self.root) {
             return Some(super::rebase::stopped_says(&self.root).into());
         }
+        None
+    }
+
+    /// Why `ask` can't go to the PR's Claude pane, where it would (one is open): the pane is
+    /// from an older dv that can't reach the review files, and `ask` needs them. (A run of its
+    /// own, as answering is, reaches them whatever the pane.)
+    fn pane_cant(&self, ask: Ask) -> Option<String> {
+        let needs_files = !matches!(ask, Ask::Fix | Ask::Edit) || self.change_requests() > 0;
         let (_, cmd) = self.claude_pane_cmd()?;
         let dv = crate::claude::dv_dir().map(|d| d.display().to_string()).unwrap_or_default();
         (needs_files && !dv.is_empty() && !cmd.contains(&dv)).then(|| {
@@ -738,7 +740,8 @@ impl App {
     /// where they're the request); answering replies just goes. Anything that would stop Claude
     /// taking it is checked first, so what you write isn't lost.
     pub(super) fn pick_claude(&mut self, ask: Ask) {
-        if let Some(why) = self.claude_blocked(Some(ask)) {
+        // (Before the editor: nothing you write is lost to it.)
+        if let Some(why) = self.claude_blocked(Some(ask)).or_else(|| self.pane_cant(ask)) {
             return self.msg = why;
         }
         match ask {
@@ -784,6 +787,10 @@ impl App {
         // another. Pasted, not sent: what the pane is showing (a permission prompt, your own
         // half-typed text) isn't dv's to answer, so you press Enter there.
         if let Some(pane) = self.claude_pane() {
+            if let Some(why) = self.pane_cant(ask) {
+                self.msg = why;
+                return false;
+            }
             let (msg, asked) = match offer_to_pane(pane, &prompt) {
                 Ok(true) => (format!("{label}: the request is in Claude's pane, press Enter there to send it"), true),
                 Ok(false) => ("Claude's pane is waiting for you to answer it; ask again after".into(), false),
