@@ -192,6 +192,10 @@ impl App {
         if busy {
             return Some("Claude is still working on the last request".into());
         }
+        // A rebase stopped part way: the tree has its conflicts, HEAD is detached.
+        if super::rebase::rebasing(&self.root) {
+            return Some("a rebase is stopped here: Space g finishes it (Claude) or aborts it first".into());
+        }
         let (_, cmd) = self.claude_pane_cmd()?;
         let dv = crate::claude::dv_dir().map(|d| d.display().to_string()).unwrap_or_default();
         (needs_files && !dv.is_empty() && !cmd.contains(&dv)).then(|| {
@@ -768,6 +772,9 @@ impl App {
     /// processes on one session. Replies made while it's working get one more run when it
     /// finishes. Returns what to tell the user.
     pub(super) fn answer_now(&mut self) -> String {
+        if super::rebase::rebasing(&self.root) {
+            return "reply saved; a rebase is stopped here: Space g finishes or aborts it, then Space a has Claude answer".into();
+        }
         if self.claude.job.is_some() {
             self.claude.again = true;
             return "reply saved; Claude answers it when it's done with what it's doing".into();

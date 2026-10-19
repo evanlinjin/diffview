@@ -178,8 +178,8 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], backup: &str) -> Res
             done.extend(mine);
         }
         // Merges kept (not flattened), and the backup branch left where it is.
-        let quiet = ["-c", "sequence.editor=true", "-c", "core.editor=true", "-c", "rebase.updateRefs=false"];
-        git_in(dir, &[&quiet[..], &["rebase", "-q", "-i", "--autosquash", "--autostash", "--rebase-merges", &mb]].concat())?;
+        // (No editor: see `diff::git`.)
+        git_in(dir, &["-c", "rebase.updateRefs=false", "rebase", "-q", "-i", "--autosquash", "--autostash", "--rebase-merges", &mb])?;
         Ok(())
     })();
     _ = std::fs::remove_file(&patch);

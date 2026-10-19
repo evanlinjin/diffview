@@ -12,8 +12,12 @@ const REBASE_TOOLS: &[&str] = &["Bash(git status:*)", "Bash(git add:*)", "Bash(g
 use diff::git_in;
 
 /// A rebase stopped part way in `dir` (on conflicts, say).
+/// (Not `git am`'s: it keeps its state in `rebase-apply` too, with an `applying` in it.)
 pub(super) fn rebasing(dir: &Path) -> bool {
-    ["rebase-merge", "rebase-apply"].iter().any(|d| git_in(dir, &["rev-parse", "--git-path", d]).is_ok_and(|p| dir.join(p.trim()).exists())) // (relative to `dir`, or absolute)
+    let Ok(out) = git_in(dir, &["rev-parse", "--git-path", "rebase-merge", "--git-path", "rebase-apply"]) else { return false };
+    let mut p = out.lines().map(|l| dir.join(l.trim())); // (relative to `dir`, or absolute)
+    let (merge, apply) = (p.next(), p.next());
+    merge.is_some_and(|m| m.exists()) || apply.is_some_and(|a| a.exists() && !a.join("applying").exists())
 }
 
 /// Rebase HEAD in `dir` onto `onto`, HEAD kept on `backup` first: `Ok(true)` done, `Ok(false)`
@@ -21,8 +25,8 @@ pub(super) fn rebasing(dir: &Path) -> bool {
 pub(super) fn rebase(dir: &Path, onto: &str, backup: &str) -> Result<bool> {
     anyhow::ensure!(git_in(dir, &["status", "--porcelain", "--untracked-files=no"])?.trim().is_empty(), "there are uncommitted changes: commit (or amend) them first");
     git_in(dir, &["branch", "-f", backup, "HEAD"])?;
-    // The backup branch stays where it is; no editor to wait on.
-    match git_in(dir, &["-c", "rebase.updateRefs=false", "-c", "core.editor=true", "rebase", "-q", onto]) {
+    // The backup branch stays where it is (no editor: see `diff::git`).
+    match git_in(dir, &["-c", "rebase.updateRefs=false", "rebase", "-q", onto]) {
         Ok(_) => Ok(true),
         Err(_) if rebasing(dir) && !git_in(dir, &["diff", "--name-only", "--diff-filter=U"])?.trim().is_empty() => Ok(false),
         Err(e) => {
@@ -33,9 +37,9 @@ pub(super) fn rebase(dir: &Path, onto: &str, backup: &str) -> Result<bool> {
 }
 
 impl App {
-    /// The branch the PR goes into, as fetched: `origin/<base>`.
+    /// The branch the PR goes into, as fetched: `origin/<base>` (as the diff's base is).
     pub(super) fn rebase_onto(&self) -> Option<String> {
-        self.pr.as_ref().map(|p| format!("origin/{}", p.base)).or_else(|| self.follow_base.clone())
+        self.pr.as_ref().map(|p| format!("origin/{}", p.base))
     }
 
     /// `Space g` → rebase: fetch the base, then rebase onto it; on conflicts, Claude resolves
@@ -50,6 +54,7 @@ impl App {
             let done = rebase(&self.root, &onto, &backup)?;
             if done {
                 self.follow(&onto);
+                self.reload_tree();
                 return Ok(format!("rebased onto {onto} (was {short}: {backup}); Space g force-pushes (with a lease)"));
             }
             self.reload_tree(); // (the diff's base stays till it's done: see follow_rebase)
@@ -63,9 +68,7 @@ impl App {
 
     /// Claude carries a stopped rebase on: resolves the conflicts, `--continue`s, to the end.
     pub(super) fn rebase_claude(&mut self) -> Result<()> {
-        if let Some(why) = self.claude_blocked(false) {
-            anyhow::bail!(why);
-        }
+        anyhow::ensure!(self.claude.job.is_none(), "Claude is still working on the last request");
         let onto = self.rebase_onto().unwrap_or_else(|| "its base".into());
         let prompt = format!(
             "This branch is being rebased onto {onto}, and the rebase stopped on conflicts. Resolve them: for each \
@@ -80,14 +83,20 @@ impl App {
         Ok(())
     }
 
-    /// Rebased onto `onto`: the diff starts from there now (with `--base` given too).
-    fn follow(&mut self, onto: &str) {
+    /// Rebased onto `onto`: the diff starts from there (with `--base` given too), from the
+    /// next reload on.
+    /// Whether it didn't before (`--base` given): then it takes a reload more.
+    fn follow(&mut self, onto: &str) -> bool {
+        let new = self.follow_base.is_none();
         self.follow_base.get_or_insert_with(|| onto.to_owned());
-        self.reload_tree();
+        new
     }
 
     /// `Space g` → abort the rebase: back to before it.
     pub(super) fn abort_rebase(&mut self) {
+        if self.claude.job.is_some() {
+            return self.msg = "Claude is still at the rebase: stop it first (Space a), then abort".into();
+        }
         self.msg = match git_in(&self.root, &["rebase", "--abort"]) {
             Ok(_) => "rebase aborted: as it was before".into(),
             Err(e) => format!("{e:#}"),
@@ -101,8 +110,11 @@ impl App {
         let onto = self.rebase_onto().unwrap_or_default();
         if rebasing(&self.root) {
             self.msg += " · the rebase is still stopped: Space g finishes it (Claude again) or aborts it";
-        } else if git_in(&self.root, &["merge-base", "--is-ancestor", &onto, "HEAD"]).is_ok() {
-            self.follow(&onto);
+        } else if git_in(&self.root, &["reflog", "-1", "--format=%gs"]).is_ok_and(|l| l.starts_with("rebase (finish)")) {
+            // (poll_claude has reloaded: the diff followed, unless it didn't follow till now.)
+            if self.follow(&onto) {
+                self.reload_tree();
+            }
             self.msg += " · rebased: Space g force-pushes (with a lease)";
         } else {
             self.msg += " · Claude aborted the rebase: nothing changed (its answer says why: Space a → its pane)";

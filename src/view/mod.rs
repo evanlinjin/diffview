@@ -1243,8 +1243,7 @@ impl App {
         if rebase::rebasing(&self.root) {
             return;
         }
-        let root = self.root.to_string_lossy().into_owned();
-        let git = |args: &[&str]| diff::git(&[&["-C", root.as_str()], args].concat());
+        let git = |args: &[&str]| diff::git_in(&self.root, args);
         let Ok(now) = git(&["merge-base", branch, "HEAD"]).map(|s| s.trim().to_owned()) else { return };
         if now == self.full_base || git(&["merge-base", "--is-ancestor", &self.full_base, &now]).is_err() {
             return;

@@ -728,7 +728,10 @@ impl App {
         // On a GitHub comment's author line (a review thread's, or the conversation's): that
         // comment on GitHub. In its text: what's under the cursor, else the comment too.
         let row = &self.rows[self.head.row];
-        let comment = self.cursor_ref().filter(|u| u.starts_with("https://") && (row.thread.is_some() || row.file == INFO));
+        // (Not other headings there: Claude's review, your pending one: nothing on GitHub.)
+        let has_link = row.thread.is_some_and(|t| self.threads[t].claude.is_none())
+            || row.file == INFO && row.info.and_then(|i| self.info.get(i.checked_sub(1)?)).is_some_and(|h| h.heading && !h.url.is_empty());
+        let comment = self.cursor_ref().filter(|u| has_link && u.starts_with("https://"));
         let on_author = row.line.kind == Kind::Thread;
         let url = self.link_at_cursor().map(str::to_owned).or_else(|| comment.clone().filter(|_| on_author));
         let Some(url) = url else {
