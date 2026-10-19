@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.41.1] - 2026-10-19
+
+### Fixed
+- `dv issues`: Claude's triage only reads (no edits allowed: its answer is the triage, which
+  dv keeps), and reads the code as it is on the base branch. A run that answers no triage fails,
+  said on its card; a finished one says what it took.
+- `q` there asks again while Claude's triaging, and doesn't quit with Claude still at work on
+  PRs from `dv list` (back there instead). `a a` skips issues Claude's at already.
+- The wheel moves the cursor; a lone `-` in the filter is text; Esc puts the cursor at the top.
+
 ## [0.41.0] - 2026-10-19
 
 ### Added
