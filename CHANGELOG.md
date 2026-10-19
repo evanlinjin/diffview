@@ -5,6 +5,19 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.45.0] - 2026-10-19
+
+### Changed
+- `dv list` and `dv issues` draw the same top and status bars (which list, tabs, the other one,
+  where you are; what's said, the order or ranking, auto on / off) and the same keys popup.
+- Auto in `dv issues` triages every issue not triaged, the backlog too (turning it on says how
+  many, about $0.30 each), and those changed since their triage.
+
+### Fixed
+- `dv issues`: the cursor stays on its issue as the todo reorders (a ranking, a triage landing);
+  no ranking in the same moment as a triage, nor as it starts; a click below the last card drawn
+  does nothing; Claude's news doesn't talk over a question or what you just did.
+
 ## [0.44.1] - 2026-10-19
 
 ### Added
