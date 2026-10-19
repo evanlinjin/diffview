@@ -482,7 +482,7 @@ impl App {
     /// The PR's conversation (its comments and reviews, and the questions to Claude under
     /// them): all of it (`None`), or (`Some(n)`) those new since you looked (after your own last
     /// comment or review, not seen in dv), the last `n` at least, and any with a question under
-    /// it; then a line saying how many more there are.
+    /// it; a line first saying how many older ones there are.
     fn conversation(&self, latest: Option<usize>) -> Vec<Row> {
         let mk = |kind, text| Row::text(INFO, kind, text);
         let width = self.info_w();
@@ -510,6 +510,14 @@ impl App {
         if !items.is_empty() {
             rows.push(Row { info: None, ..mk(Kind::Thread, self.info[start].text.clone()) });
         }
+        // What's left out is older (newest last): said first, under its heading.
+        let more = items.len() - shown.len();
+        if more > 0 {
+            let what = if more == 1 { "1 older comment or review".to_owned() } else { format!("{more} older comments and reviews") };
+            rows.push(Row { info: Some(MORE_CONVERSATION), ..mk(Kind::Comment, format!("… {what}: Space o (or Enter) shows them")) });
+        } else if latest.is_none() && items.len() > LATEST {
+            rows.push(Row { info: Some(MORE_CONVERSATION), ..mk(Kind::Comment, "… all of it: Space o (or Enter) shows only the latest".into()) });
+        }
         for h in shown.iter().copied() {
             let body = h + 1;
             rows.push(Row { info: self.info.get(body).filter(|n| n.md).map(|_| body), ..self.info_row(&self.info[h], mk(Kind::Thread, self.info[h].text.clone())) });
@@ -519,13 +527,6 @@ impl App {
             rows.extend(self.md_rows_at(text, width, mk).into_iter().map(|r| Row { info: Some(body), ..r }));
             rows.push(Row { info: Some(body), edge: true, ..mk(Kind::Comment, String::new()) });
             rows.extend(self.conversation_rows(body));
-        }
-        let more = items.len() - shown.len();
-        if more > 0 {
-            let what = if more == 1 { "1 more comment or review".to_owned() } else { format!("{more} more comments and reviews") };
-            rows.push(Row { info: Some(MORE_CONVERSATION), ..mk(Kind::Comment, format!("… {what}: Space o (or Enter here) shows them")) });
-        } else if latest.is_none() && items.len() > LATEST {
-            rows.push(Row { info: Some(MORE_CONVERSATION), ..mk(Kind::Comment, "… all of it: Space o (or Enter here) shows only the latest".into()) });
         }
         rows
     }

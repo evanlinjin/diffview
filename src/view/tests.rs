@@ -868,7 +868,7 @@ fn pr_text_attached_to_the_description() {
     assert!(desc < facts && facts < c2 && c2 < c3 && c3 < c5, "{facts:?} {desc:?} {c2:?} {c3:?} {c5:?}");
     assert!(at(&app, "comment 1").is_none());
     let more = app.rows.iter().position(|r| r.info == Some(MORE_CONVERSATION)).expect("the more line");
-    assert!(app.rows[more].line.text.contains("1 more"));
+    assert!(app.rows[more].line.text.contains("1 older") && more < c2.unwrap()); // first: what's left out is older
     assert!(app.in_pane(c2.unwrap())); // in the pane, beside the description
     // The pane hidden: after the description, in the diff's column.
     app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));

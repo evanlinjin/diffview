@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.3] - 2026-10-19
+
+### Changed
+- The line saying how much more of the conversation there is comes first, under its heading
+  (what's left out is older: newest last), and is short enough not to be cut.
+
 ## [0.34.2] - 2026-10-19
 
 ### Changed
@@ -1044,6 +1050,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.34.3]: https://github.com/evanlinjin/diffview/releases/tag/v0.34.3
 [0.34.2]: https://github.com/evanlinjin/diffview/releases/tag/v0.34.2
 [0.34.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.34.1
 [0.34.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.34.0
