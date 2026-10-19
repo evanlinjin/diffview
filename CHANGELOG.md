@@ -5,6 +5,10 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- The Claude tab has Claude's activity, as the Comments tab has the PR's: the last 5 things it
+  wrote (comments, answers, changes it made), a line each: when, where, its first line.
+
 ## [0.34.74] - 2026-10-19
 
 ### Fixed

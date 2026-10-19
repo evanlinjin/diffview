@@ -3,6 +3,9 @@
           Fixes the thing, see new_call.          ╭─ claude's review ──────────────────────────────╮
                                                   │  Looks right; one nit.                         │
                                                   ╰────────────────────────────────────────────────╯
+                                                  ╭─ claude's activity ────────────────────────────╮
+                                                  │  ◆ src/big.rs:12 · Name it `new_value`; see …  │
+                                                  ╰────────────────────────────────────────────────╯
  ▾        src/big.rs  +1 −1  · 1 comment
           ───────────────────────────────────────────────────────────────────────────────── L10–15 ─
  10  10   line 10
@@ -24,7 +27,4 @@
 
 
 
-
-
-
- NOR       Claude view: its summary and the code it commented on (gn / gp: the… claude view    1/19
+ NOR       Claude view: its summary and the code it commented on (gn / gp: the… claude view    1/22

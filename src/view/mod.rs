@@ -79,6 +79,10 @@ const DRAFT: usize = usize::MAX - 2;
 const FACTS: usize = usize::MAX - 3;
 /// `Row::info` for the line saying how much more of the conversation there is (`Space o`).
 const MORE_CONVERSATION: usize = usize::MAX - 4;
+/// `Row::info` for Claude's latest doings, boxed together (the Claude tab's activity).
+const CLAUDE_ACTIVITY: usize = usize::MAX - 5;
+/// How many of Claude's latest doings its activity shows.
+const CLAUDE_LATEST: usize = 5;
 /// How many of the conversation's latest comments are attached to the description, at least.
 const LATEST: usize = 3;
 /// `Row::main` for the description's section (commit `n`'s message is `1 + n`).

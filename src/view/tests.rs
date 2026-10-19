@@ -1264,6 +1264,8 @@ fn claude_view() {
     // title) nor its conversation.
     assert!(!v.contains(&"OPEN @bo · main ← x".to_owned()) && v.contains(&"Looks fine.".to_owned()), "{v:?}");
     assert!(v.iter().any(|t| t == "Long story") && !v.iter().any(|t| t.starts_with("review:")));
+    // Claude's activity: what it wrote last, a line each (when, where, its first line).
+    assert!(v.iter().any(|t| t == "claude's activity") && v.iter().any(|t| t.starts_with("◆ ") && t.contains("big.rs:20 · hm")), "{v:?}");
     // Only the file Claude commented on, and only lines 17-23 of it.
     let code: Vec<&str> = v.iter().filter(|t| t.starts_with("line ")).map(String::as_str).collect();
     assert_eq!(code, (17..=23).map(|n| format!("line {n}")).collect::<Vec<_>>());

@@ -620,6 +620,44 @@ impl App {
             }
         };
         rows.extend(self.summary_threads());
+        rows.extend(self.claude_activity());
+        rows
+    }
+
+    /// The Claude tab's activity, as the Comments tab has the PR's: what Claude wrote last (a
+    /// comment, a reply: an answer, a change it made), newest first, a line each: when, where,
+    /// its first line.
+    fn claude_activity(&self) -> Vec<Row> {
+        let mut said: Vec<(&str, String, &str)> = self
+            .threads
+            .iter()
+            .filter(|t| t.claude.is_some())
+            .flat_map(|t| {
+                let at = match (t.path.as_str(), t.line, t.conversation.as_str()) {
+                    ("", _, ON_SUMMARY) => "on its review".to_owned(),
+                    ("", _, c) if commit_of(c).is_some() => format!("on commit {}", self.commit_short(commit_of(c).unwrap_or(""))),
+                    ("", ..) => "on the conversation".to_owned(),
+                    (p, Some(l), _) => format!("{p}:{l}"),
+                    (p, None, _) => p.to_owned(),
+                };
+                t.comments.iter().filter(|c| c.author == crate::claude::AUTHOR).map(move |c| (c.created.as_str(), at.clone(), c.body.as_str()))
+            })
+            .collect();
+        if said.is_empty() {
+            return vec![];
+        }
+        said.sort_by(|a, b| b.0.cmp(a.0)); // ISO times sort as text
+        let mk = |kind, text| Row { info: Some(CLAUDE_ACTIVITY), ..Row::text(INFO, kind, text) };
+        let mut rows = vec![mk(Kind::Thread, "claude's activity".into())];
+        let w = self.info_w();
+        for (created, at, body) in said.into_iter().take(CLAUDE_LATEST) {
+            let first = body.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+            let when = if created.is_empty() { String::new() } else { format!("{} · ", crate::gh::ago(created)) };
+            let line = format!("◆ {when}{at} · {first}");
+            let cut: String = line.chars().take(w.saturating_sub(1)).collect();
+            rows.push(mk(Kind::Comment, if cut.chars().count() < line.chars().count() { format!("{}…", cut.chars().take(w.saturating_sub(2)).collect::<String>()) } else { cut }));
+        }
+        rows.push(Row { edge: true, ..mk(Kind::Comment, String::new()) });
         rows
     }
 
