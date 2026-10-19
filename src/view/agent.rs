@@ -701,7 +701,8 @@ impl App {
     fn claude_pane_cmd(&self) -> Option<(u64, String)> {
         let id = self.claude.session.as_ref().filter(|_| in_zellij())?;
         crate::pane::list(&["-c"]).unwrap_or_default().iter().find_map(|p| {
-            let cmd = p["pane_command"].as_str().filter(|c| p["exited"] != true && c.contains(id.as_str()))?;
+            // (Not a fork of it, "Open Claude in a pane" while it was at work: a session of its own.)
+            let cmd = p["pane_command"].as_str().filter(|c| p["exited"] != true && c.contains(id.as_str()) && !c.contains("--fork-session"))?;
             Some((p["id"].as_u64()?, cmd.to_owned()))
         })
     }
