@@ -28,6 +28,7 @@ const USAGE: &str = "usage: dv [base | PR | list] [-p N] [-f] [-w [-b]]
   dv review-comments  for Claude: the PR's review comments on GitHub, as JSON (ids, lines,
                    who, what), to answer them in its review (read only)
   dv rerun-failed  for Claude fixing CI: rerun the failed jobs on the PR's head (only those)
+  dv cargo [+T] …  for Claude: cargo check/build/test/clippy/doc/fmt --check on any toolchain T
   dv amend C [F…] [-F M]  fold what isn't committed (in files F) into the branch's commit C, and/or
                    give it the message in file M (a backup branch first)
   dv replace 123 [124 …]   Claude drafts a replacement for those PRs, unpublished, on
@@ -117,6 +118,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Opts> {
             "review-comments" => o.cmd = Some("review-comments"),
             "rerun-failed" => o.cmd = Some("rerun-failed"),
             "amend" => (o.cmd, o.rest) = (Some("amend"), args.by_ref().collect()),
+            "cargo" => (o.cmd, o.rest) = (Some("cargo"), args.by_ref().collect()),
             "install-skill" => o.cmd = Some("install-skill"),
             "replace" => o.cmd = Some("replace"),
             "replace-info" => o.cmd = Some("replace-info"),
@@ -197,6 +199,7 @@ fn run() -> anyhow::Result<()> {
             return Ok(());
         }
         Some("replace-info") => return replace::info(),
+        Some("cargo") => std::process::exit(checked_cargo(&o.rest)?),
         Some("amend") => {
             // The branch's own commits are those over the base dv diffs against (`review-info`'s).
             let base = diff_base(&o, gh::pr(None).ok().as_ref())?;
@@ -667,6 +670,19 @@ pub(crate) fn pr_worktrees() -> Vec<(u64, PathBuf, Option<String>)> {
 
 fn common_dir(d: &Path) -> anyhow::Result<String> {
     Ok(diff::git(&["-C", &d.to_string_lossy(), "rev-parse", "--path-format=absolute", "--git-common-dir"])?.trim().to_owned())
+}
+
+/// `dv cargo [+toolchain] <check|build|test|clippy|doc|fmt --check> …`: for Claude, cargo on any
+/// toolchain (as CI pins one), as a permission rule can't name every version; only what checks
+/// the code, nothing that changes or publishes it. Its exit code.
+fn checked_cargo(args: &[String]) -> anyhow::Result<i32> {
+    let sub = args.iter().find(|a| !a.starts_with(['+', '-'])).map(String::as_str).unwrap_or(""); // (past `-q` and the like)
+    let fmt_check = sub == "fmt" && args.iter().any(|a| a == "--check");
+    anyhow::ensure!(
+        ["check", "build", "test", "clippy", "doc"].contains(&sub) || fmt_check,
+        "dv cargo runs check, build, test, clippy, doc or fmt --check (on any +toolchain), not `{sub}`"
+    );
+    Ok(std::process::Command::new("cargo").args(args).status()?.code().unwrap_or(1))
 }
 
 /// Only ever touch a dir that's a worktree of this repo.

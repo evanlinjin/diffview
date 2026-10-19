@@ -155,8 +155,9 @@ and `dv amend <sha> -F <file>` (with files too, to fold them in the same go). Do
 hand. Say which commit it went in.
 
 Your commands run only if each is allowed on its own: one plain command per call (no `cd`, `&&`,
-loops, pipes into other commands, or `git -C`). Build and test with the default toolchain
-(`cargo test`, `cargo clippy`); `cargo +nightly fmt --check` and `cargo +nightly clippy` work too.
+loops, pipes into other commands, or `git -C`). Build and test with `cargo test`, `cargo clippy`
+(`cargo +nightly fmt --check` works too); on another toolchain, as CI pins one, `dv cargo
++1.85.0 clippy …` (check, build, test, clippy, doc or fmt --check, any toolchain).
 
 Once a thread is settled, resolve it: set `"resolved": true` on the comment after your reply.
 It's settled when you've made the change it asked for, or you and the user agree it doesn't

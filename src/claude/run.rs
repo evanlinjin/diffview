@@ -33,6 +33,8 @@ pub(crate) const ALLOWED: &[&str] = &[
     "Bash(cargo +nightly fmt --all -- --check:*)",
     "Bash(cargo +nightly clippy:*)",
     "Bash(cargo +stable clippy:*)",
+    // Any other toolchain (a pinned one, as CI's MSRV job): through dv, which runs only these.
+    "Bash(dv cargo:*)",
 ];
 
 /// What a background run may do beyond `ALLOWED`: when fixing PR `n`'s CI, rerun its failed
