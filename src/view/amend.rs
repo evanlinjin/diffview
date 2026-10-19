@@ -163,6 +163,7 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], reword: Option<(&str
     anyhow::ensure!(!targets.is_empty(), "nothing placed to amend");
     // (Its own rebase it aborts if it fails: not one stopped part way, yours or Claude's.)
     anyhow::ensure!(!super::rebase::rebasing(dir), "a rebase is stopped part way here: finish or abort it first");
+    anyhow::ensure!(git_in(dir, &["ls-files", "-u"])?.trim().is_empty(), "unmerged files here: resolve them first");
     // New files only marked (`git add -N`): added for real, as `--autostash` can't stash them,
     // and `write-tree` would leave them out (untracked, back as it was).
     let marked = git_in(dir, &["diff", "--name-only", "--no-relative", "--no-renames", "--diff-filter=A", "-z"])?;
@@ -171,7 +172,7 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], reword: Option<(&str
         git_in(dir, &[&["--literal-pathspecs", "add", "--"], marked.as_slice()].concat())?;
     }
     // What you staged, to put back if nothing goes in (and a conflicted file: refused here).
-    let staged = git_in(dir, &["write-tree"]).context("unmerged files here: resolve them first")?.trim().to_owned();
+    let staged = git_in(dir, &["write-tree"])?.trim().to_owned();
     let orig = git_in(dir, &["rev-parse", "HEAD"])?.trim().to_owned();
     git_in(dir, &["branch", "-f", backup, "HEAD"])?;
     let gitdir = std::path::PathBuf::from(git_in(dir, &["rev-parse", "--absolute-git-dir"])?.trim());
@@ -180,8 +181,12 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], reword: Option<(&str
     // first (what's left may come back staged or not; new files stay added).
     let own = |args: &[&str]| -> Result<()> {
         let out = std::process::Command::new("git").arg("-C").arg(dir).args(args).env("GIT_INDEX_FILE", &index).output()?;
-        let said = if out.stderr.is_empty() { &out.stdout } else { &out.stderr }; // ("nothing to commit": stdout)
-        anyhow::ensure!(out.status.success(), "git {}: {}", args.join(" "), String::from_utf8_lossy(said).trim());
+        // ("nothing to commit" is on stdout, last of a status report.)
+        let said = match out.stderr.is_empty() {
+            true => String::from_utf8_lossy(&out.stdout).lines().rfind(|l| !l.trim().is_empty()).unwrap_or("").trim().to_owned(),
+            false => String::from_utf8_lossy(&out.stderr).trim().to_owned(),
+        };
+        anyhow::ensure!(out.status.success(), "git {}: {said}", args.join(" "));
         Ok(())
     };
     let mut done: Vec<&Hunk> = vec![];
