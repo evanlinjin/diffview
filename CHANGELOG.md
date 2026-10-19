@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.88] - 2026-10-19
+
+### Fixed
+- Amending into the PR's commits: one commit's changes conflicting (a later commit changes those
+  lines) no longer undoes them all. Each commit is amended on its own, newest first; one that
+  conflicts keeps its changes uncommitted, and dv says which (`f` on a later commit folds them).
+- Amending no longer needs nothing staged, and never unstages: the fixup commits are made in an
+  index of dv's own. (0.34.87's `dv amend` unstaged everything first, a conflicted file too.)
+- `dv amend`'s files are resolved by git: `../a`, a directory, a glob.
+
 ## [0.34.87] - 2026-10-19
 
 ### Fixed
