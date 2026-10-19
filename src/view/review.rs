@@ -219,15 +219,29 @@ impl App {
         }
     }
 
-    /// Viewed files fold, like on GitHub: on first load, and when newly marked. Files you
-    /// unfold yourself stay unfolded across refreshes.
+    /// Viewed files fold, like on GitHub: on first load, and when newly marked; not with
+    /// comments you haven't seen on them. Files you unfold yourself stay unfolded across
+    /// refreshes.
     pub(super) fn apply_viewed(&mut self, viewed: HashMap<String, String>) {
         for (path, state) in &viewed {
-            if state == "VIEWED" && self.viewed.get(path).is_none_or(|old| old != "VIEWED") {
+            if state == "VIEWED" && self.viewed.get(path).is_none_or(|old| old != "VIEWED") && !self.new_on(path) {
                 self.collapsed.insert(path.clone());
             }
         }
         self.viewed = viewed;
+    }
+
+    /// Whether file `path` has comments you haven't seen.
+    fn new_on(&self, path: &str) -> bool {
+        self.threads.iter().any(|t| t.path == path && self.is_new(t))
+    }
+
+    /// New comments came: the viewed files they're on unfold, so they're seen.
+    fn unfold_new(&mut self) {
+        let open: Vec<String> = self.collapsed.iter().filter(|p| self.viewed.get(*p).is_some_and(|s| s == "VIEWED") && self.new_on(p)).cloned().collect();
+        for p in open {
+            self.collapsed.remove(&p);
+        }
     }
 
     /// `Space v`: toggle GitHub's "Viewed" mark for the file under the cursor.
@@ -640,11 +654,14 @@ impl App {
         self.apply_github(f);
         self.threads.extend(claude);
         self.shape();
+        let new = count(self).saturating_sub(before);
+        if new > 0 {
+            self.unfold_new();
+        }
         self.rebuild(keep);
         if std::mem::take(&mut self.github_stale) && self.msg == STALE {
             self.msg.clear();
         }
-        let new = count(self).saturating_sub(before);
         if new > 0 && self.msg.is_empty() {
             self.msg = format!("{new} new comment(s) on GitHub");
         }
@@ -653,12 +670,12 @@ impl App {
     fn apply_github(&mut self, (threads, info): Fetched) {
         match threads {
             Ok(r) => {
-                self.apply_viewed(r.viewed);
                 // A draft GitHub couldn't take (see `Post::Summary`) stays until it can.
                 if r.pending.is_none() || !r.pending_body.is_empty() {
                     self.summary_draft = r.pending_body;
                 }
                 (self.threads, self.review) = (r.threads, r.pending);
+                self.apply_viewed(r.viewed); // after the threads: not folded with new ones
                 if let Some(pr) = &mut self.pr {
                     pr.node_id = r.pr_id;
                 }

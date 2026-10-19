@@ -76,6 +76,13 @@ fn viewed_files() {
     app.collapsed.clear(); // you unfold it…
     app.apply_viewed(viewed("src/a.rs", "VIEWED"));
     assert!(app.collapsed.is_empty()); // …and a refresh leaves it unfolded
+    // Not with comments you haven't seen on it.
+    let mut fresh = App::with("base".into(), diff::parse(diff::SAMPLE));
+    fresh.seen.path = Some(std::env::temp_dir().join("dv-viewed-seen-unused"));
+    let c = gh::Comment { id: 1, author: "amy".into(), body: "hm".into(), node_id: "n1".into(), ..Default::default() };
+    fresh.threads = vec![gh::Thread { path: "src/a.rs".into(), line: Some(2), comments: vec![c], ..Default::default() }];
+    fresh.apply_viewed(viewed("src/a.rs", "VIEWED"));
+    assert!(fresh.collapsed.is_empty());
     app.apply_viewed(viewed("src/a.rs", "DISMISSED"));
     app.build();
     assert_eq!(app.header_tag(0).unwrap().0, "↻ changed since viewed ");

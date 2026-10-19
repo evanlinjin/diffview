@@ -13,6 +13,8 @@ on GitHub are its section here.
   uncommitted. `a` on a commit in `Ctrl-w e`'s list amends it all into that one.
 
 ### Changed
+- A file marked viewed doesn't fold while it has comments you haven't seen, and one folded
+  already opens when new comments come in on it.
 - One threads picker: `Space t`, with filters `Tab` / `Shift-Tab` go round (all, unresolved,
   pending, Claude, new); `Space p`, `Space A` and `Space n` open it on theirs.
 - The pending view is the comments pane's `Pending` tab (between `Claude` and `PR`), not
