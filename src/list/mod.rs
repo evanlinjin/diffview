@@ -1306,9 +1306,12 @@ impl List {
             },
             Span::styled(if self.flags.is_empty() { "  ".to_owned() } else { format!("  ·  opens with {}  ", self.flags) }, bar),
         ]);
-        // (The message has what the state leaves of the line.)
-        let right = (state.width() as u16).min(status.width);
-        f.render_widget(Paragraph::new(state).alignment(Alignment::Right).style(bar), status);
+        // The message first: the state where there's room beside it.
+        let (lw, sw) = (left.chars().count() as u16, state.width() as u16);
+        let right = if lw + 2 + sw <= status.width { sw } else { 0 };
+        if right > 0 {
+            f.render_widget(Paragraph::new(state).alignment(Alignment::Right).style(bar), status);
+        }
         f.render_widget(Paragraph::new(left).style(bar), Rect { width: status.width - right, ..status });
         if !self.help && !self.filtering {
             // The keys for this tab, bottom right, as dv's diff view shows them.
