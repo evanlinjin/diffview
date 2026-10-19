@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.25] - 2026-10-19
+
+### Added
+- When a refresh can't get the commits' signatures from GitHub (a timeout, a rate limit),
+  the last answer for the same head is kept, marked "(as of 5m ago)", rather than shown as
+  unknown: a commit's signature is part of it.
+
 ## [0.34.24] - 2026-10-19
 
 ### Fixed
