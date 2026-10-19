@@ -45,7 +45,12 @@ const ALLOWED: &[&str] = &[
 
 /// What fixing CI needs on top: a transient failure's failed jobs once more (once a head: see
 /// `fix_checks_prompt`). Only for that run: no other may rerun workflows.
-pub(crate) const FIX_CHECKS_TOOLS: &[&str] = &["Bash(gh run rerun:*)"];
+const FIX_CHECKS_TOOLS: &[&str] = &["Bash(gh run rerun:*)"];
+
+/// What a background run may do beyond `ALLOWED`: rerun workflows only when fixing CI.
+pub(crate) fn tools_for(fixing_ci: bool) -> &'static [&'static str] {
+    if fixing_ci { FIX_CHECKS_TOOLS } else { &[] }
+}
 
 /// What drafting a replacement needs on top: reading the PRs it replaces, and committing (to
 /// its own local branch; dv never pushes it without you).
@@ -791,7 +796,7 @@ impl App {
                 Ok(s) => (format!("zellij run failed ({s})"), false),
                 Err(e) => (format!("running zellij: {e}"), false),
             },
-            false => match self.spawn_claude(&prompt, label, false, if matches!(ask, Ask::FixChecks) { FIX_CHECKS_TOOLS } else { &[] }) {
+            false => match self.spawn_claude(&prompt, label, false, tools_for(matches!(ask, Ask::FixChecks))) {
                 Ok(job) => {
                     self.claude.job = Some(job);
                     (format!("Claude is {label} in the background…"), true)

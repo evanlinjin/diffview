@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Fixed
+- Only Claude's CI-fixing runs may rerun workflows (no other background run), and its "reran
+  it once" note stays, so it doesn't rerun the same head again.
+- "Rerun the failed checks" reruns them all at once; one that can't be (too old) doesn't keep
+  the others from it, and dv says how many went.
+- `Space l` lists a review requested of a team (`org/team`), and withdraws it.
+
 ## [0.33.0] - 2026-10-19
 
 ### Added

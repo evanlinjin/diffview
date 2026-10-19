@@ -254,7 +254,7 @@ impl App {
             .into_iter()
             .filter_map(|(url, sha)| {
                 let was = git_in(&self.root, &["log", "-1", "--format=%at%x09%s", &sha]).ok()?;
-                let (at, subject) = was.trim().split_once('\t')?;
+                let (at, subject) = was.trim_end_matches('\n').split_once('\t')?;
                 let mut same = self.commits.iter().filter(|c| c.at == at && c.subject.trim() == subject.trim());
                 match (same.next(), same.next()) {
                     (Some(c), None) => Some((url.clone(), url.replace(&sha, &c.sha))),

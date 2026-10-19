@@ -790,15 +790,34 @@ pub fn set_viewed(pr_id: &str, path: &str, viewed: bool) -> Result<()> {
     mutate(q, json!({ "pr": pr_id, "path": path })).map(drop)
 }
 
-/// Rerun the failed jobs of the workflow runs on commit `head` that failed: how many runs.
-pub fn rerun_failed(head: &str) -> Result<usize> {
+/// Rerun the failed jobs of the workflow runs on commit `head` that failed, all at once: what
+/// happened, in a few words (an error if none could be).
+pub fn rerun_failed(head: &str) -> Result<String> {
     let q = ".[] | select(.conclusion == \"failure\" or .conclusion == \"timed_out\" or .conclusion == \"cancelled\") | .databaseId";
     let out = gh(&["run", "list", "--commit", head, "--limit", "100", "--json", "databaseId,conclusion", "-q", q])?;
     let ids: Vec<&str> = out.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
-    // Each one tried (one that can't be, too old say, doesn't keep the others from it).
-    let failed: Vec<String> = ids.iter().filter_map(|id| gh(&["run", "rerun", id, "--failed"]).err().map(|e| format!("{id}: {e:#}"))).collect();
-    anyhow::ensure!(failed.is_empty(), "{} of {} runs not rerun: {}", failed.len(), ids.len(), failed.join("; "));
-    Ok(ids.len())
+    if ids.is_empty() {
+        return Ok("no failed runs to rerun (they may be running already)".into());
+    }
+    // All at once; one that can't be (too old, say) doesn't keep the others from it.
+    let runs: Vec<_> = ids
+        .iter()
+        .map(|id| Command::new("gh").args(["run", "rerun", id, "--failed"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped()).spawn())
+        .collect();
+    let errors: Vec<String> = runs
+        .into_iter()
+        .filter_map(|r| match r.and_then(|c| c.wait_with_output()) {
+            Ok(o) if o.status.success() => None,
+            Ok(o) => Some(String::from_utf8_lossy(&o.stderr).lines().next().unwrap_or("failed").to_owned()),
+            Err(e) => Some(e.to_string()),
+        })
+        .collect();
+    let rerun = ids.len() - errors.len();
+    match (rerun, errors.first()) {
+        (0, Some(e)) => anyhow::bail!("no failed run could be rerun: {e}"),
+        (_, Some(e)) => Ok(format!("{rerun} of {} failed runs rerunning ({} couldn't be: {e})", ids.len(), errors.len())),
+        _ => Ok(format!("{rerun} failed run(s) rerunning")),
+    }
 }
 
 /// `s` for a URL path segment: all but unreserved characters percent-encoded.
@@ -822,16 +841,15 @@ pub enum Field {
 /// labels, the people it can be assigned to (or asked to review: not its author). Each
 /// (name, on it), sorted, those on it first.
 pub fn pr_fields(n: u64) -> Result<(Choices, Choices, Choices)> {
-    let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", "labels,assignees,reviewRequests,author,url"])?)?;
+    let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", "labels,assignees,reviewRequests,author"])?)?;
     let on = |k: &str, f: &str| -> Vec<String> { v[k].as_array().into_iter().flatten().filter_map(|x| x[f].as_str().map(str::to_owned)).collect() };
     let (labels, assigned) = (on("labels", "name"), on("assignees", "login"));
-    // Requested of people (their login), or of teams (`org/slug`, the PR's repo's org).
-    let org = v["url"].as_str().and_then(|u| u.split('/').nth(3)).unwrap_or("").to_owned();
+    // Requested of people (their login), or of teams (gh gives their slug as `org/team`).
     let asked: Vec<String> = v["reviewRequests"]
         .as_array()
         .into_iter()
         .flatten()
-        .filter_map(|r| r["login"].as_str().map(str::to_owned).or_else(|| r["slug"].as_str().map(|s| format!("{org}/{s}"))))
+        .filter_map(|r| r["login"].as_str().or_else(|| r["slug"].as_str()).map(str::to_owned))
         .collect();
     let all: Value = serde_json::from_str(&gh(&["label", "list", "--limit", "500", "--json", "name"])?)?;
     let all: Vec<String> = all.as_array().into_iter().flatten().filter_map(|x| x["name"].as_str().map(str::to_owned)).collect();
@@ -1113,8 +1131,12 @@ pub fn info_json(n: u64) -> Result<Value> {
         v["dvAwaiting"] = w.get(&sha).map_or(0, Vec::len).into();
     }
     // One query for both: its commits' signatures, and which reactions are yours.
-    // (Which failing, the signatures alone: they matter more.)
-    let extra = pr_query(n, MINE).or_else(|_| pr_query(n, ""));
+    // (Its reactions part refused, the signatures alone: they matter more. Not on any error:
+    // offline, the second would fail too.)
+    let extra = pr_query(n, MINE).or_else(|e| match format!("{e:#}").contains("GraphQL") {
+        true => pr_query(n, ""),
+        false => Err(e),
+    });
     if let Ok(p) = &extra {
         v["dvMine"] = mine_of(p);
     }

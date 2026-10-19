@@ -81,11 +81,16 @@ impl App {
             return;
         }
         // Read-only: no reload after.
-        if !matches!(job, Job::Preview(_) | Job::Reactions(_) | Job::Labels | Job::Retarget(_) | Job::Rebase) {
+        if !matches!(job, Job::Preview(_) | Job::Reactions(_) | Job::Labels | Job::Retarget(_) | Job::Rerun | Job::Rebase) {
             self.ensure_fresh();
         }
         if let Job::Rebase = job {
             return self.start_rebase();
+        }
+        if let Job::Rerun = job {
+            let head = self.pr.as_ref().map(|p| p.head_oid.clone()).unwrap_or_default();
+            self.msg = gh::rerun_failed(&head).unwrap_or_else(|e| format!("{e:#}"));
+            return;
         }
         if let Job::Retarget(base) = job {
             return self.retarget(base);
@@ -123,12 +128,8 @@ impl App {
                     (gh::Field::Reviewer, false) => "review request withdrawn",
                 })
             }
-            Job::Rerun => {
-                let head = self.pr.as_ref().map(|p| p.head_oid.clone()).unwrap_or_default();
-                gh::rerun_failed(&head).map(|n| if n == 0 { "no failed runs to rerun (they may be running already)" } else { "failed checks rerunning" })
-            }
             Job::React(node, what, add) => gh::react(&node, what, add).map(|_| if add { "reacted" } else { "reaction taken back" }),
-            Job::Preview(_) | Job::Reactions(_) | Job::Labels | Job::Retarget(_) | Job::Rebase | Job::Pull | Job::Push(_) => unreachable!("handled above"),
+            Job::Preview(_) | Job::Reactions(_) | Job::Labels | Job::Retarget(_) | Job::Rerun | Job::Rebase | Job::Pull | Job::Push(_) => unreachable!("handled above"),
             Job::Post(p) => self.post(p),
             Job::Viewed(path, on) => {
                 let pr_id = self.pr.as_ref().map(|p| p.node_id.clone()).unwrap_or_default();
@@ -739,7 +740,9 @@ impl App {
         }
         // Its base changed on GitHub (retargeted): the diff starts from the new one, once
         // fetched (a job: a frame says so first; tried again on the next refresh if it fails).
-        if let Some(base) = retarget.filter(|_| self.job.is_none()) {
+        // (Mid-rebase, a diff that follows the base waits till it's through: asked again then.)
+        let waits = |a: &App| super::rebase::rebasing(&a.root) && a.pr.as_ref().is_some_and(|p| a.follow_base.as_deref() == Some(format!("origin/{}", p.base).as_str()));
+        if let Some(base) = retarget.filter(|_| self.job.is_none() && !waits(self)) {
             (self.msg, self.job) = (format!("the PR's base is {base} now: fetching it…"), Some(Job::Retarget(base)));
         }
     }
@@ -748,10 +751,6 @@ impl App {
     /// from it (fetched), when dv chose the diff's base (no `--base` given).
     fn retarget(&mut self, base: String) {
         let Some(old) = self.pr.as_ref().map(|p| p.base.clone()) else { return };
-        // Not mid-rebase (onto the old base): tried again on a refresh once it's through.
-        if super::rebase::rebasing(&self.root) {
-            return self.msg = format!("the PR's base is {base} now: the diff follows once the rebase is through");
-        }
         let follows = self.follow_base.as_deref() == Some(format!("origin/{old}").as_str());
         let onto = format!("origin/{base}");
         if follows {
