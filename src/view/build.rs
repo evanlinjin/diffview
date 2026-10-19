@@ -189,14 +189,12 @@ impl App {
         // (Folded with it: Tab on it, or on them.)
         let mut attached: Vec<Row> = match self.view {
             _ if self.sections_folded.contains(&DESCRIPTION) => vec![],
-            // An unpublished draft's one tab is Claude's: as the Claude view's.
-            _ if self.unpublished() => self.claude_attached(),
+            _ if self.claude_side() => self.claude_attached(),
             View::All if self.info_collapsed => vec![],
             View::All => {
                 let latest = (!self.conversation_all).then_some(LATEST);
                 [self.pr_facts(), self.conversation(latest), self.no_pr_summary(), self.draft_rows()].into_iter().flatten().collect()
             }
-            View::Claude => self.claude_attached(),
             _ => vec![],
         };
         attached.iter_mut().for_each(|r| r.attached = true);
@@ -1087,7 +1085,7 @@ impl App {
             }
             return self.rebuild_at(move |r| r.main == Some(id) && r.line.kind == Kind::File);
         }
-        if fi == INFO && self.view == View::Claude {
+        if fi == INFO && self.claude_side() {
             return self.msg = "nothing to fold here".into();
         }
         if fi == INFO {

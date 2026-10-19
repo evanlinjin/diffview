@@ -152,6 +152,12 @@ impl App {
         self.bar_to(tabs[(i + if fwd { 1 } else { tabs.len() - 1 }) % tabs.len()]);
     }
 
+    /// Claude's review is what's beside the description: the Claude view, or an unpublished
+    /// draft (whose one tab is Claude's).
+    pub(super) fn claude_side(&self) -> bool {
+        self.view == View::Claude || self.unpublished()
+    }
+
     /// A replacement (or new PR) not published yet: Claude's draft, seen by no one else.
     pub(super) fn unpublished(&self) -> bool {
         self.replacement.as_ref().is_some_and(|r| r.published.is_none())

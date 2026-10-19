@@ -5,9 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.42] - 2026-10-19
+
 ### Added
 - `S` on a replacement with uncommitted changes offers amending them into its commits (you
   place each change, or Claude finds where they go), besides committing them.
+
+### Fixed
+- Tab on an unpublished draft's title says there's nothing to fold (as in the Claude view),
+  rather than flipping its arrow and folding nothing.
 
 ## [0.34.41] - 2026-10-19
 

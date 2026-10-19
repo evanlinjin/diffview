@@ -206,9 +206,9 @@ pub fn all() -> Vec<Record> {
     out
 }
 
-/// Set up a replacement of `prs` (the first names it) from the repo at `root`: its record
-/// (kept if it exists: drafting again carries on), and its branch, from the originals' base,
-/// in its worktree. Returns the worktree.
+/// Set up a replacement of `prs` (the first names it) from the repo at `root`: what it replaces
+/// and its base in its record (`draft` has marked it, and sets its session), and its branch,
+/// from the originals' base, in its worktree. Returns the worktree.
 fn prepare(prs: &[u64], root: &Path) -> Result<PathBuf> {
     let id = *prs.first().context("no PR to replace")?;
     let git = |args: &[&str]| crate::diff::git(&[&["-C", &root.to_string_lossy()], args].concat());
@@ -250,7 +250,7 @@ pub fn create_new(task: &str, root: &Path) -> Result<u64> {
     let git = |args: &[&str]| crate::diff::git(&[&["-C", &root.to_string_lossy()], args].concat());
     let base = crate::diff::default_branch();
     let id = new_id();
-    let r = Record { id, base: base.clone(), session: crate::claude::new_session_id(), task: task.trim().to_owned(), ..Record::default() };
+    let r = Record { id, base: base.clone(), task: task.trim().to_owned(), ..Record::default() }; // its session: `draft`
     let dir = crate::worktree_dir_named(root, &name(id))?;
     _ = git(&["fetch", "-q", &crate::diff::remote(), &base]);
     git(&["worktree", "add", "-b", &branch(id), &dir.to_string_lossy(), &crate::diff::remote_branch(&base)])?;
@@ -365,10 +365,11 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
         }
         // A first draft: a session of its own (one that failed before may have made the last
         // one, which Claude Code won't start again).
-        if !r.drafted() {
+        let first = !r.drafted();
+        if first {
             r.session = crate::claude::new_session_id();
         }
-        Ok(!r.drafted())
+        Ok(first)
     })?;
     let saved;
     let extra = match extra.trim() {
