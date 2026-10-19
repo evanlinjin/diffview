@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.74] - 2026-10-19
+
+### Fixed
+- A PR's checks are weighed as its other facts are: GitHub refusing part of them fails the
+  fetch, rather than reading as no checks (which marking it ready took for passing).
+
 ## [0.34.73] - 2026-10-19
 
 ### Fixed

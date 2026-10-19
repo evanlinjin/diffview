@@ -62,11 +62,13 @@ fn rollup_chunk(ns: &[u64]) -> Result<Vec<(u64, Rollup)>> {
         .join(" ");
     let q = format!("query($owner: String!, $name: String!) {{ repository(owner: $owner, name: $name) {{ {prs} }} }}");
     let v = gh_json(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-f", &format!("query={q}")])?;
-    // (An error on one PR leaves the others' answers: only none at all is a failure.)
+    // As a PR's other facts are weighed (`gh::refused`): its base's rules unreadable, its checks
+    // stand (only none expected of those not reported yet: what's reported says if it's
+    // required); anything else refused, none of this batch (a check GitHub didn't give isn't
+    // none: `checks` would say passing).
+    super::refused(&v)?;
     let repo = &v["data"]["repository"];
-    if repo.is_null() {
-        bail!("GitHub: {}", v["errors"][0]["message"].as_str().unwrap_or("no answer"));
-    }
+    anyhow::ensure!(repo.is_object(), "GitHub: no repository in its answer");
     Ok(ns
         .iter()
         .filter_map(|&n| {
