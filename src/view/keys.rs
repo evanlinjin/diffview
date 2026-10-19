@@ -431,7 +431,7 @@ impl App {
             return;
         }
         match k.code {
-            KeyCode::Esc => self.picker = None,
+            KeyCode::Esc => (self.picker, self.wanting) = (None, None),
             KeyCode::Enter => {
                 let mut p = self.picker.take().unwrap();
                 if let Some(&i) = m.get(p.sel) {

@@ -264,6 +264,10 @@ fn todo_tab() {
     l.prs[1].checks = Some((3, 0, 2));
     l.find_todo();
     assert_eq!(shown(&l), [3, 1, 2]);
+    // Not with a check failing already: that's to fix now.
+    l.prs[1].checks = Some((2, 1, 2));
+    l.find_todo();
+    assert_eq!(shown(&l), [3, 2, 1]);
     l.prs[1].checks = Some((5, 0, 0));
     l.find_todo();
     assert_eq!(shown(&l), [3, 2, 1]);

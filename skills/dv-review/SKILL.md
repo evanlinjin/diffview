@@ -122,8 +122,9 @@ reply, or the comment itself if it has none) is from `"user"` and isn't `"resolv
 
 ### What the user wants
 
-The user's comment or reply can say what they want of you, as `"want"`. Do exactly that,
-whoever's PR it is, and whatever the wording suggests:
+The user's comment or reply can say what they want of you, as `"want"`. On a thread, the
+user's latest message that has one is what counts (a reply's `"want"` overrides the comment's).
+Do exactly that, whoever's PR it is, and whatever the wording suggests:
 
 | `want` | do | don't |
 |---|---|---|
@@ -151,7 +152,7 @@ addressed it, leave it outdated, say so in your reply, and resolve it.
 When asked to make the changes the review's comments ask for: read the file, and for every
 comment that isn't `"resolved": true` and that `dv review-check` doesn't report as outdated
 (yours, and the user's own, `"author": "user"`, which are their requests, except those whose
-`"want"` is `"ask"`: questions; the user dismisses comments they don't want by deleting them,
+latest `"want"` is `"ask"` or `"suggest"`: those are answered as in 3; the user dismisses comments they don't want by deleting them,
 so all that are left are wanted):
 
 - make the change in the code (for a `suggestion` block, apply it; otherwise do what the

@@ -287,7 +287,7 @@ enum Action {
     /// `quote`: the comment under the cursor as a `> ` quote, pre-filled in the editor.
     Reply { thread: String, comment: u64, review: bool, quote: String },
     /// A reply to Claude on its comment (by id), saved to the review file for Claude to answer,
-    /// with what you want of it (`claude::WANTS`; empty: unsaid).
+    /// with what you want of it ("ask", "suggest", "change"; empty: unsaid).
     ClaudeReply(String, &'static str),
     /// A comment for Claude on these lines (with their text), then Claude answers it; `about`:
     /// the GitHub review comment it asks about (its id, and a quote of it for the editor).
@@ -360,7 +360,7 @@ enum Target {
     /// A comment: (thread index, comment index within it).
     Comment(usize, usize),
     Claude(agent::Ask),
-    /// What you want of Claude on the comment or reply you're about to write (`claude::WANTS`).
+    /// What you want of Claude on the comment or reply you're about to write ("ask", …).
     Want(&'static str),
     ClaudeNotes,
     /// Ask Claude a question about the PR (a thread under its summary, in the Claude tab).

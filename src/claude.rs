@@ -45,10 +45,6 @@ use std::path::PathBuf;
 pub const AUTHOR: &str = "claude";
 const USER: &str = "user";
 
-/// What the user can want from Claude on a comment or reply (its `"want"`): an answer, a
-/// suggestion drafted for GitHub, or the change made in the code here.
-pub const WANTS: [&str; 3] = ["ask", "suggest", "change"];
-
 pub struct Review {
     pub head: String,
     pub summary: String,
@@ -517,7 +513,7 @@ fn parse(text: &str) -> Result<Review> {
                 // The user's last message's: what they want from Claude now.
                 want: std::iter::once(c)
                     .chain(c["replies"].as_array().into_iter().flatten())
-                    .rfind(|m| m["author"] == USER)
+                    .rfind(|m| m["author"] == USER && m["want"].as_str().is_some_and(|w| !w.is_empty()))
                     .map_or(String::new(), |m| s(&m["want"])),
                 // A comment's own time (the user's have one), else the review's.
                 comments: std::iter::once((root_author(c), s(&c["body"]), Some(s(&c["created"])).filter(|t| !t.is_empty()).unwrap_or(created.clone())))
@@ -685,8 +681,8 @@ pub fn dismiss_all(path: &std::path::Path, keys: &[String]) -> Result<usize> {
     Ok(gone)
 }
 
-/// Add the user's reply to comment `key`, for Claude to answer (`want`: see `WANTS`; empty:
-/// unsaid).
+/// Add the user's reply to comment `key`, for Claude to answer (`want`: "ask", "suggest" or
+/// "change"; empty: unsaid).
 pub fn reply(path: &std::path::Path, key: &str, body: &str, want: &str) -> Result<()> {
     update(path, key, |c, i| {
         if !c[i]["replies"].is_array() {
