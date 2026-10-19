@@ -205,7 +205,9 @@ impl App {
         };
         if let Some(left) = left.filter(|_| nudge != 0) {
             let to = (*left as isize + nudge).clamp(0, len.saturating_sub(1) as isize) as usize;
-            self.head.col = (self.head.col as isize + to as isize - *left as isize).clamp(0, len.saturating_sub(1) as isize) as usize;
+            // (Not left of where it's scrolled to: `follow` would take it all the way there.)
+            let last = len.saturating_sub(1) as isize;
+            self.head.col = (self.head.col as isize + to as isize - *left as isize).clamp((to as isize).min(last), last) as usize;
             *left = to;
             if !self.select {
                 self.anchor = self.head;
