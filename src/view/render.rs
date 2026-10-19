@@ -1244,6 +1244,7 @@ impl App {
     /// The working tree's colors forgotten: its files may have changed (the base's and a
     /// commit's can't).
     pub(super) fn forget_tree_colors(&mut self) {
-        self.hl_cache.retain(|k, _| !k.0.is_empty());
+        // ("HEAD", the uncommitted view's base, moves with a commit or an amend too.)
+        self.hl_cache.retain(|k, _| !k.0.is_empty() && k.0 != "HEAD");
     }
 }
