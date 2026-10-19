@@ -39,17 +39,25 @@ impl App {
             return;
         }
         let x = if self.picker.is_some() || self.popup.is_some() { x } else { x.saturating_sub(self.files_w) };
-        // Shift and the wheel: sideways (as terminals that don't send it so).
+        // Shift and the wheel: sideways (as terminals that don't send it so), over the code (a
+        // popup or a picker scrolls as with the wheel).
+        let code = self.picker.is_none() && self.popup.is_none();
+        let shift = m.modifiers.contains(KeyModifiers::SHIFT) && code;
         let kind = match m.kind {
-            MouseEventKind::ScrollDown if m.modifiers.contains(KeyModifiers::SHIFT) => MouseEventKind::ScrollRight,
-            MouseEventKind::ScrollUp if m.modifiers.contains(KeyModifiers::SHIFT) => MouseEventKind::ScrollLeft,
+            MouseEventKind::ScrollDown if shift => MouseEventKind::ScrollRight,
+            MouseEventKind::ScrollUp if shift => MouseEventKind::ScrollLeft,
             k => k,
         };
         match kind {
             // Sideways: what's under it (a comment's code block or table, or the diff), the
-            // cursor to it first, as a click.
-            MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight if self.picker.is_none() && self.popup.is_none() => {
-                let Some((row, col, _)) = self.at_screen(x, y) else { return };
+            // cursor to it first, as a click. Not the pinned title (it'd go to the top), nor a
+            // line too short to show where it's scrolled to (the cursor there would take it back).
+            MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight if code => {
+                let Some((row, col, _)) = self.at_screen(x, y).filter(|_| !(self.pin && y == 0)) else { return };
+                if self.len(row) <= self.hscroll(row) + 1 && self.hscroll(row) > 0 {
+                    return;
+                }
+                self.select = false;
                 self.goto(row, col);
                 self.hnudge = if kind == MouseEventKind::ScrollRight { 8 } else { -8 };
             }
