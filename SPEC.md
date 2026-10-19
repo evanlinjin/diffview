@@ -103,7 +103,7 @@ disk: rust-analyzer can index it and `hx` can open it.
    Claude Code from dv (review / update the review, answer your waiting replies, or make the
    changes its open comments ask for, after optional instructions of yours in `$EDITOR`): in a
    zellij floating pane as an interactive session, opened without focus, so hidden while
-   zellij's floating panes are (`Space a` → "Show Claude's pane" brings it up), and closed once
+   zellij's floating panes are (`Space a` → "Show Claude's pane" brings it up; with none open, "Open Claude in a pane" opens the session there, focused, to talk to it: a fork of it while a background run is at work on it), and closed once
    Claude's done there: its transcript (Claude Code's, by the session's id) ends on its answer
    (`end_turn`) since the run started, not a question for you (ending in `?`), nor asking you
    something on screen, with its input box empty (a request waiting for Enter, your words), and

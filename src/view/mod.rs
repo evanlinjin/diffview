@@ -241,6 +241,7 @@ enum Target {
     ReplaceRemote(String, bool),
     ClaudeFresh,
     ClaudePane,
+    ClaudeOpen,
     ClaudeCheck,
     ClaudeStop,
     GitView,

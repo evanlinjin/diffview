@@ -209,6 +209,12 @@ impl App {
         ]);
         if self.claude_pane().is_some() {
             items.insert(0, Item::new("Show Claude's pane (its session on this PR)", Target::ClaudePane));
+        } else if in_zellij() {
+            let what = match self.claude_busy() {
+                true => "a copy of its session: it's at work on this one",
+                false => "its session on this PR, to talk to it",
+            };
+            items.push(Item::new(format!("Open Claude in a pane ({what})"), Target::ClaudeOpen));
         }
         // A description Claude proposed: yours to approve (posted then), take further, or drop.
         if !self.claude.description.is_empty() {
@@ -553,21 +559,8 @@ impl App {
             // Floating and unfocused: hidden while zellij's floating panes are (`Space a` →
             // show it, or zellij's own toggle); dv says when it's asking you something, and
             // closes it once Claude's done there (`close_if_done`).
-            true => match std::process::Command::new("zellij")
-                .args(["run", "--floating", "--no-focus", "--name", &format!("claude: {label}"), "--cwd"])
-                .arg(&self.root)
-                .args(["--", "env"])
-                .arg(path_env) // the pane gets zellij's environment, not dv's
-                .args(data_env()) // and so the same dv directory as this one, which it watches
-                .args(["claude", &prompt])
-                .args(self.session_args())
-                .args(claude_dirs())
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status()
-            {
-                Ok(s) if s.success() => {
+            true => match self.claude_pane_run(&format!("claude: {label}"), Some(&prompt), false, false) {
+                Ok(()) => {
                     // For dv list: at it while its pane is open (a session: when it's done
                     // working there, only the pane knows).
                     if let (Some(p), Some(id)) = (&self.pr, &self.claude.session) {
@@ -618,6 +611,41 @@ impl App {
     /// with the session id on the command line, which no other pane has.
     pub(super) fn claude_pane(&self) -> Option<u64> {
         self.claude_pane_cmd().map(|p| p.0)
+    }
+
+    /// The PR's session (`fork`: a fork of it) in a floating pane (`prompt`: sent as it starts):
+    /// hidden (`focus`: shown and focused). Floating and unfocused, it's hidden while zellij's floating panes are
+    /// (`Space a` → show it, or zellij's own toggle); dv says when it's asking you something,
+    /// and closes it once Claude's done there (`close_if_done`).
+    fn claude_pane_run(&mut self, name: &str, prompt: Option<&str>, focus: bool, fork: bool) -> Result<()> {
+        let mut path_env = std::ffi::OsString::from("PATH=");
+        path_env.push(path_for_claude());
+        let mut cmd = std::process::Command::new("zellij");
+        cmd.args(["run", "--floating", "--name", name, "--cwd"]).arg(&self.root);
+        if !focus {
+            cmd.arg("--no-focus");
+        }
+        cmd.args(["--", "env"])
+            .arg(path_env) // the pane gets zellij's environment, not dv's
+            .args(data_env()) // and so the same dv directory as this one, which it watches
+            .arg("claude")
+            .args(prompt)
+            .args(self.session_args())
+            .args(fork.then_some("--fork-session"))
+            .args(claude_dirs());
+        let s = cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
+            .status().context("running zellij")?;
+        anyhow::ensure!(s.success(), "zellij run failed ({s})");
+        Ok(())
+    }
+
+    /// `Space a` → open Claude in a pane, to talk to it: the PR's session, or while a run is at
+    /// work on it, a fork of it (two at once on one session would trip each other up).
+    pub(super) fn open_claude_pane(&mut self) {
+        let busy = self.claude_busy();
+        if let Err(e) = self.claude_pane_run(if busy { "claude (a copy)" } else { "claude" }, None, true, busy) {
+            self.msg = format!("{e:#}");
+        }
     }
 
     /// `Space a` → show Claude's pane (`show_pane`).

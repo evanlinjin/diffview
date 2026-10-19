@@ -582,6 +582,7 @@ impl App {
                         },
                         Target::ClaudeFresh => self.fresh_claude_session(),
                         Target::ClaudePane => self.show_claude_pane(),
+                        Target::ClaudeOpen => self.open_claude_pane(),
                         Target::ClaudeCheck => self.check_claude(),
                         Target::ClaudeStop => self.stop_claude(),
                         Target::AmendMenu => self.amend_menu(),
