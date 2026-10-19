@@ -3,11 +3,11 @@
        │  OP threads: [all] unresolved pending Claude new                        1 / 4             │
        │  re >                                                                                     │
        ╰──── src/big.rs:12  [nit] @claude                                              ────────────╯
-       ╭─ yo   Name it new_value; see src/a.rs:2.                                      ────────────╮
-       │  Ne                                                                                       │
-       ╰──── src/big.rs:20  1 reply · @amy                                             ────────────╯
- ▾        de   Why line 20?
+ ▾        de   Name it new_value; see src/a.rs:2.
           Fi
+       ╭─ yo src/big.rs:20  1 reply · @amy                                             ────────────╮
+       │  Ne   Why line 20?                                                                        │
+       ╰────                                                                           ────────────╯
  ▾        sr src/a.rs:2  [pending] @you
           ──   Pass y here.                                                            ───── L9–15 ─
   9   9   li

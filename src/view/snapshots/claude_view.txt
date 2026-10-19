@@ -1,7 +1,9 @@
-          PR #7 · Fix the thing  @bo · main ← amy  Comments  Claude  Pending  PR                 gn
- ▾        claude's review                         ╭─ review summary ───────────────────────────────╮
-          Looks right; one nit.                   │ you     Nearly there.                          │
- ▾        src/big.rs  +1 −1  · 1 comment          ╰────────────────────────────────────────────────╯
+          PR #7 · Fix the thing  @bo · main ← amy  Comments  Claude  Pending                     gn
+ ▾        description
+          Fixes the thing, see new_call.
+ ▾        claude's review
+          Looks right; one nit.
+ ▾        src/big.rs  +1 −1  · 1 comment
           ───────────────────────────────────────────────────────────────────────────────── L10–15 ─
  10  10   line 10
  11  11   line 11
@@ -25,6 +27,4 @@
 
 
 
-
-
- NOR       Claude view: its summary and the code it commented on (gn / gp: the… claude view    1/16
+ NOR       Claude view: its summary and the code it commented on (gn / gp: the… claude view    1/18

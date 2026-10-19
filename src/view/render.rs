@@ -260,67 +260,32 @@ impl App {
             let keep = self.cursor_key();
             self.rebuild(keep);
         }
-        // The cursor onto a comment, or PR text, while the pane is on its other tab: that tab.
-        let tab = match () {
-            _ if self.in_margin(self.head.row) => Tab::Comments,
-            _ if self.pr_row(self.head.row) => Tab::Pr,
-            _ => self.pane_tab,
-        };
-        if self.margin_active && tab != self.pane_tab {
-            self.pane_tab = tab;
-            self.layout();
+        if !self.margin_side() {
+            self.code_head = self.head;
         }
-        let pr_tab = self.margin_active && self.pane_tab == Tab::Pr;
-        let on_pr = self.on_pr_tab();
-        match on_pr {
-            true => self.pr_head = Some(self.head.row),
-            false if !self.margin_side() => self.code_head = self.head,
-            false => {}
-        }
-        // Scroll the code to the cursor (on the PR tab: to where it was in the code), and the PR
-        // tab to it there.
-        let hd = if on_pr { self.d_of[self.code_head.row.min(self.rows.len() - 1)] } else { self.hd() };
-        // The review's summaries over the top of the comments tab: a comment the cursor is on
-        // stays below them.
-        let strip = match margin && !pr_tab {
-            true => self.summary_strip(mw - self.pane_pad()),
-            false => vec![],
-        };
-        self.strip_h = strip.len();
-        let under = if self.margin_side() { strip.len() } else { 0 };
-        if hd < self.top + so + under {
-            self.top = hd.saturating_sub(so + under);
+        // Scroll the code to the cursor.
+        let hd = self.hd();
+        if hd < self.top + so {
+            self.top = hd.saturating_sub(so);
         }
         if hd + so + 1 > self.top + h {
             self.top = hd + so + 1 - h;
         }
         self.top = self.top.max(pin); // the title is above, not in, what scrolls
-        if let Some(i) = on_pr.then(|| self.pr_rows.iter().position(|&r| r == self.head.row)).flatten() {
-            if i < self.pr_top + so {
-                self.pr_top = i.saturating_sub(so);
-            }
-            if i + so + 1 > self.pr_top + h {
-                self.pr_top = i + so + 1 - h;
-            }
-        }
-        self.pr_top = self.pr_top.min(self.pr_rows.len().saturating_sub(1));
         // Where the margin starts (floating: over the code's right end).
         let mx = width.saturating_sub(mw).saturating_sub(gw + 1);
         self.geom = mouse::Geom { relw, gw, ghw, half, ctw: if float { mx } else { ctw }, picker: None };
         let code_line = matches!(self.rows[self.head.row].line.kind, Kind::Ctx | Kind::Add | Kind::Del);
-        let on_pr = self.on_pr_tab();
         let cur_w = match self.drows[self.hd()] {
-            _ if on_pr => mtw - self.pane_pad(), // `hd` is where the cursor was in the code
             DRow::Pair(..) => htw_l.min(htw_r),
             DRow::Margin(..) if self.margin_side() => mtw - self.pane_pad(),
             // Split view beside the pane: a line is one half, paired or not.
             DRow::Margin(..) if self.split && code_line => htw_l.min(htw_r),
             DRow::Margin(..) => ctw,
-            DRow::Full(_) if pr_tab && !float => ctw, // beside the PR tab's column
             DRow::Full(_) => tw,
         };
         // A code line's last column is for comment marks.
-        let cur_w = if code_line && !self.margin_side() && !on_pr { cur_w.saturating_sub(1) } else { cur_w };
+        let cur_w = if code_line && !self.margin_side() { cur_w.saturating_sub(1) } else { cur_w };
         // The cursor kept in view: in a comment's code block by scrolling only that block (to
         // its box's edge, as `render_row` cuts it); elsewhere in a comment there's nothing to
         // scroll; in the diff by `left`.
@@ -341,7 +306,6 @@ impl App {
                 follow(&mut self.code_left, w)
             }
             (None, Some(_)) => {}
-            (None, None) if on_pr => {} // the code's offset isn't the PR text's
             (None, None) => follow(&mut self.left, cur_w),
         }
 
@@ -386,7 +350,7 @@ impl App {
         // pane in the popup color (on the rows it covers), with no line.
         let raised = self.ui.popup.bg.or(self.ui.bar);
         // In the key color while the cursor's in the pane: which side has focus.
-        let sep = match (float, self.margin_side() || self.on_pr_tab()) {
+        let sep = match (float, self.margin_side()) {
             (false, false) => Span::styled("│", Style { fg: self.ui.linenr.fg, ..Style::new() }),
             (false, true) => Span::styled("│", Style { fg: self.ui.key.fg, ..Style::new() }),
             (true, false) => Span::styled(" ", Style { bg: raised, ..Style::new() }),
@@ -427,11 +391,11 @@ impl App {
             (self.d_of[head] < self.top).then_some(head)
         })();
         let code_cols = relw + gw + if margin { mx } else { tw };
-        let rows_shown = if pr_tab { h } else { (self.top + h).min(self.drows.len()).saturating_sub(self.top) };
+        let rows_shown = (self.top + h).min(self.drows.len()).saturating_sub(self.top);
         let lines: Vec<Line> = (0..rows_shown)
             .map(|y| {
                 let d = self.top + y;
-                let cur = d == hd && !on_pr;
+                let cur = d == hd;
                 let rel = match (relw, cur) {
                     (0, _) => vec![],
                     (_, true) => vec![Span::styled(format!("{:>w$} ", "", w = relw - 1), self.ui.linenr_selected)],
@@ -445,7 +409,7 @@ impl App {
                     _ if d >= self.drows.len() => {}
                     DRow::Full(r) => {
                         spans.extend(self.render_row(r, s, e, (lw, gw, fw), None, cur, &overlay));
-                        if column && !pr_tab {
+                        if column {
                             spans = clip(spans, relw + gw + mx);
                             spans.push(sep.clone());
                             spans.push(Span::raw(" ".repeat(mw)));
@@ -477,22 +441,6 @@ impl App {
                         }
                     }
                 }
-                // The summaries, over the pane's top rows (what's beside the code there scrolls
-                // under them).
-                if let Some(line) = strip.get(y) {
-                    spans = clip(spans, relw + gw + mx);
-                    spans.push(sep.clone());
-                    spans.extend(raise(pane_cell(line.clone())));
-                }
-                // The PR tab: its own rows, scrolled on their own, over the right of every line.
-                if pr_tab {
-                    spans = clip(spans, relw + gw + mx);
-                    spans.push(sep.clone());
-                    match self.pr_rows.get(self.pr_top + y) {
-                        Some(&r) => spans.extend(raise(pane_cell(self.render_row(r, s, e, (lw, 3, ptw), None, r == self.head.row, &overlay)))),
-                        None => spans.extend(raise(vec![Span::raw(" ".repeat(mw))])),
-                    }
-                }
                 // The top line: the pinned file header over the code (the pane's part kept).
                 if let (0, Some(hr)) = (y, sticky) {
                     let mut head = vec![Span::styled(" ".repeat(relw), self.ui.header)];
@@ -508,7 +456,7 @@ impl App {
         f.render_widget(Paragraph::new(lines), Rect { y: area.y + pin as u16, height: h as u16, ..area });
         // Below the last row: the line between the code and the pane goes on to the bottom; and
         // a view with nothing in it (yet) says so, on both sides.
-        if rows_shown < h && !pr_tab {
+        if rows_shown < h {
             let column = margin && !float;
             let code_w = if column { mx } else { tw };
             let note = self.empty_note();
@@ -517,14 +465,6 @@ impl App {
                     let say = note.filter(|_| y == rows_shown + 1);
                     let code: String = say.map_or("", |n| n.0).chars().take(code_w).collect();
                     let mut spans = vec![Span::raw(" ".repeat(relw + gw)), Span::styled(format!("{code:<code_w$}"), self.ui.stale)];
-                    // The summaries' strip goes on past the code's last row (as a column or
-                    // floating).
-                    if let Some(line) = strip.get(y).filter(|_| margin) {
-                        spans = clip(spans, relw + gw + mx);
-                        spans.push(sep.clone());
-                        spans.extend(raise(pane_cell(line.clone())));
-                        return Line::from(spans);
-                    }
                     if column {
                         spans.push(sep.clone());
                         let pane: String = say.map_or("", |n| n.1).chars().take(mw.saturating_sub(1)).collect();
@@ -578,14 +518,10 @@ impl App {
         // Not on the PR header (where dv starts): the status hint says it links there.
         let header = self.rows[self.head.row].line.kind == Kind::File;
         if let (Some(url), None, None, false) = (self.link_at_cursor(), &self.picker, &self.popup, header) {
-            let y = match on_pr {
-                true => self.pr_rows.iter().position(|&r| r == self.head.row).unwrap_or(0).saturating_sub(self.pr_top),
-                false => hd - self.top,
-            } as u16
-                + pin as u16;
+            let y = (hd - self.top) as u16 + pin as u16;
             // In the margin, the text starts after the code column, the gap and its own gutter.
             let start = match self.drows[hd] {
-                _ if on_pr || self.margin_side() => relw + self.geom.gw + self.geom.ctw + 1 + self.pane_pad() + 3,
+                _ if self.margin_side() => relw + self.geom.gw + self.geom.ctw + 1 + self.pane_pad() + 3,
                 DRow::Pair(..) | DRow::Margin(Some(_), Some(_), _) if self.right => relw + half + 1 + ghw,
                 DRow::Pair(..) => relw + ghw,
                 DRow::Margin(Some(_), Some(_), _) if self.split => relw + ghw,
@@ -1177,43 +1113,4 @@ impl App {
         }
     }
 
-    /// The review's summaries (yours, pending, and Claude's) for the top of the comments tab,
-    /// `w` wide: two lines of each at most (the PR tab has them in full; a click goes there).
-    pub(super) fn summary_strip(&self, w: usize) -> Vec<Vec<Span<'static>>> {
-        // Yours: Claude's is the Claude tab's, in full there.
-        let items = [("you", &self.summary_draft)];
-        let items: Vec<_> = items.into_iter().filter(|(_, t)| !t.trim().is_empty()).collect();
-        if items.is_empty() || w < 20 {
-            return vec![];
-        }
-        let edge = Style { fg: self.ui.linenr.fg, ..Style::new() };
-        let rule = |l: &str, title: &str, r: char| {
-            let fill = w.saturating_sub(title.chars().count() + l.chars().count() + 1);
-            vec![Span::styled(format!("{l}{title}{}{r}", "─".repeat(fill)), edge)]
-        };
-        let mut out = vec![rule("╭─", " review summary ", '╮')];
-        let label_w = 8; // "claude  "
-        for (who, text) in items {
-            let lines = crate::md::render(text, w.saturating_sub(4 + label_w), &self.ui.md, &self.hl, None);
-            let lines: Vec<_> = lines.into_iter().filter(|l| !l.text.trim().is_empty()).collect();
-            for (i, l) in lines.iter().take(2).enumerate() {
-                let more = i == 1 && lines.len() > 2;
-                let label = if i == 0 { format!("{who:<label_w$}") } else { " ".repeat(label_w) };
-                let who_st = if who == "claude" { self.ui.key } else { self.ui.pending };
-                let mut row = vec![Span::styled("│ ", edge), Span::styled(label, who_st)];
-                for (c, st) in l.text.chars().zip(l.styles.iter().chain(std::iter::repeat(&None))) {
-                    row.push(Span::styled(c.to_string(), st.unwrap_or_default()));
-                }
-                if more {
-                    row.push(Span::styled("…", edge));
-                }
-                let used: usize = row.iter().map(|s| s.width()).sum();
-                row.push(Span::raw(" ".repeat(w.saturating_sub(used + 1))));
-                row.push(Span::styled("│", edge));
-                out.push(row);
-            }
-        }
-        out.push(rule("╰", "", '╯'));
-        out
-    }
 }

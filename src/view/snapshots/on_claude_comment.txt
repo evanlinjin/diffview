@@ -1,7 +1,14 @@
-          PR #7 · Fix the thing  @bo · main ← amy  Comments  Claude  Pending  PR                 gn
- ▾        description                            ▎╭─ review summary ───────────────────────────────╮
-          Fixes the thing, see new_call.         ▎│ you     Nearly there.                          │
- ▾        src/big.rs  +1 −1  · 2 comments        ▎╰────────────────────────────────────────────────╯
+          PR #7 · Fix the thing  @bo · main ← amy  Comments  Claude  Pending                     gn
+       ╭─ status ──────────────────────────────────────────────────────────────────────────────────╮
+       │  OPEN @bo · main ← fix · +2 −2 in 3 files                                                 │
+       │  review: waiting on @cy                                                                   │
+       ╰───────────────────────────────────────────────────────────────────────────────────────────╯
+ ▾        description
+          Fixes the thing, see new_call.
+       ╭─ your review (pending) ───────────────────────────────────────────────────────────────────╮
+       │  Nearly there.                                                                            │
+       ╰───────────────────────────────────────────────────────────────────────────────────────────╯
+ ▾        src/big.rs  +1 −1  · 2 comments
           ───────────────────────────────────────▎╭─ amy · L20 ────────────────────────────────────╮
   9   9   line 9                                 ▎│  Why line 20?                                  │
  10  10   line 10                                ▎├─ you ──────────────────────────────────────────┤
@@ -12,19 +19,12 @@
  14  14   line 14                                ▎│  Name it new_value; see src/a.rs:2.            │
  15  15   line 15                                ▎╰────────────────────────────────────────────────╯
  ▾        src/a.rs  +1 −1  · 1 comment
-          ── fn main ──────────────────────────────────────────────────────────────────────── L1–3 ─
-  1   1   fn main() {                            ▎ ▸ amy · L1 · 1 comment
-  2     -     old();                             ▎ ┃ [resolved]
-      2 +     new_call(x);                       ▎╭─ you · L2 ─────────────────────────────────────╮
-  3   3   }                                      ▎│  [pending]                                     │
-                                                 ▎│  Pass y here.                                  │
-                                                 ▎╰────────────────────────────────────────────────╯
- Claude's comment                           0
- r        reply to Claude
- gf       go to a file:line or name in it
- c        copy to your review
- C        post it now
- Space r  resolve
- Space d  dismiss
-
+ Claude's comment                           ───────────────────────────────────────────────── L1–3 ─
+ r        reply to Claude                        ▎ ▸ amy · L1 · 1 comment
+ gf       go to a file:line or name in it        ▎ ┃ [resolved]
+ c        copy to your review                    ▎╭─ you · L2 ─────────────────────────────────────╮
+ C        post it now                            ▎│  [pending]                                     │
+ Space r  resolve                                ▎│  Pass y here.                                  │
+ Space d  dismiss                                ▎╰────────────────────────────────────────────────╯
+                                            0
  NOR   src/big.rs                3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)    23/43

@@ -51,13 +51,11 @@ impl App {
                     }
                 } else {
                     // What's under the mouse, wherever the cursor is, and only that: each stops at
-                    // its own end. The PR tab scrolls on its own; the comments tab with the code
-                    // (they're beside their lines), while there are comments that way.
+                    // its own end. The comments with the code (they're beside their lines), while
+                    // there are comments that way.
                     let d = if down { 3 } else { -3 };
                     let over_pane = self.margin_active && x > self.geom.relw + self.geom.gw + self.geom.ctw;
-                    if self.in_pr_tab_area(x) {
-                        _ = self.scroll_pr(d);
-                    } else if !over_pane || self.comments_beyond(down) {
+                    if !over_pane || self.comments_beyond(down) {
                         _ = self.scroll_code(d);
                     }
                 }
@@ -71,15 +69,6 @@ impl App {
                 }
                 // On the pinned title, over the pane: its tabs.
                 let pane = self.geom.relw + self.geom.gw + self.geom.ctw;
-                // On the summaries over the comments: them in full, on the PR tab.
-                let sy = y.wrapping_sub(self.pin as usize);
-                if self.margin_active && self.pane_tab == Tab::Comments && x >= pane && sy < self.strip_h {
-                    self.bar_to(Bar::Pr);
-                    if let Some(&r) = self.pr_rows.iter().find(|&&r| matches!(self.rows[r].info, Some(SUMMARY) | Some(DRAFT))) {
-                        self.goto(r, 0);
-                    }
-                    return;
-                }
                 if self.pin && y == 0 && self.margin_active && x >= pane {
                     if let Some((b, ..)) = self.pane_tabs().into_iter().find(|t| t.2.contains(&(x - pane))) {
                         self.bar_to(b);
@@ -140,11 +129,6 @@ impl App {
             return None; // the status bar
         }
         let d = self.top + y;
-        if self.in_pr_tab_area(x) {
-            let row = *self.pr_rows.get(self.pr_top + y)?;
-            let start = g.relw + g.gw + g.ctw + 1 + self.pane_pad() + 3;
-            return Some((row, x.saturating_sub(start) + self.hscroll(row), x < start));
-        }
         let (row, start) = match *self.drows.get(d)? {
             DRow::Full(r) => (r, g.relw + g.gw),
             // Split view: the old side, the divider, the new side.
@@ -164,8 +148,4 @@ impl App {
         Some((row, x.saturating_sub(start) + self.hscroll(row), x < start))
     }
 
-    /// Screen column `x` is on the pane's PR tab.
-    fn in_pr_tab_area(&self, x: usize) -> bool {
-        self.margin_active && self.pane_tab == Tab::Pr && x > self.geom.relw + self.geom.gw + self.geom.ctw
-    }
 }

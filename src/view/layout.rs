@@ -10,13 +10,12 @@ impl App {
         if self.margin_row(r) { tw } else { tw.min(self.wrap_w + 2) }
     }
 
-    /// The rows the cursor's pane has, in order, when it's in the pane: the PR tab's, or the
-    /// comments'; nothing when it's in the code.
+    /// The rows the pane has, in order, when the cursor's in it (the comments); nothing when
+    /// it's in the code.
     pub(super) fn pane_rows(&self) -> Vec<usize> {
-        match (self.on_pr_tab(), self.margin_side()) {
-            (true, _) => self.pr_rows.clone(),
-            (false, true) => (0..self.rows.len()).filter(|&r| self.in_margin(r)).collect(),
-            _ => vec![],
+        match self.margin_side() {
+            true => (0..self.rows.len()).filter(|&r| self.in_margin(r)).collect(),
+            false => vec![],
         }
     }
 
@@ -35,35 +34,10 @@ impl App {
         (0..self.head.row).rev().find(|&r| !self.in_margin(r)).unwrap_or(0)
     }
 
-    /// The pane on `tab` (shown, if it wasn't): `gn` / `gp`, or a click on the tab.
-    pub(super) fn pane_to(&mut self, tab: Tab) {
-        // An unpublished draft has no PR tab.
-        let tab = if self.unpublished() { Tab::Comments } else { tab };
-        // Off what the other tab shows (it'd come back for it): from the PR's text, to where
-        // the cursor was in the code; from a comment, to the line it's on.
-        if tab != self.pane_tab && self.on_pr_tab() {
-            let p = self.code_back();
-            self.goto(p.row, p.col);
-        } else if tab != self.pane_tab && self.margin_side() {
-            self.goto(self.line_beside(), 0);
-        }
-        (self.pane_tab, self.margin_pref) = (tab, Some(true));
+    /// The pane shown, if it wasn't (`gn` / `gp`, a click on a tab).
+    pub(super) fn show_pane(&mut self) {
+        self.margin_pref = Some(true);
         self.layout();
-        self.msg = match tab {
-            Tab::Pr => "pane: the PR's facts and conversation (gn: comments; Ctrl-l goes in)",
-            Tab::Comments => "pane: comments beside their lines (gn: Claude's review, then the PR's text)",
-        }
-        .into();
-    }
-
-    /// Where the cursor was in the code, to go back to from the PR tab: not PR text or a comment
-    /// (should it be, the code at the top of the screen).
-    pub(super) fn code_back(&self) -> Pos {
-        let r = self.code_head.row.min(self.rows.len().saturating_sub(1));
-        match self.pr_row(r) || self.in_margin(r) {
-            false => self.code_head,
-            true => Pos { row: self.pick(self.top.max(self.pin as usize).min(self.drows.len().saturating_sub(1))), col: 0 },
-        }
     }
 
     /// The pane's tabs, on the pinned title's right end, over the pane (`x` from where it
@@ -74,7 +48,7 @@ impl App {
         // and no PR yet (what it replaces is atop its description).
         let tabs: &[_] = match self.unpublished() {
             true => &[(Bar::Claude, " Claude ")],
-            false => &[(Bar::Comments, " Comments "), (Bar::Claude, " Claude "), (Bar::Pending, " Pending "), (Bar::Pr, " PR ")],
+            false => &[(Bar::Comments, " Comments "), (Bar::Claude, " Claude "), (Bar::Pending, " Pending ")],
         };
         tabs.iter()
             .copied()
@@ -85,20 +59,19 @@ impl App {
             .collect()
     }
 
-    /// The tab that's lit: the PR's text, Claude's review (the Claude view), your pending one
-    /// (the pending view), or the comments.
+    /// The tab that's lit: Claude's review (the Claude view), your pending one (the pending
+    /// view), or the comments (the whole diff).
     pub(super) fn bar(&self) -> Bar {
-        match (self.pane_tab, self.view) {
+        match self.view {
             _ if self.unpublished() => Bar::Claude,
-            (_, View::Claude) => Bar::Claude,
-            (_, View::Pending) => Bar::Pending,
-            (Tab::Pr, _) => Bar::Pr,
-            _ => Bar::Comments,
+            View::Claude => Bar::Claude,
+            View::Pending => Bar::Pending,
+            View::All => Bar::Comments,
         }
     }
 
     /// To tab `b` (a click on it, `gn` / `gp`): each tab its view: Claude's, the Claude view
-    /// beside its comments; Pending, the pending view; the comments' and the PR's, the whole diff.
+    /// beside its comments; Pending, the pending view; the comments', the whole diff.
     pub(super) fn bar_to(&mut self, b: Bar) {
         // In a draft, Claude's tab is the whole diff: every comment there is Claude's or yours.
         let v = match b {
@@ -109,11 +82,7 @@ impl App {
         if v != self.view {
             self.toggle_view(if v == View::All { self.view } else { v });
         }
-        let msg = std::mem::take(&mut self.msg);
-        self.pane_to(if b == Bar::Pr { Tab::Pr } else { Tab::Comments });
-        if !msg.is_empty() && b != Bar::Pr {
-            self.msg = msg; // what the view says
-        }
+        self.show_pane();
     }
 
     /// `gn` / `gp`: the next / previous tab, round.
@@ -139,8 +108,8 @@ impl App {
     /// not at all, but for the cursor's code block, by its own offset.
     pub(super) fn hscroll(&self, r: usize) -> usize {
         match self.box_part(r) {
-            // The pinned title and the PR tab's text aren't the diff's.
-            None if (r == 0 && self.pin) || (self.pane_tab == Tab::Pr && self.pr_row(r)) => 0,
+            // The pinned title isn't the diff's.
+            None if r == 0 && self.pin => 0,
             None => self.left,
             Some(_) if self.code_at.is_some() && self.code_block(r) == self.code_at => self.code_left,
             Some(_) => 0,
@@ -188,9 +157,8 @@ impl App {
     /// lines show on both sides. Comments on files go in the margin on the right, each box
     /// beside its line (or just below the box before it, if that's still running there); code
     /// only gets spacer rows when a file's comments need more room than its code has (they
-    /// never spill into the next file). With the margin hidden, or on its PR tab, they aren't
-    /// shown, and the lines they're on have a mark in the gutter. With it shown, the PR section
-    /// (but its header line) is on its PR tab, not here.
+    /// never spill into the next file). With the margin hidden, they aren't shown, and the
+    /// lines they're on have a mark in the gutter.
     pub(super) fn layout(&mut self) {
         let n = self.rows.len();
         let kind = |i: usize| self.rows[i].line.kind;
@@ -200,7 +168,6 @@ impl App {
             matches!(row.line.kind, Kind::Ctx | Kind::Add | Kind::Del | Kind::Hunk) && row.file != INFO
         };
         let margin = |i: usize| self.in_margin(i);
-        let pr_tab: Vec<usize> = (0..n).filter(|&i| self.pr_row(i)).collect();
         // The main column's rows (full width, or code: one row, or in split view a pair), each
         // with the comment rows that follow its rows; and the code row each thread is about.
         let mut units: Vec<(DRow, Vec<usize>)> = vec![];
@@ -210,10 +177,6 @@ impl App {
         let mut last_code: Option<usize> = None;
         let mut i = 0;
         while i < n {
-            if self.pr_row(i) {
-                i += 1;
-                continue;
-            }
             if margin(i) {
                 let first = i == 0 || self.rows[i - 1].thread != self.rows[i].thread;
                 if let (true, Some(t), Some(c)) = (first, self.rows[i].thread, last_code) {
@@ -274,7 +237,6 @@ impl App {
         }
         self.margin_anchor = anchors;
         self.marks = self.find_marks();
-        self.pr_rows = pr_tab;
         let mut d: Vec<DRow> = vec![];
         if !self.comments_in_pane() {
             for (u, _) in units {
@@ -286,10 +248,8 @@ impl App {
         }
         // The margin: comments wait in `pending` for a free row beside code.
         let mut pending: std::collections::VecDeque<usize> = Default::default();
-        // The first screen row whose margin is free: at the top, below the review's summaries
-        // (over the pane's top rows, `summary_strip`) and the pinned title.
-        let title = usize::from(self.rows.first().is_some_and(|r| r.file == INFO && r.line.kind == Kind::File));
-        let mut free = title + self.summary_strip(self.margin_w.saturating_sub(self.pane_pad())).len();
+        // The first screen row whose margin is free: at the top, below the pinned title.
+        let mut free = usize::from(self.rows.first().is_some_and(|r| r.file == INFO && r.line.kind == Kind::File));
         let flush = |d: &mut Vec<DRow>, pending: &mut std::collections::VecDeque<usize>| {
             d.extend(pending.drain(..).map(|c| DRow::Margin(None, None, Some(c))));
         };
@@ -358,28 +318,14 @@ impl App {
         row.thread.is_some() && row.file != INFO
     }
 
-    /// PR text (the PR section but its header line), on the pane's PR tab while it's shown.
-    pub(super) fn pr_row(&self, r: usize) -> bool {
-        let row = &self.rows[r];
-        self.margin_active && row.file == INFO && row.line.kind != Kind::File && row.main.is_none()
-    }
-
     /// Comments on files are in the pane: it's shown, on that tab.
     pub(super) fn comments_in_pane(&self) -> bool {
-        self.margin_active && self.pane_tab == Tab::Comments
+        self.margin_active
     }
 
-    /// Row `r` is in the pane now: a comment (on that tab) or PR text (on the PR tab).
+    /// Row `r` is in the pane now: a comment on a file, the pane shown.
     pub(super) fn in_pane(&self, r: usize) -> bool {
-        match self.pane_tab {
-            Tab::Comments => self.comments_in_pane() && self.in_margin(r),
-            Tab::Pr => self.pr_row(r),
-        }
-    }
-
-    /// The cursor is on the pane's PR tab.
-    pub(super) fn on_pr_tab(&self) -> bool {
-        self.pane_tab == Tab::Pr && self.pr_row(self.head.row)
+        self.comments_in_pane() && self.in_margin(r)
     }
 
     /// The cursor is in the margin (on a comment), not the code. Worked out from where the

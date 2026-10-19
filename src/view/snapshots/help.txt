@@ -1,13 +1,13 @@
           PR #7 · Fix the thing  @bo · main ← amy:fix          3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)
        ╭─ status ──────────────────────────────────────────────────────────────────────────────────────────────╮
-       │  OPEN @bo · m keys · / search · j/k scroll · other keys close                 1–44 / 134              │
+       │  OPEN @bo · m keys · / search · j/k scroll · other keys close                 1–44 / 135              │
        │  review: wait  MOVE                                                                    ┃              │
        ╰──────────────   h j k l, arrows      move (counts: 5j)                                 ┃ ─────────────╯
-       ╭─ your review    w b e  W B E         word motions (select)                             ┃ ─────────────╮
-       │  Nearly there   gh gl gs             line start / end / first non-blank                ┃              │
-       ╰──────────────   f t F T <c>          find char                                         ┃ ─────────────╯
- ▾        description    gw                   jump labels                                       ┃
-          Fixes the th   mm                   matching bracket                                  ┃
+ ▾        description    w b e  W B E         word motions (select)                             ┃
+          Fixes the th   gh gl gs             line start / end / first non-blank                ┃
+       ╭─ your review    f t F T <c>          find char                                         ┃ ─────────────╮
+       │  Nearly there   gw                   jump labels                                       ┃              │
+       ╰──────────────   mm                   matching bracket                                  ┃ ─────────────╯
  ▾        src/big.rs     gg ge                top / end (in the comments pane: its first / last)┃
           ────────────   Ctrl-d Ctrl-u        half page down / up                               ┃ ────────────── L9–15 ─
   9   9   line 9         Ctrl-e Ctrl-y        scroll 5 lines                                    ┃
@@ -15,7 +15,7 @@
  11  11   line 11        Ctrl-o               jump back                                         ┃
  12     -     let x =                                                                           ┃
      12 +     let x =   DIFF                                                                    ┃                      ◆
- 13  13   line 13        ]g [g                next / prev hunk (change)                         ┃
+ 13  13   line 13        ]g [g                next / prev hunk (change)                         │
  14  14   line 14        ]f [f, Space f       next / prev file, file picker                     │
  15  15   line 15        ]c [c                next / prev comment thread                        │
  ▾        src/a.rs  +1   ]u [u                next / prev unresolved one (wraps around)         │

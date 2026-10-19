@@ -146,6 +146,7 @@ GENERAL
   R                    refresh (git diff + GitHub)
   Space m              messages so far, in full (the status bar cuts long ones)
   Space s              a shell in the checkout's directory (zellij: a floating pane)
+  Space o              the PR's whole conversation on its own (Esc: back)
   mouse                wheel scrolls, click moves (or folds, on an arrow), drag selects
   q, Ctrl-c            quit
 ";
@@ -170,6 +171,10 @@ const SUMMARY: usize = usize::MAX;
 const DRAFT: usize = usize::MAX - 2;
 /// `Row::info` for the PR's facts (author, branches, size, reviews, checks), boxed together.
 const FACTS: usize = usize::MAX - 3;
+/// `Row::info` for the line saying how much more of the conversation there is (`Space o`).
+const MORE_CONVERSATION: usize = usize::MAX - 4;
+/// How many of the conversation's latest comments are attached to the description, at least.
+const LATEST: usize = 3;
 /// `Row::main` for the description's section (commit `n`'s message is `1 + n`).
 const DESCRIPTION: usize = 0;
 /// What a thread in Claude's review file that replies to its summary is on (`"conversation"`).
@@ -203,7 +208,7 @@ struct Row {
     edge: bool,
     /// A line of a code block or table in a comment: cut at the box's edge, scrolled sideways.
     nowrap: bool,
-    /// PR text in the diff's column, as a section of its own, not on the pane's PR tab: which
+    /// PR text as a section of its own (folding as one, in the contents list): which
     /// (`DESCRIPTION`, or `1 + n`: commit `n`'s message).
     main: Option<usize>,
 }
@@ -251,21 +256,13 @@ enum DRow {
     Margin(Option<usize>, Option<usize>, Option<usize>),
 }
 
-/// The pane's tabs: comments beside their lines, or the PR's text (scrolled on its own).
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum Tab {
-    Comments,
-    Pr,
-}
-
-/// The pane's tabs as they're shown (`pane_tabs`): its comments, Claude's (the Claude view, its
-/// comments beside its code), the PR's text.
+/// The pane's tabs as they're shown (`pane_tabs`): its comments (the whole diff), Claude's
+/// (the Claude view, its comments beside its code), your pending review's.
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Bar {
     Comments,
     Claude,
     Pending,
-    Pr,
 }
 
 /// The comment margin's width: about a third of the window, within these bounds, or everything
@@ -545,6 +542,9 @@ struct ClaudeState {
 /// cursor is on, seen once it leaves.
 struct Seen {
     keys: HashSet<String>,
+    /// What you'd seen when the PR was loaded: what's new against it stays shown (attached to
+    /// the description) as you read it.
+    before: HashSet<String>,
     path: Option<PathBuf>,
     current: Vec<String>,
     since: std::time::Instant,
@@ -610,8 +610,6 @@ pub struct App {
     /// they're on the status bar); set by `draw`.
     pin: bool,
     bar_counts: bool,
-    /// How many of the pane's top rows the review's summaries cover (set by `draw`).
-    strip_h: usize,
     /// The code block in a comment that the cursor is in (its first row), and how far it's
     /// scrolled sideways: only it, so the code beside it and the comment's text stay put.
     code_at: Option<usize>,
@@ -657,13 +655,8 @@ pub struct App {
     pane_file: Option<PathBuf>,
     /// It floats now (set by `draw`).
     margin_float: bool,
-    /// The pane's tab (`gn` / `gp`); the PR tab's rows, and the first one on screen; where the
-    /// cursor was last in the code, and on the PR tab (`Ctrl-h` / `Ctrl-l` go back there).
-    pane_tab: Tab,
-    pr_rows: Vec<usize>,
-    pr_top: usize,
+    /// Where the cursor was last in the code.
     code_head: Pos,
-    pr_head: Option<usize>,
     /// In margin mode: each thread's code line (the one it's about), as laid out.
     margin_anchor: HashMap<usize, usize>,
     /// The marks at the code's right edge, by (row, the old side), from `layout`: a comment's
@@ -749,6 +742,9 @@ pub struct App {
     github_gen: std::sync::Arc<std::sync::atomic::AtomicU64>,
     /// Tells the background watch to fetch now, whatever the PR's ETag says.
     github_poke: Option<std::sync::mpsc::Sender<()>>,
+    /// The whole PR conversation shown, on its own (`Space o`), and where the cursor was.
+    conversation_all: bool,
+    conversation_back: Option<Pos>,
     /// The last note said about the PR's base (`base_note`), to say the next in its place.
     base_said: String,
     /// What's shown came from the cache, and the fresh fetch isn't in yet.
@@ -873,7 +869,6 @@ impl App {
             left: 0,
             pin: false,
             bar_counts: false,
-            strip_h: 0,
             code_at: None,
             code_left: 0,
             height: 1,
@@ -899,11 +894,7 @@ impl App {
             files_focus: false,
             files_sel: None,
             margin_float: false,
-            pane_tab: Tab::Comments,
-            pr_rows: vec![],
-            pr_top: 0,
             code_head: Pos { row: 0, col: 0 },
-            pr_head: None,
             margin_anchor: HashMap::new(),
             marks: HashMap::new(),
             geom: Default::default(),
@@ -933,7 +924,7 @@ impl App {
             replacement: None,
             replacement_mtime: None,
             me: String::new(),
-            seen: Seen { keys: HashSet::new(), path: None, current: vec![], since: std::time::Instant::now() },
+            seen: Seen { keys: HashSet::new(), before: HashSet::new(), path: None, current: vec![], since: std::time::Instant::now() },
             claude: ClaudeState::default(),
             hx: None,
             tree_checked: std::time::Instant::now(),
@@ -954,6 +945,8 @@ impl App {
             github_gen: Default::default(),
             github_poke: None,
             base_said: String::new(),
+            conversation_all: false,
+            conversation_back: None,
             github_stale: false,
         };
         app.shape();
@@ -1365,10 +1358,6 @@ impl App {
     /// Rows on screen, each once (a context line shows on both sides but counts once).
     fn visible_rows(&self) -> Vec<usize> {
         let mut out = vec![];
-        // The PR tab's text, on screen beside the code (scrolled on its own).
-        if self.margin_active && self.pane_tab == Tab::Pr {
-            out.extend(self.pr_rows.iter().skip(self.pr_top).take(self.height).copied());
-        }
         for d in &self.drows[self.top.min(self.drows.len())..(self.top + self.height).min(self.drows.len())] {
             match *d {
                 DRow::Full(r) => out.push(r),

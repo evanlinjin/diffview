@@ -102,9 +102,14 @@ impl App {
         let c = match k.code {
             KeyCode::Char(c) => c,
             KeyCode::Esc => {
+                // Out of the whole conversation, back where it was opened (once nothing's pending).
+                if self.conversation_all && self.pending.is_none() && !self.select {
+                    return self.toggle_conversation();
+                }
                 (self.pending, self.count, self.select) = (None, 0, false);
                 return;
             }
+            KeyCode::Enter if self.rows[self.head.row].info == Some(MORE_CONVERSATION) => return self.toggle_conversation(),
             KeyCode::Enter => {
                 match self.link_at_cursor() {
                     Some(_) => self.open_link(),
@@ -218,6 +223,7 @@ impl App {
                 ("g", "git: uncommitted only / commit / push / update"),
                 ("m", "messages, in full"),
                 ("s", "a shell in the checkout's directory"),
+                ("o", "the PR's whole conversation"),
                 ("r", "resolve thread"),
                 ("=", "react to the comment (👍 🎉 …)"),
                 ("l", "the PR's labels, assignees, reviewers"),
@@ -347,7 +353,7 @@ impl App {
             (CTRL_W, ',') | (CTRL_W, '.') if self.files_focus => self.resize_files(if c == '.' { 4 } else { -4 }),
             (CTRL_W, '=') if self.files_focus => self.resize_files(0),
             (CTRL_W, 'q') if self.files_focus => self.toggle_files(),
-            (CTRL_W, 'q') if self.margin_side() || self.on_pr_tab() => self.pending_key(CTRL_W, 'c'),
+            (CTRL_W, 'q') if self.margin_side() => self.pending_key(CTRL_W, 'c'),
             (CTRL_W, 'q') => self.msg = "the code stays; Ctrl-w q hides the files' list or comments pane you're in".into(),
             (CTRL_W, ',') | (CTRL_W, '.') => {
                 let w = self.margin_w as isize + if c == '.' { MARGIN_STEP } else { -MARGIN_STEP };
@@ -395,6 +401,7 @@ impl App {
             (' ', 'g') => self.git_menu(),
             (' ', 'm') => self.messages(),
             (' ', 's') => self.action = Some(Action::Shell),
+            (' ', 'o') => self.toggle_conversation(),
             ('f' | 't' | 'F' | 'T', c) => self.find_char(p, c),
             _ => {}
         }

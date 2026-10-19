@@ -125,11 +125,12 @@ impl App {
     }
 
     pub(super) fn build(&mut self) {
-        // Where the cursor was in the code and on the PR tab (`Ctrl-h` / `Ctrl-l` go back
-        // there), kept on the same lines in the new rows.
-        let (code, pr) = (self.key_at(self.code_head.row), self.pr_head.map(|r| self.key_at(r)));
+        // Where the cursor was in the code, kept on the same line in the new rows.
+        let code = self.key_at(self.code_head.row);
         self.jumps.clear();
         let mut rows = vec![];
+        // The whole conversation (`Space o`): it alone, after the PR's title and facts.
+        let whole = self.conversation_all;
         let title = match (&self.pr, &self.replacement) {
             (Some(pr), _) => Some(format!("PR #{} · {}", pr.number, pr.title)),
             (None, Some(r)) => {
@@ -169,79 +170,67 @@ impl App {
                     rows.extend(self.md_rows_at(text, self.info_w(), mk).into_iter().map(summary));
                     rows.push(Row { edge: true, ..summary(mk(Kind::Comment, String::new())) });
                 }
+            } else if whole {
+                rows.extend(self.pr_facts());
+                rows.extend(self.conversation(None));
             } else if !self.info_collapsed {
-                // In the pane (when it's shown), wrapped to its width.
-                let width = self.info_w();
-                // The facts at the top (author, branches, size, reviews, checks), in a box whose
-                // title opens the PR on GitHub.
-                let facts = self.info.iter().take_while(|l| !l.heading && !l.md).count();
-                let url = self.pr.as_ref().map(|p| p.url.clone()).filter(|u| !u.is_empty());
-                for (ii, l) in self.info.iter().enumerate() {
-                    // The description has a section of its own in the diff's column (below). An
-                    // unpublished draft has no PR tab: what it replaces is atop its description.
-                    if self.in_section(ii) || self.unpublished() {
-                        continue;
+                // Attached to the description (below): the PR's facts above it.
+                rows.extend(self.pr_facts());
+            }
+        }
+        // Claude's draft comment for closing the PR: first, as what you'd do next.
+        if self.view == View::All && !whole && !self.claude.closing.trim().is_empty() {
+            let what = match self.pr_state.is_some_and(|s| matches!(s.0, "OPEN" | "DRAFT")) {
+                true => "closing comment · Claude's draft (Space a: close the PR with it, more changes, discard)",
+                false => "closing comment · Claude's draft (the PR isn't open: Space a discards it)",
+            };
+            rows.extend(self.section(CLOSING_PR, what.into(), &self.claude.closing, None));
+        }
+        // Before the files, like one: the PR's description (in the Claude view too, Claude's
+        // review attached to it), then the messages of the commits shown.
+        if matches!(self.view, View::All | View::Claude)
+            && !whole
+            && let Some(h) = (0..self.info.len()).find(|&i| self.is_description(i))
+        {
+            let text = self.info.get(h + 1).filter(|l| l.md).map_or("", |l| l.text.as_str());
+            match self.claude.description.is_empty() || self.pr.is_none() {
+                true => {
+                    let text = match (text.trim().is_empty(), self.replacement.is_some()) {
+                        (true, true) => "_(not drafted yet)_",
+                        (true, false) => "_(no description)_",
+                        _ => text,
+                    };
+                    let mut s = self.section(DESCRIPTION, self.info[h].text.clone(), text, Some(h + 1));
+                    // An unpublished draft: what it replaces (or what you asked for) first, as
+                    // it has no facts box.
+                    if let Some(l) = self.info.first().filter(|_| self.unpublished() && s.len() > 1) {
+                        let mk = |text| Row { main: Some(DESCRIPTION), info: Some(h + 1), ..Row::text(INFO, Kind::Comment, text) };
+                        s.splice(1..1, [self.info_row(l, mk(l.text.clone())), mk(String::new())]);
                     }
-                    match (l.heading, l.md) {
-                        // An author line belongs to the body after it, so `C` there quotes it.
-                        (true, _) => {
-                            let body = self.info.get(ii + 1).filter(|n| n.md).map(|_| ii + 1);
-                            rows.push(Row { info: body, ..self.info_row(l, mk(Kind::Thread, l.text.clone())) });
+                    rows.extend(s);
+                }
+                // Claude's proposal: what it changes, line by line (as markdown source).
+                false => {
+                    let mk = |kind, text| Row { main: Some(DESCRIPTION), info: Some(h + 1), ..Row::text(INFO, kind, text) };
+                    rows.push(mk(Kind::File, "description · Claude's proposal (Space a: approve, more changes, discard)".into()));
+                    if !self.sections_folded.contains(&DESCRIPTION) {
+                        // By source line (a reworded paragraph is one changed line), each then
+                        // wrapped to the code's width.
+                        let w = self.wrap_w.saturating_sub(2).max(20);
+                        let lines = |t: &str| t.replace("\r\n", "\n").lines().map(str::to_owned).collect::<Vec<_>>();
+                        for (k, line) in line_diff(&lines(text), &lines(&self.claude.description)) {
+                            rows.extend(wrap(&line, w).into_iter().map(|t| mk(k, t)));
                         }
-                        // GitHub shows a placeholder for an empty description (and a review with no
-                        // text, just its verdict, has none to show): in its box, closed below.
-                        (false, true) if l.text.trim().is_empty() => {
-                            let description = ii.checked_sub(1).is_some_and(|h| self.info[h].text == "description");
-                            let placeholder = if description { "_(no description)_" } else { "_(no comment)_" };
-                            rows.extend(self.md_rows_at(placeholder, width, mk).into_iter().map(|r| Row { info: Some(ii), ..r }));
-                            rows.push(Row { info: Some(ii), edge: true, ..mk(Kind::Comment, String::new()) });
-                            rows.extend(self.conversation_rows(ii));
-                        }
-                        (false, true) => {
-                            rows.extend(self.md_rows_at(&l.text, width, mk).into_iter().map(|r| Row { info: Some(ii), ..r }));
-                            rows.push(Row { info: Some(ii), edge: true, ..mk(Kind::Comment, String::new()) });
-                            rows.extend(self.conversation_rows(ii));
-                        }
-                        (false, false) if ii < facts => {
-                            let fact = |r: Row| Row { info: Some(FACTS), ..r };
-                            if ii == 0 {
-                                let title = if url.is_some() { "status · on GitHub ↗" } else { "status" };
-                                let links = url.iter().map(|u| (9, title.chars().count(), u.clone())).collect();
-                                rows.push(fact(Row { links, ..mk(Kind::Thread, title.into()) }));
-                            }
-                            // Not wrapped: cut at the box's edge and scrolled sideways, as code is.
-                            rows.push(fact(Row { nowrap: true, ..self.info_row(l, mk(Kind::Comment, l.text.clone())) }));
-                            if ii + 1 == facts {
-                                rows.push(Row { edge: true, ..fact(mk(Kind::Comment, String::new())) });
-                            }
-                        }
-                        (false, false) => rows.push(self.info_row(l, mk(Kind::Comment, l.text.clone()))),
                     }
-                }
-                // Claude's summary, and your replies to it, are the Claude tab's; but with no PR
-                // (a branch Claude reviewed), its review is all this section is.
-                if !self.claude.summary.is_empty() && self.pr.is_none() && self.replacement.is_none() {
-                    let summary = |r: Row| Row { info: Some(SUMMARY), ..r };
-                    rows.push(summary(mk(Kind::Thread, "claude's review".into())));
-                    rows.extend(self.md_rows_at(&self.claude.summary, width, mk).into_iter().map(summary));
-                    rows.push(Row { edge: true, ..summary(mk(Kind::Comment, String::new())) });
-                    rows.extend(self.summary_threads(None));
-                }
-                // Yours, as it goes to GitHub with the review (`S`), in full beside the strip
-                // that has its start.
-                if !self.summary_draft.trim().is_empty() {
-                    let draft = |r: Row| Row { info: Some(DRAFT), ..r };
-                    rows.push(draft(mk(Kind::Thread, "your review (pending)".into())));
-                    rows.extend(self.md_rows_at(&self.summary_draft, width, mk).into_iter().map(draft));
-                    rows.push(Row { edge: true, ..draft(mk(Kind::Comment, String::new())) });
                 }
             }
         }
-        // The Claude view (a draft's one tab too): Claude's summary in full, before the files, like one.
-        // With no review yet, your questions about the PR (and Claude's answers) all the same.
+        // The Claude view (a draft's one tab too): Claude's summary in full, attached to the
+        // description, before the files. With no review yet, your questions about the PR (and
+        // Claude's answers) all the same.
         let questions = self.threads.iter().any(|t| t.conversation == ON_SUMMARY && self.in_view(t));
         let summary = !self.claude.summary.trim().is_empty();
-        if (self.view == View::Claude || self.unpublished()) && (summary || questions) {
+        if (self.view == View::Claude || self.unpublished()) && (summary || questions) && !whole {
             // (No summary: nothing of it to quote or post, so not the summary's rows.)
             let (title, info) = if summary { ("claude's review", Some(SUMMARY)) } else { ("questions for Claude", None) };
             rows.extend(self.section(CLAUDE_REVIEW, title.into(), &self.claude.summary, info));
@@ -249,49 +238,13 @@ impl App {
                 rows.extend(self.summary_threads(Some(CLAUDE_REVIEW)));
             }
         }
-        // Claude's draft comment for closing the PR: first, as what you'd do next.
-        if self.view == View::All && !self.claude.closing.trim().is_empty() {
-            let what = match self.pr_state.is_some_and(|s| matches!(s.0, "OPEN" | "DRAFT")) {
-                true => "closing comment · Claude's draft (Space a: close the PR with it, more changes, discard)",
-                false => "closing comment · Claude's draft (the PR isn't open: Space a discards it)",
-            };
-            rows.extend(self.section(CLOSING_PR, what.into(), &self.claude.closing, None));
-        }
-        // Before the files, like one: the PR's description, then the messages of the commits shown.
-        if self.view == View::All {
-            if let Some(h) = (0..self.info.len()).find(|&i| self.is_description(i)) {
-                let text = self.info.get(h + 1).filter(|l| l.md).map_or("", |l| l.text.as_str());
-                match self.claude.description.is_empty() || self.pr.is_none() {
-                    true => {
-                        let text = match (text.trim().is_empty(), self.replacement.is_some()) {
-                            (true, true) => "_(not drafted yet)_",
-                            (true, false) => "_(no description)_",
-                            _ => text,
-                        };
-                        let mut s = self.section(DESCRIPTION, self.info[h].text.clone(), text, Some(h + 1));
-                        // An unpublished draft: what it replaces (or what you asked for) first, as
-                        // it has no PR tab.
-                        if let Some(l) = self.info.first().filter(|_| self.unpublished() && s.len() > 1) {
-                            let mk = |text| Row { main: Some(DESCRIPTION), info: Some(h + 1), ..Row::text(INFO, Kind::Comment, text) };
-                            s.splice(1..1, [self.info_row(l, mk(l.text.clone())), mk(String::new())]);
-                        }
-                        rows.extend(s);
-                    }
-                    // Claude's proposal: what it changes, line by line (as markdown source).
-                    false => {
-                        let mk = |kind, text| Row { main: Some(DESCRIPTION), info: Some(h + 1), ..Row::text(INFO, kind, text) };
-                        rows.push(mk(Kind::File, "description · Claude's proposal (Space a: approve, more changes, discard)".into()));
-                        if !self.sections_folded.contains(&DESCRIPTION) {
-                            // By source line (a reworded paragraph is one changed line), each then
-                            // wrapped to the code's width.
-                            let w = self.wrap_w.saturating_sub(2).max(20);
-                            let lines = |t: &str| t.replace("\r\n", "\n").lines().map(str::to_owned).collect::<Vec<_>>();
-                            for (k, line) in line_diff(&lines(text), &lines(&self.claude.description)) {
-                                rows.extend(wrap(&line, w).into_iter().map(|t| mk(k, t)));
-                            }
-                        }
-                    }
-                }
+        if self.view == View::All && !whole {
+            // Attached to the description: the conversation's latest (`Space o`: all of it),
+            // then your pending review's text. (Not a draft's: it has none.)
+            if !self.info_collapsed && !self.unpublished() {
+                rows.extend(self.conversation(Some(LATEST)));
+                rows.extend(self.no_pr_summary());
+                rows.extend(self.draft_rows());
             }
             // A replacement's closing note (for the PRs it replaces), after its description.
             if let Some(h) = (0..self.info.len()).find(|&i| self.is_closing_note(i)) {
@@ -311,9 +264,10 @@ impl App {
         // committed, where most files are out of the diff on purpose.
         // (Questions about a commit are on no lines: listed whatever's shown.)
         let about_commit = |t: usize| commit_of(&self.threads[t].conversation).is_some() && self.in_view(&self.threads[t]);
-        let mut gone: Vec<usize> = match self.uncommitted() || self.commit_shown.is_some() {
-            true => (0..self.threads.len()).filter(|&t| about_commit(t)).collect(),
-            false => (0..self.threads.len())
+        let mut gone: Vec<usize> = match (whole, self.uncommitted() || self.commit_shown.is_some()) {
+            (true, _) => vec![],
+            (_, true) => (0..self.threads.len()).filter(|&t| about_commit(t)).collect(),
+            _ => (0..self.threads.len())
                 .filter(|&t| self.in_view(&self.threads[t]) && !self.files.iter().any(|f| f.path == self.threads[t].path))
                 // Questions about the conversation are under their comment, in the whole diff.
                 .filter(|&t| self.threads[t].conversation.is_empty() || self.view != View::All || self.conversation_item(&self.threads[t].conversation).is_none())
@@ -348,7 +302,7 @@ impl App {
             }
         }
         let shown: Vec<&Thread> = self.threads.iter().filter(|t| self.in_view(t)).collect();
-        for (i, f) in self.files.iter().enumerate() {
+        for (i, f) in self.files.iter().enumerate().filter(|_| !whole) {
             // The Claude / pending view: only files with its comments, and only around them.
             let around;
             let lines = match self.view != View::All {
@@ -409,7 +363,6 @@ impl App {
         }
         self.rows = rows;
         self.code_head.row = self.find_key(code).unwrap_or(0);
-        self.pr_head = pr.and_then(|k| self.find_key(k));
         self.emph = self.word_spans();
         self.layout();
     }
@@ -487,10 +440,32 @@ impl App {
         self.replacement.is_some() && self.info.get(i).is_some_and(|l| l.heading && l.text.starts_with("closing note"))
     }
 
-    /// `info[i]` is text with a section of its own before the files (a heading, or its body).
-    fn in_section(&self, i: usize) -> bool {
-        let heading = |i: usize| self.is_description(i) || self.is_closing_note(i);
-        heading(i) || i.checked_sub(1).is_some_and(heading)
+    /// `Space o`: the PR's whole conversation on its own, or (again, or Esc) back to where the
+    /// cursor was.
+    pub(super) fn toggle_conversation(&mut self) {
+        if self.pr.is_none() {
+            return self.msg = "no PR here".into();
+        }
+        self.conversation_all = !self.conversation_all;
+        let back = match self.conversation_all {
+            true => {
+                self.conversation_back = Some(self.head);
+                None
+            }
+            false => self.conversation_back.take(),
+        };
+        self.build();
+        if let Some(p) = back {
+            self.goto(p.row.min(self.rows.len().saturating_sub(1)), p.col);
+        }
+        self.msg = match self.conversation_all {
+            true => "the PR's whole conversation (Esc or Space o: back)".into(),
+            false => String::new(),
+        };
+        if self.conversation_all {
+            let first = self.rows.iter().position(|r| r.info.is_some_and(|i| i < self.info.len() && self.info[i].heading && !self.info[i].node.is_empty())).unwrap_or(0);
+            self.goto(first, 0);
+        }
     }
 
     /// A section of PR text in the diff's column: a header like a file's (`name` folds it),
@@ -501,6 +476,92 @@ impl App {
         if !self.sections_folded.contains(&id) {
             rows.extend(self.md_rows_at(text, self.wrap_w, mk).into_iter().map(|r| Row { main: Some(id), info, ..r }));
         }
+        rows
+    }
+
+    /// The PR's facts (author, branches, size, reviews, checks), in a box whose title opens
+    /// the PR on GitHub.
+    fn pr_facts(&self) -> Vec<Row> {
+        let mk = |kind, text| Row::text(INFO, kind, text);
+        let facts = self.info.iter().take_while(|l| !l.heading && !l.md).count();
+        if facts == 0 || self.unpublished() {
+            return vec![];
+        }
+        let url = self.pr.as_ref().map(|p| p.url.clone()).filter(|u| !u.is_empty());
+        let fact = |r: Row| Row { info: Some(FACTS), ..r };
+        let title = if url.is_some() { "status · on GitHub ↗" } else { "status" };
+        let links = url.iter().map(|u| (9, title.chars().count(), u.clone())).collect();
+        let mut rows = vec![fact(Row { links, ..mk(Kind::Thread, title.into()) })];
+        // Not wrapped: cut at the box's edge and scrolled sideways, as code is.
+        rows.extend(self.info[..facts].iter().map(|l| fact(Row { nowrap: true, ..self.info_row(l, mk(Kind::Comment, l.text.clone())) })));
+        rows.push(Row { edge: true, ..fact(mk(Kind::Comment, String::new())) });
+        rows
+    }
+
+    /// The PR's conversation (its comments and reviews, and the questions to Claude under
+    /// them): all of it (`None`), or (`Some(n)`) those new since you looked, the last `n` at
+    /// least, and any with a question under it; then a line saying how many more there are.
+    fn conversation(&self, latest: Option<usize>) -> Vec<Row> {
+        let mk = |kind, text| Row::text(INFO, kind, text);
+        let width = self.info_w();
+        // Its comments: (heading, body) in `info`, after its own heading.
+        let Some(start) = self.info.iter().position(|l| l.heading && l.text.starts_with("conversation")) else { return vec![] };
+        let items: Vec<usize> = (start + 1..self.info.len()).filter(|&i| self.info[i].heading).collect();
+        let shown: Vec<usize> = match latest {
+            None => items.clone(),
+            Some(n) => {
+                let asked = |h: usize| self.threads.iter().any(|t| t.conversation == self.info[h].url && self.in_view(t));
+                let new = |h: usize| !self.info[h].node.is_empty() && !self.seen.before.contains(&self.info[h].node);
+                let last = items.len().saturating_sub(n);
+                items.iter().enumerate().filter(|&(k, &h)| k >= last || new(h) || asked(h)).map(|(_, &h)| h).collect()
+            }
+        };
+        let mut rows = vec![];
+        if !items.is_empty() {
+            rows.push(Row { info: None, ..mk(Kind::Thread, self.info[start].text.clone()) });
+        }
+        for h in shown.iter().copied() {
+            let body = h + 1;
+            rows.push(Row { info: self.info.get(body).filter(|n| n.md).map(|_| body), ..self.info_row(&self.info[h], mk(Kind::Thread, self.info[h].text.clone())) });
+            let text = self.info.get(body).map_or("", |l| l.text.as_str());
+            // A review with no text, just its verdict: GitHub's placeholder, in its box.
+            let text = if text.trim().is_empty() { "_(no comment)_" } else { text };
+            rows.extend(self.md_rows_at(text, width, mk).into_iter().map(|r| Row { info: Some(body), ..r }));
+            rows.push(Row { info: Some(body), edge: true, ..mk(Kind::Comment, String::new()) });
+            rows.extend(self.conversation_rows(body));
+        }
+        let more = items.len() - shown.len();
+        if more > 0 {
+            let s = if more == 1 { "" } else { "s" };
+            rows.push(Row { info: Some(MORE_CONVERSATION), ..mk(Kind::Comment, format!("… {more} more comment{s} and review{s} in the conversation: Space o (or Enter here) shows it all")) });
+        }
+        rows
+    }
+
+    /// With no PR (a branch Claude reviewed), Claude's review is all the PR section has.
+    fn no_pr_summary(&self) -> Vec<Row> {
+        if self.claude.summary.is_empty() || self.pr.is_some() || self.replacement.is_some() {
+            return vec![];
+        }
+        let mk = |kind, text| Row::text(INFO, kind, text);
+        let summary = |r: Row| Row { info: Some(SUMMARY), ..r };
+        let mut rows = vec![summary(mk(Kind::Thread, "claude's review".into()))];
+        rows.extend(self.md_rows_at(&self.claude.summary, self.info_w(), mk).into_iter().map(summary));
+        rows.push(Row { edge: true, ..summary(mk(Kind::Comment, String::new())) });
+        rows.extend(self.summary_threads(None));
+        rows
+    }
+
+    /// Your pending review's text, in full, as it goes to GitHub with the review (`S`).
+    fn draft_rows(&self) -> Vec<Row> {
+        if self.summary_draft.trim().is_empty() {
+            return vec![];
+        }
+        let mk = |kind, text| Row::text(INFO, kind, text);
+        let draft = |r: Row| Row { info: Some(DRAFT), ..r };
+        let mut rows = vec![draft(mk(Kind::Thread, "your review (pending)".into()))];
+        rows.extend(self.md_rows_at(&self.summary_draft, self.info_w(), mk).into_iter().map(draft));
+        rows.push(Row { edge: true, ..draft(mk(Kind::Comment, String::new())) });
         rows
     }
 

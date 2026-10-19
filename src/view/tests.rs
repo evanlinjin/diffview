@@ -556,7 +556,7 @@ fn copy_refs() {
     }];
     let heading = |text: &str, url: &str| gh::InfoLine { heading: true, md: false, text: text.into(), marks: vec![], url: url.into(), node: String::new() };
     let body = |text: &str| gh::InfoLine { heading: false, md: true, text: text.into(), marks: vec![], url: String::new(), node: String::new() };
-    app.info = vec![heading("@bo · 1d ago", "https://github.com/o/r/pull/1#issuecomment-5"), body("Looks good")];
+    app.info = vec![heading("conversation (1)", ""), heading("@bo · 1d ago", "https://github.com/o/r/pull/1#issuecomment-5"), body("Looks good")];
     app.build();
     let at = |app: &mut App, text: &str| {
         let r = app.rows.iter().position(|r| r.line.text == text).unwrap();
@@ -565,7 +565,7 @@ fn copy_refs() {
     };
     assert_eq!(at(&mut app, "Looks good"), "https://github.com/o/r/pull/1#issuecomment-5"); // conversation comment
     // On a link: Space c copies its URL (what Enter opens), and the hints say so.
-    app.info[1].text = "See [the docs](https://example.com/docs).".into();
+    app.info[2].text = "See [the docs](https://example.com/docs).".into();
     app.build();
     let r = app.rows.iter().position(|r| r.links.iter().any(|l| l.2 == "https://example.com/docs")).unwrap();
     let col = app.rows[r].links.iter().find(|l| l.2 == "https://example.com/docs").unwrap().0;
@@ -846,57 +846,36 @@ fn comments_in_the_margin() {
 }
 
 #[test]
-fn pr_text_on_the_pane_tab() {
-    let key = |app: &mut App, c: char| app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
-    let ctrl = |app: &mut App, c: char| app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL));
-    let draw = |app: &mut App| _ = screen(220, 30, |f| app.draw(f));
+fn pr_text_attached_to_the_description() {
+    let draw = |app: &mut App| _ = screen(220, 40, |f| app.draw(f));
     let mut app = fixture();
-    let long: String = (1..=60).map(|n| format!("para {n}\n\n")).collect();
-    app.info[2].text = "@cy · commented".into(); // a comment on the PR (the description has its own section)
-    app.info[3].text = long;
-    draw(&mut app);
-    // Shown: the PR text isn't in the diff (but its header line); it's on the PR tab.
-    let by_text = |app: &App, t: &str| app.rows.iter().position(|r| r.line.text == t).unwrap();
-    let para1 = by_text(&app, "para 1");
-    assert!(app.pr_row(para1) && app.pr_rows.contains(&para1));
-    assert!(app.drows.iter().all(|d| !matches!(d, DRow::Full(r) if *r == para1)));
-    assert!(matches!(app.drows[0], DRow::Full(0)));
-    // gp (Comments, Claude, PR, round: back one), then Ctrl-l: into the PR tab; j moves there, and its scroll is its own.
-    let line12 = app.rows.iter().position(|r| r.line.kind == Kind::Add && r.line.new == Some(12)).unwrap();
-    app.goto(line12, 0);
-    draw(&mut app);
-    let top = app.top;
-    key(&mut app, 'g');
-    key(&mut app, 'p');
-    draw(&mut app);
-    assert_eq!(app.pane_tab, Tab::Pr);
-    ctrl(&mut app, 'l');
-    assert!(app.on_pr_tab());
-    for _ in 0..80 {
-        key(&mut app, 'j');
+    // A conversation of five, the second new to you.
+    let heading = |text: &str, node: &str| gh::InfoLine { heading: true, md: false, text: text.into(), marks: vec![], url: format!("u-{node}"), node: node.into() };
+    let body = |text: &str| gh::InfoLine { heading: false, md: true, text: text.into(), marks: vec![], url: String::new(), node: String::new() };
+    app.info.push(heading("conversation (5)", ""));
+    for k in 1..=5 {
+        app.info.push(heading(&format!("@cy · c{k}"), &format!("n{k}")));
+        app.info.push(body(&format!("comment {k}")));
     }
+    app.seen.before = ["n1", "n3", "n4", "n5"].map(String::from).into();
+    app.build();
     draw(&mut app);
-    assert!(app.pr_top > 0 && app.top == top, "the PR tab scrolled, the code didn't");
-    // Ctrl-h: back to the code line it left.
-    ctrl(&mut app, 'h');
-    assert_eq!(app.head.row, line12);
-    // Going to a comment shows the comments tab again.
-    app.goto_comment(0, 0);
-    draw(&mut app);
-    assert_eq!(app.pane_tab, Tab::Comments);
-    // gp from it: the PR tab, the cursor on the line the comment is on (not the top).
-    key(&mut app, 'g');
-    key(&mut app, 'p');
-    draw(&mut app);
-    assert_eq!((app.pane_tab, app.head.row), (Tab::Pr, line12));
-    // Hidden, the PR text is back at the top of the diff.
-    let mut app = fixture();
-    draw(&mut app);
-    ctrl(&mut app, 'w');
-    key(&mut app, 'c');
-    draw(&mut app);
-    let desc = by_text(&app, "description");
-    assert!(!app.pr_row(desc) && matches!(app.drows[app.d_of[desc]], DRow::Full(r) if r == desc));
+    let at = |app: &App, t: &str| app.rows.iter().position(|r| r.line.text == t);
+    // In the diff's column, in order: the facts, the description, then what's new (c2) and the
+    // last three; c1 isn't, but a line says there's more.
+    let (facts, desc, c2, c3, c5) = (at(&app, "status"), at(&app, "description"), at(&app, "comment 2"), at(&app, "comment 3"), at(&app, "comment 5"));
+    assert!(facts < desc && desc < c2 && c2 < c3 && c3 < c5, "{facts:?} {desc:?} {c2:?} {c3:?} {c5:?}");
+    assert!(at(&app, "comment 1").is_none());
+    let more = app.rows.iter().position(|r| r.info == Some(MORE_CONVERSATION)).expect("the more line");
+    assert!(app.rows[more].line.text.contains("1 more"));
+    assert!(matches!(app.drows[app.d_of[c2.unwrap()]], DRow::Full(_))); // not in the pane
+    assert_eq!(app.pane_tabs().len(), 3); // Comments, Claude, Pending
+    // Enter on it: the whole conversation, alone (no files); Esc, back where it was.
+    app.goto(more, 0);
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(at(&app, "comment 1").is_some() && !app.rows.iter().any(|r| r.file < app.files.len()));
+    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(at(&app, "comment 1").is_none() && app.head.row == more);
 }
 
 #[test]
@@ -1124,7 +1103,8 @@ fn threads_on_files_gone_from_the_diff() {
     app.margin_active = true;
     app.build();
     let gone_rows: Vec<usize> = (0..app.rows.len()).filter(|&r| app.rows[r].thread == Some(0)).collect();
-    assert!(gone_rows.iter().all(|r| app.pr_rows.iter().filter(|&p| p == r).count() == 1));
+    // In the diff's column, each once (the PR's text is there now, the pane shown or not).
+    assert!(gone_rows.iter().all(|&r| app.drows.iter().filter(|d| matches!(d, DRow::Full(x) if *x == r)).count() == 1));
 }
 
 #[test]
@@ -1247,9 +1227,10 @@ fn claude_view() {
     assert!(texts(&app).contains(&"Long story".to_owned()));
     app.toggle_view(View::Claude);
     let v = texts(&app);
-    // Claude's summary, not the PR section (its facts are on the title; its tab isn't this one).
+    // The description, and Claude's summary attached to it; not the PR's facts (they're on the
+    // title) nor its conversation.
     assert!(!v.contains(&"OPEN @bo · main ← x".to_owned()) && v.contains(&"Looks fine.".to_owned()), "{v:?}");
-    assert!(!v.iter().any(|t| t == "Long story" || t.starts_with("review:")));
+    assert!(v.iter().any(|t| t == "Long story") && !v.iter().any(|t| t.starts_with("review:")));
     // Only the file Claude commented on, and only lines 17-23 of it.
     let code: Vec<&str> = v.iter().filter(|t| t.starts_with("line ")).map(String::as_str).collect();
     assert_eq!(code, (17..=23).map(|n| format!("line {n}")).collect::<Vec<_>>());
@@ -1329,7 +1310,7 @@ fn replacement_in_the_pr_section() {
     let at = |app: &App, t: &str| app.rows.iter().position(|r| r.line.text == t).unwrap();
     let (desc, note) = (at(&app, "Replaces #12 and #15."), at(&app, "Thanks! Handled in {replacement}."));
     assert!(app.rows[desc].main == Some(DESCRIPTION) && app.rows[note].main == Some(CLOSING_NOTE));
-    assert!(!app.pr_row(desc) && !app.pr_row(note) && desc < note);
+    assert!(desc < note);
     let names: Vec<files::Spot> = app.file_entries().into_iter().map(|e| e.spot).take(2).collect();
     assert_eq!(names, [files::Spot::Section(DESCRIPTION), files::Spot::Section(CLOSING_NOTE)]);
     assert_eq!(app.header_tag(INFO).unwrap().0, " UNPUBLISHED ");
@@ -1338,10 +1319,9 @@ fn replacement_in_the_pr_section() {
     let tabs = |app: &App| app.pane_tabs().into_iter().map(|t| t.1).collect::<Vec<_>>();
     assert_eq!(tabs(&app), [" Claude "]);
     app.cycle_bar(true);
-    app.pane_to(Tab::Pr);
-    assert!(app.bar() == Bar::Claude && app.view == View::All && app.pane_tab == Tab::Comments);
+    assert!(app.bar() == Bar::Claude && app.view == View::All);
     let replaces = app.rows.iter().position(|r| r.line.text.starts_with("replaces")).unwrap();
-    assert!(app.rows[replaces].main == Some(DESCRIPTION) && replaces < desc && !(0..app.rows.len()).any(|r| app.pr_row(r)));
+    assert!(app.rows[replaces].main == Some(DESCRIPTION) && replaces < desc);
     let row = &app.rows[replaces];
     assert_eq!(row.links.iter().map(|l| l.2.as_str()).collect::<Vec<_>>(), ["https://github.com/o/r/pull/12", "https://github.com/o/r/pull/15"]); // each original links to it
     // Space a offers to redraft it.
@@ -1389,9 +1369,9 @@ fn replacement_in_the_pr_section() {
     assert_eq!(items[0].0, "Published as PR #20");
     assert!(items[1].0 == "Close #15 with the closing note (now)…" && matches!(items[1].1, Target::CloseOriginals));
     assert_eq!(app.header_tag(INFO).unwrap().0, " PUBLISHED ");
-    assert_eq!(app.pane_tabs().len(), 4); // others comment now
+    assert_eq!(app.pane_tabs().len(), 3); // others comment now
     let replaces = app.rows.iter().position(|r| r.line.text.starts_with("replaces")).unwrap();
-    assert!(app.pr_row(replaces)); // on the PR tab again
+    assert!(app.rows[replaces].info == Some(FACTS)); // among its facts, as a PR's
     let row = app.rows.iter().find(|r| r.line.text == "published as PR #20").unwrap();
     assert_eq!(row.links[0].2, "https://github.com/o/r/pull/20"); // the new PR, linked
 }
@@ -1663,11 +1643,10 @@ fn long_code_cut_at_the_box_edge() {
 fn long_facts_cut_at_the_box_edge() {
     let mut app = fixture();
     app.info[0].text = format!("OPEN @bo · main ← {}", "b".repeat(200));
-    app.bar_to(Bar::Pr);
     app.build();
     let s = screen(220, 45, |f| app.draw(f));
     let line = s.lines().find(|l| l.contains("bbb")).unwrap();
-    assert!(line.trim_end().ends_with("b›│"), "{line}");
+    assert!(line.contains("b›│"), "{line}"); // cut at its box's edge
 }
 
 #[test]
@@ -1821,25 +1800,6 @@ fn comments_in_a_tiny_window() {
 }
 
 #[test]
-fn review_summaries_over_the_comments() {
-    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
-    let mut app = fixture();
-    let s = screen(220, 45, |f| app.draw(f));
-    // Yours (pending); Claude's is the Claude tab's.
-    assert!(app.strip_h == 3 && s.contains("review summary") && s.contains("Nearly there.") && !s.contains("Looks right"), "{s}");
-    // The cursor on a comment scrolled up under them: it's kept below them.
-    app.goto_comment(1, 0);
-    app.top = app.hd();
-    _ = screen(220, 45, |f| app.draw(f));
-    assert!(app.hd() >= app.top + app.strip_h);
-    // A click on them: the PR tab, at them in full.
-    let x = (app.geom.relw + app.geom.gw + app.geom.ctw + 5) as u16;
-    app.mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column: x, row: 2, modifiers: KeyModifiers::NONE });
-    assert_eq!(app.pane_tab, Tab::Pr);
-    assert!(matches!(app.rows[app.head.row].info, Some(SUMMARY) | Some(DRAFT)));
-}
-
-#[test]
 fn wheel_scrolls_what_is_under_it() {
     use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
     let wheel = |app: &mut App, x: u16| app.mouse(MouseEvent { kind: MouseEventKind::ScrollDown, column: x, row: 6, modifiers: KeyModifiers::NONE });
@@ -1854,24 +1814,6 @@ fn wheel_scrolls_what_is_under_it() {
     wheel(&mut app, pane);
     draw(&mut app);
     assert!(app.top > top, "the pane's wheel moved nothing ({top})");
-    // The cursor in the PR tab's text: the wheel over the code scrolls the code (not the tab).
-    let mut app = fixture();
-    draw(&mut app);
-    app.key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE));
-    app.key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE));
-    app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
-    draw(&mut app);
-    assert!(app.on_pr_tab());
-    let (top, pr_top) = (app.top, app.pr_top);
-    wheel(&mut app, 20);
-    draw(&mut app);
-    assert!(app.top > top && app.pr_top == pr_top && app.on_pr_tab(), "{top} → {}, pr {pr_top} → {}", app.top, app.pr_top);
-    // The PR tab's text all on screen: the wheel over it moves nothing (not the code either).
-    let pane = (app.geom.relw + app.geom.gw + app.geom.ctw + 10) as u16;
-    let top = app.top;
-    wheel(&mut app, pane);
-    draw(&mut app);
-    assert_eq!((app.top, app.pr_top), (top, 0));
     // The comments tab: the wheel over it scrolls (with the code) while there are comments
     // further down, and stops once the last one is on screen.
     let mut app = fixture();
@@ -1908,20 +1850,6 @@ fn gg_in_the_pane() {
     k(&mut app, 'g');
     k(&mut app, 'e');
     assert_eq!(app.head.row, *comments.last().unwrap());
-    // In the PR tab's text: to its top, scrolled there.
-    app.info[2].text = "@cy · commented".into();
-    app.info[3].text = (1..=60).map(|n| format!("para {n}\n\n")).collect();
-    app.build();
-    k(&mut app, 'g');
-    k(&mut app, 'p');
-    app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
-    (0..40).for_each(|_| k(&mut app, 'j'));
-    draw(&mut app);
-    assert!(app.on_pr_tab() && app.pr_top > 0);
-    k(&mut app, 'g');
-    k(&mut app, 'g');
-    draw(&mut app);
-    assert_eq!((app.head.row, app.pr_top), (app.pr_rows[0], 0));
     // In the code: the diff's top, as before.
     app.key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL));
     k(&mut app, 'g');
@@ -1994,14 +1922,6 @@ fn between_the_code_and_the_pane() {
     app.goto(line12, len - 1);
     k(&mut app, 'w');
     assert!(app.rows[app.head.row].thread.is_none() && !app.in_pane(app.head.row), "{:?}", app.rows[app.head.row].line.text);
-    // gw labels the PR tab's text too, beside the code.
-    k(&mut app, 'g');
-    k(&mut app, 'p');
-    draw(&mut app);
-    k(&mut app, 'g');
-    k(&mut app, 'w');
-    assert!(app.labels.iter().any(|l| app.pr_row(l.0.row)), "no labels on the PR tab");
-    app.labels.clear();
     // gr on a name in text, without rust-analyzer: said so (gd would find it by text, as gf).
     app.goto(app.rows.iter().position(|r| r.line.text.contains("new_value")).unwrap(), 0);
     let col = app.rows[app.head.row].line.text.find("new_value").unwrap();
@@ -2220,7 +2140,6 @@ fn commits_under_the_files() {
     let c1 = app.rows.iter().position(|r| r.main.is_some() && r.line.text == "commit c1").expect("c1's section");
     let head = app.rows.iter().position(|r| r.main.is_some() && r.line.text == "commit c2").expect("c2's section");
     assert!(desc < c1 && c1 < head && app.rows[head + 1..].iter().take_while(|r| r.main.is_some()).any(|r| r.line.text.contains("Why it's done")));
-    assert!(!app.pr_row(head + 1));
     let spots: Vec<files::Spot> = app.file_entries().into_iter().map(|e| e.spot).take(3).collect();
     assert_eq!(spots, [files::Spot::Section(DESCRIPTION), files::Spot::Section(1), files::Spot::Section(2)]);
     app.goto(head, 0);
@@ -2259,6 +2178,7 @@ fn ask_claude_about_a_conversation_comment() {
     let mut app = fixture();
     let url = "https://github.com/o/r/pull/7#issuecomment-5";
     let head = gh::InfoLine { heading: true, md: false, text: "@cy · commented".into(), marks: vec![], url: url.into(), node: String::new() };
+    app.info.push(gh::InfoLine { heading: true, md: false, text: "conversation (1)".into(), marks: vec![], url: String::new(), node: String::new() });
     app.info.push(head);
     app.info.push(gh::InfoLine { heading: false, md: true, text: "Can we rename it?".into(), marks: vec![], url: String::new(), node: String::new() });
     // A question about it in Claude's review file: under it, on the PR tab.
@@ -2267,7 +2187,7 @@ fn ask_claude_about_a_conversation_comment() {
     _ = screen(220, 30, |f| app.draw(f));
     let at = |text: &str| app.rows.iter().position(|r| r.line.text.contains(text)).unwrap();
     let (body, q) = (at("Can we rename it?"), at("what do they mean?"));
-    assert!(q > body && app.pr_row(q) && app.rows[q].thread.is_some());
+    assert!(q > body && app.rows[q].thread.is_some());
     assert!(!app.rows.iter().any(|r| r.line.text.starts_with("comments on files no longer")));
     // a on the comment: a question about it, quoting it, with its link.
     app.claude.path = Some(std::env::temp_dir().join("dv-unused-review.json"));
@@ -2381,11 +2301,8 @@ fn claude_tab_is_the_claude_view() {
     let head = app.rows.iter().position(|r| r.main == Some(CLAUDE_REVIEW) && r.line.kind == Kind::File).expect("its section");
     let text: Vec<&str> = app.rows[head + 1..].iter().take_while(|r| r.main == Some(CLAUDE_REVIEW)).map(|r| r.line.text.as_str()).collect();
     assert!(text.iter().any(|t| t.starts_with("Third")), "{text:?}");
-    assert!(app.summary_strip(60).iter().all(|row| !row.iter().any(|s| s.content.contains("claude"))));
     app.cycle_bar(true);
     assert_eq!((app.bar(), app.view), (Bar::Pending, View::Pending)); // your pending review
-    app.cycle_bar(true);
-    assert_eq!((app.bar(), app.view), (Bar::Pr, View::All)); // the PR's text beside the whole diff
     app.cycle_bar(true);
     assert_eq!((app.bar(), app.view), (Bar::Comments, View::All));
     // A click on a tab does the same.
@@ -2456,8 +2373,8 @@ fn reply_to_claudes_summary() {
     app.key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
     app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
     assert!(matches!(app.action.take(), Some(Action::ClaudeReply(k, "", q)) if k == "c7" && q.contains("> Because it's minimal.")));
-    // The whole diff (Comments, PR): not there.
-    app.bar_to(Bar::Pr);
+    // The whole diff (Comments): not there.
+    app.bar_to(Bar::Comments);
     assert!(!app.rows.iter().any(|r| r.line.text.contains("why approve?")));
 }
 
@@ -2550,41 +2467,6 @@ fn claude_makes_changes_on_their_pr() {
     // Your own PR: only "make the changes", as before.
     app.theirs = false;
     assert!(!menu(&mut app).iter().any(|(_, t)| matches!(t, Target::Claude(agent::Ask::Edit))));
-}
-
-#[test]
-fn back_from_the_pr_tab_after_the_conversation_grows() {
-    // The cursor was on the description (a section before the files); on the PR tab, a comment
-    // goes on the PR's conversation (`S`), and the PR text before the description grows. Ctrl-h
-    // and gn go back to the description, not into the PR text.
-    let mut app = fixture();
-    let draw = |app: &mut App| _ = screen(220, 30, |f| app.draw(f));
-    draw(&mut app);
-    let desc = app.rows.iter().position(|r| r.main == Some(DESCRIPTION) && r.line.kind != Kind::File).unwrap();
-    app.goto(desc, 0);
-    draw(&mut app);
-    app.bar_to(Bar::Pr);
-    app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
-    draw(&mut app);
-    assert!(app.on_pr_tab());
-    // The conversation gets a comment: the PR text's rows grow, the description's move down.
-    let line = |heading, md, text: &str| gh::InfoLine { heading, md, text: text.into(), marks: vec![], url: String::new(), node: String::new() };
-    app.info.extend([line(true, false, "conversation (1)"), line(true, false, "@me · now"), line(false, true, "Posted from S.\n\nSecond paragraph.")]);
-    let keep = app.cursor_key();
-    app.rebuild(keep);
-    draw(&mut app);
-    app.key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL));
-    draw(&mut app);
-    assert!(!app.pr_row(app.head.row) && !app.in_margin(app.head.row), "Ctrl-h landed on {:?}", app.rows[app.head.row].line.text);
-    assert_eq!(app.rows[app.head.row].main, Some(DESCRIPTION));
-    // gn from the PR tab: off it (not straight back to it).
-    app.bar_to(Bar::Pr);
-    app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
-    draw(&mut app);
-    app.key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE));
-    app.key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
-    draw(&mut app);
-    assert_ne!(app.bar(), Bar::Pr);
 }
 
 #[test]

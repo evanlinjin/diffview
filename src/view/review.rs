@@ -960,7 +960,14 @@ impl App {
             let c = self.comment_under_cursor(t).filter(|c| self.threads[t].claude.is_none() && !c.pending)?;
             return Some(c.node_id.clone()).filter(|n| !n.is_empty());
         }
-        let i = row.info.filter(|_| row.file == INFO && row.main.is_none())?;
+        self.conversation_node()
+    }
+
+    /// The PR conversation's comment (or review) under the cursor, or the description (the PR
+    /// itself): its node id.
+    pub(super) fn conversation_node(&self) -> Option<String> {
+        let row = &self.rows[self.head.row];
+        let i = row.info.filter(|_| row.file == INFO && row.thread.is_none() && matches!(row.main, None | Some(DESCRIPTION)))?;
         let head = match self.info.get(i)? {
             l if l.heading => l,
             l if l.md => self.info.get(i.checked_sub(1)?).filter(|h| h.heading)?,
@@ -1414,6 +1421,7 @@ impl App {
         self.seen.path = self.claude.path.as_ref().and_then(|p| Some(p.parent()?.parent()?.join("seen").join(p.file_name()?)));
         let text = self.seen.path.as_ref().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
         self.seen.keys = serde_json::from_str(&text).unwrap_or_default();
+        self.seen.before = self.seen.keys.clone();
     }
 
     /// Thread `t` has comments you haven't seen, not counting your own. (Never, with nowhere
@@ -1437,7 +1445,8 @@ impl App {
             let t = &self.threads[ti];
             (0..t.comments.len()).map(|ci| comment_key(t, ci)).collect::<Vec<_>>()
         });
-        let here = here.unwrap_or_default();
+        // A conversation comment (its heading or text): its node id.
+        let here = here.or_else(|| self.conversation_node().map(|n| vec![n])).unwrap_or_default();
         let seen = match here == self.seen.current {
             true if self.seen.since.elapsed() >= SEEN_AFTER => self.seen.current.clone(),
             true => return,

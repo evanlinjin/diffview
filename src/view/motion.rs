@@ -10,23 +10,10 @@ impl App {
             self.files_focus = !right;
             return;
         }
-        // The PR tab: back to where the cursor was in the code, and into it where it was there.
-        if self.on_pr_tab() {
-            if !right {
-                let p = self.code_back();
-                self.goto(p.row, p.col);
-            }
-            return;
-        }
         // The code's left edge: on into the files' list.
         if !right && self.files_w > 0 && !self.margin_side() && (!self.split || !self.right) {
             (self.files_focus, self.files_sel) = (true, self.current_spot());
             return self.msg = "contents: j / k move, Enter goes there, Ctrl-l back".into();
-        }
-        if self.margin_active && self.pane_tab == Tab::Pr && right && (!self.split || self.right) && !self.pr_rows.is_empty() {
-            let back = self.pr_head.filter(|r| self.pr_rows.contains(r));
-            let r = back.unwrap_or(self.pr_rows[self.pr_top.min(self.pr_rows.len() - 1)]);
-            return self.goto(r, 0);
         }
         let hd = self.hd();
         let into_margin = self.margin_active && right && (!self.split || self.right) && !self.margin_side();
@@ -68,16 +55,12 @@ impl App {
             }
     }
 
-    /// The next (`fwd`) or previous row after `row` on the same side as it: the code, the
-    /// comments pane, or the PR tab (they're interleaved in `rows`, but not on screen), for word
-    /// motions to carry on along a line of text rather than jump across.
+    /// The next (`fwd`) or previous row after `row` on the same side as it: the code or the
+    /// comments pane (they're interleaved in `rows`, but not on screen), for word motions to
+    /// carry on along a line of text rather than jump across.
     fn next_row_here(&self, row: usize, fwd: bool) -> Option<usize> {
-        // (in the pane, on the PR tab); rows that aren't drawn where they'd be (comments with the
-        // pane hidden, PR text off its tab) aren't on any side.
-        let side = |r: usize| {
-            let off = (self.rows[r].thread.is_some() && !self.in_pane(r)) || (self.pr_row(r) && self.pane_tab != Tab::Pr);
-            (!off).then(|| (self.in_pane(r), self.pr_row(r)))
-        };
+        // (in the pane); comments with the pane hidden aren't on any side.
+        let side = |r: usize| (!(self.rows[r].thread.is_some() && !self.in_pane(r))).then(|| self.in_pane(r));
         let here = side(row);
         let mut rs: Box<dyn Iterator<Item = usize>> = if fwd { Box::new(row + 1..self.rows.len()) } else { Box::new((0..row).rev()) };
         rs.find(|&r| side(r).is_some() && side(r) == here)
@@ -109,12 +92,6 @@ impl App {
 
     pub(super) fn vmove(&mut self, d: isize) {
         let w = self.want_col;
-        if let Some(i) = self.pr_index() {
-            let j = (i as isize + d).clamp(0, self.pr_rows.len() as isize - 1) as usize;
-            self.goto(self.pr_rows[j], w);
-            self.want_col = w;
-            return;
-        }
         let last = self.drows.len() as isize - 1;
         let mut target = (self.hd() as isize + d).clamp(0, last) as usize;
         // On the code side, step over spacer rows (margin only, no code); in the margin, over
@@ -343,16 +320,12 @@ impl App {
     }
 
     pub(super) fn scroll(&mut self, d: isize) {
-        _ = match self.on_pr_tab() {
-            true => self.scroll_pr(d),
-            false => self.scroll_code(d),
-        };
+        self.scroll_code(d);
     }
 
     /// Scroll the code (with the comments beside it), whichever side the cursor is on: it moves
-    /// along only if it would leave the screen. On the PR tab, it's where the cursor was in the
-    /// code that moves (`Ctrl-h` goes back there), so the wheel over the code scrolls it there too.
-    /// Returns whether it moved (not at its end already).
+    /// along only if it would leave the screen. Returns whether it moved (not at its end
+    /// already).
     pub(super) fn scroll_code(&mut self, d: isize) -> bool {
         let last = self.drows.len() as isize - 1;
         let was = self.top;
@@ -361,46 +334,12 @@ impl App {
             return false;
         }
         let so = 3.min(self.height / 2);
-        // A comment under the cursor stays below the review's summaries (`draw` keeps it there).
-        let under = if self.margin_side() { self.strip_h } else { 0 };
-        let (lo, hi) = (self.top + so + under, (self.top + self.height).saturating_sub(so + 1));
+        let (lo, hi) = (self.top + so, (self.top + self.height).saturating_sub(so + 1));
         let into = |hd: usize| hd.clamp(lo, hi.max(lo)).min(last as usize);
-        if self.on_pr_tab() {
-            let hd = self.d_of[self.code_head.row.min(self.rows.len() - 1)];
-            if hd < lo || hd > hi {
-                self.code_head = Pos { row: self.pick(into(hd)), col: 0 };
-            }
-            return true;
-        }
         let hd = self.hd();
         if hd < lo || hd > hi {
             let w = self.want_col;
             self.goto(self.pick(into(hd)), w);
-            self.want_col = w;
-        }
-        true
-    }
-
-    /// The cursor's place on the PR tab, when it's there.
-    pub(super) fn pr_index(&self) -> Option<usize> {
-        self.on_pr_tab().then(|| self.pr_rows.iter().position(|&r| r == self.head.row)).flatten()
-    }
-
-    /// Scroll the PR tab (the cursor stays on it, if it's there).
-    /// Its text stops at the bottom of the pane (no scrolling it up past its end). Returns
-    /// whether it moved.
-    pub(super) fn scroll_pr(&mut self, d: isize) -> bool {
-        let n = self.pr_rows.len();
-        let was = self.pr_top;
-        self.pr_top = (self.pr_top as isize + d).clamp(0, n.saturating_sub(self.height) as isize) as usize;
-        if self.pr_top == was {
-            return false;
-        }
-        let so = 3.min(self.height / 2);
-        let (lo, hi) = (self.pr_top + so, (self.pr_top + self.height).saturating_sub(so + 1));
-        if let Some(i) = self.pr_index().filter(|&i| i < lo || i > hi) {
-            let w = self.want_col;
-            self.goto(self.pr_rows[i.clamp(lo, hi.max(lo)).min(n - 1)], w);
             self.want_col = w;
         }
         true
@@ -426,7 +365,7 @@ impl App {
                 }
             }
         }
-        words.sort_by_key(|w| w.0); // the PR tab's rows are first in `rows`, wherever they show
+        words.sort_by_key(|w| w.0);
         let split = words.partition_point(|w| w.0 <= self.head);
         let (back, fwd) = words.split_at(split);
         let (mut fwd, mut back) = (fwd.iter(), back.iter().rev());

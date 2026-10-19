@@ -1,24 +1,16 @@
-          PR #7 · Fix the thing  @bo · main ← amy:fix                                    3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)  Comments  Claude  Pending  PR                                        gn
- ▾        description                                                                                                                             │ ╭─ status ─────────────────────────────────────────────────────────────╮
-          Fixes the thing, see new_call.                                                                                                          │ │  OPEN @bo · main ← fix · +2 −2 in 3 files                            │
- ▾        src/big.rs  +1 −1  · 2 comments                                                                                                         │ │  review: waiting on @cy                                              │
-          ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── L9–15 ─│ ╰──────────────────────────────────────────────────────────────────────╯
-  9   9   line 9                                                                                                                                  │ ╭─ your review (pending) ──────────────────────────────────────────────╮
- 10  10   line 10                                                                                                                                 │ │  Nearly there.                                                       │
- 11  11   line 11                                                                                                                                 │ ╰──────────────────────────────────────────────────────────────────────╯
- 12     -     let x = old(12);                                                                                                                    │
-     12 +     let x = new_call(12);                                                                                                              ◆│
- 13  13   line 13                                                                                                                                 │
- 14  14   line 14                                                                                                                                 │
- 15  15   line 15                                                                                                                                 │
+          PR #7 · Fix the thing  @bo · main ← amy:fix                                    3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)  Comments  Claude  Pending                                            gn
+          OPEN @bo · main ← fix · +2 −2 in 3 files                                                                                                │
+       ╭─ your review (pending) ───────────────────────────────────────────────────────────────────────────────╮                                  │
+       │  Nearly there.                                                                                        │                                  │
+       ╰───────────────────────────────────────────────────────────────────────────────────────────────────────╯                                  │
  ▾        src/a.rs  +1 −1  · 1 comment                                                                                                            │
           ── fn main ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── L1–3 ─│
-  1   1   fn main() {                                                                                                                            ○│
+  1   1   fn main() {                                                                                                                             │
   2     -     old();                                                                                                                              │
-      2 +     new_call(x);                                                                                                                       ●│
-  3   3   }                                                                                                                                       │
- ▾        new.rs (renamed from old.rs)  +0 −0                                                                                                     │
- ▾        img.png (binary)  +0 −0                                                                                                                 │
+      2 +     new_call(x);                                                                                                                       ●│ ╭─ you · L2 ───────────────────────────────────────────────────────────╮
+  3   3   }                                                                                                                                       │ │  [pending]                                                           │
+                                                                                                                                                  │ │  Pass y here.                                                        │
+                                                                                                                                                  │ ╰──────────────────────────────────────────────────────────────────────╯
                                                                                                                                                   │
                                                                                                                                                   │
                                                                                                                                                   │
@@ -27,4 +19,12 @@
                                                                                                                                                   │
                                                                                                                                                   │
                                                                                                                                                   │
- NOR       pane: the PR's facts and conversation (gn: comments; Ctrl-l goes in)                                                                                                                                        1/43
+                                                                                                                                                  │
+                                                                                                                                                  │
+                                                                                                                                                  │
+                                                                                                                                                  │
+                                                                                                                                                  │
+                                                                                                                                                  │
+                                                                                                                                                  │
+                                                                                                                                                  │
+ NOR       pending view: your pending review and the code it's on (S submits it; gn / gp: the other tabs)                                                                                              pending view    1/15
