@@ -18,10 +18,14 @@ pub struct IssueView {
     comments: Vec<(String, String, String)>,
     triage: Value,
     scroll: usize,
-    /// The lines as last drawn, at what width, and where the pane starts (side by side).
+    /// The lines as last drawn, at what width, where the pane starts (side by side), the columns
+    /// each line's text is in (the description's, the pane's: not margins, bubbles' sides), and
+    /// how many lines show.
     lines: Vec<Line<'static>>,
     width: usize,
     pane_x: Option<usize>,
+    text_at: Vec<[std::ops::Range<usize>; 2]>,
+    shown: usize,
     /// Whether you may label it (triage access and up): Claude's labels are suggestions else.
     can_triage: bool,
     /// Text dragged over (line, column), from where the drag began to where it is.
@@ -51,6 +55,8 @@ impl IssueView {
             lines: vec![],
             width: 0,
             pane_x: None,
+            text_at: vec![],
+            shown: 0,
             can_triage,
             sel: None,
             hl: crate::highlight::Highlighter::new(&Theme::load()),
@@ -129,21 +135,22 @@ impl IssueView {
         };
         let dim = ui.stale;
         let border = ui.linenr;
-        // A bubble: `╭─ title ──╮`, its lines between `│ … │`, `╰──╯`, `w` wide.
-        let bubble = |title: Vec<Span<'static>>, body: Vec<Line<'static>>, w: usize| -> Vec<Line<'static>> {
+        // A bubble: `╭─ title ──╮`, its lines between `│ … │`, `╰──╯`, `w` wide (each with the
+        // columns of its text: none on its frame).
+        let bubble = |title: Vec<Span<'static>>, body: Vec<Line<'static>>, w: usize| -> Vec<(Line<'static>, std::ops::Range<usize>)> {
             let tw: usize = title.iter().map(Span::width).sum();
             let mut top = vec![Span::styled("╭─ ", border)];
             top.extend(title);
             top.push(Span::styled(format!(" {}╮", "─".repeat(w.saturating_sub(tw + 5))), border));
-            let mut out = vec![Line::from(top)];
+            let mut out = vec![(Line::from(top), 0..0)];
             for l in body {
                 // (A code block or table line wider than the bubble: cut at its edge.)
                 let mut v = vec![Span::styled("│ ", border)];
                 v.extend(super::card::fit(l.spans, w.saturating_sub(4), Style::new()));
                 v.push(Span::styled(" │", border));
-                out.push(Line::from(v));
+                out.push((Line::from(v), 2..w.saturating_sub(2)));
             }
-            out.push(Line::from(Span::styled(format!("╰{}╯", "─".repeat(w.saturating_sub(2))), border)));
+            out.push((Line::from(Span::styled(format!("╰{}╯", "─".repeat(w.saturating_sub(2))), border)), 0..0));
             out
         };
         // The description, as the PR view's text.
@@ -185,8 +192,8 @@ impl IssueView {
             }
             right.extend(bubble(claude(title), b, right_w));
         }
-        right.push(Line::default());
-        right.push(Line::from(Span::styled(format!("activity ({})", self.comments.len()), ui.heading)));
+        right.push((Line::default(), 0..0));
+        right.push((Line::from(Span::styled(format!("activity ({})", self.comments.len()), ui.heading)), 0..right_w));
         for (who, when, body) in &self.comments {
             let mut title = vec![Span::styled(format!("@{who}"), ui.thread)];
             if !when.is_empty() {
@@ -195,23 +202,27 @@ impl IssueView {
             right.extend(bubble(title, md(body, inner), right_w));
         }
         // Side by side, a dim line between; or one after the other.
-        let out = match two {
+        // (The description's text: after its margin.)
+        let desc = 2..left_w;
+        let (out, text_at): (Vec<_>, Vec<_>) = match two {
             true => (0..left.len().max(right.len()))
                 .map(|k| {
                     // (The description cut at its column: a wide code line doesn't push the pane.)
                     let mut l = Line::from(super::card::fit(left.get(k).cloned().unwrap_or_default().spans, left_w, Style::new()));
                     l.spans.push(Span::styled("│", border));
-                    l.spans.extend(right.get(k).cloned().unwrap_or_default().spans);
-                    l
+                    let (r, at) = right.get(k).cloned().unwrap_or_default();
+                    l.spans.extend(r.spans);
+                    (l, [if k < left.len() { desc.clone() } else { 0..0 }, at.start + left_w + 1..at.end + left_w + 1])
                 })
-                .collect(),
-            false => {
-                left.push(Line::default());
-                left.extend(right);
-                left
-            }
+                .unzip(),
+            false => left
+                .into_iter()
+                .map(|l| (l, [desc.clone(), 0..0]))
+                .chain([(Line::default(), [0..0, 0..0])])
+                .chain(right.into_iter().map(|(l, at)| (l, [at, 0..0])))
+                .unzip(),
         };
-        (self.lines, self.width, self.pane_x) = (out, width, two.then_some(left_w + 1));
+        (self.lines, self.width, self.pane_x, self.text_at, self.sel) = (out, width, two.then_some(left_w + 1), text_at, None);
     }
 
     /// How it closes, as its triage says (`--reason` of `gh issue close`, and for a duplicate,
@@ -249,6 +260,7 @@ impl IssueView {
             // (Fewer lines now, a narrower window wider: not past the end.)
             self.scroll = self.scroll.min(self.lines.len().saturating_sub(area.height as usize));
         }
+        self.shown = area.height as usize;
         let body: Vec<Line> = self.lines.iter().skip(self.scroll).take(area.height as usize).cloned().collect();
         f.render_widget(Paragraph::new(body).style(ui.base), area);
         // What's dragged over, reversed.
@@ -261,42 +273,39 @@ impl IssueView {
         }
     }
 
-    /// The columns of the side `x` is on: the description's or the pane's (side by side).
-    fn side(&self, x: usize) -> std::ops::Range<usize> {
-        match self.pane_x {
-            Some(p) if x >= p => p..self.width,
-            Some(p) => 0..p - 1,
-            None => 0..self.width,
-        }
-    }
-
     /// Whether (line, column) is dragged over: from where the drag began to where it is, as text
-    /// runs (whole lines between), on the side it began on.
+    /// runs (whole lines between), in the text of the side it began on.
     fn selected(&self, row: usize, x: usize) -> bool {
-        let Some((a, b)) = self.sel else { return false };
-        let (a, b) = if a <= b { (a, b) } else { (b, a) };
-        self.side(self.sel.unwrap().0.1).contains(&x) && (row, x) >= a && (row, x) <= b
+        let Some((from, to)) = self.sel else { return false };
+        let (a, b) = if from <= to { (from, to) } else { (to, from) };
+        let side = self.pane_x.is_some_and(|p| from.1 >= p) as usize;
+        self.text_at.get(row).is_some_and(|t| t[side].contains(&x)) && (row, x) >= a && (row, x) <= b
     }
 
-    /// The mouse, at (column, row) of the issue's area: a press begins a drag, a drag moves its
-    /// end, and the release gives the text dragged over (nothing for a click), to copy.
+    /// The mouse, at (column, row) of the issue's area (rows past it: its last): a press begins a
+    /// drag, a drag moves its end, and the release gives the text dragged over, to copy (a click:
+    /// nothing, and nothing kept).
     pub fn mouse(&mut self, kind: ratatui::crossterm::event::MouseEventKind, x: usize, y: usize) -> Option<String> {
         use ratatui::crossterm::event::{MouseButton, MouseEventKind};
-        let at = (self.scroll + y, x);
+        let at = (self.scroll + y.min(self.shown.saturating_sub(1)), x);
         match kind {
             MouseEventKind::Down(MouseButton::Left) => self.sel = Some((at, at)),
-            MouseEventKind::Drag(MouseButton::Left) => {
+            MouseEventKind::Drag(MouseButton::Left) | MouseEventKind::Up(MouseButton::Left) if self.sel.is_some() => {
                 if let Some((_, b)) = &mut self.sel {
                     *b = at;
                 }
+                if kind == MouseEventKind::Drag(MouseButton::Left) {
+                    return None;
+                }
+                self.sel = self.sel.filter(|(a, b)| a != b);
+                return self.sel.map(|_| self.selection());
             }
-            MouseEventKind::Up(MouseButton::Left) => return self.sel.filter(|(a, b)| a != b).map(|_| self.selection()),
             _ => {}
         }
         None
     }
 
-    /// The text dragged over, line by line, without the margins and the bubbles' sides.
+    /// The text dragged over, line by line.
     fn selection(&self) -> String {
         let Some(((r0, _), (r1, _))) = self.sel.map(|(a, b)| if a <= b { (a, b) } else { (b, a) }) else { return String::new() };
         let w = self.width as u16;
@@ -317,11 +326,9 @@ impl IssueView {
                     text.push_str(sym);
                 }
             }
-            let t = text.trim_end();
-            let t = t.strip_suffix('│').unwrap_or(t).trim_end();
-            out.push(t.strip_prefix("│ ").or_else(|| t.strip_prefix("  ")).unwrap_or(t).to_owned());
+            out.push(text.trim_end().to_owned());
         }
-        out.join("\n")
+        out.join("\n").trim_matches('\n').to_owned()
     }
 
     /// Forget the lines drawn: the issue or its triage changed.
@@ -368,7 +375,7 @@ fn an_issue_and_its_triage() {
     let mut v = IssueView {
         number: 7, title: "panic".into(), author: "amy".into(), url: "https://github.com/o/r/issues/7".into(),
         body: "It **panics**.".into(), labels: vec![("bug".into(), "d73a4a".into())],
-        comments: vec![("bo".into(), String::new(), "Same here.".into())], triage, scroll: 0, lines: vec![], width: 0, pane_x: None, can_triage: true, sel: None,
+        comments: vec![("bo".into(), String::new(), "Same here.".into())], triage, scroll: 0, lines: vec![], width: 0, pane_x: None, text_at: vec![], shown: 0, can_triage: true, sel: None,
         hl: crate::highlight::Highlighter::default(),
     };
     assert_eq!(v.new_labels(), ["chain"]); // bug it has
@@ -396,9 +403,19 @@ fn an_issue_and_its_triage() {
     use ratatui::crossterm::event::{MouseButton, MouseEventKind};
     let row = v.lines.iter().position(|l| l.to_string().contains("Same here.")).unwrap();
     let p = v.pane_x.unwrap();
+    v.shown = v.lines.len(); // (all of it on screen: rows are lines)
     v.mouse(MouseEventKind::Down(MouseButton::Left), p, row);
     v.mouse(MouseEventKind::Drag(MouseButton::Left), 159, row);
     assert_eq!(v.mouse(MouseEventKind::Up(MouseButton::Left), 159, row).as_deref(), Some("Same here."));
+    // From above the bubble to below it: its text, not its frame.
+    v.mouse(MouseEventKind::Down(MouseButton::Left), p, row - 1);
+    assert_eq!(v.mouse(MouseEventKind::Up(MouseButton::Left), 159, row + 1).as_deref(), Some("Same here."));
+    // The description, from its margin: its text.
+    let row = v.lines.iter().position(|l| l.to_string().contains("It panics.")).unwrap();
+    v.mouse(MouseEventKind::Down(MouseButton::Left), 0, row);
+    assert_eq!(v.mouse(MouseEventKind::Up(MouseButton::Left), p - 2, row).as_deref(), Some("It panics."));
+    // A click: nothing, and nothing left selected.
     v.mouse(MouseEventKind::Down(MouseButton::Left), 2, 0);
-    assert_eq!(v.mouse(MouseEventKind::Up(MouseButton::Left), 2, 0), None); // a click
+    assert_eq!(v.mouse(MouseEventKind::Up(MouseButton::Left), 2, 0), None);
+    assert!(v.sel.is_none());
 }

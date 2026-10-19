@@ -604,11 +604,16 @@ impl Issues {
                 // The wheel moves the cursor (scrolls the issue), as j / k; a click picks a tab or a
                 // card, twice opens it (as dv list's).
                 // In an issue, a drag copies what it's over.
-                Event::Mouse(m) if self.view.is_some() && matches!(m.kind, event::MouseEventKind::Down(_) | event::MouseEventKind::Drag(_) | event::MouseEventKind::Up(_)) => {
+                Event::Mouse(m) if self.view.is_some() && !self.help && matches!(m.kind, event::MouseEventKind::Down(_) | event::MouseEventKind::Drag(_) | event::MouseEventKind::Up(_)) => {
                     let v = self.view.as_mut().expect("an issue open");
-                    if let Some(t) = v.mouse(m.kind, m.column as usize, (m.row as usize).saturating_sub(1)) {
-                        crate::view::clipboard(&t);
-                        self.msg = format!("copied {} line{}", t.lines().count(), if t.lines().count() == 1 { "" } else { "s" });
+                    // (Row 0's the title bar: the view's from row 1.)
+                    match v.mouse(m.kind, m.column as usize, (m.row as usize).saturating_sub(1)) {
+                        Some(t) if t.trim().is_empty() => self.msg = "nothing to copy".into(),
+                        Some(t) => {
+                            crate::view::clipboard(&t);
+                            self.msg = format!("copied {} line{}", t.lines().count(), if t.lines().count() == 1 { "" } else { "s" });
+                        }
+                        None => {}
                     }
                     continue;
                 }
