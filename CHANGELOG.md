@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.99] - 2026-10-19
+
+### Fixed
+- Writing in the editor's pane: its pane closed from zellij is noticed whatever zellij can
+  list (the shell running the editor notes its pid; gone, the pane's gone), so dv no longer
+  waits on it forever when zellij couldn't say. What you'd written is kept, as before.
+
 ## [0.34.98] - 2026-10-19
 
 ### Fixed
