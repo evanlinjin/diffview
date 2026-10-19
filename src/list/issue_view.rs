@@ -18,11 +18,14 @@ pub struct IssueView {
     comments: Vec<(String, String, String)>,
     triage: Value,
     scroll: usize,
-    /// The lines as last drawn, and at what width.
+    /// The lines as last drawn, at what width, and where the pane starts (side by side).
     lines: Vec<Line<'static>>,
     width: usize,
+    pane_x: Option<usize>,
     /// Whether you may label it (triage access and up): Claude's labels are suggestions else.
     can_label: bool,
+    /// Text dragged over (line, column), from where the drag began to where it is.
+    sel: Option<((usize, usize), (usize, usize))>,
     hl: crate::highlight::Highlighter,
 }
 
@@ -47,7 +50,9 @@ impl IssueView {
             scroll: 0,
             lines: vec![],
             width: 0,
+            pane_x: None,
             can_label,
+            sel: None,
             hl: crate::highlight::Highlighter::new(&Theme::load()),
         })
     }
@@ -206,7 +211,7 @@ impl IssueView {
                 left
             }
         };
-        (self.lines, self.width) = (out, width);
+        (self.lines, self.width, self.pane_x) = (out, width, two.then_some(left_w + 1));
     }
 
     /// How it closes, as its triage says (`--reason` of `gh issue close`, and for a duplicate,
@@ -246,6 +251,77 @@ impl IssueView {
         }
         let body: Vec<Line> = self.lines.iter().skip(self.scroll).take(area.height as usize).cloned().collect();
         f.render_widget(Paragraph::new(body).style(ui.base), area);
+        // What's dragged over, reversed.
+        for y in 0..area.height {
+            for x in 0..area.width {
+                if self.selected(self.scroll + y as usize, x as usize) {
+                    f.buffer_mut()[(area.x + x, area.y + y)].modifier.insert(ratatui::style::Modifier::REVERSED);
+                }
+            }
+        }
+    }
+
+    /// The columns of the side `x` is on: the description's or the pane's (side by side).
+    fn side(&self, x: usize) -> std::ops::Range<usize> {
+        match self.pane_x {
+            Some(p) if x >= p => p..self.width,
+            Some(p) => 0..p - 1,
+            None => 0..self.width,
+        }
+    }
+
+    /// Whether (line, column) is dragged over: from where the drag began to where it is, as text
+    /// runs (whole lines between), on the side it began on.
+    fn selected(&self, row: usize, x: usize) -> bool {
+        let Some((a, b)) = self.sel else { return false };
+        let (a, b) = if a <= b { (a, b) } else { (b, a) };
+        self.side(self.sel.unwrap().0.1).contains(&x) && (row, x) >= a && (row, x) <= b
+    }
+
+    /// The mouse, at (column, row) of the issue's area: a press begins a drag, a drag moves its
+    /// end, and the release gives the text dragged over (nothing for a click), to copy.
+    pub fn mouse(&mut self, kind: ratatui::crossterm::event::MouseEventKind, x: usize, y: usize) -> Option<String> {
+        use ratatui::crossterm::event::{MouseButton, MouseEventKind};
+        let at = (self.scroll + y, x);
+        match kind {
+            MouseEventKind::Down(MouseButton::Left) => self.sel = Some((at, at)),
+            MouseEventKind::Drag(MouseButton::Left) => {
+                if let Some((_, b)) = &mut self.sel {
+                    *b = at;
+                }
+            }
+            MouseEventKind::Up(MouseButton::Left) => return self.sel.filter(|(a, b)| a != b).map(|_| self.selection()),
+            _ => {}
+        }
+        None
+    }
+
+    /// The text dragged over, line by line, without the margins and the bubbles' sides.
+    fn selection(&self) -> String {
+        let Some(((r0, _), (r1, _))) = self.sel.map(|(a, b)| if a <= b { (a, b) } else { (b, a) }) else { return String::new() };
+        let w = self.width as u16;
+        let mut out = vec![];
+        for row in r0..=r1.min(self.lines.len().saturating_sub(1)) {
+            let mut buf = ratatui::buffer::Buffer::empty(Rect::new(0, 0, w, 1));
+            buf.set_line(0, 0, &self.lines[row], w);
+            // (A wide character's cell, then the one it covers: not a space.)
+            let (mut text, mut covered) = (String::new(), 0);
+            for x in 0..self.width {
+                let sym = buf[(x as u16, 0)].symbol();
+                if covered > 0 {
+                    covered -= 1;
+                    continue;
+                }
+                covered = Span::raw(sym).width().saturating_sub(1);
+                if self.selected(row, x) {
+                    text.push_str(sym);
+                }
+            }
+            let t = text.trim_end();
+            let t = t.strip_suffix('│').unwrap_or(t).trim_end();
+            out.push(t.strip_prefix("│ ").or_else(|| t.strip_prefix("  ")).unwrap_or(t).to_owned());
+        }
+        out.join("\n")
     }
 
     /// Forget the lines drawn: the issue or its triage changed.
@@ -267,6 +343,7 @@ MOVE
   j k, Up Down         scroll
   Ctrl-d Ctrl-u        half a page down / up
   gg ge                top / end
+  mouse                wheel scrolls; a drag copies the text it's over (one side's)
   q, Esc               back to the issues
   ?                    this help
 
@@ -291,7 +368,7 @@ fn an_issue_and_its_triage() {
     let mut v = IssueView {
         number: 7, title: "panic".into(), author: "amy".into(), url: "https://github.com/o/r/issues/7".into(),
         body: "It **panics**.".into(), labels: vec![("bug".into(), "d73a4a".into())],
-        comments: vec![("bo".into(), String::new(), "Same here.".into())], triage, scroll: 0, lines: vec![], width: 0, can_label: true,
+        comments: vec![("bo".into(), String::new(), "Same here.".into())], triage, scroll: 0, lines: vec![], width: 0, pane_x: None, can_label: true, sel: None,
         hl: crate::highlight::Highlighter::default(),
     };
     assert_eq!(v.new_labels(), ["chain"]); // bug it has
@@ -315,4 +392,13 @@ fn an_issue_and_its_triage() {
         v.title_bar(f, &ui, Rect { height: 1, ..a });
         v.draw(f, &ui, Rect { y: 1, height: a.height - 1, ..a });
     }));
+    // A drag in the pane copies the comment's text, not the description beside it nor the bubble.
+    use ratatui::crossterm::event::{MouseButton, MouseEventKind};
+    let row = v.lines.iter().position(|l| l.to_string().contains("Same here.")).unwrap();
+    let p = v.pane_x.unwrap();
+    v.mouse(MouseEventKind::Down(MouseButton::Left), p, row);
+    v.mouse(MouseEventKind::Drag(MouseButton::Left), 159, row);
+    assert_eq!(v.mouse(MouseEventKind::Up(MouseButton::Left), 159, row).as_deref(), Some("Same here."));
+    v.mouse(MouseEventKind::Down(MouseButton::Left), 2, 0);
+    assert_eq!(v.mouse(MouseEventKind::Up(MouseButton::Left), 2, 0), None); // a click
 }

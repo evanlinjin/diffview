@@ -246,7 +246,7 @@ pub(crate) fn compose_with(what: &str, allow_empty: bool, prefill: &str, untouch
 }
 
 /// Copy to the system clipboard via OSC 52 (handled by the terminal; works over SSH).
-pub(super) fn clipboard(t: &str) {
+pub fn clipboard(t: &str) {
     let mut out = std::io::stdout();
     let _ = write!(out, "\x1b]52;c;{}\x07", base64(t.as_bytes()));
     let _ = out.flush();

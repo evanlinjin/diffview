@@ -78,7 +78,7 @@ pub fn fetch() -> Fetch {
     while all.len() < ISSUES_MAX {
         let from = after.as_ref().map_or(String::new(), |c| format!(", after: \"{c}\""));
         let q = format!(
-            "query($owner: String!, $name: String!) {{ viewer {{ login }} repository(owner: $owner, name: $name) {{
+            "query($owner: String!, $name: String!) {{ viewer {{ login }} repository(owner: $owner, name: $name) {{ viewerPermission
                issues(states: OPEN, first: 100{from}, orderBy: {{ field: UPDATED_AT, direction: DESC }}) {{ {PAGE} nodes {{
                  number title updatedAt author {{ login }}
                  labels(first: 10) {{ nodes {{ name color }} }} comments {{ totalCount }}
@@ -601,6 +601,15 @@ impl Issues {
                 Event::Key(k) if k.kind == KeyEventKind::Press => k,
                 // The wheel moves the cursor (scrolls the issue), as j / k; a click picks a tab or a
                 // card, twice opens it (as dv list's).
+                // In an issue, a drag copies what it's over.
+                Event::Mouse(m) if self.view.is_some() && matches!(m.kind, event::MouseEventKind::Down(_) | event::MouseEventKind::Drag(_) | event::MouseEventKind::Up(_)) => {
+                    let v = self.view.as_mut().expect("an issue open");
+                    if let Some(t) = v.mouse(m.kind, m.column as usize, (m.row as usize).saturating_sub(1)) {
+                        crate::view::clipboard(&t);
+                        self.msg = format!("copied {} line{}", t.lines().count(), if t.lines().count() == 1 { "" } else { "s" });
+                    }
+                    continue;
+                }
                 Event::Mouse(m) => match m.kind {
                     event::MouseEventKind::ScrollDown => KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
                     event::MouseEventKind::ScrollUp => KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
