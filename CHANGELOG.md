@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.40.0] - 2026-10-19
+
+### Added
+- `Space g` → "Commit everything that isn't": Claude writes the commit message first (in the
+  background, from the changes, in the repo's style as `git log` shows it), and your editor
+  opens with it. Without a review file, or if it couldn't, the message starts from Claude's
+  "Changed: …" replies as before.
+
 ## [0.39.3] - 2026-10-19
 
 ### Fixed
