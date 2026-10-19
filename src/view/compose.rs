@@ -1,0 +1,392 @@
+//! What's done with what you write in the editor (`Action`): a comment, a reply, a question for
+//! Claude, a commit message, …: `perform`, and what it posts (`Post`).
+use super::*;
+
+/// Work that needs the terminal back (an editor), run between frames.
+#[derive(Clone)]
+pub(super) enum Action {
+    /// A shell in the checkout's directory: a floating pane in zellij, else this terminal.
+    Shell,
+    Open(String),
+    /// `review`: add to the pending review instead of posting immediately.
+    /// `prefill`: starting text in the editor (a ```suggestion block for `s`).
+    /// `claude`: copying Claude's comment (its id in the review file) into the review; the
+    /// prefill is its text, posted as is if left unchanged, and the comment is dismissed after.
+    Comment { anchor: Anchor, review: bool, prefill: String, claude: Option<String> },
+    /// `quote`: the comment under the cursor as a `> ` quote, pre-filled in the editor.
+    Reply { thread: String, comment: u64, review: bool, quote: String },
+    /// A reply to Claude on its comment (by id), saved to the review file for Claude to answer,
+    /// with what you want of it ("ask", "suggest", "change"; empty: unsaid).
+    /// (And what the editor starts from: a quote of what's selected, say.)
+    ClaudeReply(String, &'static str, String),
+    /// A comment for Claude on these lines (with their text), then Claude answers it; `about`:
+    /// the GitHub review comment it asks about (its id, and a quote of it for the editor).
+    AskClaude { anchor: Anchor, code: Vec<String>, about: Option<(u64, String)>, want: &'static str },
+    /// `a` on a PR conversation comment: a question about it (its URL), starting from `prefill`.
+    /// On a commit (its URL): a question about it, or a change to it (`want`).
+    AskConversation { url: String, prefill: String, want: &'static str },
+    /// Run Claude (review, or make the changes) after your own instructions for it.
+    ClaudeWith(agent::Ask),
+    /// Have Claude draft a replacement for these PRs, after your instructions for it (starting
+    /// from these, else your last ones: `a` on a draft quotes what it's about).
+    Replace(Vec<u64>, Option<String>),
+    /// Publish the replacement here as a draft PR, after the editor (title, description): (then
+    /// close what it replaces, next).
+    Publish(bool),
+    /// A new PR fixing CI for Claude to draft, after the editor (from Claude's note on this PR).
+    CiFixPr,
+    /// Close the PR with Claude's draft comment, after the editor.
+    ClosePr,
+    /// Close the PRs the replacement here replaces, after the editor (the note).
+    CloseOriginals,
+    /// A new PR conversation comment, starting with `quote` (may be empty); `as_is`: posted
+    /// even if left untouched (Claude's review, yours to post).
+    Converse { quote: String, as_is: bool },
+    /// Rewrite one of your comments (node id, current body).
+    Edit { comment: String, body: String, author: String },
+    /// Submit the pending review: COMMENT, APPROVE or REQUEST_CHANGES.
+    Submit(&'static str),
+    /// Commit everything uncommitted, starting from this message.
+    Commit(String),
+}
+
+/// Something written in the editor, to send to GitHub (as a job, so "posting…" shows first).
+pub(super) enum Post {
+    /// A new comment on lines (`claude`: copied from Claude's comment, dismissed once sent).
+    Thread { anchor: Anchor, review: bool, body: String, claude: Option<String> },
+    Reply { thread: String, comment: u64, review: bool, body: String },
+    Converse(String),
+    /// Your pending review's new text (`c` in the PR section, or on Claude's summary).
+    Summary(String),
+    Edit { comment: String, body: String },
+    Submit(&'static str, String),
+}
+
+/// How dv's hint lines in the editor start; they're dropped from what's posted.
+pub(super) const HINT: &str = "<!-- dv:";
+
+/// Drop dv's hint line and trim; untouched prefill alone counts as nothing written.
+pub(super) fn clean_body(text: &str, mark: &str, prefill: &str) -> String {
+    let body: Vec<&str> = text.lines().filter(|l| !l.starts_with(mark)).collect();
+    let body = body.join("\n").trim().to_owned();
+    if !prefill.is_empty() && body == prefill.trim() { String::new() } else { body }
+}
+
+/// If posting failed, save what was written so it isn't lost, and say where.
+pub(super) fn keep_on_error(res: Result<()>, body: &str) -> Result<()> {
+    res.map_err(|e| {
+        let saved = term::unsent_path();
+        match !body.is_empty() && std::fs::write(&saved, body).is_ok() {
+            // The reason first: a narrow status bar cuts the end off.
+            true => anyhow!("{e:#} (text saved to {})", saved.display()),
+            _ => e,
+        }
+    })
+}
+
+/// The summary an approval starts from: `ACK <the PR's head commit>`, as Bitcoin-style projects
+/// write it. If what you reviewed (`local`, your HEAD) isn't that commit (your branch has
+/// diverged from the PR), a hint line above it says so; hint lines aren't posted. Other
+/// reviews start empty.
+pub(super) fn ack(event: &str, pr: Option<&Pr>, local: &str) -> String {
+    let Some(p) = pr.filter(|p| event == "APPROVE" && !p.head_oid.is_empty()) else { return String::new() };
+    let short = |h: &str| h.chars().take(8).collect::<String>();
+    match p.head_oid == local || local.is_empty() {
+        true => format!("ACK {}", p.head_oid),
+        false => format!(
+            "{HINT} your checkout is at {}, not the PR's head {}: check this ACK names what you reviewed -->\nACK {}",
+            short(local),
+            short(&p.head_oid),
+            p.head_oid
+        ),
+    }
+}
+
+pub(super) fn posted_msg(review: bool) -> &'static str {
+    if review { "added to pending review (S to submit)" } else { "posted" }
+}
+
+impl App {
+    pub(super) fn perform(&mut self, a: Action) -> Result<String> {
+        match a {
+            Action::Shell => {
+                let shell = std::env::var("SHELL").unwrap_or_else(|_| "sh".into());
+                let root = self.root.display().to_string();
+                if in_zellij() {
+                    let name = format!("shell: {}", self.root.file_name().map_or(root.clone(), |n| n.to_string_lossy().into_owned()));
+                    let st = std::process::Command::new("zellij")
+                        .args(["run", "--floating", "--close-on-exit", "--name", &name, "--cwd", &root, "--", &shell])
+                        .stdin(std::process::Stdio::null())
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .status()?;
+                    anyhow::ensure!(st.success(), "zellij run failed");
+                    return Ok(format!("a shell in {root}, floating (exit closes it)"));
+                }
+                std::process::Command::new(&shell).current_dir(&self.root).status().context("running your shell")?;
+                Ok(String::new())
+            }
+            Action::Open(target) if in_zellij() => self.open_in_hx_pane(&target),
+            Action::Open(target) => {
+                interactive("hx", std::slice::from_ref(&target), &format!("hx {target}")).context("running hx")?;
+                Ok(String::new())
+            }
+            Action::Comment { anchor, review, prefill, claude } => {
+                let range = match anchor.start {
+                    Some((s, _)) => format!("{s}-{}", anchor.line),
+                    None => anchor.line.to_string(),
+                };
+                let kind = match (&claude, prefill.is_empty()) {
+                    (Some(_), _) => "Claude's comment",
+                    (None, true) => "comment",
+                    (None, false) => "suggestion",
+                };
+                let what = format!("{kind} on {}:{range}", anchor.path);
+                self.pr.as_ref().context("no PR")?; // before the editor, so nothing written is lost
+                let Some(body) = compose_with(&what, false, &prefill, claude.is_some())? else {
+                    return Ok(format!("{kind} cancelled"));
+                };
+                self.post_later(Post::Thread { anchor, review, body, claude })
+            }
+            Action::Reply { thread, comment, review, quote } => {
+                self.pr.as_ref().context("no PR")?;
+                let Some(body) = compose_with("reply", false, &quote, false)? else { return Ok("reply cancelled".into()) };
+                self.post_later(Post::Reply { thread, comment, review, body })
+            }
+            Action::ClaudeReply(k, want, prefill) => {
+                let p = self.claude.path.clone().context("no review file")?;
+                let what = format!("reply to Claude{}", agent::want_hint(want));
+                let Some(body) = compose_with(&what, false, &prefill, false)? else { return Ok("reply cancelled".into()) };
+                keep_on_error(crate::claude::reply(&p, &k, &body, want), &body)?;
+                Ok(self.answer_now())
+            }
+            Action::AskClaude { anchor, code, about, want } => {
+                let p = self.claude.path.clone().context("no review file")?;
+                let range = anchor.start.map_or(anchor.line.to_string(), |(s, _)| format!("{s}-{}", anchor.line));
+                let what = match about {
+                    Some(_) => format!("ask Claude about this review comment on {}:{range} (it answers right away; nothing goes to GitHub)", anchor.path),
+                    None => format!("a comment for Claude on {}:{range}{}", anchor.path, agent::want_hint(want)),
+                };
+                let prefill = about.as_ref().map_or(String::new(), |(_, q)| q.clone());
+                let Some(body) = compose_with(&what, false, &prefill, false)? else { return Ok("comment cancelled".into()) };
+                keep_on_error(crate::claude::add_comment(&p, &anchor, code, &body, about.map(|a| a.0), want).map(drop), &body)?;
+                self.load_claude();
+                Ok(self.answer_now())
+            }
+            Action::AskConversation { url, prefill, want } => {
+                let p = self.claude.path.clone().context("no review file")?;
+                let what = match (url == ON_SUMMARY, commit_of(&url)) {
+                    (true, _) => "a question for Claude about the PR, or a reply to its review (it answers in the Claude tab; nothing goes to GitHub)".to_owned(),
+                    (_, Some(sha)) => format!("for Claude, about commit {}{}", self.commit_short(sha), agent::want_hint(want)),
+                    _ => "ask Claude about this conversation comment (it answers under it; nothing goes to GitHub)".to_owned(),
+                };
+                let Some(body) = compose_with(&what, false, &prefill, false)? else { return Ok("question cancelled".into()) };
+                keep_on_error(crate::claude::add_conversation(&p, &url, &body, want).map(drop), &body)?;
+                self.load_claude();
+                Ok(self.answer_now())
+            }
+            Action::ClaudeWith(ask) => {
+                // Optional (empty goes ahead) unless they're the whole request: a change with no
+                // open comments. Quitting the editor with an error (`:cq`) cancels.
+                let alone = matches!(ask, agent::Ask::Fix | agent::Ask::Edit) && self.change_requests() == 0 || matches!(ask, agent::Ask::Describe);
+                let what = match (ask, alone) {
+                    (agent::Ask::Review, _) => "anything for Claude to look at or keep in mind in its review (optional)",
+                    (agent::Ask::Describe, _) if !self.claude.description.is_empty() => "what else to change in Claude's proposed description",
+                    (agent::Ask::Describe, _) => "what to change in the PR's description (Claude proposes a new one; you approve it)",
+                    (agent::Ask::Close, _) if !self.claude.closing.is_empty() => "what to change in Claude's closing comment",
+                    (agent::Ask::Close, _) => "why close it, and anything the comment should say (optional: Claude drafts it; you edit it before it goes)",
+                    (_, true) => "what Claude should change (there are no open comments to act on)",
+                    _ => "instructions for Claude, on top of the open comments (optional)",
+                };
+                // Review instructions start from the last ones (kept if left as they are).
+                let review = matches!(ask, agent::Ask::Review);
+                let last = if review { crate::claude::instructions("review") } else { String::new() };
+                let Some(extra) = compose_with(what, !alone, last.trim(), review)? else { return Ok("Claude not asked".into()) };
+                if review {
+                    _ = crate::claude::save_instructions("review", &extra);
+                }
+                if self.run_claude(ask, &extra) || extra.trim().is_empty() {
+                    return Ok(std::mem::take(&mut self.msg));
+                }
+                // It couldn't be asked after all: keep what you wrote.
+                let why = std::mem::take(&mut self.msg);
+                Ok(keep_on_error(Err(anyhow::anyhow!(why)), &extra).err().map_or(String::new(), |e| format!("{e:#}")))
+            }
+            Action::Replace(prs, about) => {
+                if crate::replace::load(prs[0]).is_ok_and(|r| r.drafting_now()) {
+                    return Ok(format!("Claude is already drafting the replacement of #{}", prs[0]));
+                }
+                let which = prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(", ");
+                let (what, prefill) = match about {
+                    Some(q) => (format!("ask Claude to redraft the replacement of {which}: what to change, under the quote"), q),
+                    None => (format!("instructions for Claude's replacement of {which} (optional)"), crate::claude::instructions("replace")),
+                };
+                let Some(extra) = compose_with(&what, true, prefill.trim_end(), true)? else { return Ok("not asked".into()) };
+                crate::claude::save_instructions("replace", &extra)?; // `dv replace` reads them
+                agent::spawn_replace(&prs)?;
+                Ok(format!("Claude is drafting a replacement for {which} in the background: dv list's replacements tab shows it"))
+            }
+            Action::Publish(close) => {
+                let mut r = self.replacement.clone().context("not a replacement")?;
+                if crate::replace::remote().is_none() {
+                    return Ok(self.ask_replace_remote(close));
+                }
+                let prefill = format!("{}\n\n{}", r.title.trim(), r.body.trim());
+                let kind = "draft PR";
+                let what = format!("{kind} for {}: its title (first line), then its description", crate::replace::branch(r.id));
+                let Some(text) = compose_with(&what, false, &prefill, true)? else { return Ok("not published".into()) };
+                let (title, body) = text.split_once('\n').map_or((text.as_str(), ""), |(t, b)| (t, b));
+                let (title, body) = (title.trim(), body.trim());
+                if title.is_empty() {
+                    return Ok("not published: it needs a title (the first line)".into());
+                }
+                let res = crate::replace::publish(&mut r, &self.root, title, body);
+                keep_on_error(res.as_ref().map(drop).map_err(|e| anyhow!("{e:#}")), &text)?;
+                let originals = !r.replaces.is_empty(); // a new PR replaces nothing
+                self.show_replacement(r);
+                if close {
+                    self.action = Some(Action::CloseOriginals); // its own editor, next
+                }
+                let then = if originals { ": S closes what it replaces, with the note" } else { "" };
+                // Ready for review only once CI passes: `Space g` there, which checks.
+                Ok(format!("published as {kind} #{}{then} (ready for review once CI passes: Space g)", res.unwrap_or(0)))
+            }
+            Action::ClosePr => self.close_pr(),
+            Action::CiFixPr => {
+                let n = self.pr.as_ref().map_or(0, |p| p.number);
+                let c = self.ci_note(n).context("no fix in mind for CI any more")?;
+                let prefill = c.prefill(n);
+                let what = "a new PR fixing CI, for Claude to draft: what it should do; unpublished until you publish it";
+                let Some(task) = compose_with(what, false, &prefill, true)?.filter(|t| !t.trim().is_empty()) else { return Ok("not asked".into()) };
+                let id = crate::replace::create_new(&task, &self.root)?;
+                crate::claude::ci_fix_drafted(n); // not offered again
+                agent::spawn_replace(&[id])?;
+                Ok(format!("Claude is drafting {} in the background: dv list's drafts tab shows it", crate::replace::label(id)))
+            }
+            Action::CloseOriginals => {
+                let mut r = self.replacement.clone().context("not a replacement")?;
+                let which: Vec<String> = r.replaces.iter().filter(|o| !r.closed.contains(&o.number)).map(|o| format!("#{}", o.number)).collect();
+                let what = format!("note closing {} (each gets it as a comment, then is closed)", which.join(", "));
+                let Some(note) = compose_with(&what, false, &crate::replace::note(&r), true)? else { return Ok("nothing closed".into()) };
+                let res = crate::replace::close_originals(&mut r, &note);
+                self.show_replacement(r);
+                let done = keep_on_error(res.as_ref().map(drop).map_err(|e| anyhow!("{e:#}")), &note).map(|_| res.unwrap_or_default())?;
+                let done: Vec<String> = done.iter().map(|n| format!("#{n}")).collect();
+                Ok(format!("closed {}, with the note", done.join(", ")))
+            }
+            Action::Converse { quote, as_is } => {
+                self.pr.as_ref().context("no PR")?;
+                let Some(body) = compose_with("comment on the PR conversation", false, &quote, as_is)? else {
+                    return Ok("comment cancelled".into());
+                };
+                self.post_later(Post::Converse(body))
+            }
+            Action::Edit { comment, body: old, author } => {
+                // Unchanged or emptied counts as cancelled; deleting a comment is a separate thing.
+                // Maintainers can edit others' comments too, so the hint names whose this is.
+                let what = format!("editing @{author}'s comment");
+                let Some(body) = compose_with(&what, false, &old, false)? else { return Ok("edit cancelled".into()) };
+                self.post_later(Post::Edit { comment, body })
+            }
+            Action::Submit(event) => {
+                // An empty summary is fine; quitting the editor with an error (`:cq`) cancels.
+                // Approving starts from "ACK <the PR's head commit>", posted as is if kept.
+                let what = match event {
+                    review::CLOSE => "closing comment (empty: just close the PR)".to_owned(),
+                    e => format!("review summary ({})", e.to_lowercase().replace('_', " ")),
+                };
+                let head = diff::git(&["rev-parse", "HEAD"]).unwrap_or_default();
+                let mut prefill = ack(event, self.pr.as_ref(), head.trim());
+                if !self.summary_draft.is_empty() {
+                    prefill = format!("{}\n\n{prefill}", self.summary_draft.trim_end());
+                }
+                if event == "APPROVE" {
+                    // (A checkout that isn't the PR's head: the ACK's own hint says so.)
+                    let notes = self.submit_notes().into_iter().filter(|n| !n.starts_with("your checkout"));
+                    let notes: String = notes.map(|n| format!("{HINT} still open: {n} -->\n")).collect();
+                    prefill = notes + &prefill;
+                }
+                let Some(body) = compose_with(&what, true, &prefill, true)? else {
+                    return Ok("review not submitted".into());
+                };
+                self.summary_draft.clear();
+                self.post_later(Post::Submit(event, body))
+            }
+            Action::Commit(draft) => self.commit(&draft),
+        }
+    }
+
+    /// `Enter` inside zellij: open the file in dv's hx pane, reusing it if it's still open
+    /// (`:open` + `:goto` typed into it, after `Esc` for normal mode), else in a new pane below
+    /// dv. dv keeps working either way.
+    pub(super) fn open_in_hx_pane(&mut self, target: &str) -> Result<String> {
+        let zellij = |args: &[&str]| -> Result<String> {
+            let out = std::process::Command::new("zellij").args(args).stdin(std::process::Stdio::null()).output()?;
+            anyhow::ensure!(out.status.success(), "zellij {} failed", args.get(1).unwrap_or(&""));
+            Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
+        };
+        if let Some(id) = self.hx.as_ref().map(|h| h.pane.clone()).filter(|id| pane_alive(id)) {
+            // `target` is path:line:col.
+            let mut parts = target.rsplitn(3, ':');
+            let (_col, line, path) = (parts.next(), parts.next().unwrap_or("1"), parts.next().unwrap_or(target));
+            zellij(&["action", "write-chars", "-p", &id, "\x1b"])?;
+            zellij(&["action", "write-chars", "-p", &id, &format!(":open {path}\r:goto {line}\r")])?;
+            zellij(&["action", "focus-pane-id", &id])?;
+            return Ok("opened in hx (its pane below); dv reloads as you save".into());
+        }
+        let (st, id) = term::zellij_pane("hx", &[target.to_owned()], "hx", &self.root, false)?;
+        anyhow::ensure!(st.success(), "zellij run failed ({st})");
+        self.hx = id.map(|pane| HxPane { pane });
+        Ok("hx is open below; dv reloads as you save, and Enter opens the next file there".into())
+    }
+}
+
+impl App {
+    /// Between frames: what was asked that takes the editor (or its text, written beside dv
+    /// once its pane is done) done, and the diff reloaded after.
+    pub(super) fn act(&mut self, term: &mut DefaultTerminal) {
+        // Written (the editor's pane closed): what asked for it goes on, given the text
+        // (once nothing else is to be done first).
+        let (mut given, mut kept) = (None, None); // (set below, once the pane's done)
+        if self.action.is_none()
+            && let Some(text) = self.writing.as_mut().and_then(|w| w.1.done())
+        {
+            let (a, w) = self.writing.take().unwrap();
+            (self.action, given, kept) = (Some(a), Some(text), w.kept);
+            focus_dv();
+        }
+        if let Some(a) = self.action.take() {
+            // In zellij the editor gets a pane below and dv stays on screen above it.
+            let in_pane = in_zellij();
+            if !in_pane {
+                restore_terminal();
+            }
+            // Anything to post is queued as a job (it runs after a "posting…" frame, then
+            // refetches); here only the diff reloads, as hx may have changed files.
+            let again = a.clone();
+            let (res, left) = term::writing_beside(self.writing.is_some(), given.take(), || self.perform(a));
+            // The editor in its pane, dv going on: the rest once it's written.
+            if res.as_ref().is_err_and(|e| e.is::<term::Writing>()) {
+                let w = res.unwrap_err().downcast().unwrap();
+                self.writing = Some((again, w));
+                self.msg = "writing in the editor's pane: dv's yours meanwhile (save and quit there to send; :cq cancels)".into();
+                return;
+            }
+            // Written, but what asked gave up before its editor: kept, not lost.
+            let res = match left.flatten().filter(|b| !b.trim().is_empty()) {
+                Some(body) => {
+                    let why = res.as_ref().map_or_else(|e| format!("{e:#}"), String::clone);
+                    Err(keep_on_error(Err(anyhow!("{why}: what you wrote wasn't sent")), &body).unwrap_err())
+                }
+                None => res,
+            };
+            if !in_pane {
+                *term = init_terminal();
+            }
+            self.reloaded(res, false);
+            if let Some(k) = kept.take() {
+                self.msg = format!("{}: its pane closed; what it had saved is kept in {}", self.msg, k.display());
+            }
+        }
+    }
+}
