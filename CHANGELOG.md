@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-10-19
+
+### Added
+- Claude's review of a PR may say to replace it (`"replace"`: low effort, AI slop, but what it's
+  after is worth having), and auto then drafts that replacement: as `A A` does, unpublished, on
+  the drafts tab, one at a time, once a head, with your instructions for replacements and why.
+
 ## [0.48.0] - 2026-10-19
 
 ### Added
