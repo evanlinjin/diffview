@@ -1,0 +1,22 @@
+#7 panic  bug
+@amy · https://github.com/o/r/issues/7
+
+  It panics.
+
+@bo ·
+  Same here.
+
+claude's triage · bug · high
+  Still on master: src/a.rs:12 unwraps.
+  next: review #9
+  labels to add (L L): chain
+  title (T T): LocalChain panics on reorg past genesis
+  close (X X): fixed by #9
+  closing comment:
+  Fixed by #9, thanks!
+
+
+
+
+
+

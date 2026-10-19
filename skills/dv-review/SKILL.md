@@ -316,7 +316,7 @@ Asked to triage issue #N, reply with its triage, only a JSON object (dv keeps it
 `issue-N.json` beside the reviews):
 
 ```json
-{"issue": 2312, "kind": "bug", "priority": "high",
+{"issue": 2312, "kind": "bug", "priority": "high", "title": "",
  "summary": "What it is, whether it still holds (cite `path:line` on the base branch), related issues and PRs.",
  "labels": ["bug"], "next": "review #2340, then close this with it",
  "close": "", "closing": ""}
@@ -332,6 +332,7 @@ Asked to triage issue #N, reply with its triage, only a JSON object (dv keeps it
   `path:line`), and is it reproducible from what's said? For a feature: does it fit, what would it
   touch? Name duplicates and PRs that fix it (`#N`).
 - `labels`: the repo's labels (`gh label list`) that fit; none made up.
+- `title`: a clearer title, only when the one it has misleads or says too little; else empty.
 - `next`: what should happen next, in a few words (a repro from the author, ready to work on,
   review #N, needs a decision).
 - `close`: only when it should be closed, why in a few words ("duplicate of #12", "fixed by

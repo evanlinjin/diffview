@@ -1,0 +1,213 @@
+//! An issue in dv (Enter in `dv issues`): its text and conversation, Claude's triage under them,
+//! and what to do about it: comment (`C`), apply Claude's labels (`L L`) or title (`T T`),
+//! close it with Claude's comment (`X X`, after your editor), have Claude draft a PR fixing it
+//! (`N N`), or triage it again (`a a`).
+use super::*;
+use serde_json::Value;
+
+/// An issue as dv shows it: as GitHub has it, and Claude's triage (all of it: the summary,
+/// labels, title and closing comment too, not just what its card shows).
+pub struct IssueView {
+    pub number: u64,
+    title: String,
+    author: String,
+    url: String,
+    body: String,
+    labels: Vec<(String, String)>,
+    /// (who, when, what), oldest first.
+    comments: Vec<(String, String, String)>,
+    triage: Value,
+    scroll: usize,
+    /// The lines as last drawn, and at what width.
+    lines: Vec<Line<'static>>,
+    width: usize,
+    hl: crate::highlight::Highlighter,
+}
+
+impl IssueView {
+    /// Issue `n` from GitHub, with its triage from `dir` (the reviews' directory).
+    pub fn load(n: u64, dir: Option<&std::path::Path>) -> Result<IssueView> {
+        let v: Value = gh::gh_json(&["issue", "view", &n.to_string(), "--json", "number,title,author,url,body,labels,comments"])?;
+        let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
+        let triage = dir
+            .and_then(|d| std::fs::read_to_string(d.join(format!("issue-{n}.json"))).ok())
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or(Value::Null);
+        Ok(IssueView {
+            number: n,
+            title: s(&v["title"]),
+            author: s(&v["author"]["login"]),
+            url: s(&v["url"]),
+            body: s(&v["body"]).replace("\r\n", "\n"),
+            labels: v["labels"].as_array().into_iter().flatten().map(|l| (s(&l["name"]), s(&l["color"]))).collect(),
+            comments: v["comments"].as_array().into_iter().flatten().map(|c| (s(&c["author"]["login"]), s(&c["createdAt"]), s(&c["body"]).replace("\r\n", "\n"))).collect(),
+            triage,
+            scroll: 0,
+            lines: vec![],
+            width: 0,
+            hl: crate::highlight::Highlighter::new(&Theme::load()),
+        })
+    }
+
+    /// Claude's triage's `k`, trimmed (empty: not said).
+    fn t(&self, k: &str) -> String {
+        self.triage[k].as_str().unwrap_or("").trim().to_owned()
+    }
+
+    /// The labels Claude's triage would add (those it doesn't have yet).
+    pub fn new_labels(&self) -> Vec<String> {
+        let has = |l: &str| self.labels.iter().any(|(n, _)| n.eq_ignore_ascii_case(l));
+        self.triage["labels"].as_array().into_iter().flatten().filter_map(Value::as_str).filter(|l| !has(l)).map(str::to_owned).collect()
+    }
+
+    /// Claude's better title, if it has one (and it isn't the title already).
+    pub fn new_title(&self) -> Option<String> {
+        Some(self.t("title")).filter(|t| !t.is_empty() && *t != self.title)
+    }
+
+    /// Claude's closing comment, if it would close it.
+    pub fn closing(&self) -> Option<String> {
+        (!self.t("close").is_empty()).then(|| self.t("closing"))
+    }
+
+    /// What a PR fixing it is for Claude to do (`N N`): the issue, and what its triage found.
+    pub fn fix_task(&self) -> String {
+        let summary = self.t("summary");
+        let mut task = format!("Fix #{}: {}", self.number, self.title);
+        if !summary.is_empty() {
+            task += &format!("\n\nFrom triaging it:\n{summary}");
+        }
+        task
+    }
+
+    /// The issue and Claude's triage as lines `width` wide: its title, labels and who; its
+    /// text; each comment; then the triage.
+    fn render(&mut self, ui: &Ui, width: usize) {
+        let w = width.saturating_sub(4).clamp(20, 100);
+        let md = |text: &str, out: &mut Vec<Line<'static>>| {
+            for l in crate::md::render(text, w, &ui.md, &self.hl, None) {
+                let spans: Vec<Span<'static>> = l.text.chars().zip(l.styles.into_iter().chain(std::iter::repeat(None))).map(|(c, st)| Span::styled(c.to_string(), st.unwrap_or_default())).collect();
+                let mut v = vec![Span::raw("  ")];
+                v.extend(spans);
+                out.push(Line::from(v));
+            }
+        };
+        let head = |text: String, out: &mut Vec<Line<'static>>| out.push(Line::from(Span::styled(text, ui.heading.add_modifier(ratatui::style::Modifier::BOLD))));
+        let dim = ui.stale;
+        let mut out = vec![];
+        let mut title = vec![Span::styled(format!("#{} ", self.number), ui.key), Span::styled(self.title.clone(), ui.base.add_modifier(ratatui::style::Modifier::BOLD))];
+        for (name, color) in &self.labels {
+            title.extend([Span::raw(" "), Span::styled(format!(" {name} "), crate::view::chip(color))]);
+        }
+        out.push(Line::from(title));
+        out.push(Line::from(Span::styled(format!("@{} · {}", self.author, self.url), dim)));
+        out.push(Line::default());
+        md(if self.body.trim().is_empty() { "_(no description)_" } else { &self.body }, &mut out);
+        for (who, when, body) in &self.comments {
+            out.push(Line::default());
+            head(format!("@{who} · {}", gh::ago(when)), &mut out);
+            md(body, &mut out);
+        }
+        out.push(Line::default());
+        match self.triage.is_null() {
+            true => head("claude's triage: none yet (a a)".into(), &mut out),
+            false => {
+                let what = [self.t("kind"), self.t("priority")].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ");
+                head(format!("claude's triage · {what}"), &mut out);
+                md(&self.t("summary"), &mut out);
+                let mut said = |k: &str, v: String| {
+                    if !v.is_empty() {
+                        out.push(Line::from(vec![Span::styled(format!("  {k}: "), ui.key), Span::raw(v)]));
+                    }
+                };
+                said("next", self.t("next"));
+                said("labels to add (L L)", self.new_labels().join(", "));
+                said("title (T T)", self.new_title().unwrap_or_default());
+                said("close (X X)", self.t("close"));
+                if let Some(c) = self.closing().filter(|c| !c.is_empty()) {
+                    out.push(Line::from(Span::styled("  closing comment:", ui.key)));
+                    md(&c, &mut out);
+                }
+            }
+        }
+        (self.lines, self.width) = (out, width);
+    }
+
+    /// Why its triage would close it (empty: it wouldn't).
+    pub fn triage_close(&self) -> String {
+        self.t("close")
+    }
+
+    pub fn scroll_at(&self) -> usize {
+        self.scroll
+    }
+
+    pub fn set_scroll(&mut self, at: usize) {
+        self.scroll = at;
+    }
+
+    pub fn scroll(&mut self, by: isize, height: usize) {
+        let max = self.lines.len().saturating_sub(height);
+        self.scroll = (self.scroll as isize + by).clamp(0, max as isize) as usize;
+    }
+
+    pub fn draw(&mut self, f: &mut Frame, ui: &Ui, area: Rect) {
+        if self.width != area.width as usize || self.lines.is_empty() {
+            self.render(ui, area.width as usize);
+        }
+        let body: Vec<Line> = self.lines.iter().skip(self.scroll).take(area.height as usize).cloned().collect();
+        f.render_widget(Paragraph::new(body).style(ui.base), area);
+    }
+
+    /// Forget the lines drawn: the issue or its triage changed.
+    pub fn redraw(&mut self) {
+        self.lines.clear();
+    }
+
+    /// Its triage, read again (Claude's just written it).
+    pub fn reload_triage(&mut self, dir: Option<&std::path::Path>) {
+        if let Some(t) = dir.and_then(|d| std::fs::read_to_string(d.join(format!("issue-{}.json", self.number))).ok()).and_then(|t| serde_json::from_str(&t).ok()) {
+            self.triage = t;
+            self.redraw();
+        }
+    }
+}
+
+pub(super) const VIEW_HELP: &str = "
+MOVE
+  j k, Up Down         scroll
+  Ctrl-d Ctrl-u        half a page down / up
+  gg ge                top / end
+  q, Esc               back to the issues
+  ?                    this help
+
+ON GITHUB
+  C                    comment on it (your editor first)
+  L L                  add the labels Claude's triage suggests
+  T T                  give it the title Claude's triage suggests
+  X X                  close it, with Claude's closing comment (your editor first)
+  o                    open it in the browser
+
+CLAUDE
+  a a                  triage it (again)
+  N N                  Claude drafts a PR fixing it (unpublished, on dv list's drafts tab)";
+
+#[test]
+fn an_issue_and_its_triage() {
+    use crate::view::tests::{screen, snapshot};
+    let triage = serde_json::json!({"kind": "bug", "priority": "high", "summary": "Still on master: `src/a.rs:12` unwraps.",
+        "labels": ["bug", "chain"], "title": "LocalChain panics on reorg past genesis", "next": "review #9",
+        "close": "fixed by #9", "closing": "Fixed by #9, thanks!"});
+    let mut v = IssueView {
+        number: 7, title: "panic".into(), author: "amy".into(), url: "https://github.com/o/r/issues/7".into(),
+        body: "It **panics**.".into(), labels: vec![("bug".into(), "d73a4a".into())],
+        comments: vec![("bo".into(), String::new(), "Same here.".into())], triage, scroll: 0, lines: vec![], width: 0,
+        hl: crate::highlight::Highlighter::default(),
+    };
+    assert_eq!(v.new_labels(), ["chain"]); // bug it has
+    assert_eq!(v.new_title().as_deref(), Some("LocalChain panics on reorg past genesis"));
+    assert_eq!((v.triage_close().as_str(), v.closing().as_deref()), ("fixed by #9", Some("Fixed by #9, thanks!")));
+    assert!(v.fix_task().starts_with("Fix #7: panic\n\nFrom triaging it:\nStill on master"));
+    let ui = Theme::load().ui();
+    snapshot("issue_view", &screen(80, 22, |f| v.draw(f, &ui, f.area())));
+}
