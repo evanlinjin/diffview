@@ -5,6 +5,22 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.27] - 2026-10-19
+
+### Changed
+- Inside zellij, the editor's pane opens below dv (hx on Enter, and what you write), not on
+  its right: dv keeps its width, its comments' pane on its right.
+
+### Fixed
+- A background refresh that fails (a rate limit, a blip) no longer empties the PR of its
+  GitHub comments.
+- The PR's activity GitHub can't give this time is kept as last fetched, not replaced by the
+  error.
+- The latest activity beside the description is the last three comments and reviews (and
+  what happened among them): three events after a comment no longer leave it out.
+- Two events at once (two labels added) keep the cursor on the one it was on; `Space o` says
+  why there's no activity when GitHub's answer was an error.
+
 ## [0.34.26] - 2026-10-19
 
 ### Changed
