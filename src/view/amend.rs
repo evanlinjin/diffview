@@ -196,6 +196,14 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], backup: &str) -> Res
 /// Everything uncommitted (`paths`: in those files) folded into the branch's commit `sha` (full;
 /// one of `base`'s branch's own), HEAD kept on `backup` first.
 pub(super) fn fold(dir: &Path, base: &str, sha: &str, paths: &[String], backup: &str) -> Result<()> {
+    // Staged too (a new file has to be, to be seen): unstaged first, new files kept in sight.
+    if !nothing_staged(dir) {
+        let new = git_in(dir, &["diff", "--cached", "--name-only", "-z", "--diff-filter=A"])?;
+        git_in(dir, &["reset", "-q"])?;
+        for f in new.split('\0').filter(|f| !f.is_empty()) {
+            git_in(dir, &["add", "-N", "--", f])?;
+        }
+    }
     let (mut hunks, commits) = plan(dir, base, false)?;
     anyhow::ensure!(commits.iter().any(|c| c.0 == sha), "that isn't one of the branch's own commits (a merge?): amend into another");
     // (A name git still quotes: no knowing its file. It stays.)
@@ -208,13 +216,13 @@ pub(super) fn fold(dir: &Path, base: &str, sha: &str, paths: &[String], backup: 
 /// `dv amend <commit> [file…]` (for Claude: dv's amend, not a rebase by hand): what isn't
 /// committed (in those files) folded into that commit of the branch, HEAD kept on a backup
 /// branch first.
-pub(crate) fn fold_cli(args: &[String]) -> Result<String> {
+pub(crate) fn fold_cli(args: &[String], base: &str) -> Result<String> {
     let (rev, paths) = args.split_first().context("dv amend <commit> [file…]")?;
     let dir = std::env::current_dir()?;
     let sha = git_in(&dir, &["rev-parse", "--verify", &format!("{rev}^{{commit}}")])?.trim().to_owned();
     let short = git_in(&dir, &["rev-parse", "--short", "HEAD"])?.trim().to_owned();
     let backup = format!("dv-backup/amend-{short}");
-    fold(&dir, &format!("{sha}^"), &sha, paths, &backup)?;
+    fold(&dir, base, &sha, paths, &backup)?;
     Ok(format!("amended into {} (HEAD was {short}: {backup})", &sha[..7]))
 }
 

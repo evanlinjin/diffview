@@ -139,7 +139,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn run() -> anyhow::Result<()> {
-    let o = parse_args(std::env::args().skip(1))?;
+    let mut o = parse_args(std::env::args().skip(1))?;
     view::MOUSE.store(!o.no_mouse, std::sync::atomic::Ordering::Relaxed);
     if o.help {
         println!("{USAGE}");
@@ -159,6 +159,11 @@ fn run() -> anyhow::Result<()> {
         let n = o.pr.context("--rm needs a PR, e.g. `dv 123 --rm`")?;
         return remove_worktree(n, o.force).map(|m| println!("{m}"));
     }
+    // `dv amend`'s files as git names them, from the repo's root (where dv goes next).
+    if o.cmd == Some("amend") {
+        let prefix = diff::git(&["rev-parse", "--show-prefix"])?.trim().to_owned();
+        o.rest.iter_mut().skip(1).for_each(|p| *p = format!("{prefix}{}", p.trim_start_matches("./")));
+    }
     let root = PathBuf::from(diff::git(&["rev-parse", "--show-toplevel"])?.trim());
     std::env::set_current_dir(&root)?;
     // An installed skill follows this dv (its review files, its keys): an older one would
@@ -177,7 +182,9 @@ fn run() -> anyhow::Result<()> {
         }
         Some("replace-info") => return replace::info(),
         Some("amend") => {
-            println!("{}", view::fold_cli(&o.rest)?);
+            // The branch's own commits are those over the base dv diffs against (`review-info`'s).
+            let base = diff_base(&o, gh::pr(None).ok().as_ref())?;
+            println!("{}", view::fold_cli(&o.rest, &base)?);
             return Ok(());
         }
         Some("replace") => {
