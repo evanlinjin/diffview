@@ -5,6 +5,17 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.47.0] - 2026-10-19
+
+### Changed
+- An issue in dv is laid out as a PR is: its description on the left, and a pane beside it with
+  Claude's triage in its `◆ claude` box, then the conversation, a bubble a comment (one column
+  when the window's too narrow for both).
+
+### Fixed
+- The close tab of `dv issues` was empty while Claude's ranking said to close issues it hadn't
+  triaged: the ranking now says which to close (`r r` again), and the tab lists them too.
+
 ## [0.46.1] - 2026-10-19
 
 ### Fixed
