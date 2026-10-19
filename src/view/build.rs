@@ -187,9 +187,9 @@ impl App {
         // conversation's latest (`Space o`: all of it), your pending review's text. The Claude
         // view's: Claude's summary (or your questions about the PR), and what's said under it.
         // (Folded with it: Tab on it, or on them.)
-        // Some of the commits: their messages, then their code; not the PR's text (it's about
-        // all of them).
-        let commits = self.commit_shown.is_some();
+        // Some of the commits (their messages, then their code), or only what isn't committed:
+        // not the PR's text (it's about all of them).
+        let commits = self.commit_shown.is_some() || self.uncommitted();
         let mut attached: Vec<Row> = match self.view {
             _ if commits || self.sections_folded.contains(&DESCRIPTION) => vec![],
             // (A draft's: what you asked of it, beside it too.)

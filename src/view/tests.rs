@@ -2262,6 +2262,12 @@ fn commits_under_the_files() {
     assert!(c1 < head && app.rows[head + 1..].iter().take_while(|r| r.main.is_some()).any(|r| r.line.text.contains("Why it's done")));
     let spots: Vec<files::Spot> = app.file_entries().into_iter().map(|e| e.spot).take(2).collect();
     assert_eq!(spots, [files::Spot::Section(1), files::Spot::Section(2)]);
+    // Only what isn't committed: no PR text either.
+    let (base, shown) = (std::mem::replace(&mut app.base, "HEAD".into()), app.commit_shown.take());
+    app.build();
+    assert!(!app.rows.iter().any(|r| r.main == Some(DESCRIPTION) || r.attached), "the PR's text, uncommitted");
+    (app.base, app.commit_shown) = (base, shown);
+    app.build();
     app.goto(head, 0);
     app.toggle_collapse();
     assert!(!app.rows.iter().any(|r| r.line.text.contains("Why it's done")));
@@ -2712,9 +2718,9 @@ fn hidden_on_github_folded() {
     // How many are resolved of them.
     app.threads[0].resolved = true;
     assert_eq!(app.pane_tabs()[0].1, " Comments 1/1 ");
-    // Outdated (its code changed since), settled too, as dv folds it.
+    // Outdated (its code changed since): not done, only resolved is.
     (app.threads[0].resolved, app.threads[0].outdated) = (false, true);
-    assert_eq!(app.pane_tabs()[0].1, " Comments 1/1 ");
+    assert_eq!(app.pane_tabs()[0].1, " Comments 0/1 ");
     app.threads[0].outdated = false;
     app.threads[0].resolved = false;
     assert_eq!(gh::hidden(&serde_json::json!({"isMinimized": true, "minimizedReason": "OFF_TOPIC"})), "off topic");

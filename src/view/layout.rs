@@ -108,10 +108,10 @@ impl App {
                     _ => View::All,
                 };
                 let shown: Vec<&&Thread> = about_code.iter().filter(|t| self.in_view_of(v, t)).collect();
-                // How many are settled of them (resolved, or outdated: as dv folds them, and the
-                // files' open counts leave them out), as the title's files viewed: "1/3", "3/3"
-                // when all are; your pending comments, a count (nothing of them to resolve).
-                let done = shown.iter().filter(|t| t.stale()).count();
+                // How many are resolved of them (an outdated one isn't: its code changed, its
+                // point may stand), as the title's files viewed: "1/3", "3/3" when all are; your
+                // pending comments, a count (nothing of them to resolve).
+                let done = shown.iter().filter(|t| t.resolved).count();
                 let l = match (shown.len(), b) {
                     // (As the title counts them: your pending comments, wherever they are.)
                     (_, Bar::Pending) => match self.pending_count() {
