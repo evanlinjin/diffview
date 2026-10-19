@@ -5,11 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.37] - 2026-10-19
+
 ### Fixed
 - `a` on a replacement's drafts: what you ask shows after them (`what you asked of the drafts`,
   marked until a redraft takes it in), instead of vanishing into the background run; it no
   longer becomes the instructions every later redraft starts from, and asked while Claude
   drafts, it's kept for the next one rather than refused.
+- `dv list` no longer counts a zellij pane that has exited as one of Claude's.
 
 ## [0.34.36] - 2026-10-19
 
