@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.16] - 2026-10-19
+
+### Fixed
+- Writing beside dv (zellij): a save as dv looks for the editor's pane is never taken for a
+  cancel; a pane zellij can't be asked about counts as open; closed from zellij after a save,
+  what it had is kept in a file (dv says where). `q` while you write says so first (`q`
+  again quits anyway). Each unsent text is kept in a file of its own.
+- CI: the list's lit-tab test works with no theme (it had failed on CI since 0.28).
+
 ## [0.34.15] - 2026-10-19
 
 ### Fixed

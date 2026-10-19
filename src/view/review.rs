@@ -1354,7 +1354,7 @@ impl App {
     fn add_to_summary(&mut self, text: &str) {
         // (Submitting goes with what's in the editor: added here, it'd be lost.)
         if matches!(self.writing, Some((Action::Submit(_), _))) {
-            return self.msg = "you're writing the review's summary in the editor's pane: add it there".into();
+            return self.msg = "you're writing what goes with your review in the editor's pane: add it there".into();
         }
         let draft = self.summary_draft.trim_end();
         self.summary_draft = if draft.is_empty() { text.to_owned() } else { format!("{draft}\n\n{text}") };

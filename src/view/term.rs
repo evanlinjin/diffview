@@ -10,10 +10,15 @@ pub(super) struct HxPane {
 
 /// Whether zellij pane `id` (e.g. `terminal_12`) is still there and running.
 pub(super) fn pane_alive(id: &str) -> bool {
-    let Some(n) = id.strip_prefix("terminal_").and_then(|n| n.parse::<u64>().ok()) else { return false };
-    let Ok(out) = std::process::Command::new("zellij").args(["action", "list-panes", "-j", "-s"]).stdin(std::process::Stdio::null()).output() else { return false };
-    let panes: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
-    panes.as_array().is_some_and(|ps| ps.iter().any(|p| p["id"].as_u64() == Some(n) && p["is_plugin"] != true && p["exited"] != true))
+    pane_state(id) == Some(true)
+}
+
+/// Whether pane `id` is open (`Some(false)`: zellij says it isn't), or `None`: can't tell.
+fn pane_state(id: &str) -> Option<bool> {
+    let n = id.strip_prefix("terminal_").and_then(|n| n.parse::<u64>().ok())?;
+    let out = std::process::Command::new("zellij").args(["action", "list-panes", "-j", "-s"]).stdin(std::process::Stdio::null()).output().ok()?;
+    let panes: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
+    Some(panes.as_array()?.iter().any(|p| p["id"].as_u64() == Some(n) && p["is_plugin"] != true && p["exited"] != true))
 }
 
 /// Mouse support (wheel, click, drag); `--no-mouse` turns it off, leaving the terminal's own
@@ -103,7 +108,7 @@ pub(crate) fn focus_dv() {
 /// In zellij, dv goes on while you write: the editor in a pane of its own, not waited for.
 /// `compose_with` fails with this; dv keeps it with what asked (`App::writing`), and once it's
 /// `done`, does that again, given what it'd have returned (`writing_beside`).
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct Writing {
     path: PathBuf,
     /// Where the editor's exit status lands as it quits.
@@ -115,6 +120,8 @@ pub(crate) struct Writing {
     allow_empty: bool,
     prefill: String,
     untouched_ok: bool,
+    /// Its pane closed without the editor quitting: where what it had saved is kept.
+    pub(super) kept: Option<PathBuf>,
 }
 
 impl std::fmt::Display for Writing {
@@ -131,18 +138,29 @@ impl Writing {
     pub(super) fn done(&mut self) -> Option<Option<String>> {
         let status = match std::fs::read_to_string(&self.done) {
             Ok(s) => s,
-            // (Its pane looked for every couple of seconds.)
-            Err(_) if !self.pane.is_empty() && self.looked.elapsed() > std::time::Duration::from_secs(2) => {
+            // (Its pane looked for every few seconds; gone only if zellij says so, and the
+            // editor didn't quit just then.)
+            Err(_) if !self.pane.is_empty() && self.looked.elapsed() > std::time::Duration::from_secs(3) => {
                 self.looked = std::time::Instant::now();
-                if pane_alive(&self.pane) {
+                if pane_state(&self.pane) != Some(false) {
                     return None;
                 }
-                String::new()
+                std::fs::read_to_string(&self.done).unwrap_or_default()
             }
             Err(_) => return None,
         };
         let text = std::fs::read_to_string(&self.path).unwrap_or_default();
-        _ = (std::fs::remove_file(&self.path), std::fs::remove_file(&self.done));
+        _ = std::fs::remove_file(&self.done);
+        let closed = status.is_empty();
+        // Closed from zellij with something saved: kept, not lost.
+        if closed && finish(&text, true, false, &self.prefill, self.untouched_ok).is_some() {
+            self.kept = Some(unsent_path());
+            if self.kept.as_ref().is_some_and(|k| std::fs::rename(&self.path, k).is_ok()) {
+                return Some(None);
+            }
+            self.kept = None;
+        }
+        _ = std::fs::remove_file(&self.path);
         Some(finish(&text, status.trim() == "0", self.allow_empty, &self.prefill, self.untouched_ok))
     }
 }
@@ -163,6 +181,13 @@ pub(super) fn writing_beside<T>(busy: bool, given: Option<Option<String>>, f: im
     let out = f();
     BESIDE.set(None);
     (out, GIVEN.take())
+}
+
+/// Where text that couldn't be sent is kept: a file of its own each time.
+pub(super) fn unsent_path() -> PathBuf {
+    static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    std::env::temp_dir().join(format!("dv-unsent-{}-{n}.md", std::process::id()))
 }
 
 /// What's written in the editor, as `compose_with` returns it: empty (or just the prefill,
@@ -212,7 +237,7 @@ pub(crate) fn compose_with(what: &str, allow_empty: bool, prefill: &str, untouch
         let pane = pane.lines().last().unwrap_or("").to_owned();
         let looked = std::time::Instant::now();
         let prefill = prefill.to_owned();
-        return Err(Writing { path, done, pane, looked, allow_empty, prefill, untouched_ok }.into());
+        return Err(Writing { path, done, pane, looked, allow_empty, prefill, untouched_ok, kept: None }.into());
     }
     let st = interactive(prog, &args, &format!("dv: {what}"))?;
     let text = std::fs::read_to_string(&path).unwrap_or_default();
@@ -247,7 +272,7 @@ fn written_beside_then_done_again() {
     let (path, done) = (dir.join("c.md"), dir.join("c.done"));
     std::fs::write(&path, format!("> quote\n\nmy reply\n{HINT} reply. Save and quit when done -->\n")).unwrap();
     let looked = std::time::Instant::now();
-    let mut w = Writing { path: path.clone(), done: done.clone(), pane: String::new(), looked, allow_empty: false, prefill: "> quote".into(), untouched_ok: false };
+    let mut w = Writing { path: path.clone(), done: done.clone(), pane: String::new(), looked, allow_empty: false, prefill: "> quote".into(), untouched_ok: false, kept: None };
     assert_eq!(w.done(), None); // still writing
     std::fs::write(&done, "0\n").unwrap();
     let text = w.done().unwrap();

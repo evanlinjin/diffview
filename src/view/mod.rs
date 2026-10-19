@@ -1001,12 +1001,12 @@ impl App {
             self.watch_claude_pane();
             // Written (the editor's pane closed): what asked for it goes on, given the text
             // (once nothing else is to be done first).
-            let mut given = None;
+            let (mut given, mut kept) = (None, None);
             if self.action.is_none()
                 && let Some(text) = self.writing.as_mut().and_then(|w| w.1.done())
             {
-                self.action = self.writing.take().map(|w| w.0);
-                given = Some(text);
+                let (a, w) = self.writing.take().unwrap();
+                (self.action, given, kept) = (Some(a), Some(text), w.kept);
                 focus_dv();
             }
             if let Some(a) = self.action.take() {
@@ -1018,19 +1018,16 @@ impl App {
                 // Anything to post is queued as a job (it runs after a "posting…" frame, then
                 // refetches); here only the diff reloads, as hx may have changed files.
                 let again = a.clone();
-                let (res, left) = term::writing_beside(self.writing.is_some(), given, || self.perform(a));
+                let (res, left) = term::writing_beside(self.writing.is_some(), given.take(), || self.perform(a));
                 // The editor in its pane, dv going on: the rest once it's written.
-                let res = match res.map_err(|e| e.downcast::<term::Writing>()) {
-                    Err(Ok(w)) => {
-                        self.writing = Some((again, w));
-                        self.msg = "writing in the editor's pane: dv's yours meanwhile (save and quit there to send; :cq cancels)".into();
-                        continue;
-                    }
-                    Err(Err(e)) => Err(e),
-                    Ok(m) => Ok(m),
-                };
+                if res.as_ref().is_err_and(|e| e.is::<term::Writing>()) {
+                    let w = res.unwrap_err().downcast().unwrap();
+                    self.writing = Some((again, w));
+                    self.msg = "writing in the editor's pane: dv's yours meanwhile (save and quit there to send; :cq cancels)".into();
+                    continue;
+                }
                 // Written, but what asked gave up before its editor: kept, not lost.
-                let res = match left.flatten() {
+                let res = match left.flatten().filter(|b| !b.trim().is_empty()) {
                     Some(body) => {
                         let why = res.as_ref().map_or_else(|e| format!("{e:#}"), String::clone);
                         Err(keep_on_error(Err(anyhow!("{why}: what you wrote wasn't sent")), &body).unwrap_err())
@@ -1047,6 +1044,9 @@ impl App {
                 match res {
                     Ok(m) => self.msg = m,
                     Err(e) => self.msg = format!("{e:#}"),
+                }
+                if let Some(k) = kept.take() {
+                    self.msg = format!("{}: its pane closed; what it had saved is kept in {}", self.msg, k.display());
                 }
             }
         }
@@ -1426,6 +1426,8 @@ impl App {
 
 /// How dv's hint lines in the editor start; they're dropped from what's posted.
 const HINT: &str = "<!-- dv:";
+/// What `q` says while you're writing beside dv (and, said, a second `q` quits anyway).
+const QUIT_WRITING: &str = "you're writing in the editor's pane";
 
 /// Drop dv's hint line and trim; untouched prefill alone counts as nothing written.
 fn clean_body(text: &str, mark: &str, prefill: &str) -> String {
@@ -1437,7 +1439,7 @@ fn clean_body(text: &str, mark: &str, prefill: &str) -> String {
 /// If posting failed, save what was written so it isn't lost, and say where.
 fn keep_on_error(res: Result<()>, body: &str) -> Result<()> {
     res.map_err(|e| {
-        let saved = std::env::temp_dir().join(format!("dv-unsent-{}.md", std::process::id()));
+        let saved = term::unsent_path();
         match std::fs::write(&saved, body) {
             // The reason first: a narrow status bar cuts the end off.
             Ok(()) if !body.is_empty() => anyhow!("{e:#} (text saved to {})", saved.display()),

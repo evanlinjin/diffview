@@ -199,6 +199,8 @@ impl App {
                 self.job = Some(Job::Refresh);
                 self.msg = "refreshing…".into();
             }
+            // Not while you write beside dv (it'd be lost): unless asked again.
+            'q' if self.writing.is_some() && !self.msg.starts_with(QUIT_WRITING) => self.msg = format!("{QUIT_WRITING}: save or :cq it first (q again quits anyway)"),
             'q' => self.quit = true,
             'g' | ']' | '[' | ' ' | 'f' | 't' | 'F' | 'T' | 'z' | 'm' => self.pending = Some(c),
             _ => {}
