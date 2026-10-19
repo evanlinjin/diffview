@@ -1,5 +1,5 @@
 //! `Space a`: run Claude Code on this review (the dv-review skill), without leaving dv. Inside
-//! zellij it gets a pane on the right (an interactive session to watch and steer); elsewhere it runs
+//! zellij it gets a floating pane (an interactive session to watch and steer); elsewhere it runs
 //! in the background. Either way its review shows up as it writes the file.
 use super::*;
 

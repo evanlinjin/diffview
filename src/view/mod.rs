@@ -1315,8 +1315,8 @@ impl App {
     }
 
     /// `Enter` inside zellij: open the file in dv's hx pane, reusing it if it's still open
-    /// (`:open` + `:goto` typed into it, after `Esc` for normal mode), else in a new pane on the
-    /// right. dv keeps working either way.
+    /// (`:open` + `:goto` typed into it, after `Esc` for normal mode), else in a new pane below
+    /// dv. dv keeps working either way.
     fn open_in_hx_pane(&mut self, target: &str) -> Result<String> {
         let zellij = |args: &[&str]| -> Result<String> {
             let out = std::process::Command::new("zellij").args(args).stdin(std::process::Stdio::null()).output()?;
@@ -1551,7 +1551,6 @@ fn wrap(text: &str, w: usize) -> Vec<String> {
     out
 }
 
-/// `text` as a markdown quote (`> ` lines), followed by a blank line to write under.
 /// Add `x` to `s`, or remove it if it's there.
 fn flip<T: std::hash::Hash + Eq>(s: &mut HashSet<T>, x: T) {
     if !s.remove(&x) {
@@ -1559,6 +1558,7 @@ fn flip<T: std::hash::Hash + Eq>(s: &mut HashSet<T>, x: T) {
     }
 }
 
+/// `text` as a markdown quote (`> ` lines), followed by a blank line to write under.
 fn quote(text: &str) -> String {
     if text.trim().is_empty() {
         return String::new(); // nothing to quote (an empty description, a review with no text)

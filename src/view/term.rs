@@ -65,7 +65,7 @@ pub(super) fn zellij_run() -> Vec<&'static str> {
     }
 }
 
-/// Run an interactive program and wait for it: in a pane to the right inside zellij (its exit
+/// Run an interactive program and wait for it: in a pane below dv inside zellij (its exit
 /// status comes through), otherwise in this terminal (the caller suspends the TUI).
 pub(super) fn interactive(prog: &str, args: &[String], name: &str) -> std::io::Result<std::process::ExitStatus> {
     if !in_zellij() {

@@ -138,8 +138,6 @@ impl App {
         self.github = Some(rx);
     }
 
-    /// Shows what the background look at GitHub fetched, once nothing is in the middle of
-    /// something (a picker's or selection's rows would move under it).
     /// dv has just changed the PR on GitHub (pushed, posted its description, …): what a fetch
     /// under way brings back is from before, and would undo what dv shows now. The next one,
     /// after it, is current.
@@ -147,6 +145,8 @@ impl App {
         self.github_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
 
+    /// Shows what the background look at GitHub fetched, once nothing is in the middle of
+    /// something (a picker's or selection's rows would move under it).
     pub(super) fn watch_github(&mut self) {
         let busy = self.action.is_some() || self.job.is_some() || self.picker.is_some() || self.prompt.is_some();
         if busy || self.pending.is_some() || self.select || !self.labels.is_empty() {
