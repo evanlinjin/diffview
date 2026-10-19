@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.54] - 2026-10-19
+
 ### Changed
 - `dv list`: `gn` / `gp` go to the next / previous tab, as in dv (it was `Tab` / `Shift-Tab`).
 
