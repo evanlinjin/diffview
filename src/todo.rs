@@ -472,7 +472,7 @@ impl Until {
         let t = text.trim().to_lowercase();
         match t.rsplit_once("until ") {
             Some((before, after)) => {
-                let named = before.split(|c: char| c.is_whitespace() || c == ',').find_map(|w| w.strip_prefix('#')?.parse::<u64>().ok());
+                let named = before.split(|c: char| c.is_whitespace() || c == ',').find_map(|w| w.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '#').strip_prefix('#')?.parse::<u64>().ok());
                 Self::parse_one(after, named, now)
             }
             None => Self::parse_one(&t, None, now),
@@ -984,6 +984,7 @@ mod tests {
         assert_eq!(p("the author pushes (past abc1234)"), Some(Until::Pushed("abc1234".into())));
         assert_eq!(p("Blocked on #12 until it's merged"), Some(Until::Merged(12)));
         assert_eq!(p("#12, until it's merged"), Some(Until::Merged(12)));
+        assert_eq!(p("Blocked (see #12) until it's merged"), Some(Until::Merged(12)));
         assert_eq!(p("Don't approve until the release"), None); // what's before "until" is what waits
         assert_eq!(p("won't review until @amy pushes"), None);
         assert_eq!(p("the author addresses the defaced docs"), Some(Until::Pushed(String::new())));
