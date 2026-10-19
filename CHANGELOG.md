@@ -5,6 +5,17 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.41.0] - 2026-10-19
+
+### Added
+- `dv issues` (or `I I` in `dv list`, and back): the repo's open issues as cards (title, labels,
+  comments and 👍, who opened it, who has it, the PRs that would close it), tabs (open, mine,
+  can close), `/` filters (`label:`, `author:`, `kind:`, `priority:`, `is:triaged`). `a a` has
+  Claude triage the marked issues (or this one), reading only: what kind, how pressing, whether
+  it still holds (with `path:line`), the labels that fit, what next, and whether to close it
+  (with a closing comment to edit), shown on its card. Enter opens it on GitHub for now; dv's
+  own view of an issue, with replying, labelling and closing, comes next.
+
 ## [0.40.1] - 2026-10-19
 
 ### Fixed
