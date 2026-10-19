@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.51.0] - 2026-10-19
+
+### Added
+- The mouse scrolls code sideways (a sideways wheel, or Shift and the wheel). In a PR, it
+  scrolls a comment's code block or table, or the diff, under the pointer. In an issue, it
+  scrolls the code blocks and tables on that side.
+
 ## [0.50.1] - 2026-10-19
 
 ### Fixed
