@@ -164,10 +164,10 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], backup: &str) -> Res
     anyhow::ensure!(!super::rebase::rebasing(dir), "a rebase is stopped part way here: finish or abort it first");
     // New files only marked (`git add -N`): added for real, as `--autostash` can't stash them,
     // and `write-tree` would leave them out (untracked, back as it was).
-    let marked = git_in(dir, &["diff", "--name-only", "--no-relative", "--diff-filter=A", "-z"])?;
+    let marked = git_in(dir, &["diff", "--name-only", "--no-relative", "--no-renames", "--diff-filter=A", "-z"])?;
     let marked: Vec<&str> = marked.split('\0').filter(|f| !f.is_empty()).collect();
     if !marked.is_empty() {
-        git_in(dir, &[&["add", "--"], marked.as_slice()].concat())?;
+        git_in(dir, &[&["--literal-pathspecs", "add", "--"], marked.as_slice()].concat())?;
     }
     // What you staged, to put back if nothing goes in (and a conflicted file: refused here).
     let staged = git_in(dir, &["write-tree"]).context("unmerged files here: resolve them first")?.trim().to_owned();
