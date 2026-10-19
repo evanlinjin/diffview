@@ -471,7 +471,7 @@ impl App {
                                     // A box open on its left: its rules start on the line, `├─`.
                                     Some(r) if self.open_left(r) && self.box_part(r).is_some_and(|p| p != BoxPart::Body) => {
                                         spans.pop();
-                                        spans.push(Span::styled(format!("├{}", "─".repeat(pad)), self.box_edge(r).bg(self.ui.base.bg.unwrap_or(Color::Reset))));
+                                        spans.push(Span::styled(format!("├{}", "─".repeat(pad)), self.ui.linenr.bg(self.ui.base.bg.unwrap_or(Color::Reset))));
                                         spans.extend(raise(clip(head_tint(r, self.render_row(r, s, e, (lw, self.pane_gw(), ptw), None, tint && pane_cur, &overlay)), mw - pad)));
                                     }
                                     // Not in a box (a folded thread, a heading): its mark where the
@@ -833,15 +833,6 @@ impl App {
             .collect()
     }
 
-    /// A box's border: one from Claude's review file (Claude's, or yours for it: not on
-    /// GitHub) in the hint color; GitHub's dim.
-    fn box_edge(&self, r: usize) -> Style {
-        match self.rows[r].thread.is_some_and(|t| self.threads[t].claude.is_some()) {
-            true => Style { fg: self.ui.pending.fg, ..Style::new() },
-            false => self.ui.linenr,
-        }
-    }
-
     /// Whether row `r`'s box is open on its left: in the pane, as a column (its rules come
     /// from the line between it and the code).
     fn open_left(&self, r: usize) -> bool {
@@ -905,7 +896,7 @@ impl App {
                 // line beside the code.
                 let mark = match part {
                     Some(p) if self.open_left(r) => {
-                        gstyle = self.box_edge(r);
+                        gstyle = self.ui.linenr;
                         if p == BoxPart::Bottom { "─" } else { " " }
                     }
                     Some(BoxPart::Top) => "╭─ ",
@@ -1052,7 +1043,7 @@ impl App {
             };
             let lead = if used == 0 { "" } else { lead };
             let n = bw.saturating_sub(used + lead.len() + 1);
-            let edge = self.box_edge(r);
+            let edge = self.ui.linenr;
             spans.push(Span::styled(format!("{lead}{}", fill.to_string().repeat(n)), pad_style(style.patch(edge))));
             if let Some(bg) = line_bg {
                 for sp in &mut spans {
