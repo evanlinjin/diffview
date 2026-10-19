@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.98] - 2026-10-19
+
+### Fixed
+- A Claude comment that moved with its code, then went outdated, then came back: on its lines
+  as they are now (0.34.97 could give it the moved start and the old end).
+
 ## [0.34.97] - 2026-10-19
 
 ### Fixed
