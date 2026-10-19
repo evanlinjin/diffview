@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.42.0] - 2026-10-19
+
+### Added
+- `dv issues`: a todo tab, first. What needs you of an issue: the PR fixing it merged (close
+  it), Claude would close it, assigned to you, a PR would fix it (review that), changed since
+  Claude triaged it, not triaged. `r r` has Claude rank them (one reading-only run: why and
+  what next, in the message column as on dv list's todo), `s` defers one (an hour, four, a day,
+  a week; back sooner if what it needs changes).
+- Each list's top bar says which it is (`PRs`, `Issues`), and `I I` the other.
+
 ## [0.41.4] - 2026-10-19
 
 ### Fixed
