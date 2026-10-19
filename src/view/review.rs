@@ -81,20 +81,21 @@ impl App {
             return;
         }
         // Read-only: no reload after.
-        if !matches!(job, Job::Preview(_) | Job::Reactions(_) | Job::Labels | Job::Retarget(_) | Job::Rerun | Job::Rebase) {
+        if !matches!(job, Job::Preview(_) | Job::Reactions(_) | Job::Labels | Job::Retarget(_) | Job::Rebase) {
             self.ensure_fresh();
+        }
+        // Reruns: GitHub sets them going in a moment, and CI doesn't change the PR's ETag: dv
+        // looks again by itself, shortly.
+        if let Job::Rerun = job {
+            let head = self.pr.as_ref().map(|p| p.head_oid.clone()).unwrap_or_default();
+            self.msg = gh::rerun_failed(&head).unwrap_or_else(|e| format!("{e:#}"));
+            self.refresh_at = Some(std::time::Instant::now() + std::time::Duration::from_secs(10));
+            return;
         }
         if let Job::Rebase = job {
             return self.start_rebase();
         }
-        if let Job::Rerun = job {
-            self.ensure_fresh();
-            let head = self.pr.as_ref().map(|p| p.head_oid.clone()).unwrap_or_default();
-            let said = gh::rerun_failed(&head).unwrap_or_else(|e| format!("{e:#}"));
-            _ = self.reload(true); // the checks pending now (CI doesn't change the PR's ETag)
-            self.msg = said;
-            return;
-        }
+
         if let Job::Retarget(base) = job {
             return self.retarget(base);
         }
@@ -723,7 +724,6 @@ impl App {
             }
             Err(e) => self.msg = format!("loading comments: {e:#}"),
         }
-        let mut retarget = None;
         match info {
             Ok(gh::Info { lines, title, head, url, state, unsigned, awaiting, failing, base }) => {
                 (self.awaiting, self.failing) = (awaiting, failing);
@@ -735,23 +735,35 @@ impl App {
                 self.unsigned = unsigned;
                 if let Some(pr) = &mut self.pr {
                     (pr.title, pr.head_oid, pr.url) = (title, head, url);
-                    retarget = Some(base).filter(|b| fresh && !b.is_empty() && *b != pr.base);
+                    if fresh && !base.is_empty() {
+                        self.github_base = Some(base);
+                    }
                 }
                 self.refresh_sync(); // the PR's head may have moved
             }
             Err(e) => self.msg = format!("loading PR info: {e:#}"),
         }
-        // Its base changed on GitHub (retargeted): the diff starts from the new one, once
-        // fetched (a job: a frame says so first; tried again on the next refresh if it fails).
-        // (Mid-rebase, a diff that follows the base waits till it's through: asked again then.)
-        let waits = |a: &App| super::rebase::rebasing(&a.root) && a.pr.as_ref().is_some_and(|p| a.follow_base.as_deref() == Some(format!("origin/{}", p.base).as_str()));
-        if let Some(base) = retarget.clone().filter(|_| waits(self)) {
-            self.msg = format!("the PR's base is {base} now: the diff follows once the rebase is through");
-            self.retarget_later = Some(base);
+        self.follow_github_base(true);
+    }
+
+    /// The PR's base on GitHub isn't the one here (retargeted): the diff starts from the new
+    /// one, once fetched (a job: a frame says so first). Mid-rebase, a diff that follows the base
+    /// waits till it's through (`say`: say so, as a fetch shows it); looked at again on each
+    /// reload (the rebase's end is one). Cheap while the bases agree.
+    pub(super) fn follow_github_base(&mut self, say: bool) {
+        let Some(base) = self.github_base.clone().filter(|b| self.pr.as_ref().is_some_and(|p| p.base != *b)) else { return };
+        if self.job.is_some() {
+            return;
         }
-        if let Some(base) = retarget.filter(|_| self.job.is_none() && !waits(self)) {
-            (self.msg, self.job) = (format!("the PR's base is {base} now: fetching it…"), Some(Job::Retarget(base)));
+        let follows = self.pr.as_ref().is_some_and(|p| self.follow_base.as_deref() == Some(format!("origin/{}", p.base).as_str()));
+        if follows && super::rebase::rebasing(&self.root) {
+            if say {
+                self.msg = join_msg(&self.msg, &format!("the PR's base is {base} now: the diff follows once the rebase is through"));
+            }
+            return;
         }
+        self.msg = join_msg(&self.msg, &fetching(&base));
+        self.job = Some(Job::Retarget(base));
     }
 
     /// The PR's base changed on GitHub to `base`: a rebase goes onto it, and the diff starts
@@ -763,7 +775,9 @@ impl App {
         if follows {
             let fetched = diff::git_in(&self.root, &["fetch", "-q", "origin", &format!("+refs/heads/{base}:refs/remotes/{onto}")]);
             let Ok(mb) = fetched.and_then(|_| diff::git_in(&self.root, &["merge-base", &onto, "HEAD"])) else {
-                return self.msg = format!("the PR's base is {base} now, but {onto} couldn't be fetched: the diff still starts from {old} (tried again on the next refresh)");
+                self.github_base = None; // (asked again when GitHub next says)
+                let said = format!("the PR's base is {base} now, but {onto} couldn't be fetched: the diff still starts from {old} (tried again on the next refresh)");
+                return self.msg = join_msg(&self.msg.replace(&fetching(&base), ""), &said);
             };
             let mb = mb.trim().to_owned();
             if !self.uncommitted() {
@@ -777,10 +791,12 @@ impl App {
             pr.base = base.clone();
         }
         self.reload_tree();
-        self.msg = match follows {
+        let said = match follows {
             true => format!("the PR's base is {base} now: the diff starts from there"),
             false => format!("the PR's base is {base} now (the diff keeps the base you gave)"),
         };
+        // After what was said before (a rebase's ending, say), not over it.
+        self.msg = join_msg(&self.msg.replace(&fetching(&base), ""), &said);
     }
 
     /// The link under the cursor, if any.
@@ -1477,4 +1493,17 @@ fn file_refs() {
     assert_eq!(at("at 12:30 today", "12"), None); // a time
     assert_eq!(at("note: this", "note"), None);
     assert_eq!(at("x.rs:12:5,", "x.rs"), Some(("x.rs".into(), 12)));
+}
+
+/// `a · b` (or just `b`).
+fn join_msg(a: &str, b: &str) -> String {
+    match a.trim_end_matches(" · ").trim() {
+        "" => b.to_owned(),
+        a => format!("{a} · {b}"),
+    }
+}
+
+/// What's said while a retarget's new base is fetched.
+fn fetching(base: &str) -> String {
+    format!("the PR's base is {base} now: fetching it…")
 }

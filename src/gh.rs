@@ -790,8 +790,8 @@ pub fn set_viewed(pr_id: &str, path: &str, viewed: bool) -> Result<()> {
     mutate(q, json!({ "pr": pr_id, "path": path })).map(drop)
 }
 
-/// Rerun the failed jobs of the workflow runs on commit `head` that failed, all at once: what
-/// happened, in a few words (an error if none could be).
+/// Rerun the failed jobs of the workflow runs on commit `head` that failed, four at a time:
+/// what happened, in a few words (an error if none could be).
 pub fn rerun_failed(head: &str) -> Result<String> {
     let q = ".[] | select(.conclusion == \"failure\" or .conclusion == \"timed_out\" or .conclusion == \"cancelled\") | .databaseId";
     let out = gh(&["run", "list", "--commit", head, "--limit", "100", "--json", "databaseId,conclusion", "-q", q])?;
@@ -805,7 +805,7 @@ pub fn rerun_failed(head: &str) -> Result<String> {
     for batch in ids.chunks(4) {
         std::thread::scope(|s| {
             let runs: Vec<_> = batch.iter().map(|id| s.spawn(move || gh(&["run", "rerun", id, "--failed"]).err().map(|e| format!("run {id}: {e:#}")))).collect();
-            errors.extend(runs.into_iter().filter_map(|r| r.join().ok().flatten()));
+            errors.extend(runs.into_iter().filter_map(|r| r.join().unwrap_or_else(|_| Some("a rerun went wrong".into()))));
         });
     }
     rerun_says(ids.len(), &errors)
@@ -1083,12 +1083,16 @@ fn requires_signatures(p: &Value) -> bool {
 
 /// PR `n`'s commits' signatures, and whether its base requires them: one GraphQL query.
 pub fn signatures(n: u64) -> Result<Signatures> {
-    signatures_of(&pr_query(n, "")?)
+    // Whole, or not at all: a commit GitHub had trouble with isn't one that isn't signed.
+    match pr_query(n, "")? {
+        (p, false) => signatures_of(&p),
+        (_, true) => anyhow::bail!("GitHub didn't say for every commit"),
+    }
 }
 
 /// PR `n`'s commits' signatures and its base's rules, and `more` of it: one GraphQL query; the
-/// pull request's node.
-fn pr_query(n: u64, more: &str) -> Result<Value> {
+/// pull request's node, and whether GitHub refused some of it (that part null).
+fn pr_query(n: u64, more: &str) -> Result<(Value, bool)> {
     let q = format!(
         "query($owner: String!, $name: String!, $n: Int!) {{ repository(owner: $owner, name: $name) {{ pullRequest(number: $n) {{
            {SIGNATURE_RULES} commits(last: 100) {{ totalCount nodes {{ commit {{ oid signature {{ isValid }} }} }} }} {more} }} }} }}"
@@ -1102,8 +1106,9 @@ fn pr_query(n: u64, more: &str) -> Result<Value> {
         .context("running gh")?;
     let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
     let p = &v["data"]["repository"]["pullRequest"];
-    anyhow::ensure!(p.is_object(), "gh api graphql: {}", String::from_utf8_lossy(&out.stderr).trim());
-    Ok(p.clone())
+    let why = v["errors"][0]["message"].as_str().map_or_else(|| String::from_utf8_lossy(&out.stderr).trim().to_owned(), str::to_owned);
+    anyhow::ensure!(p.is_object(), "gh api graphql: {why}");
+    Ok((p.clone(), v["errors"].as_array().is_some_and(|e| !e.is_empty())))
 }
 
 fn signatures_of(p: &Value) -> Result<Signatures> {
@@ -1141,11 +1146,19 @@ pub fn info_json(n: u64) -> Result<Value> {
         v["dvAwaiting"] = w.get(&sha).map_or(0, Vec::len).into();
     }
     // One query for both: its commits' signatures, and which reactions are yours.
+    // (Some of it refused, or all: the signatures on their own, whole or not at all.)
     let extra = pr_query(n, MINE);
-    if let Ok(p) = &extra {
+    if let Ok((p, _)) = &extra {
         v["dvMine"] = mine_of(p);
     }
-    if let Some(s) = extra.ok().and_then(|p| signatures_of(&p).ok()) {
+    let whole = match extra {
+        Ok((p, false)) => Some(p),
+        _ => match pr_query(n, "") {
+            Ok((p, false)) => Some(p),
+            _ => None,
+        },
+    };
+    if let Some(s) = whole.and_then(|p| signatures_of(&p).ok()) {
         v["dvCommits"] = s.commits.into_iter().map(|(oid, signed)| json!({ "oid": oid, "signed": signed })).collect();
         v["dvCommitsTotal"] = s.total.into();
         v["dvSignaturesRequired"] = s.required.into();

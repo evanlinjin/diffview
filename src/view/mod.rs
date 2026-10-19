@@ -593,8 +593,11 @@ pub struct App {
     picker: Option<Picker>,
     /// A comment or reply for Claude, waiting on the picker for what you want of it.
     wanting: Option<Action>,
-    /// A retarget seen mid-rebase: the new base, followed once the rebase is through.
-    retarget_later: Option<String>,
+    /// The PR's base as GitHub last said (freshly fetched): when it isn't the PR's here, it was
+    /// retargeted, and the diff follows (`follow_github_base`).
+    github_base: Option<String>,
+    /// When to look at GitHub again by itself (CI rerun: its checks change, not the PR's ETag).
+    refresh_at: Option<std::time::Instant>,
     /// What isn't committed (the commits list's last row), as of the last reload.
     dirty: files::Dirty,
     /// The commits (shas) questions about them were last matched to (`rekey_commits`).
@@ -858,7 +861,8 @@ impl App {
             wanting: None,
             rekeyed: vec![],
             dirty: Default::default(),
-            retarget_later: None,
+            github_base: None,
+            refresh_at: None,
             search: String::new(),
             msg: String::new(),
             top: 0,
@@ -972,6 +976,10 @@ impl App {
             self.watch_tree();
             self.watch_claude();
             self.watch_github();
+            if self.job.is_none() && self.refresh_at.is_some_and(|t| t <= std::time::Instant::now()) {
+                self.refresh_at = None;
+                self.job = Some(Job::Refresh);
+            }
             self.watch_replacement();
             self.poll_claude();
             self.watch_claude_pane();
@@ -1274,12 +1282,7 @@ impl App {
             self.msg = format!("{e:#}");
         }
         self.rekey_commits(); // (commits rewritten here or elsewhere)
-        // A retarget that waited on a rebase: it's through (dv's, Claude's, in a terminal).
-        if self.job.is_none() && !rebase::rebasing(&self.root)
-            && let Some(base) = self.retarget_later.take()
-        {
-            (self.msg, self.job) = (format!("the PR's base is {base} now: fetching it…"), Some(Job::Retarget(base)));
-        }
+        self.follow_github_base(false); // (a retarget that waited on a rebase now through)
         self.tree_seen = Some(self.tree_stamp());
     }
 
