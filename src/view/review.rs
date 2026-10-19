@@ -592,38 +592,24 @@ impl App {
         items
     }
 
-    /// `]a` / `[a`: the next / previous Claude comment.
-    pub(super) fn next_claude(&mut self, fwd: bool) {
-        let items = (0..self.threads.len()).filter(|&t| agent::claude_wrote(&self.threads[t])).map(|t| (t, 0)).collect();
-        self.next_comment(fwd, items, "no comments from Claude (Space a asks for a review)");
-    }
-
-    /// `]n` / `[n`: the next / previous thread with comments you haven't seen.
-    pub(super) fn next_new(&mut self, fwd: bool) {
-        let items = (0..self.threads.len()).filter(|&t| self.is_new(&self.threads[t])).map(|t| (t, 0)).collect();
-        self.next_comment(fwd, items, "nothing new: you've seen every comment");
-    }
-
-    /// `]c` / `[c`: the next / previous thread, into folded files too (a viewed file's comments).
-    pub(super) fn next_thread(&mut self, fwd: bool) {
-        let items = (0..self.threads.len()).filter(|&t| self.in_view(&self.threads[t])).map(|t| (t, 0)).collect();
-        self.next_comment(fwd, items, "no comments");
-    }
-
-    /// `]u` / `[u`: the next / previous unresolved thread (GitHub's or Claude's; outdated ones too,
-    /// which still want resolving).
-    pub(super) fn next_unresolved(&mut self, fwd: bool) {
-        let items = (0..self.threads.len()).filter(|&t| !self.threads[t].resolved).map(|t| (t, 0)).collect();
-        self.next_comment(fwd, items, "no unresolved comments");
-    }
-
-    /// `]p` / `[p`: the next / previous comment of your pending review (replies too).
-    pub(super) fn next_pending(&mut self, fwd: bool) {
+    /// `]` / `[` and `what`: to the next / previous thread (`c`, into folded files too), of
+    /// Claude's (`a`), with comments you haven't seen (`n`), unresolved (`u`: GitHub's or
+    /// Claude's, outdated ones too, which still want resolving), or comment of your pending
+    /// review (`p`, replies too).
+    pub(super) fn next_of(&mut self, what: char, fwd: bool) {
         let threads = &self.threads;
-        let items = (0..threads.len())
-            .flat_map(|t| (0..threads[t].comments.len()).filter(move |&c| threads[t].comments[c].pending).map(move |c| (t, c)))
-            .collect();
-        self.next_comment(fwd, items, "no pending comments");
+        let each = |keep: &dyn Fn(&Thread) -> bool| (0..threads.len()).filter(|&t| keep(&threads[t])).map(|t| (t, 0)).collect();
+        let (items, none) = match what {
+            'a' => (each(&agent::claude_wrote), "no comments from Claude (Space a asks for a review)"),
+            'n' => (each(&|t| self.is_new(t)), "nothing new: you've seen every comment"),
+            'u' => (each(&|t| !t.resolved), "no unresolved comments"),
+            'p' => {
+                let pending = (0..threads.len()).flat_map(|t| (0..threads[t].comments.len()).filter(move |&c| threads[t].comments[c].pending).map(move |c| (t, c)));
+                (pending.collect(), "no pending comments")
+            }
+            _ => (each(&|t| self.in_view(t)), "no comments"),
+        };
+        self.next_comment(fwd, items, none);
     }
 
     /// Go to the next / previous of `items` (thread, comment) after the cursor, by file and

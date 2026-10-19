@@ -1189,11 +1189,11 @@ fn new_until_seen() {
     app.build();
     assert!(app.rows.iter().any(|r| r.line.text.starts_with("[new] ◆ claude")));
     // Seen once the cursor leaves it, and remembered.
-    app.next_new(true);
+    app.next_of('n', true);
     app.watch_seen();
     assert_eq!(new(&app), [true, true, false]); // still tagged while you're on it
     let on = app.head.row;
-    app.next_new(true);
+    app.next_of('n', true);
     app.watch_seen();
     assert_eq!(new(&app), [false, true, false]);
     assert_eq!(app.rows.iter().filter(|r| r.line.text.starts_with("[new]")).count(), 1); // the tag's gone
