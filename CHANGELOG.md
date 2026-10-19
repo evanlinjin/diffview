@@ -5,6 +5,21 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.26] - 2026-10-19
+
+### Changed
+- The pane's conversation is the PR's activity, as GitHub's PR page lists it: comments and
+  reviews in their boxes, and what else happened a dim line each: pushes (each commit under
+  them), force-pushes, labels, review requests, assignments, renames, base changes, mentions
+  from other issues and PRs, drafts, merged or closed. One GraphQL query (it also says which
+  reactions are yours), where the comments were fetched twice before.
+
+### Fixed
+- The cursor keeps its place on any line of the PR's text through a refresh (each line has a
+  key made with it, not guessed from its text).
+- dv looks the remote and its default branch up once (it ran git each time when none was
+  found, and asked the remote for its HEAD twice).
+
 ## [0.34.25] - 2026-10-19
 
 ### Added
