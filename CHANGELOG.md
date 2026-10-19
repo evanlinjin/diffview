@@ -5,6 +5,20 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.67] - 2026-10-19
+
+### Changed
+- The pane's tabs count resolved threads only: an outdated one isn't done (its code changed;
+  its point may stand).
+- Showing only what isn't committed: no PR text before the code either, as with some commits.
+
+### Fixed
+- dv's own Claude run in a replacement (answering you, a change) is marked in its record as a
+  redraft is: dv list, or a redraft from elsewhere, won't start one in its checkout meanwhile.
+- A change asked of a replacement's drafts that a finished redraft took in without saying so is
+  done (it was asked again each redraft); dv's note for it shows as dv's, not as Claude's answer.
+- A deferral Claude reads the time of is checked against the cursor before other news moves it.
+
 ## [0.34.66] - 2026-10-19
 
 ### Fixed
