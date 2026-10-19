@@ -131,8 +131,8 @@ impl App {
                 ("Space c", "copy file:line ref"),
             ]));
         }
-        if self.hidden_here().is_some() {
-            return Some(("hidden on GitHub", &[("Tab", "show it, or hide it again"), ("r", "reply")]));
+        if self.hidden_here().is_some_and(|n| !self.revealed.contains(&n)) {
+            return Some(("hidden on GitHub", &[("Tab", "show it")]));
         }
         // On a link: what can be done with it (before what the row it's in offers).
         if self.link_at_cursor().is_some() {
@@ -355,13 +355,12 @@ impl App {
         // Where the pane meets the code: as a column, a dim line between them; floating, the
         // pane in the popup color (on the rows it covers), with no line.
         let raised = self.ui.popup.bg.or(self.ui.bar);
-        // In the key color while the cursor's in the pane: which side has focus.
-        let sep = match (float, self.margin_side()) {
-            (false, false) => Span::styled("│", Style { fg: self.ui.linenr.fg, ..Style::new() }),
-            (false, true) => Span::styled("│", Style { fg: self.ui.key.fg, ..Style::new() }),
-            (true, false) => Span::styled(" ", Style { bg: raised, ..Style::new() }),
-            (true, true) => Span::styled("▎", Style { fg: self.ui.key.fg, bg: raised, ..Style::new() }),
+        // (Which side has focus: the cursor line's tint is on that side only.)
+        let sep = match float {
+            false => Span::styled("│", Style { fg: self.ui.linenr.fg, ..Style::new() }),
+            true => Span::styled(" ", Style { bg: raised, ..Style::new() }),
         };
+        let pane_cur = self.margin_side();
         let base_bg = self.ui.base.bg;
         let raise = |v: Vec<Span<'static>>| match (float, raised) {
             // Its own colors (the cursor line, a selection) stay; the window's give way.
@@ -402,6 +401,8 @@ impl App {
             .map(|y| {
                 let d = self.top + y;
                 let cur = d == hd;
+                // The cursor line's tint: on the side with focus only (none with the list's).
+                let tint = cur && !self.files_focus;
                 let rel = match (relw, cur) {
                     (0, _) => vec![],
                     (_, true) => vec![Span::styled(format!("{:>w$} ", "", w = relw - 1), self.ui.linenr_selected)],
@@ -414,19 +415,19 @@ impl App {
                 match self.drows.get(d).copied().unwrap_or(DRow::Pair(None, None)) {
                     _ if d >= self.drows.len() => {}
                     DRow::Full(r) => {
-                        spans.extend(self.render_row(r, s, e, (lw, gw, fw), None, cur, &overlay));
+                        spans.extend(self.render_row(r, s, e, (lw, gw, fw), None, tint, &overlay));
                         if column {
                             spans = clip(spans, relw + gw + mx);
                             spans.push(sep.clone());
                             spans.push(Span::raw(" ".repeat(mw)));
                         }
                     }
-                    DRow::Pair(l, rr) => spans.extend(pair(l, rr, cur)),
+                    DRow::Pair(l, rr) => spans.extend(pair(l, rr, tint)),
                     DRow::Margin(l, rr, comment) => {
                         // Code on the left (blank on a spacer row), a gap, then the comment
                         // column; floating, the code runs full width under it, and is covered
                         // only where there's a comment.
-                        let lit = |r: usize| cur || lit_code.is_some_and(|(a, b)| (a..=b).contains(&r));
+                        let lit = |r: usize| (tint && !pane_cur) || lit_code.is_some_and(|(a, b)| (a..=b).contains(&r));
                         let diff_line = |r: usize| matches!(self.rows[r].line.kind, Kind::Ctx | Kind::Add | Kind::Del);
                         let cw = if float { tw } else { ctw };
                         let code = match (l, rr) {
@@ -444,14 +445,14 @@ impl App {
                                     Some(r) if self.open_left(r) && self.box_part(r).is_some_and(|p| p != BoxPart::Body) => {
                                         spans.pop();
                                         spans.push(Span::styled(format!("├{}", "─".repeat(pad)), self.box_edge(r).bg(self.ui.base.bg.unwrap_or(Color::Reset))));
-                                        spans.extend(raise(clip(self.render_row(r, s, e, (lw, self.pane_gw(), ptw), None, cur, &overlay), mw - pad)));
+                                        spans.extend(raise(clip(self.render_row(r, s, e, (lw, self.pane_gw(), ptw), None, tint && pane_cur, &overlay), mw - pad)));
                                     }
                                     // Not in a box (a folded thread, a heading): its mark where the
                                     // space would be, so its text lines up with the boxes'.
                                     Some(r) if self.open_left(r) && self.box_part(r).is_none() => {
-                                        spans.extend(raise(clip(self.render_row(r, s, e, (lw, pad + self.pane_gw(), ptw), None, cur, &overlay), mw)));
+                                        spans.extend(raise(clip(self.render_row(r, s, e, (lw, pad + self.pane_gw(), ptw), None, tint && pane_cur, &overlay), mw)));
                                     }
-                                    Some(r) => spans.extend(raise(pane_cell(self.render_row(r, s, e, (lw, self.pane_gw(), ptw), None, cur, &overlay)))),
+                                    Some(r) => spans.extend(raise(pane_cell(self.render_row(r, s, e, (lw, self.pane_gw(), ptw), None, tint && pane_cur, &overlay)))),
                                     None => spans.push(Span::raw(" ".repeat(mw))),
                                 }
                             }
@@ -780,13 +781,11 @@ impl App {
         })
     }
 
-    /// A box's border: the lit thread's in the accent; one from Claude's review file (Claude's,
-    /// or yours for it: not on GitHub) in the hint color; GitHub's dim.
+    /// A box's border: one from Claude's review file (Claude's, or yours for it: not on
+    /// GitHub) in the hint color; GitHub's dim.
     fn box_edge(&self, r: usize) -> Style {
-        let t = self.rows[r].thread;
-        match t.is_some() && t == self.lit_thread() {
-            true => self.ui.key,
-            false if t.is_some_and(|t| self.threads[t].claude.is_some()) => Style { fg: self.ui.pending.fg, ..Style::new() },
+        match self.rows[r].thread.is_some_and(|t| self.threads[t].claude.is_some()) {
+            true => Style { fg: self.ui.pending.fg, ..Style::new() },
             false => self.ui.linenr,
         }
     }
@@ -866,11 +865,7 @@ impl App {
                     None => " ┃ ",
                 };
                 // No fill: the box's border sets comments apart. The gutter keeps the page background
-                // (so the cursor line's tint stays in the text column, inside the box). A lit box
-                // (margin mode: the one about the cursor's line) has its border in the accent.
-                if part.is_some() && row.thread.is_some() && row.thread == self.lit_thread() {
-                    gstyle = ui.key;
-                }
+                // (so the cursor line's tint stays in the text column, inside the box).
                 gstyle = gstyle.bg(ui.base.bg.unwrap_or(Color::Reset));
                 // (A narrower gutter, in the pane: the mark's end, ` ▸ ` → `▸ `.)
                 let mark: String = mark.chars().skip(mark.chars().count().saturating_sub(gw)).collect();

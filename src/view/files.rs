@@ -247,7 +247,7 @@ impl App {
         lines.extend(hints);
         f.render_widget(Paragraph::new(lines), Rect { width: area.width - 1, ..area });
         // In the key color while it has focus (as the comments pane's edge is).
-        let edge = if self.files_focus { Style { fg: self.ui.key.fg, ..Style::new() } } else { self.ui.linenr };
+        let edge = self.ui.linenr;
         let divider: Vec<Line> = (0..area.height).map(|_| Line::from(Span::styled("│", edge))).collect();
         f.render_widget(Paragraph::new(divider), Rect { x: area.x + area.width - 1, width: 1, ..area });
     }

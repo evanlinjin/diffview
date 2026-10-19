@@ -2577,8 +2577,10 @@ fn hidden_on_github_folded() {
     app.goto(r, 0);
     app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     assert!(text(&app).contains("secret2"));
+    // Into its text, Tab hides it again: the cursor on its heading.
+    app.goto(r + 1, 0);
     app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    assert!(!text(&app).contains("secret2"));
+    assert!(!text(&app).contains("secret2") && app.head.row == r);
     // On the thread's first line: shows the first; then it folds the thread, as Tab does.
     let first = app.rows.iter().position(|r| r.thread == Some(0)).unwrap();
     app.goto(first, 0);

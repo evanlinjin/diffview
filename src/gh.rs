@@ -97,6 +97,7 @@ impl Comment {
     pub fn gist(&self) -> String {
         match self.hidden.as_str() {
             "" => self.body.clone(),
+            "hidden" => "_(hidden on GitHub)_".into(),
             why => format!("_(hidden on GitHub: {why})_"),
         }
     }

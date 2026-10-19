@@ -459,7 +459,9 @@ impl App {
         }
         // From another tab: to the whole diff, with all of it.
         self.conversation_all = self.view != View::All || !self.conversation_all;
-        self.view = View::All;
+        if self.view != View::All {
+            (self.view, self.msg) = (View::All, "the whole diff, with all of the conversation".into());
+        }
         self.sections_folded.remove(&DESCRIPTION);
         self.info_collapsed = false;
         self.rebuild_at(|r| r.attached && r.line.text.starts_with("conversation ("));
@@ -540,7 +542,7 @@ impl App {
             if let Some(note) = self.hidden_note(&self.info[h].hidden, &self.info[h].node) {
                 let text = format!("{}{note}", self.info[h].text);
                 let row = self.info_row(&self.info[h], mk(Kind::Thread, text.clone()));
-                rows.push(Row { info: Some(h), syn: vec![Some(self.ui.stale); text.chars().count()], ..row });
+                rows.push(Row { info: self.info.get(body).filter(|n| n.md).map(|_| body), syn: vec![Some(self.ui.stale); text.chars().count()], ..row });
                 rows.extend(self.conversation_rows(body));
                 continue;
             }
@@ -592,8 +594,12 @@ impl App {
 
     /// Whether row `r` is the folded line of a conversation comment hidden on GitHub.
     pub(super) fn hidden_line(&self, r: usize) -> bool {
-        let row = &self.rows[r];
-        row.file == INFO && row.thread.is_none() && row.info.and_then(|i| self.info.get(i)).is_some_and(|l| l.heading && !l.hidden.is_empty())
+        self.hidden_row(&self.rows[r])
+    }
+
+    fn hidden_row(&self, row: &Row) -> bool {
+        let head = row.info.and_then(|b| self.info.get(b.checked_sub(1)?)).filter(|l| l.heading);
+        row.file == INFO && row.thread.is_none() && row.line.kind == Kind::Thread && head.is_some_and(|l| self.hidden_note(&l.hidden, &l.node).is_some())
     }
 
     /// The comment hidden on GitHub under the cursor (its node id), for Tab to show or hide:
@@ -604,7 +610,7 @@ impl App {
             Some(t) if !self.thread_open(t) => None,
             Some(t) => {
                 let c = self.comment_under_cursor(t).filter(|c| !c.hidden.is_empty())?;
-                let first = self.rows[r - 1].thread != Some(t);
+                let first = r == 0 || self.rows[r - 1].thread != Some(t);
                 (!(first && self.revealed.contains(&c.node_id))).then(|| c.node_id.clone())
             }
             None => self.conversation_node().filter(|n| self.info.iter().any(|l| l.node == *n && !l.hidden.is_empty())),
@@ -614,9 +620,22 @@ impl App {
     /// Tab on a comment hidden on GitHub: its text shown, or hidden again. Whether it was one.
     pub(super) fn toggle_hidden(&mut self) -> bool {
         let Some(node) = self.hidden_here() else { return false };
-        flip(&mut self.revealed, node);
-        let keep = self.cursor_key();
-        self.rebuild(keep);
+        flip(&mut self.revealed, node.clone());
+        // The cursor on its heading, whether its text went or came.
+        let at = self.rows[self.head.row].thread.map(|t| (self.root_id(t), self.comment_index_under_cursor(t)));
+        self.build();
+        self.select = false;
+        let row = match at {
+            Some((id, k)) => {
+                let t = (0..self.threads.len()).find(|&t| self.root_id(t) == id);
+                self.rows.iter().enumerate().filter(|(_, r)| r.thread.is_some() && r.thread == t && r.line.kind == Kind::Thread).nth(k).map(|(i, _)| i)
+            }
+            None => self.rows.iter().position(|r| {
+                let head = r.info.and_then(|b| self.info.get(b.checked_sub(1)?));
+                r.file == INFO && r.line.kind == Kind::Thread && r.thread.is_none() && head.is_some_and(|l| l.heading && l.node == node)
+            }),
+        };
+        self.goto(row.unwrap_or(0), 0);
         true
     }
 
@@ -795,7 +814,9 @@ impl App {
                 let mut head = format!("{lead}{}{re}{}{range}", name(c), when(c));
                 let at = head.chars().count();
                 head += &rt;
+                let ns = head.chars().count();
                 head += note.as_deref().unwrap_or("");
+                let ne = head.chars().count();
                 if !open {
                     head += &match t.comments.len() {
                         1 => " · 1 comment".to_owned(),
@@ -806,7 +827,11 @@ impl App {
                     true => author_syn(c),
                     false => [tag_syn.clone(), author_syn(c)].concat(),
                 };
-                let syn = if rs.is_empty() { syn } else { with(syn, at, rs) };
+                let mut syn = if rs.is_empty() { syn } else { with(syn, at, rs) };
+                if ne > ns {
+                    syn.resize(ns, None);
+                    syn.resize(ne, Some(self.ui.stale));
+                }
                 out.push(Row { syn, ..mk(Kind::Thread, head) });
                 if tags_below {
                     out.push(Row { syn: tag_syn.clone(), ..mk(Kind::Comment, tag_text.trim_end().to_owned()) });
@@ -859,7 +884,7 @@ impl App {
         let key = |r: &Row| match (r.thread, r.info) {
             (Some(t), _) => Some((Some(t), None)),
             // (A section's text: plain, as code; the line saying there's more conversation, too.)
-            (None, Some(i)) if r.file == INFO && r.main.is_none() && i != MORE_CONVERSATION && !self.info.get(i).is_some_and(|l| l.heading) => Some((None, Some(i))),
+            (None, Some(i)) if r.file == INFO && r.main.is_none() && i != MORE_CONVERSATION && !self.hidden_row(r) => Some((None, Some(i))),
             _ => None,
         };
         let row = &self.rows[r];

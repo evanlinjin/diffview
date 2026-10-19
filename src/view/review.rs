@@ -1396,7 +1396,7 @@ impl App {
     }
 
     /// Which comment of thread `t` the cursor is in, by index.
-    fn comment_index_under_cursor(&self, t: usize) -> usize {
+    pub(super) fn comment_index_under_cursor(&self, t: usize) -> usize {
         let start = self.rows[..=self.head.row].iter().rposition(|r| r.thread != Some(t)).map_or(0, |i| i + 1);
         let heads = self.rows[start..=self.head.row].iter().filter(|r| r.line.kind == Kind::Thread).count();
         heads.saturating_sub(1)

@@ -5,6 +5,23 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.8] - 2026-10-19
+
+### Changed
+- Focus is shown by the cursor line's tint alone, on the side that has it: in the comments
+  pane, the code beside isn't tinted (nor, in the code, the comment beside); with the files'
+  list focused, only its selection. Borders no longer change color: not the pane's separator,
+  the list's divider, or the box about the cursor's line.
+
+### Fixed
+- On a conversation comment hidden on GitHub, `Space c`, `gf` and `C` work on that comment.
+- Tab hiding a comment again leaves the cursor on its heading.
+- A folded thread whose first comment is hidden has that note dimmed.
+- The tabs' counts leave out threads on files that aren't shown.
+- `Space o` from another tab says it's on the whole diff now.
+- The hint on a hidden comment is just Tab; pickers say "hidden on GitHub" when GitHub gives
+  no reason.
+
 ## [0.34.7] - 2026-10-19
 
 ### Changed
