@@ -2608,3 +2608,13 @@ fn hidden_conversation_comment_folded() {
     app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     assert!(!app.rows.iter().any(|r| r.line.text.contains("hidden on GitHub")) && app.rows.iter().any(|r| r.line.text == "buy now"));
 }
+
+#[test]
+fn related_code_tinted_apart_from_the_cursor_line() {
+    let mut app = fixture();
+    let rel = Color::Rgb(1, 2, 3);
+    (app.ui.related, app.ui.add_bg_rel) = (Some(rel), Color::Rgb(4, 5, 6));
+    let add = app.ui.add_bg;
+    let out = app.related_tint(vec![Span::raw("a"), Span::styled("b", Style::new().bg(add)), Span::styled("c", Style::new().bg(Color::Rgb(9, 9, 9)))]);
+    assert_eq!(out.iter().map(|s| s.style.bg).collect::<Vec<_>>(), [Some(rel), Some(Color::Rgb(4, 5, 6)), Some(Color::Rgb(9, 9, 9))]);
+}

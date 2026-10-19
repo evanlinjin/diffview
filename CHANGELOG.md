@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.9] - 2026-10-19
+
+### Changed
+- With the cursor on a comment in the pane, the code it's about has a tint of its own, not
+  the cursor line's: the theme's `ui.cursorline.secondary`, else half the cursor line's.
+
 ## [0.34.8] - 2026-10-19
 
 ### Changed

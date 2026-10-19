@@ -427,13 +427,18 @@ impl App {
                         // Code on the left (blank on a spacer row), a gap, then the comment
                         // column; floating, the code runs full width under it, and is covered
                         // only where there's a comment.
-                        let lit = |r: usize| (tint && !pane_cur) || lit_code.is_some_and(|(a, b)| (a..=b).contains(&r));
+                        let lit = |_: usize| tint && !pane_cur;
+                        let related = |r: usize| lit_code.is_some_and(|(a, b)| (a..=b).contains(&r));
                         let diff_line = |r: usize| matches!(self.rows[r].line.kind, Kind::Ctx | Kind::Add | Kind::Del);
                         let cw = if float { tw } else { ctw };
                         let code = match (l, rr) {
                             (None, None) => vec![],
                             (l, rr) if self.split && l.or(rr).is_some_and(diff_line) => pair(l, rr, l.or(rr).is_some_and(lit)),
                             (Some(r), _) | (None, Some(r)) => self.render_row(r, s, e, (lw, gw, cw), None, lit(r), &overlay),
+                        };
+                        let code = match l.or(rr).is_some_and(related) && self.settings.cursorline {
+                            true => self.related_tint(code),
+                            false => code,
                         };
                         match (comment, float) {
                             (None, true) => spans.extend(code),
@@ -779,6 +784,26 @@ impl App {
             MARK_LINE => ('╎', self.ui.thread),
             _ => ('╎', self.ui.stale),
         })
+    }
+
+    /// The code a comment in the pane is about (the cursor there): its own tint, not the
+    /// cursor line's, over the background and the added/removed lines' tints.
+    pub(super) fn related_tint(&self, spans: Vec<Span<'static>>) -> Vec<Span<'static>> {
+        let ui = &self.ui;
+        let Some(rel) = ui.related else { return spans };
+        spans
+            .into_iter()
+            .map(|mut sp| {
+                sp.style.bg = match sp.style.bg {
+                    None => Some(rel),
+                    b if b == ui.base.bg => Some(rel),
+                    Some(b) if b == ui.add_bg => Some(ui.add_bg_rel),
+                    Some(b) if b == ui.del_bg => Some(ui.del_bg_rel),
+                    b => b,
+                };
+                sp
+            })
+            .collect()
     }
 
     /// A box's border: one from Claude's review file (Claude's, or yours for it: not on

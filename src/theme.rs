@@ -47,6 +47,12 @@ pub struct Ui {
     pub emph_add: Color,
     pub emph_del: Color,
     pub cursorline: Option<Color>,
+    /// The code a comment in the pane is about, the cursor there: tinted, but not as the
+    /// cursor's line (Helix's `ui.cursorline.secondary`, else half the cursorline's tint);
+    /// added/removed lines the same, in their colors.
+    pub related: Option<Color>,
+    pub add_bg_rel: Color,
+    pub del_bg_rel: Color,
     pub linenr_selected: Style,
     /// Keys in the help overlay.
     pub key: Style,
@@ -167,6 +173,8 @@ impl Theme {
         };
         let tint = |s: Style, fallback| tint_on(s, bg, fallback);
         let cursorline = self.find("ui.cursorline.primary").or(self.find("ui.cursorline")).and_then(|s| s.bg);
+        let half = cursorline.zip(bg).and_then(|(c, b)| blend(c, b, 0.5));
+        let related = self.find("ui.cursorline.secondary").and_then(|s| s.bg).filter(|&c| Some(c) != cursorline).or(half);
         let (add_bg, del_bg) = (tint(plus, Color::Rgb(0x1f, 0x33, 0x22)), tint(minus, Color::Rgb(0x3a, 0x20, 0x22)));
         let or_reversed = |s: Option<Style>| match s {
             Some(s) if s.fg.is_some() || s.bg.is_some() => s,
@@ -187,6 +195,9 @@ impl Theme {
             del_bg,
             add_bg_cur: tint_on(plus, cursorline, add_bg),
             del_bg_cur: tint_on(minus, cursorline, del_bg),
+            related,
+            add_bg_rel: tint_on(plus, related, add_bg),
+            del_bg_rel: tint_on(minus, related, del_bg),
             hunk: self.find("ui.virtual.inlay-hint").unwrap_or(comment),
             header: Style { fg: self.get("diff.delta").fg, ..self.get("ui.menu") }.add_modifier(Modifier::BOLD),
             selection: self.get("ui.selection"),
