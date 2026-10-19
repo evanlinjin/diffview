@@ -176,7 +176,8 @@ impl Item {
         match &self.reason {
             Some(r) => {
                 let tags: Vec<String> = self.needs.iter().filter_map(Need::tag).collect();
-                if tags.is_empty() { r.clone() } else { format!("[{}] {r}", tags.join(" · ")) }
+                let r = r.replace('\n', " — ");
+                if tags.is_empty() { r } else { format!("[{}] {r}", tags.join(" · ")) }
             }
             None => self.needs.iter().map(Need::says).collect::<Vec<_>>().join(" · "),
         }
@@ -695,7 +696,8 @@ fn parse(answer: &str) -> Result<Order> {
         .iter()
         .map(|i| {
             let (reason, next) = (s(&i["reason"]), s(&i["next"]));
-            let says = if next.is_empty() { reason } else { format!("{reason} — {next}") };
+            // (Apart on a line each, so a dash in either can't be taken for where they meet.)
+            let says = if next.is_empty() { reason } else { format!("{reason}\n{next}") };
             (s(&i["key"]), says)
         })
         .filter(|(k, _)| !k.is_empty())
@@ -906,7 +908,7 @@ mod tests {
         assert_eq!(o.iter().filter(|i| i.changed).map(|i| i.number).collect::<Vec<_>>().len(), 2);
         // Claude's answer, words around it.
         let (p, waits) = parse("Here: [{\"key\": \"pr-2\", \"reason\": \"bug fix\", \"next\": \"review it\"}, {\"key\": \"rep-12\", \"reason\": \"ready\", \"waits_on\": {\"merged\": 2380}}]").unwrap();
-        assert_eq!(p, [("pr-2".to_owned(), "bug fix — review it".to_owned()), ("rep-12".to_owned(), "ready".to_owned())]);
+        assert_eq!(p, [("pr-2".to_owned(), "bug fix\nreview it".to_owned()), ("rep-12".to_owned(), "ready".to_owned())]);
         assert_eq!(waits.get("rep-12"), Some(&Until::Merged(2380))); // what it saw the conversation say
     }
 
