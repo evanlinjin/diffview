@@ -237,7 +237,7 @@ impl List {
                 todo::about(it, card, &summary)
             })
             .collect();
-        self.rank_rx = Some(todo::rank(lines, todo::fingerprint(&self.todo), self.root.clone()));
+        self.rank_rx = Some(todo::rank_of(lines, todo::fingerprint(&self.todo), self.root.clone(), todo::Of::Prs));
         self.msg = format!("Claude is ranking the {} PR(s) that need you…", self.todo.len());
     }
 
@@ -595,12 +595,7 @@ impl List {
     /// Defer the item `s` asked about (its key) for `c`'s time.
     pub(super) fn defer_for(&mut self, key: &str, c: char) {
         let Some(it) = self.todo.iter().find(|it| it.key() == key).cloned() else { return };
-        let (secs, how) = match c {
-            '1' => (3600, "an hour"),
-            '4' => (4 * 3600, "four hours"),
-            'd' => (86400, "a day"),
-            _ => (7 * 86400, "a week"),
-        };
+        let (secs, how) = todo::defer_secs(c);
         self.deferred.insert(it.key(), todo::Deferral { until: crate::claude::now_secs() + secs, needs: it.needs_key(), cond: None });
         self.msg = format!("deferred for {how} (s on it brings it back)");
         self.save_defer();

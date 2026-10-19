@@ -611,10 +611,6 @@ pub struct Deferral {
 pub type Deferred = std::collections::HashMap<String, Deferral>;
 
 /// Where they're kept: `deferred.json` in dv's directory.
-pub fn deferred_path() -> Option<std::path::PathBuf> {
-    deferred_path_of(Of::Prs)
-}
-
 /// Where `of`'s deferrals are kept (each list its own: neither writes over the other's).
 pub fn deferred_path_of(of: Of) -> Option<std::path::PathBuf> {
     let name = match of {
@@ -657,6 +653,17 @@ pub fn save_deferred(p: Option<&std::path::Path>, d: &Deferred) -> Result<()> {
 
 /// `items` with what's deferred (and still needs what it did then, and isn't `met`) moved to the
 /// end, marked.
+/// How long `s` then `c` defers an item for: (seconds, in words). `1` an hour, `4` four hours,
+/// `d` a day, else a week.
+pub fn defer_secs(c: char) -> (i64, &'static str) {
+    match c {
+        '1' => (3600, "an hour"),
+        '4' => (4 * 3600, "four hours"),
+        'd' => (86400, "a day"),
+        _ => (7 * 86400, "a week"),
+    }
+}
+
 pub fn defer(items: Vec<Item>, deferred: &Deferred, now: i64, met: impl Fn(&Item, &Until) -> bool) -> Vec<Item> {
     let waiting = |it: &Item| {
         deferred.get(&it.key()).filter(|d| d.until > now && d.needs == it.needs_key() && !d.cond.as_ref().is_some_and(|c| met(it, c)))
@@ -698,10 +705,6 @@ pub fn interpret(text: String, root: std::path::PathBuf) -> Receiver<Result<Unti
 }
 
 /// The last ranking (`todo.json` in dv's directory), if any.
-pub fn load() -> Option<Ranked> {
-    load_of(Of::Prs)
-}
-
 /// The last ranking of `of`.
 pub fn load_of(of: Of) -> Option<Ranked> {
     let v: Value = serde_json::from_str(&std::fs::read_to_string(path(of)?).ok()?).ok()?;
@@ -741,10 +744,6 @@ pub fn about(it: &Item, pr: &Listed, summary: &str) -> String {
 
 /// Claude puts `lines` (from `about`) in order, in the background, and the ranking is saved;
 /// `fingerprint` is what it's of. It only reads (the PRs, on GitHub).
-pub fn rank(lines: Vec<String>, fingerprint: String, root: std::path::PathBuf) -> Receiver<Result<Ranked>> {
-    rank_of(lines, fingerprint, root, Of::Prs)
-}
-
 /// Claude ranks `of`'s items (`lines`, as `about` / `about_issue` put each), in the background;
 /// kept as `of`'s last ranking.
 pub fn rank_of(lines: Vec<String>, fingerprint: String, root: std::path::PathBuf, of: Of) -> Receiver<Result<Ranked>> {
@@ -776,16 +775,20 @@ fn ask(lines: &[String], root: &std::path::Path, of: Of) -> Result<(Order, f64)>
             "These open issues are waiting on me (to triage, decide on, close, or get fixed)",
             "bugs users hit and security over features and chores; what Claude's triage says (its priority, whether to \
              close it); one a merged PR already fixes first (quick to close); issues that block others before them. \
-             Read an issue (`gh issue view N`) only where its line isn't enough to judge. If an issue's conversation \
-             (`gh issue view N --comments`, where you read it)",
+             Read an issue (`gh issue view N`) only where its line isn't enough to judge.",
             "issue-12",
         ),
     };
+    // (What a PR waits on, as dv can watch for it: PRs only.)
+    let waits = match of {
+        Of::Prs => " says it's waiting on something dv can watch for, add \"waits_on\", one of: {\"merged\": N}, \
+                    {\"closed\": N}, {\"green\": true}, {\"approved\": \"login\"}, {\"reviewed\": \"login\"}.",
+        Of::Issues => "",
+    };
     let prompt = format!(
         "{notes}I maintain this repo. {what}, one JSON object each, with what each needs from me:\n{}\n\n\
-         Put them in the order I should take them, most important first. Judge what matters: {judge} says it's \
-         waiting on something dv can watch for, add \"waits_on\", one of: {{\"merged\": N}}, {{\"closed\": N}}, \
-         {{\"green\": true}}, {{\"approved\": \"login\"}}, {{\"reviewed\": \"login\"}}. Change nothing. Reply with only \
+         Put them in the order I should take them, most important first. Judge what matters: {judge}{waits} \
+         Change nothing. Reply with only \
          a JSON array, every key exactly once, no other text: [{{\"key\": \"{key}\", \"reason\": \"why it's here, a \
          few words\", \"next\": \"what I should do, a few words\"}}]",
         lines.join("\n")

@@ -34,6 +34,8 @@ pub struct Triage {
     pub next: String,
     /// Why to close it (a duplicate, fixed by #N, …), if it should be.
     pub close: String,
+    /// The issue's `updatedAt` when it was triaged (empty: not said).
+    pub updated: String,
 }
 
 /// The issues' tabs.
@@ -117,7 +119,7 @@ fn issue(i: &Value) -> Issue {
 pub fn triage_of(dir: &std::path::Path, n: u64) -> Option<Triage> {
     let v: Value = serde_json::from_str(&std::fs::read_to_string(dir.join(format!("issue-{n}.json"))).ok()?).ok()?;
     let s = |k: &str| v[k].as_str().unwrap_or("").trim().to_owned();
-    Some(Triage { kind: s("kind"), priority: s("priority"), next: s("next"), close: s("close") })
+    Some(Triage { kind: s("kind"), priority: s("priority"), next: s("next"), close: s("close"), updated: s("updated") })
 }
 
 /// What issue `i` needs of you (`t`: Claude's triage of it, written at `t_at`, seconds):
@@ -138,8 +140,15 @@ pub fn issue_needs(i: &Issue, t: Option<&Triage>, t_at: Option<i64>, me: &str) -
     if let Some(&(n, _)) = i.fixed_by.iter().find(|p| p.1 == "OPEN") {
         out.push(Need::FixOpen(n));
     }
+    // Changed since: by the issue's own time when it was triaged (the file's, for one from before
+    // that was kept).
     match (t, t_at) {
         (None, _) => out.push(Need::Untriaged),
+        (Some(t), _) if !t.updated.is_empty() => {
+            if crate::gh::epoch_secs(&i.updated) > crate::gh::epoch_secs(&t.updated) {
+                out.push(Need::Retriage);
+            }
+        }
         (Some(_), Some(at)) if crate::gh::epoch_secs(&i.updated).is_some_and(|u| u > at) => out.push(Need::Retriage),
         _ => {}
     }
@@ -167,7 +176,7 @@ pub fn about_issue(it: &crate::todo::Item, i: &Issue, t: Option<&Triage>) -> Str
 /// Claude triages issue `n` (`extra`: your instructions), in the main checkout, reading only
 /// (it can't edit: its answer is the triage, which dv writes to `issue-N.json` beside the PRs'
 /// reviews).
-fn triage_run(n: u64, root: &std::path::Path, extra: &str) -> Result<batch::Status> {
+fn triage_run(n: u64, updated: &str, root: &std::path::Path, extra: &str) -> Result<batch::Status> {
     let file = crate::claude::dv_dir()?.join("reviews").join(format!("issue-{n}.json"));
     let base = crate::diff::remote_branch(&crate::diff::default_branch());
     let prompt = format!(
@@ -186,17 +195,18 @@ fn triage_run(n: u64, root: &std::path::Path, extra: &str) -> Result<batch::Stat
     let why = if answer.is_empty() { String::from_utf8_lossy(&out.stderr).lines().last().unwrap_or("").to_owned() } else { answer.lines().next().unwrap_or("").to_owned() };
     anyhow::ensure!(out.status.success() && v["is_error"] == false, "Claude stopped ({}): {why}", out.status);
     let mut t = crate::claude::json_in(answer, '{').filter(Value::is_object).context("no triage in Claude's answer")?;
-    t["issue"] = n.into();
+    (t["issue"], t["updated"]) = (n.into(), updated.into());
     std::fs::create_dir_all(file.parent().context("no dir")?)?;
     crate::claude::write(&file, &t)?;
     Ok(batch::Status::Done(format!("{} turns, ${:.2}", v["num_turns"].as_u64().unwrap_or(0), v["total_cost_usd"].as_f64().unwrap_or(0.0))))
 }
 
 /// Claude triages each of `ns`, a couple at a time, in the background: its news on the receiver.
-fn triage_all(ns: Vec<u64>, root: PathBuf, extra: String) -> Receiver<(u64, batch::Status)> {
-    batch::pool(ns, move |&n, tx| {
-        _ = tx.send((n, batch::Status::Reviewing));
-        (n, triage_run(n, &root, &extra).unwrap_or_else(|e| batch::Status::Failed(format!("{e:#}"))))
+/// (Each with its `updatedAt` as listed: what it's triaged as of.)
+fn triage_all(ns: Vec<(u64, String)>, root: PathBuf, extra: String) -> Receiver<(u64, batch::Status)> {
+    batch::pool(ns, move |(n, updated), tx| {
+        _ = tx.send((*n, batch::Status::Reviewing));
+        (*n, triage_run(*n, updated, &root, &extra).unwrap_or_else(|e| batch::Status::Failed(format!("{e:#}"))))
     })
 }
 
@@ -287,13 +297,8 @@ impl Issues {
             })
             .collect();
         let (items, _) = crate::todo::order(items, self.ranked.as_ref());
-        let now = crate::claude::now_secs();
-        // Over (its time's come, or what it needs changed): gone.
-        self.deferred.retain(|k, d| d.until > now && items.iter().any(|it| it.key() == *k && it.needs_key() == d.needs));
-        let (mut later, mut out): (Vec<Item>, Vec<Item>) = items.into_iter().partition(|it| self.deferred.contains_key(&it.key()));
-        later.iter_mut().for_each(|it| it.deferred = self.deferred.get(&it.key()).cloned());
-        out.append(&mut later);
-        self.todo = out;
+        // Deferred: at the bottom till then, or till what it needs changes (as dv list's).
+        self.todo = crate::todo::defer(items, &self.deferred, crate::claude::now_secs(), |_, _| false);
     }
 
     /// Those not deferred: what needs you now.
@@ -365,6 +370,11 @@ impl Issues {
                 }
             }
             self.watch_reviews();
+            // A deferral whose time's come: back.
+            let now = crate::claude::now_secs();
+            if self.todo.iter().any(|it| it.deferred.as_ref().is_some_and(|d| d.until <= now)) {
+                self.find_todo();
+            }
             if let Some(Ok(res)) = self.rank_rx.as_ref().map(Receiver::try_recv) {
                 self.rank_rx = None;
                 match res {
@@ -452,7 +462,7 @@ impl Issues {
             (_, KeyCode::Char('s')) if self.tab == ITab::Todo => self.defer_key(),
             (_, KeyCode::Char('r')) if self.tab == ITab::Todo => {
                 self.pending = Some('r');
-                self.msg = format!("r again: Claude ranks the {} issue(s) that need you (one run; {})", self.todo.len(), match &self.ranked {
+                self.msg = format!("r again: Claude ranks the {} issue(s) that need you (one run; {})", self.todo_now(), match &self.ranked {
                     Some(r) => format!("ranked {} ago, cost ${:.2}", gh::ago_secs(crate::claude::now_secs() - r.at), r.cost),
                     None => "never ranked before".into(),
                 });
@@ -512,7 +522,8 @@ impl Issues {
     fn defer_key(&mut self) {
         let Some(n) = self.shown().get(self.sel).map(|i| i.number) else { return };
         let Some(it) = self.todo.iter().find(|it| it.number == n) else { return };
-        if self.deferred.remove(&it.key()).is_some() {
+        if it.deferred.is_some() {
+            self.deferred.remove(&it.key());
             self.msg = format!("#{n} is back");
             return self.save_defer();
         }
@@ -523,12 +534,7 @@ impl Issues {
     fn defer_for(&mut self, c: char) {
         let Some(key) = self.deferring.take() else { return };
         let Some(it) = self.todo.iter().find(|it| it.key() == key) else { return };
-        let (secs, how) = match c {
-            '1' => (3600, "an hour"),
-            '4' => (4 * 3600, "four hours"),
-            'd' => (86400, "a day"),
-            _ => (7 * 86400, "a week"),
-        };
+        let (secs, how) = crate::todo::defer_secs(c);
         self.deferred.insert(key, crate::todo::Deferral { until: crate::claude::now_secs() + secs, needs: it.needs_key(), cond: None });
         self.msg = format!("deferred for {how} (s on it brings it back)");
         self.save_defer();
@@ -543,15 +549,18 @@ impl Issues {
 
     /// `r r`: Claude ranks the todo tab (one run, in the background).
     fn rank(&mut self) {
-        if self.todo.is_empty() {
+        if self.rank_rx.is_some() {
+            return self.msg = "Claude is ranking them already".into();
+        }
+        if self.todo_now() == 0 {
             return self.msg = "nothing on the todo tab to rank".into();
         }
-        let lines: Vec<String> = self
-            .todo
+        let now: Vec<crate::todo::Item> = self.todo.iter().filter(|it| it.deferred.is_none()).cloned().collect();
+        let lines: Vec<String> = now
             .iter()
             .filter_map(|it| Some(about_issue(it, self.items.iter().find(|i| i.number == it.number)?, self.triage.get(&it.number))))
             .collect();
-        self.rank_rx = Some(crate::todo::rank_of(lines, crate::todo::fingerprint(&self.todo), self.root.clone(), crate::todo::Of::Issues));
+        self.rank_rx = Some(crate::todo::rank_of(lines, crate::todo::fingerprint(&now), self.root.clone(), crate::todo::Of::Issues));
         self.msg = "Claude is ranking what needs you…".into();
     }
 
@@ -569,6 +578,7 @@ impl Issues {
         let Some(extra) = said(instructions(term, "triage", "instructions for Claude's triage (optional)"), &mut self.msg) else { return };
         self.msg = format!("Claude is triaging {} issue(s), {} at a time", ns.len(), batch::AT_ONCE);
         self.marked.clear();
+        let ns = ns.into_iter().map(|n| (n, self.items.iter().find(|i| i.number == n).map_or(String::new(), |i| i.updated.clone()))).collect();
         self.running_rx.push(triage_all(ns, self.root.clone(), extra));
     }
 
@@ -624,7 +634,7 @@ impl Issues {
                 let rank = item.filter(|_| column.is_some()).map(|_| k + 1); // (narrow: on the line under the title)
                 let mut l = issue_card(i, ui, k == sel, self.marked.contains(&i.number), num_w, card_w, self.triage.get(&i.number), self.running.get(&i.number), rank);
                 if let Some(it) = item {
-                    let cx = Cards { ui, num_w, width: card_w, checks_loading: false, usual: "" };
+                    let cx = Cards { ui, num_w: num_w.max(3), width: card_w, checks_loading: false, usual: "" };
                     match column {
                         Some(w) => l = with_message(l, &todo_says(it).1, &cx, w, width, k == sel),
                         None => l.insert(1, todo_line(k + 1, it, &cx, k == sel)),
@@ -811,7 +821,7 @@ fn live_triage() {
     let repo = std::path::PathBuf::from(std::env::var("DV_LIVE_REPO").expect("DV_LIVE_REPO"));
     std::env::set_current_dir(&repo).unwrap();
     let n: u64 = std::env::var("DV_LIVE_ISSUE").expect("DV_LIVE_ISSUE").parse().unwrap();
-    println!("{:?}", triage_run(n, &repo, ""));
+    println!("{:?}", triage_run(n, "", &repo, ""));
     let dir = crate::claude::dv_dir().unwrap().join("reviews");
     println!("{:?}", triage_of(&dir, n));
     assert!(triage_of(&dir, n).is_some());

@@ -191,10 +191,10 @@ impl List {
         List {
             ui: Theme::load().ui(),
             flags,
-            ranked: crate::todo::load(),
+            ranked: crate::todo::load_of(crate::todo::Of::Prs),
             auto: crate::diff::git(&["config", "--get", "dv.auto"]).is_ok_and(|v| v.trim() == "true"),
-            deferred: crate::todo::load_deferred(crate::todo::deferred_path().as_deref()),
-            deferred_file: crate::todo::deferred_path(),
+            deferred: crate::todo::load_deferred(crate::todo::deferred_path_of(crate::todo::Of::Prs).as_deref()),
+            deferred_file: crate::todo::deferred_path_of(crate::todo::Of::Prs),
             wide: true,
             reviews_dir: crate::claude::dv_dir().ok().map(|d| d.join("reviews")),
             root: std::env::current_dir().unwrap_or_default(),

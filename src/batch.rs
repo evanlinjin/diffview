@@ -87,6 +87,12 @@ impl Numbered for u64 {
     }
 }
 
+impl Numbered for (u64, String) {
+    fn number(&self) -> u64 {
+        self.0
+    }
+}
+
 impl Numbered for (u64, bool, Task) {
     fn number(&self) -> u64 {
         self.0
