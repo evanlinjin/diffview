@@ -777,3 +777,52 @@ fn disk_line(cache: &mut HashMap<PathBuf, String>, p: &Path, n: u32) -> String {
     let text = cache.entry(p.to_owned()).or_insert_with(|| std::fs::read_to_string(p).unwrap_or_default());
     text.lines().nth(n as usize).unwrap_or("").to_owned()
 }
+
+impl App {
+    /// Whether thread `t` shows: in the Claude view, only those of Claude's review; in the
+    /// pending view, those with a comment of your pending review.
+    pub(super) fn in_view(&self, t: &Thread) -> bool {
+        self.in_view_of(self.view, t)
+    }
+
+    /// `in_view`, for view `v` (the pane's tabs count what each would show).
+    pub(super) fn in_view_of(&self, v: View, t: &Thread) -> bool {
+        // Comments are on the PR's head: not on commits before it (but one about a commit is
+        // on no lines: it shows whatever's shown).
+        if self.before_head() && commit_of(&t.conversation).is_none() {
+            return false;
+        }
+        Self::of_view(v, t)
+    }
+
+    /// Whether thread `t` is of view `v` (Claude's, your pending review's), shown or not.
+    pub(super) fn of_view(v: View, t: &Thread) -> bool {
+        match v {
+            View::All => true,
+            View::Claude => t.claude.is_some(),
+            View::Pending => t.comments.iter().any(|c| c.pending),
+        }
+    }
+
+    /// The Claude and Pending tabs: the Claude / pending view, or back to the
+    /// whole diff.
+    pub(super) fn toggle_view(&mut self, v: View) {
+        self.view = if self.view == v { View::All } else { v };
+        let keep = self.cursor_key();
+        self.rebuild(keep);
+        let any = self.any_in_view();
+        self.msg = match self.view {
+            View::Claude if !any && self.claude.summary.is_empty() => "Claude view: Claude hasn't reviewed this yet (Space a asks it; gn / gp: the other tabs)",
+            View::Claude => "Claude view: its summary and the code it commented on (gn / gp: the other tabs)",
+            View::Pending if !any && self.summary_draft.is_empty() => "pending view: no pending review yet (c queues a comment; gn / gp: the other tabs)",
+            View::Pending => "pending view: your pending review and the code it's on (S submits it; gn / gp: the other tabs)",
+            View::All => "the whole diff",
+        }
+        .into();
+    }
+
+    /// Whether the view has threads in it (on an earlier commit too, where they're hidden).
+    pub(super) fn any_in_view(&self) -> bool {
+        self.threads.iter().any(|t| Self::of_view(self.view, t))
+    }
+}

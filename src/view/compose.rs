@@ -231,7 +231,7 @@ impl App {
                     let Some(extra) = compose_with(&what, true, crate::claude::instructions("replace").trim_end(), true)? else { return Ok("not asked".into()) };
                     crate::claude::save_instructions("replace", &extra)?; // `dv replace` reads them
                 }
-                agent::spawn_replace(&prs)?;
+                crate::replace::spawn(&prs)?;
                 Ok(format!("Claude is drafting a replacement for {which} in the background: dv list's replacements tab shows it"))
             }
             Action::Publish(close) => {
@@ -268,7 +268,7 @@ impl App {
                 let Some(task) = compose_with(what, false, &prefill, true)?.filter(|t| !t.trim().is_empty()) else { return Ok("not asked".into()) };
                 let id = crate::replace::create_new(&task, &self.root)?;
                 crate::claude::ci_fix_drafted(n); // not offered again
-                agent::spawn_replace(&[id])?;
+                crate::replace::spawn(&[id])?;
                 Ok(format!("Claude is drafting {} in the background: dv list's drafts tab shows it", crate::replace::label(id)))
             }
             Action::CloseOriginals => {

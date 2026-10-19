@@ -604,8 +604,8 @@ impl App {
                         Target::GitApproveRuns => self.approve_runs(),
                         Target::ClaudeDismissOutdated(sure) => self.dismiss_outdated(sure),
                         Target::DescApprove(sure) => self.approve_description(sure),
-                        Target::DescDiscard => self.discard_description(),
-                        Target::CloseDiscard => self.discard_closing(),
+                        Target::DescDiscard => self.discard("description", "Claude's proposed description"),
+                        Target::CloseDiscard => self.discard("closing", "Claude's closing comment"),
                         Target::Nothing => {}
                     }
                 }

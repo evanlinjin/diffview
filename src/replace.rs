@@ -302,6 +302,22 @@ pub fn ask(id: u64, text: &str) -> Result<()> {
     save(&r)
 }
 
+/// Have Claude draft a replacement for `prs` with a dv of its own (`dv replace`), in the
+/// background: it carries on if this dv quits. Its output goes to a log in the temp dir.
+pub fn spawn(prs: &[u64]) -> Result<()> {
+    use std::os::unix::process::CommandExt;
+    let log = std::env::temp_dir().join(format!("dv-replace-{}.log", prs[0]));
+    std::process::Command::new(crate::self_exe())
+        .arg("replace")
+        .args(prs.iter().map(u64::to_string))
+        .stdin(std::process::Stdio::null())
+        .stdout(std::fs::File::create(&log)?)
+        .stderr(std::fs::File::create(log.with_extension("err"))?)
+        .process_group(0) // not this terminal's: closing it doesn't stop the draft
+        .spawn()?;
+    Ok(())
+}
+
 /// The directory a draft may write to (its record): `--add-dir`.
 pub fn writable() -> Result<PathBuf> {
     dir()

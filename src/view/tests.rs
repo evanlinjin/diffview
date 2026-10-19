@@ -2254,7 +2254,7 @@ fn claude_proposes_a_description() {
     app.start_ask_claude();
     assert!(matches!(app.action.take(), Some(Action::ClaudeWith(agent::Ask::Describe))), "{}", app.msg);
     // Discarded: gone from the file, and the description is as it was.
-    app.discard_description();
+    app.discard("description", "Claude's proposed description");
     assert!(!std::fs::read_to_string(&path).unwrap().contains("description"));
     assert!(app.rows.iter().any(|r| r.main.is_some() && r.line.text == "description"));
     _ = std::fs::remove_file(&path);
@@ -2279,7 +2279,7 @@ fn claude_drafts_a_closing_comment() {
     app.start_ask_claude();
     assert!(matches!(app.action.take(), Some(Action::ClaudeWith(agent::Ask::Close))), "{}", app.msg);
     // Discarded: gone; Space a offers to draft one.
-    app.discard_closing();
+    app.discard("closing", "Claude's closing comment");
     assert!(!std::fs::read_to_string(&path).unwrap().contains("closing") && !app.rows.iter().any(|r| r.main == Some(CLOSING_PR)));
     app.claude_menu();
     assert!(app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::Claude(agent::Ask::Close))));

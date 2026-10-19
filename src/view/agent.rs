@@ -84,53 +84,6 @@ pub(super) struct ClaudeState {
 }
 
 impl App {
-    /// Whether thread `t` shows: in the Claude view, only those of Claude's review; in the
-    /// pending view, those with a comment of your pending review.
-    pub(super) fn in_view(&self, t: &Thread) -> bool {
-        self.in_view_of(self.view, t)
-    }
-
-    /// `in_view`, for view `v` (the pane's tabs count what each would show).
-    pub(super) fn in_view_of(&self, v: View, t: &Thread) -> bool {
-        // Comments are on the PR's head: not on commits before it (but one about a commit is
-        // on no lines: it shows whatever's shown).
-        if self.before_head() && commit_of(&t.conversation).is_none() {
-            return false;
-        }
-        Self::of_view(v, t)
-    }
-
-    /// Whether thread `t` is of view `v` (Claude's, your pending review's), shown or not.
-    fn of_view(v: View, t: &Thread) -> bool {
-        match v {
-            View::All => true,
-            View::Claude => t.claude.is_some(),
-            View::Pending => t.comments.iter().any(|c| c.pending),
-        }
-    }
-
-    /// The Claude and Pending tabs: the Claude / pending view, or back to the
-    /// whole diff.
-    pub(super) fn toggle_view(&mut self, v: View) {
-        self.view = if self.view == v { View::All } else { v };
-        let keep = self.cursor_key();
-        self.rebuild(keep);
-        let any = self.any_in_view();
-        self.msg = match self.view {
-            View::Claude if !any && self.claude.summary.is_empty() => "Claude view: Claude hasn't reviewed this yet (Space a asks it; gn / gp: the other tabs)",
-            View::Claude => "Claude view: its summary and the code it commented on (gn / gp: the other tabs)",
-            View::Pending if !any && self.summary_draft.is_empty() => "pending view: no pending review yet (c queues a comment; gn / gp: the other tabs)",
-            View::Pending => "pending view: your pending review and the code it's on (S submits it; gn / gp: the other tabs)",
-            View::All => "the whole diff",
-        }
-        .into();
-    }
-
-    /// Whether the view has threads in it (on an earlier commit too, where they're hidden).
-    pub(super) fn any_in_view(&self) -> bool {
-        self.threads.iter().any(|t| Self::of_view(self.view, t))
-    }
-
     /// Whether `ask` may change the code (or reads it whole: a review): answering does when a
     /// reply waiting wants a change.
     pub(super) fn edits(&self, ask: Ask) -> bool {
@@ -382,7 +335,7 @@ impl App {
         if let Some(b) = body {
             self.info[b].text = text;
         }
-        let cleared = crate::claude::clear_description(&path);
+        let cleared = crate::claude::clear(&path, "description");
         let keep = self.cursor_key();
         self.load_claude();
         self.rebuild(keep);
@@ -401,7 +354,7 @@ impl App {
             return Ok(format!("#{n} not closed"));
         };
         keep_on_error(crate::gh::close(n, Some(text.trim())), &text)?;
-        _ = crate::claude::clear_closing(&path);
+        _ = crate::claude::clear(&path, "closing");
         self.pr_state = Some(("CLOSED", "da3633"));
         self.github_changed();
         let keep = self.cursor_key();
@@ -410,29 +363,15 @@ impl App {
         Ok(format!("#{n} closed, with your comment"))
     }
 
-    /// `Space a` → discard Claude's closing comment.
-    pub(super) fn discard_closing(&mut self) {
+    /// `Space a` → discard Claude's draft `key` (`"description"`, `"closing"`), `what` it is.
+    pub(super) fn discard(&mut self, key: &str, what: &str) {
         let Some(path) = self.claude.path.clone() else { return };
-        self.msg = match crate::claude::clear_closing(&path) {
+        self.msg = match crate::claude::clear(&path, key) {
             Ok(()) => {
                 let keep = self.cursor_key();
                 self.load_claude();
                 self.rebuild(keep);
-                "Claude's closing comment discarded".into()
-            }
-            Err(e) => format!("{e:#}"),
-        };
-    }
-
-    /// `Space a` → discard Claude's proposed description.
-    pub(super) fn discard_description(&mut self) {
-        let Some(path) = self.claude.path.clone() else { return };
-        self.msg = match crate::claude::clear_description(&path) {
-            Ok(()) => {
-                let keep = self.cursor_key();
-                self.load_claude();
-                self.rebuild(keep);
-                "Claude's proposed description discarded".into()
+                format!("{what} discarded")
             }
             Err(e) => format!("{e:#}"),
         };
@@ -848,22 +787,6 @@ pub(super) fn refusal(out: &serde_json::Value) -> Option<String> {
         n => format!(" (and {} more)", n - 1),
     };
     Some(format!("{} {target}{more}", d["tool_name"].as_str().unwrap_or("a tool")).replace("  ", " ").trim().to_owned())
-}
-
-/// Have Claude draft a replacement for `prs` with a dv of its own (`dv replace`), in the
-/// background: it carries on if this dv quits. Its output goes to a log in the temp dir.
-pub(super) fn spawn_replace(prs: &[u64]) -> Result<()> {
-    use std::os::unix::process::CommandExt;
-    let log = std::env::temp_dir().join(format!("dv-replace-{}.log", prs[0]));
-    std::process::Command::new(crate::self_exe())
-        .arg("replace")
-        .args(prs.iter().map(u64::to_string))
-        .stdin(std::process::Stdio::null())
-        .stdout(std::fs::File::create(&log)?)
-        .stderr(std::fs::File::create(log.with_extension("err"))?)
-        .process_group(0) // not this terminal's: closing it doesn't stop the draft
-        .spawn()?;
-    Ok(())
 }
 
 /// How long since `t`, for the status bar: "40s", "3m".

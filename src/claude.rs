@@ -701,17 +701,9 @@ fn push_comment(path: &std::path::Path, c: Value) -> Result<String> {
     Ok(id)
 }
 
-/// Drop Claude's proposed description (approved, or discarded).
-pub fn clear_description(path: &std::path::Path) -> Result<()> {
-    clear(path, "description")
-}
-
-/// Drop Claude's draft closing comment (used, or discarded).
-pub fn clear_closing(path: &std::path::Path) -> Result<()> {
-    clear(path, "closing")
-}
-
-fn clear(path: &std::path::Path, key: &str) -> Result<()> {
+/// Drop the review file's top-level draft `key`: Claude's proposed `"description"`, or its
+/// `"closing"` comment (used, or discarded).
+pub fn clear(path: &std::path::Path, key: &str) -> Result<()> {
     let mut v: Value = serde_json::from_str(&std::fs::read_to_string(path)?)?;
     if let Some(o) = v.as_object_mut() {
         o.remove(key);
