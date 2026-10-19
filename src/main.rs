@@ -21,8 +21,8 @@ const USAGE: &str = "usage: dv [base | PR | list] [-p N] [-f] [-w [-b]]
   dv main          ... vs merge-base of main
   dv 123           review PR 123 (gh pr checkout 123 first); same as -p 123 / --pr 123
   dv list          pick from the open PRs; Enter reviews one with the flags given here
-  dv issues        the open issues (dv list's, I I there): Claude triages them
                    (dv list -wb: each in a worktree on its branch), q goes back to the list
+  dv issues        the open issues (dv list's, I I there): Claude triages them
   dv review-info   for Claude Code (or any tool) writing a review dv shows: the review
                    file's path, and the base and head of the diff dv shows (of PR N with -p N)
   dv review-check  check that file's comments against the diff (exit 1 on errors)
@@ -263,6 +263,11 @@ fn pick_and_review(o: &Opts, root: &Path) -> anyhow::Result<()> {
             let res = issues.run(&mut term);
             view::restore_terminal();
             match res? {
+                // (Not with Claude still at work on PRs from the list: back there, saying so.)
+                list::issues::IssuesDo::Quit if list.busy() => {
+                    list.msg = "Claude is still at work on PRs here: q again (in dv list) quits".into();
+                    on_issues = false;
+                }
                 list::issues::IssuesDo::Quit => return Ok(()),
                 list::issues::IssuesDo::Prs => on_issues = false,
             }

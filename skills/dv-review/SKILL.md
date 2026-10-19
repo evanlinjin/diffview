@@ -312,8 +312,8 @@ user's new instructions ask, updating the code, commits and drafts to match. Its
 
 ## Triage an issue
 
-Asked to triage issue #N, write its triage to the file the prompt names (`issue-N.json` beside
-the reviews), a JSON object:
+Asked to triage issue #N, reply with its triage, only a JSON object (dv keeps it as
+`issue-N.json` beside the reviews):
 
 ```json
 {"issue": 2312, "kind": "bug", "priority": "high",
@@ -323,7 +323,9 @@ the reviews), a JSON object:
 ```
 
 - Read it all: `gh issue view N --comments`; related ones (`gh issue list --search`, `gh search
-  prs`); and the code (Read, Grep, `git log`). Change nothing, and don't comment or label on GitHub.
+  prs`); and the code as it is on the base branch the prompt names (`git show <base>:<path>`,
+  `git log <base>`; Read and Grep see this checkout, which may be on another branch). You can't
+  change anything, and don't try to comment or label on GitHub.
 - `kind`: `bug`, `feature`, `question`, `docs` or `chore`. `priority`: `high` (broken for
   users, data at risk, blocks others), `medium`, `low`.
 - `summary`: markdown, short. For a bug: is it still there on the base branch (where, as

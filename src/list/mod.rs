@@ -181,6 +181,11 @@ pub struct Pick {
 type PrCache = std::sync::Arc<std::sync::Mutex<HashMap<u64, (std::time::Instant, gh::Pr)>>>;
 
 impl List {
+    /// Claude at work on PRs from here (reviews under way or queued).
+    pub fn busy(&self) -> bool {
+        self.batch.values().any(batch::Status::running)
+    }
+
     pub fn new(flags: String) -> List {
         List {
             ui: Theme::load().ui(),

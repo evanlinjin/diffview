@@ -132,6 +132,19 @@ pub(crate) fn claude_dirs() -> Vec<std::ffi::OsString> {
 /// with dv's directory reachable, and only the commands the skill needs.
 /// `more`: tools allowed on top of the usual ones; `access`: the one directory outside `dir`
 /// Claude may write to (`None`: all of dv's).
+/// What a reading-only run may use beyond its own reading tools (Read, Grep, Glob): looking,
+/// never changing.
+const READ_ONLY: &[&str] = &["Bash(git diff:*)", "Bash(git show:*)", "Bash(git log:*)", "Bash(git rev-parse:*)", "Bash(gh pr view:*)"];
+
+/// `claude -p prompt` in `dir` that only reads (no edits allowed: what it says is its answer),
+/// with `more` commands on top of `READ_ONLY`. No session.
+pub(crate) fn claude_reader(prompt: &str, dir: &Path, more: &[&str]) -> std::process::Command {
+    let mut cmd = std::process::Command::new("claude");
+    cmd.env("PATH", path_for_claude()).args(["-p", prompt, "--output-format", "json"]);
+    cmd.arg("--allowedTools").args(READ_ONLY).args(more).current_dir(dir);
+    cmd
+}
+
 pub(crate) fn claude_command(prompt: &str, dir: &Path, session: &[String], more: &[&str], access: Option<&Path>) -> std::process::Command {
     let mut cmd = std::process::Command::new("claude");
     // No editor to wait on (`git rebase --continue`, `git commit` without -m).

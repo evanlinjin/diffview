@@ -117,27 +117,38 @@ pub fn triage_of(dir: &std::path::Path, n: u64) -> Option<Triage> {
     Some(Triage { kind: s("kind"), priority: s("priority"), next: s("next"), close: s("close") })
 }
 
-/// Claude triages issue `n` (`extra`: your instructions), in the main checkout, reading only:
-/// its review file is `issue-N.json` beside the PRs' reviews.
+/// Claude triages issue `n` (`extra`: your instructions), in the main checkout, reading only
+/// (it can't edit: its answer is the triage, which dv writes to `issue-N.json` beside the PRs'
+/// reviews).
 fn triage_run(n: u64, root: &std::path::Path, extra: &str) -> Result<batch::Status> {
     let file = crate::claude::dv_dir()?.join("reviews").join(format!("issue-{n}.json"));
+    let base = crate::diff::remote_branch(&crate::list::issues::default_branch());
     let prompt = format!(
-        "Use the dv-review skill to triage issue #{n} (see \"Triage an issue\"): its file is {}. (It's {} now.)",
-        file.display(),
+        "Use the dv-review skill to triage issue #{n} (see \"Triage an issue\"); the code as it is on the base branch \
+         is `{base}` (`git show {base}:<path>`, `git log {base}`): this checkout may be on another branch. Reply with \
+         only the JSON object. (It's {} now.)",
         crate::claude::now()
     );
     let prompt = crate::claude::with_instructions(&prompt, extra);
     let tools = ["Bash(gh issue view:*)", "Bash(gh issue list:*)", "Bash(gh search:*)", "Bash(gh label list:*)"];
-    let log = std::env::temp_dir().join(format!("dv-claude-issue-{}-{n}.log", std::process::id()));
-    let st = crate::claude::claude_command(&prompt, root, &[], &tools, None)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::fs::File::create(&log)?)
-        .stderr(std::fs::File::create(log.with_extension("err"))?)
-        .status()
-        .context("is Claude Code (`claude`) installed?")?;
-    let v: Value = std::fs::read_to_string(&log).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
-    anyhow::ensure!(st.success() && v["is_error"] == false, "Claude stopped ({st}): see {}", log.display());
+    let out = crate::claude::claude_reader(&prompt, root, &tools).stdin(std::process::Stdio::null()).output().context("is Claude Code (`claude`) installed?")?;
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
+    anyhow::ensure!(out.status.success() && v["is_error"] == false, "Claude stopped ({}): {}", out.status, String::from_utf8_lossy(&out.stderr).lines().last().unwrap_or(""));
+    let answer = v["result"].as_str().unwrap_or("");
+    let json = answer.get(answer.find('{').context("no triage in Claude's answer")?..=answer.rfind('}').context("no triage")?).unwrap_or("");
+    let mut t: Value = serde_json::from_str(json).context("Claude's triage isn't JSON")?;
+    t["issue"] = n.into();
+    std::fs::create_dir_all(file.parent().context("no dir")?)?;
+    crate::claude::write(&file, &t)?;
     Ok(batch::Status::Done(format!("{} turns, ${:.2}", v["num_turns"].as_u64().unwrap_or(0), v["total_cost_usd"].as_f64().unwrap_or(0.0))))
+}
+
+/// The repo's default branch (the base issues are about), as `origin/HEAD` names it.
+pub fn default_branch() -> String {
+    crate::diff::git(&["rev-parse", "--abbrev-ref", &format!("{}/HEAD", crate::diff::remote())])
+        .ok()
+        .and_then(|b| b.trim().split_once('/').map(|(_, b)| b.to_owned()))
+        .unwrap_or_else(|| "master".into())
 }
 
 /// Claude triages each of `ns`, a couple at a time, in the background: its news on the receiver.
@@ -211,7 +222,7 @@ impl Issues {
     fn watch_reviews(&mut self) {
         let Some(dir) = &self.reviews_dir else { return };
         let mtime = std::fs::metadata(dir).and_then(|m| m.modified()).ok();
-        if mtime == self.reviews_mtime && !self.triage.is_empty() {
+        if mtime == self.reviews_mtime {
             return;
         }
         self.reviews_mtime = mtime;
@@ -236,7 +247,7 @@ impl Issues {
     fn matches(&self, i: &Issue) -> bool {
         let t = self.triage.get(&i.number);
         self.query.split_whitespace().all(|term| {
-            let (neg, term) = match term.strip_prefix('-') {
+            let (neg, term) = match term.strip_prefix('-').filter(|t| !t.is_empty()) {
                 Some(t) => (true, t),
                 None => (false, term),
             };
@@ -284,8 +295,13 @@ impl Issues {
             self.watch_reviews();
             for rx in &self.running_rx {
                 while let Ok((n, st)) = rx.try_recv() {
-                    if let batch::Status::Failed(e) = &st {
-                        self.msg = format!("#{n}: {}", e.lines().next().unwrap_or(""));
+                    match &st {
+                        batch::Status::Failed(e) => self.msg = format!("#{n}: {}", e.lines().next().unwrap_or("")),
+                        batch::Status::Done(took) => {
+                            self.msg = format!("triaged #{n} ({took})");
+                            self.reviews_mtime = None; // (read again: written over, the dir may not say)
+                        }
+                        _ => {}
                     }
                     self.running.insert(n, st);
                 }
@@ -293,10 +309,16 @@ impl Issues {
             if !event::poll(Duration::from_millis(100))? {
                 continue;
             }
-            let Event::Key(k) = event::read()? else { continue };
-            if k.kind != KeyEventKind::Press {
-                continue;
-            }
+            let k = match event::read()? {
+                Event::Key(k) if k.kind == KeyEventKind::Press => k,
+                // The wheel moves the cursor, as j / k.
+                Event::Mouse(m) => match m.kind {
+                    event::MouseEventKind::ScrollDown => KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+                    event::MouseEventKind::ScrollUp => KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
+                    _ => continue,
+                },
+                _ => continue,
+            };
             if let Some(d) = self.key(term, k) {
                 return Ok(d);
             }
@@ -355,8 +377,13 @@ impl Issues {
             (_, KeyCode::Char('j') | KeyCode::Down) => self.sel = (self.sel + 1).min(n.saturating_sub(1)),
             (_, KeyCode::Char('k') | KeyCode::Up) => self.sel = self.sel.saturating_sub(1),
             (_, KeyCode::Char('/')) => self.filtering = true,
-            (_, KeyCode::Esc) => self.query.clear(),
+            (_, KeyCode::Esc) => (self.query.clear(), self.sel = 0).1,
             (_, KeyCode::Char('?')) => self.help = true,
+            (Some('q'), KeyCode::Char('q')) => return Some(IssuesDo::Quit),
+            (_, KeyCode::Char('q')) if self.running.values().any(batch::Status::running) => {
+                self.pending = Some('q');
+                self.msg = "Claude is still triaging: q again quits (its runs stop with dv)".into();
+            }
             (_, KeyCode::Char('q')) => return Some(IssuesDo::Quit),
             (_, KeyCode::Char('R')) => {
                 self.msg = "fetching the open issues…".into();
@@ -392,8 +419,10 @@ impl Issues {
             true => self.shown().get(self.sel).map(|i| i.number).into_iter().collect(),
             false => self.items.iter().map(|i| i.number).filter(|n| self.marked.contains(n)).collect(),
         };
+        // (Not one Claude's at already.)
+        let ns: Vec<u64> = ns.into_iter().filter(|n| !self.running.get(n).is_some_and(batch::Status::running)).collect();
         if ns.is_empty() {
-            return self.msg = "no issue here to triage".into();
+            return self.msg = "nothing to triage (Claude's at it already?)".into();
         }
         let in_pane = crate::view::in_zellij();
         if !in_pane {
@@ -528,7 +557,7 @@ fn issue_card(i: &Issue, ui: &Ui, selected: bool, marked: bool, num_w: usize, wi
     }
     let triage = match (run, t) {
         (Some(s), _) if s.running() => vec![sp("claude: triaging…".into(), tint(ui.key))],
-        (Some(batch::Status::Failed(_)), _) => vec![sp("claude failed (status bar)".into(), tint(ui.error))],
+        (Some(batch::Status::Failed(e)), _) => vec![sp(format!("claude failed: {}", e.lines().next().unwrap_or("")), tint(ui.error))],
         (_, Some(t)) if !t.close.is_empty() => vec![sp(format!("✕ close: {}", t.close), tint(ui.warning))],
         (_, Some(t)) => vec![sp([t.kind.as_str(), t.priority.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" · "), tint(ui.key))],
         _ => vec![],
@@ -605,4 +634,18 @@ fn issues_listed_triaged_filtered() {
     l.items.iter_mut().for_each(|i| i.updated.clear()); // (no age: the snapshot stays as it is)
     snapshot("issues", &screen(140, 12, |f| l.draw(f)));
     _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Live: `DV_LIVE_REPO=<a checkout> DV_LIVE_ISSUE=N cargo test live_triage -- --ignored --nocapture`
+/// (with `XDG_DATA_HOME` somewhere to try it).
+#[test]
+#[ignore]
+fn live_triage() {
+    let repo = std::path::PathBuf::from(std::env::var("DV_LIVE_REPO").expect("DV_LIVE_REPO"));
+    std::env::set_current_dir(&repo).unwrap();
+    let n: u64 = std::env::var("DV_LIVE_ISSUE").expect("DV_LIVE_ISSUE").parse().unwrap();
+    println!("{:?}", triage_run(n, &repo, ""));
+    let dir = crate::claude::dv_dir().unwrap().join("reviews");
+    println!("{:?}", triage_of(&dir, n));
+    assert!(triage_of(&dir, n).is_some());
 }
