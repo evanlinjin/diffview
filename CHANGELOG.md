@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.91] - 2026-10-19
+
+### Fixed
+- `-b` (as `dv list` opens PRs): a PR whose branch is checked out in another worktree with
+  commits not pushed yet (a rebase, an amend: a replacement's, say) opens there, as it does
+  when it's only ahead; it failed to open. The branch is the PR's when it pushes to the PR's.
+- Amending: new files only marked (`git add -N`, as Claude does) are added for real first:
+  they stopped the amend (git can't stash them), and came back untracked. A commit whose
+  changes were left out is named by its subject (its sha may have changed meanwhile).
+
 ## [0.34.90] - 2026-10-19
 
 ### Fixed
