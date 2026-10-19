@@ -1083,16 +1083,17 @@ fn requires_signatures(p: &Value) -> bool {
 
 /// PR `n`'s commits' signatures, and whether its base requires them: one GraphQL query.
 pub fn signatures(n: u64) -> Result<Signatures> {
-    // Whole, or not at all: a commit GitHub had trouble with isn't one that isn't signed.
-    match pr_query(n, "")? {
-        (p, false) => signatures_of(&p),
-        (_, true) => anyhow::bail!("GitHub didn't say for every commit"),
-    }
+    // Whole, or not at all: a commit GitHub had trouble with isn't one that isn't signed. (Its
+    // base's rules refused: taken as not requiring them, as before.)
+    let (p, refused) = pr_query(n, "")?;
+    anyhow::ensure!(p.is_object() && !refused.iter().any(|r| r == "commits"), "GitHub didn't say for every commit");
+    signatures_of(&p)
 }
 
 /// PR `n`'s commits' signatures and its base's rules, and `more` of it: one GraphQL query; the
-/// pull request's node, and whether GitHub refused some of it (that part null).
-fn pr_query(n: u64, more: &str) -> Result<(Value, bool)> {
+/// pull request's node, and the parts of it GitHub refused (their fields under it, e.g.
+/// `commits`: null there).
+fn pr_query(n: u64, more: &str) -> Result<(Value, Vec<String>)> {
     let q = format!(
         "query($owner: String!, $name: String!, $n: Int!) {{ repository(owner: $owner, name: $name) {{ pullRequest(number: $n) {{
            {SIGNATURE_RULES} commits(last: 100) {{ totalCount nodes {{ commit {{ oid signature {{ isValid }} }} }} }} {more} }} }} }}"
@@ -1106,9 +1107,20 @@ fn pr_query(n: u64, more: &str) -> Result<(Value, bool)> {
         .context("running gh")?;
     let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
     let p = &v["data"]["repository"]["pullRequest"];
-    let why = v["errors"][0]["message"].as_str().map_or_else(|| String::from_utf8_lossy(&out.stderr).trim().to_owned(), str::to_owned);
+    // Refused whole (GitHub answered, with no data): `*` refused. Not answered (offline, gh
+    // failing): an error.
+    if !p.is_object() && v["errors"].as_array().is_some_and(|e| !e.is_empty()) {
+        return Ok((Value::Null, vec!["*".into()]));
+    }
+    let why = String::from_utf8_lossy(&out.stderr).trim().to_owned();
     anyhow::ensure!(p.is_object(), "gh api graphql: {why}");
-    Ok((p.clone(), v["errors"].as_array().is_some_and(|e| !e.is_empty())))
+    let refused = v["errors"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|e| e["path"].get(2).and_then(Value::as_str).unwrap_or("?").to_owned()) // repository.pullRequest.<field>
+        .collect();
+    Ok((p.clone(), refused))
 }
 
 fn signatures_of(p: &Value) -> Result<Signatures> {
@@ -1146,17 +1158,18 @@ pub fn info_json(n: u64) -> Result<Value> {
         v["dvAwaiting"] = w.get(&sha).map_or(0, Vec::len).into();
     }
     // One query for both: its commits' signatures, and which reactions are yours.
-    // (Some of it refused, or all: the signatures on their own, whole or not at all.)
+    // (Its commits refused, or all of it: the signatures asked on their own, whole or not at
+    // all. Only its reactions refused: the signatures are there.)
     let extra = pr_query(n, MINE);
     if let Ok((p, _)) = &extra {
         v["dvMine"] = mine_of(p);
     }
+    let commits_ok = |r: &[String]| !r.iter().any(|r| r == "commits");
     let whole = match extra {
-        Ok((p, false)) => Some(p),
-        _ => match pr_query(n, "") {
-            Ok((p, false)) => Some(p),
-            _ => None,
-        },
+        // Refused whole (for its reactions, maybe): the signatures alone.
+        Ok((p, _)) if p.is_null() => pr_query(n, "").ok().filter(|(p, r)| p.is_object() && commits_ok(r)).map(|(p, _)| p),
+        Ok((p, r)) if commits_ok(&r) => Some(p),
+        _ => None, // (its commits refused: asking again would be too; offline: so would it)
     };
     if let Some(s) = whole.and_then(|p| signatures_of(&p).ok()) {
         v["dvCommits"] = s.commits.into_iter().map(|(oid, signed)| json!({ "oid": oid, "signed": signed })).collect();

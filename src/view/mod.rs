@@ -747,6 +747,8 @@ pub struct App {
     /// as it was then (a load since is newer, so that one's dropped).
     github: Option<std::sync::mpsc::Receiver<(u64, review::Fetched)>>,
     github_gen: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    /// Tells the background watch to fetch now, whatever the PR's ETag says.
+    github_poke: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// What's shown came from the cache, and the fresh fetch isn't in yet.
     github_stale: bool,
 }
@@ -948,6 +950,7 @@ impl App {
             label_first: None,
             github: None,
             github_gen: Default::default(),
+            github_poke: Default::default(),
             github_stale: false,
         };
         app.shape();
@@ -976,9 +979,9 @@ impl App {
             self.watch_tree();
             self.watch_claude();
             self.watch_github();
-            if self.job.is_none() && self.refresh_at.is_some_and(|t| t <= std::time::Instant::now()) {
+            if self.refresh_at.is_some_and(|t| t <= std::time::Instant::now()) {
                 self.refresh_at = None;
-                self.job = Some(Job::Refresh);
+                self.github_poke.store(true, std::sync::atomic::Ordering::SeqCst);
             }
             self.watch_replacement();
             self.poll_claude();

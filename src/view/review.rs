@@ -88,8 +88,14 @@ impl App {
         // looks again by itself, shortly.
         if let Job::Rerun = job {
             let head = self.pr.as_ref().map(|p| p.head_oid.clone()).unwrap_or_default();
-            self.msg = gh::rerun_failed(&head).unwrap_or_else(|e| format!("{e:#}"));
-            self.refresh_at = Some(std::time::Instant::now() + std::time::Duration::from_secs(10));
+            self.msg = match gh::rerun_failed(&head) {
+                Ok(said) => {
+                    // The watch fetches again by itself, shortly (through `watch_github`).
+                    self.refresh_at = Some(std::time::Instant::now() + std::time::Duration::from_secs(10));
+                    said
+                }
+                Err(e) => format!("{e:#}"),
+            };
             return;
         }
         if let Job::Rebase = job {
@@ -650,6 +656,7 @@ impl App {
     pub(super) fn start_github_watch(&mut self, n: u64, fetch_now: bool) {
         let (tx, rx) = std::sync::mpsc::channel();
         let loads = self.github_gen.clone();
+        let poke = self.github_poke.clone();
         let cache = cache_path(n);
         std::thread::spawn(move || {
             let mut etag = gh::pr_etag(n, "").ok().flatten().unwrap_or_default();
@@ -658,9 +665,16 @@ impl App {
                 return;
             }
             loop {
-                std::thread::sleep(GITHUB_POLL);
-                let Ok(Some(e)) = gh::pr_etag(n, &etag) else { continue };
-                etag = e;
+                // A second at a time: poked (CI rerun: its checks change, not the PR's ETag),
+                // it fetches whatever the ETag says.
+                let poked = (0..GITHUB_POLL.as_secs().max(1)).any(|_| {
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    poke.swap(false, std::sync::atomic::Ordering::SeqCst)
+                });
+                if !poked {
+                    let Ok(Some(e)) = gh::pr_etag(n, &etag) else { continue };
+                    etag = e;
+                }
                 let at = loads.load(std::sync::atomic::Ordering::SeqCst);
                 if tx.send((at, fetch_github(n, cache.as_deref()))).is_err() {
                     return; // dv is done
@@ -758,12 +772,20 @@ impl App {
         let follows = self.pr.as_ref().is_some_and(|p| self.follow_base.as_deref() == Some(format!("origin/{}", p.base).as_str()));
         if follows && super::rebase::rebasing(&self.root) {
             if say {
-                self.msg = join_msg(&self.msg, &format!("the PR's base is {base} now: the diff follows once the rebase is through"));
+                self.base_note(&format!("the PR's base is {base} now: the diff follows once the rebase is through"));
             }
             return;
         }
-        self.msg = join_msg(&self.msg, &fetching(&base));
+        self.base_note(&format!("the PR's base is {base} now: fetching it…"));
         self.job = Some(Job::Retarget(base));
+    }
+
+    /// Say `note` about the PR's base after what's said, in place of an earlier one about it
+    /// (and of the "as dv last saw it" notice: this is fresh): not piled up, not over a
+    /// rebase's ending, say.
+    fn base_note(&mut self, note: &str) {
+        let keep: Vec<&str> = self.msg.split(" · ").filter(|p| !p.is_empty() && !p.starts_with("the PR's base is") && *p != STALE).collect();
+        self.msg = keep.into_iter().chain([note]).collect::<Vec<_>>().join(" · ");
     }
 
     /// The PR's base changed on GitHub to `base`: a rebase goes onto it, and the diff starts
@@ -777,7 +799,7 @@ impl App {
             let Ok(mb) = fetched.and_then(|_| diff::git_in(&self.root, &["merge-base", &onto, "HEAD"])) else {
                 self.github_base = None; // (asked again when GitHub next says)
                 let said = format!("the PR's base is {base} now, but {onto} couldn't be fetched: the diff still starts from {old} (tried again on the next refresh)");
-                return self.msg = join_msg(&self.msg.replace(&fetching(&base), ""), &said);
+                return self.base_note(&said);
             };
             let mb = mb.trim().to_owned();
             if !self.uncommitted() {
@@ -796,7 +818,7 @@ impl App {
             false => format!("the PR's base is {base} now (the diff keeps the base you gave)"),
         };
         // After what was said before (a rebase's ending, say), not over it.
-        self.msg = join_msg(&self.msg.replace(&fetching(&base), ""), &said);
+        self.base_note(&said);
     }
 
     /// The link under the cursor, if any.
@@ -1493,17 +1515,4 @@ fn file_refs() {
     assert_eq!(at("at 12:30 today", "12"), None); // a time
     assert_eq!(at("note: this", "note"), None);
     assert_eq!(at("x.rs:12:5,", "x.rs"), Some(("x.rs".into(), 12)));
-}
-
-/// `a · b` (or just `b`).
-fn join_msg(a: &str, b: &str) -> String {
-    match a.trim_end_matches(" · ").trim() {
-        "" => b.to_owned(),
-        a => format!("{a} · {b}"),
-    }
-}
-
-/// What's said while a retarget's new base is fetched.
-fn fetching(base: &str) -> String {
-    format!("the PR's base is {base} now: fetching it…")
 }
