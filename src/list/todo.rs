@@ -148,6 +148,19 @@ impl List {
                 _ => {}
             }
         }
+        // PRs Claude's review would close with no closing comment drafted yet: drafted, once each
+        // at a head (it's yours to close, after your editor, from the PR's view).
+        for &n in self.closable.keys() {
+            if batch_busy || run.len() >= batch::AT_ONCE || self.batch.get(&n).is_some_and(batch::Status::running) {
+                break;
+            }
+            let Some(head) = self.extra.get(&n).map(|e| e.head_oid.clone()).filter(|h| !h.is_empty()) else { continue };
+            let file = self.reviews_dir.as_ref().map(|d| d.join(format!("pr-{n}.json")));
+            let drafted = file.and_then(|f| crate::claude::load(&f).ok().flatten()).is_some_and(|r| !r.closing.trim().is_empty());
+            if !drafted && self.auto_done.insert((n, head, "close-draft")) {
+                run.push((n, batch::Task::Close));
+            }
+        }
         let mut said = vec![];
         if !run.is_empty() {
             said.push(format!("Claude is {}", self.start_batch(run, String::new())));

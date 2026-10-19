@@ -29,6 +29,8 @@ pub enum Task {
     Answer { theirs: bool },
     /// Your PR's CI fails: find out why, fix it in the checkout (you push).
     FixChecks,
+    /// Claude's review would close it: draft the comment it closes with (you close it, in dv).
+    Close,
 }
 
 impl Task {
@@ -39,6 +41,7 @@ impl Task {
             Task::Update(_) => "updating its review",
             Task::Answer { .. } => "answering",
             Task::FixChecks => "fixing CI",
+            Task::Close => "drafting a closing comment",
         }
     }
 
@@ -49,6 +52,7 @@ impl Task {
             Task::Update(_) => "could update its review",
             Task::Answer { .. } => "could answer you",
             Task::FixChecks => "could fix CI",
+            Task::Close => "could draft a closing comment",
         }
     }
 
@@ -59,6 +63,11 @@ impl Task {
             Task::Update(old) => crate::claude::update_prompt(&what, old),
             Task::Answer { theirs } => crate::claude::answer_prompt(&what, *theirs),
             Task::FixChecks => crate::claude::fix_checks_prompt(n),
+            Task::Close => format!(
+                "Use the dv-review skill to draft a comment closing {what}, in the review file's top-level \"closing\" \
+                 field (see \"Draft a closing comment\"): your review says it should be closed. Don't close the PR or \
+                 comment on GitHub: the user closes it in dv."
+            ),
         }
     }
 }
