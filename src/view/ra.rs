@@ -1,6 +1,16 @@
 //! rust-analyzer: requests from the cursor and showing the results.
 use super::*;
 
+/// What an in-flight LSP request was for.
+pub(super) enum Req {
+    Init,
+    Goto,
+    Hover,
+    /// A name from text (a comment, the PR's): where it's defined, by rust-analyzer's symbol
+    /// search; then `then` (references, implementations) from there, if that's what was asked.
+    Symbol { name: String, then: Option<&'static str> },
+}
+
 impl App {
     pub(super) fn lsp_request(&mut self, method: &str, req: Req) {
         let row = &self.rows[self.head.row];

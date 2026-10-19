@@ -109,6 +109,38 @@ pub(crate) fn turn(t: &Thread) -> Option<&'static str> {
     }
 }
 
+/// Claude's review for this PR/branch, and the background `claude -p` runs that write it.
+#[derive(Default)]
+pub(super) struct ClaudeState {
+    /// Its review file (see `claude.rs`), and when that last changed.
+    pub(super) path: Option<PathBuf>,
+    pub(super) mtime: Option<std::time::SystemTime>,
+    pub(super) summary: String,
+    /// The commit the review was made against (its `head`).
+    pub(super) head: String,
+    /// A new description for the PR that Claude proposes (empty: none).
+    pub(super) description: String,
+    /// A comment Claude drafted for closing the PR (empty: none).
+    pub(super) closing: String,
+    /// A background `claude -p` run: (process, log file, what it's doing).
+    pub(super) job: Option<agent::ClaudeJob>,
+    /// The Claude Code session of the last background run, resumed by the next.
+    pub(super) session: Option<String>,
+    /// A reply came in while Claude was busy: answer again when it's done.
+    pub(super) again: bool,
+    /// Background runs so far (each gets its own log).
+    pub(super) runs: u32,
+    /// The last background run's log (its result, as JSON).
+    pub(super) log: Option<PathBuf>,
+    /// What background runs have cost so far (as Claude Code reports it, in USD).
+    pub(super) spent: f64,
+    /// When Claude's pane was last looked at, and whether it was asking you something then.
+    pub(super) pane_check: Option<std::time::Instant>,
+    pub(super) asking: bool,
+    /// Its pane shows it working (Claude Code's "esc to interrupt").
+    pub(super) pane_busy: bool,
+}
+
 impl App {
     /// Whether thread `t` shows: in the Claude view, only those of Claude's review; in the
     /// pending view, those with a comment of your pending review.

@@ -396,3 +396,78 @@ fn push_or_force() {
     assert_eq!(take_branch(&dir, &pr_head, "pr-7").unwrap(), None);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+impl App {
+    /// What the working tree looks like, cheaply: the latest change time of the diff's files,
+    /// and `git status` of tracked files (so a file Claude starts changing counts too).
+    pub(super) fn tree_stamp(&self) -> (Option<std::time::SystemTime>, u64) {
+        use std::hash::{Hash, Hasher};
+        let newest = self.files.iter().filter_map(|f| std::fs::metadata(self.root.join(&f.path)).and_then(|m| m.modified()).ok()).max();
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        diff::git(&["status", "--porcelain"]).unwrap_or_default().hash(&mut h);
+        (newest, h.finish())
+    }
+
+    pub(super) fn watch_tree(&mut self) {
+        if self.tree_checked.elapsed() < std::time::Duration::from_secs(1) {
+            return;
+        }
+        self.tree_checked = std::time::Instant::now();
+        if self.hx.as_ref().is_some_and(|h| !pane_alive(&h.pane)) {
+            self.hx = None;
+        }
+        let now = self.tree_stamp();
+        if self.tree_seen.replace(now).is_none_or(|before| before == now) {
+            return;
+        }
+        self.reload_tree();
+    }
+
+    /// Reload the diff after the working tree changed under dv.
+    pub(super) fn reload_tree(&mut self) {
+        self.forget_tree_colors();
+        if let Err(e) = self.reload(false) {
+            self.msg = format!("{e:#}");
+        }
+        self.rekey_commits(); // (commits rewritten here or elsewhere)
+        self.follow_github_base(false); // (a retarget that waited on a rebase now through)
+        self.tree_seen = Some(self.tree_stamp());
+    }
+
+    pub(super) fn reload(&mut self, threads: bool) -> Result<()> {
+        let keep = self.cursor_key();
+        self.follow_rebase();
+        self.load_commits();
+        self.files = diff::load(&self.base, self.to.as_deref(), DEFAULT_CONTEXT)?;
+        // After the diff: Claude's comments follow their code, which may have just been edited.
+        match threads {
+            true => self.load_threads(),
+            false => self.load_claude(),
+        }
+        self.shape();
+        self.rebuild(keep);
+        self.refresh_sync();
+        Ok(())
+    }
+
+    /// HEAD rebased onto a newer base (its branch has moved on, and the PR with it): the diff
+    /// starts there, else it'd show the base's own commits between as the PR's. Only forward:
+    /// a base ahead of the old one, on HEAD's history.
+    pub(super) fn follow_rebase(&mut self) {
+        let Some(branch) = &self.follow_base else { return };
+        // Not mid-rebase: it may yet be aborted, and the base only ever moves forward.
+        if rebase::rebasing(&self.root) {
+            return;
+        }
+        let git = |args: &[&str]| diff::git_in(&self.root, args);
+        let Ok(now) = git(&["merge-base", branch, "HEAD"]).map(|s| s.trim().to_owned()) else { return };
+        if now == self.full_base || git(&["merge-base", "--is-ancestor", &self.full_base, &now]).is_err() {
+            return;
+        }
+        if !self.uncommitted() {
+            self.base = now.clone(); // the whole diff (a commit shown, or a range, goes)
+        }
+        self.full_base = now;
+        (self.to, self.commit_shown, self.commit_anchor) = (None, None, None);
+    }
+}

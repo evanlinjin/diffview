@@ -49,122 +49,15 @@ mod threads;
 pub use term::{MOUSE, init_terminal, restore_terminal};
 pub(crate) use term::{compose_with, in_zellij};
 pub(crate) use github::prefetch_github;
+pub(crate) use render::chip;
+use {agent::ClaudeState, keys::*, layout::*, motion::*, ra::*, seen::Seen, threads::*};
 use term::*;
 #[cfg(test)]
 pub(crate) mod tests;
 
-const HELP: &str = "
-MOVE
-  h j k l, arrows      move (counts: 5j)
-  w b e  W B E         word motions (select)
-  gh gl gs             line start / end / first non-blank
-  f t F T <c>          find char
-  gw                   jump labels
-  mm                   matching bracket
-  gg ge                top / end (in the comments pane: its first / last)
-  Ctrl-d Ctrl-u        half page down / up
-  Ctrl-e Ctrl-y        scroll 5 lines
-  zz zt zb             cursor line to center / top / bottom
-  Ctrl-o               jump back
-
-DIFF
-  ]g [g                next / prev hunk (change)
-  ]f [f, Space f       next / prev file, file picker
-  ]c [c                next / prev comment thread
-  ]u [u                next / prev unresolved one (wraps around)
-  ]a [a                next / prev Claude comment (wraps around)
-  ]p [p                next / prev comment of your pending review (wraps around)
-  /  n N  *            search, next / prev match, search selection
-
-SELECT & COPY
-  x                    select line (repeat to extend)
-  v  ;  Esc            select mode / collapse / exit select mode
-  y  (or Space y)      copy text
-  Y                    copy as patch
-  Space c              copy: a link's URL, file:line, or a comment's / the PR's link
-
-VIEW
-  + =  -               hunk context +10 / -10 lines
-  Z                    whole file
-  Tab                  fold file / PR info / thread
-  gn  gp               comments pane: next / previous tab (comments, Claude's, the PR's)
-  Shift-Tab            fold / unfold all files
-  Ctrl-w v             toggle split (side-by-side) view
-  Ctrl-w n             relative line numbers on / off (kept for next time)
-  Ctrl-w e             the contents on the left (description, messages, files), on / off
-                       and the PR's commits under it: Enter shows one, v … Enter a range,
-                       m its whole message, a asks Claude about it (or for a change),
-                       f folds what isn't committed into it;
-                       Ctrl-w j / Ctrl-w k (or Tab there) go to the commits / the files
-  Ctrl-w h  Ctrl-w l   pane left / right: files, old / new side, comments (or Ctrl-h Ctrl-l)
-  Ctrl-w c             show / hide the comments pane (╎ ● mark their lines)
-  Ctrl-w f             comments pane: a column beside the code / floating over it
-  Ctrl-w ,  Ctrl-w .   the pane you're in narrower / wider (Ctrl-w = usual width)
-  Ctrl-w q             hide the pane you're in (files' list or comments)
-  Enter                open hx at cursor (on a link: open it)
-  gf                   open the link under the cursor, or go to the file:line under it
-                       (as comments cite code) or to where the function / type named
-                       under it is defined (Ctrl-o comes back)
-
-RUST-ANALYZER
-  gd gr gy gi          definition / references / type / impl (on a name in a comment too)
-  Space k              hover; on an issue/PR link: preview it
-
-ON SELECTED LINES
-  c                    comment, in your pending review (C: post it now)
-  s                    suggest a change, in your pending review
-  a                    a comment for Claude: an answer, a suggestion, or the change you want
-                       (it acts right away; not on GitHub); on a
-                       replacement's description or closing note: ask Claude to redraft it
-
-ON A REVIEW THREAD
-  r                    reply, in your pending review (C: post it now)
-  Space r              resolve / unresolve
-  Space =              react (👍 🎉 …), or take your reaction back (PR comments too)
-  Space l              the PR's labels, assignees, reviewers: add or remove (request reviews)
-  Space e  Space d     edit / delete your comment (delete asks first)
-
-ON CLAUDE'S COMMENT
-  r                    reply to Claude, saying what you want (it acts right away, in the
-                       background)
-  c                    copy it into your pending review (C: post it now)
-  Space r  Space d     resolve (Claude skips it) / dismiss
-
-ON PR TEXT
-  c                    quote it in your review summary (S starts from it)
-  C                    quote it in a new conversation comment
-
-ON CLAUDE'S REVIEW (its summary)
-  c                    add it to your review summary (S starts from it)
-  C                    post it now, as your PR comment
-
-REVIEW
-  S                    submit (comment / approve / request changes), or discard
-  Space g              git: show only what isn't committed (Claude's changes), commit, amend
-                       it into the commits it belongs in, push, update the checkout, rebase
-                       onto the base (Claude resolves conflicts)
-  Space p  Space t     pick from your pending comments (Ctrl-d deletes) / all threads
-  Space v              mark the file viewed (folds it, moves on)
-  Space a              ask Claude Code to review, answer your replies, or make the changes
-                       (or check on its run now, or stop one that's stuck)
-  Space A              pick from Claude's comments ([waiting]: its turn, [answered]: yours)
-  ]n [n  Space n       next / prev [new] thread (ones you haven't seen) / pick from them
-
-GENERAL
-  ?                    this help (/ to search it)
-  R                    refresh (git diff + GitHub)
-  Space m              messages so far, in full (the status bar cuts long ones)
-  Space s              a shell in the checkout's directory (zellij: a floating pane)
-  Space o              the PR's whole activity, or its latest (beside the description)
-  mouse                wheel scrolls, click moves (or folds, on an arrow), drag selects
-  q, Ctrl-c            quit
-";
-
 const DEFAULT_CONTEXT: u32 = 3;
 /// Pending-key marker for Ctrl-w (window commands).
 const CTRL_W: char = '\u{17}';
-/// Files bigger than this aren't highlighted.
-const HL_MAX_BYTES: usize = 1 << 20;
 /// `Row::file` for the PR info section at the top.
 const INFO: usize = usize::MAX - 1;
 /// Comment marks at the code's right edge, by rank (the highest wins where they meet).
@@ -250,48 +143,6 @@ struct CursorKey {
     /// `Row::main` and how far into it. (By index, the PR text before it growing would move it.)
     section: Option<(usize, usize)>,
 }
-
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub(super) enum BoxPart {
-    Top,
-    Divider,
-    Body,
-    Bottom,
-}
-
-/// A screen row: full width, a side-by-side pair (old line, new line) in split view, or code
-/// (one row, or a pair in split view) with a comment row beside it in the right margin.
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum DRow {
-    Full(usize),
-    Pair(Option<usize>, Option<usize>),
-    /// (code row or old side, new side in split view, comment row in the margin); a code-less
-    /// one is a spacer, where a file's comments need more room than its code has.
-    Margin(Option<usize>, Option<usize>, Option<usize>),
-}
-
-/// The pane's tabs as they're shown (`pane_tabs`): its comments (the whole diff), Claude's
-/// (the Claude view, its comments beside its code), your pending review's.
-#[derive(Clone, Copy, PartialEq, Debug)]
-enum Bar {
-    Comments,
-    Claude,
-    Pending,
-}
-
-/// The comment margin's width: about a third of the window, within these bounds, or everything
-/// beyond the code side's most (it doesn't read better any wider); and the least code text
-/// width beside it (narrower windows show comments inline).
-const MARGIN_MIN: usize = 60;
-/// The least code text width beside it for each side of split view.
-const MARGIN_SPLIT_MIN: usize = 70;
-/// How much `Ctrl-w ,` / `.` change its width by.
-const MARGIN_STEP: isize = 6;
-/// The least it takes in a narrow window, when it's shown there.
-const MARGIN_NARROW: usize = 36;
-const MARGIN_MAX: usize = 80;
-const MARGIN_CODE_MIN: usize = 80;
-const MARGIN_CODE_MAX: usize = 200;
 
 /// Work that needs the terminal back (an editor), run between frames.
 #[derive(Clone)]
@@ -492,20 +343,6 @@ impl App {
     }
 }
 
-/// The threads picker's titles, one per filter (Tab goes round them): its title says which.
-const THREAD_TABS: [&str; 5] = [
-    " threads: [all] unresolved pending Claude new ",
-    " threads: all [unresolved] pending Claude new ",
-    " threads: all unresolved [pending] Claude new ",
-    " threads: all unresolved pending [Claude] new ",
-    " threads: all unresolved pending Claude [new] ",
-];
-const THREADS_ALL: usize = 0;
-const THREADS_UNRESOLVED: usize = 1;
-const THREADS_PENDING: usize = 2;
-const THREADS_CLAUDE: usize = 3;
-const THREADS_NEW: usize = 4;
-
 struct Picker {
     title: &'static str,
     items: Vec<Item>,
@@ -518,62 +355,6 @@ impl Picker {
     fn new(title: &'static str, items: Vec<Item>) -> Self {
         Picker { title, items, query: String::new(), sel: 0 }
     }
-}
-
-/// What an in-flight LSP request was for.
-enum Req {
-    Init,
-    Goto,
-    Hover,
-    /// A name from text (a comment, the PR's): where it's defined, by rust-analyzer's symbol
-    /// search; then `then` (references, implementations) from there, if that's what was asked.
-    Symbol { name: String, then: Option<&'static str> },
-}
-
-/// Claude's review for this PR/branch, and the background `claude -p` runs that write it.
-#[derive(Default)]
-struct ClaudeState {
-    /// Its review file (see `claude.rs`), and when that last changed.
-    path: Option<PathBuf>,
-    mtime: Option<std::time::SystemTime>,
-    summary: String,
-    /// The commit the review was made against (its `head`).
-    head: String,
-    /// A new description for the PR that Claude proposes (empty: none).
-    description: String,
-    /// A comment Claude drafted for closing the PR (empty: none).
-    closing: String,
-    /// A background `claude -p` run: (process, log file, what it's doing).
-    job: Option<agent::ClaudeJob>,
-    /// The Claude Code session of the last background run, resumed by the next.
-    session: Option<String>,
-    /// A reply came in while Claude was busy: answer again when it's done.
-    again: bool,
-    /// Background runs so far (each gets its own log).
-    runs: u32,
-    /// The last background run's log (its result, as JSON).
-    log: Option<PathBuf>,
-    /// What background runs have cost so far (as Claude Code reports it, in USD).
-    spent: f64,
-    /// When Claude's pane was last looked at, and whether it was asking you something then.
-    pane_check: Option<std::time::Instant>,
-    asking: bool,
-    /// Its pane shows it working (Claude Code's "esc to interrupt").
-    pane_busy: bool,
-}
-
-/// The comments you've seen (`comment_key`), kept in `path`; and those of the thread the
-/// cursor is on, seen once it leaves.
-struct Seen {
-    keys: HashSet<String>,
-    /// What you'd seen when the PR was loaded: what's new against it stays shown (attached to
-    /// the description) as you read it.
-    before: HashSet<String>,
-    path: Option<PathBuf>,
-    current: Vec<String>,
-    /// `current` is a conversation comment's (nothing shown hangs on it: no rebuild for it).
-    conversation: bool,
-    since: std::time::Instant,
 }
 
 pub struct App {
@@ -1338,83 +1119,10 @@ impl App {
         Ok("hx is open below; dv reloads as you save, and Enter opens the next file there".into())
     }
 
-    /// What the working tree looks like, cheaply: the latest change time of the diff's files,
-    /// and `git status` of tracked files (so a file Claude starts changing counts too).
-    fn tree_stamp(&self) -> (Option<std::time::SystemTime>, u64) {
-        use std::hash::{Hash, Hasher};
-        let newest = self.files.iter().filter_map(|f| std::fs::metadata(self.root.join(&f.path)).and_then(|m| m.modified()).ok()).max();
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        diff::git(&["status", "--porcelain"]).unwrap_or_default().hash(&mut h);
-        (newest, h.finish())
-    }
-
     /// About once a second: reload the diff when the working tree changed (Claude's edits, a
     /// save in hx, anything else), keeping the cursor where it is; and notice dv's hx pane
     /// closing.
     // ponytail: polls git status each second; a file watcher if that's ever slow on a big repo.
-    fn watch_tree(&mut self) {
-        if self.tree_checked.elapsed() < std::time::Duration::from_secs(1) {
-            return;
-        }
-        self.tree_checked = std::time::Instant::now();
-        if self.hx.as_ref().is_some_and(|h| !pane_alive(&h.pane)) {
-            self.hx = None;
-        }
-        let now = self.tree_stamp();
-        if self.tree_seen.replace(now).is_none_or(|before| before == now) {
-            return;
-        }
-        self.reload_tree();
-    }
-
-    /// Reload the diff after the working tree changed under dv.
-    pub(super) fn reload_tree(&mut self) {
-        self.forget_tree_colors();
-        if let Err(e) = self.reload(false) {
-            self.msg = format!("{e:#}");
-        }
-        self.rekey_commits(); // (commits rewritten here or elsewhere)
-        self.follow_github_base(false); // (a retarget that waited on a rebase now through)
-        self.tree_seen = Some(self.tree_stamp());
-    }
-
-    fn reload(&mut self, threads: bool) -> Result<()> {
-        let keep = self.cursor_key();
-        self.follow_rebase();
-        self.load_commits();
-        self.files = diff::load(&self.base, self.to.as_deref(), DEFAULT_CONTEXT)?;
-        // After the diff: Claude's comments follow their code, which may have just been edited.
-        match threads {
-            true => self.load_threads(),
-            false => self.load_claude(),
-        }
-        self.shape();
-        self.rebuild(keep);
-        self.refresh_sync();
-        Ok(())
-    }
-
-    /// HEAD rebased onto a newer base (its branch has moved on, and the PR with it): the diff
-    /// starts there, else it'd show the base's own commits between as the PR's. Only forward:
-    /// a base ahead of the old one, on HEAD's history.
-    pub(super) fn follow_rebase(&mut self) {
-        let Some(branch) = &self.follow_base else { return };
-        // Not mid-rebase: it may yet be aborted, and the base only ever moves forward.
-        if rebase::rebasing(&self.root) {
-            return;
-        }
-        let git = |args: &[&str]| diff::git_in(&self.root, args);
-        let Ok(now) = git(&["merge-base", branch, "HEAD"]).map(|s| s.trim().to_owned()) else { return };
-        if now == self.full_base || git(&["merge-base", "--is-ancestor", &self.full_base, &now]).is_err() {
-            return;
-        }
-        if !self.uncommitted() {
-            self.base = now.clone(); // the whole diff (a commit shown, or a range, goes)
-        }
-        self.full_base = now;
-        (self.to, self.commit_shown, self.commit_anchor) = (None, None, None);
-    }
-
     /// https://github.com/owner/repo, for `#123` links.
     fn repo_url(&self) -> Option<&str> {
         self.pr.as_ref().and_then(|p| p.url.rsplit_once("/pull/")).map(|(r, _)| r)
@@ -1445,35 +1153,6 @@ impl App {
         Some(format!("{}:{line}:{col}", f.path))
     }
 
-    /// Rows on screen, each once (a context line shows on both sides but counts once).
-    fn visible_rows(&self) -> Vec<usize> {
-        let mut out = vec![];
-        for d in &self.drows[self.top.min(self.drows.len())..(self.top + self.height).min(self.drows.len())] {
-            match *d {
-                DRow::Full(r) => out.push(r),
-                DRow::Pair(l, r) => out.extend(l.into_iter().chain(r.filter(|&r| Some(r) != l))),
-                DRow::Margin(l, r, c) => out.extend(l.into_iter().chain(r.filter(|&r| Some(r) != l)).chain(c)),
-            }
-        }
-        out
-    }
-
-    /// Which highlighted file a code row's colors come from: the base for removed lines, else the working tree.
-    fn hl_key(&self, r: usize) -> Option<(String, String)> {
-        let row = &self.rows[r];
-        let f = self.files.get(row.file).filter(|f| f.meta != "binary")?;
-        match row.line.kind {
-            Kind::Del => Some((self.base.clone(), f.old_path.clone())),
-            Kind::Add | Kind::Ctx => Some((self.to.clone().unwrap_or_default(), f.path.clone())),
-            _ => None,
-        }
-    }
-
-    /// The working tree's colors forgotten: its files may have changed (the base's and a
-    /// commit's can't).
-    fn forget_tree_colors(&mut self) {
-        self.hl_cache.retain(|k, _| !k.0.is_empty());
-    }
 }
 
 /// How dv's hint lines in the editor start; they're dropped from what's posted.
@@ -1565,32 +1244,6 @@ fn quote(text: &str) -> String {
     }
     let q: Vec<String> = text.lines().map(|l| format!("> {l}").trim_end().to_owned()).collect();
     format!("{}\n\n", q.join("\n"))
-}
-
-/// A GitHub-style badge: the given background (hex, no '#'), black or white text for contrast.
-pub(crate) fn chip(hex: &str) -> Style {
-    let n = u32::from_str_radix(hex.trim_start_matches('#'), 16).unwrap_or(0x6e7681);
-    let (r, g, b) = ((n >> 16) as u8, (n >> 8) as u8, n as u8);
-    let light = 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32 > 150.0;
-    let fg = if light { Color::Black } else { Color::White };
-    Style::new().bg(Color::Rgb(r, g, b)).fg(fg).add_modifier(ratatui::style::Modifier::BOLD)
-}
-
-/// `editor.jump-label-alphabet` from the Helix config, else Helix's default.
-fn jump_alphabet() -> Vec<char> {
-    let cfg = std::env::var("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .or_else(|_| std::env::var("HOME").map(|h| Path::new(&h).join(".config")))
-        .map(|d| std::fs::read_to_string(d.join("helix/config.toml")).unwrap_or_default())
-        .unwrap_or_default();
-    // ponytail: line scan instead of a TOML parser; fine for `key = "value"` on one line.
-    cfg.lines()
-        .filter_map(|l| l.trim().strip_prefix("jump-label-alphabet")?.trim().strip_prefix('=')?.trim().strip_prefix('"')?.strip_suffix('"').map(str::to_owned))
-        .next()
-        .filter(|a| !a.is_empty())
-        .unwrap_or_else(|| "abcdefghijklmnopqrstuvwxyz".into())
-        .chars()
-        .collect()
 }
 
 /// Line `n` (0-based) of a file on disk, reading each file once per `cache`.

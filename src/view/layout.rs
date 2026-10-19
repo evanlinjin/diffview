@@ -3,6 +3,54 @@
 
 use super::*;
 
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(super) enum BoxPart {
+    Top,
+    Divider,
+    Body,
+    Bottom,
+}
+
+/// A screen row: full width, a side-by-side pair (old line, new line) in split view, or code
+/// (one row, or a pair in split view) with a comment row beside it in the right margin.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum DRow {
+    Full(usize),
+    Pair(Option<usize>, Option<usize>),
+    /// (code row or old side, new side in split view, comment row in the margin); a code-less
+    /// one is a spacer, where a file's comments need more room than its code has.
+    Margin(Option<usize>, Option<usize>, Option<usize>),
+}
+
+/// The pane's tabs as they're shown (`pane_tabs`): its comments (the whole diff), Claude's
+/// (the Claude view, its comments beside its code), your pending review's.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(super) enum Bar {
+    Comments,
+    Claude,
+    Pending,
+}
+
+/// The comment margin's width: about a third of the window, within these bounds, or everything
+/// beyond the code side's most (it doesn't read better any wider); and the least code text
+/// width beside it (narrower windows show comments inline).
+pub(super) const MARGIN_MIN: usize = 60;
+
+/// The least code text width beside it for each side of split view.
+pub(super) const MARGIN_SPLIT_MIN: usize = 70;
+
+/// How much `Ctrl-w ,` / `.` change its width by.
+pub(super) const MARGIN_STEP: isize = 6;
+
+/// The least it takes in a narrow window, when it's shown there.
+pub(super) const MARGIN_NARROW: usize = 36;
+
+pub(super) const MARGIN_MAX: usize = 80;
+
+pub(super) const MARGIN_CODE_MIN: usize = 80;
+
+pub(super) const MARGIN_CODE_MAX: usize = 200;
+
 impl App {
     /// The width of the comment box row `r` is in, drawn `tw` wide: as wide as the comment text
     /// wraps (+ margin), not the whole screen; in the comment pane, the pane's width.

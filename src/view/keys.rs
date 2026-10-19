@@ -1,6 +1,113 @@
 //! Key handling: normal mode, pending (multi-key) commands, pickers, labels, and the help search.
 use super::*;
 
+pub(super) const HELP: &str = "
+MOVE
+  h j k l, arrows      move (counts: 5j)
+  w b e  W B E         word motions (select)
+  gh gl gs             line start / end / first non-blank
+  f t F T <c>          find char
+  gw                   jump labels
+  mm                   matching bracket
+  gg ge                top / end (in the comments pane: its first / last)
+  Ctrl-d Ctrl-u        half page down / up
+  Ctrl-e Ctrl-y        scroll 5 lines
+  zz zt zb             cursor line to center / top / bottom
+  Ctrl-o               jump back
+
+DIFF
+  ]g [g                next / prev hunk (change)
+  ]f [f, Space f       next / prev file, file picker
+  ]c [c                next / prev comment thread
+  ]u [u                next / prev unresolved one (wraps around)
+  ]a [a                next / prev Claude comment (wraps around)
+  ]p [p                next / prev comment of your pending review (wraps around)
+  /  n N  *            search, next / prev match, search selection
+
+SELECT & COPY
+  x                    select line (repeat to extend)
+  v  ;  Esc            select mode / collapse / exit select mode
+  y  (or Space y)      copy text
+  Y                    copy as patch
+  Space c              copy: a link's URL, file:line, or a comment's / the PR's link
+
+VIEW
+  + =  -               hunk context +10 / -10 lines
+  Z                    whole file
+  Tab                  fold file / PR info / thread
+  gn  gp               comments pane: next / previous tab (comments, Claude's, the PR's)
+  Shift-Tab            fold / unfold all files
+  Ctrl-w v             toggle split (side-by-side) view
+  Ctrl-w n             relative line numbers on / off (kept for next time)
+  Ctrl-w e             the contents on the left (description, messages, files), on / off
+                       and the PR's commits under it: Enter shows one, v … Enter a range,
+                       m its whole message, a asks Claude about it (or for a change),
+                       f folds what isn't committed into it;
+                       Ctrl-w j / Ctrl-w k (or Tab there) go to the commits / the files
+  Ctrl-w h  Ctrl-w l   pane left / right: files, old / new side, comments (or Ctrl-h Ctrl-l)
+  Ctrl-w c             show / hide the comments pane (╎ ● mark their lines)
+  Ctrl-w f             comments pane: a column beside the code / floating over it
+  Ctrl-w ,  Ctrl-w .   the pane you're in narrower / wider (Ctrl-w = usual width)
+  Ctrl-w q             hide the pane you're in (files' list or comments)
+  Enter                open hx at cursor (on a link: open it)
+  gf                   open the link under the cursor, or go to the file:line under it
+                       (as comments cite code) or to where the function / type named
+                       under it is defined (Ctrl-o comes back)
+
+RUST-ANALYZER
+  gd gr gy gi          definition / references / type / impl (on a name in a comment too)
+  Space k              hover; on an issue/PR link: preview it
+
+ON SELECTED LINES
+  c                    comment, in your pending review (C: post it now)
+  s                    suggest a change, in your pending review
+  a                    a comment for Claude: an answer, a suggestion, or the change you want
+                       (it acts right away; not on GitHub); on a
+                       replacement's description or closing note: ask Claude to redraft it
+
+ON A REVIEW THREAD
+  r                    reply, in your pending review (C: post it now)
+  Space r              resolve / unresolve
+  Space =              react (👍 🎉 …), or take your reaction back (PR comments too)
+  Space l              the PR's labels, assignees, reviewers: add or remove (request reviews)
+  Space e  Space d     edit / delete your comment (delete asks first)
+
+ON CLAUDE'S COMMENT
+  r                    reply to Claude, saying what you want (it acts right away, in the
+                       background)
+  c                    copy it into your pending review (C: post it now)
+  Space r  Space d     resolve (Claude skips it) / dismiss
+
+ON PR TEXT
+  c                    quote it in your review summary (S starts from it)
+  C                    quote it in a new conversation comment
+
+ON CLAUDE'S REVIEW (its summary)
+  c                    add it to your review summary (S starts from it)
+  C                    post it now, as your PR comment
+
+REVIEW
+  S                    submit (comment / approve / request changes), or discard
+  Space g              git: show only what isn't committed (Claude's changes), commit, amend
+                       it into the commits it belongs in, push, update the checkout, rebase
+                       onto the base (Claude resolves conflicts)
+  Space p  Space t     pick from your pending comments (Ctrl-d deletes) / all threads
+  Space v              mark the file viewed (folds it, moves on)
+  Space a              ask Claude Code to review, answer your replies, or make the changes
+                       (or check on its run now, or stop one that's stuck)
+  Space A              pick from Claude's comments ([waiting]: its turn, [answered]: yours)
+  ]n [n  Space n       next / prev [new] thread (ones you haven't seen) / pick from them
+
+GENERAL
+  ?                    this help (/ to search it)
+  R                    refresh (git diff + GitHub)
+  Space m              messages so far, in full (the status bar cuts long ones)
+  Space s              a shell in the checkout's directory (zellij: a floating pane)
+  Space o              the PR's whole activity, or its latest (beside the description)
+  mouse                wheel scrolls, click moves (or folds, on an arrow), drag selects
+  q, Ctrl-c            quit
+";
+
 impl App {
     pub(super) fn label_key(&mut self, k: KeyEvent) {
         let KeyCode::Char(c) = k.code else {

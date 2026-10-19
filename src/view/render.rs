@@ -1,6 +1,18 @@
 //! Drawing: rows, split halves, hunk rules, popups, scrollbars, and the help/hover content.
 use super::*;
 
+/// Files bigger than this aren't highlighted.
+pub(super) const HL_MAX_BYTES: usize = 1 << 20;
+
+/// A GitHub-style badge: the given background (hex, no '#'), black or white text for contrast.
+pub(crate) fn chip(hex: &str) -> Style {
+    let n = u32::from_str_radix(hex.trim_start_matches('#'), 16).unwrap_or(0x6e7681);
+    let (r, g, b) = ((n >> 16) as u8, (n >> 8) as u8, n as u8);
+    let light = 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32 > 150.0;
+    let fg = if light { Color::Black } else { Color::White };
+    Style::new().bg(Color::Rgb(r, g, b)).fg(fg).add_modifier(ratatui::style::Modifier::BOLD)
+}
+
 impl App {
     /// The help text, styled: section headings, keys (separators dimmed), descriptions wrapped
     /// with a hanging indent under the description column, `(notes)` dimmed. With a `query`
@@ -1203,4 +1215,36 @@ impl App {
         }
     }
 
+}
+
+impl App {
+    /// Rows on screen, each once (a context line shows on both sides but counts once).
+    pub(super) fn visible_rows(&self) -> Vec<usize> {
+        let mut out = vec![];
+        for d in &self.drows[self.top.min(self.drows.len())..(self.top + self.height).min(self.drows.len())] {
+            match *d {
+                DRow::Full(r) => out.push(r),
+                DRow::Pair(l, r) => out.extend(l.into_iter().chain(r.filter(|&r| Some(r) != l))),
+                DRow::Margin(l, r, c) => out.extend(l.into_iter().chain(r.filter(|&r| Some(r) != l)).chain(c)),
+            }
+        }
+        out
+    }
+
+    /// Which highlighted file a code row's colors come from: the base for removed lines, else the working tree.
+    pub(super) fn hl_key(&self, r: usize) -> Option<(String, String)> {
+        let row = &self.rows[r];
+        let f = self.files.get(row.file).filter(|f| f.meta != "binary")?;
+        match row.line.kind {
+            Kind::Del => Some((self.base.clone(), f.old_path.clone())),
+            Kind::Add | Kind::Ctx => Some((self.to.clone().unwrap_or_default(), f.path.clone())),
+            _ => None,
+        }
+    }
+
+    /// The working tree's colors forgotten: its files may have changed (the base's and a
+    /// commit's can't).
+    pub(super) fn forget_tree_colors(&mut self) {
+        self.hl_cache.retain(|k, _| !k.0.is_empty());
+    }
 }

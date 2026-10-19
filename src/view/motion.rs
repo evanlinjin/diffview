@@ -1,6 +1,23 @@
 //! Cursor movement: motions, word/bracket/char jumps, search, scrolling, jump labels.
 use super::*;
 
+/// `editor.jump-label-alphabet` from the Helix config, else Helix's default.
+pub(super) fn jump_alphabet() -> Vec<char> {
+    let cfg = std::env::var("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|_| std::env::var("HOME").map(|h| Path::new(&h).join(".config")))
+        .map(|d| std::fs::read_to_string(d.join("helix/config.toml")).unwrap_or_default())
+        .unwrap_or_default();
+    // ponytail: line scan instead of a TOML parser; fine for `key = "value"` on one line.
+    cfg.lines()
+        .filter_map(|l| l.trim().strip_prefix("jump-label-alphabet")?.trim().strip_prefix('=')?.trim().strip_prefix('"')?.strip_suffix('"').map(str::to_owned))
+        .next()
+        .filter(|a| !a.is_empty())
+        .unwrap_or_else(|| "abcdefghijklmnopqrstuvwxyz".into())
+        .chars()
+        .collect()
+}
+
 impl App {
     /// Ctrl-h / Ctrl-l: move to the old / new side of the current split row; with comments in
     /// the margin, from the code (its new side) into the margin (the comment beside it, else

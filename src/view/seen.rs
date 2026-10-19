@@ -12,6 +12,20 @@ pub(super) fn comment_key(t: &Thread, ci: usize) -> String {
     }
 }
 
+/// The comments you've seen (`comment_key`), kept in `path`; and those of the thread the
+/// cursor is on, seen once it leaves.
+pub(super) struct Seen {
+    pub(super) keys: HashSet<String>,
+    /// What you'd seen when the PR was loaded: what's new against it stays shown (attached to
+    /// the description) as you read it.
+    pub(super) before: HashSet<String>,
+    pub(super) path: Option<PathBuf>,
+    pub(super) current: Vec<String>,
+    /// `current` is a conversation comment's (nothing shown hangs on it: no rebuild for it).
+    pub(super) conversation: bool,
+    pub(super) since: std::time::Instant,
+}
+
 impl App {
     /// Whether file `path` has comments you haven't seen.
     pub(super) fn new_on(&self, path: &str) -> bool {

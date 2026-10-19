@@ -2,6 +2,25 @@
 //! and which comment of a thread the cursor is in.
 use super::*;
 
+/// The threads picker's titles, one per filter (Tab goes round them): its title says which.
+pub(super) const THREAD_TABS: [&str; 5] = [
+    " threads: [all] unresolved pending Claude new ",
+    " threads: all [unresolved] pending Claude new ",
+    " threads: all unresolved [pending] Claude new ",
+    " threads: all unresolved pending [Claude] new ",
+    " threads: all unresolved pending Claude [new] ",
+];
+
+pub(super) const THREADS_ALL: usize = 0;
+
+pub(super) const THREADS_UNRESOLVED: usize = 1;
+
+pub(super) const THREADS_PENDING: usize = 2;
+
+pub(super) const THREADS_CLAUDE: usize = 3;
+
+pub(super) const THREADS_NEW: usize = 4;
+
 impl App {
     /// `Space t` (and `Space p` / `A` / `n` on their filter): the review threads, with their
     /// state, author, gist and replies; Tab / Shift-Tab go round the filters (`THREAD_TABS`):
