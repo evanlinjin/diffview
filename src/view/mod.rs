@@ -233,8 +233,9 @@ struct CursorKey {
     line: Option<(String, Option<u32>, Option<u32>)>,
     /// Root comment id for a thread row, and how far into the thread it is.
     thread: Option<(u64, usize)>,
-    /// Row index for a PR info row (the section is at the top and only grows at its end).
-    info: Option<usize>,
+    /// A PR row outside its sections (facts, conversation, …: they move and re-wrap with the
+    /// pane): its `Row::info`, how far into that info's rows, and which of all those rows.
+    info: Option<(Option<usize>, usize, usize)>,
     /// A section before the files (the description, a commit's message, Claude's summary): its
     /// `Row::main` and how far into it. (By index, the PR text before it growing would move it.)
     section: Option<(usize, usize)>,

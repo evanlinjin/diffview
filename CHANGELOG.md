@@ -5,6 +5,22 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.6] - 2026-10-19
+
+### Changed
+- In the comments pane, comment boxes are open on their left instead: their rules come out
+  of the line between the code and the pane (`├───`), and their right side is closed again.
+
+### Fixed
+- The line between the code and the pane goes on up through the pinned title.
+- Tab on a folded thread whose first comment is hidden on GitHub unfolds it (it showed the
+  hidden text instead); hidden comments' text no longer shows in the comment pickers; the
+  hidden line wraps, and says just "hidden on GitHub" when GitHub gives no reason.
+- `Space o` with no conversation says so; from another tab it builds once.
+- The cursor on the PR's text stays on the same comment when the pane re-wraps it.
+- In the pending view, Tab on the files-gone heading no longer folds your review's text.
+- The tabs' counts are of threads on the code that are shown.
+
 ## [0.34.5] - 2026-10-19
 
 ### Added

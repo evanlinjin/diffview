@@ -437,6 +437,12 @@ impl App {
                                 spans.extend(clip(code, gw + mx));
                                 spans.push(sep.clone());
                                 match c {
+                                    // A box open on its left: its rules start on the line, `├─`.
+                                    Some(r) if self.open_left(r) && self.box_part(r).is_some_and(|p| p != BoxPart::Body) => {
+                                        spans.pop();
+                                        spans.push(Span::styled(format!("├{}", "─".repeat(pad)), self.box_edge(r).bg(self.ui.base.bg.unwrap_or(Color::Reset))));
+                                        spans.extend(raise(clip(self.render_row(r, s, e, (lw, 3, ptw), None, cur, &overlay), mw - pad)));
+                                    }
                                     Some(r) => spans.extend(raise(pane_cell(self.render_row(r, s, e, (lw, 3, ptw), None, cur, &overlay)))),
                                     None => spans.push(Span::raw(" ".repeat(mw))),
                                 }
@@ -506,6 +512,11 @@ impl App {
                 let mut used = 0;
                 let lit = self.bar();
                 for (tab, label, cols) in self.pane_tabs() {
+                    // The line between the code and the pane goes on up through the title.
+                    if used == 0 && !float {
+                        spans.push(Span::styled(sep.content.clone(), dim.patch(Style { fg: sep.style.fg, ..Style::new() })));
+                        used = 1;
+                    }
                     spans.push(Span::styled(" ".repeat(cols.start - used), dim));
                     let on = tab == lit;
                     spans.push(Span::styled(label, if on { self.ui.menu_selected } else { dim }));
@@ -761,6 +772,23 @@ impl App {
         })
     }
 
+    /// A box's border: the lit thread's in the accent; one from Claude's review file (Claude's,
+    /// or yours for it: not on GitHub) in the hint color; GitHub's dim.
+    fn box_edge(&self, r: usize) -> Style {
+        let t = self.rows[r].thread;
+        match t.is_some() && t == self.lit_thread() {
+            true => self.ui.key,
+            false if t.is_some_and(|t| self.threads[t].claude.is_some()) => Style { fg: self.ui.pending.fg, ..Style::new() },
+            false => self.ui.linenr,
+        }
+    }
+
+    /// Whether row `r`'s box is open on its left: in the pane, as a column (its rules come
+    /// from the line between it and the code).
+    fn open_left(&self, r: usize) -> bool {
+        self.margin_row(r) && self.margin_active && !self.margin_float
+    }
+
     /// One row's spans, padded to the gutter + `tw` width. `side`: None = full width, else
     /// Some(false/true) = the old/new half of a split row (one line number, not two).
     #[allow(clippy::too_many_arguments)]
@@ -812,7 +840,13 @@ impl App {
                 part = self.box_part(r);
                 let first = row.thread.is_some() && (r == 0 || self.rows[r - 1].thread != row.thread);
                 // Comments sit in a box with a subtle border; a folded thread is just its ▸ line.
+                // In the pane (as a column), a box is open on its left: its rules come from the
+                // line beside the code.
                 let mark = match part {
+                    Some(p) if self.open_left(r) => {
+                        gstyle = self.box_edge(r);
+                        if p == BoxPart::Body { "   " } else if p == BoxPart::Bottom { "───" } else { "── " }
+                    }
                     Some(BoxPart::Top) => "╭─ ",
                     Some(BoxPart::Divider) => "├─ ",
                     Some(BoxPart::Body) => "│  ",
@@ -883,9 +917,7 @@ impl App {
         let cursor_here = self.head.row == r && this_side;
         // In a box, what doesn't wrap (code) is cut at its edge, and scrolled on its own.
         let bw = self.box_w(r, tw);
-        // In the pane a box is open on its right: its text runs to the pane's edge.
-        let open = part.is_some() && self.margin_row(r);
-        let text_w = if part.is_some() && !open { bw.saturating_sub(1) } else { tw };
+        let text_w = if part.is_some() { bw.saturating_sub(1) } else { tw };
         let skip = self.hscroll(r);
         for (i, c) in l.text.chars().enumerate().skip(skip).take(text_w) {
             let p = Pos { row: r, col: i };
@@ -935,23 +967,15 @@ impl App {
         let used: usize = spans[g..].iter().map(|s| s.width()).sum();
         if let Some(p) = part {
             // The box's right side: header rows run a rule to the corner, body rows pad to the edge.
-            // (In the pane, open: its rules run on to the edge, no side.)
             let (fill, lead, corner) = match p {
-                BoxPart::Top => ('─', " ", if open { '─' } else { '╮' }),
-                BoxPart::Divider => ('─', " ", if open { '─' } else { '┤' }),
-                BoxPart::Body => (' ', "", if open { ' ' } else { '│' }),
-                BoxPart::Bottom => ('─', "", if open { '─' } else { '╯' }),
+                BoxPart::Top => ('─', " ", '╮'),
+                BoxPart::Divider => ('─', " ", '┤'),
+                BoxPart::Body => (' ', "", '│'),
+                BoxPart::Bottom => ('─', "", '╯'),
             };
             let lead = if used == 0 { "" } else { lead };
             let n = bw.saturating_sub(used + lead.len() + 1);
-            // The lit thread's box in the accent; one from Claude's review file (Claude's, or yours
-            // for it: not on GitHub) in the hint color; GitHub's dim.
-            let local = row.thread.is_some_and(|t| self.threads[t].claude.is_some());
-            let edge = match row.thread.is_some() && row.thread == self.lit_thread() {
-                true => ui.key,
-                false if local => Style { fg: ui.pending.fg, ..Style::new() },
-                false => ui.linenr,
-            };
+            let edge = self.box_edge(r);
             spans.push(Span::styled(format!("{lead}{}", fill.to_string().repeat(n)), style.patch(edge)));
             if let Some(bg) = line_bg {
                 for sp in &mut spans {

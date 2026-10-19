@@ -52,10 +52,12 @@ impl App {
         };
         tabs.iter()
             .map(|&(b, name)| {
+                // (Those on the code, shown: on the PR's head.)
+                let on_code = self.threads.iter().filter(|t| !t.path.is_empty() && !self.before_head());
                 let n = match b {
-                    Bar::Claude if !self.unpublished() => self.threads.iter().filter(|t| t.claude.is_some()).count(),
-                    Bar::Pending => self.threads.iter().filter(|t| t.comments.iter().any(|c| c.pending)).count(),
-                    _ => self.threads.len(),
+                    Bar::Claude if !self.unpublished() => on_code.filter(|t| t.claude.is_some()).count(),
+                    Bar::Pending => on_code.filter(|t| t.comments.iter().any(|c| c.pending)).count(),
+                    _ => on_code.count(),
                 };
                 let l = match n {
                     0 => format!(" {name} "),

@@ -92,6 +92,16 @@ pub struct Comment {
     pub hidden: String,
 }
 
+impl Comment {
+    /// Its text, or (hidden on GitHub) why it's hidden: for lists, where Tab can't show it.
+    pub fn gist(&self) -> String {
+        match self.hidden.as_str() {
+            "" => self.body.clone(),
+            why => format!("_(hidden on GitHub: {why})_"),
+        }
+    }
+}
+
 /// Where a new comment goes. Lines are file line numbers on the given side.
 pub struct Anchor {
     pub path: String,

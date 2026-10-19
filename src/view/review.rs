@@ -1085,7 +1085,7 @@ impl App {
                     n => format!("{n} replies · "),
                 };
                 let label = format!("{}{line}  {replies}{tags}@{}", t.path, c.author);
-                Some(Item { detail: self.snippet(&c.body, 2), ..Item::new(label, Target::Comment(ti, 0)) })
+                Some(Item { detail: self.snippet(&c.gist(), 2), ..Item::new(label, Target::Comment(ti, 0)) })
             })
             .collect()
     }
@@ -1102,7 +1102,7 @@ impl App {
                     _ => "reply",
                 };
                 let item = Item::new(format!("{}{line}  {kind}", t.path), Target::Comment(ti, ci));
-                items.push(Item { detail: self.snippet(&c.body, 2), ..item });
+                items.push(Item { detail: self.snippet(&c.gist(), 2), ..item });
             }
         }
         items
