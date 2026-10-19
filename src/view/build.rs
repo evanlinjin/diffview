@@ -186,7 +186,7 @@ impl App {
                         // An author line belongs to the body after it, so `C` there quotes it.
                         (true, _) => {
                             let body = self.info.get(ii + 1).filter(|n| n.md).map(|_| ii + 1);
-                            rows.push(Row { info: body, ..mk(Kind::Thread, l.text.clone()) });
+                            rows.push(Row { info: body, ..self.info_row(l, mk(Kind::Thread, l.text.clone())) });
                         }
                         // GitHub shows a placeholder for an empty description (and a review with no
                         // text, just its verdict, has none to show): in its box, closed below.

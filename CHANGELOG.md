@@ -15,6 +15,8 @@ on GitHub are its section here.
   uncommitted. `a` on a commit in `Ctrl-w e`'s list amends it all into that one.
 
 ### Changed
+- In the PR's conversation, a review's verdict stands out from comments: `✓ approved` in
+  green, `✗ requested changes` in red (a review with only comments says `reviewed`).
 - A file marked viewed doesn't fold while it has comments you haven't seen, and one folded
   already opens when new comments come in on it.
 - One threads picker: `Space t`, with filters `Tab` / `Shift-Tab` go round (all, unresolved,

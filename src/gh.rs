@@ -1165,8 +1165,8 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         .collect();
     for r in list(&v["reviews"]) {
         let what = match s(&r["state"]).as_str() {
-            "APPROVED" => "approved · ",
-            "CHANGES_REQUESTED" => "requested changes · ",
+            "APPROVED" => "✓ approved · ",
+            "CHANGES_REQUESTED" => "✗ requested changes · ",
             "DISMISSED" => "reviewed (dismissed) · ",
             "COMMENTED" if !s(&r["body"]).trim().is_empty() => "reviewed · ",
             _ => continue, // pending, or nothing to read here
@@ -1180,7 +1180,16 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
     out.push(heading(format!("conversation ({})", said.len())));
     for (at, who, what, url, body, node, r) in said {
         let r = if r.is_empty() { String::new() } else { format!(" · {}", reactions_text(&r)) };
-        out.push(InfoLine { url, node, ..heading(format!("@{who} · {what}{}{r}", ago(&at))) });
+        // A verdict in its color, so an approval doesn't read as just another comment.
+        let mut h = InfoLine { url, node, ..InfoLine::new(true, false) };
+        let mark = match what {
+            "✓ approved · " => Some(Mark::Pass),
+            "✗ requested changes · " => Some(Mark::Fail),
+            _ => None,
+        };
+        h.put(&format!("@{who} · "), None).put(what.trim_end_matches(" · "), mark).put(if what.is_empty() { "" } else { " · " }, None);
+        h.put(&format!("{}{r}", ago(&at)), None);
+        out.push(h);
         out.push(markdown(body.replace("\r\n", "\n")));
     }
     out
@@ -1345,7 +1354,7 @@ fn reviews_in_the_conversation() {
     assert_eq!(text[at], "conversation (3)"); // the empty plain review and the pending one aren't
     let rest = &text[at + 1..];
     assert!(rest[0].starts_with("@amy · ") && rest[1] == "first");
-    assert!(rest[2].starts_with("@bo · approved · ") && rest[3].is_empty());
+    assert!(rest[2].starts_with("@bo · ✓ approved · ") && rest[3].is_empty());
     assert!(rest[4].starts_with("@me · reviewed · ") && rest[5] == "looks close");
     // Each its own link (what `a` keeps a question about it by): not the PR's, nor another's.
     let urls: Vec<&str> = lines[lines.len() - 6..].iter().step_by(2).map(|l| l.url.as_str()).collect();
