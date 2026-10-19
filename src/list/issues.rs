@@ -947,7 +947,7 @@ impl Issues {
         let Some(key) = self.deferring.take() else { return };
         let Some(it) = self.todo.iter().find(|it| it.key() == key) else { return };
         let (secs, how) = crate::todo::defer_secs(c);
-        self.deferred.insert(key, crate::todo::Deferral { until: crate::claude::now_secs() + secs, needs: it.needs_key(), cond: None, at: crate::claude::now_secs() });
+        self.deferred.insert(key, crate::todo::Deferral { until: crate::claude::now_secs() + secs, needs: it.needs_key(), cond: None, at: 0 });
         self.msg = format!("deferred for {how} (s on it brings it back)");
         self.save_defer();
     }

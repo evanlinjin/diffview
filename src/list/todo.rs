@@ -77,7 +77,12 @@ impl List {
             let claude = self.ranked.as_ref().and_then(|r| r.waits.get(&it.key())).map(|c| (c.clone(), String::new()));
             // (A push from no known head: nothing to tell it by.)
             let claude = claude.filter(|(c, _)| *c != todo::Until::Pushed(String::new()));
-            it.waits = todo::waiting_on(said, now).or(claude).filter(|(c, _)| !self.happened(it, c, 0));
+            // (Claude's: a review since it ranked; a comment's has no time: any.)
+            let (waits, since) = match todo::waiting_on(said, now) {
+                Some(w) => (Some(w), 0),
+                None => (claude, self.ranked.as_ref().map_or(0, |r| r.at)),
+            };
+            it.waits = waits.filter(|(c, _)| !self.happened(it, c, since));
         }
         let (mut waiting, mut rest): (Vec<Item>, Vec<Item>) = items.into_iter().partition(|it| it.waits.is_some());
         rest.append(&mut waiting);
@@ -477,7 +482,9 @@ impl List {
             c => (i64::MAX, Some(c)),
         };
         let says = cond.as_ref().map_or_else(|| todo::in_secs(until - crate::claude::now_secs()), todo::Until::says);
-        self.deferred.insert(key.to_owned(), todo::Deferral { until, needs: it.needs_key(), cond, at: crate::claude::now_secs() });
+        // (By GitHub's clock, and what dv had shown you: not one it hadn't, nor your clock's.)
+        let at = self.extra.get(&it.number).and_then(|e| e.reviews.iter().map(|r| r.2).max()).unwrap_or(0);
+        self.deferred.insert(key.to_owned(), todo::Deferral { until, needs: it.needs_key(), cond, at });
         self.msg = format!("deferred until {says} (s on it brings it back)");
         // A PR it waits on that isn't listed: its state, now (and on refresh).
         self.find_others();
@@ -650,7 +657,7 @@ impl List {
     pub(super) fn defer_for(&mut self, key: &str, c: char) {
         let Some(it) = self.todo.iter().find(|it| it.key() == key).cloned() else { return };
         let (secs, how) = todo::defer_secs(c);
-        self.deferred.insert(it.key(), todo::Deferral { until: crate::claude::now_secs() + secs, needs: it.needs_key(), cond: None, at: crate::claude::now_secs() });
+        self.deferred.insert(it.key(), todo::Deferral { until: crate::claude::now_secs() + secs, needs: it.needs_key(), cond: None, at: 0 });
         self.msg = format!("deferred for {how} (s on it brings it back)");
         self.save_defer();
     }

@@ -90,7 +90,8 @@ pub fn listed_one(n: u64) -> Result<Listed> {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Extra {
     pub my_review: Option<(String, String)>,
-    /// Everyone's latest review: (login, state).
+    /// The last reviews, each (not only everyone's latest: a comment's review after an approval
+    /// would hide it): (login, state, when submitted).
     pub reviews: Vec<(String, String, i64)>,
     /// The conversation's last comments by people with write access (or you), oldest first:
     /// (login, body), for what the PR waits on.
@@ -120,7 +121,8 @@ pub fn list_extra() -> Result<(String, std::collections::HashMap<u64, Extra>)> {
                  number headRefOid mergeable baseRefName {SIGNATURE_RULES}
                  commits(last: 100) {{ nodes {{ commit {{ signature {{ isValid }} }} }} }}
                  reviewRequests(first: 30) {{ nodes {{ requestedReviewer {{ ... on User {{ login }} }} }} }}
-                 latestReviews(first: 50) {{ nodes {{ author {{ login }} state submittedAt commit {{ oid }} }} }}
+                 latestReviews(first: 50) {{ nodes {{ author {{ login }} state commit {{ oid }} }} }}
+                 reviews(last: 50) {{ nodes {{ author {{ login }} state submittedAt }} }}
                  comments(last: 20) {{ nodes {{ author {{ login }} authorAssociation body }} }} }} }} }} }}"
         );
         let v: Value = gh_json(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-f", &format!("query={q}")])?;
@@ -149,7 +151,7 @@ fn extra(p: &Value, me: &str) -> Extra {
     let my_review = nodes("latestReviews").into_iter().find(|r| r["author"]["login"] == me).map(|r| (s(&r["state"]), s(&r["commit"]["oid"])));
     Extra {
         my_review,
-        reviews: nodes("latestReviews").iter().map(|r| (s(&r["author"]["login"]), s(&r["state"]), crate::gh::epoch_secs(&s(&r["submittedAt"])).unwrap_or(0))).collect(),
+        reviews: nodes("reviews").iter().map(|r| (s(&r["author"]["login"]), s(&r["state"]), crate::gh::epoch_secs(&s(&r["submittedAt"])).unwrap_or(0))).collect(),
         said: nodes("comments")
             .iter()
             .filter(|c| c["author"]["login"] == me || matches!(c["authorAssociation"].as_str(), Some("OWNER" | "MEMBER" | "COLLABORATOR")))

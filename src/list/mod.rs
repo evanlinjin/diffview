@@ -452,7 +452,7 @@ impl List {
         }
         self.msg = format!("asked for a rebase of #{n}");
         if let Some(it) = self.todo.iter().find(|it| !it.is_rep() && it.number == n).cloned() {
-            self.deferred.insert(it.key(), crate::todo::Deferral { until: crate::claude::now_secs() + 7 * 86400, needs: it.needs_key(), cond: None, at: crate::claude::now_secs() });
+            self.deferred.insert(it.key(), crate::todo::Deferral { until: crate::claude::now_secs() + 7 * 86400, needs: it.needs_key(), cond: None, at: 0 });
             self.msg += "; deferred on the todo tab until it changes";
             self.save_defer();
         }

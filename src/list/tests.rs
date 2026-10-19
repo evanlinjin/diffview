@@ -410,7 +410,8 @@ fn defer_from_the_todo_tab() {
     assert!(l.msg.starts_with("deferred until @bo reviews it"), "{}", l.msg);
     l.find_todo();
     assert_eq!(l.todo_now(), 1);
-    l.extra.get_mut(&2).unwrap().reviews = vec![("bo".into(), "APPROVED".into(), crate::claude::now_secs() + 1)];
+    // (Its approval, then a comment of bo's after it: both seen.)
+    l.extra.get_mut(&2).unwrap().reviews = vec![("bo".into(), "COMMENTED".into(), 1), ("bo".into(), "APPROVED".into(), 5), ("bo".into(), "COMMENTED".into(), 6)];
     l.find_todo();
     assert_eq!(l.todo_now(), 2);
     let _ = std::fs::remove_dir_all(&dir);

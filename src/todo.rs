@@ -601,8 +601,9 @@ pub fn waiting_on(said: &[(String, String)], now: i64) -> Option<(Until, String)
 }
 
 /// A deferral (`s`): till when (`i64::MAX` for one waiting on `cond`), the item's needs then (it
-/// comes back early when they change), what it waits for, if not a time, and when it was
-/// deferred (a review or approval counts from then: not one it had already; 0: any).
+/// comes back early when they change), what it waits for, if not a time, and the newest of its
+/// reviews then, as GitHub timed it (a review or approval counts if newer: not one it had
+/// already; 0: any).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Deferral {
     pub until: i64,
