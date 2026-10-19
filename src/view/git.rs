@@ -241,18 +241,25 @@ impl App {
     /// in the repo's style); once it's done your editor opens with it (`COMMIT_LABEL`).
     pub(super) fn commit_ask(&mut self) -> Result<String> {
         let p = self.commit_msg_path().context("no review file")?;
-        _ = std::fs::remove_file(&p);
+        // One it wrote that your editor couldn't open with then: that one.
+        if let Some(msg) = std::fs::read_to_string(&p).ok().filter(|m| !m.trim().is_empty()) {
+            self.action = Some(Action::CommitWith(msg));
+            return Ok(String::new());
+        }
         let status = diff::git(&["status", "--porcelain"]).unwrap_or_default();
         let prompt = format!(
             "Write the commit message for committing everything not committed in this checkout (as `git add -A` would \
              take it): these files (`git status --porcelain`):\n{status}\nRead the changes (`git diff HEAD`; a new \
              file's content with your Read tool) and how this repo writes commit messages (`git log -15 --format=%B`), \
              and write a message in that style: a subject line saying what it does, and a body saying why when it isn't \
-             obvious (the review file's \"Changed: …\" replies say why for what you changed). Write only the message, to \
-             {} (your Write tool). Don't commit, and change nothing else.",
+             obvious (the review file's \"Changed: …\" replies, in {}, say why for what you changed). Write only the \
+             message, to {} (your Write tool). Don't commit, and change nothing else.",
+            self.claude.path.as_ref().map_or(String::new(), |r| r.display().to_string()),
             p.display()
         );
-        let forked = self.claude_pane().is_some();
+        // On a fork of the PR's session when it has one: what it knows, without this side task
+        // in the review's conversation (nor its failure costing it).
+        let forked = self.claude.path.as_ref().and_then(|r| crate::claude::load_session(r, &self.root)).is_some_and(|(id, ok)| ok && crate::claude::session_exists(&id));
         self.claude.job = Some(self.spawn_claude(&prompt, COMMIT_LABEL, forked, &[])?);
         Ok("Claude is writing the commit message (your editor opens with it)…".into())
     }
@@ -260,6 +267,11 @@ impl App {
     /// Commit everything that isn't (new files too: dv shows them), with a message written in
     /// the editor; leaving it empty cancels.
     pub(super) fn commit(&mut self, draft: &str) -> Result<String> {
+        // (However it got here: an editor pane closing while Claude's at work again, say.)
+        anyhow::ensure!(!self.claude_busy(), "Claude is still at work here: commit once it's done (its changes would be half made)");
+        if let Some(p) = self.commit_msg_path() {
+            _ = std::fs::remove_file(p); // (Claude's message: given to the editor now)
+        }
         let Some(msg) = compose_with("commit message (everything uncommitted, new files too)", false, draft, true)? else {
             return Ok("commit cancelled".into());
         };

@@ -869,19 +869,17 @@ impl App {
         // the draft from its replies).
         if label == super::git::COMMIT_LABEL {
             let wrote = self.commit_msg_path().and_then(|p| std::fs::read_to_string(&p).ok()).map(|m| m.trim().to_owned()).filter(|m| !m.is_empty() && !failed);
-            if let Some(p) = self.commit_msg_path() {
-                _ = std::fs::remove_file(p);
-            }
-            let msg = wrote.unwrap_or_else(|| self.commit_draft());
+            // (Not over what you're at: kept, for Space g → commit to open with.)
             match self.picker.is_none() && self.prompt.is_none() && self.action.is_none() {
-                true => self.action = Some(Action::CommitWith(msg)),
-                false => self.msg += " (Space g → commit again when you're ready)",
+                true => self.action = Some(Action::CommitWith(wrote.unwrap_or_else(|| self.commit_draft()))),
+                false => self.msg += " (Space g → commit opens with its message)",
             }
         }
         // Replies made meanwhile: one more run, unless this one went wrong (then that's the news,
         // and retrying would hit the same wall).
         if std::mem::take(&mut self.claude.again) && self.waiting_replies() > 0 {
-            match failed || refused.is_some() || super::rebase::rebasing(&self.root) {
+            // (Not with a commit about to be made: the editor's open on it.)
+            match failed || refused.is_some() || super::rebase::rebasing(&self.root) || label == super::git::COMMIT_LABEL {
                 true => self.msg += " · your newer replies wait (Space a to retry)",
                 false => self.msg = self.answer_now(),
             }
