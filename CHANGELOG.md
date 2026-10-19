@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.54.0] - 2026-10-19
+
+### Added
+- Defer until someone else reviews it: a new review from anyone but you and the PR's author
+  brings it back.
+
 ## [0.53.4] - 2026-10-19
 
 ### Fixed
