@@ -120,12 +120,20 @@ pub(super) fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathB
         (_, true) => Some(("DRAFT", "6e7681")),
         _ => None,
     };
-    let title = vec![
+    let lead = vec![
         // A column of its own for the mark (`m`): marked cards line up down the list.
         sp(if mark.marked { " ● ".into() } else { "   ".into() }, tint(ui.key).add_modifier(ratatui::style::Modifier::BOLD)),
         sp(format!("{:>w$}  ", crate::replace::shown(p.number), w = num_w - 1), tint(ui.key)),
-        sp(p.title.clone(), row.add_modifier(ratatui::style::Modifier::BOLD)),
     ];
+    let lead_w: usize = lead.iter().map(Span::width).sum();
+    // The title is what's cut for its badges and tags, never the mark or number (the tags cut,
+    // when they're wider still, where the line ends).
+    let title_in = |room: usize, tags: Vec<Span<'static>>| {
+        let mut v = lead.clone();
+        v.extend(cut_spans(vec![sp(p.title.clone(), row.add_modifier(ratatui::style::Modifier::BOLD))], room.saturating_sub(lead_w).max(8)));
+        v.extend(tags);
+        v
+    };
     // Badges stay in view: the title is what's cut for them.
     let mut tags = vec![];
     if let Some((text, color)) = badge {
@@ -217,14 +225,8 @@ pub(super) fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathB
             v.extend(fit(right, if run_on { width.saturating_sub(1 + left_w).max(RIGHT) } else { RIGHT }, row));
             full(v)
         };
-        // The title cut for its badges and tags, never its number (the tags cut, past the zone).
         let tags_w: usize = tags.iter().map(Span::width).sum();
-        let mut title = title;
-        let text = title.pop().into_iter().collect::<Vec<_>>();
-        let lead_w: usize = title.iter().map(Span::width).sum();
-        let mut top = title;
-        top.extend(cut_spans(text, left_w.saturating_sub(lead_w + tags_w).max(8)));
-        top.extend(tags);
+        let top = title_in(left_w.saturating_sub(tags_w), tags);
         // CI on the left of the zone, the age at its right end.
         let age_w = age.width();
         let mut stand = fit(ci, RIGHT.saturating_sub(age_w + 1), row);
@@ -239,8 +241,7 @@ pub(super) fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathB
     };
     let age = sp(format!("  {} ", age.content), age.style);
     let tags_w: usize = tags.iter().map(Span::width).sum();
-    let mut top = cut_spans(title, width.saturating_sub(1 + tags_w + age.width()));
-    top.extend(tags);
+    let mut top = title_in(width.saturating_sub(1 + tags_w + age.width()), tags);
     let used: usize = top.iter().map(Span::width).sum::<usize>() + 1;
     top.push(sp(" ".repeat(width.saturating_sub(used + age.width())), row));
     top.push(age);
@@ -296,11 +297,11 @@ pub(super) fn close_line(why: &str, cx: &Cards, selected: bool) -> Line<'static>
 }
 
 /// What a todo card says: what holds it up, in short (with Claude's word: its needs' tags), and
-/// what it says (Claude's word, "why — what to do", or the needs), with when it's back
+/// what it says (Claude's word, "why\nwhat to do", or the needs), with when it's back
 /// (deferred), what it waits on, or Claude at it.
 pub(super) fn todo_says(it: &crate::todo::Item) -> (Vec<String>, String) {
     let (tags, core) = match &it.reason {
-        Some(r) => (it.needs.iter().filter_map(crate::todo::Need::tag).collect(), r.clone()),
+        Some(r) => (it.tags(), r.clone()),
         None => (vec![], it.says()),
     };
     // Placed by the rules since Claude ranked (new, or its needs changed): said so. Deferred:
@@ -363,8 +364,8 @@ pub(super) fn with_message(mut lines: Vec<Line<'static>>, says: &str, cx: &Cards
     let row = card_row(ui, selected);
     let st = |s: Style| row.patch(Style { bg: None, ..s });
     let w = width.saturating_sub(card_w + 3);
-    // Claude's why and what next, a line each (a ranking from before 0.36.1: " — " between).
-    let (why, todo) = match says.split_once('\n').or_else(|| says.rsplit_once(" — ")) {
+    // Claude's why and what next, a line each (one ranked before 0.36.1: all why, till ranked again).
+    let (why, todo) = match says.split_once('\n') {
         Some((a, b)) => (a, Some(b)),
         None => (says, None),
     };

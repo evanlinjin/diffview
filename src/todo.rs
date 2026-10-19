@@ -169,18 +169,15 @@ impl Item {
         self.needs.iter().map(Need::weight).max().unwrap_or(0)
     }
 
-    /// What the card says: Claude's word if it ranked it, else the needs. With Claude's word,
-    /// what holds the PR up first, in short (runs to approve, checks failing, …): its ranking may
-    /// be older than they are.
+    /// Its needs, in a few words each (what the card says when Claude hasn't ranked it).
     pub fn says(&self) -> String {
-        match &self.reason {
-            Some(r) => {
-                let tags: Vec<String> = self.needs.iter().filter_map(Need::tag).collect();
-                let r = r.replace('\n', " — ");
-                if tags.is_empty() { r } else { format!("[{}] {r}", tags.join(" · ")) }
-            }
-            None => self.needs.iter().map(Need::says).collect::<Vec<_>>().join(" · "),
-        }
+        self.needs.iter().map(Need::says).collect::<Vec<_>>().join(" · ")
+    }
+
+    /// What holds the PR up, in short (runs to approve, checks failing, …): said beside Claude's
+    /// word, as its ranking may be older than they are.
+    pub fn tags(&self) -> Vec<String> {
+        self.needs.iter().filter_map(Need::tag).collect()
     }
 }
 
@@ -330,7 +327,7 @@ pub struct Ranked {
     /// What it cost (dollars, as Claude Code reports it).
     pub cost: f64,
     pub fingerprint: String,
-    /// (key, "reason — next"), in order.
+    /// (key, "reason\nnext"), in order.
     pub items: Vec<(String, String)>,
     /// What Claude saw each waits on, in its conversation (by key).
     pub waits: std::collections::HashMap<String, Until>,
@@ -685,7 +682,7 @@ fn ask(lines: &[String], root: &std::path::Path) -> Result<(Order, f64)> {
     Ok((parse(v["result"].as_str().unwrap_or(""))?, v["total_cost_usd"].as_f64().unwrap_or(0.0)))
 }
 
-/// The order in Claude's answer (a JSON array, maybe with words around it): (key, "reason — next"),
+/// The order in Claude's answer (a JSON array, maybe with words around it): (key, "reason\nnext"),
 /// and what it saw any wait on.
 fn parse(answer: &str) -> Result<Order> {
     let json = answer.get(answer.find('[').context("no ranking in Claude's answer")?..=answer.rfind(']').context("no ranking")?).unwrap_or("");
@@ -861,8 +858,8 @@ mod tests {
         assert_eq!(Need::ApproveRuns(1).says(), "1 workflow run awaiting approval: approve it (W W)");
         // With Claude's reason on the card, what holds the PR up goes first, in short.
         let it = Item { rep: false, number: 1, needs: vec![Need::ApproveRuns(3), Need::ChecksFailing(2, false), Need::NoReview], claude: None, updated: String::new(), reason: Some("bug fix — review".into()), changed: false, deferred: None, busy: None, waits: None };
-        assert_eq!(it.says(), "[⏸ 3 runs to approve (W W) · ✗ 2 checks failing] bug fix — review");
-        assert_eq!(Item { reason: None, ..it.clone() }.says().split(" · ").count(), 3);
+        assert_eq!(it.tags(), ["⏸ 3 runs to approve (W W)", "✗ 2 checks failing"]);
+        assert_eq!(it.says().split(" · ").count(), 3);
         // Conflicting with its base: ask for a rebase (or, yours, do it).
         let mut conflicting = extra(None, false, "h");
         conflicting.mergeable = "CONFLICTING".into();
@@ -898,7 +895,7 @@ mod tests {
         let (o, since) = order(items.clone(), Some(&ranked));
         assert_eq!(since, Since::default()); // it's of the same three (pr-2 left out of Claude's answer goes by the rules)
         assert_eq!(o.iter().map(|i| i.number).collect::<Vec<_>>(), [2, 1, 3]);
-        assert_eq!(o[1].says(), "small fix — merge");
+        assert_eq!(o[1].reason.as_deref(), Some("small fix — merge"));
         assert_eq!(o[0].says(), "your review is requested");
         // Since: one new, one whose needs changed, one gone; those two marked.
         let mut now = vec![it(1, vec![Need::ReviewRequested], "b"), it(3, vec![Need::NoReview], "a"), it(9, vec![Need::NoReview], "d")];

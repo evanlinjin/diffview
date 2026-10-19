@@ -329,7 +329,7 @@ fn todo_tab() {
     // the place in the order under the number, what holds it up on the title line.
     l.sel = 0;
     l.prs[0].checks = Some((1, 2, 0));
-    l.ranked.as_mut().unwrap().items[0].1 = "a fee bug that rounds the wrong way for some wallets, reported twice — review it, then ask for a test".into();
+    l.ranked.as_mut().unwrap().items[0].1 = "a fee bug — it rounds the wrong way for some wallets, reported twice\nreview it, then ask for a test".into();
     l.find_todo();
     snapshot("list_todo_wide", &screen(170, 12, |f| l.draw(f)));
     let _ = std::fs::remove_dir_all(&dir);

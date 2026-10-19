@@ -66,7 +66,7 @@ fn refused_prs(v: &serde_json::Value) -> Result<(Vec<u64>, Vec<u64>)> {
 
 /// The checks branch `base`'s protection requires, from REST: GraphQL's `branchProtectionRule`
 /// is null to anyone who can't administer the repo, while this answers anyone who can read it.
-/// `None`: it couldn't be read. Kept a few minutes (a base's rules rarely change).
+/// `None`: it couldn't be read. Kept a few minutes (a base's rules rarely change); a failure, 30s.
 fn protected(base: &str) -> Option<Vec<String>> {
     type Cache = std::collections::HashMap<String, (std::time::Instant, Option<Vec<String>>)>;
     static CACHE: std::sync::LazyLock<std::sync::Mutex<Cache>> = std::sync::LazyLock::new(Default::default);
