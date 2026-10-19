@@ -170,7 +170,11 @@ impl App {
         let row = self.rows.iter().enumerate().filter(|(_, r)| r.thread == Some(ti) && r.line.kind == Kind::Thread).nth(ci);
         match row {
             Some((r, _)) => self.jump(r, 0),
-            None => self.msg = format!("{} isn't in this diff", self.threads[ti].path), // showing only what isn't committed
+            // (Showing only what isn't committed; a question on no file, where nothing shows it.)
+            None => self.msg = match self.threads[ti].path.as_str() {
+                "" => "that comment isn't shown here".into(),
+                p => format!("{p} isn't in this diff"),
+            },
         }
     }
 
