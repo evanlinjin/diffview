@@ -796,7 +796,7 @@ pub fn set_viewed(pr_id: &str, path: &str, viewed: bool) -> Result<()> {
 
 /// PR `n`'s labels and assignees, and what it could have: the repo's labels and the people it
 /// can be assigned to. ((name, on it), (login, on it)), sorted, those on it first.
-pub fn labels_and_assignees(n: u64) -> Result<(Vec<(String, bool)>, Vec<(String, bool)>)> {
+pub fn labels_and_assignees(n: u64) -> Result<(Choices, Choices)> {
     let v: Value = serde_json::from_str(&gh(&["pr", "view", &n.to_string(), "--json", "labels,assignees"])?)?;
     let on = |k: &str, f: &str| -> Vec<String> { v[k].as_array().into_iter().flatten().filter_map(|x| x[f].as_str().map(str::to_owned)).collect() };
     let (labels, assigned) = (on("labels", "name"), on("assignees", "login"));
@@ -811,6 +811,9 @@ pub fn labels_and_assignees(n: u64) -> Result<(Vec<(String, bool)>, Vec<(String,
     };
     Ok((mark(all, &labels), mark(people.lines().map(str::to_owned).collect(), &assigned)))
 }
+
+/// Names, each with whether it's on the PR.
+pub type Choices = Vec<(String, bool)>;
 
 /// Add (`on`) or remove a label on PR `n`, or (`label` false) an assignee.
 pub fn set_label_or_assignee(n: u64, label: bool, name: &str, on: bool) -> Result<()> {
@@ -1066,7 +1069,21 @@ pub fn info_json(n: u64) -> Result<Value> {
     Ok(v)
 }
 
-pub type Info = (Vec<InfoLine>, String, String, String, State, Vec<String>, (usize, usize), String);
+/// What PR info says, beyond its section's lines.
+pub struct Info {
+    pub lines: Vec<InfoLine>,
+    pub title: String,
+    pub head: String,
+    pub url: String,
+    pub state: State,
+    /// Its commits GitHub has no valid signature on.
+    pub unsigned: Vec<String>,
+    /// Workflow runs awaiting approval, checks failing.
+    pub awaiting: usize,
+    pub failing: usize,
+    /// Its base branch.
+    pub base: String,
+}
 
 /// The PR section's lines, its title, head, URL and state, its commits GitHub has no valid
 /// signature on, (workflow runs awaiting approval, checks failing), and its base branch.
@@ -1074,7 +1091,8 @@ pub fn parse_info(v: &Value) -> Info {
     let s = |k: &str| v[k].as_str().unwrap_or("").to_owned();
     let unsigned = v["dvCommits"].as_array().into_iter().flatten().filter(|c| c["signed"] != true).filter_map(|c| c["oid"].as_str().map(str::to_owned)).collect();
     let failing = v["statusCheckRollup"].as_array().into_iter().flatten().filter(|c| verdict(c) == '✗').count();
-    (info_lines(v), s("title"), s("headRefOid"), s("url"), state(v), unsigned, (v["dvAwaiting"].as_u64().unwrap_or(0) as usize, failing), s("baseRefName"))
+    let awaiting = v["dvAwaiting"].as_u64().unwrap_or(0) as usize;
+    Info { lines: info_lines(v), title: s("title"), head: s("headRefOid"), url: s("url"), state: state(v), unsigned, awaiting, failing, base: s("baseRefName") }
 }
 
 /// A PR's state as GitHub shows it, with its color: DRAFT, OPEN, MERGED or CLOSED.
@@ -1478,14 +1496,14 @@ fn signed_commits_in_the_pr_info() {
     assert!(!rules(json!({ "branchProtectionRule": null, "rules": { "nodes": [{ "type": "DELETION" }] } })));
     // The unsigned commits, for the contents' commits.
     let x = json!({ "dvCommits": [{ "oid": "aa", "signed": true }, { "oid": "bb", "signed": false }] });
-    assert_eq!(parse_info(&x).5, ["bb"]);
+    assert_eq!(parse_info(&x).unsigned, ["bb"]);
 }
 
 #[test]
 fn workflow_runs_awaiting_approval() {
     let v = json!({ "dvAwaiting": 2, "headRefOid": "abc" });
     assert!(info_lines(&v).iter().any(|l| l.text == "⏸ 2 workflow runs awaiting approval (Space g approves)"));
-    assert_eq!(parse_info(&v).6, (2, 0));
+    assert_eq!((parse_info(&v).awaiting, parse_info(&v).failing), (2, 0));
     assert!(!info_lines(&json!({})).iter().any(|l| l.text.contains("awaiting approval")));
 }
 

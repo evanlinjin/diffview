@@ -26,16 +26,18 @@ fn marker(dir: &Path) -> Option<std::path::PathBuf> {
     git_in(dir, &["rev-parse", "--git-path", "dv-rebase"]).ok().map(|p| dir.join(p.trim()))
 }
 
-/// The backup branch of the rebase dv last started in `dir`, as noted.
-fn noted(dir: &Path) -> Option<String> {
-    std::fs::read_to_string(marker(dir)?).ok().map(|s| s.trim().to_owned()).filter(|s| !s.is_empty())
+/// The rebase dv last started in `dir`, as noted: its backup branch, and what it's onto.
+fn noted(dir: &Path) -> Option<(String, String)> {
+    let text = std::fs::read_to_string(marker(dir)?).ok()?;
+    let mut l = text.lines().map(str::trim);
+    Some((l.next().filter(|b| !b.is_empty())?.to_owned(), l.next().unwrap_or("").to_owned()))
 }
 
 /// The rebase stopped in `dir`, if it's the one dv started (its backup branch): the note is
 /// checked against the rebase's own `orig-head`, so a stale one (dv's rebase ended some other
 /// way) doesn't claim a rebase you started.
 pub(super) fn dv_rebase(dir: &Path) -> Option<String> {
-    let backup = noted(dir)?;
+    let (backup, _) = noted(dir)?;
     let at = git_in(dir, &["rev-parse", "--verify", "-q", &backup]).ok()?;
     let out = git_in(dir, &["rev-parse", "--git-path", "rebase-merge/orig-head", "--git-path", "rebase-apply/orig-head"]).ok()?;
     let orig = out.lines().find_map(|p| std::fs::read_to_string(dir.join(p.trim())).ok())?;
@@ -66,7 +68,7 @@ pub(super) fn rebase(dir: &Path, onto: &str, backup: &str) -> Result<bool> {
     match git_in(dir, &["-c", "rebase.updateRefs=false", "rebase", "-q", onto]) {
         Ok(_) => Ok(true),
         Err(e) if rebasing(dir) && git_in(dir, &["diff", "--name-only", "--diff-filter=U"]).is_ok_and(|f| !f.trim().is_empty()) => {
-            match marker(dir).map(|m| std::fs::write(m, backup)) {
+            match marker(dir).map(|m| std::fs::write(m, format!("{backup}\n{onto}\n"))) {
                 Some(Ok(())) => Ok(false),
                 _ => {
                     _ = git_in(dir, &["rebase", "--abort"]);
@@ -120,7 +122,6 @@ impl App {
             if done {
                 self.follow(&onto);
                 self.reload_tree();
-                self.rekey_commits();
                 return Ok(format!("rebased onto {onto} (was {short}: {backup}); Space g force-pushes (with a lease)"));
             }
             self.reload_tree(); // (the diff's base stays till it's done: see follow_rebase)
@@ -168,13 +169,14 @@ impl App {
     /// Claude's done with a rebase: how it stands (still stopped, done, or aborted: then HEAD
     /// isn't on the base).
     pub(super) fn rebase_ended(&mut self) {
-        let onto = self.rebase_onto().unwrap_or_default();
+        // Onto what it started onto (the PR's base may have changed meanwhile).
+        let onto = noted(&self.root).map(|n| n.1).filter(|o| !o.is_empty()).or_else(|| self.rebase_onto()).unwrap_or_default();
         if rebasing(&self.root) {
             return self.msg += " · the rebase is still stopped: Space g finishes it (Claude again) or aborts it";
         }
         // Done: HEAD moved on from where it was, onto the base (on a branch or detached; an
         // abort puts it back where it was).
-        let backup = noted(&self.root);
+        let backup = noted(&self.root).map(|n| n.0);
         forget_rebase(&self.root);
         let head = git_in(&self.root, &["rev-parse", "HEAD"]).unwrap_or_default();
         let was = backup.and_then(|b| git_in(&self.root, &["rev-parse", &b]).ok()).unwrap_or_default();
@@ -184,7 +186,6 @@ impl App {
             if self.follow(&onto) {
                 self.reload_tree();
             }
-            self.rekey_commits();
             let dirty = !git_in(&self.root, &["status", "--porcelain", "--untracked-files=no"]).unwrap_or_default().trim().is_empty();
             self.msg += match dirty {
                 true => " · rebased, but Claude left changes uncommitted: check them, commit or amend (Space g), then force-push",

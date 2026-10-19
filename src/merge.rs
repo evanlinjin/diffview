@@ -176,13 +176,14 @@ fn built_in_script_is_upstreams() {
 
 #[test]
 fn worktree_only_goes_when_nothing_would_be_lost() {
-    let root = std::env::temp_dir().join(format!("dv-merge-wt-{}", std::process::id()));
+    let repo = crate::diff::scratch_repo("merge-wt");
+    let root = repo.with_extension("d");
     let _ = std::fs::remove_dir_all(&root);
-    let (origin, repo, wt) = (root.join("origin.git"), root.join("repo"), root.join("repo-7"));
-    let git = |dir: &std::path::Path, args: &[&str]| crate::diff::git(&[&["-C", &dir.to_string_lossy()], args].concat()).unwrap();
-    std::fs::create_dir_all(&repo).unwrap();
-    git(&repo, &["init", "-q", "-b", "master"]);
-    git(&repo, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "pr head"]);
+    std::fs::create_dir_all(&root).unwrap();
+    let (origin, wt) = (root.join("origin.git"), root.join("repo-7"));
+    let git = |dir: &std::path::Path, args: &[&str]| crate::diff::git_in(dir, args).unwrap();
+    git(&repo, &["checkout", "-q", "-b", "master"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "pr head"]);
     git(&root, &["init", "-q", "--bare", &origin.to_string_lossy()]);
     git(&repo, &["remote", "add", "origin", &origin.to_string_lossy()]);
     git(&repo, &["push", "-q", "origin", "HEAD:refs/pull/7/head", "HEAD:refs/heads/master"]);
@@ -194,9 +195,10 @@ fn worktree_only_goes_when_nothing_would_be_lost() {
     assert!(format!("{:#}", nothing_to_lose(&wt, 7).unwrap_err()).contains("local changes"));
     // Committed, so not on the PR: not either.
     git(&wt, &["add", "x"]);
-    git(&wt, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "mine"]);
+    git(&wt, &["commit", "-q", "-m", "mine"]);
     assert!(format!("{:#}", nothing_to_lose(&wt, 7).unwrap_err()).contains("1 commit(s) that aren't on the PR"));
     let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&repo);
 }
 
 #[test]

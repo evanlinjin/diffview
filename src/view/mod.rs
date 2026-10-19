@@ -584,6 +584,8 @@ pub struct App {
     picker: Option<Picker>,
     /// A comment or reply for Claude, waiting on the picker for what you want of it.
     wanting: Option<Action>,
+    /// The commits (shas) questions about them were last matched to (`rekey_commits`).
+    rekeyed: Vec<String>,
     search: String,
     msg: String,
     top: usize,
@@ -840,6 +842,7 @@ impl App {
             prompt: None,
             picker: None,
             wanting: None,
+            rekeyed: vec![],
             search: String::new(),
             msg: String::new(),
             top: 0,
@@ -1237,6 +1240,7 @@ impl App {
         if let Err(e) = self.reload(false) {
             self.msg = format!("{e:#}");
         }
+        self.rekey_commits(); // (commits rewritten here or elsewhere)
         self.tree_seen = Some(self.tree_stamp());
     }
 

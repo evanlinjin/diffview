@@ -632,11 +632,14 @@ pub fn add_conversation(path: &std::path::Path, url: &str, body: &str, want: &st
     push_comment(path, c)
 }
 
-/// The questions about the conversation item (a commit) at `from` are about `to` now.
-pub fn rename_conversation(path: &std::path::Path, from: &str, to: &str) -> Result<()> {
+/// The questions about each conversation item (a commit) `from` are about `to` now: (from,
+/// to) pairs, in one write.
+pub fn rename_conversations(path: &std::path::Path, moves: &[(String, String)]) -> Result<()> {
     let mut v: Value = serde_json::from_str(&std::fs::read_to_string(path)?)?;
-    for c in v["comments"].as_array_mut().into_iter().flatten().filter(|c| c["conversation"] == from) {
-        c["conversation"] = to.into();
+    for c in v["comments"].as_array_mut().into_iter().flatten() {
+        if let Some((_, to)) = moves.iter().find(|(from, _)| c["conversation"] == from.as_str()) {
+            c["conversation"] = to.as_str().into();
+        }
     }
     write(path, &v)
 }

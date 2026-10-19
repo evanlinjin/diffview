@@ -1594,7 +1594,7 @@ fn github_changes_shown_when_idle() {
     newer[0].comments.push(reply);
     let fetched = |threads: Vec<Thread>| -> review::Fetched {
         let r = gh::Review { pr_id: "PR".into(), mine: true, me: "you".into(), pending: None, pending_body: String::new(), threads, viewed: Default::default() };
-        (Ok(r), Ok((app_info(), "Fix the thing".into(), "abc".into(), String::new(), ("OPEN", "238636"), vec![], (0, 0), String::new())))
+        (Ok(r), Ok(gh::Info { lines: app_info(), title: "Fix the thing".into(), head: "abc".into(), url: String::new(), state: ("OPEN", "238636"), unsigned: vec![], awaiting: 0, failing: 0, base: String::new() }))
     };
     let replies = |app: &App| app.threads.iter().flat_map(|t| &t.comments).filter(|c| c.body == "Fair.").count();
     // Mid-way through something (here a picker): it waits. (What's shown came from the cache.)
@@ -1635,7 +1635,7 @@ fn github_cache_reads_back() {
     let (r, i) = review::cached_github(&p).unwrap();
     let (r, i) = (r.unwrap(), i.unwrap());
     assert_eq!((r.me.as_str(), r.threads.len(), r.threads[0].comments[0].body.as_str()), ("you", 1, "hi"));
-    assert_eq!((i.1.as_str(), i.2.as_str(), i.4.0), ("Fix", "abc", "DRAFT"));
+    assert_eq!((i.title.as_str(), i.head.as_str(), i.state.0), ("Fix", "abc", "DRAFT"));
     assert!(review::cached_github(&dir.join("none.json")).is_none());
     std::fs::remove_dir_all(dir).unwrap();
 }

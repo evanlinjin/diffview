@@ -229,27 +229,41 @@ impl App {
         Ok((hunks, commits))
     }
 
-    /// Commits rewritten (amended, rebased): the questions about them follow them, to the
-    /// commit now with the same subject (the old one's still here to ask).
+    /// Commits rewritten (amended, rebased: by dv or not): the questions about them follow
+    /// them, to the commit now with the same subject and author date (both kept by a rebase or
+    /// an amend; the old commit's still here to ask). Once the commits change.
     pub(super) fn rekey_commits(&mut self) {
+        let shas: Vec<String> = self.commits.iter().map(|c| c.sha.clone()).collect();
+        if shas == self.rekeyed {
+            return;
+        }
+        self.rekeyed = shas;
         let Some(p) = self.claude.path.clone() else { return };
-        let lost: Vec<(String, String)> = self
+        let mut lost: Vec<(String, String)> = self
             .threads
             .iter()
             .filter_map(|t| Some((t.conversation.clone(), super::commit_of(&t.conversation)?.to_owned())))
             .filter(|(_, sha)| !self.commits.iter().any(|c| &c.sha == sha))
             .collect();
-        let mut moved = false;
-        for (url, sha) in lost {
-            let Ok(subject) = git_in(&self.root, &["log", "-1", "--format=%s", &sha]) else { continue };
-            let mut same = self.commits.iter().filter(|c| c.subject == subject.trim());
-            if let (Some(c), None) = (same.next(), same.next()) {
-                moved |= crate::claude::rename_conversation(&p, &url, &url.replace(&sha, &c.sha)).is_ok();
-            }
-        }
-        if moved {
+        lost.sort();
+        lost.dedup();
+        let who = |sha: &str| git_in(&self.root, &["log", "-1", "--format=%s%x00%at", sha]).map(|s| s.trim().to_owned()).ok();
+        let now: Vec<(Option<String>, &str)> = self.commits.iter().map(|c| (who(&c.sha), c.sha.as_str())).collect();
+        let moves: Vec<(String, String)> = lost
+            .into_iter()
+            .filter_map(|(url, sha)| {
+                let was = who(&sha)?;
+                let mut same = now.iter().filter(|n| n.0.as_deref() == Some(was.as_str()));
+                match (same.next(), same.next()) {
+                    (Some(n), None) => Some((url.clone(), url.replace(&sha, n.1))),
+                    _ => None,
+                }
+            })
+            .collect();
+        if !moves.is_empty() && crate::claude::rename_conversations(&p, &moves).is_ok() {
+            let keep = self.cursor_key();
             self.load_claude();
-            self.build();
+            self.rebuild(keep);
         }
     }
 
@@ -315,7 +329,6 @@ impl App {
             _ = std::fs::remove_file(p); // answered for a HEAD that's gone
         }
         self.reload_tree();
-        self.rekey_commits();
         Ok(format!("amended into {n} commit(s) (was {short}: {backup}); Space g pushes (with a lease)"))
     }
 
@@ -331,7 +344,6 @@ impl App {
             let (short, backup) = self.backup_name()?;
             amend(&self.root, &self.full_base, &hunks, &backup)?;
             self.reload_tree();
-            self.rekey_commits();
             Ok(format!("amended into {} (was {short}: {backup}); Space g pushes (with a lease)", sha.chars().take(7).collect::<String>()))
         })();
         self.msg = r.unwrap_or_else(|e| format!("{e:#}"));

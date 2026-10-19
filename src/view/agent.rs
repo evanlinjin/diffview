@@ -148,7 +148,7 @@ impl App {
             return self.msg = "no review file here (not in a git repo?)".into();
         }
         // About a commit (on no lines): no suggestion to post; an answer, unless you said.
-        let commit = matches!(&action, Action::AskConversation { .. });
+        let commit = matches!(&action, Action::AskConversation { url, .. } if commit_of(url).is_some());
         let wants: Vec<_> = WANTS.iter().filter(|w| !(commit && w.0 == "suggest")).collect();
         let last = t.and_then(|t| wants.iter().position(|w| w.0 == self.threads[t].want));
         let sel = last.unwrap_or(match (commit, self.theirs) {

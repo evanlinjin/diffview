@@ -603,7 +603,7 @@ impl App {
         let Some(n) = self.pr.as_ref().map(|p| p.number) else { return };
         self.github_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         self.github_stale = false;
-        self.apply_github(fetch_github(n, cache_path(n).as_deref()));
+        self.apply_github(fetch_github(n, cache_path(n).as_deref()), true);
     }
 
     /// At start: the PR as dv last saw it, if it kept that, while `start_github_watch` fetches
@@ -612,7 +612,7 @@ impl App {
         let Some(f) = cache_path(n).as_deref().and_then(cached_github) else { return false };
         let head = self.pr.as_ref().map(|p| p.head_oid.clone()); // just looked up; the cache's may be old
         self.github_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        self.apply_github(f);
+        self.apply_github(f, false);
         if let (Some(pr), Some(h)) = (&mut self.pr, head) {
             pr.head_oid = h;
         }
@@ -679,7 +679,7 @@ impl App {
         let had_new = self.new_paths();
         let keep = self.cursor_key();
         let claude: Vec<Thread> = std::mem::take(&mut self.threads).into_iter().filter(|t| t.claude.is_some()).collect();
-        self.apply_github(f);
+        self.apply_github(f, true);
         self.threads.extend(claude);
         self.shape();
         let new = count(self).saturating_sub(before);
@@ -693,7 +693,8 @@ impl App {
         }
     }
 
-    fn apply_github(&mut self, (threads, info): Fetched) {
+    /// (`fresh`: just fetched, not the cache's: only then does a retarget count.)
+    fn apply_github(&mut self, (threads, info): Fetched, fresh: bool) {
         match threads {
             Ok(r) => {
                 // A draft GitHub couldn't take (see `Post::Summary`) stays until it can.
@@ -709,8 +710,9 @@ impl App {
             }
             Err(e) => self.msg = format!("loading comments: {e:#}"),
         }
+        let mut retarget = None;
         match info {
-            Ok((lines, title, head, url, state, unsigned, (awaiting, failing), base)) => {
+            Ok(gh::Info { lines, title, head, url, state, unsigned, awaiting, failing, base }) => {
                 (self.awaiting, self.failing) = (awaiting, failing);
                 (self.info, self.pr_state) = (lines, Some(state));
                 // GitHub's word on its commits' signatures, for the contents' commits.
@@ -720,19 +722,41 @@ impl App {
                 self.unsigned = unsigned;
                 if let Some(pr) = &mut self.pr {
                     (pr.title, pr.head_oid, pr.url) = (title, head, url);
-                    // Its base changed on GitHub: the diff follows the new one (and a rebase
-                    // goes onto it).
-                    if !base.is_empty() && base != pr.base {
-                        if self.follow_base.as_deref() == Some(&format!("origin/{}", pr.base)) {
-                            self.follow_base = Some(format!("origin/{base}"));
-                        }
-                        pr.base = base;
-                    }
+                    retarget = Some(base).filter(|b| fresh && !b.is_empty() && *b != pr.base);
                 }
                 self.refresh_sync(); // the PR's head may have moved
             }
             Err(e) => self.msg = format!("loading PR info: {e:#}"),
         }
+        // Its base changed on GitHub (retargeted): the diff starts from the new one.
+        if let Some(base) = retarget {
+            self.retarget(base);
+        }
+    }
+
+    /// The PR's base changed on GitHub to `base`: a rebase goes onto it, and the diff starts
+    /// from it (fetched), when dv chose the diff's base (no `--base` given).
+    fn retarget(&mut self, base: String) {
+        let Some(pr) = &mut self.pr else { return };
+        let old = std::mem::replace(&mut pr.base, base.clone());
+        if self.follow_base.as_deref() != Some(format!("origin/{old}").as_str()) {
+            return;
+        }
+        let onto = format!("origin/{base}");
+        self.follow_base = Some(onto.clone());
+        let fetched = diff::git_in(&self.root, &["fetch", "-q", "origin", &format!("+refs/heads/{base}:refs/remotes/{onto}")]);
+        let Ok(mb) = fetched.and_then(|_| diff::git_in(&self.root, &["merge-base", &onto, "HEAD"])) else {
+            return self.msg = format!("the PR's base is {base} now, but {onto} couldn't be fetched: the diff still starts from {old}");
+        };
+        let mb = mb.trim().to_owned();
+        if !self.uncommitted() {
+            self.base = mb.clone();
+        }
+        self.full_base = mb;
+        (self.to, self.commit_shown, self.commit_anchor) = (None, None, None);
+        self.hl_cache.retain(|k, _| !k.1);
+        self.reload_tree();
+        self.msg = format!("the PR's base is {base} now: the diff starts from there");
     }
 
     /// The link under the cursor, if any.
