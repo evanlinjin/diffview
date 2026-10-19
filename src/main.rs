@@ -28,7 +28,8 @@ const USAGE: &str = "usage: dv [base | PR | list] [-p N] [-f] [-w [-b]]
   dv review-comments  for Claude: the PR's review comments on GitHub, as JSON (ids, lines,
                    who, what), to answer them in its review (read only)
   dv rerun-failed  for Claude fixing CI: rerun the failed jobs on the PR's head (only those)
-  dv amend C [F…]  fold what isn't committed (in files F) into the branch's commit C (a backup branch first)
+  dv amend C [F…] [-F M]  fold what isn't committed (in files F) into the branch's commit C, and/or
+                   give it the message in file M (a backup branch first)
   dv replace 123 [124 …]   Claude drafts a replacement for those PRs, unpublished, on
                    branch dv/replace-123 in a worktree <repo>-replace-123 (dv list's
                    replacements tab shows it)
@@ -161,6 +162,13 @@ fn run() -> anyhow::Result<()> {
     }
     // `dv amend`'s files as git names them, from the repo's root (where dv goes next): those
     // changed of the ones given (`./a`, `../b`, a dir, a glob).
+    // Its `-F <file>`: the commit's new message (read here, from where it was given).
+    let mut message = None;
+    if let Some(i) = o.rest.iter().position(|a| a == "-F" || a == "--file").filter(|_| o.cmd == Some("amend")) {
+        let f = o.rest.get(i + 1).context("-F needs a file with the commit's new message")?.clone();
+        message = Some(std::fs::read_to_string(&f).with_context(|| format!("reading {f}"))?);
+        o.rest.drain(i..i + 2);
+    }
     if o.cmd == Some("amend") && o.rest.len() > 1 {
         let mut args = vec!["diff", "HEAD", "--name-only", "--no-renames", "--no-relative", "-z", "--"];
         args.extend(o.rest[1..].iter().map(String::as_str));
@@ -190,7 +198,7 @@ fn run() -> anyhow::Result<()> {
         Some("amend") => {
             // The branch's own commits are those over the base dv diffs against (`review-info`'s).
             let base = diff_base(&o, gh::pr(None).ok().as_ref())?;
-            println!("{}", view::fold_cli(&o.rest, &base)?);
+            println!("{}", view::fold_cli(&o.rest, message.as_deref(), &base)?);
             return Ok(());
         }
         Some("replace") => {
