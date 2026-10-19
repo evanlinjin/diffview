@@ -1197,6 +1197,12 @@ fn pr_answer(v: &Value, stderr: &str) -> Result<PrAnswer> {
         }
         // Not GraphQL's answer: the body's word (`Bad credentials`), else gh's.
         let why = v["message"].as_str().unwrap_or(stderr.trim());
+        // GitHub out of time before it could answer (a gateway's 502 / 504, "We couldn't
+        // respond to your request in time"): as its own TIMEOUT, so asked again, smaller.
+        let late = ["HTTP 502", "HTTP 504", "in time"].iter().any(|w| why.contains(w) || stderr.contains(w));
+        if late {
+            return Err(Refused { kinds: vec!["TIMEOUT".into()], why: why.trim().to_owned() }.into());
+        }
         anyhow::bail!("GitHub: {}", if why.is_empty() { "no answer" } else { why });
     }
     // repository.pullRequest.<field>: an error elsewhere, or with no path, is about who knows.
@@ -1837,4 +1843,14 @@ fn github_refusals() {
         let (_, sig) = extras(refused(kinds), || unreachable!());
         assert_eq!(sig.unwrap_err(), "GitHub: too big");
     }
+}
+
+#[test]
+fn gateway_timeout_asked_again_smaller() {
+    let refused = |v: Value, stderr: &str| pr_answer(&v, stderr).err().and_then(|e| e.downcast::<Refused>().ok());
+    let late = refused(serde_json::json!({ "message": "We couldn't respond to your request in time. Sorry about that." }), "gh: HTTP 504");
+    assert!(late.is_some_and(|r| too_big(&r)));
+    assert!(refused(serde_json::json!(null), "HTTP 502: Bad Gateway").is_some_and(|r| too_big(&r)));
+    // Not about time: not asked again.
+    assert!(refused(serde_json::json!({ "message": "Bad credentials" }), "HTTP 401").is_none());
 }

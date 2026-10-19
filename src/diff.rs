@@ -228,10 +228,69 @@ pub fn git(args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
+/// The remote of the GitHub repo the PRs are on: `dv.remote` in the repo's git config (what you
+/// said when dv asked: `ensure_remote`), else its only remote, else the one gh took for the
+/// base repo (`gh-resolved`), else `origin`.
+pub fn remote() -> String {
+    found_remote(std::path::Path::new(".")).unwrap_or_else(|| "origin".into())
+}
+
+/// The remote as `remote` finds it, in the repo at `dir`, if anything says.
+fn found_remote(dir: &std::path::Path) -> Option<String> {
+    let set = git_in(dir, &["config", "--get", "dv.remote"]).unwrap_or_default();
+    if !set.trim().is_empty() {
+        return Some(set.trim().to_owned());
+    }
+    let names: Vec<String> = git_in(dir, &["remote"]).ok()?.lines().map(str::to_owned).collect();
+    if names.len() == 1 {
+        return names.into_iter().next();
+    }
+    let resolved = git_in(dir, &["config", "--get-regexp", r"^remote\..*\.gh-resolved$"]).unwrap_or_default();
+    resolved.lines().find_map(|l| {
+        let (k, v) = l.split_once(' ')?;
+        (v.trim() == "base").then(|| k.strip_prefix("remote.")?.strip_suffix(".gh-resolved").map(str::to_owned)).flatten()
+    })
+}
+
+/// Before dv starts here: which remote is the GitHub repo the PRs are on, asked when nothing
+/// says (several remotes), and kept in this repo's git config (`dv.remote`), not asked again.
+pub fn ensure_remote() -> Result<()> {
+    use std::io::{BufRead, IsTerminal, Write};
+    if found_remote(std::path::Path::new(".")).is_some() || !std::io::stdin().is_terminal() {
+        return Ok(());
+    }
+    let names: Vec<String> = git(&["remote"])?.lines().map(str::to_owned).collect();
+    if names.is_empty() {
+        return Ok(());
+    }
+    eprintln!("This repo has {} remotes: which is the GitHub repo its PRs are on? (kept as dv.remote in its git config)", names.len());
+    for (i, n) in names.iter().enumerate() {
+        eprintln!("  {}. {n}  {}", i + 1, git(&["remote", "get-url", n]).unwrap_or_default().trim());
+    }
+    let default = names.iter().position(|n| n == "origin");
+    let pick = loop {
+        eprint!("{}: ", default.map_or("number".to_owned(), |d| format!("number [{}]", d + 1)));
+        _ = std::io::stderr().flush();
+        let mut line = String::new();
+        if std::io::stdin().lock().read_line(&mut line)? == 0 {
+            bail!("no remote chosen");
+        }
+        match line.trim() {
+            "" if default.is_some() => break default.unwrap_or(0),
+            n => match n.parse::<usize>() {
+                Ok(i) if (1..=names.len()).contains(&i) => break i - 1,
+                _ => eprintln!("one of 1–{}", names.len()),
+            },
+        }
+    };
+    git(&["config", "dv.remote", &names[pick]])?;
+    Ok(())
+}
+
 pub fn merge_base(base: Option<&str>) -> Result<String> {
     let base = match base {
         Some(b) => b.to_owned(),
-        None => git(&["rev-parse", "--abbrev-ref", "origin/HEAD"])
+        None => git(&["rev-parse", "--abbrev-ref", &format!("{}/HEAD", remote())])
             .map(|s| s.trim().to_owned())
             .unwrap_or_else(|_| "main".to_owned()),
     };
@@ -404,4 +463,20 @@ pub fn scratch_repo(name: &str) -> std::path::PathBuf {
         git_in(&dir, &["config", k, v]).unwrap();
     }
     dir
+}
+
+#[test]
+fn which_remote() {
+    let dir = scratch_repo("remotes");
+    let found = || found_remote(&dir);
+    assert_eq!(found(), None); // none
+    git_in(&dir, &["remote", "add", "upstream", "https://github.com/o/r.git"]).unwrap();
+    assert_eq!(found().as_deref(), Some("upstream")); // the only one
+    git_in(&dir, &["remote", "add", "fork", "https://github.com/me/r.git"]).unwrap();
+    assert_eq!(found(), None); // several, nothing says: dv asks
+    git_in(&dir, &["config", "remote.upstream.gh-resolved", "base"]).unwrap();
+    assert_eq!(found().as_deref(), Some("upstream")); // gh's base repo
+    git_in(&dir, &["config", "dv.remote", "fork"]).unwrap();
+    assert_eq!(found().as_deref(), Some("fork")); // what you said
+    std::fs::remove_dir_all(dir).unwrap();
 }

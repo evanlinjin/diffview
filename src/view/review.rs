@@ -784,7 +784,7 @@ impl App {
         if self.job.is_some() {
             return;
         }
-        let follows = self.pr.as_ref().is_some_and(|p| self.follow_base.as_deref() == Some(format!("origin/{}", p.base).as_str()));
+        let follows = self.pr.as_ref().is_some_and(|p| self.follow_base.as_deref() == Some(format!("{}/{}", crate::diff::remote(), p.base).as_str()));
         if follows && super::rebase::rebasing(&self.root) {
             if say {
                 self.base_note(&format!("the PR's base is {base} now: the diff follows once the rebase is through"));
@@ -807,10 +807,10 @@ impl App {
     /// from it (fetched), when dv chose the diff's base (no `--base` given).
     fn retarget(&mut self, base: String) {
         let Some(old) = self.pr.as_ref().map(|p| p.base.clone()) else { return };
-        let follows = self.follow_base.as_deref() == Some(format!("origin/{old}").as_str());
-        let onto = format!("origin/{base}");
+        let follows = self.follow_base.as_deref() == Some(format!("{}/{old}", crate::diff::remote()).as_str());
+        let onto = format!("{}/{base}", crate::diff::remote());
         if follows {
-            let fetched = diff::git_in(&self.root, &["fetch", "-q", "origin", &format!("+refs/heads/{base}:refs/remotes/{onto}")]);
+            let fetched = diff::git_in(&self.root, &["fetch", "-q", &crate::diff::remote(), &format!("+refs/heads/{base}:refs/remotes/{onto}")]);
             let Ok(mb) = fetched.and_then(|_| diff::git_in(&self.root, &["merge-base", &onto, "HEAD"])) else {
                 self.github_base = None; // (asked again when GitHub next says)
                 let said = format!("the PR's base is {base} now, but {onto} couldn't be fetched: the diff still starts from {old} (tried again on the next refresh)");

@@ -26,6 +26,7 @@ const USAGE: &str = "usage: dv [base | PR | list] [-p N] [-f] [-w [-b]]
   dv review-check  check that file's comments against the diff (exit 1 on errors)
   dv review-comments  for Claude: the PR's review comments on GitHub, as JSON (ids, lines,
                    who, what), to answer them in its review (read only)
+  dv rerun-failed  for Claude fixing CI: rerun the failed jobs on the PR's head (only those)
   dv replace 123 [124 …]   Claude drafts a replacement for those PRs, unpublished, on
                    branch dv/replace-123 in a worktree <repo>-replace-123 (dv list's
                    replacements tab shows it)
@@ -109,6 +110,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Opts> {
             "review-info" => o.cmd = Some("review-info"),
             "review-check" => o.cmd = Some("review-check"),
             "review-comments" => o.cmd = Some("review-comments"),
+            "rerun-failed" => o.cmd = Some("rerun-failed"),
             "install-skill" => o.cmd = Some("install-skill"),
             "replace" => o.cmd = Some("replace"),
             "replace-info" => o.cmd = Some("replace-info"),
@@ -183,6 +185,8 @@ fn run() -> anyhow::Result<()> {
         Some(cmd) => return review_file(cmd, &o),
         None => {}
     }
+    // Which remote is GitHub's, asked once here if nothing says (several remotes).
+    diff::ensure_remote()?;
     if o.branch && !o.worktree {
         anyhow::bail!("--branch goes with --worktree (plain --pr already checks out a branch)\n{USAGE}");
     }
@@ -260,7 +264,7 @@ fn review_replacement(id: u64, root: &Path) -> anyhow::Result<()> {
     anyhow::ensure!(dir.exists(), "its worktree {} is gone (A A on the PR drafts it again)", dir.display());
     ensure_worktree_of(&dir, root)?;
     std::env::set_current_dir(&dir)?;
-    let base = diff::merge_base(Some(&format!("origin/{}", r.base)))?;
+    let base = diff::merge_base(Some(&format!("{}/{}", crate::diff::remote(), r.base)))?;
     let mut app = view::App::new(base, None)?;
     progress(None);
     let mut term = view::init_terminal();
@@ -318,7 +322,7 @@ fn review(o: &Opts, pr_num: Option<u64>, known: Option<gh::Pr>) -> anyhow::Resul
     let pr = known.or_else(|| gh::pr(pr_num).ok());
     let base = diff_base(o, pr.as_ref())?;
     // The branch the base follows (not one you named): a rebase onto it moves the diff's base.
-    let follow = pr.as_ref().filter(|_| o.base.is_none()).map(|p| format!("origin/{}", p.base));
+    let follow = pr.as_ref().filter(|_| o.base.is_none()).map(|p| format!("{}/{}", crate::diff::remote(), p.base));
     let app = view::App::new(base, pr);
     progress(None);
     let mut app = app?;
@@ -341,9 +345,9 @@ fn diff_base(o: &Opts, pr: Option<&gh::Pr>) -> anyhow::Result<String> {
         base = Some(match here {
             true => p.base_oid.clone(),
             false => {
-                progress(Some(&format!("fetching origin/{}", p.base)));
-                _ = diff::git(&["fetch", "-q", "origin", &p.base]);
-                format!("origin/{}", p.base)
+                progress(Some(&format!("fetching {}/{}", crate::diff::remote(), p.base)));
+                _ = diff::git(&["fetch", "-q", &crate::diff::remote(), &p.base]);
+                format!("{}/{}", crate::diff::remote(), p.base)
             }
         });
     }
@@ -355,6 +359,12 @@ fn review_file(cmd: &str, o: &Opts) -> anyhow::Result<()> {
     let pr = gh::pr(o.pr).ok();
     if cmd == "review-comments" {
         return review_comments(pr.as_ref());
+    }
+    // (Claude may run this when fixing CI, not `gh run rerun`: that could rerun anything.)
+    if cmd == "rerun-failed" {
+        let p = pr.context("no PR here (dv rerun-failed -p N for PR N)")?;
+        println!("{}", gh::rerun_failed(&p.head_oid)?);
+        return Ok(());
     }
     let path = claude::path(pr.as_ref().map(|p| p.number))?;
     let base = diff_base(o, pr.as_ref())?;
@@ -446,7 +456,7 @@ pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool) -> anyhow::Res
 /// still updates, while work done here since stays until you push it or drop it yourself.
 fn local_work(n: u64) -> Option<String> {
     let head = diff::git(&["rev-parse", "HEAD"]).ok()?.trim().to_owned();
-    diff::git(&["fetch", "-q", "origin", &format!("refs/pull/{n}/head")]).ok()?;
+    diff::git(&["fetch", "-q", &crate::diff::remote(), &format!("refs/pull/{n}/head")]).ok()?;
     let pr = diff::git(&["rev-parse", "FETCH_HEAD"]).ok()?.trim().to_owned();
     let behind = head == pr || diff::git(&["merge-base", "--is-ancestor", &head, &pr]).is_ok();
     if behind || last_checkout(n).as_deref() == Some(head.as_str()) {

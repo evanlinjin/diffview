@@ -45,7 +45,7 @@ const ALLOWED: &[&str] = &[
 
 /// What fixing CI needs on top: a transient failure's failed jobs once more (once a head: see
 /// `fix_checks_prompt`). Only for that run: no other may rerun workflows.
-const FIX_CHECKS_TOOLS: &[&str] = &["Bash(gh run rerun:*)"];
+const FIX_CHECKS_TOOLS: &[&str] = &["Bash(dv rerun-failed:*)"];
 
 /// What a background run may do beyond `ALLOWED`: rerun workflows only when fixing CI.
 pub(crate) fn tools_for(fixing_ci: bool) -> &'static [&'static str] {
@@ -1279,7 +1279,7 @@ pub(crate) fn fix_checks_prompt(n: u64) -> String {
          \"task\": \"<what a separate PR fixing it should do, a few lines; empty if nothing in the repo would fix \
          it>\", \"rerun\": false}}: the user can have a PR drafted from it. If the failure looks transient (a \
          network error, a timeout, a runner problem, a test known to be flaky), also rerun the failed jobs once \
-         (`gh run rerun <run id> --failed`, for each failed run) and set \"rerun\": true; but not if {note} \
+         (`dv rerun-failed -p {n}`: the failed jobs only, of every failed run on its head) and set \"rerun\": true; but not if {note} \
          already has \"rerun\": true for this head (CI was rerun once already: it isn't transient), and then \
          keep \"rerun\": true in the note you write. First run \
          `dv review-info`: if the notes it lists exist, read them and follow them."

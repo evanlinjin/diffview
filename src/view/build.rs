@@ -540,8 +540,17 @@ impl App {
             let body = h + 1;
             // Hidden on GitHub: a line, as a folded thread is (Tab shows it), and what's under it.
             if let Some(note) = self.hidden_note(&self.info[h].hidden, &self.info[h].node) {
-                let text = format!("{}{note}", self.info[h].text);
-                let row = self.info_row(&self.info[h], mk(Kind::Thread, text.clone()));
+                // (The note right after who: a long line cut at the box's edge still says so.)
+                let l = &self.info[h];
+                let at = l.text.find(" · ").map_or(l.text.chars().count(), |i| l.text[..i].chars().count());
+                let n = note.chars().count();
+                let text: String = l.text.chars().take(at).chain(note.chars()).chain(l.text.chars().skip(at)).collect();
+                let mut row = self.info_row(l, mk(Kind::Thread, text.clone()));
+                for link in &mut row.links {
+                    if link.0 >= at {
+                        (link.0, link.1) = (link.0 + n, link.1 + n);
+                    }
+                }
                 rows.push(Row { info: self.info.get(body).filter(|n| n.md).map(|_| body), syn: vec![Some(self.ui.stale); text.chars().count()], ..row });
                 rows.extend(self.conversation_rows(body));
                 continue;
@@ -823,12 +832,13 @@ impl App {
             syn
         };
         let mut out = vec![];
-        // A hidden comment's note (columns `a..b` of its heading), dimmed.
+        // A hidden comment's note (columns `a..b` of its heading), dimmed. (Right after who
+        // wrote it: a long heading cut at the box's edge still says so.)
         let dim_note = |mut syn: Vec<Option<Style>>, a: usize, b: usize| {
-            if b > a {
-                syn.resize(a, None);
-                syn.resize(b, Some(self.ui.stale));
+            if syn.len() < b {
+                syn.resize(b, None);
             }
+            syn[a..b].fill(Some(self.ui.stale));
             syn
         };
         for (k, c) in t.comments.iter().enumerate() {
@@ -839,12 +849,13 @@ impl App {
                 let tags_below = self.margin_active && !tag_text.is_empty();
                 let lead = if tags_below { String::new() } else { tag_text.clone() };
                 let (rt, rs) = reacts(c);
-                let mut head = format!("{lead}{}{re}{}{range}", name(c), when(c));
-                let at = head.chars().count();
-                head += &rt;
+                let mut head = format!("{lead}{}", name(c));
                 let ns = head.chars().count();
                 head += note.as_deref().unwrap_or("");
                 let ne = head.chars().count();
+                head += &format!("{re}{}{range}", when(c));
+                let at = head.chars().count();
+                head += &rt;
                 if !open {
                     head += &match t.comments.len() {
                         1 => " · 1 comment".to_owned(),
@@ -872,12 +883,12 @@ impl App {
                 let tag = if c.pending { "[pending] " } else { "" };
                 let syn = [vec![Some(self.ui.pending); tag.chars().count()], author_syn(c)].concat();
                 let (rt, rs) = reacts(c);
-                let head = format!("{tag}{}{}", name(c), when(c));
+                let who = format!("{tag}{}", name(c));
+                let note = note.as_deref().unwrap_or("");
+                let (ns, ne) = (who.chars().count(), who.chars().count() + note.chars().count());
+                let head = format!("{who}{note}{}", when(c));
                 let syn = if rs.is_empty() { syn } else { with(syn, head.chars().count(), rs) };
-                let head = format!("{head}{rt}");
-                let ns = head.chars().count();
-                let head = head + note.as_deref().unwrap_or("");
-                out.push(Row { syn: dim_note(syn, ns, head.chars().count()), ..mk(Kind::Thread, head) });
+                out.push(Row { syn: dim_note(syn, ns, ne), ..mk(Kind::Thread, format!("{head}{rt}")) });
             }
             // Hidden on GitHub: its heading says so, and that's all (Tab shows it).
             if note.is_some() {

@@ -140,7 +140,7 @@ impl App {
         // Not here yet: fetched (a PR's head is on its base repo too).
         if diff::git(&["cat-file", "-e", &format!("{theirs}^{{commit}}")]).is_err() {
             match &self.pr {
-                Some(p) => _ = diff::git(&["fetch", "-q", "origin", &format!("refs/pull/{}/head", p.number)])?,
+                Some(p) => _ = diff::git(&["fetch", "-q", &crate::diff::remote(), &format!("refs/pull/{}/head", p.number)])?,
                 None => _ = diff::git(&["fetch", "-q", &remote, &branch])?,
             }
         }
@@ -247,7 +247,7 @@ impl App {
             return Ok((remote, branch, name));
         }
         let p = self.pr.as_ref().filter(|p| !p.head_repo.is_empty() && !p.head_branch.is_empty()).context("not on a branch, and no PR to push to")?;
-        let origin = diff::git(&["remote", "get-url", "origin"]).unwrap_or_default();
+        let origin = diff::git(&["remote", "get-url", &crate::diff::remote()]).unwrap_or_default();
         let ssh = origin.starts_with("git@") || origin.starts_with("ssh://");
         let url = if ssh { format!("git@github.com:{}.git", p.head_repo) } else { format!("https://github.com/{}.git", p.head_repo) };
         let name = format!("the PR's branch, {}:{}", p.head_repo.split('/').next().unwrap_or(""), p.head_branch);

@@ -46,7 +46,7 @@ fn nothing_to_lose(dir: &std::path::Path, n: u64) -> Result<()> {
     let d = dir.to_string_lossy().into_owned();
     let git = |args: &[&str]| crate::diff::git(&[&["-C", d.as_str()], args].concat());
     anyhow::ensure!(git(&["status", "--porcelain"])?.trim().is_empty(), "{d} has local changes: commit and push them (or drop them) first");
-    git(&["fetch", "-q", "origin", &format!("refs/pull/{n}/head")]).context("fetching the PR's head")?;
+    git(&["fetch", "-q", &crate::diff::remote(), &format!("refs/pull/{n}/head")]).context("fetching the PR's head")?;
     let ahead: usize = git(&["rev-list", "--count", "HEAD", "^FETCH_HEAD"])?.trim().parse().unwrap_or(0);
     anyhow::ensure!(ahead == 0, "{d} has {ahead} commit(s) that aren't on the PR: push them (or drop them) first");
     Ok(())

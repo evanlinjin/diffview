@@ -5,6 +5,22 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.19] - 2026-10-19
+
+### Added
+- The remote of the GitHub repo (for fetching bases, PR heads, rebasing) needn't be `origin`:
+  dv takes `dv.remote` (git config), else the only remote, else the one gh resolved as the
+  base; with several and nothing to say, it asks once as it starts and keeps the answer in the
+  repo's git config.
+- `dv rerun-failed`: reruns the failed jobs on the PR's head. Claude fixing CI is allowed this,
+  not `gh run rerun` (which could rerun whole runs, or any).
+
+### Fixed
+- A comment hidden on GitHub says so right after who wrote it, so a long heading cut at the
+  pane's edge still shows it.
+- GitHub out of time before it could answer (a 502 / 504 page, not GraphQL's error) is asked
+  again smaller, as its own timeouts are.
+
 ## [0.34.18] - 2026-10-19
 
 ### Fixed

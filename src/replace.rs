@@ -210,11 +210,11 @@ pub fn prepare(prs: &[u64], root: &Path) -> Result<(Record, PathBuf)> {
         // Carrying on: from the base as it is now, if that goes cleanly (else Claude sees why).
         _ = rebase(&r, &dir);
     } else {
-        _ = git(&["fetch", "-q", "origin", &r.base]);
+        _ = git(&["fetch", "-q", &crate::diff::remote(), &r.base]);
         let (b, d) = (branch(id), dir.to_string_lossy().into_owned());
         match git(&["rev-parse", "--verify", "-q", &format!("refs/heads/{b}")]) {
             Ok(_) => git(&["worktree", "add", &d, &b])?,
-            Err(_) => git(&["worktree", "add", "-b", &b, &d, &format!("origin/{}", r.base)])?,
+            Err(_) => git(&["worktree", "add", "-b", &b, &d, &format!("{}/{}", crate::diff::remote(), r.base)])?,
         };
     }
     save(&r)?;
@@ -225,12 +225,12 @@ pub fn prepare(prs: &[u64], root: &Path) -> Result<(Record, PathBuf)> {
 /// repo's default branch (on origin), in its worktree. Its id.
 pub fn create_new(task: &str, root: &Path) -> Result<u64> {
     let git = |args: &[&str]| crate::diff::git(&[&["-C", &root.to_string_lossy()], args].concat());
-    let base = git(&["rev-parse", "--abbrev-ref", "origin/HEAD"]).ok().and_then(|b| b.trim().strip_prefix("origin/").map(str::to_owned)).unwrap_or_else(|| "master".into());
+    let base = git(&["rev-parse", "--abbrev-ref", &format!("{}/HEAD", crate::diff::remote())]).ok().and_then(|b| b.trim().strip_prefix(format!("{}/", crate::diff::remote()).as_str()).map(str::to_owned)).unwrap_or_else(|| "master".into());
     let id = new_id();
     let r = Record { id, base: base.clone(), session: crate::claude::new_session_id(), task: task.trim().to_owned(), ..Record::default() };
     let dir = crate::worktree_dir_named(root, &name(id))?;
-    _ = git(&["fetch", "-q", "origin", &base]);
-    git(&["worktree", "add", "-b", &branch(id), &dir.to_string_lossy(), &format!("origin/{base}")])?;
+    _ = git(&["fetch", "-q", &crate::diff::remote(), &base]);
+    git(&["worktree", "add", "-b", &branch(id), &dir.to_string_lossy(), &format!("{}/{base}", crate::diff::remote())])?;
     save(&r)?;
     Ok(id)
 }
@@ -250,8 +250,8 @@ fn prepare_new(id: u64, root: &Path) -> Result<(Record, PathBuf)> {
 /// it. A rebase that conflicts is undone, and said so.
 pub fn rebase(r: &Record, dir: &Path) -> Result<()> {
     let git = |args: &[&str]| crate::diff::git(&[&["-C", &dir.to_string_lossy()], args].concat());
-    git(&["fetch", "-q", "origin", &r.base])?;
-    if let Err(e) = git(&["rebase", "-q", &format!("origin/{}", r.base)]) {
+    git(&["fetch", "-q", &crate::diff::remote(), &r.base])?;
+    if let Err(e) = git(&["rebase", "-q", &format!("{}/{}", crate::diff::remote(), r.base)]) {
         _ = git(&["rebase", "--abort"]);
         anyhow::bail!("it doesn't rebase cleanly onto origin/{} ({e:#}): ask Claude to redraft it on the new base", r.base);
     }
@@ -347,7 +347,7 @@ pub fn remote_choices() -> Vec<(String, String)> {
     let names = crate::diff::git(&["remote"]).unwrap_or_default();
     names
         .lines()
-        .filter(|n| *n != "origin")
+        .filter(|n| *n != crate::diff::remote())
         .map(|n| (n.to_owned(), crate::diff::git(&["remote", "get-url", n]).unwrap_or_default().trim().to_owned()))
         .collect()
 }
@@ -425,7 +425,7 @@ pub fn remove(id: u64, root: &Path) -> Result<String> {
 pub fn info() -> Result<()> {
     let id = current().context("not on a replacement's branch (dv/replace-N) or a new PR's (dv/new-K)")?;
     let r = load(id)?;
-    let base = crate::diff::merge_base(Some(&format!("origin/{}", r.base)))?;
+    let base = crate::diff::merge_base(Some(&format!("{}/{}", crate::diff::remote(), r.base)))?;
     match is_new(id) {
         true => {
             println!("record: {}    (write title and body here)", path(id)?.display());

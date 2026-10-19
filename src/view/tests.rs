@@ -2571,9 +2571,9 @@ fn hidden_on_github_folded() {
     let text = |app: &App| app.rows.iter().map(|r| r.line.text.clone()).collect::<Vec<_>>().join("\n");
     // Just their headings say so.
     assert!(!text(&app).contains("secret1") && !text(&app).contains("secret2") && text(&app).contains("secret3"));
-    assert!(text(&app).contains("amy · hidden on GitHub (off topic)"));
+    assert!(text(&app).contains("amy · hidden on GitHub (off topic)") && !text(&app).contains("(off topic) ·  ·"));
     // Tab on one: shown; again, hidden.
-    let r = app.rows.iter().position(|r| r.line.text.ends_with("hidden on GitHub (off topic)")).unwrap();
+    let r = app.rows.iter().position(|r| r.line.text.contains("hidden on GitHub (off topic)")).unwrap();
     app.goto(r, 0);
     // A reply to it doesn't quote it unseen.
     app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), url: "https://github.com/o/r/pull/1".into(), ..Default::default() });
@@ -2613,8 +2613,8 @@ fn hidden_conversation_comment_folded() {
     app.build();
     let s = screen(220, 45, |f| app.draw(f));
     let line = s.lines().find(|l| l.contains("hidden on GitHub (spam)")).unwrap_or_else(|| panic!("{s}"));
-    assert!(line.contains("▸ @bo · 1d ago · hidden on GitHub (spam)") && !s.contains("buy now"), "{line}");
-    let r = app.rows.iter().position(|r| r.line.text.ends_with("hidden on GitHub (spam)")).unwrap();
+    assert!(line.contains("▸ @bo · hidden on GitHub (spam) · 1d ago") && !s.contains("buy now"), "{line}");
+    let r = app.rows.iter().position(|r| r.line.text.contains("hidden on GitHub (spam)")).unwrap();
     app.goto(r, 0);
     // Not quoted unseen: `C` opens a comment without it.
     let pr = app.pr.take();
@@ -2670,4 +2670,28 @@ fn unsent_text_kept_but_no_empty_files() {
     assert_eq!(std::fs::read_to_string(path).unwrap(), "my words");
     std::fs::remove_file(path).unwrap();
     assert_eq!(keep_on_error(Err(anyhow!("down")), "").unwrap_err().to_string(), "down");
+}
+
+#[test]
+fn retarget_waits_for_a_rebase() {
+    // The PR's base moved on GitHub while a rebase is stopped: the diff follows only after.
+    let dir = diff::scratch_repo("retarget-wait");
+    let mut app = fixture();
+    app.root = dir.clone();
+    app.pr = Some(gh::Pr { number: 1, base: "main".into(), ..Default::default() });
+    (app.follow_base, app.github_base, app.job) = (Some("origin/main".into()), Some("dev".into()), None);
+    let merge = dir.join(".git/rebase-merge");
+    std::fs::create_dir_all(&merge).unwrap();
+    app.follow_github_base(true);
+    assert!(app.job.is_none() && app.msg.contains("once the rebase is through"), "{}", app.msg);
+    // Through: it's fetched and followed.
+    std::fs::remove_dir_all(&merge).unwrap();
+    app.follow_github_base(false);
+    assert!(matches!(app.job, Some(Job::Retarget(ref b)) if b == "dev"));
+    // Not following the PR's base (a `--base` given): not held for a rebase either.
+    std::fs::create_dir_all(&merge).unwrap();
+    (app.job, app.follow_base) = (None, Some("v1.0".into()));
+    app.follow_github_base(false);
+    assert!(matches!(app.job, Some(Job::Retarget(_))));
+    std::fs::remove_dir_all(dir).unwrap();
 }

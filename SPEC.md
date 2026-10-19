@@ -13,6 +13,11 @@ dv list -wb        # pick from the open PRs; Enter reviews one with these flags,
 # If the branch has a PR, dv uses its base and loads its review threads.
 ```
 
+"origin" below is the remote of the GitHub repo the PRs are on: `dv.remote` in the repo's git
+config, else its only remote, else the one gh took for the base repo (`gh-resolved`), else
+`origin`. With several remotes and nothing to say which, dv asks once as it starts (a numbered
+list; `origin` the default) and keeps the answer as `dv.remote` in that repo's git config.
+
 The diff is always base → **working tree**, so the new side is real code on
 disk: rust-analyzer can index it and `hx` can open it.
 
