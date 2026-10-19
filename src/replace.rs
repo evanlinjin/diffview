@@ -379,6 +379,20 @@ pub fn drafted(id: u64) -> bool {
     load(id).is_ok_and(|r| r.drafted())
 }
 
+/// Claude at work on replacement `id` in dv (`pid`: a run of dv's, answering you, making a
+/// change), marked as a redraft is, so nothing else starts one there meanwhile; `None`: done
+/// (its own mark only comes off: not a redraft's that started after).
+pub fn mark_at_work(id: u64, pid: Option<u32>, was: u32) {
+    _ = update(id, |r| {
+        match pid {
+            Some(p) if !r.drafting_now() => r.drafting = Some(p),
+            None if r.drafting == Some(was) => r.drafting = None,
+            _ => {}
+        }
+        Ok(())
+    });
+}
+
 /// Ask Claude about replacement `id`'s drafts (`on`: the one it's about, or ""; `want`: see
 /// `Request`): kept in its record (shown beside it), for its next redraft to take in.
 pub fn ask(id: u64, text: &str, on: &str, want: &str) -> Result<()> {

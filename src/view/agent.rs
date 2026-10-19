@@ -281,6 +281,9 @@ impl App {
         if let Some(p) = self.pr.as_ref().filter(|_| !j.forked) {
             crate::claude::clear_running(p.number);
         }
+        if let Some(r) = &self.replacement {
+            crate::replace::mark_at_work(r.id, None, j.child.id());
+        }
         // Its process group: Claude and the commands it's running (a build, the tests).
         let group = format!("-{}", j.child.id());
         _ = std::process::Command::new("kill").args(["-KILL", "--", &group]).stderr(std::process::Stdio::null()).status();
@@ -716,6 +719,11 @@ impl App {
         if let Some(p) = self.pr.as_ref().filter(|_| !forked) {
             crate::claude::mark_running(p.number, label, Some(child.id()), None);
         }
+        // A replacement's checkout: marked in its record, as a redraft is (dv list, a redraft
+        // from elsewhere, then wait for it).
+        if let Some(r) = self.replacement.as_ref().filter(|_| self.unpublished()) {
+            crate::replace::mark_at_work(r.id, Some(child.id()), 0);
+        }
         Ok(ClaudeJob { child, log, label, forked, started: std::time::Instant::now() })
     }
 
@@ -724,9 +732,12 @@ impl App {
     pub(super) fn poll_claude(&mut self) {
         let Some(job) = &mut self.claude.job else { return };
         let Ok(Some(st)) = job.child.try_wait() else { return };
-        let Some(ClaudeJob { log, label, forked, .. }) = self.claude.job.take() else { return };
+        let Some(ClaudeJob { child, log, label, forked, .. }) = self.claude.job.take() else { return };
         if let Some(p) = self.pr.as_ref().filter(|_| !forked) {
             crate::claude::clear_running(p.number);
+        }
+        if let Some(r) = &self.replacement {
+            crate::replace::mark_at_work(r.id, None, child.id());
         }
         self.reload_tree(); // it may have changed code (making changes, or answering a request)
         let out: Option<serde_json::Value> = std::fs::read_to_string(&log).ok().and_then(|t| serde_json::from_str(&t).ok());
