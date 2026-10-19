@@ -551,10 +551,15 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
         // At the PR's head from the start: one left behind half set up (gh failed, dv was
         // killed) is then just behind the PR, never someone else's commits taken for work here.
         progress(Some(&format!("creating the worktree {}", dir.display())));
-        diff::git(&["fetch", "-q", &crate::diff::remote(), &format!("refs/pull/{n}/head")])?;
-        diff::git(&["worktree", "add", "--detach", &dir.to_string_lossy(), "FETCH_HEAD"])?;
+        // (Its own ref, not FETCH_HEAD: `dv list` prepares several worktrees at once.)
+        let at = format!("refs/dv/pull/{n}");
+        diff::git(&["fetch", "-q", &crate::diff::remote(), &format!("+refs/pull/{n}/head:{at}")])?;
+        diff::git(&["worktree", "add", "--detach", &dir.to_string_lossy(), &at])?;
     }
     std::env::set_current_dir(&dir)?;
+    if !existed {
+        record_checkout(n); // what dv put here: nothing here is work done since
+    }
     if known.is_some_and(|p| at_head(p, !branch)) {
         record_checkout(n);
         return Ok((dir, None));
