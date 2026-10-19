@@ -79,6 +79,13 @@ pub fn settings() -> Settings {
     }
 }
 
+/// The plain terminal colors' (`Theme::ansi`), until dv has its theme.
+impl Default for Ui {
+    fn default() -> Self {
+        Theme::ansi().ui()
+    }
+}
+
 impl Theme {
     pub fn load() -> Theme {
         Self::from_helix().unwrap_or_else(Self::ansi)

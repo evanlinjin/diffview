@@ -1210,7 +1210,7 @@ fn new_until_seen() {
     // Or once the cursor has stayed on it a while.
     app.watch_seen();
     assert_eq!(new(&app), [false, true, false]);
-    app.seen.since -= std::time::Duration::from_secs(5);
+    app.seen.since = app.seen.since.map(|t| t - std::time::Duration::from_secs(5));
     app.watch_seen();
     assert_eq!(new(&app), [false, false, false]);
     assert_eq!(app.rows[app.head.row].thread, Some(1)); // the cursor stays put

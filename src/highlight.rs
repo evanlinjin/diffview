@@ -64,6 +64,13 @@ pub struct Highlighter {
     rules: Vec<(Scope, Style)>,
 }
 
+/// With the plain terminal colors (`Theme::ansi`), until dv has its theme.
+impl Default for Highlighter {
+    fn default() -> Self {
+        Highlighter::new(&crate::theme::Theme::ansi())
+    }
+}
+
 impl Highlighter {
     pub fn new(theme: &Theme) -> Self {
         // syntect scope prefix → Helix scope. Checked innermost syntect scope first; within a

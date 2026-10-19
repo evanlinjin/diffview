@@ -409,10 +409,10 @@ impl App {
     }
 
     pub(super) fn watch_tree(&mut self) {
-        if self.tree_checked.elapsed() < std::time::Duration::from_secs(1) {
+        if self.tree_checked.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(1)) {
             return;
         }
-        self.tree_checked = std::time::Instant::now();
+        self.tree_checked = Some(std::time::Instant::now());
         if self.hx.as_ref().is_some_and(|h| !pane_alive(&h.pane)) {
             self.hx = None;
         }

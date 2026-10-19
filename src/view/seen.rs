@@ -14,6 +14,7 @@ pub(super) fn comment_key(t: &Thread, ci: usize) -> String {
 
 /// The comments you've seen (`comment_key`), kept in `path`; and those of the thread the
 /// cursor is on, seen once it leaves.
+#[derive(Default)]
 pub(super) struct Seen {
     pub(super) keys: HashSet<String>,
     /// What you'd seen when the PR was loaded: what's new against it stays shown (attached to
@@ -23,7 +24,8 @@ pub(super) struct Seen {
     pub(super) current: Vec<String>,
     /// `current` is a conversation comment's (nothing shown hangs on it: no rebuild for it).
     pub(super) conversation: bool,
-    pub(super) since: std::time::Instant,
+    /// Since when the cursor has been on `current`.
+    pub(super) since: Option<std::time::Instant>,
 }
 
 impl App {
@@ -80,10 +82,10 @@ impl App {
         let on_thread = here.is_some();
         let here = here.or_else(|| self.conversation_node().map(|n| vec![n])).unwrap_or_default();
         let (seen, conversation) = match here == self.seen.current {
-            true if self.seen.since.elapsed() >= SEEN_AFTER => (self.seen.current.clone(), self.seen.conversation),
+            true if self.seen.since.is_some_and(|t| t.elapsed() >= SEEN_AFTER) => (self.seen.current.clone(), self.seen.conversation),
             true => return,
             false => {
-                self.seen.since = std::time::Instant::now();
+                self.seen.since = Some(std::time::Instant::now());
                 let was = std::mem::replace(&mut self.seen.conversation, !on_thread);
                 (std::mem::replace(&mut self.seen.current, here), was)
             }
