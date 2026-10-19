@@ -5,6 +5,17 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.10] - 2026-10-19
+
+### Fixed
+- `c` / `C` on a conversation comment hidden on GitHub, and `r` on a hidden review comment,
+  no longer quote its text unseen (Tab shows it first).
+- The tabs' counts include threads on files gone from the diff, where they're listed.
+- With the files' list focused, the code a comment is about isn't tinted; the relative
+  line number of the code's line is lit only when the code has focus.
+- On a shown hidden comment, the hint says Tab hides it again; Tab showing or hiding one
+  keeps the cursor where it was if its heading can't be found.
+
 ## [0.34.9] - 2026-10-19
 
 ### Changed

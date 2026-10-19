@@ -587,9 +587,7 @@ impl App {
         if why.is_empty() || self.revealed.contains(node) {
             return None;
         }
-        // (GitHub gave no reason: just that it's hidden.)
-        let why = if why == "hidden" { String::new() } else { format!(" ({why})") };
-        Some(format!(" · hidden on GitHub{why}"))
+        Some(format!(" · {}", gh::hidden_words(why)))
     }
 
     /// Whether row `r` is the folded line of a conversation comment hidden on GitHub.
@@ -621,10 +619,10 @@ impl App {
     pub(super) fn toggle_hidden(&mut self) -> bool {
         let Some(node) = self.hidden_here() else { return false };
         flip(&mut self.revealed, node.clone());
-        // The cursor on its heading, whether its text went or came.
+        // The cursor on its heading, whether its text went or came (else where it was).
         let at = self.rows[self.head.row].thread.map(|t| (self.root_id(t), self.comment_index_under_cursor(t)));
-        self.build();
-        self.select = false;
+        let keep = self.cursor_key();
+        self.rebuild(keep);
         let row = match at {
             Some((id, k)) => {
                 let t = (0..self.threads.len()).find(|&t| self.root_id(t) == id);
@@ -635,7 +633,9 @@ impl App {
                 r.file == INFO && r.line.kind == Kind::Thread && r.thread.is_none() && head.is_some_and(|l| l.heading && l.node == node)
             }),
         };
-        self.goto(row.unwrap_or(0), 0);
+        if let Some(row) = row {
+            self.goto(row, self.head.col);
+        }
         true
     }
 
@@ -803,6 +803,14 @@ impl App {
             syn
         };
         let mut out = vec![];
+        // A hidden comment's note (columns `a..b` of its heading), dimmed.
+        let dim = |mut syn: Vec<Option<Style>>, a: usize, b: usize| {
+            if b > a {
+                syn.resize(a, None);
+                syn.resize(b, Some(self.ui.stale));
+            }
+            syn
+        };
         for (k, c) in t.comments.iter().enumerate() {
             let note = self.hidden_note(&c.hidden, &c.node_id);
             if k == 0 {
@@ -827,12 +835,8 @@ impl App {
                     true => author_syn(c),
                     false => [tag_syn.clone(), author_syn(c)].concat(),
                 };
-                let mut syn = if rs.is_empty() { syn } else { with(syn, at, rs) };
-                if ne > ns {
-                    syn.resize(ns, None);
-                    syn.resize(ne, Some(self.ui.stale));
-                }
-                out.push(Row { syn, ..mk(Kind::Thread, head) });
+                let syn = if rs.is_empty() { syn } else { with(syn, at, rs) };
+                out.push(Row { syn: dim(syn, ns, ne), ..mk(Kind::Thread, head) });
                 if tags_below {
                     out.push(Row { syn: tag_syn.clone(), ..mk(Kind::Comment, tag_text.trim_end().to_owned()) });
                 }
@@ -850,14 +854,13 @@ impl App {
                 let (rt, rs) = reacts(c);
                 let head = format!("{tag}{}{}", name(c), when(c));
                 let syn = if rs.is_empty() { syn } else { with(syn, head.chars().count(), rs) };
-                out.push(Row { syn, ..mk(Kind::Thread, format!("{head}{rt}{}", note.as_deref().unwrap_or(""))) });
+                let head = format!("{head}{rt}");
+                let ns = head.chars().count();
+                let head = head + note.as_deref().unwrap_or("");
+                out.push(Row { syn: dim(syn, ns, head.chars().count()), ..mk(Kind::Thread, head) });
             }
             // Hidden on GitHub: its heading says so, and that's all (Tab shows it).
-            if let Some(note) = &note {
-                let row = out.iter_mut().rev().find(|r| r.line.kind == Kind::Thread).unwrap();
-                let n = row.line.text.chars().count();
-                row.syn.resize(n - note.chars().count(), None);
-                row.syn.resize(n, Some(self.ui.stale));
+            if note.is_some() {
                 continue;
             }
             // In the margin, comments wrap to its width (less the gutter mark and box sides).

@@ -50,10 +50,17 @@ impl App {
             true => &[(Bar::Claude, "Claude")],
             false => &[(Bar::Comments, "Comments"), (Bar::Claude, "Claude"), (Bar::Pending, "Pending")],
         };
+        // The threads on the code shown: on its files, or (listed after the PR's text) on files
+        // gone from it; none on commits before the PR's head.
+        let paths: HashSet<&str> = self.files.iter().map(|f| f.path.as_str()).collect();
+        let gone_listed = !(self.uncommitted() || self.commit_shown.is_some());
+        let shown: Vec<&Thread> = match self.before_head() {
+            true => vec![],
+            false => self.threads.iter().filter(|t| !t.path.is_empty() && (gone_listed || paths.contains(t.path.as_str()))).collect(),
+        };
         tabs.iter()
             .map(|&(b, name)| {
-                // (Those on the code shown: its files, on the PR's head.)
-                let on_code = self.threads.iter().filter(|t| !self.before_head() && self.files.iter().any(|f| f.path == t.path));
+                let on_code = shown.iter();
                 let n = match b {
                     Bar::Claude if !self.unpublished() => on_code.filter(|t| t.claude.is_some()).count(),
                     Bar::Pending => on_code.filter(|t| t.comments.iter().any(|c| c.pending)).count(),

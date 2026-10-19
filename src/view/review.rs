@@ -1244,6 +1244,8 @@ impl App {
             return self.start_promote(t, k, review);
         }
         match (pr_text, self.rows[self.head.row].thread) {
+            // (Not quoting what's hidden on GitHub, unseen.)
+            (true, _) if self.hidden_line(self.head.row) => self.msg = "it's hidden on GitHub: Tab shows it first".into(),
             (true, _) if review => self.quote_into_summary(),
             (true, _) => self.start_conversation_comment(),
             // `r` replies (in the review); `C` here replies right away, as `C` posts what `c` queues.
@@ -1383,7 +1385,9 @@ impl App {
         match (t, t.and_then(|t| self.root_id(t))) {
             (Some(t), Some(comment)) if self.pr.is_some() => {
                 let thread = self.threads[t].id.clone();
-                let quote = self.comment_under_cursor(t).map_or(String::new(), |c| quote(&c.body));
+                // (Not what's hidden on GitHub, unseen.)
+                let shown = |c: &&gh::Comment| c.hidden.is_empty() || self.revealed.contains(&c.node_id);
+                let quote = self.comment_under_cursor(t).filter(shown).map_or(String::new(), |c| quote(&c.body));
                 self.action = Some(Action::Reply { thread, comment, review, quote });
             }
             _ => self.msg = "move onto a comment thread to reply".into(),

@@ -97,8 +97,7 @@ impl Comment {
     pub fn gist(&self) -> String {
         match self.hidden.as_str() {
             "" => self.body.clone(),
-            "hidden" => "_(hidden on GitHub)_".into(),
-            why => format!("_(hidden on GitHub: {why})_"),
+            why => format!("_({})_", hidden_words(why)),
         }
     }
 }
@@ -619,6 +618,15 @@ pub fn hidden(c: &Value) -> String {
     match c["isMinimized"] == true {
         true => Some(c["minimizedReason"].as_str().unwrap_or("").to_lowercase().replace(['-', '_'], " ")).filter(|r| !r.is_empty()).unwrap_or_else(|| "hidden".into()),
         false => String::new(),
+    }
+}
+
+/// What a comment hidden on GitHub (`why`, from `hidden`) says it is: "hidden on GitHub
+/// (spam)", or (GitHub gave no reason) just "hidden on GitHub".
+pub fn hidden_words(why: &str) -> String {
+    match why {
+        "hidden" => "hidden on GitHub".into(),
+        why => format!("hidden on GitHub ({why})"),
     }
 }
 

@@ -131,8 +131,11 @@ impl App {
                 ("Space c", "copy file:line ref"),
             ]));
         }
-        if self.hidden_here().is_some_and(|n| !self.revealed.contains(&n)) {
-            return Some(("hidden on GitHub", &[("Tab", "show it")]));
+        if let Some(n) = self.hidden_here() {
+            return Some(match self.revealed.contains(&n) {
+                false => ("hidden on GitHub", &[("Tab", "show it"), ("r", "reply")]),
+                true => ("hidden on GitHub", &[("Tab", "hide it again"), ("r", "reply")]),
+            });
         }
         // On a link: what can be done with it (before what the row it's in offers).
         if self.link_at_cursor().is_some() {
@@ -405,7 +408,8 @@ impl App {
                 let tint = cur && !self.files_focus;
                 let rel = match (relw, cur) {
                     (0, _) => vec![],
-                    (_, true) => vec![Span::styled(format!("{:>w$} ", "", w = relw - 1), self.ui.linenr_selected)],
+                    // (Lit as the code's line is: when it has focus.)
+                    (_, true) => vec![Span::styled(format!("{:>w$} ", "", w = relw - 1), if tint && !self.margin_side() { self.ui.linenr_selected } else { self.ui.linenr })],
                     _ => vec![Span::styled(format!("{:>w$} ", d.abs_diff(hd), w = relw - 1), self.ui.linenr)],
                 };
                 let mut spans = if d < self.drows.len() { rel } else { vec![] };
@@ -428,7 +432,7 @@ impl App {
                         // column; floating, the code runs full width under it, and is covered
                         // only where there's a comment.
                         let lit = |_: usize| tint && !pane_cur;
-                        let related = |r: usize| lit_code.is_some_and(|(a, b)| (a..=b).contains(&r));
+                        let related = |r: usize| !self.files_focus && lit_code.is_some_and(|(a, b)| (a..=b).contains(&r));
                         let diff_line = |r: usize| matches!(self.rows[r].line.kind, Kind::Ctx | Kind::Add | Kind::Del);
                         let cw = if float { tw } else { ctw };
                         let code = match (l, rr) {
