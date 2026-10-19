@@ -152,6 +152,10 @@ fn run() -> anyhow::Result<()> {
         println!("dv {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
+    // Where it's run (a crate of its own in a subdirectory, say), needing nothing of dv's.
+    if o.cmd == Some("cargo") {
+        std::process::exit(checked_cargo(&o.rest)?);
+    }
     if (o.list || o.cmd.is_some()) && o.rm {
         anyhow::bail!("--rm goes with a PR number, e.g. `dv 123 --rm`\n{USAGE}");
     }
@@ -199,7 +203,6 @@ fn run() -> anyhow::Result<()> {
             return Ok(());
         }
         Some("replace-info") => return replace::info(),
-        Some("cargo") => std::process::exit(checked_cargo(&o.rest)?),
         Some("amend") => {
             // The branch's own commits are those over the base dv diffs against (`review-info`'s).
             let base = diff_base(&o, gh::pr(None).ok().as_ref())?;
