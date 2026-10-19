@@ -458,8 +458,8 @@ impl App {
                 _ => relw + gw,
             };
             let x = ((start + self.head.col.saturating_sub(self.hscroll(self.head.row))) as u16).min(area.width.saturating_sub(20));
-            let preview = if gh::issue_ref(url).is_some() { "Space k preview · " } else { "" };
-            let text = format!(" ↗ {url}  {preview}gf open · Space c copy ");
+            // (Just where it goes: its keys are in the key hints.)
+            let text = format!(" ↗ {url} ");
             let w = (text.chars().count() as u16).min(area.width - x);
             let ty = if y + 1 < (h + pin) as u16 { y + 1 } else { y.saturating_sub(1) };
             let r = Rect { x: area.x + x, y: area.y + ty, width: w, height: 1 };

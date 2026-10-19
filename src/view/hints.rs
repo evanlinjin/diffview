@@ -201,13 +201,13 @@ impl App {
             return Some(("Claude's draft", &[("a", "ask Claude about it, or for a change (quoted)")]));
         }
         if row.info == Some(FACTS) {
-            return Some(("PR", &[("Enter", "open the link under the cursor (a check: its run)"), ("gf", "the same")]));
+            return Some(("PR", &[("Enter", "open the link under the cursor (a check: its run)")]));
         }
         if row.info == Some(DRAFT) {
             return Some(("your review", &[("S", "edit it and submit"), ("C", "new conversation comment"), ("Space c", "copy link")]));
         }
         if row.info == Some(CLAUDE_ACTIVITY) {
-            return Some(("Claude's activity", &[("Enter", "go to it"), ("gf", "the same")]));
+            return Some(("Claude's activity", &[("Enter", "go to it")]));
         }
         // A line of code: Enter opens it in your editor, there.
         if row.file != INFO && matches!(row.line.kind, Kind::Add | Kind::Del | Kind::Ctx) {
