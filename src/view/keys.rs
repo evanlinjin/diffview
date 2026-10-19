@@ -1,6 +1,11 @@
 //! Key handling: normal mode, pending (multi-key) commands, pickers, labels, and the help search.
 use super::*;
 
+/// A second quit while you write beside dv goes only this long after the first said so:
+/// not a held key's repeat, nor long after, the warning gone.
+const QUIT_AFTER: std::time::Duration = std::time::Duration::from_millis(300);
+const QUIT_WITHIN: std::time::Duration = std::time::Duration::from_secs(5);
+
 impl App {
     pub(super) fn label_key(&mut self, k: KeyEvent) {
         let KeyCode::Char(c) = k.code else {
@@ -38,16 +43,19 @@ impl App {
     /// `q`, Ctrl-c: quit; while you write beside dv (it'd be lost), only once said (`armed`:
     /// it was, by the last key).
     fn quit_now(&mut self, armed: bool) {
-        match self.writing.is_some() && !armed {
-            true => (self.quit_armed, self.msg) = (true, "you're writing in the editor's pane: save or :cq it first (quit again: quits anyway)".into()),
-            false => self.quit = true,
+        if self.writing.is_some() && !armed {
+            self.quit_armed = Some(std::time::Instant::now());
+            self.msg = "you're writing in the editor's pane: save or :cq it first (quit again: quits anyway)".into();
+        } else {
+            self.quit = true;
         }
     }
 
     pub(super) fn key(&mut self, k: KeyEvent) {
         self.msg.clear();
         // (Quitting while you write beside dv: said once, then the next quit goes.)
-        let armed = std::mem::take(&mut self.quit_armed);
+        // (Not a held key's repeat, nor long after: it's to have been read, and still be meant.)
+        let armed = self.quit_armed.take().is_some_and(|t| (QUIT_AFTER..QUIT_WITHIN).contains(&t.elapsed()));
         if let Some((q, typing)) = &mut self.help {
             let handled = match (*typing, k.code) {
                 (true, KeyCode::Char(c)) => {
@@ -535,6 +543,8 @@ impl App {
                         Target::GitCommit => self.action = Some(Action::Commit(self.commit_draft())),
                         Target::GitPush => (self.msg, self.job) = ("pushing…".into(), Some(Job::Push(false))),
                         Target::GitForcePush => (self.msg, self.job) = ("force-pushing…".into(), Some(Job::Push(true))),
+                        // (Not while you write beside dv: it'd be lost as dv goes.)
+                        Target::GitMerge if self.writing.is_some() => self.msg = "you're writing in the editor's pane: save or :cq it first, then merge".into(),
                         Target::GitMerge => (self.merge, self.quit) = (true, true),
                         Target::GitTakeTheirs(sure) => self.take_theirs(sure),
                         Target::GitReady => self.mark_ready(),

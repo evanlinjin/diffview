@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.18] - 2026-10-19
+
+### Fixed
+- Quitting while you write beside dv: the second quit counts only a moment after the first
+  said so (not a held key's repeat, nor long after); merging (`Space g`) waits too.
+
 ## [0.34.17] - 2026-10-19
 
 ### Fixed

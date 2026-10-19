@@ -728,7 +728,7 @@ pub struct App {
     /// what asked for it: done again once it's written, given the text (`term::Writing`).
     writing: Option<(Action, term::Writing)>,
     /// Quitting while writing beside dv was warned of, by the last key: the next quit goes.
-    quit_armed: bool,
+    quit_armed: Option<std::time::Instant>,
     /// When dv last looked at the working tree, and what it saw (`watch_tree`).
     tree_checked: std::time::Instant,
     tree_seen: Option<(Option<std::time::SystemTime>, u64)>,
@@ -943,7 +943,7 @@ impl App {
             claude: ClaudeState::default(),
             hx: None,
             writing: None,
-            quit_armed: false,
+            quit_armed: None,
             tree_checked: std::time::Instant::now(),
             tree_seen: None,
             msgs: vec![],
@@ -1430,7 +1430,6 @@ impl App {
 /// How dv's hint lines in the editor start; they're dropped from what's posted.
 const HINT: &str = "<!-- dv:";
 
-
 /// Drop dv's hint line and trim; untouched prefill alone counts as nothing written.
 fn clean_body(text: &str, mark: &str, prefill: &str) -> String {
     let body: Vec<&str> = text.lines().filter(|l| !l.starts_with(mark)).collect();
@@ -1442,9 +1441,9 @@ fn clean_body(text: &str, mark: &str, prefill: &str) -> String {
 fn keep_on_error(res: Result<()>, body: &str) -> Result<()> {
     res.map_err(|e| {
         let saved = term::unsent_path();
-        match body.is_empty() || std::fs::write(&saved, body).is_err() {
+        match !body.is_empty() && std::fs::write(&saved, body).is_ok() {
             // The reason first: a narrow status bar cuts the end off.
-            false => anyhow!("{e:#} (text saved to {})", saved.display()),
+            true => anyhow!("{e:#} (text saved to {})", saved.display()),
             _ => e,
         }
     })

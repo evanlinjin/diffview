@@ -894,7 +894,7 @@ impl App {
     /// The PR's Claude pane and its command line.
     fn claude_pane_cmd(&self) -> Option<(u64, String)> {
         let id = self.claude.session.as_ref().filter(|_| in_zellij())?;
-        zellij_panes().iter().find_map(|p| {
+        super::term::zellij_panes(&["-c", "-t"]).unwrap_or_default().iter().find_map(|p| {
             let cmd = p["pane_command"].as_str().filter(|c| p["exited"] != true && c.contains(id.as_str()))?;
             Some((p["id"].as_u64()?, cmd.to_owned()))
         })
@@ -1063,7 +1063,7 @@ pub(crate) fn close_if_done(pane: u64, session: &str, since: i64) -> bool {
     }
     // Focused in its tab, and up there (its tab's floating panes shown, or tiled): you may be
     // reading it.
-    let panes = zellij_panes();
+    let panes = super::term::zellij_panes(&["-c", "-t"]).unwrap_or_default();
     let Some(me) = panes.iter().find(|p| p["id"].as_u64() == Some(pane) && p["is_plugin"] != true) else { return false };
     let tab = me["tab_id"].as_u64().map(|t| t.to_string()).unwrap_or_default();
     let shown = || zellij(&["are-floating-panes-visible", "--tab-id", &tab]).is_some_and(|o| String::from_utf8_lossy(&o.stdout).trim() == "true");
@@ -1211,18 +1211,13 @@ pub(super) fn spawn_replace(prs: &[u64]) -> Result<()> {
 
 /// The tab zellij pane `pane` is in.
 fn pane_tab(pane: u64) -> Option<u64> {
-    zellij_panes().iter().find(|p| p["id"].as_u64() == Some(pane) && p["is_plugin"] != true).and_then(|p| p["tab_id"].as_u64())
+    super::term::zellij_panes(&["-c", "-t"]).unwrap_or_default().iter().find(|p| p["id"].as_u64() == Some(pane) && p["is_plugin"] != true).and_then(|p| p["tab_id"].as_u64())
 }
 
 /// Whether zellij pane `pane` is in another tab than dv's.
 fn in_other_tab(pane: u64) -> bool {
     let own = std::env::var("ZELLIJ_PANE_ID").ok().and_then(|id| id.parse().ok()).and_then(pane_tab);
     pane_tab(pane).is_some_and(|t| own.is_some_and(|o| o != t))
-}
-
-/// zellij's panes, in every tab (JSON objects: id, command, tab, state).
-fn zellij_panes() -> Vec<serde_json::Value> {
-    super::term::zellij_panes().unwrap_or_default()
 }
 
 /// `prompt`, with the user's own instructions (if any) after it.

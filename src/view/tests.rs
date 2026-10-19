@@ -2642,17 +2642,32 @@ fn related_code_tinted_apart_from_the_cursor_line() {
 fn quitting_while_writing_beside_says_so_first() {
     let mut app = fixture();
     let q = || KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE);
+    let ctrl_c = || KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+    let ago = |ms| std::time::Instant::now() - std::time::Duration::from_millis(ms);
     app.writing = Some((Action::Shell, term::test_writing()));
     app.key(q());
     assert!(!app.quit && app.msg.starts_with("you're writing in the editor's pane"));
+    // A held key's repeat doesn't quit; nor a quit long after; nor after another key.
     app.key(q());
-    assert!(app.quit);
-    // Said, then another key: said again.
-    app.quit = false;
-    app.key(q());
-    app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
-    app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
     assert!(!app.quit);
-    app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+    app.quit_armed = Some(ago(10_000));
+    app.key(q());
+    assert!(!app.quit);
+    app.quit_armed = Some(ago(1000));
+    app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    app.key(ctrl_c());
+    assert!(!app.quit);
+    // Said a moment ago: quits.
+    app.quit_armed = Some(ago(1000));
+    app.key(ctrl_c());
     assert!(app.quit);
+}
+
+#[test]
+fn unsent_text_kept_but_no_empty_files() {
+    let e = keep_on_error(Err(anyhow!("down")), "my words").unwrap_err().to_string();
+    let path = e.split("text saved to ").nth(1).unwrap().trim_end_matches(')');
+    assert_eq!(std::fs::read_to_string(path).unwrap(), "my words");
+    std::fs::remove_file(path).unwrap();
+    assert_eq!(keep_on_error(Err(anyhow!("down")), "").unwrap_err().to_string(), "down");
 }

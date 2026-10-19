@@ -16,12 +16,13 @@ pub(super) fn pane_alive(id: &str) -> bool {
 /// Whether pane `id` is open (`Some(false)`: zellij says it isn't), or `None`: can't tell.
 fn pane_state(id: &str) -> Option<bool> {
     let n = id.strip_prefix("terminal_").and_then(|n| n.parse::<u64>().ok())?;
-    Some(zellij_panes()?.iter().any(|p| p["id"].as_u64() == Some(n) && p["is_plugin"] != true && p["exited"] != true))
+    Some(zellij_panes(&[])?.iter().any(|p| p["id"].as_u64() == Some(n) && p["is_plugin"] != true && p["exited"] != true))
 }
 
-/// zellij's panes (`list-panes -j`), or `None`: it couldn't say.
-pub(super) fn zellij_panes() -> Option<Vec<serde_json::Value>> {
-    let out = std::process::Command::new("zellij").args(["action", "list-panes", "-j", "-c", "-s", "-t"]).stdin(std::process::Stdio::null()).output().ok()?;
+/// zellij's panes (`list-panes -j -s`, and `more`: `-c` their commands, `-t` their tabs), or
+/// `None`: it couldn't say.
+pub(super) fn zellij_panes(more: &[&str]) -> Option<Vec<serde_json::Value>> {
+    let out = std::process::Command::new("zellij").args(["action", "list-panes", "-j", "-s"]).args(more).stdin(std::process::Stdio::null()).output().ok()?;
     serde_json::from_slice::<serde_json::Value>(&out.stdout).ok()?.as_array().cloned()
 }
 
