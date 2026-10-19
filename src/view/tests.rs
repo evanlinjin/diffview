@@ -619,7 +619,8 @@ fn copy_refs() {
     let code = app.rows.iter().position(|r| r.line.kind == Kind::Add).unwrap();
     app.goto(code, 0);
     assert_eq!(app.cursor_ref().unwrap(), "src/a.rs:2");
-    assert!(app.context_keys().is_none()); // plain code: no popup
+    // Plain code: Enter opens it in your editor, there (said, with the rest).
+    assert!(app.context_keys().is_some_and(|(what, keys)| what == "code" && keys[0].0 == "Enter"));
 }
 
 #[test]

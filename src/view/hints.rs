@@ -205,6 +205,17 @@ impl App {
         if row.info == Some(CLAUDE_ACTIVITY) {
             return Some(("Claude's activity", &[("Enter", "go to it"), ("gf", "the same")]));
         }
+        // A line of code: Enter opens it in your editor, there.
+        if row.file != INFO && matches!(row.line.kind, Kind::Add | Kind::Del | Kind::Ctx) {
+            return Some(("code", &[
+                ("Enter", "open the file in your editor, at this line"),
+                ("c", "comment (review)"),
+                ("s", "suggest a change"),
+                ("a", "a comment for Claude"),
+                ("v x", "select (to comment on lines)"),
+                ("Space c", "copy file:line ref"),
+            ]));
+        }
         // (A line of the PR's own text: not one of dv's boxes.)
         (row.file == INFO && row.info.is_some_and(|i| i < self.info.len()) && self.pr.is_some())
             .then_some(("PR text", &[("c", "quote in your review summary"), ("C", "quote in a new conversation comment"), ("Space =", "react"), ("Space c", "copy link")]))
