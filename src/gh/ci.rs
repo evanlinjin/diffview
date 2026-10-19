@@ -32,10 +32,16 @@ pub fn rollups(ns: &[u64]) -> Result<std::collections::HashMap<u64, Rollup>> {
             let handles: Vec<_> = group.iter().map(|c| s.spawn(move || rollup_chunk(c))).collect();
             handles.into_iter().map(|h| h.join().unwrap_or_else(|_| Err(anyhow::anyhow!("panicked")))).collect()
         });
+        // (A batch GitHub failed on leaves the others': only all failing is a failure.)
         for r in got {
-            out.extend(r?);
+            match r {
+                Ok(r) => out.extend(r),
+                Err(e) if chunks.len() == 1 => return Err(e),
+                Err(_) => {}
+            }
         }
     }
+    anyhow::ensure!(!out.is_empty() || ns.is_empty() || chunks.len() == 1, "GitHub answered none of its batches of checks");
     Ok(out)
 }
 
@@ -74,6 +80,8 @@ fn rollup_chunk(ns: &[u64]) -> Result<Vec<(u64, Rollup)>> {
             let rules = base["rules"]["nodes"].as_array().into_iter().flatten().filter(|r| r["type"] == "REQUIRED_STATUS_CHECKS");
             let mut want: Vec<String> = rules.flat_map(|r| r["parameters"]["requiredStatusChecks"].as_array().cloned().unwrap_or_default()).filter_map(|c| c["context"].as_str().map(str::to_owned)).collect();
             want.extend(base["branchProtectionRule"]["requiredStatusCheckContexts"].as_array().into_iter().flatten().filter_map(|c| c.as_str().map(str::to_owned)));
+            want.sort();
+            want.dedup(); // (a ruleset and branch protection may both name it)
             if pr["state"] == "OPEN" && contexts["pageInfo"]["hasNextPage"] != true {
                 let missing: Vec<String> = want.into_iter().filter(|w| !checks.iter().any(|c| check_name(c) == w.as_str())).collect();
                 checks.extend(missing.into_iter().map(|name| serde_json::json!({ "name": name, "status": "EXPECTED", "isRequired": true })));

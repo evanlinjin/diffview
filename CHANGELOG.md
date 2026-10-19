@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.72] - 2026-10-19
+
+### Fixed
+- A GitHub answer with part of it refused (a base's branch protection you can't read, one PR
+  not found) is taken for what it has: gh's failing exit failed it all, so CI checks (in the
+  PR, on dv list's cards, marking ready) and dv list's signatures failed outright for some
+  viewers. A batch of checks GitHub fails on leaves the others'; a required check named twice
+  (a ruleset and branch protection) is expected once.
+
 ## [0.34.71] - 2026-10-19
 
 ### Fixed

@@ -137,7 +137,11 @@ fn gh_input(args: &[&str], input: Option<&str>) -> Result<String> {
         stdin.write_all(i.as_bytes())?;
     }
     let out = child.wait_with_output()?;
-    if !out.status.success() {
+    // A GraphQL answer with some of it refused (a field the viewer can't read: a base's branch
+    // protection, say): gh exits non-zero, but what came back is the answer, its `errors` with
+    // it, for the caller to weigh. Only none at all is gh failing.
+    let answered = || serde_json::from_slice::<Value>(&out.stdout).is_ok_and(|v| !v["data"].is_null());
+    if !out.status.success() && !answered() {
         // A REST error's reasons are in the body; stderr only has its title ("Validation Failed").
         let body: Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
         let err = String::from_utf8_lossy(&out.stderr);
@@ -761,21 +765,15 @@ fn pr_node(v: &Value, stderr: &str) -> Result<Value> {
     Ok(node.clone())
 }
 
-/// PR `n`'s commits' signatures and its base's rules: one GraphQL query (`pr_node`). (gh exits
-/// non-zero when a part is refused, so its output is read either way.)
+/// PR `n`'s commits' signatures and its base's rules: one GraphQL query (`pr_node`; a part
+/// refused still answers: `gh_input`).
 fn pr_query(n: u64) -> Result<Value> {
     let q = format!(
         "query($owner: String!, $name: String!, $n: Int!) {{ repository(owner: $owner, name: $name) {{ pullRequest(number: $n) {{
            {SIGNATURE_RULES} commits(last: 100) {{ totalCount nodes {{ commit {{ oid signature {{ isValid }} }} }} }} }} }} }}"
     );
-    let out = Command::new("gh")
-        .args(["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-F", &format!("n={n}"), "-f", &format!("query={q}")])
-        .stdin(Stdio::null())
-        .output()
-        .context("running gh")?;
-    // (Not JSON at all: a gateway's page, or nothing; what gh said is all there is.)
-    let v = serde_json::from_slice::<Value>(&out.stdout).unwrap_or_default();
-    pr_node(&v, &String::from_utf8_lossy(&out.stderr))
+    let v = gh_json(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-F", &format!("n={n}"), "-f", &format!("query={q}")])?;
+    pr_node(&v, "GitHub said nothing of it")
 }
 
 fn signatures_of(p: &Value) -> Result<Signatures> {
