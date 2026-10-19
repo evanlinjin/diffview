@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.38.1] - 2026-10-19
+
+### Changed
+- Keys are said in one place, the key hints: a link's tooltip shows only where it goes, and the
+  hints don't list `gf` where Enter does the same.
+
 ## [0.38.0] - 2026-10-19
 
 ### Added
