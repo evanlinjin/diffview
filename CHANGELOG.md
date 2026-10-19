@@ -5,6 +5,21 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.92] - 2026-10-19
+
+### Added
+- `dv amend <commit> -F <file>`: that commit's message replaced by the file's (with files too,
+  to fold them in the same go). Claude rewords a commit with it, rather than asking you to.
+
+### Fixed
+- Claude may run the fmt check and clippy as CI does (`cargo +nightly fmt --check`, `cargo
+  +nightly clippy`): they were refused. The skill says to run one plain command per call, as
+  `a && b`, loops and `git -C` need each part allowed.
+- `-b`: the PR's branch is recognised by where `Space g` pushes it (its push remote; a URL, as
+  `gh pr checkout` sets one for a fork), and dv says when it has diverged from the PR's head.
+- Amending: files marked with `git add -N` are found when git would take them for a rename,
+  and added by their literal names (a `*` in one added others).
+
 ## [0.34.91] - 2026-10-19
 
 ### Fixed
