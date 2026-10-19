@@ -379,7 +379,7 @@ impl App {
             (' ', 'y') => self.yank(false),
             (' ', 'c') => self.copy_ref(),
             (' ', 'r') => self.toggle_resolved(),
-            (' ', '=' | '+') => self.react_menu(),
+            (' ', '=' | '+') => self.start_react(),
             (' ', 'e') => self.start_edit(),
             (' ', 'd') => self.start_delete(),
             (' ', 't') => self.threads_picker(THREADS_ALL),

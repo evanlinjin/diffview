@@ -335,6 +335,8 @@ enum Job {
     DeleteComment(String),
     /// Fetch an issue/PR link's preview into a popup.
     Preview(String),
+    /// Ask GitHub what reactions a comment (its node id) has, for the react picker.
+    Reactions(String),
     /// Push HEAD to the PR's branch (`true`: force, with a lease on the PR's head).
     Push(bool),
     /// Send what was written in the editor.

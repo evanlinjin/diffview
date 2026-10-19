@@ -81,8 +81,11 @@ impl App {
             return;
         }
         // Read-only: no reload after.
-        if !matches!(job, Job::Preview(_)) {
+        if !matches!(job, Job::Preview(_) | Job::Reactions(_)) {
             self.ensure_fresh();
+        }
+        if let Job::Reactions(node) = job {
+            return self.react_menu(&node);
         }
         if let Job::Preview(url) = job {
             match gh::issue_preview(&url) {
@@ -101,7 +104,7 @@ impl App {
             }),
             Job::DeleteComment(c) => gh::delete_comment(&c).map(|_| "comment deleted"),
             Job::React(node, what, add) => gh::react(&node, what, add).map(|_| if add { "reacted" } else { "reaction taken back" }),
-            Job::Preview(_) | Job::Pull | Job::Push(_) => unreachable!("handled above"),
+            Job::Preview(_) | Job::Reactions(_) | Job::Pull | Job::Push(_) => unreachable!("handled above"),
             Job::Post(p) => self.post(p),
             Job::Viewed(path, on) => {
                 let pr_id = self.pr.as_ref().map(|p| p.node_id.clone()).unwrap_or_default();
@@ -829,13 +832,18 @@ impl App {
         Some(head.node.clone()).filter(|n| !n.is_empty())
     }
 
-    /// `Space =`: react to the comment under the cursor, or take your reaction back (what's
-    /// on it now is asked of GitHub, so yours show).
-    pub(super) fn react_menu(&mut self) {
-        let Some(node) = self.reactable_at_cursor() else {
-            return self.msg = "move onto a GitHub comment to react to it".into();
-        };
-        let now = match gh::reactions_of(&node) {
+    /// `Space =`: react to the comment under the cursor, or take your reaction back: what's
+    /// on it now is asked of GitHub first (a job, so a frame says so), so yours show.
+    pub(super) fn start_react(&mut self) {
+        match self.reactable_at_cursor() {
+            Some(node) => (self.msg, self.job) = ("asking GitHub for its reactions…".into(), Some(Job::Reactions(node))),
+            None => self.msg = "move onto a GitHub comment (or the description) to react to it".into(),
+        }
+    }
+
+    fn react_menu(&mut self, node: &str) {
+        self.msg.clear();
+        let now = match gh::reactions_of(node) {
             Ok(r) => r,
             Err(e) => return self.msg = format!("{e:#}"),
         };
@@ -848,7 +856,7 @@ impl App {
                     true => format!("{emoji}{count}  ✓ yours: Enter takes it back"),
                     false => format!("{emoji}{count}"),
                 };
-                Item::new(label, Target::React(node.clone(), what, !mine))
+                Item::new(label, Target::React(node.to_owned(), what, !mine))
             })
             .collect();
         self.picker = Some(Picker { title: " react ", items, query: String::new(), sel: 0 });
@@ -870,7 +878,7 @@ impl App {
         if items.is_empty() {
             items.push(Item::new(none, Target::Nothing));
         }
-        if tab == THREADS_PENDING {
+        if tab == THREADS_PENDING && !matches!(items[0].target, Target::Nothing) {
             self.msg = "Enter jumps there · Ctrl-d deletes it".into();
         }
         self.picker = Some(Picker { title: THREAD_TABS[tab], items, query, sel: 0 });

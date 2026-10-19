@@ -594,7 +594,8 @@ pub const REACTIONS: [(&str, &str); 8] = [
     ("LAUGH", "😄"),
     ("HOORAY", "🎉"),
     ("CONFUSED", "😕"),
-    ("HEART", "❤️"),
+    // Not ❤️: its variation selector makes it 2 columns in some terminals, 1 in width counts.
+    ("HEART", "💖"),
     ("ROCKET", "🚀"),
     ("EYES", "👀"),
 ];
@@ -969,7 +970,7 @@ pub fn unsigned_blocking(n: u64) -> Result<Option<String>> {
 }
 
 const INFO_FIELDS: &str = "headRefOid,title,author,state,isDraft,url,baseRefName,headRefName,additions,deletions,\
-changedFiles,labels,reviewDecision,reviewRequests,latestReviews,statusCheckRollup,body,comments,reviews";
+changedFiles,labels,reviewDecision,reviewRequests,latestReviews,statusCheckRollup,body,comments,reviews,id";
 
 /// PR info lines, plus the current (title, head commit, url) so a refresh picks up new pushes.
 /// GitHub's answer, as JSON (dv caches it; `parse_info` reads it).
@@ -1150,7 +1151,8 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         l.put(&t, None);
         l
     };
-    out.push(InfoLine { url: s(&v["url"]), ..heading("description".into()) });
+    // The PR itself takes reactions: its node id on the description's heading.
+    out.push(InfoLine { url: s(&v["url"]), node: s(&v["id"]), ..heading("description".into()) });
     let body = s(&v["body"]).replace("\r\n", "\n");
     out.push(markdown(body)); // empty: the view shows a placeholder
 
