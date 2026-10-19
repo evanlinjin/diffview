@@ -796,7 +796,7 @@ pub fn unsigned_blocking(n: u64) -> Result<Option<String>> {
 }
 
 const INFO_FIELDS: &str = "headRefOid,title,author,state,isDraft,url,baseRefName,headRefName,additions,deletions,\
-changedFiles,labels,assignees,reviewDecision,reviewRequests,latestReviews,statusCheckRollup,body,id";
+changedFiles,labels,assignees,reviewDecision,reviewRequests,latestReviews,statusCheckRollup,body,id,mergeable";
 
 /// What GitHub couldn't say this time (`new`) but did before (`old`, as dv kept it), kept: its
 /// commits' signatures, for the same head (a commit's signature is part of it, so it still

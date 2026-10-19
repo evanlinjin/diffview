@@ -90,10 +90,14 @@ impl List {
                         };
                         let awaiting = self.extra.get(&p.number).map_or(0, |e| e.awaiting);
                         // Beside the card: its place under its number, its tags on its title line.
-                        let (rank, tags) = match says.as_ref().filter(|_| msg_col.is_some()) {
+                        let (rank, mut tags) = match says.as_ref().filter(|_| msg_col.is_some()) {
                             Some((tags, _)) => (Some(i + 1), tags.clone()),
                             None => (None, vec![]),
                         };
+                        // Conflicts with its base: on every tab (drafts too), whatever's ranked.
+                        if self.extra.get(&p.number).is_some_and(|e| e.mergeable == "CONFLICTING") && !tags.iter().any(|t| t == "conflicts") {
+                            tags.push("conflicts".into());
+                        }
                         Mark { marked: self.marked.contains(&p.number), claude, new: self.new.contains(&p.number), replaces: None, awaiting, rank, tags }
                     }
                 };

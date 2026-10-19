@@ -150,6 +150,9 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         .put(" ", None)
         .put(&format!("−{}", v["deletions"]), Some(Mark::Fail))
         .put(&format!(" in {} files", v["changedFiles"]), None);
+    if v["mergeable"] == "CONFLICTING" {
+        l.put(" · ", None).put(&format!("conflicts with {}", s(&v["baseRefName"])), Some(Mark::Fail));
+    }
     push("author".into(), l);
 
     let labels = list(&v["labels"]);
@@ -489,6 +492,9 @@ mod tests {
         assert_eq!(lines[1].marks[1], (7, 12, Mark::Chip("d73a4a".into()))); // " bug " in its label color
         let t: Vec<String> = lines.into_iter().map(|l| l.text).collect();
         assert_eq!(t[0], "@amy · main ← feat · +3 −1 in 2 files");
+        let mut c = v.clone();
+        c["mergeable"] = "CONFLICTING".into();
+        assert_eq!(info_lines(&c)[0].text, "@amy · main ← feat · +3 −1 in 2 files · conflicts with main");
         assert_eq!(&t[2..4], ["reviews:", "✗ @bo requested changes"]); // one a line
         assert_eq!(&t[4..7], ["checks: ✓ 1 passed · ✗ 1 failed · ● 1 pending", "✗ test", "● ci/legacy"]);
         let v = serde_json::json!({ "statusCheckRollup": [{ "name": "build", "status": "COMPLETED", "conclusion": "SUCCESS" }] });
