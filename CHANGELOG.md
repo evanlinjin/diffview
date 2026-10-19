@@ -5,6 +5,10 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Changed
+- `Ctrl-w a` is gone: the Claude view is the comments pane's `Claude` tab (`gn` / `gp`, or a
+  click), as the pending view is the `Pending` tab.
+
 ## [0.30.2] - 2026-10-19
 
 ### Fixed

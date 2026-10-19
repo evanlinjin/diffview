@@ -91,7 +91,6 @@ VIEW
   Ctrl-w f             comments pane: a column beside the code / floating over it
   Ctrl-w ,  Ctrl-w .   the pane you're in narrower / wider (Ctrl-w = usual width)
   Ctrl-w q             hide the pane you're in (files' list or comments)
-  Ctrl-w a             Claude view: only Claude's review and the code it's about
   Enter                open hx at cursor (on a link: open it)
   gf                   open the link under the cursor, or go to the file:line under it
                        (as comments cite code) or to where the function / type named
@@ -667,7 +666,7 @@ pub struct App {
     claude: ClaudeState,
     /// The PR is someone else's: Claude suggests changes there rather than making them.
     theirs: bool,
-    /// The Claude view (`Ctrl-w a`): only Claude's review: the PR's one-line summary, Claude's
+    /// The Claude view (the `Claude` tab): only Claude's review: the PR's one-line summary, Claude's
     /// summary, and its comments with a few lines of code around each. The pending view
     /// (the `Pending` tab): the same for your pending review.
     view: View,

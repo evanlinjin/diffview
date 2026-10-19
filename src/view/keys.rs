@@ -252,7 +252,6 @@ impl App {
                 (".", "wider pane"),
                 ("=", "the pane at its usual width"),
                 ("q", "hide the pane you're in (files / comments)"),
-                ("a", "Claude view: just Claude's review"),
                 ("j", "the commits (in the files' list)"),
                 ("k", "the files (in the files' list)"),
                 ("h", "the pane to the left"),
@@ -306,7 +305,6 @@ impl App {
             ('z', 't') => self.top = self.hd().saturating_sub(so),
             ('z', 'b') => self.top = (self.hd() + so + 1).saturating_sub(self.height),
             (CTRL_W, 'v') => self.toggle_split(),
-            (CTRL_W, 'a') => self.toggle_view(View::Claude),
             (CTRL_W, 'c') => {
                 let show = !self.margin_active;
                 self.margin_pref = Some(show);
