@@ -23,7 +23,7 @@ mod issue_view;
 mod todo;
 pub(crate) mod github;
 mod draw;
-use draw::draw_help;
+use draw::{draw_help, draw_keys, status_bar, top_bar};
 mod keys;
 mod marks;
 use {keys::*, marks::*};

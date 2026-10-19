@@ -31,17 +31,8 @@ impl List {
         let (ui, shown) = (&self.ui, self.shown());
         f.render_widget(Paragraph::new("").style(ui.base), area);
 
-        let head = Rect { height: 1.min(area.height), ..area };
-        // As the PR view's title bar: the darker of the status bar's and the headers' background.
-        let hs = ui.base.patch(Style { bg: ui.bar, ..ui.header });
         let arrow = if self.rev { '↑' } else { '↓' };
-        // Tabs: the current one bold, with counts.
         let open = self.prs.iter().filter(|p| p.open()).count();
-        // As the PR view's tabs: the one shown lit, the others dim.
-        let dim = hs.remove_modifier(ratatui::style::Modifier::BOLD).patch(Style { fg: ui.linenr.fg, ..Style::new() });
-        let tab = |name: String, on: bool| Span::styled(format!(" {name} "), if on { ui.menu_selected } else { dim });
-        // The top bar: the tabs, and where you are in the one shown. (What state the list is in
-        // goes on the status bar's right; the keys, in the keys popup.)
         let names = [
             (Tab::Todo, format!("todo {}", self.todo_now())),
             (Tab::Open, format!("open {open}{}", if self.prs.len() >= github::LIST_MAX { "+" } else { "" })),
@@ -49,26 +40,9 @@ impl List {
             (Tab::Worktrees, format!("worktrees {}", self.local.len())),
             (Tab::Replacements, format!("drafts {}", self.reps.len())),
         ];
-        // Which list this is (dv issues' says ISSUES).
-        let mut spans = vec![Span::styled(" PRs ", hs.add_modifier(ratatui::style::Modifier::BOLD)), Span::styled(" ", hs)];
-        let mut hits = vec![];
-        let mut x = 6u16; // (past " PRs  ")
-        for (t, name) in names {
-            let s = tab(name, self.tab == t);
-            let w = s.width() as u16;
-            hits.push((x..x + w, t));
-            spans.extend([s, Span::styled(" ", hs)]);
-            x += w + 1;
-        }
-        // (The other list, and how to get there.)
-        spans.push(Span::styled("   I I the issues", dim));
-        let tabs = Line::from(spans);
-        f.render_widget(Paragraph::new(tabs).style(hs), head);
-        let pos = if shown.is_empty() { "0 / 0 ".into() } else { format!("{} / {} ", sel + 1, shown.len()) };
-        // Only where it goes (at the right end): over the whole line, its style would take the
-        // lit tab's.
-        let w = (pos.chars().count() as u16).min(head.width);
-        f.render_widget(Paragraph::new(pos).style(hs), Rect { x: head.right() - w, width: w, ..head });
+        let tabs: Vec<(String, bool)> = names.iter().map(|(t, n)| (n.clone(), self.tab == *t)).collect();
+        let hits = top_bar(f, ui, "PRs", &tabs, "I I the issues", sel, shown.len());
+        let hits: Vec<_> = hits.into_iter().zip(names.iter().map(|n| n.0)).collect();
 
         // The base most PRs target goes without saying; others show as "base ← branch".
         let mut bases: HashMap<&str, usize> = HashMap::new();
@@ -153,8 +127,6 @@ impl List {
         }
         f.render_widget(Paragraph::new(lines), Rect { y: area.y + 1, height: (h * rows) as u16, ..area });
 
-        let status = Rect { y: area.bottom().saturating_sub(1), height: 1.min(area.height), ..area };
-        let bar = ui.base.patch(ui.status);
         let left = match (self.filtering, self.query.is_empty(), self.msg.is_empty()) {
             (true, _, _) => format!(" /{}▏  author: label: base: branch: is:draft review: ci:  -x negates", self.query),
             (_, _, false) => format!(" {}", self.msg),
@@ -162,30 +134,16 @@ impl List {
             _ if self.tab == Tab::Todo && msg_col.is_some() => " ? keys".into(),
             _ => String::new(), // the keys are in the bottom-right popup
         };
-        // On the right, the list's state: how it's ordered (on the todo tab, Claude's ranking: how
-        // old, what it cost, what's changed since), whether auto's on (it starts Claude runs, and
-        // changes PRs on GitHub: in the warning color), and the flags PRs open with.
+        // On the right, how it's ordered (on the todo tab, Claude's ranking: how old, what it
+        // cost, what's changed since), and the flags PRs open with.
         let order = match (self.tab, &self.rank_rx, &self.ranked) {
             (Tab::Todo, Some(_), _) => "Claude is ranking…".to_owned(),
             (Tab::Todo, None, Some(r)) => format!("ranked {} ago, {}{}", ago_secs(crate::claude::now_secs() - r.at), todo::cost_text(r.cost), self.since_text()),
             (Tab::Todo, None, None) => "in the rules' order".to_owned(),
             _ => format!("by {} {arrow}", self.order.name()),
         };
-        let state = Line::from(vec![
-            Span::styled(format!("{order}  ·  "), bar),
-            match self.auto {
-                true => Span::styled("auto on", bar.patch(Style { fg: ui.warning.fg, ..Style::new() })),
-                false => Span::styled("auto off", bar),
-            },
-            Span::styled(if self.flags.is_empty() { "  ".to_owned() } else { format!("  ·  opens with {}  ", self.flags) }, bar),
-        ]);
-        // The message first: the state where there's room beside it.
-        let (lw, sw) = (Line::from(left.as_str()).width() as u16, state.width() as u16);
-        let right = if lw + 2 + sw <= status.width { sw } else { 0 };
-        if right > 0 {
-            f.render_widget(Paragraph::new(state).alignment(Alignment::Right).style(bar), status);
-        }
-        f.render_widget(Paragraph::new(left).style(bar), Rect { width: status.width - right, ..status });
+        let flags = if self.flags.is_empty() { String::new() } else { format!("opens with {}", self.flags) };
+        status_bar(f, ui, &left, &order, self.auto, &flags);
         // (Not over the todo tab's message column: `?` shows them, the status bar says.)
         let column = self.tab == Tab::Todo && msg_col.is_some();
         if !self.help && !self.filtering && !column {
@@ -229,7 +187,7 @@ impl List {
                 ("q", "quit"),
             ];
             let reps = self.tab == Tab::Replacements;
-            let lines: Vec<Line> = keys
+            let lines: Vec<(&str, &str)> = keys
                 .iter()
                 .filter(|(k, _)| match *k {
                     "D D" => !matches!(self.tab, Tab::Open | Tab::Todo),
@@ -238,14 +196,9 @@ impl List {
                     "m" | "a a" | "A A" | "M M" | "b b" | "W W" | "U U" => !reps,
                     _ => true,
                 })
-                .map(|(k, d)| Line::from(vec![Span::styled(format!("{k:<6}"), ui.key), Span::raw(d.to_string())]))
+                .map(|(k, d)| (*k, *d))
                 .collect();
-            let w = (lines.iter().map(Line::width).max().unwrap_or(10) as u16 + 4).min(area.width);
-            let h = (lines.len() as u16 + 2).min(area.height.saturating_sub(1));
-            let r = Rect { x: area.width - w, y: area.height.saturating_sub(1 + h), width: w, height: h };
-            let inner = crate::view::popup_frame(ui, f, r, "keys", "");
-            // (Down to its last row: it sits on the status bar.)
-            f.render_widget(Paragraph::new(lines), Rect { height: inner.height + 1, ..inner });
+            draw_keys(f, ui, &lines);
         }
         if self.help {
             draw_help(f, ui, HELP, "dv list keys");
@@ -264,4 +217,69 @@ pub(super) fn draw_help(f: &mut Frame, ui: &Ui, help: &str, title: &str) {
     let r = Rect { x: (area.width - w) / 2, y: (area.height - h) / 2, width: w, height: h };
     let inner = crate::view::popup_frame(ui, f, r, title, "any key closes");
     f.render_widget(Paragraph::new(body), Rect { y: inner.y + 1, height: inner.height.saturating_sub(1), ..inner });
+}
+
+/// A list's top bar: which list it is (`title`), its tabs (the one shown lit), how to get to the
+/// other list, and where the cursor is (`sel` of `n`) at the right end. Each tab's columns, for
+/// clicks.
+pub(super) fn top_bar(f: &mut Frame, ui: &Ui, title: &str, tabs: &[(String, bool)], other: &str, sel: usize, n: usize) -> Vec<std::ops::Range<u16>> {
+    let area = f.area();
+    let head = Rect { height: 1.min(area.height), ..area };
+    // As the PR view's title bar: the darker of the status bar's and the headers' background;
+    // its tabs, the one shown lit, the others dim.
+    let hs = ui.base.patch(Style { bg: ui.bar, ..ui.header });
+    let dim = hs.remove_modifier(ratatui::style::Modifier::BOLD).patch(Style { fg: ui.linenr.fg, ..Style::new() });
+    let mut spans = vec![Span::styled(format!(" {title} "), hs.add_modifier(ratatui::style::Modifier::BOLD)), Span::styled(" ", hs)];
+    let (mut hits, mut x) = (vec![], title.chars().count() as u16 + 3);
+    for (name, on) in tabs {
+        let s = Span::styled(format!(" {name} "), if *on { ui.menu_selected } else { dim });
+        let w = s.width() as u16;
+        hits.push(x..x + w);
+        spans.extend([s, Span::styled(" ", hs)]);
+        x += w + 1;
+    }
+    spans.push(Span::styled(format!("   {other}"), dim));
+    f.render_widget(Paragraph::new(Line::from(spans)).style(hs), head);
+    let pos = if n == 0 { "0 / 0 ".into() } else { format!("{} / {n} ", sel + 1) };
+    // Only where it goes (at the right end): over the whole line, its style would take the lit tab's.
+    let w = (pos.chars().count() as u16).min(head.width);
+    f.render_widget(Paragraph::new(pos).style(hs), Rect { x: head.right() - w, width: w, ..head });
+    hits
+}
+
+/// A list's status bar: what's said (`left`: a message, the filter), and the list's state on
+/// the right where there's room: how it's ordered, whether auto's on (it starts Claude runs:
+/// in the warning color), and anything more (`more`).
+pub(super) fn status_bar(f: &mut Frame, ui: &Ui, left: &str, order: &str, auto: bool, more: &str) {
+    let area = f.area();
+    let status = Rect { y: area.bottom().saturating_sub(1), height: 1.min(area.height), ..area };
+    let bar = ui.base.patch(ui.status);
+    let mut state = vec![
+        Span::styled(format!("{order}  ·  "), bar),
+        match auto {
+            true => Span::styled("auto on", bar.patch(Style { fg: ui.warning.fg, ..Style::new() })),
+            false => Span::styled("auto off", bar),
+        },
+    ];
+    state.push(Span::styled(if more.is_empty() { "  ".to_owned() } else { format!("  ·  {more}  ") }, bar));
+    let state = Line::from(state);
+    // The message first: the state where there's room beside it.
+    let (lw, sw) = (Line::from(left).width() as u16, state.width() as u16);
+    let right = if lw + 2 + sw <= status.width { sw } else { 0 };
+    if right > 0 {
+        f.render_widget(Paragraph::new(state).alignment(Alignment::Right).style(bar), status);
+    }
+    f.render_widget(Paragraph::new(left.to_owned()).style(bar), Rect { width: status.width - right, ..status });
+}
+
+/// A list's keys for what's shown, bottom right (as dv's diff view shows them).
+pub(super) fn draw_keys(f: &mut Frame, ui: &Ui, keys: &[(&str, &str)]) {
+    let area = f.area();
+    let lines: Vec<Line> = keys.iter().map(|(k, d)| Line::from(vec![Span::styled(format!("{k:<6}"), ui.key), Span::raw(d.to_string())])).collect();
+    let w = (lines.iter().map(Line::width).max().unwrap_or(10) as u16 + 4).min(area.width);
+    let h = (lines.len() as u16 + 2).min(area.height.saturating_sub(1));
+    let r = Rect { x: area.width - w, y: area.height.saturating_sub(1 + h), width: w, height: h };
+    let inner = crate::view::popup_frame(ui, f, r, "keys", "");
+    // (Down to its last row: it sits on the status bar.)
+    f.render_widget(Paragraph::new(lines), Rect { height: inner.height + 1, ..inner });
 }
