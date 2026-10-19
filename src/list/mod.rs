@@ -337,7 +337,7 @@ impl List {
                     }
                 }
                 Some(Do::DeferUntil(key)) => {
-                    let what = "defer it until… (e.g. #2380 is merged, CI is green, @amy approves, 3 days, monday)";
+                    let what = "defer it until… (e.g. #2380 is merged, CI is green, @amy approves, the author pushes, 3 days, monday)";
                     if let Some(text) = self.edit_text(term, what, "", false) {
                         self.defer_until(key, &text);
                     }

@@ -391,6 +391,13 @@ fn defer_from_the_todo_tab() {
     k(&mut l, KeyCode::Char('j'));
     k(&mut l, KeyCode::Char('s'));
     assert_eq!((shown(&l), l.todo_now()), (vec![1, 2], 2));
+    // Until the author addresses the reviews: back once they push (its head moves on).
+    l.defer_until("pr-2".into(), "Can't do anything until author addresses reviews");
+    assert!(l.msg.starts_with("deferred until the author pushes"), "{}", l.msg);
+    assert_eq!(l.todo_now(), 1);
+    l.extra.get_mut(&2).unwrap().head_oid = "h2".into();
+    l.find_todo();
+    assert_eq!(l.todo_now(), 2);
     let _ = std::fs::remove_dir_all(&dir);
 }
 

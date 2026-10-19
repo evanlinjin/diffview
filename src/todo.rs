@@ -411,6 +411,8 @@ pub enum Until {
     /// An approval on this PR (from that login, or anyone); any review from that login.
     Approved(Option<String>),
     Reviewed(String),
+    /// A push to this PR: its head no longer this commit (filled in as it's deferred).
+    Pushed(String),
 }
 
 impl Until {
@@ -422,6 +424,7 @@ impl Until {
             Until::Green => "its checks pass".into(),
             Until::Approved(Some(who)) => format!("@{who} approves it"),
             Until::Approved(None) => "it's approved".into(),
+            Until::Pushed(_) => "the author pushes".into(),
             Until::Reviewed(who) => format!("@{who} reviews it"),
         }
     }
@@ -434,6 +437,7 @@ impl Until {
             Until::Green => json!({ "green": true }),
             Until::Approved(who) => json!({ "approved": who }),
             Until::Reviewed(who) => json!({ "reviewed": who }),
+            Until::Pushed(head) => json!({ "pushed": head }),
         }
     }
 
@@ -452,6 +456,8 @@ impl Until {
             Until::Green
         } else if v.get("approved").is_some() {
             Until::Approved(s("approved"))
+        } else if v.get("pushed").is_some() {
+            Until::Pushed(s("pushed").unwrap_or_default()) // (Claude says `true`: filled in as it's deferred)
         } else {
             Until::Reviewed(s("reviewed")?)
         })
@@ -460,7 +466,9 @@ impl Until {
     /// The usual phrasings, without Claude: "#2380 is merged", "2380 closed", "CI is green",
     /// "checks pass", "@amy approves", "it's approved", "@bo reviews", "3h", "2 days", "a week".
     pub fn parse(text: &str, now: i64) -> Option<Until> {
-        let t = text.trim().trim_start_matches("until").trim().to_lowercase();
+        // ("Nothing to do until …": what follows the last "until".)
+        let t = text.trim().to_lowercase();
+        let t = t.rsplit_once("until ").map_or(t.as_str(), |(_, after)| after).trim().to_owned();
         let words: Vec<&str> = t.split(|c: char| c.is_whitespace() || c == ',').filter(|w| !w.is_empty()).collect();
         let has = |w: &str| words.iter().any(|x| x.starts_with(w));
         let num = words.iter().find_map(|w| w.trim_start_matches('#').parse::<u64>().ok().filter(|_| w.starts_with('#') || words.len() <= 4));
@@ -483,6 +491,8 @@ impl Until {
             _ if has("close") => Until::Closed(num?),
             _ if (has("ci") || has("check") || has("test")) && (has("green") || has("pass")) => Until::Green,
             _ if has("approv") => Until::Approved(who),
+            // What the author does next: "addresses the reviews", "pushes", "updates it".
+            _ if ["address", "push", "updat", "respond", "fixes", "rebase"].iter().any(|w| has(w)) => Until::Pushed(String::new()),
             _ if has("review") => Until::Reviewed(who?),
             _ => Until::Time(now + dur?),
         })
@@ -581,7 +591,8 @@ pub fn interpret(text: String, root: std::path::PathBuf) -> Receiver<Result<Unti
             "A maintainer defers a pull request until: \"{text}\". It's {} now (UTC). Reply with only one JSON object \
              saying when, one of: {{\"merged\": N}} (PR N merged), {{\"closed\": N}} (PR N closed), {{\"green\": true}} \
              (this PR's checks pass), {{\"approved\": \"login\"}} or {{\"approved\": null}} (an approval), \
-             {{\"reviewed\": \"login\"}} (a review from them), {{\"at\": \"2026-10-20T09:00:00Z\"}} (a time). If it's \
+             {{\"reviewed\": \"login\"}} (a review from them), {{\"pushed\": true}} (the author pushes to it: \
+             addresses the reviews, updates it), {{\"at\": \"2026-10-20T09:00:00Z\"}} (a time). If it's \
              none of these, {{\"none\": \"why, in a few words\"}}. No other text.",
             crate::claude::now()
         );
@@ -946,8 +957,10 @@ mod tests {
         assert_eq!(p("2 days"), Some(Until::Time(now + 2 * 86400)));
         assert_eq!(p("a week"), Some(Until::Time(now + 7 * 86400)));
         assert_eq!(p("the release is out"), None); // for Claude to read
+        assert_eq!(p("Can't do anything until author addresses reviews"), Some(Until::Pushed(String::new())));
+        assert_eq!(p("the author pushes"), Some(Until::Pushed(String::new())));
         // Round trip, as kept and as Claude answers.
-        for u in [Until::Merged(1), Until::Green, Until::Approved(None), Until::Reviewed("x".into()), Until::Time(5)] {
+        for u in [Until::Merged(1), Until::Green, Until::Approved(None), Until::Reviewed("x".into()), Until::Time(5), Until::Pushed("abc".into())] {
             assert_eq!(Until::from_json(&u.to_json()), Some(u));
         }
         assert_eq!(Until::from_json(&json!({ "at": "2026-10-20T09:00:00Z" })), crate::gh::epoch_secs("2026-10-20T09:00:00Z").map(Until::Time));

@@ -285,8 +285,10 @@ is at (drafting it, or working in a pane in its worktree); once drafted and Clau
 replacement, ready for you to review, goes first. A Claude Code pane counts by its folder (a PR's
 worktree or a replacement's) and what its screen shows, whatever started it (a shell, too). `s` defers an item, then `1` an hour, `4` four hours, `d` a day or `w` a week, or `u` until
 something happens, written in your editor: another PR merged or closed, its checks green, an
-approval (from someone, or anyone), someone's review, a time. dv reads the usual phrasings ("#2380
-is merged", "CI is green", "@amy approves", "3 days") itself, and has Claude put the rest as one of
+approval (from someone, or anyone), someone's review, a push to it (its head moves on: the author
+addresses the reviews), a time. dv reads the usual phrasings ("#2380 is merged", "CI is green",
+"@amy approves", "the author addresses the reviews", "3 days"; in a sentence, what follows its
+last "until") itself, and has Claude put the rest as one of
 those (one small run with no tools; if it can't, nothing's deferred); dv then watches for it from
 what it fetches anyway, and the item's back once it's happened, the status bar saying so. `p` posts
 what an item waits on as a comment on its PR ("Waiting on: #2380 is merged."), and such a comment,
