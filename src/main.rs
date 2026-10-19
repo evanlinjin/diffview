@@ -159,10 +159,16 @@ fn run() -> anyhow::Result<()> {
         let n = o.pr.context("--rm needs a PR, e.g. `dv 123 --rm`")?;
         return remove_worktree(n, o.force).map(|m| println!("{m}"));
     }
-    // `dv amend`'s files as git names them, from the repo's root (where dv goes next).
-    if o.cmd == Some("amend") {
-        let prefix = diff::git(&["rev-parse", "--show-prefix"])?.trim().to_owned();
-        o.rest.iter_mut().skip(1).for_each(|p| *p = format!("{prefix}{}", p.trim_start_matches("./")));
+    // `dv amend`'s files as git names them, from the repo's root (where dv goes next): those
+    // changed of the ones given (`./a`, `../b`, a dir, a glob).
+    if o.cmd == Some("amend") && o.rest.len() > 1 {
+        let mut args = vec!["diff", "HEAD", "--name-only", "--no-renames", "-z", "--"];
+        args.extend(o.rest[1..].iter().map(String::as_str));
+        let names = diff::git(&args)?;
+        let names: Vec<String> = names.split('\0').filter(|n| !n.is_empty()).map(str::to_owned).collect();
+        anyhow::ensure!(!names.is_empty(), "nothing uncommitted in {}", o.rest[1..].join(" "));
+        o.rest.truncate(1);
+        o.rest.extend(names);
     }
     let root = PathBuf::from(diff::git(&["rev-parse", "--show-toplevel"])?.trim());
     std::env::set_current_dir(&root)?;
