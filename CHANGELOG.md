@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.53.4] - 2026-10-19
+
+### Fixed
+- An unpublished replacement can't be deferred until something of its PR (green, a
+  review, a push): there's none yet. dv now says so up front.
+
 ## [0.53.3] - 2026-10-19
 
 ### Fixed
