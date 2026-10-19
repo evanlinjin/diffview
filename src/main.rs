@@ -559,7 +559,7 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
     // On its branch (-b), when that branch is checked out in another worktree already (a
     // replacement's own, say): there, as it is (git won't check one branch out twice).
     if let Some(p) = known.filter(|_| branch)
-        && let Some(other) = worktree_on_branch(&p.head_branch, &p.head_oid).filter(|d| *d != dir)
+        && let Some(other) = worktree_on_branch(p).filter(|d| *d != dir)
     {
         std::env::set_current_dir(&other)?;
         let note = format!("#{n}'s branch {} is checked out in {}: opened there", p.head_branch, other.display());
@@ -659,15 +659,25 @@ fn common_dir(d: &Path) -> anyhow::Result<String> {
 }
 
 /// Only ever touch a dir that's a worktree of this repo.
-/// The worktree of this repo that has `branch` checked out, if one does and it's the PR's
-/// (its history and the PR head's `oid` one line: either contains the other).
-fn worktree_on_branch(branch: &str, oid: &str) -> Option<PathBuf> {
+/// The worktree of this repo that has PR `p`'s branch checked out, if one does and it's the
+/// PR's (not just a branch of the same name, a fork's `master`, say): it pushes to the PR's
+/// branch (diverged or not: a rebase there, an amend), or its history and the PR head are one
+/// line (either contains the other).
+fn worktree_on_branch(p: &gh::Pr) -> Option<PathBuf> {
+    let (branch, oid) = (p.head_branch.as_str(), p.head_oid.as_str());
     let list = diff::git(&["worktree", "list", "--porcelain"]).ok()?;
     let dir = checked_out_at(&list, branch)?;
     let d = dir.to_string_lossy().into_owned();
-    let git = |args: &[&str]| diff::git(&[&["-C", d.as_str()], args].concat()).is_ok();
-    let ours = !oid.is_empty() && (git(&["merge-base", "--is-ancestor", oid, "HEAD"]) || git(&["merge-base", "--is-ancestor", "HEAD", oid]));
-    ours.then_some(dir)
+    let git = |args: &[&str]| diff::git(&[&["-C", d.as_str()], args].concat()).ok().map(|s| s.trim().to_owned());
+    let conf = |k: &str| git(&["config", &format!("branch.{branch}.{k}")]).unwrap_or_default();
+    let url = git(&["remote", "get-url", &conf("remote")]).unwrap_or_default();
+    let repo = url.trim_end_matches('/').trim_end_matches(".git").to_lowercase();
+    let pushes_there = !p.head_repo.is_empty()
+        && conf("merge") == format!("refs/heads/{branch}")
+        && repo.ends_with(&p.head_repo.to_lowercase())
+        && repo[..repo.len() - p.head_repo.len()].ends_with(['/', ':']);
+    let one_line = !oid.is_empty() && (git(&["merge-base", "--is-ancestor", oid, "HEAD"]).is_some() || git(&["merge-base", "--is-ancestor", "HEAD", oid]).is_some());
+    (pushes_there || one_line).then_some(dir)
 }
 
 /// From `git worktree list --porcelain`: the worktree with `branch` checked out.
