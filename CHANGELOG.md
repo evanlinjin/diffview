@@ -5,6 +5,20 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-10-19
+
+### Added
+- Replying to Claude's comment (`r`, or `a`), two more things to want: `Amend` (Claude makes
+  the change and amends it into the branch's commit it belongs in, through `dv amend`) and
+  `Commit` (the change as a new commit). For those and `Change`, the editor may be left empty:
+  "what your comment says".
+- With a selection over several of Claude's threads, `r` (or `a`) is one reply to them all: one
+  picker, one editor, one run.
+- `Space a` → make the changes asks how they land: left uncommitted, each amended into the commit
+  it belongs in, or as new commits (the last answer first).
+- Code lines' key hints, `Enter` first (opens the file in your editor at that line).
+- A PR named in brackets before "until" counts for a deferral ("Blocked (see #12) until it's merged").
+
 ## [0.37.2] - 2026-10-19
 
 ### Fixed
