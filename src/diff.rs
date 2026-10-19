@@ -232,16 +232,13 @@ pub fn git(args: &[&str]) -> Result<String> {
 /// said when dv asked: `ensure_remote`), else its only remote, else the one gh took for the
 /// base repo (`gh-resolved`), else `origin`.
 pub fn remote() -> String {
-    // Once found, it stays; not found, `origin`, not kept (chosen later, that's found).
-    static REMOTE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    if let Some(r) = REMOTE.get() {
-        return r.clone();
-    }
-    match found_remote(std::path::Path::new(".")) {
-        Some(r) => REMOTE.get_or_init(|| r).clone(),
-        None => "origin".into(),
-    }
+    let mut r = REMOTE.lock().unwrap_or_else(|e| e.into_inner());
+    r.get_or_insert_with(|| found_remote(std::path::Path::new("."))).clone().unwrap_or_else(|| "origin".into())
 }
+
+/// What `remote` found, once looked (`None` in it: nothing says, so `origin`); what you chose
+/// when dv asked (`ensure_remote`) replaces it.
+static REMOTE: std::sync::Mutex<Option<Option<String>>> = std::sync::Mutex::new(None);
 
 /// Branch `b` on the remote (`remote`), as git tracks it: `origin/main`.
 pub fn remote_branch(b: &str) -> String {
@@ -315,6 +312,7 @@ pub fn ensure_remote() -> Result<()> {
         }
     };
     git(&["config", "dv.remote", &names[pick]])?;
+    *REMOTE.lock().unwrap_or_else(|e| e.into_inner()) = Some(Some(names[pick].clone()));
     // gh too (its own `gh-resolved`): or it may take another repo for the PRs than dv fetches.
     let url = git(&["remote", "get-url", &names[pick]])?;
     let quiet = std::process::Stdio::null;
@@ -325,7 +323,8 @@ pub fn ensure_remote() -> Result<()> {
 pub fn merge_base(base: Option<&str>) -> Result<String> {
     let base = match base {
         Some(b) => b.to_owned(),
-        None => remote_head().unwrap_or_else(default_branch),
+        // (`remote_head` already asked the remote: unknown, `main`, as `default_branch`'s.)
+        None => remote_head().unwrap_or_else(|| "main".into()),
     };
     Ok(git(&["merge-base", &base, "HEAD"])
         .with_context(|| format!("no merge-base with {base}"))?
