@@ -359,13 +359,18 @@ impl App {
     /// Claude's review file, replacing its threads (GitHub's stay).
     pub(super) fn load_claude(&mut self) {
         let had_new = self.new_paths();
+        // (Its time before it's read: a write landing meanwhile is read next time round.)
+        self.claude.mtime = self.claude.path.as_ref().and_then(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok());
         let loaded = self.claude.path.as_ref().map(|p| crate::claude::load_with_ids(p));
-        self.claude.mtime = self.claude.path.as_ref().and_then(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok()); // after any id write
         // Unreadable: what was read of it last stays, not "Claude hasn't reviewed this".
         if let Some(Err(e)) = &loaded {
             let why = format!("{e:#}");
             self.msg = format!("Claude's review file can't be read (shown as it last was): {why}");
             self.claude.broken = Some(why);
+            // (Kept, over a diff that may have changed since: following their code.)
+            if self.whole_pr() {
+                crate::claude::reanchor(&mut self.threads, &self.files);
+            }
             return;
         }
         self.claude.broken = None;
