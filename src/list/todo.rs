@@ -29,8 +29,7 @@ impl List {
                 let older = !r.head.is_empty() && !head.is_empty() && r.head != head;
                 closable.insert(p.number, format!("{}{}", r.close.trim(), if older { " (reviewed at an older head)" } else { "" }));
             }
-            // (Not one of yours: you'd change it, not replace it.)
-            if let Some(r) = review.as_ref().filter(|r| !r.replace.trim().is_empty() && r.close.trim().is_empty() && p.author != self.me) {
+            if let Some(r) = review.as_ref().filter(|r| !r.replace.trim().is_empty() && r.close.trim().is_empty()) {
                 replaceable.insert(p.number, r.replace.trim().to_owned());
             }
             let looked = seen.as_ref().and_then(|s| std::fs::read_to_string(s.join(format!("pr-{}.looked", p.number))).ok()?.trim().parse().ok());
@@ -156,7 +155,7 @@ impl List {
             }
         }
         // What else Claude does here passes over: a PR it's at, or about to be (once a PR), put
-        // aside or waited on, or being closed.
+        // aside or waited on, or being closed; and yours (you'd close or change it yourself).
         let skip: HashSet<u64> = self
             .todo
             .iter()
@@ -164,11 +163,11 @@ impl List {
             .map(|it| it.number)
             .chain(run.iter().map(|r| r.0))
             .chain(closing.iter().copied())
+            .chain(self.prs.iter().filter(|p| p.author == self.me).map(|p| p.number))
             .collect();
         // PRs Claude's review would close with no closing comment drafted yet: drafted, once each
-        // at a head (it's yours to close, after your editor, from the PR's view). Not yours.
-        let mine = |n: u64| self.prs.iter().any(|p| p.number == n && p.author == self.me);
-        for &n in self.closable.keys().filter(|&&n| !skip.contains(&n) && !mine(n)) {
+        // at a head (it's yours to close, after your editor, from the PR's view).
+        for &n in self.closable.keys().filter(|&&n| !skip.contains(&n)) {
             if batch_busy || run.len() >= batch::AT_ONCE {
                 break;
             }
@@ -193,8 +192,7 @@ impl List {
             // (Your instructions for replacements, as a first draft gets them, and why this one.)
             let saved = crate::claude::instructions("replace");
             let extra = format!("{}Claude's review of #{n} found it worth replacing: {why}", if saved.trim().is_empty() { String::new() } else { format!("{}\n\n", saved.trim()) });
-            self.draft_rx.push(batch::replace(vec![n], self.root.clone(), extra));
-            self.drafting.insert(n, batch::Status::Preparing); // (under way now: not started again before its news)
+            self.draft_under_way(n, batch::replace(vec![n], self.root.clone(), extra));
             replacing = Some(n);
         }
         let mut said = vec![];

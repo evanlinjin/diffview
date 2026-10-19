@@ -432,7 +432,7 @@ impl List {
                 if let Some((n, _)) = note {
                     crate::claude::ci_fix_drafted(n); // not offered again
                 }
-                self.draft_rx.push(rx);
+                self.draft_under_way(id, rx);
                 self.load_reps();
                 self.msg = format!("Claude is drafting {}: the drafts tab shows it (Enter there reviews it, S publishes it)", crate::replace::label(id));
             }
@@ -504,8 +504,16 @@ impl List {
         for g in groups {
             // (A first draft with nothing given takes your saved instructions: `replace::draft`.)
             let extra = if crate::replace::drafted(g[0]) { extra.clone() } else { String::new() };
-            self.draft_rx.push(batch::replace(g, self.root.clone(), extra));
+            let id = g[0];
+            self.draft_under_way(id, batch::replace(g, self.root.clone(), extra));
         }
+    }
+
+    /// A draft of Claude's under way (`batch::replace`'s news): drafting from now, not once its
+    /// news comes (auto starts no other meanwhile).
+    pub(super) fn draft_under_way(&mut self, id: u64, rx: Receiver<(u64, batch::Status)>) {
+        self.drafting.insert(id, batch::Status::Preparing);
+        self.draft_rx.push(rx);
     }
 
     /// Groups with Claude's reason for each, if it gave one (else the PRs' titles).
