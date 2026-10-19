@@ -10,7 +10,7 @@ use serde_json::Value;
 pub struct IssueView {
     pub number: u64,
     title: String,
-    author: String,
+    pub author: String,
     url: String,
     body: String,
     labels: Vec<(String, String)>,
@@ -23,7 +23,7 @@ pub struct IssueView {
     width: usize,
     pane_x: Option<usize>,
     /// Whether you may label it (triage access and up): Claude's labels are suggestions else.
-    can_label: bool,
+    can_triage: bool,
     /// Text dragged over (line, column), from where the drag began to where it is.
     sel: Option<((usize, usize), (usize, usize))>,
     hl: crate::highlight::Highlighter,
@@ -31,7 +31,7 @@ pub struct IssueView {
 
 impl IssueView {
     /// Issue `n` from GitHub, with its triage from `dir` (the reviews' directory).
-    pub fn load(n: u64, dir: Option<&std::path::Path>, can_label: bool) -> Result<IssueView> {
+    pub fn load(n: u64, dir: Option<&std::path::Path>, can_triage: bool) -> Result<IssueView> {
         let v: Value = gh::gh_json(&["issue", "view", &n.to_string(), "--json", "number,title,author,url,body,labels,comments"])?;
         let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
         let triage = dir
@@ -51,7 +51,7 @@ impl IssueView {
             lines: vec![],
             width: 0,
             pane_x: None,
-            can_label,
+            can_triage,
             sel: None,
             hl: crate::highlight::Highlighter::new(&Theme::load()),
         })
@@ -175,7 +175,7 @@ impl IssueView {
                     }
                 };
                 said("next", self.t("next"));
-                said(if self.can_label { "labels to add (L L)" } else { "labels to suggest (labelling takes triage access)" }, self.new_labels().join(", "));
+                said(if self.can_triage { "labels to add (L L)" } else { "labels to suggest (labelling takes triage access)" }, self.new_labels().join(", "));
                 said("title (T T)", self.new_title().unwrap_or_default());
                 said("close (X X)", self.t("close"));
                 if let Some(c) = self.closing().filter(|c| !c.is_empty()) {
@@ -368,7 +368,7 @@ fn an_issue_and_its_triage() {
     let mut v = IssueView {
         number: 7, title: "panic".into(), author: "amy".into(), url: "https://github.com/o/r/issues/7".into(),
         body: "It **panics**.".into(), labels: vec![("bug".into(), "d73a4a".into())],
-        comments: vec![("bo".into(), String::new(), "Same here.".into())], triage, scroll: 0, lines: vec![], width: 0, pane_x: None, can_label: true, sel: None,
+        comments: vec![("bo".into(), String::new(), "Same here.".into())], triage, scroll: 0, lines: vec![], width: 0, pane_x: None, can_triage: true, sel: None,
         hl: crate::highlight::Highlighter::default(),
     };
     assert_eq!(v.new_labels(), ["chain"]); // bug it has
