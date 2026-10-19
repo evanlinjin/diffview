@@ -548,8 +548,11 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
     if existed {
         ensure_ours(&dir)?;
     } else {
+        // At the PR's head from the start: one left behind half set up (gh failed, dv was
+        // killed) is then just behind the PR, never someone else's commits taken for work here.
         progress(Some(&format!("creating the worktree {}", dir.display())));
-        diff::git(&["worktree", "add", "--detach", &dir.to_string_lossy()])?;
+        diff::git(&["fetch", "-q", &crate::diff::remote(), &format!("refs/pull/{n}/head")])?;
+        diff::git(&["worktree", "add", "--detach", &dir.to_string_lossy(), "FETCH_HEAD"])?;
     }
     std::env::set_current_dir(&dir)?;
     if known.is_some_and(|p| at_head(p, !branch)) {
@@ -562,12 +565,6 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
     }
     progress(Some(&format!("checking out PR #{n} in {}", dir.display())));
     let note = checkout_or_keep(n, force, !branch).map_err(|e| {
-        // A worktree made just now and not at the PR (it starts at the main checkout's HEAD):
-        // gone again, else the next open takes that commit for work done there.
-        if !existed {
-            _ = std::env::set_current_dir(dir.parent().unwrap_or(Path::new("/")));
-            _ = diff::git(&["worktree", "remove", "--force", &dir.to_string_lossy()]);
-        }
         // git words this a few ways depending on the step that hits it.
         let msg = format!("{e:#}");
         let in_use = ["already checked out", "already used by worktree", "checked out at"].iter().any(|p| msg.contains(p));
