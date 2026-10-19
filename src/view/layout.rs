@@ -315,12 +315,13 @@ impl App {
 
     /// A comment on a file, or PR text attached to the description (its facts, conversation,
     /// your review; Claude's summary): it goes in the margin, beside what it's about; a file's
-    /// isn't shown while that's hidden. Not the whole conversation (`Space o`): a view of its own.
+    /// isn't shown while that's hidden.
     pub(super) fn in_margin(&self, r: usize) -> bool {
         let row = &self.rows[r];
         match row.file == INFO {
             false => row.thread.is_some(),
-            true => self.view != View::Conversation && row.line.kind != Kind::File && row.main.is_none(),
+            // (The pane hidden: inline, after the description.)
+            true => row.attached && self.comments_in_pane(),
         }
     }
 

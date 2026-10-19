@@ -237,7 +237,7 @@ impl App {
         }
         // As set (`Ctrl-w ,` / `.`), leaving some code beside it.
         mw = self.margin_w_pref.unwrap_or(mw).min(width.saturating_sub(gw + 20)).max(MARGIN_NARROW);
-        let mut shown = self.margin_pref.unwrap_or(room || self.view != View::All);
+        let mut shown = self.margin_pref.unwrap_or(room || !matches!(self.view, View::All | View::Conversation));
         if !shown && self.in_margin(self.head.row) {
             (self.margin_pref, shown) = (Some(true), true);
         }

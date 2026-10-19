@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Fixed
+- 0.34.0: with the comments pane hidden, the PR's facts, its conversation's latest, your
+  pending review's text (and Claude's summary in the Claude tab) showed nowhere; they're after
+  the description again. Comments on files gone from the diff are back in the diff's column.
+- `[new]` tags go again when you leave a thread; Esc from the whole conversation goes back to
+  the tab it was opened from; Tab on what's attached to the description folds it with the
+  description (not the whole PR section).
+
 ## [0.34.0] - 2026-10-19
 
 ### Changed

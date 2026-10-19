@@ -870,6 +870,15 @@ fn pr_text_attached_to_the_description() {
     let more = app.rows.iter().position(|r| r.info == Some(MORE_CONVERSATION)).expect("the more line");
     assert!(app.rows[more].line.text.contains("1 more"));
     assert!(app.in_pane(c2.unwrap())); // in the pane, beside the description
+    // The pane hidden: after the description, in the diff's column.
+    app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
+    app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+    draw(&mut app);
+    let c2 = at(&app, "comment 2").unwrap();
+    assert!(!app.in_pane(c2) && matches!(app.drows[app.d_of[c2]], DRow::Full(_)));
+    app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
+    app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+    draw(&mut app);
     assert_eq!(app.pane_tabs().len(), 3); // Comments, Claude, Pending
     // Enter on it: the whole conversation, alone (no files); Esc, back where it was.
     app.goto(more, 0);
@@ -1110,8 +1119,8 @@ fn threads_on_files_gone_from_the_diff() {
     app.margin_active = true;
     app.build();
     let gone_rows: Vec<usize> = (0..app.rows.len()).filter(|&r| app.rows[r].thread == Some(0)).collect();
-    // In the pane, each once (as the PR's text beside the description).
-    assert!(gone_rows.iter().all(|&r| app.drows.iter().filter(|d| matches!(d, DRow::Margin(_, _, Some(x)) if *x == r)).count() == 1));
+    // In the diff's column, each once (not attached to the description: under their own heading).
+    assert!(gone_rows.iter().all(|&r| app.drows.iter().filter(|d| matches!(d, DRow::Full(x) if *x == r)).count() == 1));
 }
 
 #[test]

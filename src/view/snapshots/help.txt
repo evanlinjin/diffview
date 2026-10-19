@@ -1,31 +1,31 @@
           PR #7 · Fix the thing  @bo · main ← amy:fix          3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)
  ▾        description
           Fixes the th keys · / search · j/k scroll · other keys close                 1–44 / 135
- ▾        src/big.rs    MOVE                                                                    ┃
-          ────────────   h j k l, arrows      move (counts: 5j)                                 ┃ ────────────── L9–15 ─
-  9   9   line 9         w b e  W B E         word motions (select)                             ┃
- 10  10   line 10        gh gl gs             line start / end / first non-blank                ┃
- 11  11   line 11        f t F T <c>          find char                                         ┃
- 12     -     let x =    gw                   jump labels                                       ┃
-     12 +     let x =    mm                   matching bracket                                  ┃                      ◆
- 13  13   line 13        gg ge                top / end (in the comments pane: its first / last)┃
- 14  14   line 14        Ctrl-d Ctrl-u        half page down / up                               ┃
- 15  15   line 15        Ctrl-e Ctrl-y        scroll 5 lines                                    ┃
- ▾        src/a.rs  +1   zz zt zb             cursor line to center / top / bottom              ┃
-          ── fn main ─   Ctrl-o               jump back                                         ┃ ─────────────── L1–3 ─
-  1   1   fn main() {                                                                           ┃                      ○
-  2     -     old();    DIFF                                                                    ┃
-      2 +     new_call   ]g [g                next / prev hunk (change)                         │                      ●
-  3   3   }              ]f [f, Space f       next / prev file, file picker                     │
- ▾        new.rs (rena   ]c [c                next / prev comment thread                        │
- ▾        img.png (bin   ]u [u                next / prev unresolved one (wraps around)         │
-                         ]a [a                next / prev Claude comment (wraps around)         │
-                         ]p [p                next / prev comment of your pending review (wraps │
-                                              around)                                           │
-                         /  n N  *            search, next / prev match, search selection       │
-                                                                                                │
-                        SELECT & COPY                                                           │
-                         x                    select line (repeat to extend)                    │
+       ╭─ status ─────  MOVE                                                                    ┃ ─────────────╮
+       │  OPEN @bo · m   h j k l, arrows      move (counts: 5j)                                 ┃              │
+       │  review: wait   w b e  W B E         word motions (select)                             ┃              │
+       ╰──────────────   gh gl gs             line start / end / first non-blank                ┃ ─────────────╯
+       ╭─ your review    f t F T <c>          find char                                         ┃ ─────────────╮
+       │  Nearly there   gw                   jump labels                                       ┃              │
+       ╰──────────────   mm                   matching bracket                                  ┃ ─────────────╯
+ ▾        src/big.rs     gg ge                top / end (in the comments pane: its first / last)┃
+          ────────────   Ctrl-d Ctrl-u        half page down / up                               ┃ ────────────── L9–15 ─
+  9   9   line 9         Ctrl-e Ctrl-y        scroll 5 lines                                    ┃
+ 10  10   line 10        zz zt zb             cursor line to center / top / bottom              ┃
+ 11  11   line 11        Ctrl-o               jump back                                         ┃
+ 12     -     let x =                                                                           ┃
+     12 +     let x =   DIFF                                                                    ┃                      ◆
+ 13  13   line 13        ]g [g                next / prev hunk (change)                         │
+ 14  14   line 14        ]f [f, Space f       next / prev file, file picker                     │
+ 15  15   line 15        ]c [c                next / prev comment thread                        │
+ ▾        src/a.rs  +1   ]u [u                next / prev unresolved one (wraps around)         │
+          ── fn main ─   ]a [a                next / prev Claude comment (wraps around)         │ ─────────────── L1–3 ─
+  1   1   fn main() {    ]p [p                next / prev comment of your pending review (wraps │                      ○
+  2     -     old();                          around)                                           │
+      2 +     new_call   /  n N  *            search, next / prev match, search selection       │                      ●
+  3   3   }                                                                                     │
+ ▾        new.rs (rena  SELECT & COPY                                                           │
+ ▾        img.png (bin   x                    select line (repeat to extend)                    │
                          v  ;  Esc            select mode / collapse / exit select mode         │
                          y  (or Space y)      copy text                                         │
                          Y                    copy as patch                                     │

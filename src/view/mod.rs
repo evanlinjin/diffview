@@ -211,11 +211,14 @@ struct Row {
     /// PR text as a section of its own (folding as one, in the contents list): which
     /// (`DESCRIPTION`, or `1 + n`: commit `n`'s message).
     main: Option<usize>,
+    /// PR text attached to the description (its facts, conversation, your review; Claude's
+    /// summary): beside it in the pane, or after it with the pane hidden.
+    attached: bool,
 }
 
 impl Row {
     fn new(file: usize, line: DLine) -> Row {
-        Row { file, line, thread: None, syn: vec![], links: vec![], info: None, edge: false, nowrap: false, main: None }
+        Row { file, line, thread: None, syn: vec![], links: vec![], info: None, edge: false, nowrap: false, main: None, attached: false }
     }
 
     /// A row of plain text (headers, comments, PR info).
@@ -744,8 +747,9 @@ pub struct App {
     github_gen: std::sync::Arc<std::sync::atomic::AtomicU64>,
     /// Tells the background watch to fetch now, whatever the PR's ETag says.
     github_poke: Option<std::sync::mpsc::Sender<()>>,
-    /// Where the cursor was when the whole conversation was opened (`Space o`), to go back to.
-    conversation_back: Option<CursorKey>,
+    /// Where the cursor was when the whole conversation was opened (`Space o`), and in which
+    /// view, to go back to.
+    conversation_back: Option<(CursorKey, View)>,
     /// The last note said about the PR's base (`base_note`), to say the next in its place.
     base_said: String,
     /// What's shown came from the cache, and the fresh fetch isn't in yet.

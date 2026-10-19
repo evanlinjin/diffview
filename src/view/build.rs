@@ -171,12 +171,14 @@ impl App {
         // lines (inline after it, the pane hidden). The whole diff's: the PR's facts, its
         // conversation's latest (`Space o`: all of it), your pending review's text. The Claude
         // view's: Claude's summary (or your questions about the PR), and what's said under it.
-        let mut attached = match self.view {
-            _ if self.info_collapsed || self.unpublished() => vec![],
+        // (Folded with it: Tab on it, or on them.)
+        let mut attached: Vec<Row> = match self.view {
+            _ if self.info_collapsed || self.unpublished() || self.sections_folded.contains(&DESCRIPTION) => vec![],
             View::All => [self.pr_facts(), self.conversation(Some(LATEST)), self.no_pr_summary(), self.draft_rows()].into_iter().flatten().collect(),
             View::Claude => self.claude_attached(),
             _ => vec![],
         };
+        attached.iter_mut().for_each(|r| r.attached = true);
         // Claude's draft comment for closing the PR: first, as what you'd do next.
         if self.view == View::All && !self.claude.closing.trim().is_empty() {
             let what = match self.pr_state.is_some_and(|s| matches!(s.0, "OPEN" | "DRAFT")) {
@@ -205,10 +207,7 @@ impl App {
                         let mk = |text| Row { main: Some(DESCRIPTION), info: Some(h + 1), ..Row::text(INFO, Kind::Comment, text) };
                         s.splice(1..1, [self.info_row(l, mk(l.text.clone())), mk(String::new())]);
                     }
-                    // Beside it from its header on (the pane), or after it.
-                    let at = if self.margin_active { 1.min(s.len()) } else { s.len() };
-                    s.splice(at..at, std::mem::take(&mut attached));
-                    rows.extend(s);
+                    rows.extend(self.attach(s, &mut attached));
                 }
                 // Claude's proposal: what it changes, line by line (as markdown source).
                 false => {
@@ -223,10 +222,7 @@ impl App {
                             s.extend(wrap(&line, w).into_iter().map(|t| mk(k, t)));
                         }
                     }
-                    // Beside it from its header on (the pane), or after it.
-                    let at = if self.margin_active { 1 } else { s.len() };
-                    s.splice(at..at, std::mem::take(&mut attached));
-                    rows.extend(s);
+                    rows.extend(self.attach(s, &mut attached));
                 }
             }
         }
@@ -447,13 +443,16 @@ impl App {
         }
         match self.view == View::Conversation {
             true => {
-                self.toggle_view(View::Conversation);
-                if let Some(r) = self.conversation_back.take().and_then(|k| self.find_key(k)) {
+                // Back to the view it was opened in, where the cursor was there.
+                let (key, view) = self.conversation_back.take().unzip();
+                self.toggle_view(view.filter(|v| *v != View::All).unwrap_or(View::Conversation));
+                if let Some(r) = key.and_then(|k| self.find_key(k)) {
                     self.goto(r, 0);
                 }
             }
             false => {
-                self.conversation_back = Some(self.cursor_key());
+                self.conversation_back = Some((self.cursor_key(), self.view));
+                self.view = View::All; // (so the toggle goes to it from any view)
                 self.toggle_view(View::Conversation);
                 // On its first comment (a heading row: its text's `info`, a thread of none).
                 let first = self.rows.iter().position(|r| r.line.kind == Kind::Thread && r.thread.is_none() && r.info.is_some_and(|i| i < self.info.len() && self.info[i].md));
@@ -508,7 +507,8 @@ impl App {
                 let asked = |h: usize| self.threads.iter().any(|t| t.conversation == self.info[h].url && self.in_view(t));
                 // New: after your own last word there (you'd read up to it, as GitHub has it),
                 // and not seen in dv since.
-                let yours = |h: usize| !self.me.is_empty() && self.info[h].text.starts_with(&format!("@{} ·", self.me));
+                let me = format!("@{} ·", self.me);
+                let yours = |h: usize| !self.me.is_empty() && self.info[h].text.starts_with(&me);
                 let after = items.iter().rposition(|&h| yours(h)).map_or(0, |k| k + 1);
                 // (Nowhere to keep what you've seen: nothing's new, as for threads; nor your own.)
                 let new = |k: usize, h: usize| {
@@ -566,16 +566,18 @@ impl App {
 
     /// With no PR (a branch Claude reviewed), Claude's review is all the PR section has.
     fn no_pr_summary(&self) -> Vec<Row> {
-        if self.claude.summary.is_empty() || self.pr.is_some() || self.replacement.is_some() {
-            return vec![];
+        match self.pr.is_none() && self.replacement.is_none() && !self.claude.summary.is_empty() {
+            true => self.claude_attached(),
+            false => vec![],
         }
-        let mk = |kind, text| Row::text(INFO, kind, text);
-        let summary = |r: Row| Row { info: Some(SUMMARY), ..r };
-        let mut rows = vec![summary(mk(Kind::Thread, "claude's review".into()))];
-        rows.extend(self.md_rows_at(&self.claude.summary, self.info_w(), mk).into_iter().map(summary));
-        rows.push(Row { edge: true, ..summary(mk(Kind::Comment, String::new())) });
-        rows.extend(self.summary_threads(None));
-        rows
+    }
+
+    /// A section with what's `attached` to it: beside it from its header on (the pane), or
+    /// after it.
+    fn attach(&self, mut s: Vec<Row>, attached: &mut Vec<Row>) -> Vec<Row> {
+        let at = if self.margin_active { 1 } else { s.len() };
+        s.splice(at..at, std::mem::take(attached));
+        s
     }
 
     /// Your pending review's text, in full, as it goes to GitHub with the review (`S`).
@@ -881,6 +883,11 @@ impl App {
 
     pub(super) fn toggle_collapse(&mut self) {
         let fi = self.rows[self.head.row].file;
+        // On what's attached to the description: it folds with it.
+        if self.rows[self.head.row].attached {
+            flip(&mut self.sections_folded, DESCRIPTION);
+            return self.rebuild_at(|r| r.main == Some(DESCRIPTION) && r.line.kind == Kind::File);
+        }
         if let Some(id) = self.section_of(self.head.row) {
             if !self.sections_folded.remove(&id) {
                 self.sections_folded.insert(id);

@@ -1,8 +1,8 @@
           PR #7 · Fix the thing  @bo · main ← amy  Comments  Claude  Pending                     gn
-                                                     OPEN @bo · main ← fix · +2 −2 in 3 files
-                                                  ╭─ your review (pending) ────────────────────────╮
-                                                  │  Nearly there.                                 │
-                                                  ╰────────────────────────────────────────────────╯
+          OPEN @bo · main ← fix · +2 −2 in 3 files
+       ╭─ your review (pending) ───────────────────────────────────────────────────────────────────╮
+       │  Nearly there.                                                                            │
+       ╰───────────────────────────────────────────────────────────────────────────────────────────╯
  ▾        src/a.rs  +1 −1  · 1 comment
           ── fn main ──────────────────────────────────────────────────────────────────────── L1–3 ─
   1   1   fn main() {
