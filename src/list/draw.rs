@@ -209,10 +209,9 @@ impl List {
             let w = (lines.iter().map(Line::width).max().unwrap_or(10) as u16 + 4).min(area.width);
             let h = (lines.len() as u16 + 2).min(area.height.saturating_sub(1));
             let r = Rect { x: area.width - w, y: area.height.saturating_sub(1 + h), width: w, height: h };
-            f.render_widget(Clear, r);
-            f.render_widget(Block::new().style(ui.base.patch(ui.popup)), r);
-            f.render_widget(Paragraph::new(" keys").style(ui.base.patch(ui.header)), Rect { height: 1, ..r });
-            f.render_widget(Paragraph::new(lines), Rect { x: r.x + 1, y: r.y + 1, width: w.saturating_sub(2), height: h.saturating_sub(1) });
+            let inner = crate::view::popup_frame(ui, f, r, "keys", "");
+            // (Down to its last row: it sits on the status bar.)
+            f.render_widget(Paragraph::new(lines), Rect { height: inner.height + 1, ..inner });
         }
         if self.help {
             // Like dv's popups: no border, the popup background, a header row.
@@ -220,11 +219,7 @@ impl List {
             let w = (lines.iter().map(|l| l.chars().count()).max().unwrap_or(0) as u16 + 4).min(area.width);
             let h = (lines.len() as u16 + 3).min(area.height);
             let r = Rect { x: (area.width - w) / 2, y: (area.height - h) / 2, width: w, height: h };
-            f.render_widget(Clear, r);
-            f.render_widget(Block::new().style(ui.base.patch(ui.popup)), r);
-            let hs = ui.base.patch(ui.header);
-            f.render_widget(Paragraph::new(" dv list keys").style(hs), Rect { height: 1, ..r });
-            f.render_widget(Paragraph::new("any key closes ").alignment(Alignment::Right).style(hs), Rect { height: 1, ..r });
+            let inner = crate::view::popup_frame(ui, f, r, "dv list keys", "any key closes");
             let body: Vec<Line> = lines
                 .iter()
                 .map(|l| {
@@ -232,7 +227,7 @@ impl List {
                     Line::from(vec![Span::styled(k.to_owned(), ui.key), Span::raw(d.to_owned())])
                 })
                 .collect();
-            f.render_widget(Paragraph::new(body), Rect { x: r.x + 1, y: r.y + 2, width: r.width.saturating_sub(2), height: h.saturating_sub(3) });
+            f.render_widget(Paragraph::new(body), Rect { y: inner.y + 1, height: inner.height.saturating_sub(1), ..inner });
         }
         self.tab_hits = hits; // where the tabs are, for clicks
     }

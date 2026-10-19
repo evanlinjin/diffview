@@ -8,7 +8,7 @@ use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, Ke
 use ratatui::layout::{Alignment, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, Paragraph};
+use ratatui::widgets::Paragraph;
 use ratatui::{DefaultTerminal, Frame};
 use crate::batch;
 use std::collections::{HashMap, HashSet};

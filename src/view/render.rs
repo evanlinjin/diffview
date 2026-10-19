@@ -746,26 +746,32 @@ impl App {
         f.render_stateful_widget(bar, area, &mut state);
     }
 
-    /// Helix-style popup: no border, the theme's popup background, the title as a header row
-    /// in the header color. Returns the padded content area.
     pub(super) fn popup_frame(&self, f: &mut Frame, r: Rect, title: &str, pos: &str) -> Rect {
-        f.render_widget(Clear, r);
-        f.render_widget(Block::new().style(self.ui.base.patch(self.ui.popup)), r);
-        let head = Rect { height: 1.min(r.height), ..r };
-        let head_style = self.ui.base.patch(self.ui.header);
-        // A long title gives way to the position on the right.
-        let room = (r.width as usize).saturating_sub(pos.chars().count() + 3);
-        let title = title.trim();
-        let title = match title.chars().count() > room {
-            true => format!("{}…", title.chars().take(room.saturating_sub(1)).collect::<String>()),
-            false => title.to_owned(),
-        };
-        f.render_widget(Paragraph::new(format!(" {title}")).style(head_style), head);
-        // Where you are in the content, on the right of the header.
-        f.render_widget(Paragraph::new(format!("{pos} ")).alignment(Alignment::Right).style(head_style), head);
-        Rect { x: r.x + 1, y: r.y + 1, width: r.width.saturating_sub(2), height: r.height.saturating_sub(2) }
+        popup_frame(&self.ui, f, r, title, pos)
     }
+}
 
+/// Helix-style popup: no border, the theme's popup background, the title as a header row in the
+/// header color (`pos` at its right). Returns the padded content area. (dv list's too.)
+pub(crate) fn popup_frame(ui: &Ui, f: &mut Frame, r: Rect, title: &str, pos: &str) -> Rect {
+    f.render_widget(Clear, r);
+    f.render_widget(Block::new().style(ui.base.patch(ui.popup)), r);
+    let head = Rect { height: 1.min(r.height), ..r };
+    let head_style = ui.base.patch(ui.header);
+    // A long title gives way to the position on the right.
+    let room = (r.width as usize).saturating_sub(pos.chars().count() + 3);
+    let title = title.trim();
+    let title = match title.chars().count() > room {
+        true => format!("{}…", title.chars().take(room.saturating_sub(1)).collect::<String>()),
+        false => title.to_owned(),
+    };
+    f.render_widget(Paragraph::new(format!(" {title}")).style(head_style), head);
+    // Where you are in the content, on the right of the header.
+    f.render_widget(Paragraph::new(format!("{pos} ")).alignment(Alignment::Right).style(head_style), head);
+    Rect { x: r.x + 1, y: r.y + 1, width: r.width.saturating_sub(2), height: r.height.saturating_sub(2) }
+}
+
+impl App {
     /// A hunk header drawn as a quiet rule: `── fn main ─────── L12–18`. The raw `@@` text stays
     /// the row's text (search, `Y`); only the drawing changes.
     pub(super) fn hunk_divider(&self, r: usize, gw: usize, tw: usize) -> Option<Vec<Span<'static>>> {
