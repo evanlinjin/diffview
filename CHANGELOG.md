@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.39.3] - 2026-10-19
+
+### Fixed
+- Claude's review read before answering is shown at once (its rows rebuilt with it; read once,
+  not three times). Enter on "(no changes)" says there's nothing there.
+
 ## [0.39.2] - 2026-10-19
 
 ### Fixed
