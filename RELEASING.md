@@ -9,7 +9,9 @@ GitHub release with prebuilt binaries.
    `## [X.Y.Z] - YYYY-MM-DD` section at the top of `CHANGELOG.md` (plus its link at the
    bottom). That section becomes the GitHub release's notes.
 3. **Check**: `cargo test`, `cargo clippy --all-targets`, `cargo publish --dry-run`.
-4. **Commit and tag**: `git commit -am "Release vX.Y.Z"`, `git tag vX.Y.Z`,
+4. **Commit and tag**: the changes themselves are already committed, one per change
+   ([CONTRIBUTING.md](CONTRIBUTING.md)); the release is its own commit with only the version
+   bump and the changelog: `git commit -am "chore(release): vX.Y.Z"`, `git tag vX.Y.Z`,
    `git push && git push --tags`.
 5. **GitHub release**: the tag starts `.github/workflows/release.yml`. It checks the tag
    matches `Cargo.toml`, builds `dv` for Linux (x86_64, aarch64) and macOS (x86_64, arm64),
