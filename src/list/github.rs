@@ -220,7 +220,8 @@ impl List {
     /// The PRs as fetched: on the cards, keeping the selected one selected. `quiet` (in the
     /// background): no message, and the CI counts kept until the new ones come.
     pub(super) fn apply_list(&mut self, res: Result<Vec<Listed>>, quiet: bool) {
-        let keep = self.shown().get(self.sel).map(|p| p.number);
+        // (Before the PRs change: the cursor's card, as shown now.)
+        let keep = self.selected();
         self.local = crate::pr_worktrees().into_iter().map(|(n, dir, b)| (n, (dir, b))).collect();
         self.scan_unpushed();
         self.find_others();
@@ -271,7 +272,7 @@ impl List {
                 self.prune_marks();
                 self.find_new();
                 self.find_todo();
-                self.sel = keep.and_then(|n| self.shown().iter().position(|p| p.number == n)).unwrap_or(0);
+                self.select_card(keep);
             }
             Err(e) => self.msg = format!("{e:#}"),
         }

@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.63] - 2026-10-19
+
+### Fixed
+- `dv list`: deferring the todo item under the cursor leaves the cursor on what's next (0.34.62
+  took it along); one rule keeps the cursor on its card through a refresh, a sort and the todo
+  list changing, a replacement's draft told apart from the PR it replaces.
+
 ## [0.34.62] - 2026-10-19
 
 ### Fixed

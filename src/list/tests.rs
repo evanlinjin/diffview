@@ -373,7 +373,6 @@ fn defer_from_the_todo_tab() {
     assert!(l.todo.iter().all(|it| it.waits.is_none()));
     l.extra.get_mut(&2).unwrap().said.clear();
     // b b: ask for a rebase (the first b says what it'll do; anything else calls it off).
-    l.sel = 0;
     k(&mut l, KeyCode::Char('b'));
     assert!(l.msg.starts_with("b again: ask #2's author for a rebase"), "{}", l.msg);
     assert!(k(&mut l, KeyCode::Char('x')).is_none());
