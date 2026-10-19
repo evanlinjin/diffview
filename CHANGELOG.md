@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.33.3] - 2026-10-19
+
 ### Fixed
 - 0.33.2 showed the last known signatures (and your reactions) when GitHub didn't say: from
   the cache, as if current, even of an older head, hiding "signatures unknown". It says
@@ -1000,6 +1002,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.33.3]: https://github.com/evanlinjin/diffview/releases/tag/v0.33.3
 [0.33.2]: https://github.com/evanlinjin/diffview/releases/tag/v0.33.2
 [0.33.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.33.1
 [0.33.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.33.0
