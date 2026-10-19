@@ -123,11 +123,14 @@ struct Row {
     /// PR text attached to the description (its facts, conversation, your review; Claude's
     /// summary): beside it in the pane, or after it with the pane hidden.
     attached: bool,
+    /// A line standing for a comment shown elsewhere (Claude's activity): (thread, comment),
+    /// where `gf` / Enter go.
+    goes: Option<(usize, usize)>,
 }
 
 impl Row {
     fn new(file: usize, line: DLine) -> Row {
-        Row { file, line, thread: None, syn: vec![], links: vec![], info: None, edge: false, nowrap: false, main: None, attached: false }
+        Row { file, line, thread: None, syn: vec![], links: vec![], info: None, edge: false, nowrap: false, main: None, attached: false, goes: None }
     }
 
     /// A row of plain text (headers, comments, PR info).

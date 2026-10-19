@@ -628,11 +628,12 @@ impl App {
     /// comment, a reply: an answer, a change it made), newest first, a line each: when, where,
     /// its first line.
     fn claude_activity(&self) -> Vec<Row> {
-        let mut said: Vec<(&str, String, &str)> = self
+        let mut said: Vec<(&str, String, &str, (usize, usize))> = self
             .threads
             .iter()
-            .filter(|t| t.claude.is_some())
-            .flat_map(|t| {
+            .enumerate()
+            .filter(|(_, t)| t.claude.is_some())
+            .flat_map(|(ti, t)| {
                 // (Outdated: where it was.)
                 let at = match (t.path.as_str(), t.line.or(t.original_line), t.conversation.as_str()) {
                     ("", _, ON_SUMMARY) => "on its review".to_owned(),
@@ -641,7 +642,7 @@ impl App {
                     (p, Some(l), _) => format!("{p}:{l}"),
                     (p, None, _) => p.to_owned(),
                 };
-                t.comments.iter().filter(|c| c.author == crate::claude::AUTHOR).map(move |c| (c.created.as_str(), at.clone(), c.body.as_str()))
+                t.comments.iter().enumerate().filter(|(_, c)| c.author == crate::claude::AUTHOR).map(move |(ci, c)| (c.created.as_str(), at.clone(), c.body.as_str(), (ti, ci)))
             })
             .collect();
         if said.is_empty() {
@@ -651,11 +652,11 @@ impl App {
         let mk = |kind, text| Row { info: Some(CLAUDE_ACTIVITY), ..Row::text(INFO, kind, text) };
         let mut rows = vec![mk(Kind::Thread, "claude's activity".into())];
         let w = self.info_w();
-        for (created, at, body) in said.into_iter().take(CLAUDE_LATEST) {
+        for (created, at, body, goes) in said.into_iter().take(CLAUDE_LATEST) {
             let first = body.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
             let when = if created.is_empty() { String::new() } else { format!("{} · ", crate::gh::ago(created)) };
             let line = format!("◆ {when}{at} · {first}");
-            rows.push(mk(Kind::Comment, super::cut(&line, w.saturating_sub(1))));
+            rows.push(Row { goes: Some(goes), ..mk(Kind::Comment, super::cut(&line, w.saturating_sub(1))) });
         }
         rows.push(Row { edge: true, ..mk(Kind::Comment, String::new()) });
         rows

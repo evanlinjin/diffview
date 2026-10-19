@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.77] - 2026-10-19
+
+### Fixed
+- Enter (or `gf`) on a line of Claude's activity goes to that comment, wherever it is (a thread
+  on code, on its review, on a commit; outdated) and wherever the cursor is on the line (`gf`
+  read the text under the cursor: only its `path:line` worked, and an outdated one's line
+  was the wrong one).
+
 ## [0.34.76] - 2026-10-19
 
 ### Fixed

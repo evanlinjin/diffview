@@ -211,6 +211,7 @@ impl App {
                 return;
             }
             KeyCode::Enter if self.rows[self.head.row].info == Some(MORE_CONVERSATION) => return self.toggle_conversation(),
+            KeyCode::Enter if self.rows[self.head.row].goes.is_some() => return self.open_link(),
             KeyCode::Enter => {
                 match self.link_at_cursor() {
                     Some(_) => self.open_link(),

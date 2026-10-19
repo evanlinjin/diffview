@@ -1269,6 +1269,10 @@ fn claude_view() {
     // Its keys there: going to it, not the PR text's (nothing of it to quote or react to).
     app.goto(app.rows.iter().position(|r| r.line.text.starts_with("◆ ")).unwrap(), 0);
     assert_eq!(app.context_keys().map(|k| k.0), Some("Claude's activity"));
+    // Enter there: to that comment (wherever the cursor was on the line).
+    app.head.col = 3;
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(app.rows[app.head.row].thread, Some(0));
     // Only the file Claude commented on, and only lines 17-23 of it.
     let code: Vec<&str> = v.iter().filter(|t| t.starts_with("line ")).map(String::as_str).collect();
     assert_eq!(code, (17..=23).map(|n| format!("line {n}")).collect::<Vec<_>>());

@@ -51,6 +51,10 @@ impl App {
         // On a GitHub comment's author line (a review thread's, or the conversation's): that
         // comment on GitHub. In its text: what's under the cursor, else the comment too.
         let row = &self.rows[self.head.row];
+        // A line standing for a comment (Claude's activity): to that comment.
+        if let Some((t, c)) = row.goes {
+            return self.goto_comment(t, c);
+        }
         // (Not other headings there: Claude's review, your pending one: nothing on GitHub.)
         let has_link = row.thread.is_some_and(|t| self.threads[t].claude.is_none())
             || row.file == INFO && row.info.and_then(|i| self.info.get(i.checked_sub(1)?)).is_some_and(|h| h.heading && !h.url.is_empty());
