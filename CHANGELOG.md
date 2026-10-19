@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.22] - 2026-10-19
+
+### Fixed
+- Code blocks in comments have a background of their own (the theme's `markup.raw.block`,
+  else the background a shade darker), not the cursor line's, and it runs to the box's edge.
+
 ## [0.34.21] - 2026-10-19
 
 ### Fixed
