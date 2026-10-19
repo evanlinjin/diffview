@@ -850,21 +850,23 @@ pub fn unsigned_blocking(n: u64) -> Result<Option<String>> {
 const INFO_FIELDS: &str = "headRefOid,title,author,state,isDraft,url,baseRefName,headRefName,additions,deletions,\
 changedFiles,labels,assignees,reviewDecision,reviewRequests,latestReviews,statusCheckRollup,body,id";
 
-/// PR info lines, plus the current (title, head commit, url) so a refresh picks up new pushes.
-/// GitHub's answer, as JSON (dv caches it; `parse_info` reads it).
-/// GitHub couldn't say whose commits are signed this time (`new`), but did before (`old`, as
-/// dv kept it) for the same head: that answer, as of then. A commit's signature is part of it,
-/// so it still holds (only the base's rule may have changed since).
-pub fn keep_signatures(new: &mut Value, old: &Value) {
-    if new["dvCommitsUnknown"].is_null() || old["dvCommits"].as_array().is_none_or(|c| c.is_empty()) || new["headRefOid"] != old["headRefOid"] {
-        return;
+/// What GitHub couldn't say this time (`new`) but did before (`old`, as dv kept it), kept: its
+/// commits' signatures, for the same head (a commit's signature is part of it, so it still
+/// holds; only the base's rule may have changed since), as of then; and its activity (what
+/// was, still was; only what's new since is missing).
+pub fn keep_known(new: &mut Value, old: &Value) {
+    if !new["dvCommitsUnknown"].is_null() && old["dvCommits"].as_array().is_some_and(|c| !c.is_empty()) && new["headRefOid"] == old["headRefOid"] {
+        for k in ["dvCommits", "dvCommitsTotal", "dvSignaturesRequired", "dvCommitsAt"] {
+            new[k] = old[k].clone();
+        }
+        new["dvCommitsKept"] = true.into();
+        if let Some(o) = new.as_object_mut() {
+            o.remove("dvCommitsUnknown");
+        }
     }
-    for k in ["dvCommits", "dvCommitsTotal", "dvSignaturesRequired", "dvCommitsAt"] {
-        new[k] = old[k].clone();
-    }
-    new["dvCommitsKept"] = true.into();
-    if let Some(o) = new.as_object_mut() {
-        o.remove("dvCommitsUnknown");
+    if !new["dvActivity"]["error"].is_null() && old["dvActivity"]["items"].is_array() {
+        new["dvActivity"] = old["dvActivity"].clone();
+        new["dvActivity"]["kept"] = true.into();
     }
 }
 
@@ -924,6 +926,8 @@ const ACTIVITY: &str = "__typename \
 ... on CrossReferencedEvent { createdAt actor { login } source { ... on Issue { number title url } ... on PullRequest { number title url } } } \
 ... on ReviewDismissedEvent { createdAt actor { login } }";
 
+/// PR info lines, plus the current (title, head commit, url) so a refresh picks up new pushes.
+/// GitHub's answer, as JSON (dv caches it; `parse_info` reads it).
 pub fn info_json(n: u64) -> Result<Value> {
     let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
     let mut v: Value = gh_json(&["pr", "view", &n.to_string(), "--json", INFO_FIELDS])?;

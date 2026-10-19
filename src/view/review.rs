@@ -17,11 +17,11 @@ fn fetch_github(n: u64, cache: Option<&Path>) -> Fetched {
         let info = s.spawn(|| gh::info_json(n));
         (gh::threads_json(n), info.join().unwrap_or_else(|_| Err(anyhow!("panicked"))))
     });
-    // Signatures GitHub couldn't give this time: the last it gave, kept.
+    // What GitHub couldn't give this time: the last it gave, kept.
     if let (Some(p), Ok(i)) = (cache, &mut info)
         && let Some(old) = std::fs::read_to_string(p).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok())
     {
-        gh::keep_signatures(i, &old["info"]);
+        gh::keep_known(i, &old["info"]);
     }
     if let (Some(p), Ok(t), Ok(i)) = (cache, &threads, &info) {
         // Not keeping it only costs the next start its head start.

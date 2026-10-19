@@ -263,7 +263,7 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
             let st = if unsigned.is_empty() { Mark::Dim } else { Mark::Fail };
             l.put(" · ", None).put(&format!("{} requires signed commits", s(&v["baseRefName"])), Some(st));
         }
-        // GitHub couldn't say this time: what it said last (`keep_signatures`).
+        // GitHub couldn't say this time: what it said last (`keep_known`).
         if v["dvCommitsKept"] == true {
             let when = Some(s(&v["dvCommitsAt"])).filter(|t| !t.is_empty()).map_or("an earlier look".to_owned(), |t| ago(&t));
             l.put(&format!(" (as of {when})"), Some(Mark::Dim));
@@ -291,7 +291,9 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         return out;
     }
     let items = activity_items(v, &list(&activity["items"]));
-    push("activity".into(), heading(format!("activity ({})", items.len())));
+    // (GitHub didn't answer this time: what it said before, `gh::keep_known`.)
+    let kept = if activity["kept"] == true { " (as last fetched)" } else { "" };
+    push("activity".into(), heading(format!("activity ({}){kept}", items.len())));
     for item in items {
         for (key, l) in item {
             push(key, l);
@@ -569,13 +571,13 @@ mod tests {
     fn signatures_kept_when_github_cant_say() {
         let old = json!({ "headRefOid": "abc", "dvCommits": [{ "oid": "abc12345", "signed": true }], "dvCommitsTotal": 1, "dvSignaturesRequired": false, "dvCommitsAt": "2026-10-19T07:00:00Z" });
         let mut new = json!({ "headRefOid": "abc", "dvCommitsUnknown": "timed out" });
-        keep_signatures(&mut new, &old);
+        keep_known(&mut new, &old);
         assert!(new["dvCommitsUnknown"].is_null() && new["dvCommitsKept"] == true);
         let line = info_lines(&new).into_iter().find(|l| l.text.starts_with("commits:")).unwrap().text;
         assert!(line.contains("✓ 1 signed") && line.contains("(as of"), "{line}");
         // Pushed since: not kept (other commits); and nothing to keep when GitHub said.
         let mut moved = json!({ "headRefOid": "def", "dvCommitsUnknown": "timed out" });
-        keep_signatures(&mut moved, &old);
+        keep_known(&mut moved, &old);
         assert!(moved["dvCommitsKept"].is_null() && !moved["dvCommitsUnknown"].is_null());
     }
 
@@ -631,4 +633,13 @@ mod tests {
             assert!(!pr_fields(n).unwrap().2.contains(&(who, true)));
         }
     }
+}
+
+#[cfg(test)]
+#[test]
+fn activity_kept_when_github_cant_say() {
+    let old = serde_json::json!({ "dvActivity": { "items": [{ "__typename": "IssueComment", "id": "IC_1", "author": { "login": "a" }, "body": "hi" }] } });
+    let mut new = serde_json::json!({ "dvActivity": { "error": "timed out" } });
+    crate::gh::keep_known(&mut new, &old);
+    assert!(info_lines(&new).iter().any(|l| l.text == "activity (1) (as last fetched)"));
 }
