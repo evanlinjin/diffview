@@ -228,6 +228,9 @@ impl List {
                 self.marked_saved = self.marked.clone();
             }
             term.draw(|f| self.draw(f))?;
+            // What comes in below may change the list under the cursor: it stays on its card
+            // (`select_card`, after it all; your own keys, after, move it as they do).
+            let keep = self.selected();
             self.batch_news();
             self.watch_reviews();
             self.todo_news();
@@ -263,6 +266,7 @@ impl List {
                 }
                 self.find_todo(); // green checks: ready to merge
             }
+            self.select_card(keep);
             if !event::poll(Duration::from_millis(100))? {
                 continue;
             }
@@ -621,12 +625,15 @@ impl List {
 
     /// Card `i`'s (as shown): its number, and whether it's a replacement's draft.
     fn card_key(&self, i: usize) -> Option<(u64, bool)> {
-        let rep = |it: Option<&crate::todo::Item>| self.tab == Tab::Replacements || it.is_some_and(|it| it.rep);
-        self.shown_cards().get(i).map(|(c, it)| (c.number, rep(*it)))
+        self.shown_cards().get(i).map(|c| self.key_of(c))
     }
 
-    /// `f`, the cursor kept on the card it was on, wherever it is after (the one rule for
-    /// what changes the list under you: a refresh, a sort). Gone: it stays where it was.
+    fn key_of(&self, (card, it): &(&Listed, Option<&crate::todo::Item>)) -> (u64, bool) {
+        (card.number, self.tab == Tab::Replacements || it.is_some_and(|it| it.rep))
+    }
+
+    /// `f`, the cursor kept on the card it was on, wherever it is after (as the event loop does
+    /// for what comes in: a sort, here). Gone: it stays where it was.
     pub(super) fn keeping_sel(&mut self, f: impl FnOnce(&mut Self)) {
         let keep = self.selected();
         f(self);
@@ -635,7 +642,8 @@ impl List {
 
     /// The cursor on card `k` (`selected`'s), where it's shown now; not shown, left as it is.
     pub(super) fn select_card(&mut self, k: Option<(u64, bool)>) {
-        if let Some(i) = k.and_then(|k| (0..self.shown_cards().len()).find(|&i| self.card_key(i) == Some(k))) {
+        let Some(k) = k else { return };
+        if let Some(i) = self.shown_cards().iter().position(|c| self.key_of(c) == k) {
             self.sel = i;
         }
     }

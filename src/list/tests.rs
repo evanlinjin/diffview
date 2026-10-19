@@ -287,8 +287,10 @@ fn todo_tab() {
     assert_eq!(shown(&l), [3, 2, 1]);
     // CI still running on one: after the rest, back once it's done (the cursor going with it).
     l.sel = 1;
+    let keep = l.selected(); // (as the event loop keeps it, through what comes in)
     l.prs[1].checks = Some((3, 0, 2));
     l.find_todo();
+    l.select_card(keep);
     assert_eq!(shown(&l), [3, 1, 2]);
     assert_eq!(l.shown()[l.sel].number, 2);
     // Not with a check failing already: that's to fix now.

@@ -1,8 +1,8 @@
   todo 3   open 3   close 0   worktrees 0   drafts  keys
-▌   #3  Mine                                        Enter see to it (opens the PR or replacement)
-▌   2.  → y                                         gn gp open PRs
-▌       @me   +0 −0 in 1 file                       /     filter
-▌                                                   R     refresh (from GitHub)
+▌   #2  Docs                                        Enter see to it (opens the PR or replacement)
+▌   3.  → z                                         gn gp open PRs
+▌       @bo   +0 −0 in 1 file                       /     filter
+▌       CI ✓5           claude could review         R     refresh (from GitHub)
 ▌       b                                           r r   Claude ranks what needs you (a run)
                                                     s     defer it (or bring it back)
                                                     p     post what it waits on (a comment)

@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.64] - 2026-10-19
+
+### Fixed
+- `dv list` keeps the cursor on its card through whatever comes in (a draft changing, a PR
+  coming back, back from a PR), not only some of it: it's taken before any of it changes the
+  list; and finding the card again is one pass (it was quadratic, worse on the todo tab).
+
 ## [0.34.63] - 2026-10-19
 
 ### Fixed

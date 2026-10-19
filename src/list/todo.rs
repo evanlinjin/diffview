@@ -5,13 +5,8 @@ use crate::todo::{self, Facts, Item};
 
 impl List {
     /// What needs you, from what's known now, in Claude's order (where it ranked them).
-    /// (The cursor stays on the card it's on, wherever the list puts it now: `keeping_sel`.)
+    /// (The cursor stays on its card through it as the event loop keeps it: `select_card`.)
     pub(super) fn find_todo(&mut self) {
-        self.keeping_sel(Self::rebuild_todo);
-    }
-
-    /// The todo items, and what Claude would close, from the reviews and PRs as they are.
-    fn rebuild_todo(&mut self) {
         let dir = self.reviews_dir.clone();
         let seen = dir.as_ref().and_then(|d| d.parent()).map(|d| d.join("seen"));
         // Claude's CI notes (as `crate::claude::ci_note_path`, without a git run per PR).
@@ -590,7 +585,7 @@ impl List {
             self.msg = format!("couldn't save it: {e:#}");
         }
         // (You moved it: the cursor stays put, on what's next.)
-        self.rebuild_todo();
+        self.find_todo();
     }
 
     /// What Claude would do on PR `n` from the todo tab (`a a`): what's due there, else review.
