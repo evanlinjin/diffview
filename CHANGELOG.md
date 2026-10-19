@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.39] - 2026-10-19
+
 ### Changed
 - Comment boxes from Claude's review file have the same dim border as GitHub's (not the hint
   color): the `◆ claude` heading and the thread's tags say whose they are.
