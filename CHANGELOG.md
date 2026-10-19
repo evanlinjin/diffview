@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.39.1] - 2026-10-19
+
+### Changed
+- `dv list`'s help (`?`): in sections (move, find, todo, Claude, PR), a line a key, styled as
+  dv's (headings, keys in their color, notes dim), in two columns when the window fits them.
+
 ## [0.39.0] - 2026-10-19
 
 ### Changed
