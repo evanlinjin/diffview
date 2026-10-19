@@ -28,6 +28,7 @@ mod build;
 use build::*;
 mod files;
 mod git;
+mod github;
 mod info;
 use info::*;
 #[cfg(test)]
@@ -43,7 +44,7 @@ mod select;
 mod term;
 pub use term::{MOUSE, init_terminal, restore_terminal};
 pub(crate) use term::{compose_with, in_zellij};
-pub(crate) use review::prefetch_github;
+pub(crate) use github::prefetch_github;
 use term::*;
 #[cfg(test)]
 pub(crate) mod tests;
@@ -755,7 +756,7 @@ pub struct App {
     label_first: Option<char>,
     /// The background look at GitHub (`start_github_watch`): what it fetched, with `github_gen`
     /// as it was then (a load since is newer, so that one's dropped).
-    github: Option<std::sync::mpsc::Receiver<(u64, review::Fetched)>>,
+    github: Option<std::sync::mpsc::Receiver<(u64, github::Fetched)>>,
     github_gen: std::sync::Arc<std::sync::atomic::AtomicU64>,
     /// Tells the background watch to fetch now, whatever the PR's ETag says.
     github_poke: Option<std::sync::mpsc::Sender<()>>,

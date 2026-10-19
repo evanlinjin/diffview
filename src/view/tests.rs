@@ -1592,13 +1592,13 @@ fn github_changes_shown_when_idle() {
     let mut reply = newer[0].comments[0].clone();
     (reply.id, reply.body) = (99, "Fair.".into());
     newer[0].comments.push(reply);
-    let fetched = |threads: Vec<Thread>| -> review::Fetched {
+    let fetched = |threads: Vec<Thread>| -> github::Fetched {
         let r = gh::Review { pr_id: "PR".into(), mine: true, me: "you".into(), pending: None, pending_body: String::new(), threads, viewed: Default::default() };
         (Ok(r), Ok(Info { lines: app_info(), title: "Fix the thing".into(), head: "abc".into(), url: String::new(), state: ("OPEN", "238636"), unsigned: Some(vec![]), awaiting: 0, failing: 0, base: String::new() }))
     };
     let replies = |app: &App| app.threads.iter().flat_map(|t| &t.comments).filter(|c| c.body == "Fair.").count();
     // Mid-way through something (here a picker): it waits. (What's shown came from the cache.)
-    (app.github_stale, app.msg) = (true, review::STALE.into());
+    (app.github_stale, app.msg) = (true, github::STALE.into());
     tx.send((0, fetched(newer.clone()))).unwrap();
     app.threads_picker(THREADS_ALL);
     assert!(app.picker.is_some());
@@ -1632,11 +1632,11 @@ fn github_cache_reads_back() {
     ] } } } });
     let info = json!({ "title": "Fix", "headRefOid": "abc", "url": "u", "state": "OPEN", "isDraft": true, "author": { "login": "bo" } });
     crate::claude::write(&p, &json!({ "threads": threads, "info": info })).unwrap();
-    let (r, i) = review::cached_github(&p).unwrap();
+    let (r, i) = github::cached_github(&p).unwrap();
     let (r, i) = (r.unwrap(), i.unwrap());
     assert_eq!((r.me.as_str(), r.threads.len(), r.threads[0].comments[0].body.as_str()), ("you", 1, "hi"));
     assert_eq!((i.title.as_str(), i.head.as_str(), i.state.0), ("Fix", "abc", "DRAFT"));
-    assert!(review::cached_github(&dir.join("none.json")).is_none());
+    assert!(github::cached_github(&dir.join("none.json")).is_none());
     std::fs::remove_dir_all(dir).unwrap();
 }
 
