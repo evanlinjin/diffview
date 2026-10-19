@@ -51,7 +51,7 @@ pub(crate) fn in_zellij() -> bool {
     std::env::var_os("ZELLIJ").is_some()
 }
 
-/// `zellij run`, opening the pane to the right of dv's. Not when dv's own pane is floating:
+/// `zellij run`, opening the pane below dv's. Not when dv's own pane is floating:
 /// zellij then quietly opens nothing (and doesn't block), so it goes where zellij puts it.
 pub(super) fn zellij_run() -> Vec<&'static str> {
     let floating = || {
@@ -60,7 +60,8 @@ pub(super) fn zellij_run() -> Vec<&'static str> {
     };
     match floating() {
         Some(true) => vec!["run"],
-        _ => vec!["run", "--direction", "right"],
+        // Below dv: it keeps its width (its comments' pane on its right), the editor under it.
+        _ => vec!["run", "--direction", "down"],
     }
 }
 

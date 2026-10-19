@@ -1045,7 +1045,7 @@ impl App {
                 focus_dv();
             }
             if let Some(a) = self.action.take() {
-                // In zellij the editor gets a pane on the right and dv stays on screen beside it.
+                // In zellij the editor gets a pane below and dv stays on screen above it.
                 let in_pane = in_zellij();
                 if !in_pane {
                     restore_terminal();
@@ -1318,12 +1318,12 @@ impl App {
             zellij(&["action", "write-chars", "-p", &id, "\x1b"])?;
             zellij(&["action", "write-chars", "-p", &id, &format!(":open {path}\r:goto {line}\r")])?;
             zellij(&["action", "focus-pane-id", &id])?;
-            return Ok("opened in hx (its pane on the right); dv reloads as you save".into());
+            return Ok("opened in hx (its pane below); dv reloads as you save".into());
         }
         let (st, id) = term::zellij_pane("hx", &[target.to_owned()], "hx", &self.root, false)?;
         anyhow::ensure!(st.success(), "zellij run failed ({st})");
         self.hx = id.map(|pane| HxPane { pane });
-        Ok("hx is open on the right; dv reloads as you save, and Enter opens the next file there".into())
+        Ok("hx is open below; dv reloads as you save, and Enter opens the next file there".into())
     }
 
     /// What the working tree looks like, cheaply: the latest change time of the diff's files,
