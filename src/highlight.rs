@@ -129,9 +129,52 @@ impl Highlighter {
         let ext = path.rsplit('.').next().unwrap_or("");
         let first = text.lines().next().unwrap_or("");
         let ss = if ext == "toml" { &self.toml } else { &self.ss };
-        match ss.find_syntax_by_extension(ext).or_else(|| ss.find_syntax_by_first_line(first)) {
+        let mut colors = match ss.find_syntax_by_extension(ext).or_else(|| ss.find_syntax_by_first_line(first)) {
             Some(syntax) => self.highlight(ss, syntax, text),
-            None => vec![],
+            None => return vec![],
+        };
+        // Code blocks in it: in their own language (Markdown's, Rust's doc comments').
+        match ext {
+            "md" | "markdown" => self.fences(text, &mut colors, |l| Some(l), None),
+            "rs" => self.fences(text, &mut colors, doc_line, Some("rust")),
+            _ => {}
+        }
+        colors
+    }
+
+    /// Fenced code blocks (```` ```lang ````) in the lines `inner` finds text in (Markdown's:
+    /// the line; a doc comment's: past its `///`), highlighted as their language (its first
+    /// word: `rust,no_run` is Rust), over `colors`. `default`: for a fence without one, or with
+    /// rustdoc's attributes only (`ignore`, `should_panic`, ...).
+    fn fences(&self, text: &str, colors: &mut Colors, inner: fn(&str) -> Option<&str>, default: Option<&str>) {
+        let lines: Vec<&str> = text.lines().collect();
+        let fence = |l| inner(l).map(str::trim_start).filter(|t: &&str| t.starts_with("```") || t.starts_with("~~~"));
+        let mut i = 0;
+        while i < lines.len() {
+            let Some(open) = fence(lines[i]) else {
+                i += 1;
+                continue;
+            };
+            let token = open[3..].trim_start_matches(['`', '~']).split([',', ' ', '{', '}']).next().unwrap_or("").trim();
+            let body: Vec<usize> = (i + 1..lines.len()).take_while(|&k| inner(lines[k]).is_some() && fence(lines[k]).is_none()).collect();
+            let code: String = body.iter().map(|&k| format!("{}\n", inner(lines[k]).unwrap_or(""))).collect();
+            let mut c = self.lang(token, &code);
+            // (rustdoc's attributes in place of a language: still Rust; `text` isn't.)
+            let attr = token.is_empty() || ["ignore", "no_run", "should_panic", "compile_fail", "edition"].iter().any(|a| token.starts_with(a));
+            if c.is_empty() && attr && let Some(d) = default {
+                c = self.lang(d, &code);
+            }
+            for (&k, lc) in body.iter().zip(c) {
+                let at = lines[k].chars().count() - inner(lines[k]).map_or(0, |t| t.chars().count());
+                if let Some(row) = colors.get_mut(k) {
+                    for (j, s) in lc.into_iter().enumerate() {
+                        if let Some(slot) = row.get_mut(at + j) {
+                            *slot = s;
+                        }
+                    }
+                }
+            }
+            i = body.last().map_or(i + 1, |&k| k + 2);
         }
     }
 
@@ -169,6 +212,28 @@ impl Highlighter {
     fn style(&self, stack: &ScopeStack) -> Option<Style> {
         stack.as_slice().iter().rev().find_map(|s| self.rules.iter().find(|(r, _)| r.is_prefix_of(*s)).map(|r| r.1))
     }
+}
+
+/// A Rust doc comment's text: past `///` or `//!` (and the one space after).
+fn doc_line(l: &str) -> Option<&str> {
+    let t = l.trim_start();
+    let rest = t.strip_prefix("///").or_else(|| t.strip_prefix("//!"))?;
+    Some(rest.strip_prefix(' ').unwrap_or(rest))
+}
+
+#[test]
+fn code_blocks_in_markdown_and_doc_comments() {
+    let h = Highlighter::new(&Theme::ansi());
+    let fg = |c: &Option<Style>| c.and_then(|s| s.fg);
+    // Markdown: a fence with rustdoc's attributes is still Rust.
+    let c = h.file("README.md", "# Usage\n\n```rust,no_run\nfn main() {}\n```\n");
+    assert_eq!(fg(&c[3][0]), Some(Color::Red)); // fn
+    // A doc comment: past its `/// `, a fence without a language is Rust.
+    let c = h.file("a.rs", "/// ```\n/// let x = 1;\n/// ```\nfn f() {}\n");
+    assert_eq!(fg(&c[1][4]), Some(Color::Red)); // let
+    assert_eq!(fg(&c[3][0]), Some(Color::Red)); // fn, after it
+    let c = h.file("a.rs", "/// ```text\n/// let x = 1;\n/// ```\n");
+    assert_ne!(fg(&c[1][4]), Some(Color::Red)); // text: not Rust
 }
 
 #[test]

@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- Code blocks in Markdown files and in Rust doc comments (`///`, `//!`) are highlighted in
+  their language: a fence's first word (`rust,no_run` is Rust), and in doc comments, as rustdoc
+  has it, Rust when it names none (or only `ignore`, `no_run`, ...).
+
 ## [0.34.46] - 2026-10-19
 
 ### Added
