@@ -14,11 +14,11 @@ impl App {
             _ if r.drafting_now() => vec![item("Claude is drafting it: wait for it to finish".into(), Target::Nothing)],
             None if r.title.is_empty() => vec![item("Claude hasn't drafted it yet (Space a → Redraft)".into(), Target::Nothing)],
             // Only commits are published: what isn't committed would be left out.
-            None if dirty => vec![
-                item("Commit the uncommitted changes first (they'd be left out)…".into(), Target::Do(Action::Commit)),
-                item("Amend them into its commits they belong in… (you see where each change goes first)".into(), Target::AmendMenu),
-                item("Amend them all into the commits Claude finds they belong in (a backup branch first)".into(), Target::AmendAll),
-            ],
+            None if dirty => {
+                let mut v = vec![item("Commit the uncommitted changes first (they'd be left out)…".into(), Target::Do(Action::Commit))];
+                v.extend(self.amend_items());
+                v
+            }
             None => {
                 let mut v = vec![item(format!("Publish as a draft PR (rebased on {}, pushed {to})…", diff::remote_branch(&r.base)), Target::Do(Action::Publish(false)))];
                 if !open.is_empty() {

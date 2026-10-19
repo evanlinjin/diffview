@@ -34,6 +34,18 @@ impl App {
         self.base == "HEAD"
     }
 
+    /// Amending what isn't committed into the branch's commits (`Space g`, a replacement's `S`):
+    /// only changes to tracked files can be (new files aren't in `git diff HEAD`).
+    pub(super) fn amend_items(&self) -> Vec<Item> {
+        if !diff::git(&["-C", &self.root.to_string_lossy(), "diff", "--name-only", "HEAD"]).is_ok_and(|o| !o.trim().is_empty()) {
+            return vec![];
+        }
+        vec![
+            Item::new("Amend it into the commits it belongs in… (you see where each change goes first)", Target::AmendMenu),
+            Item::new("Amend it all into the commits Claude finds it belongs in (a backup branch first)", Target::AmendAll),
+        ]
+    }
+
     /// `Space g`: what there is to do with the working tree and the branch.
     pub(super) fn git_menu(&mut self) {
         // dv's rebase that ended some other way (in a terminal, say): its note goes.
@@ -63,8 +75,7 @@ impl App {
         }];
         if changed > 0 {
             items.push(Item::new(format!("Commit everything that isn't ({changed} file(s))…"), Target::Do(Action::Commit)));
-            items.push(Item::new("Amend it into the PR's commits it belongs in… (you see where each change goes first)", Target::AmendMenu));
-            items.push(Item::new("Amend it all into the commits Claude finds it belongs in (a backup branch first)", Target::AmendAll));
+            items.extend(self.amend_items());
         }
         match self.push_target() {
             Ok((remote, branch, name)) => match self.unpushed(&remote, &branch) {
