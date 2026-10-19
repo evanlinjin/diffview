@@ -215,6 +215,7 @@ fn screens() {
     l.query.clear();
     k(&mut l, KeyCode::Char('?'));
     snapshot("list_help", &screen(100, 60, |f| l.draw(f)));
+    snapshot("list_help_wide", &screen(200, 30, |f| l.draw(f))); // two columns
     k(&mut l, KeyCode::Esc);
     k(&mut l, KeyCode::Char('g'));
     k(&mut l, KeyCode::Char('n'));

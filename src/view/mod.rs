@@ -24,6 +24,7 @@ mod agent;
 mod ask;
 mod amend;
 pub(crate) use amend::fold_cli;
+pub(crate) use hints::help_lines;
 mod rebase;
 mod replacement;
 mod seen;

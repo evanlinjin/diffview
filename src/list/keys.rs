@@ -1,68 +1,46 @@
 //! dv list's keys and mouse: what each does, and the help it shows.
 use super::*;
 
-pub(super) const HELP: &str = "\
+pub(super) const HELP: &str = "
+MOVE
   j k, Up Down         move
   gg ge                first / last PR
   Ctrl-d Ctrl-u        half a page down / up
-  gn gp                todo (what needs you, ranked) / open PRs / can close (what Claude's
-                       reviews would close, and why: its premise is wrong, or a competing PR
-                       does it better) / PRs with a local worktree (<repo>-N, as dv N -w
-                       makes) / replacements (Claude's drafts, unpublished)
-                       On todo: a PR or replacement waiting on you (Claude's review or answers,
-                       your review requested or none yet, pushed since you reviewed, ready to
-                       merge, a replacement to publish or close for), in the order Claude puts
-                       them (once you have it rank them: r r), with why and what next; a a
-                       there has Claude do its part on one (answer your replies, update its
-                       review, or review it)
-  Enter                review the PR (with dv list's flags; from the worktrees tab, in its
-                       worktree as it was made); q there comes back here
-  /                    filter (Enter keeps it, Esc clears it); terms must all match:
-                         text            number, title, author, branch, labels
-                         author: label: base: branch:   part of that field
-                         is:draft  review:approved|changes|required|none
-                         ci:pass|fail|pending|none     -term excludes
-  Esc                  clear the filter
-  o O                  next sort order (created, the default; number, size, updated) / reverse
-  m                    mark the PR (again: unmark), for Claude to review; marks are kept, for
-                       going through them a PR at a time (quitting dv list too)
-  U U                  unmark all
-  C                    auto on / off (top bar; git config dv.auto): Claude does its part as
-                       things come in, CI-green drafts go ready, replacements close what they
-                       replace, the todo list is ranked again
-  a a                  Claude reviews the marked PRs (or this one) in the background, two at a
-                       time, each in its worktree (<repo>-N, made if need be); cards show how
-                       it's going, and claude ✓ once a PR has a review
-  A A                  Claude drafts a replacement for this PR, on a branch of its own in
-                       <repo>-replace-N, unpublished, for you to review first (replacements
-                       tab); for marked PRs, it first suggests which go together (one
-                       replacement each group), which you edit; then your instructions
-  b b                  ask the PR's author for a rebase: a comment saying it needs one (in your
-                       editor first); on the todo tab it's then deferred until it changes
-                       (their push brings it back)
-  M M                  merge the PR with github-merge.py (Bitcoin Core's script, built into dv;
-                       git config dv.mergescript <path> runs your own copy), in the main
-                       checkout: its worktree goes first, unless something in it is unpushed;
-                       in a zellij pane of its own, or in this terminal
-  N N                  Claude drafts a new PR: your editor opens for what it should do (issues
-                       by #N, which Claude reads); on a branch of its own (dv/new-K, in
-                       <repo>-new-K), unpublished, on the drafts tab: Enter reviews it, S publishes
-  W W                  approve the workflow runs waiting on the PR (GitHub holds a first-time
-                       contributor's until a maintainer does): its card says '⏸ N to approve'
-  D D                  worktrees tab: remove the PR's worktree (not with local changes in it;
-                       its branch stays); replacements tab: remove the replacement (the same)
-  R                    refresh (from GitHub; no Claude)
-  s                    todo: defer the item (then 1 an hour, 4 four hours, d a day, w a week,
-                       or u until something happens: #N merged, CI green, an approval, ...):
-                       to the bottom till then, or till what it needs changes; s on a
-                       deferred one brings it back. p posts what it waits on as a comment
-                       (Waiting on: #N is merged.), which dv reads back for everyone: a
-                       comment like that (by you or anyone with write access) defers the PR
-                       till then, until a later Unblocked
-  r r                  todo: Claude ranks what needs you (one Claude run: the header says what
-                       the last cost and what's changed since, to judge if it's worth it)
+  gn gp                next / previous tab (todo, open, can close, worktrees, drafts)
+  Enter                review the PR (with dv list's flags; q there comes back)
   ?                    this help
-  q, Ctrl-c            quit";
+  q, Ctrl-c            quit
+
+FIND
+  /                    filter: all terms match (Enter keeps it, Esc clears it)
+                       text: number, title, author, branch, labels
+                       author: label: base: branch:  (part of that field)
+                       is:draft  review:approved|changes|required|none
+                       ci:pass|fail|pending|none  (-term excludes)
+  Esc                  clear the filter
+  o O                  next sort order (created, number, size, updated) / reverse
+  R                    refresh from GitHub (no Claude)
+
+TODO
+  r r                  Claude ranks what needs you (one run; the bar says its cost)
+  s                    defer it: 1 an hour, 4 four hours, d a day, w a week, u until…
+                       (s on a deferred one brings it back)
+  p                    post what it waits on (dv reads the comment back, for everyone)
+  a a                  Claude does its part (answers, updates or writes its review)
+
+CLAUDE
+  m                    mark the PR (again: unmark; marks are kept)
+  U U                  unmark all
+  a a                  Claude reviews the marked PRs (or this one), two at a time
+  A A                  Claude drafts a replacement (unpublished, on the drafts tab)
+  N N                  Claude drafts a new PR from what you write (unpublished)
+  C                    auto: Claude does its part as things come in (git config dv.auto)
+
+PR
+  b b                  ask the author to rebase (a comment; todo waits for their push)
+  W W                  approve its workflow runs (GitHub holds a first-timer's)
+  M M                  merge with github-merge.py (dv.mergescript: your own copy)
+  D D                  remove its worktree, or the replacement (not with local changes)";
 
 impl List {
     pub(super) fn key(&mut self, k: KeyEvent) -> Option<Do> {

@@ -245,19 +245,12 @@ impl List {
             f.render_widget(Paragraph::new(lines), Rect { height: inner.height + 1, ..inner });
         }
         if self.help {
-            // Like dv's popups: no border, the popup background, a header row.
-            let lines: Vec<&str> = HELP.lines().collect();
-            let w = (lines.iter().map(|l| l.chars().count()).max().unwrap_or(0) as u16 + 4).min(area.width);
-            let h = (lines.len() as u16 + 3).min(area.height);
+            // As dv's help: sections, keys in their color, notes dim; two columns when they fit.
+            let body = crate::view::help_lines(HELP, ui, area.width.saturating_sub(4) as usize, "");
+            let w = (body.iter().map(Line::width).max().unwrap_or(0) as u16 + 4).min(area.width);
+            let h = (body.len() as u16 + 3).min(area.height);
             let r = Rect { x: (area.width - w) / 2, y: (area.height - h) / 2, width: w, height: h };
             let inner = crate::view::popup_frame(ui, f, r, "dv list keys", "any key closes");
-            let body: Vec<Line> = lines
-                .iter()
-                .map(|l| {
-                    let (k, d) = l.split_at(l.char_indices().nth(23).map_or(l.len(), |(i, _)| i));
-                    Line::from(vec![Span::styled(k.to_owned(), ui.key), Span::raw(d.to_owned())])
-                })
-                .collect();
             f.render_widget(Paragraph::new(body), Rect { y: inner.y + 1, height: inner.height.saturating_sub(1), ..inner });
         }
         self.tab_hits = hits; // where the tabs are, for clicks

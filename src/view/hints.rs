@@ -6,8 +6,17 @@ impl App {
     /// with a hanging indent under the description column, `(notes)` dimmed. With a `query`
     /// (smart case), only matching entries and their headings are kept, matches highlighted.
     pub(super) fn help_lines(&self, width: usize, query: &str) -> Vec<Line<'static>> {
+        help_lines(HELP, &self.ui, width, query)
+    }
+}
+
+/// `help` (dv's, or dv list's: sections, a heading each, then "  <key, to column 23><what it
+/// does>"), styled: headings, keys (separators dimmed), descriptions wrapped with a hanging
+/// indent, `(notes)` dimmed; two columns when the window fits them unwrapped. With a `query`
+/// (smart case), only matching entries and their headings are kept, matches highlighted.
+pub(crate) fn help_lines(help: &str, ui: &Ui, width: usize, query: &str) -> Vec<Line<'static>> {
+    {
         const KEY_COL: usize = 23; // entries are "  <key, padded to col 23><description>"
-        let ui = &self.ui;
         let dim = Style { fg: ui.stale.fg, ..Style::new() };
         let smart = !query.chars().any(char::is_uppercase);
         let fold = |s: &str| if smart { s.to_lowercase() } else { s.to_owned() };
@@ -28,7 +37,7 @@ impl App {
         };
         // Sections: heading + entries, keeping only matching entries.
         let mut sections: Vec<(&str, Vec<&str>)> = vec![];
-        for l in HELP.trim_matches('\n').lines() {
+        for l in help.trim_matches('\n').lines() {
             match l {
                 "" => {}
                 h if !h.starts_with(' ') => sections.push((h, vec![])),
@@ -98,7 +107,9 @@ impl App {
             })
             .collect()
     }
+}
 
+impl App {
     /// Hover markdown, highlighted (code fences in their language), with the fence lines dropped.
     pub(super) fn hover_lines(&self, md: &str) -> Vec<Line<'static>> {
         let cw = (self.width.saturating_sub(4).min(100) as usize).saturating_sub(3);
