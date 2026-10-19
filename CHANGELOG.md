@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.50] - 2026-10-19
+
+### Fixed
+- `a` on an unpublished draft quotes only its text: not the line saying what it replaces, nor
+  "(not drafted yet)" in place of one.
+
 ## [0.34.49] - 2026-10-19
 
 ### Fixed

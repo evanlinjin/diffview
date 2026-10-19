@@ -32,7 +32,7 @@ impl App {
             // saying what it replaces, what you asked of it beside it, nor another draft's).
             let text = |r: usize| {
                 let row = &self.rows[r];
-                self.replacement_draft(r) == Some(which) && row.main.is_some() && row.line.kind != Kind::File && row.info.is_some_and(|i| self.info.get(i).is_some_and(|l| l.md))
+                self.replacement_draft(r) == Some(which) && row.main.is_some() && row.line.kind != Kind::File && row.info.is_some_and(|i| self.info.get(i).is_some_and(|l| l.md && !l.text.trim().is_empty()))
             };
             let lines: Vec<String> = (s.row..=e.row)
                 .filter(|&r| text(r))

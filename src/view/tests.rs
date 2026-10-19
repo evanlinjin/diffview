@@ -1397,7 +1397,7 @@ fn replacement_in_the_pr_section() {
     app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
     app.picker = None;
     app.want("ask");
-    assert!(matches!(app.action.take(), Some(Action::Replace(_, Some(("description", q, "ask")))) if q == "About the description:\n\n"), "the replaces line quoted");
+    assert!(matches!(app.action.take(), Some(Action::Replace(_, Some(("description", q, "ask")))) if q == "About the description:\n\n"), "only the draft's text is quoted");
     // Each ask its own box (one after another on the same draft).
     let tops = (0..app.rows.len()).filter(|&r| app.rows[r].line.text.starts_with("you · asked of the drafts") && app.box_part(r) == Some(BoxPart::Top)).count();
     assert_eq!(tops, 3);
