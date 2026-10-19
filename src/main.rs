@@ -464,8 +464,18 @@ fn local_work(n: u64) -> Option<String> {
     if behind || last_checkout(n).as_deref() == Some(head.as_str()) {
         return None;
     }
-    let ahead = diff::git(&["rev-list", "--count", &format!("{pr}..HEAD")]).unwrap_or_default();
+    // Work done here: commits on neither the PR nor its base (a checkout left on the base's
+    // commits has none: they're not yours to push to the PR).
+    let base = gh::pr(Some(n)).map(|p| crate::diff::remote_branch(&p.base)).unwrap_or_default();
+    let mut count = vec!["rev-list".to_owned(), "--count".to_owned(), format!("{pr}..HEAD")];
+    if !base.is_empty() {
+        count.extend(["--not".to_owned(), base]);
+    }
+    let ahead = diff::git(&count.iter().map(String::as_str).collect::<Vec<_>>()).unwrap_or_default();
     let ahead = ahead.trim();
+    if ahead == "0" {
+        return None;
+    }
     let (s, are, them) = if ahead == "1" { ("", "isn't", "it") } else { ("s", "aren't", "them") };
     Some(format!(
         "{ahead} commit{s} here {are} on PR #{n} (yours or Claude's): kept, not updated to the PR. \
@@ -552,6 +562,12 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
     }
     progress(Some(&format!("checking out PR #{n} in {}", dir.display())));
     let note = checkout_or_keep(n, force, !branch).map_err(|e| {
+        // A worktree made just now and not at the PR (it starts at the main checkout's HEAD):
+        // gone again, else the next open takes that commit for work done there.
+        if !existed {
+            _ = std::env::set_current_dir(dir.parent().unwrap_or(Path::new("/")));
+            _ = diff::git(&["worktree", "remove", "--force", &dir.to_string_lossy()]);
+        }
         // git words this a few ways depending on the step that hits it.
         let msg = format!("{e:#}");
         let in_use = ["already checked out", "already used by worktree", "checked out at"].iter().any(|p| msg.contains(p));

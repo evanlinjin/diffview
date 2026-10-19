@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.84] - 2026-10-19
+
+### Fixed
+- A PR whose checkout failed (its branch checked out in another worktree, say) no longer leaves
+  a worktree at the main checkout's commit: opened again, dv took that commit's history for
+  work done there ("kept: Space g pushes them"), and pushing it emptied the PR, which GitHub
+  closed. Work done here is now only commits on neither the PR nor its base; and dv won't push
+  a head with no commits over the PR's base (GitHub would close it).
+
 ## [0.34.83] - 2026-10-19
 
 ### Fixed

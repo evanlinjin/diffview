@@ -308,6 +308,12 @@ impl App {
     /// dv knows it (it looks every few seconds): a push there it hasn't seen yet stops it.
     pub(super) fn push(&mut self, force: bool) -> Result<String> {
         let (remote, branch, name) = self.push_target()?;
+        // Nothing of its own over its base: pushed, GitHub would close the PR (no commits).
+        if let Some(p) = &self.pr {
+            let base = diff::remote_branch(&p.base);
+            let own = diff::git(&["rev-list", "--count", &format!("{base}..HEAD")]).unwrap_or_default();
+            anyhow::ensure!(own.trim() != "0", "not pushed: HEAD has no commits over {base}, and GitHub would close #{} for it (is this checkout on the PR?)", p.number);
+        }
         let lease = format!("--force-with-lease=refs/heads/{branch}:{}", self.their_head(&remote, &branch));
         let mut args = vec!["push", "-q"];
         if force {
