@@ -19,8 +19,9 @@ pub(crate) fn chip(hex: &str) -> Style {
 /// The frame's columns for one draw (`frame_cols`): the whole window and the part beside the
 /// files' list, the pinned title, the rows' height; the code's line-number width, gutter (a
 /// split half's), relative numbers' column, its text width; the pane's width and
-/// text width, whether it's shown and floating; the code beside it, a split half's middle and
-/// text widths; where the pane starts; the cursor's display row.
+/// text width, whether it's shown and floating; the code beside it, a split half's text
+/// widths; where the pane starts; the code's text width as drawn (`code_tw`); the cursor's
+/// display row.
 #[derive(Clone, Copy)]
 struct Cols {
     full: Rect,
@@ -38,10 +39,10 @@ struct Cols {
     margin: bool,
     float: bool,
     ctw: usize,
-    half: usize,
     htw_l: usize,
     htw_r: usize,
     mx: usize,
+    code_tw: usize,
     hd: usize,
 }
 
@@ -92,7 +93,6 @@ impl App {
         self.pin = self.rows.first().is_some_and(|r| r.file == INFO && r.line.kind == Kind::File)
             && matches!(self.drows.first(), Some(DRow::Full(0)))
             && area.height > 4;
-        self.bar_counts = false; // until the title's drawn, with room for them
         let pin = self.pin as usize;
         let h = (area.height as usize).saturating_sub(1 + pin);
         self.height = h.max(1);
@@ -133,7 +133,6 @@ impl App {
         }
         let margin = shown && width > gw + 12;
         let float = margin && (tiny || self.margin_float_pref.unwrap_or(!room));
-        let mtw = mw - super::build::pane_gw(float); // (`self.pane_gw()` isn't set for this draw yet)
         // The code's columns: the whole width, or what's left of the margin beside it; split
         // view's halves (one line-number column each, a 1-col divider between) within that.
         let code_w = if margin && !float { width.saturating_sub(1 + mw) } else { width };
@@ -147,19 +146,27 @@ impl App {
             let keep = self.cursor_key();
             self.rebuild(keep);
         }
+        let mtw = mw - self.pane_gw();
         if !self.margin_side() {
             self.code_head = self.head;
         }
         // Where the margin starts (floating: over the code's right end).
         let mx = width.saturating_sub(mw).saturating_sub(gw + 1);
+        // The code's text width: beside the pane as a column, under it floating up to where
+        // it starts; the whole width without it. (What the title, a pinned header, a row cut at
+        // the pane, and a click go by.)
+        let code_tw = if float { mx } else { ctw };
+        self.geom = mouse::Geom { relw, gw, ghw, half, ctw: code_tw, picker: None };
+        // The PR's counts on its pinned title, when they fit beside all of it.
+        self.bar_counts = self.pin && self.title_fits(code_tw);
         let hd = self.hd();
-        Cols { full, area, sw, pin, h, lw, gw, ghw, relw, tw, mw, mtw, margin, float, ctw, half, htw_l, htw_r, mx, hd }
+        Cols { full, area, sw, pin, h, lw, gw, ghw, relw, tw, mw, mtw, margin, float, ctw, htw_l, htw_r, mx, code_tw, hd }
     }
 
     /// The code scrolled to the cursor, up and down, and sideways: in a comment's code block by
     /// that block only, in the diff by `left`.
     fn scroll_to_cursor(&mut self, c: &Cols) {
-        let Cols { pin, h, gw, ghw, relw, tw, mtw, float, ctw, half, htw_l, htw_r, mx, hd, .. } = *c;
+        let Cols { pin, h, tw, mtw, ctw, htw_l, htw_r, hd, .. } = *c;
         let so = scrolloff(h);
         // Scroll the code to the cursor.
         if hd < self.top + so {
@@ -169,9 +176,8 @@ impl App {
             self.top = hd + so + 1 - h;
         }
         self.top = self.top.max(pin); // the title is above, not in, what scrolls
-        self.geom = mouse::Geom { relw, gw, ghw, half, ctw: if float { mx } else { ctw }, picker: None };
         let code_line = self.rows[self.head.row].line.kind.is_code();
-        let cur_w = match self.drows[self.hd()] {
+        let cur_w = match self.drows[hd] {
             DRow::Pair(..) => htw_l.min(htw_r),
             DRow::Margin(..) if self.margin_side() => mtw - self.pane_pad(),
             // Split view beside the pane: a line is one half, paired or not.
@@ -210,7 +216,7 @@ impl App {
     /// it (floating), the file the top is in pinned over its code; below the last, the line
     /// between them on to the bottom, and what an empty view says.
     fn draw_body(&mut self, f: &mut Frame, c: &Cols) {
-        let Cols { full, area, pin, h, lw, gw, ghw, relw, tw, mw, mtw, margin, float, ctw, htw_l, htw_r, mx, hd, .. } = *c;
+        let Cols { full, area, pin, h, lw, gw, ghw, relw, tw, mw, mtw, margin, float, ctw, htw_l, htw_r, mx, code_tw, hd, .. } = *c;
         let (s, e) = self.ordered();
         let overlay = self.label_overlay();
         self.highlight_visible();
@@ -269,7 +275,7 @@ impl App {
             let head = self.rows.iter().position(|x| x.file == file && x.line.kind == Kind::File)?;
             (self.d_of[head] < self.top).then_some(head)
         })();
-        let code_cols = relw + gw + if margin { mx } else { tw };
+        let code_cols = relw + gw + code_tw;
         let rows_shown = (self.top + h).min(self.drows.len()).saturating_sub(self.top);
         let lines: Vec<Line> = (0..rows_shown)
             .map(|y| {
@@ -291,7 +297,7 @@ impl App {
                     DRow::Full(r) => {
                         spans.extend(self.render_row(r, s, e, (lw, gw, fw), None, tint, &overlay));
                         if column {
-                            spans = clip(spans, relw + gw + mx);
+                            spans = clip(spans, code_cols);
                             spans.push(sep.clone());
                             spans.push(Span::raw(" ".repeat(mw)));
                         }
@@ -381,6 +387,15 @@ impl App {
         }
     }
 
+    /// Whether the PR's counts fit on its pinned title, `w` wide, beside all of it: its text, its
+    /// state, Claude's and the checkout's badges (as `render_row` puts them).
+    fn title_fits(&self, w: usize) -> bool {
+        let badges = self.claude_doing().map(|d| d.chars().count() + 2).into_iter().chain((!self.sync.is_empty()).then(|| self.sync.chars().count() + 2));
+        let state = self.header_tag(INFO).map(|t| t.0.chars().count()).into_iter().chain(badges).map(|n| n + 2).sum::<usize>();
+        let line = self.rows.first().map_or(0, |r| r.line.text.chars().count());
+        line + 2 + self.pr_counts().chars().count() + state <= w
+    }
+
     /// Where the pane meets the code: as a column, a dim line; floating, the pane's color.
     fn pane_sep(&self, float: bool) -> Span<'static> {
         match float {
@@ -392,23 +407,18 @@ impl App {
     /// The PR's title pinned at the top, its counts beside it when they fit (`bar_counts`); with
     /// the pane, its tabs over it.
     fn draw_title(&mut self, f: &mut Frame, c: &Cols) {
-        let Cols { area, lw, gw, relw, tw, margin, float, .. } = *c;
-        let (s, e) = self.ordered();
-        let overlay = self.label_overlay();
-        let sep = self.pane_sep(float);
+        let Cols { area, lw, gw, relw, margin, float, code_tw, .. } = *c;
         if !self.pin {
             return;
         }
+        let (s, e) = self.ordered();
+        let overlay = self.label_overlay();
+        let sep = self.pane_sep(float);
         {
             let bar = Style { bg: self.ui.bar, ..self.ui.header };
             let mut spans = vec![Span::styled(" ".repeat(relw), bar)];
             // With the pane: the title over the code, and the pane's tabs over the pane.
-            let title_w = if margin { self.geom.ctw } else { tw };
-            // What else is on its right (as `render_row` puts it): its state, and the badges.
-            let badges = self.claude_doing().map(|d| d.chars().count() + 2).into_iter().chain((!self.sync.is_empty()).then(|| self.sync.chars().count() + 2));
-            let state = self.header_tag(INFO).map(|t| t.0.chars().count()).into_iter().chain(badges).map(|n| n + 2).sum::<usize>();
-            let line = self.rows[0].line.text.chars().count();
-            self.bar_counts = line + 2 + self.pr_counts().chars().count() + state <= title_w;
+            let title_w = code_tw;
             spans.extend(self.render_row(0, s, e, (lw, gw, title_w), None, self.head.row == 0, &overlay));
             if margin {
                 let dim = bar.remove_modifier(ratatui::style::Modifier::BOLD).patch(Style { fg: self.ui.linenr.fg, ..Style::new() });
@@ -435,7 +445,7 @@ impl App {
 
     /// While the cursor is on a link, its URL just under (or over) it.
     fn draw_link_tip(&self, f: &mut Frame, c: &Cols) {
-        let Cols { area, pin, h, gw, ghw, relw, half, hd, .. } = *c;
+        let Cols { area, pin, h, gw, ghw, relw, hd, .. } = *c;
         // Link tooltip: while the cursor is on a link, show its URL just under (or over) it.
         // Not on the PR header (where dv starts): the status hint says it links there.
         let header = self.rows[self.head.row].line.kind == Kind::File;
@@ -443,12 +453,12 @@ impl App {
             let y = (hd - self.top) as u16 + pin as u16;
             // In the margin, the text starts after the code column, the gap and its own gutter.
             let start = match self.drows[hd] {
-                _ if self.margin_side() => relw + self.geom.gw + self.geom.ctw + 1 + self.pane_pad() + self.pane_gw(),
-                DRow::Pair(..) | DRow::Margin(Some(_), Some(_), _) if self.right => relw + half + 1 + ghw,
+                _ if self.margin_side() => self.pane_x(),
+                DRow::Pair(..) | DRow::Margin(Some(_), Some(_), _) if self.right => self.right_x(),
                 DRow::Pair(..) => relw + ghw,
                 DRow::Margin(Some(_), Some(_), _) if self.split => relw + ghw,
                 DRow::Margin(Some(l), None, _) if self.split && self.rows[l].line.kind == Kind::Del => relw + ghw,
-                DRow::Margin(None, Some(_), _) if self.split => relw + half + 1 + ghw,
+                DRow::Margin(None, Some(_), _) if self.split => self.right_x(),
                 _ => relw + gw,
             };
             let x = ((start + self.head.col.saturating_sub(self.hscroll(self.head.row))) as u16).min(area.width.saturating_sub(20));

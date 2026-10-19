@@ -118,6 +118,19 @@ impl App {
 
     /// The row and column under screen cell (`x`, `y`), and whether it's in the gutter (line
     /// numbers, fold arrows), as the last frame drew it.
+    /// Where the comment pane's text starts on screen: after the code column and a 1-column
+    /// gap, behind its own gutter (as the last frame drew it).
+    pub(super) fn pane_x(&self) -> usize {
+        let g = self.geom;
+        g.relw + g.gw + g.ctw + 1 + self.pane_pad() + self.pane_gw()
+    }
+
+    /// Where a split view's right (new) side's text starts on screen.
+    pub(super) fn right_x(&self) -> usize {
+        let g = self.geom;
+        g.relw + g.half + 1 + g.ghw
+    }
+
     pub(super) fn at_screen(&self, x: usize, y: usize) -> Option<(usize, usize, bool)> {
         let g = self.geom;
         if self.pin && y == 0 {
@@ -133,14 +146,13 @@ impl App {
             DRow::Full(r) => (r, g.relw + g.gw),
             // Split view: the old side, the divider, the new side.
             DRow::Pair(l, r) if x < g.relw + g.half => (l.or(r)?, g.relw + g.ghw),
-            DRow::Pair(l, r) => (r.or(l)?, g.relw + g.half + 1 + g.ghw),
-            // The comment margin: after the code column and a 1-column gap, behind its own gutter.
-            DRow::Margin(_, _, Some(note)) if x > g.relw + g.gw + g.ctw => (note, g.relw + g.gw + g.ctw + 1 + self.pane_pad() + self.pane_gw()),
+            DRow::Pair(l, r) => (r.or(l)?, self.right_x()),
+            DRow::Margin(_, _, Some(note)) if x > g.relw + g.gw + g.ctw => (note, self.pane_x()),
             // Split view's code beside it: as a pair, but a hunk header spans both sides.
             DRow::Margin(l, r, _) if self.split && l.or(r).is_some_and(|c| self.rows[c].line.kind.is_code()) => {
                 match x < g.relw + g.half {
                     true => (l.or(r)?, g.relw + g.ghw),
-                    false => (r.or(l)?, g.relw + g.half + 1 + g.ghw),
+                    false => (r.or(l)?, self.right_x()),
                 }
             }
             DRow::Margin(l, r, note) => (l.or(r).or(note)?, g.relw + g.gw),
