@@ -356,7 +356,7 @@ impl App {
     pub(super) fn amend_ask(&mut self) {
         let r = (|| -> Result<()> {
             let p = self.amend_file().context("no review file here")?;
-            if let Some(why) = self.claude_blocked(false, true) {
+            if let Some(why) = self.claude_blocked(None) {
                 anyhow::bail!(why);
             }
             let (hunks, commits) = self.amend_plan()?;

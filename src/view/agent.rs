@@ -203,7 +203,6 @@ impl App {
         self.threads.iter().any(|t| self.of_view(t))
     }
 
-    /// Replies of yours that Claude hasn't answered yet.
     /// Whether `ask` may change the code (or reads it whole: a review): answering does when a
     /// reply waiting wants a change.
     pub(super) fn edits(&self, ask: Ask) -> bool {
@@ -214,6 +213,7 @@ impl App {
         }
     }
 
+    /// Replies of yours that Claude hasn't answered yet.
     pub(super) fn waiting_replies(&self) -> usize {
         self.threads.iter().filter(|t| turn(t) == Some("[waiting] ")).count()
     }
@@ -237,9 +237,16 @@ impl App {
     /// Why Claude can't take a request right now (checked before asking you for instructions,
     /// so nothing you write is lost to it): still busy, or the PR's pane is from an older dv
     /// that can't reach the review files (when the request needs them).
-    /// `edits`: what's asked may change the code (or reads it whole: a review), which a stopped
-    /// rebase's conflicts are in the way of; a question, a description, a closing comment aren't.
-    pub(super) fn claude_blocked(&self, needs_files: bool, edits: bool) -> Option<String> {
+    /// `ask`: what's asked (`None`: amending, which changes the code but needs no review file).
+    /// What changes the code (or reads it whole: a review) waits for a stopped rebase, whose
+    /// conflicts are in the way; a question, a description, a closing comment don't.
+    pub(super) fn claude_blocked(&self, ask: Option<Ask>) -> Option<String> {
+        let needs_files = match ask {
+            Some(Ask::Fix | Ask::Edit) => self.change_requests() > 0,
+            Some(_) => true,
+            None => false,
+        };
+        let edits = ask.is_none_or(|a| self.edits(a));
         let busy = self.claude.job.is_some();
         if busy {
             return Some("Claude is still working on the last request".into());
@@ -726,8 +733,7 @@ impl App {
     /// where they're the request); answering replies just goes. Anything that would stop Claude
     /// taking it is checked first, so what you write isn't lost.
     pub(super) fn pick_claude(&mut self, ask: Ask) {
-        let needs_files = !matches!(ask, Ask::Fix | Ask::Edit) || self.change_requests() > 0;
-        if let Some(why) = self.claude_blocked(needs_files, self.edits(ask)) {
+        if let Some(why) = self.claude_blocked(Some(ask)) {
             return self.msg = why;
         }
         match ask {
@@ -749,7 +755,7 @@ impl App {
             self.msg = "nothing to change: no open comments, and no instructions written".into();
             return false;
         }
-        if let Some(why) = self.claude_blocked(!matches!(ask, Ask::Fix | Ask::Edit) || requests > 0, self.edits(ask)) {
+        if let Some(why) = self.claude_blocked(Some(ask)) {
             self.msg = why;
             return false;
         }
@@ -836,8 +842,8 @@ impl App {
             self.claude.again = true;
             return "reply saved; Claude answers it when it's done with what it's doing".into();
         }
-        if self.edits(Ask::Answer) && super::rebase::rebasing(&self.root) {
-            return format!("reply saved; {} (then Space a has Claude answer)", super::rebase::stopped_says(&self.root));
+        if let Some(why) = self.claude_blocked(Some(Ask::Answer)) {
+            return format!("reply saved; {why} (then Space a has Claude answer)");
         }
         let prompt = self.claude_prompt(Ask::Answer, "");
         let forked = self.claude_pane().is_some();

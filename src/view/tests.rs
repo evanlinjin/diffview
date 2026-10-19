@@ -2710,8 +2710,8 @@ fn a_stopped_rebase_holds_only_what_changes_code() {
     let mut app = fixture();
     app.root = dir.clone();
     std::fs::create_dir_all(dir.join(".git/rebase-merge")).unwrap();
-    assert!(app.claude_blocked(false, app.edits(agent::Ask::Fix)).is_some());
-    assert!(app.claude_blocked(false, app.edits(agent::Ask::Describe)).is_none());
+    assert!(app.claude_blocked(Some(agent::Ask::Fix)).is_some() && app.claude_blocked(None).is_some());
+    assert!(app.claude_blocked(Some(agent::Ask::Describe)).is_none());
     // Answering: held only when a reply waiting wants a change.
     assert_eq!(app.edits(agent::Ask::Answer), app.threads.iter().any(|t| agent::turn(t) == Some("[waiting] ") && t.want == "change"));
     std::fs::remove_dir_all(dir).unwrap();
