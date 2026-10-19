@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.51] - 2026-10-19
+
+### Fixed
+- Code blocks in hover docs (`Space k`) have their background to the popup's edge, as in a
+  comment's box, not only behind their text.
+
 ## [0.34.50] - 2026-10-19
 
 ### Fixed
