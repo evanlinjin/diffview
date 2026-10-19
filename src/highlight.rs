@@ -155,8 +155,13 @@ impl Highlighter {
                 i += 1;
                 continue;
             };
-            let token = open[3..].trim_start_matches(['`', '~']).split([',', ' ', '{', '}']).next().unwrap_or("").trim();
-            let body: Vec<usize> = (i + 1..lines.len()).take_while(|&k| inner(lines[k]).is_some() && fence(lines[k]).is_none()).collect();
+            // Its run of ` or ~: what closes it is a line of as many at least, and nothing else
+            // (as CommonMark has it: a ```` ```` ```` block can hold a ```` ``` ```` one).
+            let mark = open.as_bytes()[0] as char;
+            let run = open.len() - open.trim_start_matches(mark).len();
+            let token = fence_lang(&open[run..]);
+            let closes = |l: &str| inner(l).map(str::trim).is_some_and(|t| t.len() >= run && t.chars().all(|c| c == mark));
+            let body: Vec<usize> = (i + 1..lines.len()).take_while(|&k| inner(lines[k]).is_some() && !closes(lines[k])).collect();
             let code: String = body.iter().map(|&k| format!("{}\n", inner(lines[k]).unwrap_or(""))).collect();
             let mut c = self.lang(token, &code);
             // (rustdoc's attributes in place of a language: still Rust; `text` isn't.)
@@ -174,7 +179,7 @@ impl Highlighter {
                     }
                 }
             }
-            i = body.last().map_or(i + 1, |&k| k + 2);
+            i += body.len() + 2; // past its closing line (or what ended it)
         }
     }
 
@@ -214,6 +219,12 @@ impl Highlighter {
     }
 }
 
+/// A code fence's language: its info string's first word (`rust,no_run` → `rust`, `{.rust}` →
+/// `.rust`'s `rust`). The one rule, for files' code blocks and comments' alike.
+pub fn fence_lang(info: &str) -> &str {
+    info.trim().trim_start_matches(['{', '.']).split([',', ' ', '{', '}']).next().unwrap_or("").trim()
+}
+
 /// A Rust doc comment's text: past `///` or `//!` (and the one space after).
 fn doc_line(l: &str) -> Option<&str> {
     let t = l.trim_start();
@@ -234,6 +245,10 @@ fn code_blocks_in_markdown_and_doc_comments() {
     assert_eq!(fg(&c[3][0]), Some(Color::Red)); // fn, after it
     let c = h.file("a.rs", "/// ```text\n/// let x = 1;\n/// ```\n");
     assert_ne!(fg(&c[1][4]), Some(Color::Red)); // text: not Rust
+    // An empty block doesn't put the next out of step; a ```` ```` ```` block holds a ``` one.
+    let c = h.file("a.md", "```\n```\n\n````md\n```rust\n````\n\n```rust\nfn f() {}\n```\n");
+    assert_eq!(fg(&c[8][0]), Some(Color::Red)); // fn, in the last block
+    assert_eq!(fence_lang("{.rust}"), "rust");
 }
 
 #[test]

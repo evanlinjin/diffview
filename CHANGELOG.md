@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.48] - 2026-10-19
+
+### Fixed
+- Code blocks in files: an empty one no longer puts the rest of the file's out of step, and one
+  closes only on a fence like its own (a ```` ```` ```` block can hold ```` ``` ````), as
+  CommonMark has it; a fence's language is read one way in files and in comments alike.
+- What you asked of a replacement's drafts: a question says "Claude is answering it" / "not
+  answered yet" while it waits; `a` on the line saying what it replaces doesn't quote it as the
+  draft's text.
+
 ## [0.34.47] - 2026-10-19
 
 ### Added

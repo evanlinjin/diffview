@@ -231,7 +231,8 @@ impl App {
                     // An unpublished draft: what it replaces (or what you asked for) first, as
                     // it has no facts box.
                     if let Some(l) = self.info.first().filter(|_| self.unpublished() && s.len() > 1) {
-                        let mk = |text| Row { main: Some(DESCRIPTION), info: Some(h + 1), ..Row::text(INFO, Kind::Comment, text) };
+                        // (Its info line's, not the draft's text: `a` there quotes none of it.)
+                        let mk = |text| Row { main: Some(DESCRIPTION), info: Some(0), ..Row::text(INFO, Kind::Comment, text) };
                         s.splice(1..1, [self.info_row(l, mk(l.text.clone())), mk(String::new())]);
                     }
                     rows.extend(self.attach(s, &mut attached));
@@ -754,11 +755,15 @@ impl App {
         let drafting = r.drafting_now();
         let mut rows = vec![];
         for (i, a) in r.asks.iter().enumerate().filter(|(_, a)| on.contains(&a.on.as_str())) {
+            // (A question is answered; anything else, redrafted with.)
+            let [done, doing, todo] = match a.want.as_str() {
+                "ask" => ["answered", "Claude is answering it", "not answered yet"],
+                _ => ["redrafted with it", "Claude is redrafting with it", "not redrafted with it yet"],
+            };
             let state = match (a.done(), drafting && i < r.taking) {
-                (true, _) if a.want == "ask" => "answered",
-                (true, _) => "redrafted with it",
-                (false, true) => "Claude is redrafting with it",
-                (false, false) => "not redrafted with it yet",
+                (true, _) => done,
+                (false, true) => doing,
+                (false, false) => todo,
             };
             let want = match a.want.as_str() {
                 "ask" => " [ask]",

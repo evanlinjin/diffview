@@ -129,7 +129,7 @@ impl R<'_> {
             Tag::CodeBlock(kind) => {
                 self.flush();
                 let lang = match kind {
-                    CodeBlockKind::Fenced(l) => l.split([' ', ',']).next().unwrap_or("").to_owned(),
+                    CodeBlockKind::Fenced(l) => crate::highlight::fence_lang(&l).to_owned(),
                     CodeBlockKind::Indented => String::new(),
                 };
                 self.code = Some((lang, String::new()));
