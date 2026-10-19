@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.96] - 2026-10-19
+
+### Fixed
+- Claude's review read while it was half written could stay "can't be read" after Claude
+  finished; and what's kept shown meanwhile follows its code as the diff changes.
+- Amending refuses conflicted files when dv runs in a subdirectory too.
+
 ## [0.34.95] - 2026-10-19
 
 ### Fixed
