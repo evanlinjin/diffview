@@ -73,12 +73,18 @@ fn protected(base: &str) -> Option<Vec<String>> {
     if let Some(v) = CACHE.lock().ok()?.get(base).filter(|c| c.0.elapsed() < std::time::Duration::from_secs(600)) {
         return v.1.clone();
     }
-    let got = (!base.is_empty())
-        .then(|| gh_json(&["api", &format!("repos/{{owner}}/{{repo}}/branches/{base}")]).ok())
+    // (A branch name may have `#`, `?`, `%` or a space: escaped in the path.)
+    let path: String = base.bytes().map(|b| match b.is_ascii_alphanumeric() || b"/._-".contains(&b) {
+        true => (b as char).to_string(),
+        false => format!("%{b:02X}"),
+    }).collect();
+    let got: Option<Vec<String>> = (!base.is_empty())
+        .then(|| gh_json(&["api", &format!("repos/{{owner}}/{{repo}}/branches/{path}")]).ok())
         .flatten()
         .map(|b| b["protection"]["required_status_checks"]["contexts"].as_array().into_iter().flatten().filter_map(|c| c.as_str().map(str::to_owned)).collect());
-    if let Ok(mut c) = CACHE.lock() {
-        c.insert(base.to_owned(), (std::time::Instant::now(), got.clone()));
+    // (Not a failure: asked again next time, not "can't read" for minutes over one blip.)
+    if let (Some(v), Ok(mut c)) = (&got, CACHE.lock()) {
+        c.insert(base.to_owned(), (std::time::Instant::now(), Some(v.clone())));
     }
     got
 }
@@ -104,6 +110,10 @@ fn rollup_chunk(ns: &[u64]) -> Result<Vec<(u64, Rollup)>> {
     // required); anything else refused, none of that PR's (a check GitHub didn't give isn't
     // none: `checks` would say passing), the others' kept. Refused about no one PR: none.
     let (bad, unread) = refused_prs(&v)?;
+    // All of them refused: GitHub's word for it, not an answer of nothing.
+    if !ns.is_empty() && ns.iter().all(|n| bad.contains(n)) {
+        super::refused(&v)?;
+    }
     let repo = &v["data"]["repository"];
     anyhow::ensure!(repo.is_object(), "GitHub: no repository in its answer");
     Ok(ns
@@ -118,8 +128,10 @@ fn rollup_chunk(ns: &[u64]) -> Result<Vec<(u64, Rollup)>> {
             // only some (one past its first 100 isn't missing), nor once it's closed.
             let rules = pr["baseRef"]["rules"]["nodes"].as_array().into_iter().flatten().filter(|r| r["type"] == "REQUIRED_STATUS_CHECKS");
             let mut want: Vec<String> = rules.flat_map(|r| r["parameters"]["requiredStatusChecks"].as_array().cloned().unwrap_or_default()).filter_map(|c| c["context"].as_str().map(str::to_owned)).collect();
-            let protection = protected(pr["baseRefName"].as_str().unwrap_or(""));
-            let unknown = unread.contains(&n) || protection.is_none();
+            // (Only an open one's: nothing more is expected of a closed one.)
+            let open = pr["state"] == "OPEN";
+            let protection = open.then(|| protected(pr["baseRefName"].as_str().unwrap_or(""))).flatten();
+            let unknown = open && (unread.contains(&n) || protection.is_none());
             want.extend(protection.unwrap_or_default());
             want.sort();
             want.dedup(); // (a ruleset and branch protection may both name it)
