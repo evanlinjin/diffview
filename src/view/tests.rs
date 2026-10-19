@@ -2650,8 +2650,9 @@ fn related_code_tinted_apart_from_the_cursor_line() {
 fn quitting_while_writing_beside_says_so_first() {
     let mut app = fixture();
     let ago = |ms| std::time::Instant::now() - std::time::Duration::from_millis(ms);
+    // (As the run loop does.)
     let quit = |app: &mut App, k: KeyEvent| {
-        app.key(k);
+        app.press(k);
         app.hold_quit();
     };
     let (q, ctrl_c) = (KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE), KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
@@ -2662,6 +2663,11 @@ fn quitting_while_writing_beside_says_so_first() {
     quit(&mut app, q);
     assert!(!app.quit);
     app.quit_armed = Some(ago(10_000));
+    quit(&mut app, q);
+    assert!(!app.quit);
+    // Another key between: asked again.
+    app.quit_armed = Some(ago(1000));
+    quit(&mut app, KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
     quit(&mut app, q);
     assert!(!app.quit);
     // Merging is held the same way.

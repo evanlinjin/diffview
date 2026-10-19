@@ -991,6 +991,14 @@ impl App {
         }
     }
 
+    /// A key pressed: what it does, and (another key than leaving) leaving asks again.
+    pub(super) fn press(&mut self, k: KeyEvent) {
+        self.key(k);
+        if !self.quit {
+            self.quit_armed = None;
+        }
+    }
+
     pub fn run(&mut self, term: &mut DefaultTerminal) -> Result<()> {
         while !self.quit {
             self.log_msg();
@@ -1003,7 +1011,7 @@ impl App {
             // ponytail: 100ms poll so LSP replies show up without a keypress; a waker channel if it matters.
             if event::poll(Duration::from_millis(100))? {
                 match event::read()? {
-                    Event::Key(k) if k.kind == KeyEventKind::Press => self.key(k),
+                    Event::Key(k) if k.kind == KeyEventKind::Press => self.press(k),
                     Event::Mouse(m) => self.mouse(m),
                     _ => {}
                 }
