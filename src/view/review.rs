@@ -260,6 +260,13 @@ impl App {
             let n = self.pending_count();
             items.push(item(&format!("Discard pending review ({n} comment(s))"), Target::Discard));
         }
+        // A replacement, published: closing what it replaces is still to do.
+        if let Some(r) = &self.replacement {
+            let open: Vec<String> = r.replaces.iter().filter(|o| !r.closed.contains(&o.number)).map(|o| format!("#{}", o.number)).collect();
+            if !open.is_empty() {
+                items.push(item(&format!("Close {} (what it replaces) with the closing note…", open.join(", ")), Target::Do(Action::CloseOriginals)));
+            }
+        }
         // What's still open, to see before you say you're done (approving most of all).
         items.extend(self.submit_notes().iter().map(|n| item(&format!("  ! {n}"), Target::Nothing)));
         self.picker = Some(Picker::new(" submit review ", items));

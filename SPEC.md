@@ -139,7 +139,7 @@ disk: rust-analyzer can index it and `hx` can open it.
    (you place each change, or Claude does); fetch and rebase onto `origin/<base>`, aborted on conflict;
    push to `dv.replaceRemote` (git config; asked for from the remotes other than origin when
    unset); `gh pr create --draft --head <owner>:dv/replace-N`, always a draft: it's marked ready for
-   review once CI passes; `published` saved). Closing
+   review once CI passes; `published` saved). Published, it's that PR in dv: on it at once, and whenever it's opened again (its comments, CI, `S`'s review, `Space g`'s "Mark ready"), Claude's review of the draft moved to the PR's (with its session); closing what it replaces is in `S` there. Closing
    (editor: the note, `{replacement}` filled in, or "Superseded by #N." appended; `gh pr close
    N --comment`) records each in `closed` as it goes. A draft under way has its process in the
    record (`drafting`), so `dv list`, dv and `dv replace` don't start another; `dv list`

@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.43] - 2026-10-19
+
 ### Changed
 - Showing some of the commits: only their messages come before the code (and in the contents);
   the PR's description, what's attached to it and Claude's drafts are about all of them, and
@@ -20,6 +22,9 @@ on GitHub are its section here.
 - An unpublished draft doesn't offer pushing or pulling (`Space g` says `S` publishes it), its
   messages after a commit, amend or rebase say `S` publishes it, and Claude's comments and
   review there don't offer copying to a review or posting (there's no PR).
+- A published replacement is its PR in dv: on it once published, and when opened again (it
+  stayed a PR-less draft: no comments, CI or `Space g` → Mark ready, as publishing promised).
+  Claude's review of the draft moves to the PR's; `S` there closes what it replaces.
 
 ## [0.34.42] - 2026-10-19
 

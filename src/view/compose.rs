@@ -265,6 +265,9 @@ impl App {
                 keep_on_error(res.as_ref().map(drop).map_err(|e| anyhow!("{e:#}")), &text)?;
                 let originals = !r.replaces.is_empty(); // a new PR replaces nothing
                 self.show_replacement(r);
+                if let Ok(n) = res {
+                    self.become_pr(n);
+                }
                 if close {
                     self.action = Some(Action::CloseOriginals); // its own editor, next
                 }

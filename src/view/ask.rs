@@ -193,7 +193,8 @@ impl App {
 
     /// Which of a replacement's drafts row `r` is a line of: "description" or "closing note".
     pub(super) fn replacement_draft(&self, r: usize) -> Option<&'static str> {
-        self.replacement.as_ref()?;
+        // (Published, it's a PR: its description is GitHub's, proposed anew as any PR's.)
+        self.replacement.as_ref().filter(|_| self.pr.is_none())?;
         let row = &self.rows[r];
         let i = row.info.filter(|_| row.file == INFO)?;
         let heading = self.info.get(i.checked_sub(1)?).filter(|h| h.heading && self.info[i].md)?;

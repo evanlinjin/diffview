@@ -65,9 +65,8 @@ impl App {
     }
 
     pub(super) fn load_github(&mut self) {
-        if self.pr.is_none() {
-            return self.load_replacement();
-        }
+        // A replacement's record, published or not (its originals to close).
+        self.load_replacement();
         let Some(n) = self.pr.as_ref().map(|p| p.number) else { return };
         self.github_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         self.github_stale = false;

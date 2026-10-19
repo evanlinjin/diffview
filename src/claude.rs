@@ -278,6 +278,18 @@ pub fn session_path(review: &std::path::Path) -> PathBuf {
     review.with_extension("session")
 }
 
+/// Claude's review at `from` (and its session) moved to `to`: a branch's, once it's a PR (a
+/// replacement published). Not over one that's there.
+pub fn move_review(from: &std::path::Path, to: &std::path::Path) -> Result<()> {
+    if from.exists() && !to.exists() {
+        std::fs::rename(from, to)?;
+        if session_path(from).exists() {
+            std::fs::rename(session_path(from), session_path(to))?;
+        }
+    }
+    Ok(())
+}
+
 /// The session for `review` in checkout `dir`, if Claude Code still has it.
 /// The dv-review skill this dv was built with (`dv install-skill` installs it).
 pub const SKILL: &str = include_str!("../skills/dv-review/SKILL.md");
@@ -1068,4 +1080,20 @@ fn turn_ended_from_the_transcript() {
     assert_eq!(turn_ended_in(&working, since), None);
     let old = line("assistant", "2026-10-18T09:00:00Z", "end_turn", "Earlier.");
     assert_eq!(turn_ended_in(&old, since), None);
+}
+
+#[test]
+fn a_branch_review_moves_to_its_pr() {
+    let d = std::env::temp_dir().join(format!("dv-move-review-{}", std::process::id()));
+    std::fs::create_dir_all(&d).unwrap();
+    let (from, to) = (d.join("branch-dv-replace-12.json"), d.join("pr-40.json"));
+    std::fs::write(&from, "{}").unwrap();
+    std::fs::write(session_path(&from), "s").unwrap();
+    move_review(&from, &to).unwrap();
+    assert!(!from.exists() && to.exists() && session_path(&to).exists());
+    // Not over a review the PR has.
+    std::fs::write(&from, "{\"summary\": \"other\"}").unwrap();
+    move_review(&from, &to).unwrap();
+    assert_eq!(std::fs::read_to_string(&to).unwrap(), "{}");
+    _ = std::fs::remove_dir_all(&d);
 }

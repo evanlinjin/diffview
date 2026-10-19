@@ -258,7 +258,7 @@ impl App {
                 let text = if text.trim().is_empty() { "_(not drafted yet)_" } else { text };
                 rows.extend(self.section(CLOSING_NOTE, self.info[h].text.clone(), text, Some(h + 1)));
             }
-            if let Some(r) = self.replacement.as_ref().filter(|r| !commits && !r.asks.is_empty()) {
+            if let Some(r) = self.replacement.as_ref().filter(|r| !commits && self.pr.is_none() && !r.asks.is_empty()) {
                 let drafting = r.drafting_now();
                 let asks: Vec<String> = r.asks.iter().enumerate().map(|(i, (text, done))| match (done, drafting && i < r.taking) {
                     (true, _) => text.clone(),

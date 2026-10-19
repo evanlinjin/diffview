@@ -36,6 +36,20 @@ impl App {
         self.picker = Some(Picker::new(" replacement ", items));
     }
 
+    /// Published as PR `n`: dv is on that PR now, as if opened on it (its comments, CI, review),
+    /// Claude's review of the draft going with it.
+    pub(super) fn become_pr(&mut self, n: u64) {
+        let Ok(to) = crate::claude::path(Some(n)) else { return };
+        if let Some(from) = &self.claude.path {
+            _ = crate::claude::move_review(from, &to);
+        }
+        self.claude.path = Some(to);
+        self.pr = crate::gh::pr(Some(n)).ok();
+        if self.pr.is_some() {
+            self.start_github_watch(n, false);
+        }
+    }
+
     /// Which remote keeps replacement branches: asked once, then kept in `dv.replaceRemote`.
     pub(super) fn ask_replace_remote(&mut self, close: bool) -> String {
         let choices = crate::replace::remote_choices();
@@ -71,7 +85,11 @@ impl App {
         }
     }
 
+    /// (Published and on its PR, the PR's info is GitHub's: only the record is kept.)
     pub(super) fn show_replacement(&mut self, r: crate::replace::Record) {
+        if self.pr.is_some() {
+            return self.replacement = Some(r);
+        }
         let line = |heading, md, text: &str| InfoLine { heading, md, text: text.into(), ..Default::default() };
         let mut replaces = line(false, false, "replaces ");
         for (i, o) in r.replaces.iter().enumerate() {
