@@ -425,6 +425,8 @@ enum Target {
     AmendMenu,
     Amend,
     AmendAsk,
+    /// Claude places every uncommitted change, and dv amends them in once it has.
+    AmendAll,
     /// Rerun the failed checks (their failed jobs).
     GitRerun,
     /// Rebase onto the base branch (Claude resolving conflicts) / Claude carrying a stopped
@@ -779,6 +781,8 @@ pub struct App {
     gone_at: usize,
     /// Comments hidden on GitHub that you've shown here (Tab), by node id.
     revealed: HashSet<String>,
+    /// Claude is placing every change for an amend (`AmendAll`): dv amends once it has.
+    amend_then: bool,
     /// Shown, then hidden again with Tab on their thread's first line: the next Tab there folds
     /// the thread (Tab goes round: shown, hidden, folded).
     hid_again: HashSet<String>,
@@ -985,6 +989,7 @@ impl App {
             github_poke: None,
             base_said: String::new(),
             revealed: HashSet::new(),
+            amend_then: false,
             hid_again: HashSet::new(),
             gone_at: 0,
             conversation_all: false,

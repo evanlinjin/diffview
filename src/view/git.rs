@@ -55,6 +55,7 @@ impl App {
         if changed > 0 {
             items.push(Item::new(format!("Commit everything that isn't ({changed} file(s))…"), Target::GitCommit));
             items.push(Item::new("Amend it into the PR's commits it belongs in… (you see where each change goes first)", Target::AmendMenu));
+            items.push(Item::new("Amend it all into the commits Claude finds it belongs in (a backup branch first)", Target::AmendAll));
         }
         match self.push_target() {
             Ok((remote, branch, name)) => match self.unpushed(&remote, &branch) {

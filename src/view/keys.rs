@@ -507,7 +507,8 @@ impl App {
                         }
                         Target::RebaseAbort => self.abort_rebase(),
                         Target::Amend => self.amend_now(),
-                        Target::AmendAsk => self.amend_ask(),
+                        Target::AmendAsk => self.amend_ask(false),
+                        Target::AmendAll => self.amend_ask(true),
                         Target::SetField(field, name, on) => {
                             self.msg = "editing the PR…".into();
                             self.job = Some(Job::SetField(field, name, on));

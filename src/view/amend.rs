@@ -206,7 +206,8 @@ fn claude_answers(p: &Path, head: &str, hunks: &mut [Hunk], commits: &[(String, 
     for a in v["hunks"].as_array().into_iter().flatten() {
         let (Some(c), Some(path), Some(body)) = (a["commit"].as_str(), a["path"].as_str(), a["diff"].as_str()) else { continue };
         let Some(sha) = commits.iter().find(|k| !c.is_empty() && k.0.starts_with(c)).map(|k| k.0.clone()) else { continue };
-        if let Some(h) = hunks.iter_mut().find(|h| h.to.is_none() && h.path == path && h.text() == body) {
+        // (Asked about all of them, its answer over blame's.)
+        if let Some(h) = hunks.iter_mut().find(|h| h.path == path && h.text() == body) {
             let why = a["why"].as_str().unwrap_or("").trim();
             (h.to, h.why) = (Some(sha), format!("Claude: {}", if why.is_empty() { "fits there" } else { why }));
         }
@@ -351,46 +352,57 @@ impl App {
         self.msg = r.unwrap_or_else(|e| format!("{e:#}"));
     }
 
-    /// Ask Claude which of the PR's commits the changes blame couldn't place belong in: it
-    /// answers in a file beside the review; the amend picker shows its answers when it's done.
-    pub(super) fn amend_ask(&mut self) {
+    /// Ask Claude which of the PR's commits the changes blame couldn't place belong in (`all`:
+    /// every change, blame's place a hint): it answers in a file beside the review; the amend
+    /// picker shows its answers when it's done (`all`: dv amends them in then).
+    pub(super) fn amend_ask(&mut self, all: bool) {
         let r = (|| -> Result<()> {
             let p = self.amend_file().context("no review file here")?;
             if let Some(why) = self.claude_blocked(None) {
                 anyhow::bail!(why);
             }
             let (hunks, commits) = self.amend_plan()?;
+            anyhow::ensure!(!hunks.is_empty(), "nothing uncommitted to amend (new files stay untracked: commit them)");
+            anyhow::ensure!(nothing_staged(&self.root), "some changes are staged (git add): unstage them first (git reset), so none are lost");
             let head = git_in(&self.root, &["rev-parse", "HEAD"])?.trim().to_owned();
-            ask_request(&p, &head, &hunks, &commits)?;
-            let prompt = ask_prompt(&p, &head);
+            ask_request(&p, &head, &hunks, &commits, all)?;
+            let prompt = ask_prompt(&p, &head, all);
             let forked = self.claude_pane().is_some();
             self.claude.job = Some(self.spawn_claude(&prompt, AMEND_LABEL, forked, &[])?);
+            self.amend_then = all;
             Ok(())
         })();
         self.msg = match r {
+            Ok(()) if all => "Claude is placing every change in its commit (dv amends them in when it's done, a backup branch first)".into(),
             Ok(()) => "Claude is placing the rest of the changes (the amend picker opens with its answers)".into(),
             Err(e) => format!("{e:#}"),
         };
     }
 }
 
-/// Write the request Claude answers in `p`: the hunks blame couldn't place, at HEAD `head`.
-fn ask_request(p: &Path, head: &str, hunks: &[Hunk], commits: &[(String, String)]) -> Result<()> {
+/// Write the request Claude answers in `p`: the hunks blame couldn't place (`all`: every one,
+/// with where blame would put it), at HEAD `head`.
+fn ask_request(p: &Path, head: &str, hunks: &[Hunk], commits: &[(String, String)], all: bool) -> Result<()> {
     let ask: Vec<serde_json::Value> = hunks
         .iter()
-        .filter(|h| h.to.is_none())
-        .map(|h| serde_json::json!({ "path": h.path, "diff": h.text(), "commit": "", "why": "" }))
+        .filter(|h| all || h.to.is_none())
+        .map(|h| serde_json::json!({ "path": h.path, "diff": h.text(), "blame": h.to.clone().unwrap_or_default(), "commit": "", "why": "" }))
         .collect();
     let list: Vec<serde_json::Value> = commits.iter().map(|c| serde_json::json!({ "sha": c.0, "subject": c.1 })).collect();
     std::fs::create_dir_all(p.parent().context("no dir")?)?;
     crate::claude::write(p, &serde_json::json!({ "head": head, "commits": list, "hunks": ask }))
 }
 
-/// Claude's prompt for answering the request in `p`.
-fn ask_prompt(p: &Path, head: &str) -> String {
+/// Claude's prompt for answering the request in `p` (`all`: about every change).
+fn ask_prompt(p: &Path, head: &str, all: bool) -> String {
+    let which = match all {
+        true => "Every change is asked about: \"blame\" says which commit last wrote the lines it changes, if one did: a \
+                 hint, not the answer (a fix to one commit's line can belong with another commit's change)",
+        false => "git blame placed some; these it couldn't (new lines, or lines from more than one commit)",
+    };
     format!(
         "dv is about to amend the uncommitted changes in this checkout into the commits of the branch they belong \
-         in. git blame placed some; these it couldn't (new lines, or lines from more than one commit): read {}. \
+         in. {which}: read {}. \
          For each entry in \"hunks\" (a change, as a diff of {}'s file), decide which of the commits in \"commits\" \
          it belongs in: the one whose change it completes or fixes (look at them: `git show <sha>`; `git diff` shows \
          all the uncommitted changes). Set its \"commit\" to that commit's full sha, and \"why\" to a few words why; \
@@ -454,6 +466,10 @@ fn amend_by_blame() {
     claude_answers(&p, &head, &mut hunks, &commits);
     assert_eq!((hunks[0].to.as_deref(), hunks[0].why.as_str()), (Some(first_now.as_str()), "Claude: its comments"));
     assert_eq!(hunks[1].to, None);
+    // Asked about all of them: its answer over blame's (blame put hunks[0] elsewhere, say).
+    hunks[0].to = Some(commits[1].0.clone());
+    claude_answers(&p, &head, &mut hunks, &commits);
+    assert_eq!(hunks[0].to.as_deref(), Some(first_now.as_str()));
     // A pure addition placed so (above another change, not placed) lands where it was.
     amend(&dir, &base, &hunks, "dv-backup/t2").unwrap();
     assert_eq!(git(&["show", "HEAD~1:a.rs"]), "base\n/// one\n/// one, more\n// two\nadded\nkeep\n");
@@ -510,7 +526,8 @@ fn live_claude_amend_ask() {
     write("README.md", "# lib\n");
     git(&["add", "."]);
     git(&["commit", "-q", "-m", "readme"]);
-    // New lines: a doc comment on parse (blame can't say whose; Claude should: "add parse").
+    // New lines: a doc comment on parse (blame can't say whose; Claude should: "add parse"),
+    // asked as for every change (Space g → amend it all).
     write("lib.rs", "pub fn one() -> u32 {\n    1\n}\n\n/// Parses `s`; panics if it isn't a number.\npub fn parse(s: &str) -> u32 {\n    s.parse().unwrap()\n}\n");
     let (hunks, commits) = plan(&dir, &base, true).unwrap();
     assert!(hunks.iter().all(|h| h.to.is_none()));
@@ -518,8 +535,8 @@ fn live_claude_amend_ask() {
     // Outside the checkout, as dv's own directory is (Claude gets to it as it does there).
     let data = std::env::temp_dir().join(format!("dv-live-amend-data-{}", std::process::id()));
     let p = data.join("amend/pr-1.json");
-    ask_request(&p, &head, &hunks, &commits).unwrap();
-    let out = crate::view::claude_command(&ask_prompt(&p, &head), &dir, &[], &[], Some(&data)).stdin(std::process::Stdio::null()).output().unwrap();
+    ask_request(&p, &head, &hunks, &commits, true).unwrap();
+    let out = crate::view::claude_command(&ask_prompt(&p, &head, true), &dir, &[], &[], Some(&data)).stdin(std::process::Stdio::null()).output().unwrap();
     let said: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
     println!("claude: {}\nrefused: {}", said["result"].as_str().unwrap_or(&String::from_utf8_lossy(&out.stderr)), said["permission_denials"]);
     let mut hunks = hunks;
