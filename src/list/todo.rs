@@ -246,8 +246,8 @@ impl List {
         let parts: Vec<String> = [(s.new, "new"), (s.changed, "changed"), (s.gone, "seen to")].iter().filter(|p| p.0 > 0).map(|(n, w)| format!("{n} {w}")).collect();
         match (self.ranked.is_some(), parts.is_empty()) {
             (false, _) => String::new(),
-            (true, true) => "; nothing's changed since".into(),
-            (true, false) => format!("; since: {}", parts.join(", ")),
+            (true, true) => ", nothing's changed since".into(),
+            (true, false) => format!(", since: {}", parts.join(", ")),
         }
     }
 
@@ -271,10 +271,9 @@ impl List {
         self.rank_rx = None;
         match res {
             Ok(r) => {
-                let cost = r.cost;
                 self.ranked = Some(r);
                 self.find_todo();
-                self.msg = format!("Claude ranked what needs you (${cost:.2}); a a on one has Claude do its part there");
+                self.msg = "Claude ranked what needs you: a a on one has it do its part there".into();
             }
             Err(e) => self.msg = format!("ranking: {e:#} (r r tries again)"),
         }

@@ -292,7 +292,7 @@ fn todo_tab() {
     l.extra.insert(4, extra(true));
     l.find_todo();
     assert_eq!(l.since.new, 1);
-    assert!(l.rank_offer().contains("cost $0.38; since: 1 new"), "{}", l.rank_offer());
+    assert!(l.rank_offer().contains("cost $0.38, since: 1 new"), "{}", l.rank_offer());
     l.prs.pop();
     l.find_todo();
     snapshot("list_todo", &screen(100, 12, |f| l.draw(f)));

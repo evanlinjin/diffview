@@ -1,4 +1,4 @@
-  todo 3   open 3   worktrees 0   drafts 0     rank keys
+  todo 3   open 3   worktrees 0   drafts 0          keys
 ▌   #3  Mine                                        Enter see to it (opens the PR or replacement)
 ▌   2.  → y                                         Tab   open PRs
 ▌       @me   +0 −0 in 1 file                       /     filter
@@ -9,4 +9,4 @@
                                                     m     mark
                                                     a a   Claude does its part (marked)
                                                     A A   Claude drafts a replacement
-
+                                   ranked 0s ago, cost $0.38, nothing's changed since  ·  auto off

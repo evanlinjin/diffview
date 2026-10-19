@@ -1169,16 +1169,8 @@ impl List {
         // As the PR view's tabs: the one shown lit, the others dim.
         let dim = hs.remove_modifier(ratatui::style::Modifier::BOLD).patch(Style { fg: ui.linenr.fg, ..Style::new() });
         let tab = |name: String, on: bool| Span::styled(format!(" {name} "), if on { ui.menu_selected } else { dim });
-        // What you'd judge a ranking by: how old the last is, what it cost, what's changed since.
-        let ranking = match (&self.rank_rx, &self.ranked) {
-            (Some(_), _) => "Claude is ranking…".to_owned(),
-            (None, Some(r)) => format!("ranked by Claude {} ago ({}){}  · r r ranks again", ago_secs(crate::claude::now_secs() - r.at), todo::cost_text(r.cost), self.since_text()),
-            (None, None) => "in the rules' order  · r r has Claude rank it (one run)".to_owned(),
-        };
-        let rest = match self.tab {
-            Tab::Todo => format!("   {ranking}"),
-            _ => format!("   by {} {arrow}  (Tab switches)", self.order.name()),
-        };
+        // The top bar: the tabs, and where you are in the one shown. (What state the list is in
+        // goes on the status bar's right; the keys, in the keys popup.)
         let names = [
             (Tab::Todo, format!("todo {}", self.todo_now())),
             (Tab::Open, format!("open {open}{}", if self.prs.len() >= github::LIST_MAX { "+" } else { "" })),
@@ -1195,13 +1187,6 @@ impl List {
             spans.extend([s, Span::styled(" ", hs)]);
             x += w + 1;
         }
-        spans.push(Span::styled(rest, dim));
-        // Auto, lit when on: it starts Claude runs, and changes PRs on GitHub.
-        let auto = match self.auto {
-            true => Span::styled(" auto: CI · review · rank ", ui.menu_selected),
-            false => Span::styled("auto off (C)", dim),
-        };
-        spans.extend([Span::styled("   ", dim), auto]);
         let tabs = Line::from(spans);
         f.render_widget(Paragraph::new(tabs).style(hs), head);
         let pos = if shown.is_empty() { "0 / 0 ".into() } else { format!("{} / {} ", sel + 1, shown.len()) };
@@ -1282,9 +1267,27 @@ impl List {
             (_, false, _) => format!(" filter: {}  (Esc clears)", self.query),
             _ => String::new(), // the keys are in the bottom-right popup
         };
-        let flags = if self.flags.is_empty() { String::new() } else { format!("opens with {}  ", self.flags) };
-        f.render_widget(Paragraph::new(left).style(bar), status);
-        f.render_widget(Paragraph::new(flags).alignment(Alignment::Right).style(bar), status);
+        // On the right, the list's state: how it's ordered (on the todo tab, Claude's ranking: how
+        // old, what it cost, what's changed since), whether auto's on (it starts Claude runs, and
+        // changes PRs on GitHub: in the warning color), and the flags PRs open with.
+        let order = match (self.tab, &self.rank_rx, &self.ranked) {
+            (Tab::Todo, Some(_), _) => "Claude is ranking…".to_owned(),
+            (Tab::Todo, None, Some(r)) => format!("ranked {} ago, {}{}", ago_secs(crate::claude::now_secs() - r.at), todo::cost_text(r.cost), self.since_text()),
+            (Tab::Todo, None, None) => "in the rules' order".to_owned(),
+            _ => format!("by {} {arrow}", self.order.name()),
+        };
+        let state = Line::from(vec![
+            Span::styled(format!("{order}  ·  "), bar),
+            match self.auto {
+                true => Span::styled("auto on", bar.patch(Style { fg: ui.warning.fg, ..Style::new() })),
+                false => Span::styled("auto off", bar),
+            },
+            Span::styled(if self.flags.is_empty() { "  ".to_owned() } else { format!("  ·  opens with {}  ", self.flags) }, bar),
+        ]);
+        // (The message has what the state leaves of the line.)
+        let right = (state.width() as u16).min(status.width);
+        f.render_widget(Paragraph::new(state).alignment(Alignment::Right).style(bar), status);
+        f.render_widget(Paragraph::new(left).style(bar), Rect { width: status.width - right, ..status });
         if !self.help && !self.filtering {
             // The keys for this tab, bottom right, as dv's diff view shows them.
             let enter = match self.tab {
