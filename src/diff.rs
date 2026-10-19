@@ -243,6 +243,13 @@ pub fn remote_branch(b: &str) -> String {
     format!("{}/{b}", remote())
 }
 
+/// The remote's default branch's name (`main`): as `remote_head` says, else `main`. The one
+/// rule for it.
+pub fn default_branch() -> String {
+    let remote = format!("{}/", remote());
+    remote_head().and_then(|h| h.strip_prefix(&remote).map(str::to_owned)).unwrap_or_else(|| "main".into())
+}
+
 /// The remote's default branch (`<remote>/HEAD`), as git tracks it: asked of the remote once
 /// when git doesn't know (a remote added by hand has no HEAD until then).
 pub fn remote_head() -> Option<String> {
@@ -318,7 +325,7 @@ pub fn ensure_remote() -> Result<()> {
 pub fn merge_base(base: Option<&str>) -> Result<String> {
     let base = match base {
         Some(b) => b.to_owned(),
-        None => remote_head().unwrap_or_else(|| "main".to_owned()),
+        None => remote_head().unwrap_or_else(default_branch),
     };
     Ok(git(&["merge-base", &base, "HEAD"])
         .with_context(|| format!("no merge-base with {base}"))?
