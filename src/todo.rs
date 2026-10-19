@@ -464,9 +464,10 @@ pub enum Until {
     Closed(u64),
     /// This PR's checks all passing.
     Green,
-    /// An approval on this PR (from that login, or anyone); any review from that login.
+    /// An approval on this PR (from that login, or anyone); any review from that login (or
+    /// anyone but you and its author: "someone else reviews it").
     Approved(Option<String>),
-    Reviewed(String),
+    Reviewed(Option<String>),
     /// A push to this PR: its head no longer this commit (filled in as it's deferred).
     Pushed(String),
 }
@@ -482,7 +483,8 @@ impl Until {
             Until::Approved(None) => "it's approved".into(),
             Until::Pushed(h) if h.is_empty() => "the author pushes".into(),
             Until::Pushed(h) => format!("the author pushes (past {})", h.get(..7).unwrap_or(h)),
-            Until::Reviewed(who) => format!("@{who} reviews it"),
+            Until::Reviewed(Some(who)) => format!("@{who} reviews it"),
+            Until::Reviewed(None) => "someone else reviews it".into(),
         }
     }
 
@@ -515,8 +517,10 @@ impl Until {
             Until::Approved(s("approved"))
         } else if v.get("pushed").is_some() {
             Until::Pushed(s("pushed").unwrap_or_default()) // (Claude says `true`: filled in as it's deferred)
+        } else if v.get("reviewed").is_some() {
+            Until::Reviewed(s("reviewed"))
         } else {
-            Until::Reviewed(s("reviewed")?)
+            return None;
         })
     }
 
@@ -570,7 +574,7 @@ impl Until {
                     (None, Some(_)) => return None, // (another PR's: for Claude to read)
                 }
             }
-            _ if has("review") => Until::Reviewed(who?),
+            _ if has("review") => Until::Reviewed(who),
             _ => Until::Time(now + dur?),
         })
     }
@@ -687,7 +691,7 @@ pub fn interpret(text: String, root: std::path::PathBuf) -> Receiver<Result<Unti
             "A maintainer defers a pull request until: \"{text}\". It's {} now (UTC). Reply with only one JSON object \
              saying when, one of: {{\"merged\": N}} (PR N merged), {{\"closed\": N}} (PR N closed), {{\"green\": true}} \
              (this PR's checks pass), {{\"approved\": \"login\"}} or {{\"approved\": null}} (an approval), \
-             {{\"reviewed\": \"login\"}} (a review from them), {{\"pushed\": true}} (the author pushes to it: \
+             {{\"reviewed\": \"login\"}} (a review from them) or {{\"reviewed\": null}} (a review from anyone but the maintainer and the PR's author), {{\"pushed\": true}} (the author pushes to it: \
              addresses the reviews, updates it), {{\"at\": \"2026-10-20T09:00:00Z\"}} (a time). If it's \
              none of these, {{\"none\": \"why, in a few words\"}}. No other text.",
             crate::claude::now()
@@ -786,7 +790,7 @@ fn ask(lines: &[String], root: &std::path::Path, of: Of) -> Result<(Order, f64)>
     // (What a PR waits on, as dv can watch for it: PRs only.)
     let waits = match of {
         Of::Prs => " says it's waiting on something dv can watch for, add \"waits_on\", one of: {\"merged\": N}, \
-                    {\"closed\": N}, {\"green\": true}, {\"approved\": \"login\"}, {\"reviewed\": \"login\"}.",
+                    {\"closed\": N}, {\"green\": true}, {\"approved\": \"login\"}, {\"reviewed\": \"login\"} or {\"reviewed\": null} (anyone but the maintainer and the author).",
         // (What to close, said apart from the words: dv's close tab lists them.)
         Of::Issues => " For one I should close (a duplicate, fixed by a merged PR, answered, moot), add \"close\": \"why, \
                        a few words\".",
@@ -1051,7 +1055,7 @@ mod tests {
         assert_eq!(waiting_on(&[c("me", "Blocked on #1"), c("me", "Unblocked: #1 is in")], now), None);
         assert_eq!(waiting_on(&[c("me", "I'm waiting to see what amy thinks")], now), None);
         // What `p` posts reads back as itself.
-        for u in [Until::Merged(2380), Until::Green, Until::Approved(Some("amy".into())), Until::Reviewed("bo".into()), Until::Closed(7), Until::Pushed("abc1234".into())] {
+        for u in [Until::Merged(2380), Until::Green, Until::Approved(Some("amy".into())), Until::Reviewed(Some("bo".into())), Until::Reviewed(None), Until::Closed(7), Until::Pushed("abc1234".into())] {
             assert_eq!(waiting_on(&[c("me", &format!("Waiting on: {}.", u.says()))], now).map(|w| w.0), Some(u));
         }
     }
@@ -1066,7 +1070,10 @@ mod tests {
         assert_eq!(p("checks pass"), Some(Until::Green));
         assert_eq!(p("@amy approves"), Some(Until::Approved(Some("amy".into()))));
         assert_eq!(p("it's approved"), Some(Until::Approved(None)));
-        assert_eq!(p("@bo reviews it"), Some(Until::Reviewed("bo".into())));
+        assert_eq!(p("@bo reviews it"), Some(Until::Reviewed(Some("bo".into()))));
+        assert_eq!(p("someone else reviews it"), Some(Until::Reviewed(None)));
+        assert_eq!(Until::from_json(&json!({ "reviewed": null })), Some(Until::Reviewed(None)));
+        assert_eq!(Until::from_json(&json!({ "none": "why" })), None);
         assert_eq!(p("3h"), Some(Until::Time(now + 3 * 3600)));
         assert_eq!(p("2 days"), Some(Until::Time(now + 2 * 86400)));
         assert_eq!(p("a week"), Some(Until::Time(now + 7 * 86400)));
@@ -1080,10 +1087,10 @@ mod tests {
         assert_eq!(p("Don't approve until the release"), None); // what's before "until" is what waits
         assert_eq!(p("won't review until @amy pushes"), None);
         assert_eq!(p("the author addresses the defaced docs"), Some(Until::Pushed(String::new())));
-        assert_eq!(p("@amy reviews the fixes"), Some(Until::Reviewed("amy".into())));
+        assert_eq!(p("@amy reviews the fixes"), Some(Until::Reviewed(Some("amy".into()))));
         assert_eq!(p("3 days after the push"), Some(Until::Time(now + 3 * 86400)));
         // Round trip, as kept and as Claude answers.
-        for u in [Until::Merged(1), Until::Green, Until::Approved(None), Until::Reviewed("x".into()), Until::Time(5), Until::Pushed("abc".into())] {
+        for u in [Until::Merged(1), Until::Green, Until::Approved(None), Until::Reviewed(Some("x".into())), Until::Time(5), Until::Pushed("abc".into())] {
             assert_eq!(Until::from_json(&u.to_json()), Some(u));
         }
         assert_eq!(Until::from_json(&json!({ "at": "2026-10-20T09:00:00Z" })), crate::gh::epoch_secs("2026-10-20T09:00:00Z").map(Until::Time));

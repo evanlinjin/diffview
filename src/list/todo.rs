@@ -451,7 +451,9 @@ impl List {
             // (Approved already when deferred: an approval since, not its standing decision.)
             todo::Until::Approved(None) => since == 0 && pr.is_some_and(|p| p.decision == "APPROVED") || reviews.iter().any(|r| r.1 == "APPROVED"),
             todo::Until::Approved(Some(who)) => reviews.iter().any(|r| &r.0 == who && r.1 == "APPROVED"),
-            todo::Until::Reviewed(who) => reviews.iter().any(|r| &r.0 == who),
+            todo::Until::Reviewed(Some(who)) => reviews.iter().any(|r| &r.0 == who),
+            // (Someone else: not you, nor its author answering in a review.)
+            todo::Until::Reviewed(None) => reviews.iter().any(|r| r.0 != self.me && pr.is_none_or(|p| r.0 != p.author)),
             todo::Until::Pushed(head) => extra.is_some_and(|e| !head.is_empty() && !e.head_oid.is_empty() && !e.head_oid.starts_with(head.as_str())),
         }
     }

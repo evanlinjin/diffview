@@ -419,6 +419,16 @@ fn defer_from_the_todo_tab() {
     l.extra.get_mut(&2).unwrap().reviews = vec![("bo".into(), "COMMENTED".into(), 1), ("bo".into(), "APPROVED".into(), 5), ("bo".into(), "COMMENTED".into(), 6)];
     l.find_todo();
     assert_eq!(l.todo_now(), 2);
+    // Until someone else reviews it: not your review, a new one of someone's.
+    l.find_todo();
+    l.defer_until("pr-2".into(), "until someone else reviews it");
+    assert!(l.msg.starts_with("deferred until someone else reviews it"), "{}", l.msg);
+    l.extra.get_mut(&2).unwrap().reviews.push((l.me.clone(), "COMMENTED".into(), 7));
+    l.find_todo();
+    assert_eq!(l.todo_now(), 1);
+    l.extra.get_mut(&2).unwrap().reviews.push(("cy".into(), "COMMENTED".into(), 8));
+    l.find_todo();
+    assert_eq!(l.todo_now(), 2);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
