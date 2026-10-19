@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.90] - 2026-10-19
+
+### Fixed
+- Amending: a commit whose changes conflict no longer untracks staged new files a later commit
+  takes (that left a rebase half begun, refusing every amend after); its changes stay staged.
+  Why one was left out says so plainly ("a later commit changes those lines", else git's error).
+- `dv amend`'s files with `diff.relative` set.
+
 ## [0.34.89] - 2026-10-19
 
 ### Changed
