@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.33.2] - 2026-10-19
+
 ### Fixed
 - After rerunning failed checks, dv looks at them again through its background watch (a picker
   open isn't disturbed, nothing said is overwritten), and a fetch from before the rerun isn't
@@ -14,7 +16,8 @@ on GitHub are its section here.
 - Signatures: GitHub refusing only a PR's reactions keeps them; refusing its commits, or an
   error that doesn't say where, leaves them unknown: `commits: signatures unknown (why)`, and
   the commits' marks as they were (not all taken as signed). Refused whole (a big PR, with its
-  reactions), they're asked on their own.
+  reactions; not when rate-limited), they're asked on their own. What GitHub last said of
+  them, and of your reactions, stands (in what dv keeps, too) when it doesn't say.
 
 ## [0.33.1] - 2026-10-19
 
@@ -991,6 +994,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.33.2]: https://github.com/evanlinjin/diffview/releases/tag/v0.33.2
 [0.33.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.33.1
 [0.33.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.33.0
 [0.32.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.32.0
