@@ -217,8 +217,13 @@ pub(super) fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathB
             v.extend(fit(right, if run_on { width.saturating_sub(1 + left_w).max(RIGHT) } else { RIGHT }, row));
             full(v)
         };
+        // The title cut for its badges and tags, never its number (the tags cut, past the zone).
         let tags_w: usize = tags.iter().map(Span::width).sum();
-        let mut top = cut_spans(title, left_w.saturating_sub(tags_w));
+        let mut title = title;
+        let text = title.pop().into_iter().collect::<Vec<_>>();
+        let lead_w: usize = title.iter().map(Span::width).sum();
+        let mut top = title;
+        top.extend(cut_spans(text, left_w.saturating_sub(lead_w + tags_w).max(8)));
         top.extend(tags);
         // CI on the left of the zone, the age at its right end.
         let age_w = age.width();
@@ -340,6 +345,7 @@ pub(super) fn todo_line(rank: usize, it: &crate::todo::Item, cx: &Cards, selecte
     // Its place in the number's column, the arrow under the title.
     let lead = format!("{}{:>w$}  → ", " ".repeat(MARK_W), format!("{rank}."), w = cx.num_w - 1);
     let (tags, says) = todo_says(it);
+    let says = says.replace('\n', " — ");
     let says = match tags.is_empty() {
         true => says,
         false => format!("[{}] {says}", tags.join(" · ")),
@@ -357,7 +363,8 @@ pub(super) fn with_message(mut lines: Vec<Line<'static>>, says: &str, cx: &Cards
     let row = card_row(ui, selected);
     let st = |s: Style| row.patch(Style { bg: None, ..s });
     let w = width.saturating_sub(card_w + 3);
-    let (why, todo) = match says.rsplit_once(" — ") {
+    // Claude's why and what next, a line each (a ranking from before 0.36.1: " — " between).
+    let (why, todo) = match says.split_once('\n').or_else(|| says.rsplit_once(" — ")) {
         Some((a, b)) => (a, Some(b)),
         None => (says, None),
     };

@@ -12,8 +12,7 @@ impl List {
     pub(super) fn card_rows(&self) -> usize {
         let lines = if self.wide { 3 } else { 4 };
         let more = match self.tab {
-            // The message beside the card (`msg_column`), or a line under its title.
-            Tab::Todo if self.msg_col.is_some() => MSG_ROWS - lines,
+            // A line under its title, or (as many rows) beside the card (`msg_column`).
             Tab::Todo | Tab::CanClose => 1,
             _ => 0,
         };
@@ -23,7 +22,7 @@ impl List {
     pub(super) fn draw(&mut self, f: &mut Frame) {
         let area = f.area();
         self.wide = area.width as usize >= TWO_ZONES;
-        self.msg_col = msg_column(area.width as usize);
+        let msg_col = msg_column(area.width as usize);
         let rows = self.card_rows();
         let h = area.height.saturating_sub(2) as usize / rows;
         let sel = self.sel.min(self.shown().len().saturating_sub(1));
@@ -76,7 +75,7 @@ impl List {
             ui,
             num_w: shown.iter().map(|p| crate::replace::shown(p.number).chars().count()).max().unwrap_or(2),
             // (The todo tab's messages in a column of their own: the cards stop short of it.)
-            width: match self.msg_col.filter(|_| self.tab == Tab::Todo) {
+            width: match msg_col.filter(|_| self.tab == Tab::Todo) {
                 Some(w) => w,
                 None => area.width as usize,
             },
@@ -91,6 +90,7 @@ impl List {
             .flat_map(|(i, p)| {
                 let item = (self.tab == Tab::Todo).then(|| self.todo_shown().into_iter().find(|(c, _)| std::ptr::eq(*c, *p)).map(|x| x.1)).flatten();
                 let rep_card = self.tab == Tab::Replacements || item.is_some_and(|it| it.rep);
+                let says = item.map(todo_says);
                 let mark = match rep_card {
                     true => {
                         let replaces = self.rep_of.get(&p.number).map(|r| match r.replaces.is_empty() {
@@ -113,8 +113,8 @@ impl List {
                         };
                         let awaiting = self.extra.get(&p.number).map_or(0, |e| e.awaiting);
                         // Beside the card: its place under its number, its tags on its title line.
-                        let (rank, tags) = match item.filter(|_| self.msg_col.is_some()) {
-                            Some(it) => (Some(i + 1), todo_says(it).0),
+                        let (rank, tags) = match says.as_ref().filter(|_| msg_col.is_some()) {
+                            Some((tags, _)) => (Some(i + 1), tags.clone()),
                             None => (None, vec![]),
                         };
                         Mark { marked: self.marked.contains(&p.number), claude, new: self.new.contains(&p.number), replaces: None, awaiting, rank, tags }
@@ -122,8 +122,8 @@ impl List {
                 };
                 let local = if rep_card { None } else { self.local.get(&p.number) };
                 let mut lines = card(p, &cx, i == sel, local, mark);
-                match (item, self.msg_col) {
-                    (Some(it), Some(card_w)) => lines = with_message(lines, &todo_says(it).1, &cx, card_w, area.width as usize, i == sel),
+                match (item, msg_col) {
+                    (Some(_), Some(card_w)) => lines = with_message(lines, says.as_ref().map_or("", |s| s.1.as_str()), &cx, card_w, area.width as usize, i == sel),
                     (Some(it), None) => {
                         lines.insert(1, todo_line(i + 1, it, &cx, i == sel)); // under the title
                     }
@@ -156,7 +156,7 @@ impl List {
             (true, _, _) => format!(" /{}▏  author: label: base: branch: is:draft review: ci:  -x negates", self.query),
             (_, _, false) => format!(" {}", self.msg),
             (_, false, _) => format!(" filter: {}  (Esc clears)", self.query),
-            _ if self.tab == Tab::Todo && self.msg_col.is_some() => " ? keys".into(),
+            _ if self.tab == Tab::Todo && msg_col.is_some() => " ? keys".into(),
             _ => String::new(), // the keys are in the bottom-right popup
         };
         // On the right, the list's state: how it's ordered (on the todo tab, Claude's ranking: how
@@ -184,7 +184,7 @@ impl List {
         }
         f.render_widget(Paragraph::new(left).style(bar), Rect { width: status.width - right, ..status });
         // (Not over the todo tab's message column: `?` shows them, the status bar says.)
-        let column = self.tab == Tab::Todo && self.msg_col.is_some();
+        let column = self.tab == Tab::Todo && msg_col.is_some();
         if !self.help && !self.filtering && !column {
             // The keys for this tab, bottom right, as dv's diff view shows them.
             let enter = match self.tab {
