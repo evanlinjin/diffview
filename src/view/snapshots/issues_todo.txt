@@ -1,14 +1,14 @@
- Issues   todo 2   open 2   mine 1   close 1     I I the PRs
-▌   #8 How do I sync?                                                                                         💬  0 · 👍  0
-▌   1.  → Claude would close it: answered in #3
-▌      @bo                                                                                                    ✕ close: answered in #3
-▌      → answer it                                                                                            claude ✓
-
-    #7 Panics on reorg  bug                                                                                   💬  3 · 👍  2
-    2.  → assigned to you · #9 would fix it: review that · not triaged yet (a a)
-       @amy  → @me
-       fixed by #9 (open)
-
-
-
- ? keys · I I the PRs                                                                                                                 1 / 2
+ Issues   todo 2   open 2   mine 1   close 1     I I the PRs                                    keys
+▌   #8 How do I sync?                                                                           Enter open it
+▌   1.  → Claude would close it: answered in #3                                                 gn gp tabs
+▌      @bo                                                                                      /     filter
+▌      → answer it                                                                              R     refresh (from GitHub)
+                                                                                                r r   Claude ranks what needs you (a run)
+    #7 Panics on reorg  bug                                                                     s     defer it (or bring it back)
+    2.  → assigned to you · #9 would fix it: review that · not triaged yet (a a)                m     mark
+       @amy  → @me                                                                              a a   Claude triages (marked)
+       fixed by #9 (open)                                                                       U U   unmark all
+                                                                                                C     auto on / off (triage, ranking)
+                                                                                                I I   the PRs
+                                                                                                ?     all keys
+                                                                                                          in the rules' order  ·  auto off

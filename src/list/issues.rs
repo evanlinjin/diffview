@@ -250,12 +250,11 @@ pub struct Issues {
     drafts: Vec<Receiver<(u64, batch::Status)>>,
     /// Those drafts not done yet (by id).
     drafting: HashSet<u64>,
-    /// Auto (`C`, git config `dv.auto`, as dv list's): Claude triages what's new or changed as
-    /// it comes in, and ranks the todo again. Each issue's `updatedAt` as first fetched (what's
-    /// there then is yours to triage: `a a`; not a bill at start), what it's done (once each),
-    /// and when it last ranked.
+    /// Auto (`C`, git config `dv.auto`, as dv list's): Claude triages what isn't triaged, and
+    /// what's changed since, and ranks the todo again. Whether it's started (the first fetch
+    /// in), what it's done (once each), and when it last ranked.
     auto: bool,
-    baseline: Option<HashMap<u64, String>>,
+    started: bool,
     auto_done: HashSet<(u64, String)>,
     auto_ranked: Option<std::time::Instant>,
     /// The tabs' columns on the top bar (for clicks), and the last click on a card (when,
@@ -326,7 +325,7 @@ impl Issues {
     /// triage), `AT_ONCE` at a time, once each; and ranks the todo again once something's new or
     /// changed, at most every quarter hour.
     fn auto_run(&mut self) {
-        if !self.auto || self.fetched.is_some() {
+        if !self.auto || !self.started || self.fetched.is_some() {
             return;
         }
         let busy = self.running.values().any(batch::Status::running);
@@ -345,15 +344,13 @@ impl Issues {
         }
     }
 
-    /// What auto triages next (`AT_ONCE` at most, each once at an `updatedAt`): what's changed
-    /// since Claude's triage, and what's new or changed since dv started and isn't triaged.
+    /// What auto triages next (`AT_ONCE` at most, each once at an `updatedAt`): what isn't
+    /// triaged, and what's changed since its triage, in the todo's order.
     fn auto_picks(&mut self) -> Vec<(u64, String)> {
-        let Some(base) = self.baseline.as_ref() else { return vec![] };
         let mut run = vec![];
         for it in self.todo.iter().filter(|it| it.deferred.is_none()) {
             let Some(i) = self.items.iter().find(|i| i.number == it.number) else { continue };
-            let new = base.get(&i.number) != Some(&i.updated);
-            let due = it.needs.contains(&crate::todo::Need::Retriage) || (new && it.needs.contains(&crate::todo::Need::Untriaged));
+            let due = it.needs.iter().any(|n| matches!(n, crate::todo::Need::Retriage | crate::todo::Need::Untriaged));
             if due && run.len() < batch::AT_ONCE && self.auto_done.insert((i.number, i.updated.clone())) {
                 run.push((i.number, i.updated.clone()));
             }
@@ -432,10 +429,9 @@ impl Issues {
                     Ok((me, items)) => {
                         let keep = self.shown().get(self.sel).map(|i| i.number);
                         (self.me, self.items) = (me, items);
-                        if self.baseline.is_none() {
-                            self.baseline = Some(self.items.iter().map(|i| (i.number, i.updated.clone())).collect());
-                            // (Nor a ranking straight away: a quarter hour, as after one.)
-                            self.auto_ranked = Some(std::time::Instant::now());
+                        if !self.started {
+                            // (Not a ranking straight away: once the triages are in, a quarter hour on.)
+                            (self.started, self.auto_ranked) = (true, Some(std::time::Instant::now()));
                         }
                         self.reviews_mtime = None; // read the triages for these
                         self.watch_reviews();
@@ -587,7 +583,10 @@ impl Issues {
                 self.auto = !self.auto;
                 _ = crate::diff::git(&["config", "dv.auto", if self.auto { "true" } else { "false" }]);
                 self.msg = match self.auto {
-                    true => "auto on: Claude triages new and changed issues as they come in (at your cost; what's there already, a a), and ranks the todo again as it changes".into(),
+                    true => format!(
+                        "auto on: Claude triages every issue not triaged ({} now, two at a time, ~$0.30 each, at your cost) and those that change, and ranks the todo again",
+                        self.todo.iter().filter(|it| it.needs.contains(&crate::todo::Need::Untriaged)).count()
+                    ),
                     false => "auto off: a a triages, r r ranks".into(),
                 };
             }
@@ -858,29 +857,19 @@ impl Issues {
         let area = f.area();
         let ui = &self.ui;
         f.render_widget(Paragraph::new("").style(ui.base), area);
-        // The top bar: which list this is, its tabs and counts, where you are.
-        let hs = ui.base.patch(Style { bg: ui.bar, ..ui.header });
-        let dim = hs.remove_modifier(ratatui::style::Modifier::BOLD).patch(Style { fg: ui.linenr.fg, ..Style::new() });
+        let shown_n = self.shown().len();
+        let sel_now = self.sel.min(shown_n.saturating_sub(1));
         let mine = self.items.iter().filter(|i| i.author == self.me || i.assignees.contains(&self.me)).count();
         let close = self.items.iter().filter(|i| self.triage.get(&i.number).is_some_and(|t| !t.close.is_empty())).count();
-        let tabs = [
+        let names = [
             (ITab::Todo, format!("todo {}", self.todo_now())),
             (ITab::Open, format!("open {}", self.items.len())),
             (ITab::Mine, format!("mine {mine}")),
             (ITab::CanClose, format!("close {close}")),
         ];
-        let mut spans = vec![Span::styled(" Issues ", hs.add_modifier(ratatui::style::Modifier::BOLD)), Span::styled(" ", hs)];
-        let (mut hits, mut x) = (vec![], 9u16); // (past " Issues  ")
-        for (t, name) in tabs {
-            let s = Span::styled(format!(" {name} "), if self.tab == t { ui.menu_selected } else { dim });
-            let w = s.width() as u16;
-            hits.push((x..x + w, t));
-            spans.extend([s, Span::styled(" ", hs)]);
-            x += w + 1;
-        }
-        self.tab_hits = hits;
-        spans.push(Span::styled("   I I the PRs", dim));
-        f.render_widget(Paragraph::new(Line::from(spans)).style(hs), Rect { height: 1.min(area.height), ..area });
+        let tabs: Vec<(String, bool)> = names.iter().map(|(t, n)| (n.clone(), self.tab == *t)).collect();
+        let hits = top_bar(f, ui, "Issues", &tabs, "I I the PRs", sel_now, shown_n);
+        self.tab_hits = hits.into_iter().zip(names.iter().map(|n| n.0)).collect();
         // An issue open: it, between the bars.
         if let Some(v) = self.view.as_mut() {
             v.draw(f, ui, Rect { y: area.y + 1, height: area.height.saturating_sub(2), ..area });
@@ -933,19 +922,29 @@ impl Issues {
             f.render_widget(Paragraph::new(none).style(ui.base.patch(ui.stale)), Rect { y: area.y + 2, height: 1, ..area });
         }
         f.render_widget(Paragraph::new(lines), Rect { y: area.y + 1, height: (h * rows) as u16, ..area });
-        // The status bar: the filter or the message, and the keys to know.
-        let status = Rect { y: area.bottom().saturating_sub(1), height: 1.min(area.height), ..area };
-        let bar = ui.base.patch(ui.status);
         let left = match (self.filtering, self.query.is_empty(), self.msg.is_empty()) {
             (true, ..) => format!(" /{}▏  label: author: kind: priority: is:triaged  -x negates", self.query),
             (_, _, false) => format!(" {}", self.msg),
             (_, false, _) => format!(" filter: {}  (Esc clears)", self.query),
-            _ => format!(" ? keys · I I the PRs{}", if self.auto { " · auto on" } else { "" }),
+            _ if column.is_some() => " ? keys".into(),
+            _ => String::new(), // the keys are in the bottom-right popup
         };
-        let pos = if shown.is_empty() { String::new() } else { format!("{} / {} ", sel + 1, shown.len()) };
-        f.render_widget(Paragraph::new(left).style(bar), status);
-        let w = (pos.len() as u16).min(status.width);
-        f.render_widget(Paragraph::new(pos).style(bar), Rect { x: status.right() - w, width: w, ..status });
+        let order = match (self.tab, &self.rank_rx, &self.ranked) {
+            (ITab::Todo, Some(_), _) => "Claude is ranking…".to_owned(),
+            (ITab::Todo, None, Some(r)) => format!("ranked {} ago, {}", gh::ago_secs(crate::claude::now_secs() - r.at), super::todo::cost_text(r.cost)),
+            (ITab::Todo, None, None) => "in the rules' order".to_owned(),
+            _ => "by updated ↓".to_owned(),
+        };
+        status_bar(f, ui, &left, &order, self.auto, "");
+        // The keys for this tab, bottom right (not over the todo tab's message column).
+        if !self.help && !self.filtering && column.is_none() {
+            let mut keys = vec![("Enter", "open it"), ("gn gp", "tabs"), ("/", "filter"), ("R", "refresh (from GitHub)")];
+            if self.tab == ITab::Todo {
+                keys.extend([("r r", "Claude ranks what needs you (a run)"), ("s", "defer it (or bring it back)")]);
+            }
+            keys.extend([("m", "mark"), ("a a", "Claude triages (marked)"), ("U U", "unmark all"), ("C", "auto on / off (triage, ranking)"), ("I I", "the PRs"), ("?", "all keys"), ("q", "quit")]);
+            draw_keys(f, ui, &keys);
+        }
         if self.help {
             draw_help(f, ui, ISSUES_HELP, "dv issues keys");
         }
@@ -1046,7 +1045,7 @@ CLAUDE
   m                    mark the issue (again: unmark)
   U U                  unmark all
   a a                  Claude triages the marked issues (or this one), two at a time
-  C                    auto: Claude triages new and changed issues, ranks again (git config dv.auto)";
+  C                    auto: Claude triages what isn't triaged (and changed), ranks again (git config dv.auto)";
 
 #[test]
 fn issues_listed_triaged_filtered() {
@@ -1099,13 +1098,12 @@ fn issues_listed_triaged_filtered() {
     assert!(!click(&mut l, 10, 5) && l.sel == 1); // the second card (four rows each, after the bar)
     assert!(click(&mut l, 10, 5)); // again: open it
     l.tab = ITab::Todo;
-    // Auto: not #7, there (untriaged) when dv started; #7 once it's changed since; each once.
-    l.baseline = Some(l.items.iter().map(|i| (i.number, i.updated.clone())).collect());
+    // Auto: what isn't triaged (#7), once at an update; again once it's changed.
+    assert_eq!(l.auto_picks().iter().map(|p| p.0).collect::<Vec<_>>(), [7]);
     assert!(l.auto_picks().is_empty());
     l.items[0].updated = "2026-02-01T00:00:00Z".into();
     l.find_todo();
     assert_eq!(l.auto_picks(), [(7, "2026-02-01T00:00:00Z".to_owned())]);
-    assert!(l.auto_picks().is_empty());
     _ = std::fs::remove_dir_all(&dir);
 }
 
