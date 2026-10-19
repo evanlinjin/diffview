@@ -234,6 +234,11 @@ impl List {
             // What comes in below may change the list under the cursor: it stays on its card
             // (`select_card`, after it all; your own keys, after, move it as they do).
             let mut keep = self.selected();
+            // Your own deferral (Claude read when), first, while the cursor's still where it
+            // was: on the card it moved, the cursor stays put, on what's next.
+            if self.until_news() {
+                keep = None;
+            }
             self.batch_news();
             self.watch_reviews();
             self.todo_news();
@@ -241,11 +246,6 @@ impl List {
             self.gone_news();
             self.prefetch();
             self.others_news();
-            // Your own deferral (Claude read when): on the card it moved, the cursor stays put,
-            // on what's next; elsewhere, on its card as through the rest.
-            if self.until_news() {
-                keep = None;
-            }
             if self.watch_running() {
                 self.scan_unpushed(); // what it finished with may be waiting to be pushed
                 self.find_todo(); // Claude started or finished somewhere: its item moves
