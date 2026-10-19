@@ -5,6 +5,17 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.87] - 2026-10-19
+
+### Fixed
+- `dv amend`: only into the branch's own commits (not the base's, which it would have rewritten),
+  with changes staged and new files in, and file names as given from a subdirectory.
+- "Open Claude in a pane" while it was at work: that copy is no longer taken for the PR's pane
+  (asks pasted into it, closed while you talked to it, later runs forked).
+- dv's own reads (`git status` every few seconds) don't take git's index lock, so a commit or
+  rebase at work in the same checkout doesn't fail on it.
+- The ref a new PR worktree is made from is dropped once it's made.
+
 ## [0.34.86] - 2026-10-19
 
 ### Added
