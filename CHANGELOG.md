@@ -5,6 +5,21 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-10-19
+
+### Added
+- `dv cargo [+toolchain] …`: cargo `check`, `build`, `test`, `clippy`, `doc` or `fmt --check`
+  on any toolchain, nothing else. Claude may run it, so it can check a PR as CI does on a
+  pinned toolchain (`dv cargo +1.85.0 clippy`), which a permission rule can't name.
+
+### Fixed
+- The checks a PR's base requires by its branch protection: read over REST, which answers
+  anyone who can read the repo (GitHub's GraphQL gives them only to its admins), so one not
+  reported yet shows as expected there too. Neither readable: the checks line ends
+  `· can't read which its base requires`.
+- A PR GitHub refuses in a batch of checks (`dv list` asks 40 at once) leaves the other 39's
+  checks; only that one's are missing.
+
 ## [0.34.99] - 2026-10-19
 
 ### Fixed
