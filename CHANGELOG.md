@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-10-19
+
+### Added
+- Auto mode in `dv issues` (`C`, the same `dv.auto` as dv list's): Claude triages issues that
+  are new or changed since dv started, and those changed since their triage, two at a time, and
+  ranks the todo again once it's changed (at most every quarter hour). The backlog already
+  there untriaged is left to you (`a a`), so turning it on isn't a bill for all of it.
+
 ## [0.43.1] - 2026-10-19
 
 ### Fixed
