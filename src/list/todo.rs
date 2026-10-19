@@ -77,9 +77,9 @@ impl List {
             let claude = self.ranked.as_ref().and_then(|r| r.waits.get(&it.key())).map(|c| (c.clone(), String::new()));
             // (A push from no known head: nothing to tell it by.)
             let claude = claude.filter(|(c, _)| *c != todo::Until::Pushed(String::new()));
-            // (Claude's: a review since it ranked; a comment's has no time: any.)
+            // (A review since it was said: the comment's, or since Claude ranked.)
             let (waits, since) = match todo::waiting_on(said, now) {
-                Some(w) => (Some(w), 0),
+                Some((c, who, at)) => (Some((c, who)), at),
                 None => (claude, self.ranked.as_ref().map_or(0, |r| r.at)),
             };
             it.waits = waits.filter(|(c, _)| !self.happened(it, c, since));
@@ -438,9 +438,11 @@ impl List {
     /// Whether what deferral condition `c` waits for has happened, for item `it`: a review or an
     /// approval, one since `since` (when it was deferred: not one it had then; 0, any).
     pub(super) fn happened(&self, it: &Item, c: &todo::Until, since: i64) -> bool {
-        let pr = self.prs.iter().find(|p| p.number == it.number);
+        let n = self.pr_of(it);
+        let pr = self.prs.iter().find(|p| Some(p.number) == n);
         let state = |n: u64| self.prs.iter().find(|p| p.number == n).map(|p| p.state.clone()).or_else(|| self.others.get(&n).cloned());
-        let reviews: Vec<&(String, String, i64)> = self.extra.get(&it.number).into_iter().flat_map(|e| &e.reviews).filter(|r| r.2 > since).collect();
+        let extra = n.and_then(|n| self.extra.get(&n));
+        let reviews: Vec<&(String, String, i64)> = extra.into_iter().flat_map(|e| &e.reviews).filter(|r| r.2 > since).collect();
         match c {
             todo::Until::Time(t) => crate::claude::now_secs() >= *t,
             todo::Until::Merged(n) => state(*n).is_some_and(|s| s == "MERGED"),
@@ -450,7 +452,7 @@ impl List {
             todo::Until::Approved(None) => since == 0 && pr.is_some_and(|p| p.decision == "APPROVED") || reviews.iter().any(|r| r.1 == "APPROVED"),
             todo::Until::Approved(Some(who)) => reviews.iter().any(|r| &r.0 == who && r.1 == "APPROVED"),
             todo::Until::Reviewed(who) => reviews.iter().any(|r| &r.0 == who),
-            todo::Until::Pushed(head) => self.extra.get(&it.number).is_some_and(|e| !head.is_empty() && !e.head_oid.is_empty() && !e.head_oid.starts_with(head.as_str())),
+            todo::Until::Pushed(head) => extra.is_some_and(|e| !head.is_empty() && !e.head_oid.is_empty() && !e.head_oid.starts_with(head.as_str())),
         }
     }
 
@@ -467,14 +469,27 @@ impl List {
         }
     }
 
+    /// The PR item `it` is about on GitHub: its own, or a replacement's once published.
+    pub(super) fn pr_of(&self, it: &Item) -> Option<u64> {
+        match it.is_rep() {
+            true => self.rep_of.get(&it.number).and_then(|r| r.published),
+            false => Some(it.number),
+        }
+    }
+
     fn defer_on(&mut self, key: &str, c: todo::Until) {
         let Some(it) = self.todo.iter().find(|it| it.key() == key).cloned() else { return };
-        // A push: from the head it's at now (a PR's: known once its details are in).
+        // A push, a review: from where its PR is now (known once its details are in), so
+        // what it had already doesn't count.
+        let extra = self.pr_of(&it).and_then(|n| self.extra.get(&n)).cloned();
         let c = match c {
-            todo::Until::Pushed(_) => match self.extra.get(&it.number).map(|e| e.head_oid.clone()).filter(|h| !h.is_empty() && !it.is_rep()) {
+            todo::Until::Pushed(_) => match extra.as_ref().map(|e| e.head_oid.clone()).filter(|h| !h.is_empty()) {
                 Some(h) => todo::Until::Pushed(h),
                 None => return self.msg = "not deferred: its head on GitHub isn't known yet, to see a push by (try again in a moment)".into(),
             },
+            todo::Until::Approved(_) | todo::Until::Reviewed(_) if extra.is_none() => {
+                return self.msg = "not deferred: its reviews on GitHub aren't known yet, to tell a new one by (try again in a moment)".into();
+            }
             c => c,
         };
         let (until, cond) = match c {
@@ -483,7 +498,7 @@ impl List {
         };
         let says = cond.as_ref().map_or_else(|| todo::in_secs(until - crate::claude::now_secs()), todo::Until::says);
         // (By GitHub's clock, and what dv had shown you: not one it hadn't, nor your clock's.)
-        let at = self.extra.get(&it.number).and_then(|e| e.reviews.iter().map(|r| r.2).max()).unwrap_or(0);
+        let at = extra.and_then(|e| e.reviews.iter().map(|r| r.2).max()).unwrap_or(0);
         self.deferred.insert(key.to_owned(), todo::Deferral { until, needs: it.needs_key(), cond, at });
         self.msg = format!("deferred until {says} (s on it brings it back)");
         // A PR it waits on that isn't listed: its state, now (and on refresh).

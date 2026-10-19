@@ -380,7 +380,7 @@ fn defer_from_the_todo_tab() {
     assert_eq!(shown(&l), [2, 1]); // (#1 is still deferred)
     // A trusted comment on #2 says it's blocked on #9: at the bottom, out of the count, for
     // everyone; back once #9's merged.
-    l.extra.get_mut(&2).unwrap().said = vec![("bo".into(), "Blocked on #9.".into())];
+    l.extra.get_mut(&2).unwrap().said = vec![("bo".into(), "Blocked on #9.".into(), 0)];
     l.find_todo();
     assert_eq!(l.todo.last().map(|it| (it.number, it.waits.clone())), Some((2, Some((crate::todo::Until::Merged(9), "bo".into())))));
     l.others.insert(9, "MERGED".into());
@@ -405,6 +405,11 @@ fn defer_from_the_todo_tab() {
     l.find_todo();
     assert_eq!(l.todo_now(), 2);
     // Until @bo reviews: not by the review bo had left already, but by one since.
+    // (Its reviews not known yet: not deferred, else one it had would end it.)
+    let e = l.extra.remove(&2).unwrap();
+    l.defer_until("pr-2".into(), "@bo reviews it");
+    assert!(l.msg.starts_with("not deferred: its reviews on GitHub aren't known yet"), "{}", l.msg);
+    l.extra.insert(2, e);
     l.extra.get_mut(&2).unwrap().reviews = vec![("bo".into(), "COMMENTED".into(), 1)];
     l.defer_until("pr-2".into(), "@bo reviews it");
     assert!(l.msg.starts_with("deferred until @bo reviews it"), "{}", l.msg);

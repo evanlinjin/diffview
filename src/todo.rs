@@ -580,9 +580,9 @@ impl Until {
 /// oldest first) that starts "Waiting on", "Blocked on/by", "Depends on" or "Deferred until",
 /// and who said it; a later "Unblocked" (or "No longer waiting") ends it. `#N` alone means that
 /// PR merged.
-pub fn waiting_on(said: &[(String, String)], now: i64) -> Option<(Until, String)> {
+pub fn waiting_on(said: &[(String, String, i64)], now: i64) -> Option<(Until, String, i64)> {
     const LEADS: [&str; 8] = ["waiting on", "waiting for", "blocked on", "blocked by", "depends on", "deferred until", "defer until", "until"];
-    for (who, body) in said.iter().rev() {
+    for (who, body, at) in said.iter().rev() {
         for line in body.lines().rev() {
             let l = line.trim().trim_start_matches(['>', '*', '-', ' ']).to_lowercase();
             if l.starts_with("unblocked") || l.starts_with("no longer waiting") {
@@ -593,7 +593,7 @@ pub fn waiting_on(said: &[(String, String)], now: i64) -> Option<(Until, String)
             let bare = rest.trim_end_matches(['.', ' ', ')']).trim_start_matches('#').parse::<u64>().ok();
             // (A push from no known head: nothing to tell it by.)
             if let Some(c) = bare.map(Until::Merged).or_else(|| Until::parse(rest, now)).filter(|c| *c != Until::Pushed(String::new())) {
-                return Some((c, who.clone()));
+                return Some((c, who.clone(), *at));
             }
         }
     }
@@ -750,8 +750,10 @@ pub fn about(it: &Item, pr: &Listed, summary: &str) -> String {
 /// kept as `of`'s last ranking.
 pub fn rank_of(lines: Vec<String>, fingerprint: String, root: std::path::PathBuf, of: Of) -> Receiver<Result<Ranked>> {
     let (tx, rx) = mpsc::channel();
+    // (When it was asked: what happens while Claude ranks is news to it.)
+    let at = crate::claude::now_secs();
     std::thread::spawn(move || {
-        let res = ask(&lines, &root, of).map(|((items, waits, closes), cost)| Ranked { at: crate::claude::now_secs(), cost, fingerprint, items, waits, closes });
+        let res = ask(&lines, &root, of).map(|((items, waits, closes), cost)| Ranked { at, cost, fingerprint, items, waits, closes });
         if let Ok(r) = &res {
             _ = save(r, of);
         }
@@ -1038,12 +1040,12 @@ mod tests {
 
     #[test]
     fn waiting_on_from_comments() {
-        let c = |who: &str, body: &str| (who.to_owned(), body.to_owned());
+        let c = |who: &str, body: &str| (who.to_owned(), body.to_owned(), 0);
         let now = 0;
-        assert_eq!(waiting_on(&[c("bo", "Looks good.\n\nBlocked on #2380.")], now), Some((Until::Merged(2380), "bo".into())));
-        assert_eq!(waiting_on(&[c("me", "Waiting on: CI to pass")], now), Some((Until::Green, "me".into())));
-        assert_eq!(waiting_on(&[c("me", "waiting on @amy approves it")], now), Some((Until::Approved(Some("amy".into())), "me".into())));
-        assert_eq!(waiting_on(&[c("me", "Depends on #12 merged")], now), Some((Until::Merged(12), "me".into())));
+        assert_eq!(waiting_on(&[c("bo", "Looks good.\n\nBlocked on #2380.")], now), Some((Until::Merged(2380), "bo".into(), 0)));
+        assert_eq!(waiting_on(&[c("me", "Waiting on: CI to pass")], now), Some((Until::Green, "me".into(), 0)));
+        assert_eq!(waiting_on(&[c("me", "waiting on @amy approves it")], now), Some((Until::Approved(Some("amy".into())), "me".into(), 0)));
+        assert_eq!(waiting_on(&[c("me", "Depends on #12 merged")], now), Some((Until::Merged(12), "me".into(), 0)));
         // The newest says; a later Unblocked ends it; other talk isn't a wait.
         assert_eq!(waiting_on(&[c("me", "Blocked on #1"), c("bo", "Blocked on #2")], now).map(|w| w.0), Some(Until::Merged(2)));
         assert_eq!(waiting_on(&[c("me", "Blocked on #1"), c("me", "Unblocked: #1 is in")], now), None);

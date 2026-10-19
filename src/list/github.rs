@@ -95,7 +95,7 @@ pub struct Extra {
     pub reviews: Vec<(String, String, i64)>,
     /// The conversation's last comments by people with write access (or you), oldest first:
     /// (login, body), for what the PR waits on.
-    pub said: Vec<(String, String)>,
+    pub said: Vec<(String, String, i64)>,
     pub requested: bool,
     /// MERGEABLE, CONFLICTING or UNKNOWN.
     pub mergeable: String,
@@ -123,7 +123,7 @@ pub fn list_extra() -> Result<(String, std::collections::HashMap<u64, Extra>)> {
                  reviewRequests(first: 30) {{ nodes {{ requestedReviewer {{ ... on User {{ login }} }} }} }}
                  latestReviews(first: 50) {{ nodes {{ author {{ login }} state commit {{ oid }} }} }}
                  reviews(last: 50) {{ nodes {{ author {{ login }} state submittedAt }} }}
-                 comments(last: 20) {{ nodes {{ author {{ login }} authorAssociation body }} }} }} }} }} }}"
+                 comments(last: 20) {{ nodes {{ author {{ login }} authorAssociation body createdAt }} }} }} }} }} }}"
         );
         let v: Value = gh_json(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-f", &format!("query={q}")])?;
         crate::gh::refused(&v)?; // (only a base's rules may be: else a refused part reads as none)
@@ -155,7 +155,7 @@ fn extra(p: &Value, me: &str) -> Extra {
         said: nodes("comments")
             .iter()
             .filter(|c| c["author"]["login"] == me || matches!(c["authorAssociation"].as_str(), Some("OWNER" | "MEMBER" | "COLLABORATOR")))
-            .map(|c| (s(&c["author"]["login"]), s(&c["body"])))
+            .map(|c| (s(&c["author"]["login"]), s(&c["body"]), crate::gh::epoch_secs(&s(&c["createdAt"])).unwrap_or(0)))
             .collect(),
         requested: nodes("reviewRequests").iter().any(|r| r["requestedReviewer"]["login"] == me),
         mergeable: s(&p["mergeable"]),
