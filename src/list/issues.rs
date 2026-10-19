@@ -117,6 +117,10 @@ fn issue(i: &Value) -> Issue {
 pub fn triage_of(dir: &std::path::Path, n: u64) -> Option<Triage> {
     let v: Value = serde_json::from_str(&std::fs::read_to_string(dir.join(format!("issue-{n}.json"))).ok()?).ok()?;
     let s = |k: &str| v[k].as_str().unwrap_or("").trim().to_owned();
+    // (Only a closing comment drafted, no triage: not triaged.)
+    if s("kind").is_empty() && s("summary").is_empty() {
+        return None;
+    }
     Some(Triage { kind: s("kind"), priority: s("priority"), next: s("next"), close: s("close"), updated: s("updated") })
 }
 
@@ -194,6 +198,13 @@ fn triage_run(n: u64, updated: &str, root: &std::path::Path, extra: &str) -> Res
     anyhow::ensure!(out.status.success() && v["is_error"] == false, "Claude stopped ({}): {why}", out.status);
     let mut t = crate::claude::json_in(answer, '{').filter(Value::is_object).context("no triage in Claude's answer")?;
     (t["issue"], t["updated"]) = (n.into(), updated.into());
+    // A closing comment drafted for it (`X X`), kept when this triage has none of its own.
+    let old: Value = std::fs::read_to_string(&file).ok().and_then(|o| serde_json::from_str(&o).ok()).unwrap_or_default();
+    if t["closing"].as_str().is_none_or(|c| c.trim().is_empty()) && old["closing"].as_str().is_some_and(|c| !c.trim().is_empty()) {
+        for k in ["close", "closing", "reason", "duplicate_of"] {
+            t[k] = old[k].clone();
+        }
+    }
     std::fs::create_dir_all(file.parent().context("no dir")?)?;
     crate::claude::write(&file, &t)?;
     Ok(batch::Status::Done(format!("{} turns, ${:.2}", v["num_turns"].as_u64().unwrap_or(0), v["total_cost_usd"].as_f64().unwrap_or(0.0))))
@@ -230,6 +241,8 @@ fn draft_closing(n: u64, root: PathBuf) -> Receiver<Result<()>> {
             let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
             anyhow::ensure!(v["is_error"] == false, "Claude couldn't draft it ({})", out.status);
             let d = crate::claude::json_in(v["result"].as_str().unwrap_or(""), '{').filter(Value::is_object).context("no draft in Claude's answer")?;
+            let said = |k: &str| d[k].as_str().is_some_and(|s| !s.trim().is_empty());
+            anyhow::ensure!(said("close") && said("closing"), "Claude's draft said no why or no comment");
             let mut t: Value = std::fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| serde_json::json!({ "issue": n }));
             for k in ["close", "closing", "reason", "duplicate_of"] {
                 t[k] = d[k].clone();
@@ -402,9 +415,14 @@ impl Issues {
         }
     }
 
+    /// Issues auto would triage: not triaged, not deferred.
+    fn untriaged(&self) -> usize {
+        self.todo.iter().filter(|it| it.deferred.is_none() && it.needs.contains(&crate::todo::Need::Untriaged)).count()
+    }
+
     /// Claude at work from here: triaging, or drafting a fix.
     pub fn busy(&self) -> bool {
-        self.running.values().any(batch::Status::running) || !self.drafting.is_empty()
+        self.running.values().any(batch::Status::running) || !self.drafting.is_empty() || self.closing_rx.is_some()
     }
 
     /// Those not deferred: what needs you now.
@@ -468,6 +486,11 @@ impl Issues {
                         if !self.started {
                             // (Not a ranking straight away: once the triages are in, a quarter hour on.)
                             (self.started, self.auto_ranked) = (true, Some(std::time::Instant::now()));
+                            self.find_todo();
+                            // Auto on (from dv list too: one setting): what it's about to cost, said.
+                            if self.auto && self.untriaged() > 0 {
+                                self.msg = format!("auto is on: Claude triages the {} issue(s) not triaged, two at a time (~$0.30 each; C turns it off)", self.untriaged());
+                            }
                         }
                         self.reviews_mtime = None; // read the triages for these
                         self.watch_reviews();
@@ -507,8 +530,14 @@ impl Issues {
                     _ => {}
                 }
             }
-            if let Some(Ok(res)) = self.closing_rx.as_ref().map(|(_, rx)| rx.try_recv()) {
+            // (Its thread gone without a word: as a failure, not drafting forever.)
+            let news = self.closing_rx.as_ref().map(|(_, rx)| rx.try_recv());
+            if let Some(Ok(_) | Err(mpsc::TryRecvError::Disconnected)) = &news {
                 let n = self.closing_rx.take().map_or(0, |c| c.0);
+                let res = match news {
+                    Some(Ok(r)) => r,
+                    _ => Err(anyhow::anyhow!("its run stopped")),
+                };
                 match res {
                     Ok(()) => {
                         self.msg = format!("Claude drafted a comment closing #{n}: X X closes with it (your editor first)");
@@ -635,7 +664,7 @@ impl Issues {
                 self.msg = match self.auto {
                     true => format!(
                         "auto on: Claude triages every issue not triaged ({} now, two at a time, ~$0.30 each, at your cost) and those that change, and ranks the todo again",
-                        self.todo.iter().filter(|it| it.needs.contains(&crate::todo::Need::Untriaged)).count()
+                        self.untriaged()
                     ),
                     false => "auto off: a a triages, r r ranks".into(),
                 };
