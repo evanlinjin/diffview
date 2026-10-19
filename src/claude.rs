@@ -1033,7 +1033,7 @@ fn anchoring() {
     assert_eq!(r.threads[1].hunk, ["-    old();"]);
     assert_eq!(locate(&r.threads[0], &f), Found::Here);
     // The code moved down a line: found there. Changed: outdated.
-    r.threads[0].line = Some(1);
+    (r.threads[0].line, r.threads[0].original_line) = (Some(1), Some(1)); // as parse has a comment on line 1
     assert_eq!(locate(&r.threads[0], &f), Found::Moved(None, 2));
     r.threads[1].hunk = vec!["-    gone();".into()];
     reanchor(&mut r.threads, std::slice::from_ref(&f));
@@ -1042,7 +1042,7 @@ fn anchoring() {
     // Its code gone, then back (kept in memory while the file can't be read): where it moved to.
     r.threads[0].hunk = vec!["+    gone();".into()];
     reanchor(&mut r.threads, std::slice::from_ref(&f));
-    assert_eq!((r.threads[0].line, r.threads[0].outdated), (None, true));
+    assert_eq!((r.threads[0].line, r.threads[0].original_line, r.threads[0].outdated), (None, Some(2), true)); // last seen on 2
     r.threads[0].hunk = vec!["+    new_call(x);".into()];
     reanchor(&mut r.threads, std::slice::from_ref(&f));
     assert_eq!((r.threads[0].line, r.threads[0].outdated), (Some(2), false));
