@@ -5,6 +5,8 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-10-19
+
 ### Changed
 - The `PR` tab is gone: the PR's text is attached to its description, beside it in the
   comments pane (as comments are beside their lines; after it, the pane hidden): its facts,
@@ -1017,6 +1019,7 @@ The first release.
 - Which-key popups after prefix keys, and the keys for what's under the cursor in the same
   corner; `?` lists every key (two columns on wide windows, `/` to search).
 
+[0.34.0]: https://github.com/evanlinjin/diffview/releases/tag/v0.34.0
 [0.33.3]: https://github.com/evanlinjin/diffview/releases/tag/v0.33.3
 [0.33.2]: https://github.com/evanlinjin/diffview/releases/tag/v0.33.2
 [0.33.1]: https://github.com/evanlinjin/diffview/releases/tag/v0.33.1
