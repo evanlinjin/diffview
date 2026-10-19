@@ -534,10 +534,12 @@ impl App {
                 let new = |k: usize, h: usize| {
                     self.seen.path.is_some() && k >= after && !yours(h) && !self.info[h].node.is_empty() && !self.seen.before.contains(&self.info[h].node)
                 };
-                // The last `n` comments and reviews, and what happened among them (events don't
-                // count: three of those would leave out the comment before them).
+                // From the `n`th last comment or review (events don't count: three of those would
+                // leave out the comment before them), the first if there are fewer; but no more
+                // than `3n` items in all (many events after a comment: the latest of them).
                 let said: Vec<usize> = (0..items.len()).filter(|&k| !self.info[items[k]].event).collect();
-                let last = said.len().checked_sub(n).map_or(0, |k| said[k]);
+                let from = said.len().checked_sub(n).map_or(said.first().copied().unwrap_or(0), |k| said[k]);
+                let last = from.max(items.len().saturating_sub(3 * n));
                 items.iter().enumerate().filter(|&(k, &h)| k >= last || new(k, h) || asked(h)).map(|(_, &h)| h).collect()
         };
         let shown = if latest.is_some() { &latest_shown } else { &items };

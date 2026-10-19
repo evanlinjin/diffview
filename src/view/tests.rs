@@ -2797,4 +2797,11 @@ fn latest_activity_counts_comments_not_events() {
     // The last three comments, and the events after them; not the first comment.
     assert!(["b said", "c said", "d said", "● @x labelled", "● @x renamed"].iter().all(|t| text.contains(t)), "{text:?}");
     assert!(!text.contains(&"a said"));
+    // One comment and many events after it: the latest nine, not all.
+    app.info.truncate(app.info.iter().position(|l| l.key == "activity").unwrap() + 1);
+    app.info.extend(said("a", "IC_1"));
+    app.info.extend((0..20).map(|i| event(&format!("pushed {i}"))));
+    app.build();
+    let shown = app.rows.iter().filter(|r| r.line.text.starts_with("● @x pushed")).count();
+    assert_eq!(shown, 9);
 }
