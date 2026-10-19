@@ -2649,25 +2649,28 @@ fn related_code_tinted_apart_from_the_cursor_line() {
 #[test]
 fn quitting_while_writing_beside_says_so_first() {
     let mut app = fixture();
-    let q = || KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE);
-    let ctrl_c = || KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
     let ago = |ms| std::time::Instant::now() - std::time::Duration::from_millis(ms);
+    let quit = |app: &mut App, k: KeyEvent| {
+        app.key(k);
+        app.hold_quit();
+    };
+    let (q, ctrl_c) = (KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE), KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
     app.writing = Some((Action::Shell, term::test_writing()));
-    app.key(q());
+    quit(&mut app, q);
     assert!(!app.quit && app.msg.starts_with("you're writing in the editor's pane"));
-    // A held key's repeat doesn't quit; nor a quit long after; nor after another key.
-    app.key(q());
+    // A held key's repeat doesn't leave; nor asking long after.
+    quit(&mut app, q);
     assert!(!app.quit);
     app.quit_armed = Some(ago(10_000));
-    app.key(q());
+    quit(&mut app, q);
     assert!(!app.quit);
+    // Merging is held the same way.
+    (app.merge, app.quit) = (true, true);
+    app.hold_quit();
+    assert!(!app.quit && !app.merge);
+    // Said a moment ago: leaves.
     app.quit_armed = Some(ago(1000));
-    app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
-    app.key(ctrl_c());
-    assert!(!app.quit);
-    // Said a moment ago: quits.
-    app.quit_armed = Some(ago(1000));
-    app.key(ctrl_c());
+    quit(&mut app, ctrl_c);
     assert!(app.quit);
 }
 

@@ -976,6 +976,20 @@ impl App {
         app
     }
 
+    /// Leaving dv while you write beside it (what's written would be lost), whatever asked to
+    /// (`q`, Ctrl-c, merging): said first, and left only when asked again a moment later (not
+    /// a held key's repeat, nor long after, the warning gone).
+    pub(super) fn hold_quit(&mut self) {
+        if !self.quit || self.writing.is_none() {
+            return;
+        }
+        let again = self.quit_armed.take().is_some_and(|t| (QUIT_AFTER..QUIT_WITHIN).contains(&t.elapsed()));
+        if !again {
+            (self.quit, self.merge, self.quit_armed) = (false, false, Some(std::time::Instant::now()));
+            self.msg = "you're writing in the editor's pane: save or :cq it first (again: leaves anyway)".into();
+        }
+    }
+
     pub fn run(&mut self, term: &mut DefaultTerminal) -> Result<()> {
         while !self.quit {
             self.log_msg();
@@ -993,6 +1007,7 @@ impl App {
                     _ => {}
                 }
             }
+            self.hold_quit();
             self.lsp_poll();
             self.watch_tree();
             self.watch_claude();
@@ -1433,6 +1448,9 @@ impl App {
 
 /// How dv's hint lines in the editor start; they're dropped from what's posted.
 const HINT: &str = "<!-- dv:";
+/// Leaving while you write beside dv goes only this long after dv said so (`hold_quit`).
+const QUIT_AFTER: std::time::Duration = std::time::Duration::from_millis(300);
+const QUIT_WITHIN: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Drop dv's hint line and trim; untouched prefill alone counts as nothing written.
 fn clean_body(text: &str, mark: &str, prefill: &str) -> String {
