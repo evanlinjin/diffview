@@ -35,7 +35,8 @@ impl App {
                 .collect();
             let prs = self.replacement.as_ref().map(crate::replace::Record::ids).unwrap_or_default();
             self.select = false;
-            return self.action = Some(Action::Replace(prs, Some((which, format!("About the {which}:\n{}\n\n", lines.join("\n"))))));
+            // What you want of it first, as on a PR's comments.
+            return self.pick_want(Action::Replace(prs, Some((which, format!("About the {which}:\n{}\n\n", lines.join("\n")), ""))), None);
         }
         if self.claude.path.is_none() {
             return self.msg = "no review file here (not in a git repo?)".into();
@@ -101,20 +102,24 @@ impl App {
         if self.claude.path.is_none() {
             return self.msg = "no review file here (not in a git repo?)".into();
         }
-        // About a commit (on no lines): no suggestion to post; an answer, unless you said.
+        // About a commit (on no lines): no suggestion to post; an answer, unless you said. A
+        // draft's: nothing goes to GitHub from it either; the change, unless you said.
         let commit = matches!(&action, Action::AskConversation { url, .. } if commit_of(url).is_some());
-        let wants: Vec<_> = WANTS.iter().filter(|w| !(commit && w.0 == "suggest")).collect();
+        let draft = matches!(&action, Action::Replace(..));
+        let wants: Vec<_> = WANTS.iter().filter(|w| !((commit || draft) && w.0 == "suggest")).collect();
         let last = t.and_then(|t| wants.iter().position(|w| w.0 == self.threads[t].want));
-        let sel = last.unwrap_or(match (commit, self.theirs) {
-            (true, _) => 0,
-            (false, true) => 1,
-            (false, false) => 2,
-        });
+        let usual = match (commit, draft, self.theirs) {
+            (true, ..) => "ask",
+            (_, true, _) | (false, false, false) => "change",
+            (false, false, true) => "suggest",
+        };
+        let sel = last.or_else(|| wants.iter().position(|w| w.0 == usual)).unwrap_or(0);
         let items = wants
             .iter()
-            .map(|&&(key, _, _, label)| match key == "change" && self.theirs {
-                true => Item::new(format!("{label} (their PR: Space g pushes what you commit)"), Target::Want(key)),
-                false => Item::new(label, Target::Want(key)),
+            .map(|&&(key, _, _, label)| match (key, draft, self.theirs) {
+                ("change", true, _) => Item::new("Change: Claude redrafts it (its drafts, and the code)", Target::Want(key)),
+                ("change", false, true) => Item::new(format!("{label} (their PR: Space g pushes what you commit)"), Target::Want(key)),
+                _ => Item::new(label, Target::Want(key)),
             })
             .collect();
         self.wanting = Some(action);
@@ -127,6 +132,7 @@ impl App {
             Some(Action::AskClaude { anchor, code, about, .. }) => Some(Action::AskClaude { anchor, code, about, want: w }),
             Some(Action::ClaudeReply(k, _, q)) => Some(Action::ClaudeReply(k, w, q)),
             Some(Action::AskConversation { url, prefill, .. }) => Some(Action::AskConversation { url, prefill, want: w }),
+            Some(Action::Replace(prs, Some((on, quote, _)))) => Some(Action::Replace(prs, Some((on, quote, w)))),
             other => other,
         };
     }
@@ -194,7 +200,7 @@ impl App {
     /// Which of a replacement's drafts row `r` is a line of: "description" or "closing note".
     pub(super) fn replacement_draft(&self, r: usize) -> Option<&'static str> {
         // (Published, it's a PR: its description is GitHub's, proposed anew as any PR's.)
-        self.replacement.as_ref().filter(|_| self.pr.is_none())?;
+        self.replacement.as_ref().filter(|_| self.unpublished())?;
         let row = &self.rows[r];
         let i = row.info.filter(|_| row.file == INFO)?;
         let heading = self.info.get(i.checked_sub(1)?).filter(|h| h.heading && self.info[i].md)?;

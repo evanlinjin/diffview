@@ -1353,14 +1353,21 @@ fn replacement_in_the_pr_section() {
     app.goto(note, 0);
     assert_eq!(app.context_keys().unwrap().0, "Claude's draft");
     app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+    // What you want of it first: ask or change (nothing goes to GitHub: no suggestion), the change preselected.
+    let picker = app.picker.take().unwrap();
+    let wants: Vec<_> = picker.items.iter().map(|i| &i.target).collect();
+    assert!(matches!(wants[..], [Target::Want("ask"), Target::Want("change")]) && picker.sel == 1);
+    app.want("ask");
     match app.action.take() {
-        Some(Action::Replace(prs, Some(("closing note", q)))) => assert!(prs == [12, 15] && q == "About the closing note:\n> Thanks! Handled in {replacement}.\n\n", "{q:?}"),
-        _ => panic!("a on the closing note asks for a redraft"),
+        Some(Action::Replace(prs, Some(("closing note", q, "ask")))) => assert!(prs == [12, 15] && q == "About the closing note:\n> Thanks! Handled in {replacement}.\n\n", "{q:?}"),
+        _ => panic!("a on the closing note asks about it"),
     }
     let body = app.rows.iter().position(|r| r.line.text == "Replaces #12 and #15.").unwrap();
     app.goto(body, 0);
     app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
-    assert!(matches!(app.action.take(), Some(Action::Replace(_, Some(("description", q)))) if q.starts_with("About the description:")));
+    app.picker = None;
+    app.want("change");
+    assert!(matches!(app.action.take(), Some(Action::Replace(_, Some(("description", q, "change")))) if q.starts_with("About the description:")));
     // What you asked of the drafts shows with them, until a redraft takes it in and after.
     let mut r = app.replacement.clone().unwrap();
     r.asks = vec![crate::replace::Request { text: "About the description:\n> Replaces #12 and #15.\n\nSay why.".into(), on: "description".into(), ..Default::default() }];
@@ -1372,15 +1379,20 @@ fn replacement_in_the_pr_section() {
     assert!(app.rows[said].attached && text.iter().any(|t| t.ends_with("not redrafted with it yet")), "{text:#?}");
     // Under way: only what the draft was given is being redrafted with; what came after waits.
     let mut r = app.replacement.clone().unwrap();
-    r.asks.push(crate::replace::Request { text: "Shorter.".into(), answer: "Shortened it to one line.".into(), ..Default::default() });
+    r.asks.push(crate::replace::Request { text: "Shorter.".into(), want: "change".into(), ..Default::default() });
+    r.asks.push(crate::replace::Request { text: "Why two?".into(), want: "ask".into(), answer: "One per original.".into(), ..Default::default() });
     (r.drafting, r.taking) = (Some(std::process::id()), 1);
     app.show_replacement(r);
     let keep = app.cursor_key();
     app.rebuild(keep);
     let text: Vec<&str> = app.rows.iter().map(|r| r.line.text.as_str()).collect();
     let at = |s: &str| text.iter().position(|t| t.contains(s)).unwrap();
-    // (Claude's answer under what you asked, in its box.)
-    assert!(at("Claude is redrafting with it") < at("Say why.") && at("Say why.") < at("not redrafted with it yet") && at("not redrafted with it yet") < at("Shorter.") && at("Shorter.") < at("◆ claude") && at("◆ claude") < at("Shortened it"), "{text:#?}");
+    // (Answered: done, Claude's answer under what you asked, in its box.)
+    assert!(at("Claude is redrafting with it") < at("Say why.") && at("Say why.") < at("[change] · not redrafted with it yet") && at("[change] · not redrafted with it yet") < at("Shorter."), "{text:#?}");
+    assert!(at("Shorter.") < at("[ask] · redrafted with it") && at("[ask] · redrafted with it") < at("Why two?") && at("Why two?") < at("◆ claude") && at("◆ claude") < at("One per original."), "{text:#?}");
+    // a on a box: about the draft it's beside, as on the draft.
+    app.goto(at("Why two?"), 0);
+    assert_eq!(app.replacement_draft(app.head.row), Some("description"));
     let mut r = app.replacement.clone().unwrap();
     r.drafting = None;
     app.show_replacement(r);

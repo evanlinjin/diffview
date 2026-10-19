@@ -12,12 +12,21 @@ use std::path::{Path, PathBuf};
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Request {
     pub text: String,
-    /// A redraft has taken it in since.
-    pub done: bool,
+    /// What you want of Claude: `"ask"` (an answer; nothing changed), `"change"` (made in its
+    /// drafts or code); empty: as it reads.
+    pub want: String,
     /// The draft it's about: `"description"`, `"closing note"`; empty: the whole.
     pub on: String,
     /// Claude's answer: what it did about it, or (a question) its answer. Claude writes it.
     pub answer: String,
+}
+
+impl Request {
+    /// A redraft has taken it in: Claude has answered it (one rule, whatever Claude did to the
+    /// record's order).
+    pub fn done(&self) -> bool {
+        !self.answer.trim().is_empty()
+    }
 }
 
 /// A PR a replacement replaces, as it was when the replacement was drafted.
@@ -179,7 +188,16 @@ fn parse(id: u64, text: &str) -> Result<Record> {
         closed: v["closed"].as_array().into_iter().flatten().filter_map(Value::as_u64).collect(),
         drafting: v["drafting"].as_u64().map(|p| p as u32),
         task: s(&v["task"]),
-        asks: v["asks"].as_array().into_iter().flatten().map(|a| Request { text: s(&a["text"]), done: a["done"] == true, on: s(&a["on"]), answer: s(&a["answer"]) }).collect(),
+        asks: v["asks"].as_array().into_iter().flatten().map(|a| Request {
+                    text: s(&a["text"]),
+                    want: s(&a["want"]),
+                    on: s(&a["on"]),
+                    // (Records from before answers: taken in, unanswered.)
+                    answer: match (s(&a["answer"]), a["done"] == true) {
+                        (ans, true) if ans.trim().is_empty() => "_(redrafted with it)_".into(),
+                        (ans, _) => ans,
+                    },
+                }).collect(),
         taking: v["taking"].as_u64().unwrap_or(0) as usize,
     })
 }
@@ -191,7 +209,7 @@ fn to_json(r: &Record) -> String {
         "replaces": replaces, "base": r.base, "title": r.title, "body": r.body,
         "closing_note": r.closing_note, "session": r.session, "published": r.published, "closed": r.closed,
         "drafting": r.drafting, "task": r.task,
-        "asks": r.asks.iter().map(|a| json!({ "text": a.text, "done": a.done, "on": a.on, "answer": a.answer })).collect::<Vec<_>>(), "taking": r.taking,
+        "asks": r.asks.iter().map(|a| json!({ "text": a.text, "want": a.want, "on": a.on, "answer": a.answer })).collect::<Vec<_>>(), "taking": r.taking,
     });
     serde_json::to_string_pretty(&v).unwrap_or_default() + "\n"
 }
@@ -334,13 +352,18 @@ pub fn prompt(r: &Record, extra: &str) -> String {
         ),
     };
     // What you asked of its drafts that no redraft has taken in yet: in the record, to answer.
-    let asks: Vec<String> = r.asks.iter().enumerate().filter(|(_, a)| !a.done).map(|(i, a)| format!("`asks[{i}]`: {}", a.text.trim())).collect();
+    let want = |w: &str| match w {
+        "ask" => " (ask: answer it; change nothing)",
+        "change" => " (change: make it)",
+        _ => "",
+    };
+    let asks: Vec<String> = r.asks.iter().enumerate().filter(|(_, a)| !a.done()).map(|(i, a)| format!("`asks[{i}]`{}: {}", want(&a.want), a.text.trim())).collect();
     let p = match asks.is_empty() {
         true => p,
         false => format!(
-            "{p}\n\nThe user asks of your drafts (the record's `asks`): do what each asks, or answer it if it's a question, \
-             and write what you did, or your answer, in a sentence or few, in its `\"answer\"` (in the record; the user reads it \
-             beside your drafts).\n\n{}",
+            "{p}\n\nThe user asks of your drafts (the record's `asks`): do what each says it wants (ask: only answer it, \
+             changing nothing; change: make the change; neither said: as it reads), and write what you did, or your answer, \
+             in a sentence or few, in its `\"answer\"` (in the record; the user reads it beside your drafts).\n\n{}",
             asks.join("\n\n")
         ),
     };
@@ -352,11 +375,11 @@ pub fn drafted(id: u64) -> bool {
     load(id).is_ok_and(|r| r.drafted())
 }
 
-/// Ask Claude for a change to replacement `id`'s drafts (`on`: the one it's about, or ""):
-/// kept in its record (shown beside it), for its next redraft to take in.
-pub fn ask(id: u64, text: &str, on: &str) -> Result<()> {
+/// Ask Claude about replacement `id`'s drafts (`on`: the one it's about, or ""; `want`: see
+/// `Request`): kept in its record (shown beside it), for its next redraft to take in.
+pub fn ask(id: u64, text: &str, on: &str, want: &str) -> Result<()> {
     update(id, |r| {
-        r.asks.push(Request { text: text.trim().to_owned(), on: on.to_owned(), ..Request::default() });
+        r.asks.push(Request { text: text.trim().to_owned(), on: on.to_owned(), want: want.to_owned(), ..Request::default() });
         Ok(())
     })
     .map(drop)
@@ -429,14 +452,9 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
         })?;
         run_claude(&r, &dir, first, if first { extra } else { "" }, prepared)
     })();
-    // Claude has written to the record meanwhile: only the mark comes off (and what you asked
-    // that it was given is done, if it finished).
+    // Claude has written to the record meanwhile (its answers): only the mark comes off.
     _ = update(id, |now| {
-        now.drafting = None;
-        let taken = std::mem::take(&mut now.taking);
-        for a in now.asks.iter_mut().take(taken).filter(|_| res.is_ok()) {
-            a.done = true;
-        }
+        (now.drafting, now.taking) = (None, 0);
         Ok(())
     });
     // Not set up (PRs on different bases, one that isn't there): no record left of it.
@@ -592,7 +610,7 @@ fn records_round_trip() {
         drafting: Some(7),
         task: String::new(),
         asks: vec![
-            Request { text: "shorter title".into(), done: true, on: "description".into(), answer: "Done.".into() },
+            Request { text: "shorter title".into(), want: "change".into(), on: "description".into(), answer: "Done.".into() },
             Request { text: "mention #9".into(), ..Request::default() },
         ],
         taking: 1,

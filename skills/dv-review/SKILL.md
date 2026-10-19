@@ -258,10 +258,11 @@ Then:
 If the record already has drafts, you've been here before (the same session): do what the
 user's instructions ask, updating the code, commits and drafts to match.
 
-The record's `asks` are what the user asked of your drafts (`on`: the draft it's about). Your
-prompt lists those to take in now: do what each asks, or answer it if it's a question, and
-write what you did, or your answer, in a sentence or few, in its `"answer"`. Leave the others,
-and the other fields of each (`done` is dv's), as they are.
+The record's `asks` are what the user asked of your drafts (`on`: the draft it's about;
+`want`: `ask`, only answer it, changing nothing; `change`, make it). Your prompt lists those to
+take in now (those without an answer): do what each wants, and write what you did, or your
+answer, in a sentence or few, in its `"answer"` (that marks it done). Keep the array as it is:
+its order, the others, the other fields of each.
 
 ## 7. Draft a new PR
 

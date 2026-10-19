@@ -29,7 +29,9 @@ pub(super) enum Action {
     ClaudeWith(agent::Ask),
     /// Have Claude draft a replacement for these PRs, after your instructions for it (starting
     /// from these, else your last ones: `a` on a draft quotes what it's about).
-    Replace(Vec<u64>, Option<(&'static str, String)>),
+    /// Claude's replacement of these PRs, drafted (again); `Some`: what you ask of one of its
+    /// drafts (which, the quote, what you want: `"ask"`, `"change"`).
+    Replace(Vec<u64>, Option<(&'static str, String, &'static str)>),
     /// Publish the replacement here as a draft PR, after the editor (title, description): (then
     /// close what it replaces, next).
     Publish(bool),
@@ -218,14 +220,15 @@ impl App {
                 // Drafted already: what you want is asked of its drafts (kept with them, shown
                 // there), for the redraft to take in.
                 if crate::replace::drafted(prs[0]) || crate::replace::is_new(prs[0]) {
-                    let (what, (on, prefill)) = match about {
+                    let (what, (on, prefill, want)) = match about {
+                        Some(q @ (_, _, "ask")) => (format!("ask Claude about the replacement of {which}, under the quote (it answers; it changes nothing)"), q),
                         Some(q) => (format!("ask Claude to redraft the replacement of {which}: what to change, under the quote"), q),
-                        None => (format!("what else Claude should do in its redraft of {which} (optional)"), ("", String::new())),
+                        None => (format!("what else Claude should do in its redraft of {which} (optional)"), ("", String::new(), "")),
                     };
                     let asking = !prefill.is_empty();
                     let Some(ask) = compose_with(&what, !asking, prefill.trim_end(), !asking)? else { return Ok("not asked".into()) };
                     if !ask.trim().is_empty() {
-                        crate::replace::ask(prs[0], &ask, on)?;
+                        crate::replace::ask(prs[0], &ask, on, want)?;
                     }
                     if drafting() {
                         return Ok(match ask.trim() {

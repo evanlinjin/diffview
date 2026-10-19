@@ -5,6 +5,17 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Added
+- `a` on a replacement's drafts (or on what you asked of them) asks what you want first, as on
+  a PR's comments: `Ask` (Claude answers; it changes nothing) or `Change` (it redrafts).
+
+### Fixed
+- `a` on what you asked of a replacement's drafts, or Claude's answer, asks about that draft
+  (it said to select code lines).
+- A request of the drafts is done once Claude has answered it, so one Claude's redraft skipped
+  or reordered is asked again (it was marked by its place in the list).
+- Folding a replacement's closing note folds what you asked of it too.
+
 ## [0.34.45] - 2026-10-19
 
 (0.34.44 again, with its tests passing on CI: it isn't on crates.io.)
