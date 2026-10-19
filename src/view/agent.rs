@@ -46,13 +46,8 @@ const ALLOWED: &[&str] = &[
 /// (Fixing CI, a transient failure's failed jobs once more: once a head, see `fix_checks_prompt`.)
 /// What a background run may do beyond `ALLOWED`: rerun the failed jobs of PR `n`'s CI only
 /// when fixing it (that PR's: no other).
-pub(crate) fn tools_for(fixing_ci: Option<u64>) -> Vec<String> {
-    fixing_ci.map(|n| format!("Bash(dv rerun-failed -p {n})")).into_iter().collect()
-}
-
-/// `v`'s strings, borrowed (for `claude_command`'s list).
-pub(crate) fn strs(v: &[String]) -> Vec<&str> {
-    v.iter().map(String::as_str).collect()
+pub(crate) fn tools_for(fixing_ci: Option<u64>) -> Option<String> {
+    fixing_ci.map(|n| format!("Bash(dv rerun-failed -p {n})"))
 }
 
 /// What drafting a replacement needs on top: reading the PRs it replaces, and committing (to
@@ -819,7 +814,7 @@ impl App {
                 Ok(s) => (format!("zellij run failed ({s})"), false),
                 Err(e) => (format!("running zellij: {e}"), false),
             },
-            false => match self.spawn_claude(&prompt, label, false, &strs(&tools_for(self.pr.as_ref().filter(|_| matches!(ask, Ask::FixChecks)).map(|p| p.number)))) {
+            false => match self.spawn_claude(&prompt, label, false, tools_for(self.pr.as_ref().filter(|_| matches!(ask, Ask::FixChecks)).map(|p| p.number)).as_deref().as_slice()) {
                 Ok(job) => {
                     self.claude.job = Some(job);
                     (format!("Claude is {label} in the background…"), true)

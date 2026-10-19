@@ -120,7 +120,7 @@ fn run(n: u64, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sender<
     let prompt = format!("{} (It's {} now.)", task.prompt(n), crate::claude::now());
     let prompt = crate::view::with_instructions(&prompt, extra);
     let log = std::env::temp_dir().join(format!("dv-claude-batch-{}-{n}.log", std::process::id()));
-    let st = crate::view::claude_command(&prompt, &dir, &session, &crate::view::strs(&crate::view::tools_for(matches!(task, Task::FixChecks).then_some(n))), None)
+    let st = crate::view::claude_command(&prompt, &dir, &session, crate::view::tools_for(matches!(task, Task::FixChecks).then_some(n)).as_deref().as_slice(), None)
         .stdin(std::process::Stdio::null())
         .stdout(std::fs::File::create(&log)?)
         .stderr(std::fs::File::create(log.with_extension("err"))?)
