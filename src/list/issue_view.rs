@@ -131,19 +131,31 @@ impl IssueView {
         let code_bg = ui.md.code_bg;
         // (Code and tables scrolled sideways, as far as the side's are; how far they'd go.)
         let over = std::cell::Cell::new([0; 2]);
+        // (`seen`: the columns shown, the description's 2 more than it's wrapped at.)
         let md = |text: &str, w: usize, side: usize| -> Vec<Line<'static>> {
-            crate::md::render(text, w, &ui.md, &self.hl, repo.as_deref())
+            let seen = if side == 0 { w + 2 } else { w };
+            let lines = crate::md::render(text, w, &ui.md, &self.hl, repo.as_deref());
+            // Each block (code, a table: its lines in a run) by as much of the side's scroll as
+            // it's wider than shown: one that fits stays put.
+            let mut by = vec![0; lines.len()];
+            let mut i = 0;
+            while i < lines.len() {
+                let n = lines[i..].iter().take_while(|l| l.nowrap).count().max(1);
+                let wide = lines[i..i + n].iter().filter(|l| l.nowrap).map(|l| Span::raw(l.text.as_str()).width()).max().unwrap_or(0);
+                let o = wide.saturating_sub(seen);
+                let mut all = over.get();
+                all[side] = all[side].max(o);
+                over.set(all);
+                by[i..i + n].fill(self.code_left[side].min(o));
+                i += n;
+            }
+            lines
                 .into_iter()
-                .map(|l| {
+                .zip(by)
+                .map(|(l, by)| {
                     let code = code_bg.filter(|&bg| l.nowrap && l.styles.last().copied().flatten().and_then(|s| s.bg) == Some(bg));
-                    let nowrap = l.nowrap;
                     let mut line = l.into_line();
-                    if nowrap {
-                        let mut o = over.get();
-                        o[side] = o[side].max(line.width().saturating_sub(w));
-                        over.set(o);
-                        line.spans = crate::view::skip_cols(line.spans, self.code_left[side]);
-                    }
+                    line.spans = crate::view::skip_cols(line.spans, by);
                     if let Some(bg) = code {
                         line.spans.push(Span::styled(" ".repeat(w.saturating_sub(line.width())), Style::new().bg(bg)));
                     }
@@ -446,13 +458,15 @@ fn an_issue_and_its_triage() {
     v.mouse(MouseEventKind::Down(MouseButton::Left), 0, row);
     assert_eq!(v.mouse(MouseEventKind::Up(MouseButton::Left), p - 2, row).as_deref(), Some("It panics."));
     // Sideways over the description: its code, from its start.
-    v.body = format!("```\n{}\n```", "x".repeat(300));
+    v.body = format!("```\n{}\n```\n\n| ab | cd |\n|---|---|\n| 1 | 2 |", "x".repeat(300));
     v.redraw();
     let _ = screen(160, 22, |f| v.draw(f, &ui, f.area()));
     assert!(v.lines.iter().any(|l| l.to_string().contains("  xxx")));
     v.mouse(MouseEventKind::ScrollRight, 2, 0);
     let _ = screen(160, 22, |f| v.draw(f, &ui, f.area()));
     assert_eq!(v.code_left, [8, 0]);
+    // (The table beside it fits: it stays put.)
+    assert!(v.lines.iter().any(|l| l.to_string().contains("ab │ cd")), "{:?}", v.lines.iter().map(|l| l.to_string()).collect::<Vec<_>>());
     v.mouse(MouseEventKind::ScrollLeft, 2, 0);
     v.mouse(MouseEventKind::ScrollLeft, 2, 0);
     assert_eq!(v.code_left, [0, 0]);
