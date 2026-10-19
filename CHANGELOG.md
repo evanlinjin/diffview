@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.29] - 2026-10-19
+
+### Fixed
+- The cursor line's tint shows on a code block's line in a comment (the block's background
+  covered it).
+
 ## [0.34.28] - 2026-10-19
 
 ### Changed
