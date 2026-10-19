@@ -155,7 +155,7 @@ struct CursorKey {
     section: Option<(usize, usize)>,
     /// A line standing for a comment (`Row::goes`: Claude's activity): that comment's id (not
     /// its place in its thread, which a deleted one before it moves), how far into its lines.
-    goes: Option<((u64, usize), usize)>,
+    goes: Option<((u64, u64), usize)>,
 }
 
 /// Network work that doesn't need the terminal; run after a frame shows its "…" message.

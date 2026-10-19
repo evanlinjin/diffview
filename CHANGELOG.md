@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.83] - 2026-10-19
+
+### Fixed
+- 0.34.82 as it should have been: it didn't build.
+
 ## [0.34.82] - 2026-10-19
 
 ### Fixed
