@@ -16,112 +16,96 @@ impl App {
     }
 
     pub(super) fn run_job(&mut self, job: Job) {
-        if let Job::Pull = job {
-            let res = self.pull();
-            self.hl_cache.retain(|k, _| !k.1); // the working tree changed
-            let reload = self.reload(true);
-            self.msg = match (res, reload) {
-                (Err(e), _) | (_, Err(e)) => format!("{e:#}"),
-                (Ok(m), Ok(())) => m,
-            };
-            return;
-        }
-        if let Job::Push(force) = job {
-            let res = self.push(force);
-            if res.is_ok() {
-                self.github_changed();
-            }
-            let reload = self.reload(true); // the PR's head moved
-            self.msg = match (res, reload) {
-                (Err(e), _) | (_, Err(e)) => format!("{e:#}"),
-                (Ok(m), Ok(())) => m,
-            };
-            return;
-        }
-        // Read-only: no reload after.
-        if !matches!(job, Job::Preview(_) | Job::Reactions(_) | Job::Labels | Job::Retarget(_) | Job::Rebase) {
+        // What changes GitHub works on the PR as it is now, not as cached (not what only reads
+        // it, nor git's own work).
+        if !matches!(job, Job::Preview(_) | Job::Reactions(_) | Job::Labels | Job::Retarget(_) | Job::Rebase | Job::Pull | Job::Push(_)) {
             self.ensure_fresh();
         }
-        // Reruns: GitHub sets them going in a moment, and CI doesn't change the PR's ETag: dv
-        // looks again by itself, shortly.
-        if let Job::Rerun = job {
-            let head = self.pr.as_ref().map(|p| p.head_oid.clone()).unwrap_or_default();
-            self.msg = match gh::rerun_failed(&head) {
-                Ok(said) => {
-                    // What a fetch under way brings back is from before (failing still); the
-                    // watch fetches again by itself, shortly (through `watch_github`).
+        match job {
+            Job::Pull => {
+                let res = self.pull();
+                self.finish(res);
+            }
+            Job::Push(force) => {
+                let res = self.push(force);
+                if res.is_ok() {
                     self.github_changed();
-                    self.refresh_at = Some(std::time::Instant::now() + std::time::Duration::from_secs(10));
-                    said
                 }
-                Err(e) => format!("{e:#}"),
-            };
-            return;
-        }
-        if let Job::Rebase = job {
-            return self.start_rebase();
-        }
-
-        if let Job::Retarget(base) = job {
-            return self.retarget(base);
-        }
-        if let Job::Labels = job {
-            return self.labels_menu();
-        }
-        if let Job::Reactions(node) = job {
-            return self.react_menu(&node);
-        }
-        if let Job::Preview(url) = job {
-            match gh::issue_preview(&url) {
+                self.finish(res); // the PR's head moved
+            }
+            // Reruns: GitHub sets them going in a moment, and CI doesn't change the PR's ETag:
+            // dv looks again by itself, shortly.
+            Job::Rerun => {
+                let head = self.pr.as_ref().map(|p| p.head_oid.clone()).unwrap_or_default();
+                self.msg = match gh::rerun_failed(&head) {
+                    Ok(said) => {
+                        // What a fetch under way brings back is from before (failing still);
+                        // the watch fetches again by itself, shortly (through `watch_github`).
+                        self.github_changed();
+                        self.refresh_at = Some(std::time::Instant::now() + std::time::Duration::from_secs(10));
+                        said
+                    }
+                    Err(e) => format!("{e:#}"),
+                };
+            }
+            Job::Rebase => self.start_rebase(),
+            Job::Retarget(base) => self.retarget(base),
+            Job::Labels => self.labels_menu(),
+            Job::Reactions(node) => self.react_menu(&node),
+            Job::Preview(url) => match gh::issue_preview(&url) {
                 Ok((title, md)) => (self.msg.clear(), self.popup = Some((title, self.hover_lines(&md), 0))).1,
                 Err(e) => self.msg = format!("{e:#}"),
+            },
+            Job::Refresh => self.finish(Ok("refreshed")),
+            Job::Resolve(t, on) => self.finish(gh::set_resolved(&t, on).map(|_| if on { "thread resolved" } else { "thread unresolved" })),
+            Job::Discard(r) => {
+                let res = gh::delete_review(&r);
+                if res.is_ok() {
+                    self.review = None;
+                }
+                self.finish(res.map(|_| "pending review discarded"));
             }
-            return;
-        }
-        let mut viewed = None;
-        let res = match job {
-            Job::Refresh => Ok("refreshed"),
-            Job::Resolve(t, on) => gh::set_resolved(&t, on).map(|_| if on { "thread resolved" } else { "thread unresolved" }),
-            Job::Discard(r) => gh::delete_review(&r).map(|_| {
-                self.review = None;
-                "pending review discarded"
-            }),
-            Job::DeleteComment(c) => gh::delete_comment(&c).map(|_| "comment deleted"),
+            Job::DeleteComment(c) => self.finish(gh::delete_comment(&c).map(|_| "comment deleted")),
             Job::SetField(field, name, on) => {
                 let n = self.pr.as_ref().map_or(0, |p| p.number);
-                gh::set_field(n, field, &name, on).map(|_| match (field, on) {
+                self.finish(gh::set_field(n, field, &name, on).map(|_| match (field, on) {
                     (gh::Field::Label, true) => "label added",
                     (gh::Field::Label, false) => "label removed",
                     (gh::Field::Assignee, true) => "assigned",
                     (gh::Field::Assignee, false) => "unassigned",
                     (gh::Field::Reviewer, true) => "review requested",
                     (gh::Field::Reviewer, false) => "review request withdrawn",
-                })
+                }));
             }
-            Job::React(node, what, add) => gh::react(&node, what, add).map(|_| if add { "reacted" } else { "reaction taken back" }),
-            Job::Preview(_) | Job::Reactions(_) | Job::Labels | Job::Retarget(_) | Job::Rerun | Job::Rebase | Job::Pull | Job::Push(_) => unreachable!("handled above"),
-            Job::Post(p) => self.post(p),
+            Job::React(node, what, add) => self.finish(gh::react(&node, what, add).map(|_| if add { "reacted" } else { "reaction taken back" })),
+            Job::Post(p) => {
+                let res = self.post(p);
+                self.finish(res);
+            }
             Job::Viewed(path, on) => {
                 let pr_id = self.pr.as_ref().map(|p| p.node_id.clone()).unwrap_or_default();
                 let res = gh::set_viewed(&pr_id, &path, on);
                 if res.is_ok() && !on {
                     self.collapsed.remove(&path);
                 }
-                viewed = Some((path, on));
-                res.map(|_| if on { "marked as viewed" } else { "unmarked as viewed" })
+                self.finish(res.map(|_| if on { "marked as viewed" } else { "unmarked as viewed" }));
+                // To the file's header, or when marked, on to the next file (like on GitHub).
+                if let Some(fi) = self.files.iter().position(|f| f.path == path)
+                    && let Some(own) = self.rows.iter().position(|r| r.file == fi && r.line.kind == Kind::File)
+                {
+                    let later = self.rows[own + 1..].iter().position(|r| r.line.kind == Kind::File).map(|i| own + 1 + i);
+                    self.select = false;
+                    self.goto(if on { later.unwrap_or(own) } else { own }, 0);
+                }
             }
-        };
+        }
+    }
+
+    /// After a job that changed something: the diff reloaded (the working tree, or the PR's
+    /// head, may have changed), and what came of it said.
+    fn finish(&mut self, res: Result<impl Into<String>>) {
         self.hl_cache.retain(|k, _| !k.1);
         let reload = self.reload(true);
-        // Viewed: to the file's header, or when marked, on to the next file (like on GitHub).
-        if let Some((path, on)) = viewed
-            && let Some(fi) = self.files.iter().position(|f| f.path == path)
-            && let Some(own) = self.rows.iter().position(|r| r.file == fi && r.line.kind == Kind::File)
-        {
-            let later = self.rows[own + 1..].iter().position(|r| r.line.kind == Kind::File).map(|i| own + 1 + i);
-            self.select = false;
-            self.goto(if on { later.unwrap_or(own) } else { own }, 0);
-        }
         self.msg = match (res, reload) {
             (Err(e), _) | (_, Err(e)) => format!("{e:#}"),
             (Ok(m), Ok(())) => m.into(),
