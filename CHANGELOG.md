@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.35.1] - 2026-10-19
+
+### Fixed
+- `dv cargo` runs where it's run (a crate of its own in a subdirectory), not at the repo's root.
+- "can't read which its base requires": not on closed PRs, nor for minutes after one failed
+  read (it's asked again), nor for a base whose name has `#`, `?` or a space.
+- A PR whose checks GitHub refused says GitHub's reason again, not "said nothing".
+
 ## [0.35.0] - 2026-10-19
 
 ### Added
