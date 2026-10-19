@@ -156,7 +156,7 @@ impl App {
             rows.extend(self.closing_comment());
             rows.extend(self.description_rows(&mut attached));
         }
-        rows.append(&mut attached);
+        rows.extend(self.attach(vec![], &mut attached)); // (marked as attached all the same)
         rows.extend(self.closing_note_rows());
         rows.extend(self.commit_sections());
         let gone_at = rows.len();
@@ -334,7 +334,7 @@ impl App {
         };
         gone.sort_by_cached_key(|&t| (self.threads[t].path.is_empty(), label(t)));
         let mut rows = vec![];
-        let heading = |text: String| Row { attached: true, ..Row::text(INFO, Kind::Thread, text) };
+        let heading = |text: String| Row::text(INFO, Kind::Thread, text);
         let on_files = gone.iter().filter(|&&t| !self.threads[t].path.is_empty()).count();
         if on_files > 0 {
             rows.push(heading(format!("comments on files no longer in the diff ({on_files})")));
@@ -346,9 +346,9 @@ impl App {
                 rows.push(heading(l.clone()));
                 last = Some(l);
             }
-            rows.extend(self.thread_rows(t, INFO).into_iter().map(|r| Row { attached: true, ..r }));
+            rows.extend(self.thread_rows(t, INFO));
         }
-        rows
+        self.attach(vec![], &mut rows)
     }
 
     /// File `i`'s rows: its header, then its lines with the threads `shown` on them (the Claude

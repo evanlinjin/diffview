@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.79] - 2026-10-19
+
+### Fixed
+- Claude's review, the PR's facts and activity sit in the pane again when there's no
+  description beside them (a branch Claude reviewed; a PR whose text hasn't loaded): 0.34.78
+  put them in the code's column.
+- Right after publishing a replacement, its closing note shows once (it could show twice: the
+  draft's and the PR's).
+
 ## [0.34.78] - 2026-10-19
 
 ### Fixed

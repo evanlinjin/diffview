@@ -1317,6 +1317,8 @@ fn claude_review_is_not_pr_text() {
     assert!(!app.rows.iter().any(|r| r.line.text == "Looks fine."));
     app.toggle_view(View::Claude);
     let row = app.rows.iter().position(|r| r.line.text == "Looks fine.").unwrap();
+    // (No description here to sit beside: in the pane all the same.)
+    assert!(app.rows[row].attached);
     app.goto(row, 0);
     assert_eq!(app.context_keys().unwrap().0, "Claude's review");
     // C posts it as your own comment: not quoted, and posted even if left as it is.
