@@ -70,7 +70,9 @@ fn refused_prs(v: &serde_json::Value) -> Result<(Vec<u64>, Vec<u64>)> {
 fn protected(base: &str) -> Option<Vec<String>> {
     type Cache = std::collections::HashMap<String, (std::time::Instant, Option<Vec<String>>)>;
     static CACHE: std::sync::LazyLock<std::sync::Mutex<Cache>> = std::sync::LazyLock::new(Default::default);
-    if let Some(v) = CACHE.lock().ok()?.get(base).filter(|c| c.0.elapsed() < std::time::Duration::from_secs(600)) {
+    // (A failure kept briefly: asked again soon, not once for each of its PRs.)
+    let fresh = |c: &&(std::time::Instant, Option<Vec<String>>)| c.0.elapsed() < std::time::Duration::from_secs(if c.1.is_some() { 600 } else { 30 });
+    if let Some(v) = CACHE.lock().ok()?.get(base).filter(fresh) {
         return v.1.clone();
     }
     // (A branch name may have `#`, `?`, `%` or a space: escaped in the path.)
@@ -82,9 +84,8 @@ fn protected(base: &str) -> Option<Vec<String>> {
         .then(|| gh_json(&["api", &format!("repos/{{owner}}/{{repo}}/branches/{path}")]).ok())
         .flatten()
         .map(|b| b["protection"]["required_status_checks"]["contexts"].as_array().into_iter().flatten().filter_map(|c| c.as_str().map(str::to_owned)).collect());
-    // (Not a failure: asked again next time, not "can't read" for minutes over one blip.)
-    if let (Some(v), Ok(mut c)) = (&got, CACHE.lock()) {
-        c.insert(base.to_owned(), (std::time::Instant::now(), Some(v.clone())));
+    if let Ok(mut c) = CACHE.lock() {
+        c.insert(base.to_owned(), (std::time::Instant::now(), got.clone()));
     }
     got
 }
