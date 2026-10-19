@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.34.94] - 2026-10-19
+
+### Fixed
+- An amend that put nothing in leaves new files marked with `git add -N` as they were (they came
+  back fully added), and says why when git's reason was on its standard output.
+
 ## [0.34.93] - 2026-10-19
 
 ### Fixed
