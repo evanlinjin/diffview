@@ -1009,6 +1009,12 @@ impl App {
         // Pad to the full width (so split halves line up), and tint the whole row, so
         // added/removed lines read as bands. Spans with their own bg (the cursor) keep it.
         let used: usize = spans[g..].iter().map(|s| s.width()).sum();
+        // A code block's line: its background on to the row's end (its box's edge).
+        let code_bg = row.nowrap.then(|| row.syn.last().copied().flatten()?.bg).flatten().filter(|&c| Some(c) == ui.md.code_bg);
+        let pad_style = |st: Style| match code_bg {
+            Some(c) => st.bg(c),
+            None => st,
+        };
         if let Some(p) = part {
             // The box's right side: header rows run a rule to the corner, body rows pad to the edge.
             let (fill, lead, corner) = match p {
@@ -1020,7 +1026,7 @@ impl App {
             let lead = if used == 0 { "" } else { lead };
             let n = bw.saturating_sub(used + lead.len() + 1);
             let edge = self.box_edge(r);
-            spans.push(Span::styled(format!("{lead}{}", fill.to_string().repeat(n)), style.patch(edge)));
+            spans.push(Span::styled(format!("{lead}{}", fill.to_string().repeat(n)), pad_style(style.patch(edge))));
             if let Some(bg) = line_bg {
                 for sp in &mut spans {
                     sp.style = Style::new().bg(bg).patch(sp.style);
@@ -1076,7 +1082,7 @@ impl App {
                     spans.push(Span::styled(t, st));
                 }
             }
-            _ => spans.push(Span::raw(" ".repeat(tw.saturating_sub(used)))),
+            _ => spans.push(Span::styled(" ".repeat(tw.saturating_sub(used)), pad_style(Style::new()))),
         }
         if code_row {
             spans.push(match mark {

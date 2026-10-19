@@ -2716,3 +2716,22 @@ fn a_stopped_rebase_holds_only_what_changes_code() {
     assert_eq!(app.edits(agent::Ask::Answer), app.threads.iter().any(|t| agent::turn(t) == Some("[waiting] ") && t.want == "change"));
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn code_blocks_shaded_to_the_box_edge() {
+    let mut app = fixture();
+    let shade = Color::Rgb(1, 2, 3);
+    app.ui.md.code_bg = Some(shade);
+    (app.summary_draft, app.claude.summary) = (String::new(), String::new());
+    app.threads[1].comments[0].body = "see:\n```\nx = 1\n```".into();
+    app.build();
+    let mut t = ratatui::Terminal::new(ratatui::backend::TestBackend::new(220, 45)).unwrap();
+    t.draw(|f| app.draw(f)).unwrap();
+    let buf = t.draw(|f| app.draw(f)).unwrap().buffer.clone();
+    let y = (0..45).find(|&y| (0..220).map(|x| buf[(x, y)].symbol()).collect::<String>().contains("x = 1")).unwrap();
+    let row: Vec<_> = (0..220).map(|x| (buf[(x, y)].symbol().to_owned(), buf[(x, y)].bg)).collect();
+    let edge = row.iter().rposition(|c| c.0 == "│").unwrap();
+    // Shaded from the code on, up to the box's side.
+    assert!(row[edge - 1].1 == shade && row[edge - 20].1 == shade, "{:?}", &row[edge - 3..=edge]);
+    assert_ne!(row[edge].1, shade);
+}

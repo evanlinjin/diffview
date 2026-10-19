@@ -228,7 +228,11 @@ impl Theme {
                 quote: self.get("markup.quote"),
                 list: self.get("markup.list"),
                 dim: Style { fg: comment.fg, ..Style::new() },
-                code_bg: self.find("ui.popup").and_then(|s| s.bg),
+                // Its own: not the cursor line's (else a code block reads as the cursor on it).
+                // (The theme's own for code blocks, else the background a shade darker: set in.)
+                code_bg: self.find("markup.raw.block").and_then(|s| s.bg).filter(|&c| Some(c) != cursorline && Some(c) != bg)
+                    .or_else(|| bg.and_then(|b| blend(Color::Rgb(0, 0, 0), b, 0.3)))
+                    .or(self.find("ui.popup").and_then(|s| s.bg)),
             },
             linenr_selected: self.find("ui.linenr.selected").unwrap_or(self.get("ui.linenr").add_modifier(Modifier::BOLD)),
         }
