@@ -320,7 +320,7 @@ pub fn needs(f: &Facts) -> (Vec<Need>, Option<Task>) {
         out.push(Need::ClaudeReviewNew);
     }
     // (A comment whose talk is resolved is open again: it stands, to be posted or dropped.)
-    let open = count(&|t| t.by_claude() && !t.resolved && (t.talk_resolved || !t.comments.iter().any(|c| c.author == "you")));
+    let open = count(&|t| t.by_claude() && !t.resolved && !t.waiting() && !t.answered());
     if open > 0 {
         out.push(Need::ClaudeComments(open));
     }
