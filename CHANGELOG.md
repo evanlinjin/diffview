@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.75.2] - 2026-10-20
+
+### Fixed
+- dv list no longer runs through GitHub's GraphQL rate limit (5,000 points an hour): each
+  refresh asked for every commit's authors, 100 commits of 100 PRs, which cost 106 points a
+  page; it asks for each commit's author now, 6 points.
+
 ## [0.75.1] - 2026-10-20
 
 ### Fixed
