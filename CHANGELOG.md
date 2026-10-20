@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.75.1] - 2026-10-20
+
+### Fixed
+- Maximized (`Ctrl-w o`), the window's other keys (`Ctrl-w e`, `c`, `f`, `,`, `.`) act on the
+  layout as you set it, not as maximized (they no longer save the maximized one). Going onto a
+  comment (`]c`) ends it, the comment shown; moving within the maximized pane keeps it.
+- Dialogs and pickers sit on the window's background, the border setting them apart. The chosen
+  picker row is readable: its aside isn't dimmed on the highlight, its icon takes its color.
+- An icon's no longer drawn into the text after it.
+
 ## [0.75.0] - 2026-10-20
 
 ### Added
