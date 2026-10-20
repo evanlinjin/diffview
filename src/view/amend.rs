@@ -143,6 +143,25 @@ pub(super) fn plan(dir: &Path, base: &str, blame: bool) -> Result<Plan> {
     Ok((hunks, commits))
 }
 
+/// The commits amends here dropped (their changes undone: gone, not rewritten), as recorded in
+/// the repo's git dir.
+pub(super) fn dropped_in(dir: &Path) -> Vec<String> {
+    let gitdir = git_in(dir, &["rev-parse", "--absolute-git-dir"]).map(|d| std::path::PathBuf::from(d.trim())).unwrap_or_default();
+    std::fs::read_to_string(gitdir.join("dv-dropped")).unwrap_or_default().lines().map(str::to_owned).collect()
+}
+
+/// What an amend dropped, said: ", dropped a commit (its changes all undone): "first"".
+fn said_dropped(dropped: &[String], subject: impl Fn(&str) -> String) -> String {
+    match dropped {
+        [] => String::new(),
+        d => format!(
+            ", dropped {} (its changes all undone): {}",
+            match d.len() { 1 => "a commit".to_owned(), k => format!("{k} commits") },
+            d.iter().map(|t| format!("\"{}\"", subject(t))).collect::<Vec<_>>().join(", "),
+        ),
+    }
+}
+
 /// An amend's outcome: how many commits took changes, those that didn't (sha, git's word why),
 /// and those dropped (sha).
 type Amended = (usize, Vec<(String, String)>, Vec<String>);
@@ -255,6 +274,13 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], rewords: &[(&str, &s
     }
     _ = std::fs::remove_file(&patch);
     _ = std::fs::remove_file(&index);
+    // What's dropped, kept beside the repo: any dv (a view, `dv amend` from Claude) knows a
+    // commit gone for good from one rewritten (its questions don't follow it anywhere).
+    if !dropped.is_empty() {
+        let mut all = dropped_in(dir);
+        all.extend(dropped.iter().cloned());
+        _ = std::fs::write(gitdir.join("dv-dropped"), all.join("\n"));
+    }
     if skipped.len() == targets.len() {
         _ = git_in(dir, &["reset", "-q", &orig]);
         _ = git_in(dir, &["read-tree", &staged]); // staged as it was
@@ -272,15 +298,17 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], rewords: &[(&str, &s
 
 /// Everything uncommitted (`paths`: in those files) folded into the branch's commit `sha` (full;
 /// one of `base`'s branch's own), HEAD kept on `backup` first. With a `message`, that's its
-/// message now, and only the `paths` given are folded (none: just the message).
-pub(super) fn fold(dir: &Path, base: &str, sha: &str, paths: &[String], message: Option<&str>, backup: &str) -> Result<()> {
+/// message now, and only the `paths` given are folded (none: just the message). Whether the
+/// commit was dropped instead (the changes undid all it did).
+pub(super) fn fold(dir: &Path, base: &str, sha: &str, paths: &[String], message: Option<&str>, backup: &str) -> Result<bool> {
     let (mut hunks, commits) = plan(dir, base, false)?;
     anyhow::ensure!(commits.iter().any(|c| c.0 == sha), "that isn't one of the branch's own commits (a merge?): amend into another");
     // (A name git still quotes: no knowing its file. It stays.)
     hunks.retain(|h| !h.path.is_empty() && (paths.is_empty() && message.is_none() || paths.contains(&h.path)));
     anyhow::ensure!(!hunks.is_empty() || message.is_some(), "nothing uncommitted to amend");
     hunks.iter_mut().for_each(|h| h.to = Some(sha.to_owned()));
-    amend(dir, base, &hunks, &message.map(|m| (sha, m)).into_iter().collect::<Vec<_>>(), backup).map(drop) // (one commit: in, or an error)
+    // (One commit: in, dropped, or an error.)
+    amend(dir, base, &hunks, &message.map(|m| (sha, m)).into_iter().collect::<Vec<_>>(), backup).map(|(_, _, d)| !d.is_empty())
 }
 
 /// `dv amend <commit> [file…] [-F <message file>]` (for Claude: dv's amend, not a rebase by
@@ -292,8 +320,11 @@ pub(crate) fn fold_cli(args: &[String], message: Option<&str>, base: &str) -> Re
     let sha = git_in(&dir, &["rev-parse", "--verify", &format!("{rev}^{{commit}}")])?.trim().to_owned();
     let short = git_in(&dir, &["rev-parse", "--short", "HEAD"])?.trim().to_owned();
     let backup = format!("dv-backup/amend-{short}");
-    fold(&dir, base, &sha, paths, message, &backup)?;
-    Ok(format!("amended into {} (HEAD was {short}: {backup})", &sha[..7]))
+    let what = match fold(&dir, base, &sha, paths, message, &backup)? {
+        true => format!("dropped {} (its changes all undone)", &sha[..7]),
+        false => format!("amended into {}", &sha[..7]),
+    };
+    Ok(format!("{what} (HEAD was {short}: {backup})"))
 }
 
 
@@ -382,6 +413,9 @@ impl App {
             .filter_map(|t| Some((t.conversation.clone(), super::commit_of(&t.conversation)?.to_owned())))
             .filter(|(_, sha)| !self.commits.iter().any(|c| &c.sha == sha))
             .collect();
+        // (One an amend dropped is gone, its questions with it: not moved onto another.)
+        let dropped = dropped_in(&self.root);
+        lost.retain(|(_, sha)| !dropped.contains(sha));
         lost.sort();
         lost.dedup();
         if lost.is_empty() {
@@ -398,9 +432,7 @@ impl App {
                 let dated = || self.commits.iter().filter(|c| c.at == at);
                 let by_subject = one(dated().filter(|c| c.subject.trim() == subject.trim()).map(|c| &c.sha).collect());
                 let email_of = |sha: &str| git_in(&self.root, &["log", "-1", "--format=%ae", sha]).is_ok_and(|e| e.trim() == email);
-                // (Not one an amend dropped: gone, its questions with it, not on a neighbour.)
-                let dropped = self.dropped.contains(&sha);
-                let to = by_subject.or_else(|| (!dropped).then(|| one(dated().filter(|c| email_of(&c.sha)).map(|c| &c.sha).collect())).flatten())?;
+                let to = by_subject.or_else(|| one(dated().filter(|c| email_of(&c.sha)).map(|c| &c.sha).collect()))?;
                 Some((url.clone(), url.replace(&sha, &to)))
             })
             .collect();
@@ -473,16 +505,8 @@ impl App {
         let messages = self.amend_messages(&hunks, &commits);
         let messages: Vec<(&str, &str)> = messages.iter().map(|m| (m.0.as_str(), m.1.as_str())).collect();
         let (n, skipped, dropped) = amend(&self.root, &self.full_base, &hunks, &messages, &backup)?;
-        self.dropped.extend(dropped.iter().cloned());
         // (By subject: the sha's gone.)
-        let gone = match dropped.as_slice() {
-            [] => String::new(),
-            d => format!(
-                ", dropped {} (its changes all undone): {}",
-                match d.len() { 1 => "a commit".to_owned(), k => format!("{k} commits") },
-                d.iter().map(|t| format!("\"{}\"", commits.iter().find(|c| c.0 == *t).map_or("?", |c| c.1.as_str()))).collect::<Vec<_>>().join(", "),
-            ),
-        };
+        let gone = said_dropped(&dropped, |t| commits.iter().find(|c| c.0 == t).map_or("?".to_owned(), |c| c.1.clone()));
         // (Those that went in: not skipped, nor dropped.)
         let reworded = match messages.iter().filter(|m| !skipped.iter().any(|s| s.0 == m.0) && !dropped.iter().any(|d| d == m.0)).count() {
             0 => String::new(),
@@ -508,8 +532,11 @@ impl App {
         let r = (|| -> Result<String> {
             anyhow::ensure!(!self.claude_busy(), "Claude is still at work here: amend once it's done");
             let (short, backup) = self.backup_name()?;
-            fold(&self.root, &self.full_base, sha, &[], None, &backup)?;
-            Ok(self.and_reload(format!("amended into {} (was {short}: {backup}); {}", sha.chars().take(7).collect::<String>(), self.next_step(true))))
+            let what = match fold(&self.root, &self.full_base, sha, &[], None, &backup)? {
+                true => format!("dropped {} (its changes all undone)", sha.chars().take(7).collect::<String>()),
+                false => format!("amended into {}", sha.chars().take(7).collect::<String>()),
+            };
+            Ok(self.and_reload(format!("{what} (was {short}: {backup}); {}", self.next_step(true))))
         })();
         self.msg = r.unwrap_or_else(|e| format!("{e:#}"));
     }
@@ -616,12 +643,18 @@ fn amend_undoing_a_whole_commit() {
     let (hunks, _) = plan(&dir, &base, true).unwrap();
     let first = git(&["rev-parse", "HEAD~1"]).trim().to_owned();
     let (n, skipped, dropped) = amend(&dir, &base, &hunks, &[], "dv-backup/undo").unwrap();
-    assert_eq!((n, skipped.len(), dropped), (1, 0, vec![first]));
+    assert_eq!((n, skipped.len(), dropped), (1, 0, vec![first.clone()]));
     assert_eq!(git(&["log", "--format=%s", &format!("{base}..HEAD")]).lines().collect::<Vec<_>>(), ["second"]);
     // Nothing of it left, here or uncommitted; the backup has it.
     assert_eq!((git(&["show", "HEAD:a.rs"]).as_str(), git(&["status", "--porcelain"]).as_str()), ("base\n", ""));
     assert_eq!(git(&["log", "-1", "--format=%s", "dv-backup/undo~1"]).trim(), "first");
     assert!(git_in(&dir, &["merge-base", "--is-ancestor", &base, "HEAD"]).is_ok()); // (the base as it was)
+    assert_eq!(dropped_in(&dir), std::slice::from_ref(&first)); // (recorded: its questions go with it)
+    // `f` / `dv amend`: says it dropped it.
+    write("b.rs", "b\n");
+    let second = git(&["rev-parse", "HEAD"]).trim().to_owned();
+    assert!(fold(&dir, &base, &second, &[], None, "dv-backup/undo2").unwrap());
+    assert_eq!(dropped_in(&dir), [first, second]);
 }
 
 #[test]
