@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.69.3] - 2026-10-20
+
+### Fixed
+- In an issue, Esc after any pending key (`L`, `T`, `X`, `N`, `a`, `g`, Space) calls it off
+  instead of leaving the issue.
+
 ## [0.69.2] - 2026-10-20
 
 ### Fixed
