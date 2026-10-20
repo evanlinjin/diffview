@@ -223,7 +223,7 @@ impl App {
         };
         match (block, self.box_part(self.head.row)) {
             (Some(_), _) => {
-                let w = self.box_w(self.head.row, cur_w).saturating_sub(1);
+                let w = self.text_w(self.head.row, cur_w);
                 follow(&mut self.code_left, w)
             }
             (None, Some(_)) => {}

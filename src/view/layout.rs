@@ -58,6 +58,18 @@ impl App {
         if self.margin_row(r) { tw } else { tw.min(self.wrap_w + 2) }
     }
 
+    /// The columns row `r`'s text has, of `tw` (its column's, less a code row's mark column):
+    /// in a box, up to its right side (the box as wide as the comment it's in, a reply's guide
+    /// inside it); else all of it, less a guide. The one rule for drawing a row and keeping the
+    /// cursor in view on it.
+    pub(super) fn text_w(&self, r: usize, tw: usize) -> usize {
+        let guide = self.rows.get(r).map_or(0, Row::guide_w);
+        match self.box_part(r) {
+            Some(_) => self.box_w(r, tw).saturating_sub(1 + guide),
+            None => tw.saturating_sub(guide),
+        }
+    }
+
     /// The rows the pane has, in order, when the cursor's in it (the comments); nothing when
     /// it's in the code.
     pub(super) fn pane_rows(&self) -> Vec<usize> {

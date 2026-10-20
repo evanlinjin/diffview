@@ -266,15 +266,15 @@ impl App {
         if row.guide {
             spans.push(Span::styled(GUIDE, self.ui.stale));
         }
-        let tw = tw.saturating_sub(row.guide_w());
         let g = spans.len(); // the gutter's spans (and a reply's guide); the text's follow
         let mut n = 0;
         // A context line shows on both sides of a split row; the cursor goes on the current side.
         let this_side = side.is_none() || l.kind != Kind::Ctx || side == Some(self.right);
         let cursor_here = self.head.row == r && this_side;
         // In a box, what doesn't wrap (code) is cut at its edge, and scrolled on its own.
-        let bw = self.box_w(r, tw);
-        let text_w = if part.is_some() { bw.saturating_sub(1) } else { tw };
+        // (Its box as wide as the comment's, measured from after a reply's guide.)
+        let (text_w, bw) = (self.text_w(r, tw), self.box_w(r, tw).saturating_sub(row.guide_w()));
+        let tw = tw.saturating_sub(row.guide_w());
         let skip = self.hscroll(r);
         for (i, c) in l.text.chars().enumerate().skip(skip).take(text_w) {
             let p = Pos { row: r, col: i };
