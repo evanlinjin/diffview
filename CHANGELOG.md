@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.62.0] - 2026-10-20
+
+### Added
+- The Claude tab of a PR opens with what dv list's ranking says to do next about it, and how
+  long ago it ranked.
+
 ## [0.61.1] - 2026-10-20
 
 ### Fixed
