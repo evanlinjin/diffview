@@ -158,13 +158,13 @@ pub(super) fn dropped_in(dir: &Path) -> Vec<String> {
 /// place: another dv reading it meanwhile sees the old list or the new, never half.
 fn record_dropped(dir: &Path, dropped: &[String]) {
     let Some(f) = dropped_file(dir) else { return };
-    let mut all = dropped_in(dir);
+    let mut all: Vec<String> = std::fs::read_to_string(&f).unwrap_or_default().lines().map(str::to_owned).collect();
     all.extend(dropped.iter().cloned());
     all.sort();
     all.dedup();
     let tmp = f.with_extension(format!("{}", std::process::id()));
-    if std::fs::write(&tmp, all.join("\n")).is_ok() {
-        _ = std::fs::rename(&tmp, &f);
+    if std::fs::write(&tmp, all.join("\n")).and_then(|()| std::fs::rename(&tmp, &f)).is_err() {
+        _ = std::fs::remove_file(&tmp); // (not left behind in .git)
     }
 }
 
@@ -673,7 +673,7 @@ fn amend_undoing_a_whole_commit() {
     assert!(fold(&dir, &base, &second, &[], None, "dv-backup/undo2").unwrap());
     let mut both = vec![first, second];
     both.sort();
-    assert_eq!(dropped_in(&dir), both); // (once each, in order)
+    assert_eq!(dropped_in(&dir), both); // (once each, sorted)
 }
 
 #[test]
