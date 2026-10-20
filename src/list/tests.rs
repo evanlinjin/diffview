@@ -118,7 +118,9 @@ fn filter_and_keys() {
     l.claude_open.insert(1, None);
     assert_eq!(l.claude_state(1), Some(("claude: its review won't read".into(), false)));
     l.claude_open.clear();
-    assert!(k(&mut l, KeyCode::Char('q')).is_none() && l.msg.starts_with("Claude is still reviewing"));
+    // Esc says how to quit, arming nothing; q asks first.
+    assert!(k(&mut l, KeyCode::Esc).is_none() && l.confirm.is_none() && l.msg.starts_with("Claude is still at work here: q"));
+    assert!(k(&mut l, KeyCode::Char('q')).is_none() && l.msg.starts_with("Claude is still at work here"));
     assert!(matches!(k(&mut l, KeyCode::Char('q')), Some(Do::Quit)));
     // A A drafts one replacement for the marked PRs (or this one).
     l.marked = HashSet::from([22, 1]);

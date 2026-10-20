@@ -477,7 +477,7 @@ impl Issues {
 
     /// Claude at work from here: triaging, or drafting a fix.
     pub fn busy(&self) -> bool {
-        self.running.values().any(batch::Status::running) || !self.drafting.is_empty() || self.closing_rx.is_some()
+        self.running.values().any(batch::Status::running) || !self.drafting.is_empty() || self.closing_rx.is_some() || self.rank_rx.is_some()
     }
 
     /// Those not deferred: what needs you now.

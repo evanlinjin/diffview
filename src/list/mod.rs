@@ -190,9 +190,10 @@ pub struct Pick {
 type PrCache = std::sync::Arc<std::sync::Mutex<HashMap<u64, (std::time::Instant, gh::Pr)>>>;
 
 impl List {
-    /// Claude at work on PRs from here (reviews under way or queued).
+    /// Claude at work from here: reviews under way or queued, replacements or new PRs being
+    /// drafted, a ranking asked (each lost, or left half done, if dv quits).
     pub fn busy(&self) -> bool {
-        self.batch.values().any(batch::Status::running)
+        self.batch.values().any(batch::Status::running) || self.drafting.values().any(batch::Status::running) || self.rank_rx.is_some()
     }
 
     pub fn new(flags: String) -> List {
