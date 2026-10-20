@@ -86,6 +86,12 @@ impl App {
         if changed > 0 {
             items.push(Item::new(format!("Commit everything that isn't ({changed} file(s))…"), Target::Do(Action::Commit)));
             items.extend(self.amend_items());
+            // (This file's, when it has some: `git status` names it from the repo's root.)
+            let path = self.file_path().map(str::to_owned).filter(|p| diff::git(&["status", "--porcelain", "--", p]).is_ok_and(|s| !s.trim().is_empty()));
+            if let Some(p) = path.filter(|_| changed > 1) {
+                items.push(Item::new(format!("Drop what isn't committed in {p}… (stashed)"), Target::GitDrop(Some(p), false)));
+            }
+            items.push(Item::new(format!("Drop everything that isn't committed ({changed} file(s))… (stashed)"), Target::GitDrop(None, false)));
         }
         // A draft no one has seen: published (S), not pushed.
         let push = if self.unpublished() { Err(anyhow!("it's a draft: S publishes it")) } else { self.push_target() };
@@ -209,6 +215,27 @@ impl App {
         let said = self.and_reload(format!("now at {name} as it is on GitHub{kept}"));
         self.refresh_sync();
         Ok(said)
+    }
+
+    /// Drop what isn't committed (in `path`; else all of it, new files too), after a yes
+    /// (`sure`): stashed, so `git stash pop` brings it back.
+    pub(super) fn drop_uncommitted(&mut self, path: Option<String>, sure: bool) -> Result<String> {
+        anyhow::ensure!(!self.claude_busy(), "Claude is at work here: drop it once it's done");
+        let what = path.as_deref().map_or("everything that isn't committed".to_owned(), |p| format!("what isn't committed in {p}"));
+        if !sure {
+            let items = vec![
+                Item::new("No, keep it", Target::Nothing),
+                Item::new(format!("Yes, drop {what} (stashed: git stash pop brings it back)"), Target::GitDrop(path, true)),
+            ];
+            self.picker = Some(Picker::new(" drop uncommitted changes? ", items));
+            return Ok(String::new());
+        }
+        let mut args = vec!["stash", "push", "--include-untracked", "-q", "-m", "dv: dropped"];
+        if let Some(p) = &path {
+            args.extend(["--", p.as_str()]);
+        }
+        diff::git(&args)?;
+        Ok(self.and_reload(format!("dropped {what} (git stash pop brings it back)")))
     }
 
     /// Between the whole diff and only what isn't committed.

@@ -263,6 +263,8 @@ enum Target {
     RebaseAbort,
     /// Take the branch as it is on GitHub (`true`: confirmed, or nothing here would be lost).
     GitTakeTheirs(bool),
+    /// Drop what isn't committed (of that file; else all of it), stashed: after a yes.
+    GitDrop(Option<String>, bool),
     /// End the review and merge the PR with github-merge.py.
     GitMerge,
     /// Dismiss all of Claude's outdated comments (`true`: confirmed).

@@ -601,6 +601,7 @@ impl App {
                         Target::GitView => self.toggle_uncommitted(),
                         Target::GitMerge => (self.merge, self.quit) = (true, true),
                         Target::GitTakeTheirs(sure) => self.take_theirs(sure),
+                        Target::GitDrop(path, sure) => self.msg = self.drop_uncommitted(path, sure).unwrap_or_else(|e| format!("not dropped: {e:#}")),
                         Target::GitReady => self.mark_ready(),
                         Target::GitApproveRuns => self.approve_runs(),
                         Target::ClaudeDismissOutdated(sure) => self.dismiss_outdated(sure),
