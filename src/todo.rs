@@ -566,8 +566,9 @@ impl Until {
         Some(match () {
             _ if has("merge") => Until::Merged(num?),
             _ if has("close") => Until::Closed(num?),
-            _ if (has("ci") || has("check") || has("test")) && (has("green") || has("pass")) => Until::Green,
-            _ if has("approv") => Until::Approved(who),
+            // (This PR's: "#12 until its CI passes" is #12's, for Claude to read.)
+            _ if (has("ci") || has("check") || has("test")) && (has("green") || has("pass")) && !another => Until::Green,
+            _ if has("approv") && !another => Until::Approved(who),
             // What the author does next: "addresses the reviews", "pushes", "updates it" (no one
             // else named, no other PR, no time: those are someone else's doing, or a while). As
             // `p` posts it, past the head it was at: "the author pushes (past abc1234)".
@@ -581,7 +582,7 @@ impl Until {
             }
             // Someone's review, or someone else's said so ("someone else reviews it"); not a time,
             // another PR's, or the author's fixing what reviews said: for Claude to read.
-            _ if has("review") && dur.is_none() && !another && (who.is_some() || word(&["someone", "someone's", "somebody", "anyone", "anyone's", "anybody", "else", "else's"])) => Until::Reviewed(who),
+            _ if has("review") && dur.is_none() && !another && !has("comment") && (who.is_some() || word(&["someone", "someone's", "somebody", "anyone", "anyone's", "anybody", "else", "else's"])) => Until::Reviewed(who),
             _ => Until::Time(now + dur?),
         })
     }
@@ -595,20 +596,22 @@ pub fn waiting_on(said: &[(String, String, i64)], now: i64) -> Option<(Until, St
     const LEADS: [&str; 8] = ["waiting on", "waiting for", "blocked on", "blocked by", "depends on", "deferred until", "defer until", "until"];
     for (who, body, at) in said.iter().rev() {
         for line in body.lines().rev() {
-            let l = line.trim().trim_start_matches(['>', '*', '-', ' ']).to_lowercase();
+            // (Bold dropped: "**Blocked on #12**" reads as the plain line.)
+            let l = line.trim().trim_start_matches(['>', '*', '-', ' ']).replace("**", "").to_lowercase();
             if l.starts_with("unblocked") || l.starts_with("no longer waiting") {
                 return None;
             }
             // (A lead as a word: "waiting only …" isn't "waiting on".)
-            let Some((lead, rest)) = LEADS.iter().find_map(|p| Some((*p, l.strip_prefix(p).filter(|r| r.is_empty() || r.starts_with([':', ' ', '*']))?))) else { continue };
-            let rest = rest.trim_start_matches([':', ' ', '*']);
+            let Some((lead, rest)) = LEADS.iter().find_map(|p| Some((*p, l.strip_prefix(p).filter(|r| r.is_empty() || r.starts_with([':', ' ']))?))) else { continue };
+            let rest = rest.trim_start_matches([':', ' ']);
             let bare = rest.trim_end_matches(['.', ' ', ')']).trim_start_matches('#').parse::<u64>().ok();
             // "Waiting for (the, your, code) review(s)": in a comment, someone else's; not the
             // author fixing what they said ("the review comments to be fixed").
             let ws: Vec<&str> = rest.split_whitespace().collect();
-            let review = ws.iter().any(|w| w.starts_with("review"))
-                && !ws.iter().any(|w| ["comment", "feedback", "suggestion", "fix", "address", "resolv", "handl"].iter().any(|f| w.starts_with(f)))
-                && !rest.contains(['#', '@']);
+            // (What it waits on is the review: its first word, past "the", "code" and such; not
+            // "CI, then review", nor "me to review".)
+            let head = ws.iter().find(|w| !["a", "an", "the", "your", "more", "another", "code", "maintainer", "final"].contains(w));
+            let review = head.is_some_and(|w| w.starts_with("review")) && !ws.iter().any(|w| w.starts_with("comment")) && !rest.contains(['#', '@']);
             let c = bare.map(Until::Merged).or_else(|| Until::parse(rest, now)).or_else(|| review.then_some(Until::Reviewed(None)));
             // (A push from no known head: nothing to tell it by.)
             let c = c.filter(|c| *c != Until::Pushed(String::new()));
@@ -1087,7 +1090,12 @@ mod tests {
             assert_eq!(waiting_on(&[c("me", t)], now).map(|w| w.0), Some(Until::Reviewed(None)), "{t}");
         }
         assert_eq!(waiting_on(&[c("me", "Blocked on #1"), c("bo", "Until it's updated, LGTM")], now).map(|w| w.0), Some(Until::Merged(1)));
-        assert_eq!(waiting_on(&[c("me", "Blocked on #1"), c("bo", "**Blocked on** #12")], now).map(|w| w.0), Some(Until::Merged(12)));
+        for t in ["**Blocked on** #12", "**Blocked on #12**", "Blocked on **#12**"] {
+            assert_eq!(waiting_on(&[c("me", "Blocked on #1"), c("bo", t)], now).map(|w| w.0), Some(Until::Merged(12)), "{t}");
+        }
+        for t in ["Waiting on CI, then review", "Waiting for me to review", "Waiting on @bo's review comments to be addressed"] {
+            assert!(!matches!(waiting_on(&[c("me", t)], now).map(|w| w.0), Some(Until::Reviewed(_))), "{t}");
+        }
         assert_eq!(waiting_on(&[c("me", "Waiting on @bo's review")], now).map(|w| w.0), Some(Until::Reviewed(Some("bo".into()))));
         assert_eq!(waiting_on(&[c("me", "I'm waiting to see what amy thinks")], now), None);
         // What `p` posts reads back as itself.
@@ -1112,6 +1120,8 @@ mod tests {
         assert_eq!(p("it's reviewed by someone."), Some(Until::Reviewed(None)));
         assert_eq!(p("@bo reviews it (#12)"), None); // another PR's: Claude's to read
         assert_eq!(p("Blocked on #12 until someone reviews it"), None); // #12's review
+        assert_eq!(p("Blocked on #12 until it's approved"), None);
+        assert_eq!(p("Blocked on #12 until its CI passes"), None);
         assert_eq!(p("review it in 2 days"), Some(Until::Time(now + 2 * 86400)));
         assert_eq!(p("@bo reviews in 2 days"), Some(Until::Time(now + 2 * 86400))); // (as a time, too)
         for t in ["the review comments are fixed", "#12 is reviewed", "review again next week", "@bo reviews #12", "it's reviewed elsewhere"] {
