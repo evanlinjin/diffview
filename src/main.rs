@@ -277,13 +277,8 @@ fn pick_and_review(o: &Opts, root: &Path) -> anyhow::Result<()> {
                 list::issues::IssuesDo::Prs => on_issues = false,
                 // A PR from an issue (Enter on its link): reviewed, then back to the issues.
                 list::issues::IssuesDo::Pr(n) => {
-                    let res = review(o, Some(n), None).and_then(|(_, res)| res);
-                    progress(None);
-                    std::env::set_current_dir(root)?;
-                    match res {
-                        Err(e) => issues.msg = format!("PR #{n}: {e:#}"),
-                        Ok(true) => issues.msg = merge::merge(n, view::in_zellij()).unwrap_or_else(|e| format!("not merged: {e:#}")),
-                        Ok(false) => {}
+                    if let Some(m) = review_back(o, n, None, root)? {
+                        issues.msg = m;
                     }
                 }
             }
@@ -320,16 +315,23 @@ fn pick_and_review(o: &Opts, root: &Path) -> anyhow::Result<()> {
             }
             None => o,
         };
-        let res = review(opts, Some(n), pick.pr).and_then(|(_, res)| res);
-        progress(None);
-        std::env::set_current_dir(root)?; // a worktree review leaves us in the worktree
-        match res {
-            Err(e) => list.msg = format!("PR #{n}: {e:#}"),
-            // `Space g` → merge, from the review.
-            Ok(true) => list.msg = merge::merge(n, view::in_zellij()).unwrap_or_else(|e| format!("not merged: {e:#}")),
-            Ok(false) => {}
+        if let Some(m) = review_back(opts, n, pick.pr, root)? {
+            list.msg = m;
         }
     }
+}
+
+/// Review PR `n` from a list (`known`: as the list has it), then back in `root`: what to say
+/// there, if anything (it failed; `Space g` → merge, from the review: merged, or why not).
+fn review_back(o: &Opts, n: u64, known: Option<gh::Pr>, root: &Path) -> anyhow::Result<Option<String>> {
+    let res = review(o, Some(n), known).and_then(|(_, res)| res);
+    progress(None);
+    std::env::set_current_dir(root)?; // a worktree review leaves us in the worktree
+    Ok(match res {
+        Err(e) => Some(format!("PR #{n}: {e:#}")),
+        Ok(true) => Some(merge::merge(n, view::in_zellij()).unwrap_or_else(|e| format!("not merged: {e:#}"))),
+        Ok(false) => None,
+    })
 }
 
 /// Review replacement `id` in dv, in its worktree: its diff against its base, and in the top

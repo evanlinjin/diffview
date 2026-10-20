@@ -162,7 +162,7 @@ impl IssueView {
             false => (width, width),
         };
         // (`#123` linked to the repo's, as the PR view's.)
-        let repo = self.url.rsplit_once("/issues/").map(|(r, _)| r.to_owned());
+        let repo = self.repo().map(str::to_owned);
         // (A code block's line in its background to the width given, as hover popups have it.)
         let code_bg = ui.md.code_bg;
         // (Code and tables scrolled sideways, as far as the side's are; how far they'd go.)
@@ -338,6 +338,23 @@ impl IssueView {
             _ if self.t("close").to_lowercase().starts_with("fixed") => ("completed".into(), None),
             _ => ("not planned".into(), None),
         }
+    }
+
+    /// Its repo's URL (`https://github.com/o/r`).
+    fn repo(&self) -> Option<&str> {
+        self.url.rsplit_once("/issues/").map(|(r, _)| r)
+    }
+
+    /// The PR or issue of its repo link `u` is to (`/pull/N…`: a PR, `Some(true)`; `/issues/N…`:
+    /// either; not this issue, nor another repo's).
+    pub fn number_in(&self, u: &str) -> Option<(u64, bool)> {
+        let t = u.strip_prefix(self.repo()?)?;
+        let (rest, pr) = match t.strip_prefix("/pull/") {
+            Some(r) => (r, true),
+            None => (t.strip_prefix("/issues/")?, false),
+        };
+        let n = rest.split(['#', '/', '?']).next()?.parse::<u64>().ok()?;
+        (n != self.number).then_some((n, pr))
     }
 
     pub fn url(&self) -> &str {
@@ -549,6 +566,8 @@ impl IssueView {
                 self.go(r, x);
             }
             (_, KeyCode::Tab) => self.go_side(self.side_of(col) == 0),
+            // (Many terminals send Ctrl-h as Backspace, as the PR view has it.)
+            (_, KeyCode::Backspace) => self.go_side(false),
             (_, KeyCode::Char('v')) => {
                 (self.select, self.lines_sel) = (!self.select, false);
                 self.sel = self.select.then_some((self.cur, self.cur));
@@ -692,7 +711,8 @@ MOVE
   Tab, Ctrl-h Ctrl-l   to the other side / the description / the pane
   v, x                 select from here; the line (again: the next too); ; drops it
   y                    copy what's selected
-  Enter                open the link under the cursor (a PR or issue here: in dv)
+  Enter                open the link under the cursor (this repo's issue: here; its PR:
+                       reviewed as dv list does, checked out, or in a worktree with -w)
   mouse                wheel scrolls the side it's over (Shift or sideways: the code
                        blocks); a drag copies
                        the text it's over (one side's)
@@ -818,6 +838,12 @@ fn an_issue_and_its_triage() {
     assert_eq!((v.mouse(MouseEventKind::Up(MouseButton::Left), 0, 0), v.cur, v.scroll), (None, (0, 2), [0; 2]));
     v.mouse(MouseEventKind::Down(MouseButton::Left), 2, 19); // (near the bottom: no scroll)
     assert_eq!(v.scroll, [0; 2]);
+    // A link: this repo's PR or issue (not this one, nor another repo's).
+    assert_eq!(v.number_in("https://github.com/o/r/pull/12/files"), Some((12, true)));
+    assert_eq!(v.number_in("https://github.com/o/r/issues/12#issuecomment-1"), Some((12, false)));
+    assert_eq!(v.number_in("https://github.com/o/r/issues/7"), None);
+    assert_eq!(v.number_in("https://github.com/o/r2/issues/3"), None);
+    assert_eq!(v.number_in("https://github.com/o/r/issues/new"), None);
     // Each side scrolls on its own: the wheel over the pane moves the pane only.
     let p = v.pane_x.unwrap();
     v.shown = 3;

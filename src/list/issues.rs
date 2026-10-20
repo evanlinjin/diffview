@@ -849,10 +849,12 @@ impl Issues {
                 }
                 super::issue_view::Did::Open(u) => {
                     // This repo's #N: a PR's view, an issue's, in dv; anything else, the browser.
-                    let here = v.url().rsplit_once("/issues/").map(|(r, _)| r.to_owned());
-                    let n = here.as_deref().and_then(|r| u.strip_prefix(r)).and_then(|t| t.strip_prefix("/issues/").or_else(|| t.strip_prefix("/pull/"))).and_then(|t| t.split(['#', '/', '?']).next()?.parse::<u64>().ok());
-                    let Some(n) = n else { return (self.msg = crate::view::open_url(&u), None).1 };
-                    if crate::gh::gh(&["pr", "view", &n.to_string(), "--json", "number"]).is_ok() {
+                    let Some((n, pr)) = v.number_in(&u) else { return (self.msg = crate::view::open_url(&u), None).1 };
+                    // (GitHub asked which it is, unless the link says: said meanwhile.)
+                    self.msg = format!("opening #{n}…");
+                    _ = term.draw(|f| self.draw(f));
+                    self.msg.clear();
+                    if pr || crate::gh::gh(&["pr", "view", &n.to_string(), "--json", "number"]).is_ok() {
                         return Some(IssuesDo::Pr(n));
                     }
                     match super::issue_view::IssueView::load(n, self.reviews_dir.as_deref(), self.can_triage) {
