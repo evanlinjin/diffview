@@ -154,10 +154,17 @@ pub(super) fn dropped_in(dir: &Path) -> Vec<String> {
     dropped_file(dir).and_then(|f| std::fs::read_to_string(f).ok()).unwrap_or_default().lines().map(str::to_owned).collect()
 }
 
-/// Record the dropped commits as `all` (none: the file goes).
-fn record_dropped(dir: &Path, all: &[String]) {
-    if let Some(f) = dropped_file(dir) {
-        _ = if all.is_empty() { std::fs::remove_file(f) } else { std::fs::write(f, all.join("\n")) };
+/// Record `dropped` with the commits dropped before (once each). Written whole and renamed into
+/// place: another dv reading it meanwhile sees the old list or the new, never half.
+fn record_dropped(dir: &Path, dropped: &[String]) {
+    let Some(f) = dropped_file(dir) else { return };
+    let mut all = dropped_in(dir);
+    all.extend(dropped.iter().cloned());
+    all.sort();
+    all.dedup();
+    let tmp = f.with_extension(format!("{}", std::process::id()));
+    if std::fs::write(&tmp, all.join("\n")).is_ok() {
+        _ = std::fs::rename(&tmp, &f);
     }
 }
 
@@ -288,9 +295,7 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], rewords: &[(&str, &s
     // What's dropped, kept beside the repo: any dv (a view, `dv amend` from Claude) knows a
     // commit gone for good from one rewritten (its questions don't follow it anywhere).
     if !dropped.is_empty() {
-        let mut all = dropped_in(dir);
-        all.extend(dropped.iter().cloned());
-        record_dropped(dir, &all);
+        record_dropped(dir, &dropped);
     }
     if skipped.len() == targets.len() {
         _ = git_in(dir, &["reset", "-q", &orig]);
@@ -424,14 +429,9 @@ impl App {
             .filter_map(|t| Some((t.conversation.clone(), super::commit_of(&t.conversation)?.to_owned())))
             .filter(|(_, sha)| !self.commits.iter().any(|c| &c.sha == sha))
             .collect();
-        // (One an amend dropped is gone, its questions with it: not moved onto another. One
-        // back here (a reset to the backup), or that git no longer has, is forgotten.)
-        let mut dropped = dropped_in(&self.root);
-        let had = dropped.len();
-        dropped.retain(|d| !self.commits.iter().any(|c| &c.sha == d) && git_in(&self.root, &["cat-file", "-e", &format!("{d}^{{commit}}")]).is_ok());
-        if dropped.len() != had {
-            record_dropped(&self.root, &dropped);
-        }
+        // (One an amend dropped is gone, its questions with it: not moved onto another. Read
+        // only: one back here isn't lost, so its record doesn't matter.)
+        let dropped = dropped_in(&self.root);
         lost.retain(|(_, sha)| !dropped.contains(sha));
         lost.sort();
         lost.dedup();
@@ -671,7 +671,9 @@ fn amend_undoing_a_whole_commit() {
     write("b.rs", "b\n");
     let second = git(&["rev-parse", "HEAD"]).trim().to_owned();
     assert!(fold(&dir, &base, &second, &[], None, "dv-backup/undo2").unwrap());
-    assert_eq!(dropped_in(&dir), [first, second]);
+    let mut both = vec![first, second];
+    both.sort();
+    assert_eq!(dropped_in(&dir), both); // (once each, in order)
 }
 
 #[test]
