@@ -143,14 +143,18 @@ pub(super) fn plan(dir: &Path, base: &str, blame: bool) -> Result<Plan> {
     Ok((hunks, commits))
 }
 
+/// An amend's outcome: how many commits took changes, those that didn't (sha, git's word why),
+/// and those dropped (sha).
+type Amended = (usize, Vec<(String, String)>, Vec<String>);
+
 /// Amend `hunks` (those with a commit to go in) into their commits: for each commit, newest
 /// first, a fixup commit and `rebase --autosquash` from the merge-base with `base` (newest first:
 /// the older ones' shas stay as they were). One that conflicts (a later commit changed those
 /// lines) is undone and its changes stay uncommitted; the rest go in. HEAD is kept on `backup`
 /// first. `rewords`: (a commit, its new message) each, with its changes or none. How many commits
-/// were amended, and those that weren't (with git's word why); none amended: an error, all as
-/// it was.
-pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], rewords: &[(&str, &str)], backup: &str) -> Result<(usize, Vec<(String, String)>)> {
+/// were amended, those that weren't (with git's word why), and those dropped (the changes undid
+/// all they did: nothing left of them); none amended: an error, all as it was.
+pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], rewords: &[(&str, &str)], backup: &str) -> Result<Amended> {
     let mb = git_in(dir, &["merge-base", base, "HEAD"])?.trim().to_owned();
     let order = git_in(dir, &["rev-list", "--first-parent", &format!("{mb}..HEAD")])?; // newest first
     let mut targets: Vec<&str> = vec![];
@@ -190,11 +194,24 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], rewords: &[(&str, &s
         Ok(())
     };
     let mut done: Vec<&Hunk> = vec![];
-    let mut skipped = vec![];
+    let (mut skipped, mut dropped) = (vec![], vec![]);
+    // Merges kept (not flattened), the backup branch left where it is, and no editor (see
+    // `diff::git`); `drop`: a sequence editor's script taking lines out of the todo.
+    let rebase = |drop: Option<&str>| -> Result<()> {
+        let mut cmd = std::process::Command::new("git");
+        cmd.arg("-C").arg(dir).args(["-c", "rebase.updateRefs=false", "rebase", "-q", "-i", "--autosquash", "--autostash", "--rebase-merges", &mb]);
+        cmd.env("GIT_EDITOR", "true").env("GIT_OPTIONAL_LOCKS", "0");
+        if let Some(d) = drop {
+            cmd.env("GIT_SEQUENCE_EDITOR", d);
+        }
+        let out = cmd.output()?;
+        anyhow::ensure!(out.status.success(), "git rebase: {}", String::from_utf8_lossy(&out.stderr).trim());
+        Ok(())
+    };
     for &t in &targets {
         let was = git_in(dir, &["rev-parse", "HEAD"])?.trim().to_owned();
         let mine: Vec<&Hunk> = hunks.iter().filter(|h| h.to.as_deref() == Some(t)).collect();
-        let one = (|| -> Result<()> {
+        let one = (|| -> Result<bool> {
             let mut text = String::new();
             for (i, h) in mine.iter().enumerate() {
                 if i == 0 || mine[i - 1].head != h.head {
@@ -213,13 +230,26 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], rewords: &[(&str, &s
                 Some((_, m)) => own(&["commit", "-q", "--no-verify", "--allow-empty", "-m", &format!("amend! {t}\n\n{m}")])?,
                 None => own(&["commit", "-q", "--no-verify", "-m", &format!("fixup! {t}")])?,
             }
-            // Merges kept (not flattened), and the backup branch left where it is.
-            // (No editor: see `diff::git`.)
-            git_in(dir, &["-c", "rebase.updateRefs=false", "rebase", "-q", "-i", "--autosquash", "--autostash", "--rebase-merges", &mb])?;
-            Ok(())
+            match rebase(None) {
+                Ok(()) => Ok(false),
+                // Its changes undo all it did: git won't make it empty. Dropped, it and the fixup
+                // (`fixup!`, `amend!`; what's uncommitted keeps the undoing: the same, the commit gone).
+                Err(e) if format!("{e:#}").contains("would make") || format!("{e:#}").contains("No changes") => {
+                    _ = git_in(dir, &["rebase", "--abort"]);
+                    let short = &t[..7.min(t.len())];
+                    let script = format!("f() {{ grep -v -e '^pick {short}[0-9a-f]* ' -e '! {t}' \"$1\" > \"$1.dv\"; mv \"$1.dv\" \"$1\"; }}; f");
+                    rebase(Some(&script)).map(|()| true)
+                }
+                Err(e) => Err(e),
+            }
         })();
         match one {
-            Ok(()) => done.extend(mine),
+            Ok(gone) => {
+                done.extend(mine);
+                if gone {
+                    dropped.push(t.to_owned());
+                }
+            }
             Err(e) => {
                 _ = git_in(dir, &["rebase", "--abort"]);
                 // This one's changes uncommitted again (staged: a mixed reset would untrack new
@@ -248,7 +278,7 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], rewords: &[(&str, &s
         let why = skipped.first().map(|s| s.1.as_str()).unwrap_or("");
         anyhow::bail!("nothing amended: it's all as it was ({why})");
     }
-    Ok((targets.len() - skipped.len(), skipped))
+    Ok((targets.len() - skipped.len(), skipped, dropped))
 }
 
 /// Everything uncommitted (`paths`: in those files) folded into the branch's commit `sha` (full;
@@ -429,7 +459,16 @@ impl App {
         let head = git_in(&self.root, &["rev-parse", "HEAD"])?.trim().to_owned();
         let messages: Vec<(String, String)> = self.amend_file().map(|p| claude_messages(&p, &head, &commits)).unwrap_or_default();
         let messages: Vec<(&str, &str)> = messages.iter().filter(|m| hunks.iter().any(|h| h.to.as_deref() == Some(m.0.as_str()))).map(|m| (m.0.as_str(), m.1.as_str())).collect();
-        let (n, skipped) = amend(&self.root, &self.full_base, &hunks, &messages, &backup)?;
+        let (n, skipped, dropped) = amend(&self.root, &self.full_base, &hunks, &messages, &backup)?;
+        // (By subject: the sha's gone.)
+        let gone = match dropped.as_slice() {
+            [] => String::new(),
+            d => format!(
+                ", dropped {} (its changes all undone): {}",
+                match d.len() { 1 => "a commit".to_owned(), k => format!("{k} commits") },
+                d.iter().map(|t| format!("\"{}\"", commits.iter().find(|c| c.0 == *t).map_or("?", |c| c.1.as_str()))).collect::<Vec<_>>().join(", "),
+            ),
+        };
         let reworded = match messages.len() {
             0 => String::new(),
             k => format!(", {k} reworded by Claude"),
@@ -446,7 +485,7 @@ impl App {
                 commits.iter().find(|c| c.0 == *t).map_or("", |c| c.1.as_str()),
             ),
         };
-        Ok(self.and_reload(format!("amended into {n} commit(s){reworded} (was {short}: {backup}){left}; {}", self.next_step(true))))
+        Ok(self.and_reload(format!("amended into {n} commit(s){reworded}{gone} (was {short}: {backup}){left}; {}", self.next_step(true))))
     }
 
     /// `f` on a commit in the list: everything uncommitted folded into that one (new lines too).
@@ -513,7 +552,8 @@ fn ask_prompt(p: &Path, head: &str, all: bool) -> String {
          For each entry in \"hunks\" (a change, as a diff of {}'s file), decide which of the commits in \"commits\" \
          it belongs in: the one whose change it completes or fixes (look at them: `git show <sha>`; `git diff` shows \
          all the uncommitted changes). Set its \"commit\" to that commit's full sha, and \"why\" to a few words why; \
-         leave \"commit\" empty if none fits (it then stays uncommitted). Then, for each commit that gets changes: \
+         leave \"commit\" empty if none fits (it then stays uncommitted). A change that undoes what a commit \
+         did (removes what it added) belongs in that commit; if it undoes all of it, dv drops the commit. Then, for each commit that gets changes: \
          if its message (`git log -1 --format=%B <sha>`) would no longer describe it with them in (they add \
          something it doesn't mention, or change what it says), set that entry's \"message\" in \"commits\" to the \
          whole new message (subject, a blank line, the body), in the repo's style (Conventional Commits, if it uses \
@@ -535,6 +575,32 @@ fn claude_rewords_commits_that_take_changes() {
     assert_eq!(claude_messages(&p, "h1", &commits), [("aaaa111".to_owned(), "feat: a, and b\n\nBoth.".to_owned())]);
     assert!(claude_messages(&p, "h2", &commits).is_empty()); // (asked at another HEAD)
     _ = std::fs::remove_file(p);
+}
+
+#[test]
+fn amend_undoing_a_whole_commit() {
+    let dir = crate::diff::scratch_repo("amend-undo");
+    let git = |args: &[&str]| git_in(&dir, args).unwrap();
+    let write = |f: &str, s: &str| std::fs::write(dir.join(f), s).unwrap();
+    write("a.rs", "base\n");
+    write("b.rs", "b\n");
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "base"]);
+    let base = git(&["rev-parse", "HEAD"]).trim().to_owned();
+    write("a.rs", "base\nmine\n");
+    git(&["commit", "-q", "-am", "first"]);
+    write("b.rs", "b\nsecond\n");
+    git(&["commit", "-q", "-am", "second"]);
+    // What "first" did, undone: amended in, it's gone.
+    write("a.rs", "base\n");
+    let (hunks, _) = plan(&dir, &base, true).unwrap();
+    let first = git(&["rev-parse", "HEAD~1"]).trim().to_owned();
+    let (n, skipped, dropped) = amend(&dir, &base, &hunks, &[], "dv-backup/undo").unwrap();
+    assert_eq!((n, skipped.len(), dropped), (1, 0, vec![first]));
+    assert_eq!(git(&["log", "--format=%s", &format!("{base}..HEAD")]).lines().collect::<Vec<_>>(), ["second"]);
+    // Nothing of it left, here or uncommitted; the backup has it.
+    assert_eq!((git(&["show", "HEAD:a.rs"]).as_str(), git(&["status", "--porcelain"]).as_str()), ("base\n", ""));
+    assert_eq!(git(&["log", "-1", "--format=%s", "dv-backup/undo~1"]).trim(), "first");
 }
 
 #[test]
@@ -569,7 +635,7 @@ fn amend_by_blame() {
             ("a.rs:9".into(), None),
         ]
     );
-    let (n, skipped) = amend(&dir, &base, &hunks, &[], "dv-backup/t").unwrap();
+    let (n, skipped, _) = amend(&dir, &base, &hunks, &[], "dv-backup/t").unwrap();
     assert_eq!((n, skipped.len()), (2, 0));
     // Each change in its commit; the history still two commits; the rest uncommitted.
     assert_eq!(git(&["log", "--format=%s", &format!("{base}..HEAD")]).lines().collect::<Vec<_>>(), ["second", "first"]);
@@ -612,7 +678,7 @@ fn amend_by_blame() {
     for h in hunks.iter_mut() {
         h.to = Some(if h.body.contains("TWO") { second.clone() } else { first.clone() }); // "/// three" is second's
     }
-    let (n, skipped) = amend(&dir, &base, &hunks, &[], "dv-backup/t4").unwrap();
+    let (n, skipped, _) = amend(&dir, &base, &hunks, &[], "dv-backup/t4").unwrap();
     assert_eq!((n, skipped.iter().map(|s| s.0.as_str()).collect::<Vec<_>>()), (1, vec![first.as_str()]));
     assert!(git(&["show", "HEAD:a.rs"]).contains("// TWO"));
     assert_eq!(git(&["diff", "HEAD"]).lines().filter(|l| l.starts_with('+') && !l.starts_with("+++")).collect::<Vec<_>>(), ["+/// THREE"]);
