@@ -5,6 +5,19 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.58.2] - 2026-10-20
+
+### Fixed
+- Issue view cursor:
+  - it stays on its side's columns;
+  - `x` again goes past a bubble's frame;
+  - Enter opens only links that are on screen;
+  - after `L` or `a`, a cursor key moves it.
+- A scrolled code block in an issue no longer crashes debug builds.
+- `‹` and `›` don't cover a jump label, or shift a line with wide characters.
+- Dropping one file's changes takes its name literally.
+- Only http(s) links are opened.
+
 ## [0.58.1] - 2026-10-20
 
 ### Fixed
