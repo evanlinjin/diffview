@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.74.4] - 2026-10-20
+
+### Fixed
+- A deleted reviewer or assignee shows as ghost too (the PR's facts and activity, dv list's
+  reviews), so deferrals waiting on "a review from anyone" judge them alike.
+- A deleted author's PR isn't on the stalled tab: there's no one to nudge.
+
 ## [0.74.3] - 2026-10-20
 
 ### Fixed
