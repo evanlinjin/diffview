@@ -183,6 +183,36 @@ pub fn pr(n: Option<u64>) -> Result<Pr> {
     let mut args = vec!["pr", "view", "--json", "number,title,url,baseRefName,headRefOid,baseRefOid,headRefName,headRepositoryOwner,author,isCrossRepository,headRepository,maintainerCanModify"];
     args.extend(n.as_deref());
     let v: Value = gh_json(&args)?;
+    let pr = pr_of(&v)?;
+    // Kept, for dv's commands Claude runs (`pr_recent`).
+    if let Some(p) = pr_cache(pr.number) {
+        _ = p.parent().map(std::fs::create_dir_all);
+        _ = crate::claude::write(&p, &v);
+    }
+    Ok(pr)
+}
+
+/// Where `pr` keeps PR `n` as GitHub last gave it.
+fn pr_cache(n: u64) -> Option<std::path::PathBuf> {
+    Some(crate::claude::dv_dir().ok()?.join("cache").join(format!("pr-{n}-pr.json")))
+}
+
+/// How long what dv last fetched of a PR stands in for asking GitHub again, in dv's commands
+/// Claude runs (`dv review-check` after each edit of a review, say).
+pub(crate) const RECENT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+/// Whether `p` was written in the last `RECENT`.
+pub(crate) fn recent(p: &std::path::Path) -> bool {
+    std::fs::metadata(p).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age < RECENT)
+}
+
+/// PR `n` as `pr` last fetched it, if that was recent (`RECENT`).
+pub fn pr_recent(n: u64) -> Option<Pr> {
+    let p = pr_cache(n).filter(|p| recent(p))?;
+    pr_of(&serde_json::from_str(&std::fs::read_to_string(p).ok()?).ok()?).ok()
+}
+
+fn pr_of(v: &Value) -> Result<Pr> {
     Ok(Pr {
         number: v["number"].as_u64().context("pr number")?,
         node_id: String::new(),

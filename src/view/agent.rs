@@ -698,6 +698,7 @@ impl App {
         cmd.args(["--", "env"])
             .arg(path_env) // the pane gets zellij's environment, not dv's
             .args(data_env()) // and so the same dv directory as this one, which it watches
+            .args(self.pr.as_ref().map(|p| format!("DV_PR={}", p.number))) // (its PR: `dv review-*` needn't ask GitHub)
             .arg("claude")
             .args(prompt)
             .args(crate::claude::model_args(work, &self.root)) // (none: `dv.model`, it's for anything)
@@ -818,6 +819,7 @@ impl App {
             session.push("--fork-session".into());
         }
         let child = claude_command(work, prompt, &self.root, &session, more, None)
+            .envs(self.pr.as_ref().map(|p| ("DV_PR", p.number.to_string())))
             .stdin(std::process::Stdio::null())
             .stdout(std::fs::File::create(&log)?)
             .stderr(std::fs::File::create(&err)?)

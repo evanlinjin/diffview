@@ -438,7 +438,10 @@ fn diff_base(o: &Opts, pr: Option<&gh::Pr>) -> anyhow::Result<String> {
 
 /// `dv review-info` / `dv review-check`, for the current checkout (or PR `-p N`), no checkout.
 fn review_file(cmd: &str, o: &Opts) -> anyhow::Result<()> {
-    let pr = gh::pr(o.pr).ok();
+    // The PR dv ran Claude on (`DV_PR`): as dv last fetched it, if lately, not GitHub again
+    // for each of a review's many checks.
+    let n = o.pr.or_else(|| std::env::var("DV_PR").ok()?.parse().ok());
+    let pr = n.and_then(gh::pr_recent).map_or_else(|| gh::pr(n).ok(), Some);
     if cmd == "review-comments" {
         return review_comments(pr.as_ref());
     }
@@ -483,7 +486,11 @@ fn review_file(cmd: &str, o: &Opts) -> anyhow::Result<()> {
 /// answer, with `"about": <id>` on a comment of its own). Read only.
 fn review_comments(pr: Option<&gh::Pr>) -> anyhow::Result<()> {
     let p = pr.context("no PR here (dv review-comments -p N for PR N)")?;
-    let review = gh::parse_threads(&gh::threads_json(p.number)?);
+    let threads = match view::recent_threads(p.number) {
+        Some(t) => t,
+        None => gh::threads_json(p.number)?,
+    };
+    let review = gh::parse_threads(&threads);
     let threads: Vec<serde_json::Value> = review
         .threads
         .iter()

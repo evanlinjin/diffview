@@ -177,6 +177,7 @@ fn run(n: u64, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sender<
     let log = std::env::temp_dir().join(format!("dv-claude-batch-{}-{n}.log", std::process::id()));
     let more = crate::claude::tools_for(matches!(task, Task::FixChecks).then_some(n), matches!(task, Task::Answer { .. }));
     let st = crate::claude::claude_command(task.work(), &prompt, &dir, &session, &more.iter().map(String::as_str).collect::<Vec<_>>(), None)
+        .env("DV_PR", n.to_string()) // (`dv review-*` read what dv has of it lately, not GitHub each time)
         .stdin(std::process::Stdio::null())
         .stdout(std::fs::File::create(&log)?)
         .stderr(std::fs::File::create(log.with_extension("err"))?)

@@ -95,7 +95,10 @@ disk: rust-analyzer can index it and `hx` can open it.
    the diff dv shows; `dv review-check` checks every comment against the diff (errors: dv can't
    place it; warnings: GitHub won't take it, more than 3 lines from a change, or it's outdated).
    `review-check` also records each comment's `code` (the commented lines' text) and moves
-   comments whose code moved. dv does the same on every load, keeping comments on their code
+   comments whose code moved. Run by a Claude dv started on a PR (`DV_PR=<n>` in its
+   environment), `dv review-*` take the PR, and `review-comments` its threads, from what dv
+   fetched of it in the last 15 minutes (`cache/` in dv's directory), not GitHub again for
+   each of a review's many checks. dv does the same on every load, keeping comments on their code
    through new commits and edits (Claude's or yours); a comment whose code is gone is
    `[outdated]`: folded, dimmed, showing that code, placed near its old line (or under the file
    header), and `c`/`C` refuse it. dv shows the
