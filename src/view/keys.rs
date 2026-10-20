@@ -19,6 +19,8 @@ DIFF
   ]g [g                next / prev hunk (change)
   ]f [f, Space f       next / prev file, file picker
   Space C              commit picker: one commit's diff, or all of them
+  Space N              Claude drafts a new PR from what's selected (or the line): your editor
+                       first, on what it should do; dv list's drafts tab has it
   ]c [c                next / prev comment thread
   ]u [u                next / prev unresolved one (wraps around)
   ]a [a                next / prev Claude comment (wraps around)
@@ -318,6 +320,7 @@ impl App {
             ' ' => ("space", &[
                 ("f", "file picker"),
                 ("C", "commit picker (one commit, or all)"),
+                ("N", "Claude drafts a new PR from the selection"),
                 ("t", "review threads (Tab: unresolved, pending, …)"),
                 ("p", "… your pending comments"),
                 ("A", "… Claude's comments"),
@@ -486,6 +489,7 @@ impl App {
                 self.picker = Some(Picker::new(" files ", items));
             }
             (' ', 'C') => self.commit_picker(),
+            (' ', 'N') => self.draft_from_selection(),
             (' ', 'y') => self.yank(false),
             (' ', 'c') => self.copy_ref(),
             (' ', 'r') => self.toggle_resolved(),

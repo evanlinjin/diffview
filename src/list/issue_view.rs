@@ -773,6 +773,21 @@ impl IssueView {
         self.go(row, self.cur.1);
     }
 
+    /// The issue's title.
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    /// What's selected (none: the cursor's line, on its side), as text.
+    pub fn picked_text(&self) -> String {
+        if self.sel.is_some_and(|(a, b)| a != b) {
+            return self.selection();
+        }
+        let row = self.cur.0;
+        let cells = self.cells(row);
+        self.text(row).map(|x| cells.get(x).map_or("", String::as_str)).collect::<String>().trim_end().to_owned()
+    }
+
     /// Whether there's a selection to drop (`Esc` drops it before leaving).
     pub fn selecting(&self) -> bool {
         self.select || self.sel.is_some()
@@ -877,6 +892,8 @@ MOVE
 ON GITHUB
   C                    comment on it (your editor first)
   Space l              its labels and assignees (Enter toggles one; triage access)
+  Space N              Claude drafts a new PR from what's selected (or the line): your editor
+                       first (N N: a PR fixing the whole issue)
   L L                  add the labels Claude's triage suggests
   T T                  give it the title Claude's triage suggests
   X X                  close it, with Claude's closing comment (your editor first; none
@@ -946,6 +963,10 @@ fn an_issue_and_its_triage() {
     assert_eq!(v.cur, (row, 5)); // "panics"
     v.key(None, KeyCode::Char('x'), false);
     assert!(matches!(v.key(None, KeyCode::Char('y'), false), Did::Copy(t) if t == "It panics."));
+    // Space N's text: the selection, else the cursor's line.
+    let row = v.lines(0).iter().position(|l| l.to_string().contains("It panics.")).unwrap();
+    (v.cur, v.sel) = ((row, 2), None);
+    assert_eq!(v.picked_text(), "It panics.");
     v.key(None, KeyCode::Tab, false);
     assert!(v.cur.1 >= v.pane_x.unwrap());
     v.key(None, KeyCode::Char('v'), false);

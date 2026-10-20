@@ -995,7 +995,22 @@ impl Issues {
                 self.msg.clear();
                 self.open_meta(n);
             }
-            (_, KeyCode::Char(' ')) => (self.pending, self.msg) = (Some(' '), "Space: l labels, assignees".into()),
+            // A PR from what's selected (none: the cursor's line), of this issue's but not fixing
+            // it whole (N N does that).
+            (Some(' '), KeyCode::Char('N')) => {
+                let draft = format!("From #{n} ({}):\n\n> {}\n\nWhat a PR should do about it: ", v.title(), v.picked_text().trim().replace('\n', "\n> "));
+                let what = format!("a new PR from #{n}, for Claude to draft (what it should do; unpublished until you publish it)");
+                let task = said(edit(term, &what, &draft, false), &mut self.msg)?;
+                match start_new_pr(&task, &self.root) {
+                    Ok((id, rx)) => {
+                        self.drafts.push(rx);
+                        self.drafting.insert(id);
+                        self.msg = format!("Claude is drafting {} (from #{n}): dv list's drafts tab shows it", crate::replace::label(id));
+                    }
+                    Err(e) => self.msg = format!("couldn't start it: {e:#}"),
+                }
+            }
+            (_, KeyCode::Char(' ')) => (self.pending, self.msg) = (Some(' '), "Space: l labels, assignees · N a PR from the selection".into()),
             (Some(' '), _) => self.msg.clear(), // (Space, then not l: called off)
             (_, KeyCode::Char(c @ ('g' | 'L' | 'T' | 'X' | 'N' | 'a'))) => {
                 self.pending = Some(c);

@@ -38,6 +38,22 @@ impl App {
         t
     }
 
+    /// `Space N`: Claude drafts a new PR from what's selected (none: the cursor's line), with
+    /// where it is (`path:line`, this PR): your editor first, on what it should do about it.
+    /// It drafts in the background, unpublished: dv list's drafts tab has it.
+    pub(super) fn draft_from_selection(&mut self) {
+        let t = self.selection_text(false);
+        let t = if t.trim().chars().count() > 1 { t } else { self.rows[self.head.row].line.text.clone() };
+        let at = self.file_ref().map(|r| format!(" {r}")).unwrap_or_default();
+        let of = self.pr.as_ref().map(|p| format!(" (PR #{})", p.number)).unwrap_or_default();
+        let draft = format!("From{at}{of}:\n\n```\n{}\n```\n\nWhat a PR should do about it: ", t.trim_end());
+        self.msg = match draft_new_pr(&self.root, &draft) {
+            Ok(Some(label)) => format!("Claude is drafting {label}: dv list's drafts tab shows it (Enter there reviews it, S publishes it)"),
+            Ok(None) => "not drafted".into(),
+            Err(e) => format!("couldn't start it: {e:#}"),
+        };
+    }
+
     pub(super) fn yank(&mut self, patch: bool) {
         let t = self.selection_text(patch);
         if t.is_empty() {
@@ -108,4 +124,14 @@ impl App {
             None => self.msg = "nothing to copy a reference to here".into(),
         }
     }
+}
+
+/// Your editor on `prefill` (what a new PR should do), then Claude drafting it in the
+/// background (unpublished): its label ("new PR 3"), or None if you left it empty.
+pub(crate) fn draft_new_pr(root: &std::path::Path, prefill: &str) -> Result<Option<String>> {
+    let Some(task) = compose_with("a new PR for Claude to draft (what it should do; unpublished until you publish it)", false, prefill, false)? else { return Ok(None) };
+    let id = crate::replace::create_new(&task, root)?;
+    // (Its news isn't followed here: dv list's drafts tab shows how it goes.)
+    _ = crate::batch::replace(vec![id], root.to_path_buf(), String::new());
+    Ok(Some(crate::replace::label(id)))
 }
