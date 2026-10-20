@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.74.2] - 2026-10-20
+
+### Fixed
+- A comment under no code line shown (its line hidden by less context) leaves the cursor on its
+  own line when it goes.
+- An issue that won't open says GitHub's reason (a PR's number, no access); a deleted author
+  shows as ghost.
+- The panic log's place is found when dv takes the terminal, not inside the panic hook.
+
 ## [0.74.1] - 2026-10-20
 
 ### Fixed
