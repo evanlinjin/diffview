@@ -25,6 +25,71 @@ struct Side {
     w: usize,
 }
 
+/// A thing in an issue's timeline: a comment (who, when, what), or something done (who, what,
+/// when, a link: what mentioned it, say).
+#[derive(Clone, Debug)]
+pub enum Act {
+    Comment(String, String, String),
+    Event(String, String, String, Option<String>),
+}
+
+/// What of an issue's timeline dv shows, and each type's fields.
+const ISSUE_TIMELINE: &str = "timelineItems(last: 100, itemTypes: [ISSUE_COMMENT, LABELED_EVENT, UNLABELED_EVENT, \
+ASSIGNED_EVENT, UNASSIGNED_EVENT, RENAMED_TITLE_EVENT, CLOSED_EVENT, REOPENED_EVENT, CROSS_REFERENCED_EVENT, \
+MARKED_AS_DUPLICATE_EVENT, CONNECTED_EVENT]) { nodes { __typename \
+... on IssueComment { createdAt author { login } body } \
+... on LabeledEvent { createdAt actor { login } label { name } } \
+... on UnlabeledEvent { createdAt actor { login } label { name } } \
+... on AssignedEvent { createdAt actor { login } assignee { ... on User { login } } } \
+... on UnassignedEvent { createdAt actor { login } assignee { ... on User { login } } } \
+... on RenamedTitleEvent { createdAt actor { login } previousTitle currentTitle } \
+... on ClosedEvent { createdAt actor { login } stateReason closer { ... on PullRequest { number url } ... on Commit { abbreviatedOid url } } } \
+... on ReopenedEvent { createdAt actor { login } } \
+... on CrossReferencedEvent { createdAt actor { login } source { ... on Issue { number title url } ... on PullRequest { number title url } } } \
+... on MarkedAsDuplicateEvent { createdAt actor { login } canonical { ... on Issue { number url } ... on PullRequest { number url } } } \
+... on ConnectedEvent { createdAt actor { login } subject { ... on Issue { number title url } ... on PullRequest { number title url } } } } }";
+
+/// An issue's timeline (`ISSUE_TIMELINE`'s nodes), as dv shows it.
+fn acts(nodes: &[Value]) -> Vec<Act> {
+    let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
+    nodes
+        .iter()
+        .filter_map(|it| {
+            let (who, at) = (s(&it["actor"]["login"]), s(&it["createdAt"]));
+            let ev = |what: String, url: Option<String>| Some(Act::Event(who.clone(), what, at.clone(), url));
+            let to = |x: &Value| (format!("#{} {}", x["number"], s(&x["title"])).trim_end().to_owned(), Some(s(&x["url"])).filter(|u| !u.is_empty()));
+            match it["__typename"].as_str()? {
+                "IssueComment" => Some(Act::Comment(s(&it["author"]["login"]), at, s(&it["body"]).replace("\r\n", "\n"))),
+                "LabeledEvent" => ev(format!("added the label {}", s(&it["label"]["name"])), None),
+                "UnlabeledEvent" => ev(format!("removed the label {}", s(&it["label"]["name"])), None),
+                "AssignedEvent" => ev(format!("assigned @{}", s(&it["assignee"]["login"])), None),
+                "UnassignedEvent" => ev(format!("unassigned @{}", s(&it["assignee"]["login"])), None),
+                "RenamedTitleEvent" => ev(format!("changed the title: {} → {}", s(&it["previousTitle"]), s(&it["currentTitle"])), None),
+                "ClosedEvent" => {
+                    let c = &it["closer"];
+                    let by = c["number"].as_u64().map(|n| format!(" with #{n}")).or(c["abbreviatedOid"].as_str().map(|o| format!(" with {o}"))).unwrap_or_default();
+                    let why = s(&it["stateReason"]).to_lowercase().replace('_', " ");
+                    ev(format!("closed it{by}{}", if why.is_empty() { String::new() } else { format!(" ({why})") }), Some(s(&c["url"])).filter(|u| !u.is_empty()))
+                }
+                "ReopenedEvent" => ev("reopened it".into(), None),
+                "CrossReferencedEvent" => {
+                    let (what, url) = to(&it["source"]);
+                    ev(format!("mentioned this in {what}"), url)
+                }
+                "MarkedAsDuplicateEvent" => {
+                    let (what, url) = to(&it["canonical"]);
+                    ev(format!("marked this a duplicate of {what}"), url)
+                }
+                "ConnectedEvent" => {
+                    let (what, url) = to(&it["subject"]);
+                    ev(format!("linked {what}"), url)
+                }
+                _ => None,
+            }
+        })
+        .collect()
+}
+
 /// What a key in the view came to, for the list to do: text to copy, a link to open.
 pub enum Did {
     Nothing,
@@ -43,8 +108,8 @@ pub struct IssueView {
     url: String,
     body: String,
     labels: Vec<(String, String)>,
-    /// (who, when, what), oldest first.
-    comments: Vec<(String, String, String)>,
+    /// Its timeline, oldest first: comments, and what else happened.
+    activity: Vec<Act>,
     triage: Value,
     /// How far each side's scrolled (one column: the first's), on its own.
     scroll: [usize; 2],
@@ -78,7 +143,11 @@ pub struct IssueView {
 impl IssueView {
     /// Issue `n` from GitHub, with its triage from `dir` (the reviews' directory).
     pub fn load(n: u64, dir: Option<&std::path::Path>, can_triage: bool) -> Result<IssueView> {
-        let v: Value = gh::gh_json(&["issue", "view", &n.to_string(), "--json", "number,title,author,url,body,labels,comments"])?;
+        let v: Value = gh::gh_json(&["issue", "view", &n.to_string(), "--json", "number,title,author,url,body,labels"])?;
+        // Its timeline: comments, and what else happened (labels, who has it, what mentions it).
+        let q = format!("query($owner: String!, $name: String!, $n: Int!) {{ repository(owner: $owner, name: $name) {{ issue(number: $n) {{ {ISSUE_TIMELINE} }} }} }}");
+        let t: Value = gh::gh_json(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-F", &format!("n={n}"), "-f", &format!("query={q}")])?;
+        let timeline = acts(t["data"]["repository"]["issue"]["timelineItems"]["nodes"].as_array().map(Vec::as_slice).unwrap_or(&[]));
         let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
         let triage = dir
             .and_then(|d| std::fs::read_to_string(d.join(format!("issue-{n}.json"))).ok())
@@ -91,7 +160,7 @@ impl IssueView {
             url: s(&v["url"]),
             body: s(&v["body"]).replace("\r\n", "\n"),
             labels: v["labels"].as_array().into_iter().flatten().map(|l| (s(&l["name"]), s(&l["color"]))).collect(),
-            comments: v["comments"].as_array().into_iter().flatten().map(|c| (s(&c["author"]["login"]), s(&c["createdAt"]), s(&c["body"]).replace("\r\n", "\n"))).collect(),
+            activity: timeline,
             triage,
             scroll: [0; 2],
             sides: vec![],
@@ -294,13 +363,24 @@ impl IssueView {
             }
         }
         right.push((Line::default(), 0..0, vec![]));
-        right.push((Line::from(Span::styled(format!("activity ({})", self.comments.len()), ui.heading)), 0..right_w, vec![]));
-        for (who, when, body) in &self.comments {
-            let mut title = vec![Span::styled(format!("@{who}"), ui.thread)];
-            if !when.is_empty() {
-                title.push(Span::styled(format!(" · {}", gh::ago(when)), dim));
+        right.push((Line::from(Span::styled(format!("activity ({})", self.activity.len()), ui.heading)), 0..right_w, vec![]));
+        for a in &self.activity {
+            match a {
+                Act::Comment(who, when, body) => {
+                    let mut title = vec![Span::styled(format!("@{who}"), ui.thread)];
+                    if !when.is_empty() {
+                        title.push(Span::styled(format!(" · {}", gh::ago(when)), dim));
+                    }
+                    right.extend(bubble(title, md(body, inner, 1), right_w));
+                }
+                // What else happened: a dim line, as the PR view's (a link: Enter opens it).
+                Act::Event(who, what, when, url) => {
+                    let text = format!("● @{who} {what} · {}", gh::ago(when));
+                    let w = Span::raw(text.as_str()).width();
+                    let links = url.iter().map(|u| (0..w.min(right_w), u.clone())).collect();
+                    right.push((Line::from(Span::styled(super::card::cut(&text, right_w), dim)), 0..w.min(right_w), links));
+                }
             }
-            right.extend(bubble(title, md(body, inner, 1), right_w));
         }
         // Side by side, a dim line between; or one after the other.
         // (The description's text: after its margin.)
@@ -765,7 +845,7 @@ fn an_issue_and_its_triage() {
     let mut v = IssueView {
         number: 7, title: "panic".into(), author: "amy".into(), url: "https://github.com/o/r/issues/7".into(),
         body: "It **panics**.".into(), labels: vec![("bug".into(), "d73a4a".into())],
-        comments: vec![("bo".into(), String::new(), "Same here.".into())], triage, scroll: [0; 2], sides: vec![], width: 0, pane_x: None, shown: 0, cur: (0, 2), select: false, lines_sel: false, desc_rows: 0, code_left: [0; 2], code_over: [0; 2], can_triage: true, drafts: vec!["new PR 3: Claude is drafting it".into()], sel: None,
+        activity: vec![Act::Comment("bo".into(), String::new(), "Same here.".into())], triage, scroll: [0; 2], sides: vec![], width: 0, pane_x: None, shown: 0, cur: (0, 2), select: false, lines_sel: false, desc_rows: 0, code_left: [0; 2], code_over: [0; 2], can_triage: true, drafts: vec!["new PR 3: Claude is drafting it".into()], sel: None,
         hl: crate::highlight::Highlighter::default(),
     };
     assert_eq!(v.new_labels(), ["chain"]); // bug it has
@@ -884,4 +964,21 @@ fn an_issue_and_its_triage() {
     v.mouse(MouseEventKind::Down(MouseButton::Left), 2, 0);
     assert_eq!(v.mouse(MouseEventKind::Up(MouseButton::Left), 2, 0), None);
     assert!(v.sel.is_none());
+}
+
+#[test]
+fn an_issues_timeline() {
+    let nodes = serde_json::json!([
+        { "__typename": "IssueComment", "createdAt": "2026-01-01T00:00:00Z", "author": { "login": "amy" }, "body": "it panics" },
+        { "__typename": "LabeledEvent", "createdAt": "2026-01-02T00:00:00Z", "actor": { "login": "bo" }, "label": { "name": "bug" } },
+        { "__typename": "CrossReferencedEvent", "createdAt": "2026-01-03T00:00:00Z", "actor": { "login": "cy" },
+          "source": { "number": 9, "title": "Fix the panic", "url": "https://github.com/o/r/pull/9" } },
+        { "__typename": "ClosedEvent", "createdAt": "2026-01-04T00:00:00Z", "actor": { "login": "bo" }, "stateReason": "COMPLETED",
+          "closer": { "number": 9, "url": "https://github.com/o/r/pull/9" } },
+        { "__typename": "SubscribedEvent" },
+    ]);
+    let a = acts(nodes.as_array().unwrap());
+    assert!(matches!(&a[0], Act::Comment(who, _, body) if who == "amy" && body == "it panics"));
+    let said: Vec<String> = a[1..].iter().map(|e| match e { Act::Event(who, what, _, url) => format!("@{who} {what} {}", url.as_deref().unwrap_or("")), _ => String::new() }).collect();
+    assert_eq!(said, ["@bo added the label bug ", "@cy mentioned this in #9 Fix the panic https://github.com/o/r/pull/9", "@bo closed it with #9 (completed) https://github.com/o/r/pull/9"]);
 }
