@@ -39,6 +39,8 @@ pub(super) enum Action {
     Publish(bool),
     /// A new PR fixing CI for Claude to draft, after the editor (from Claude's note on this PR).
     CiFixPr,
+    /// A new PR for Claude to draft, from this prefill (`Space N`: what's selected).
+    NewPr(String),
     /// Close the PR with Claude's draft comment, after the editor.
     ClosePr,
     /// Close the PRs the replacement here replaces, after the editor (the note).
@@ -113,6 +115,16 @@ pub(super) fn posted_msg(review: bool) -> &'static str {
 }
 
 impl App {
+    /// Your editor on `prefill` (what a new PR should do: `untouched_ok`, as it is), then Claude
+    /// drafting it in a process of its own (`dv replace`: it carries on if dv quits),
+    /// unpublished: dv list's drafts tab has it.
+    fn new_pr(&self, what: &str, prefill: &str, untouched_ok: bool) -> Result<String> {
+        let Some(task) = compose_with(what, false, prefill, untouched_ok)?.filter(|t| !t.trim().is_empty()) else { return Ok("not asked".into()) };
+        let id = crate::replace::create_new(&task, &self.root)?;
+        crate::replace::spawn(&[id])?;
+        Ok(format!("Claude is drafting {} in the background: dv list's drafts tab shows it (Enter there reviews it, S publishes it)", crate::replace::label(id)))
+    }
+
     pub(super) fn perform(&mut self, a: Action) -> Result<String> {
         match a {
             Action::Shell => {
@@ -305,14 +317,13 @@ impl App {
             Action::CiFixPr => {
                 let n = self.pr.as_ref().map_or(0, |p| p.number);
                 let c = self.ci_note(n).context("no fix in mind for CI any more")?;
-                let prefill = c.prefill(n);
-                let what = "a new PR fixing CI, for Claude to draft: what it should do; unpublished until you publish it";
-                let Some(task) = compose_with(what, false, &prefill, true)?.filter(|t| !t.trim().is_empty()) else { return Ok("not asked".into()) };
-                let id = crate::replace::create_new(&task, &self.root)?;
-                crate::claude::ci_fix_drafted(n); // not offered again
-                crate::replace::spawn(&[id])?;
-                Ok(format!("Claude is drafting {} in the background: dv list's drafts tab shows it", crate::replace::label(id)))
+                let said = self.new_pr("a new PR fixing CI, for Claude to draft: what it should do; unpublished until you publish it", &c.prefill(n), true)?;
+                if said.starts_with("Claude is drafting") {
+                    crate::claude::ci_fix_drafted(n); // not offered again
+                }
+                Ok(said)
             }
+            Action::NewPr(prefill) => self.new_pr("a new PR for Claude to draft: what it should do; unpublished until you publish it", &prefill, false),
             Action::CloseOriginals => {
                 let mut r = self.replacement.clone().context("not a replacement")?;
                 let which: Vec<String> = r.replaces.iter().filter(|o| !r.closed.contains(&o.number)).map(|o| format!("#{}", o.number)).collect();
