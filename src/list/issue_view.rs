@@ -137,8 +137,6 @@ pub struct IssueView {
     /// The cursor (line, column), as Helix's: `v` selects from where it was (`sel` then
     /// follows it), `x` the line.
     cur: (usize, usize),
-    /// Where the last draw put the cursor on screen (the key hints keep off it).
-    pub cursor_at: Option<(u16, u16)>,
     select: bool,
     /// The selection is `x`'s, whole lines: `x` again takes the next.
     lines_sel: bool,
@@ -207,7 +205,6 @@ impl IssueView {
             pane_x: None,
             shown: 0,
             cur: (0, 2),
-            cursor_at: None,
             select: false,
             lines_sel: false,
             desc_rows: 0,
@@ -530,7 +527,8 @@ impl IssueView {
         self.scroll[i] = (self.scroll[i] as isize + by).clamp(0, max as isize) as usize;
     }
 
-    pub fn draw(&mut self, f: &mut Frame, ui: &Ui, area: Rect) {
+    /// (Where it drew the cursor: what the key hints keep off.)
+    pub fn draw(&mut self, f: &mut Frame, ui: &Ui, area: Rect) -> Option<Rect> {
         let h = area.height as usize;
         if self.width != area.width as usize || self.sides.is_empty() {
             // (The cursor's side, and where on it, as it was: the pane moves with the width.)
@@ -569,10 +567,11 @@ impl IssueView {
         }
         let (row, col) = self.cur;
         let top = self.scroll[self.side_of(col)];
-        self.cursor_at = ((top..top + h).contains(&row) && col < area.width as usize).then(|| (area.x + col as u16, area.y + (row - top) as u16));
-        if let Some(at) = self.cursor_at {
-            f.buffer_mut()[at].set_style(if self.select { ui.cursor_select } else { ui.cursor });
+        let at = ((top..top + h).contains(&row) && col < area.width as usize).then(|| Rect { x: area.x + col as u16, y: area.y + (row - top) as u16, width: 1, height: 1 });
+        if let Some(at) = at {
+            f.buffer_mut()[at.as_position()].set_style(if self.select { ui.cursor_select } else { ui.cursor });
         }
+        at
     }
 
     /// The side column `x` is on: 0 the description's, 1 the pane's (side by side; one column:
@@ -932,7 +931,7 @@ fn an_issue_and_its_triage() {
     let mut v = IssueView {
         number: 7, title: "panic".into(), author: "amy".into(), url: "https://github.com/o/r/issues/7".into(),
         body: "It **panics**.".into(), labels: vec![("bug".into(), "d73a4a".into())],
-        activity: vec![Act::Comment("bo".into(), String::new(), "Same here.".into())], triage, scroll: [0; 2], sides: vec![], width: 0, pane_x: None, shown: 0, cur: (0, 2), cursor_at: None, select: false, lines_sel: false, desc_rows: 0, code_left: [0; 2], code_over: [0; 2], can_triage: true, drafts: vec!["new PR 3: Claude is drafting it".into()], sel: None,
+        activity: vec![Act::Comment("bo".into(), String::new(), "Same here.".into())], triage, scroll: [0; 2], sides: vec![], width: 0, pane_x: None, shown: 0, cur: (0, 2), select: false, lines_sel: false, desc_rows: 0, code_left: [0; 2], code_over: [0; 2], can_triage: true, drafts: vec!["new PR 3: Claude is drafting it".into()], sel: None,
         hl: crate::highlight::Highlighter::default(),
     };
     assert_eq!(v.new_labels(), ["chain"]); // bug it has
@@ -947,14 +946,14 @@ fn an_issue_and_its_triage() {
     snapshot("issue_view", &screen(80, 22, |f| {
         let a = f.area();
         v.title_bar(f, &ui, Rect { height: 1, ..a });
-        v.draw(f, &ui, Rect { y: 1, height: a.height - 1, ..a });
+        _ = v.draw(f, &ui, Rect { y: 1, height: a.height - 1, ..a });
     }));
     // Wide: the description, and the pane beside it (triage, then the conversation in bubbles).
     v.redraw();
     snapshot("issue_view_wide", &screen(160, 22, |f| {
         let a = f.area();
         v.title_bar(f, &ui, Rect { height: 1, ..a });
-        v.draw(f, &ui, Rect { y: 1, height: a.height - 1, ..a });
+        _ = v.draw(f, &ui, Rect { y: 1, height: a.height - 1, ..a });
     }));
     // A drag in the pane copies the comment's text, not the description beside it nor the bubble.
     use ratatui::crossterm::event::{MouseButton, MouseEventKind};
@@ -1012,13 +1011,13 @@ fn an_issue_and_its_triage() {
     // Sideways over the description: its code, from its start.
     v.body = format!("```\n{}\n{}\n```\n\n| ab | cd |\n|---|---|\n| 1 | 2 |", "x".repeat(300), "y".repeat(110));
     v.redraw();
-    let _ = screen(160, 22, |f| v.draw(f, &ui, f.area()));
+    let _ = screen(160, 22, |f| _ = v.draw(f, &ui, f.area()));
     assert!(v.lines(0).iter().any(|l| l.to_string().contains("  xxx")));
     v.cur = v.clamp(4, 3, 0);
     let at = v.cur;
     assert!(at.0 > 0);
     v.mouse(MouseEventKind::ScrollRight, 2, 0);
-    let _ = screen(160, 22, |f| v.draw(f, &ui, f.area()));
+    let _ = screen(160, 22, |f| _ = v.draw(f, &ui, f.area()));
     assert_eq!((v.code_left, v.cur), ([8, 0], at)); // (the cursor where it was)
     // (Cut both ways now: `‹` and `›` say there's more.)
     let code = v.lines(0).iter().map(|l| l.to_string()).find(|l| l.contains("xxx")).unwrap();
@@ -1028,13 +1027,13 @@ fn an_issue_and_its_triage() {
     // (Far right: a shorter line of the block scrolled past its end, no overflow.)
     for _ in 0..30 {
         v.mouse(MouseEventKind::ScrollRight, 2, 0);
-        let _ = screen(160, 22, |f| v.draw(f, &ui, f.area()));
+        let _ = screen(160, 22, |f| _ = v.draw(f, &ui, f.area()));
     }
     v.code_left = [8, 0];
     v.mouse(MouseEventKind::ScrollLeft, 2, 0);
     v.mouse(MouseEventKind::ScrollLeft, 2, 0);
     assert_eq!(v.code_left, [0, 0]);
-    let _ = screen(160, 22, |f| v.draw(f, &ui, f.area()));
+    let _ = screen(160, 22, |f| _ = v.draw(f, &ui, f.area()));
     // `ge x x y` on the last line: still the whole line.
     v.go(usize::MAX, 0);
     v.key(None, KeyCode::Char('x'), false);
@@ -1042,7 +1041,7 @@ fn an_issue_and_its_triage() {
     let (a, b) = v.sel.unwrap();
     assert!(a.0 == b.0 && b.1 > a.1, "{a:?} {b:?}");
     // A click in the margin: the cursor on the text beside it, nothing copied, the view still.
-    let _ = screen(160, 22, |f| v.draw(f, &ui, f.area()));
+    let _ = screen(160, 22, |f| _ = v.draw(f, &ui, f.area()));
     (v.scroll, v.shown) = ([0; 2], 20);
     v.mouse(MouseEventKind::Down(MouseButton::Left), 0, 0); // (the issue's link line, "  https://…")
     assert_eq!((v.mouse(MouseEventKind::Up(MouseButton::Left), 0, 0), v.cur, v.scroll), (None, (0, 2), [0; 2]));

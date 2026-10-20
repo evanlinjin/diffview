@@ -131,8 +131,8 @@ pub fn triage_of(dir: &std::path::Path, n: u64) -> Option<Triage> {
 }
 
 /// What issue `i` needs of you (`t`: Claude's triage of it, written at `t_at`, seconds):
-/// a PR linked as fixing it merged since Claude looked (whether it does is to check: Claude
-/// triages it again), Claude would close it, assigned to you, a PR would fix it (review that),
+/// a PR linked as fixing it merged since Claude looked (whether it does is to check: auto
+/// triages it again, as for a change), Claude would close it, assigned to you, a PR would fix it (review that),
 /// changed since Claude triaged it, not triaged.
 pub fn issue_needs(i: &Issue, t: Option<&Triage>, t_at: Option<i64>, me: &str) -> Vec<crate::todo::Need> {
     use crate::todo::Need;
@@ -154,7 +154,6 @@ pub fn issue_needs(i: &Issue, t: Option<&Triage>, t_at: Option<i64>, me: &str) -
     // that was kept).
     match (t, t_at) {
         (None, _) => out.push(Need::Untriaged),
-        (Some(_), _) if merged.is_some() => out.push(Need::Retriage),
         (Some(t), _) if !t.updated.is_empty() => {
             if crate::gh::epoch_secs(&i.updated) > crate::gh::epoch_secs(&t.updated) {
                 out.push(Need::Retriage);
@@ -200,7 +199,7 @@ fn triage_run(n: u64, updated: &str, fixes: &[(u64, String, String)], root: &std
             f => format!(
                 " PRs linked as fixing it: {}. A merged one may not fix it (only part of it, or on another branch): check \
                  the base branch before saying to close it.",
-                f.iter().map(|p| format!("#{} ({})", p.0, p.1.to_lowercase())).collect::<Vec<_>>().join(", ")
+                fixes_text(f)
             ),
         },
         crate::claude::now()
@@ -231,16 +230,31 @@ fn triage_run(n: u64, updated: &str, fixes: &[(u64, String, String)], root: &std
     Ok(batch::Status::Done(format!("{} turns, ${:.2}", v["num_turns"].as_u64().unwrap_or(0), v["total_cost_usd"].as_f64().unwrap_or(0.0))))
 }
 
-/// An issue to triage, as listed: its number, `updatedAt` (what it's triaged as of), and the PRs
-/// linked as fixing it.
-type Ask = (u64, (String, Vec<(u64, String, String)>));
+/// An issue to triage, as listed: its `updatedAt` (what it's triaged as of), and the PRs linked
+/// as fixing it.
+struct Ask {
+    n: u64,
+    updated: String,
+    fixes: Vec<(u64, String, String)>,
+}
 
-/// Claude triages each of `ns`, a couple at a time, in the background: its news on the receiver.
-fn triage_all(ns: Vec<Ask>, root: PathBuf, extra: String) -> Receiver<(u64, batch::Status)> {
-    batch::pool(ns, move |(n, (updated, fixes)), tx| {
-        _ = tx.send((*n, batch::Status::Reviewing));
-        (*n, triage_run(*n, updated, fixes, &root, &extra).unwrap_or_else(|e| batch::Status::Failed(format!("{e:#}"))))
+impl batch::Numbered for Ask {
+    fn number(&self) -> u64 {
+        self.n
+    }
+}
+
+/// Claude triages each of `asks`, a couple at a time, in the background: its news on the receiver.
+fn triage_all(asks: Vec<Ask>, root: PathBuf, extra: String) -> Receiver<(u64, batch::Status)> {
+    batch::pool(asks, move |a, tx| {
+        _ = tx.send((a.n, batch::Status::Reviewing));
+        (a.n, triage_run(a.n, &a.updated, &a.fixes, &root, &extra).unwrap_or_else(|e| batch::Status::Failed(format!("{e:#}"))))
     })
+}
+
+/// The PRs linked as fixing an issue, said: "#9 (merged), #12 (open)".
+fn fixes_text(fixes: &[(u64, String, String)]) -> String {
+    fixes.iter().map(|(n, s, _)| format!("#{n} ({})", s.to_lowercase())).collect::<Vec<_>>().join(", ")
 }
 
 /// Claude drafts a comment closing issue `n` (reading only), in the background: kept in its
@@ -436,8 +450,8 @@ impl Issues {
         let run = if busy { vec![] } else { self.auto_picks() };
         let started = !run.is_empty();
         if started {
-            self.say(format!("auto: Claude is triaging {}", run.iter().map(|r| format!("#{}", r.0)).collect::<Vec<_>>().join(", ")));
-            self.triage(run.into_iter().map(|r| r.0).collect(), String::new());
+            self.say(format!("auto: Claude is triaging {}", run.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(", ")));
+            self.triage(run, String::new());
         }
         // An issue Claude would close with no closing comment drafted yet: drafted, one at a time,
         // once each (X X then closes with it, your editor first).
@@ -464,13 +478,17 @@ impl Issues {
 
     /// What auto triages next (`AT_ONCE` at most, each once at an `updatedAt`): what isn't
     /// triaged, and what's changed since its triage, in the todo's order.
-    fn auto_picks(&mut self) -> Vec<(u64, String)> {
+    fn auto_picks(&mut self) -> Vec<u64> {
         let mut run = vec![];
         for it in self.todo.iter().filter(|it| it.deferred.is_none()) {
             let Some(i) = self.items.iter().find(|i| i.number == it.number) else { continue };
-            let due = it.needs.iter().any(|n| matches!(n, crate::todo::Need::Retriage | crate::todo::Need::Untriaged));
-            if due && run.len() < batch::AT_ONCE && self.auto_done.insert((i.number, i.updated.clone())) {
-                run.push((i.number, i.updated.clone()));
+            use crate::todo::Need::*;
+            let due = it.needs.iter().any(|n| matches!(n, Retriage | Untriaged | FixMerged(_)));
+            // Once each as it'd be triaged: its updatedAt, and the fixes merged (a merge doesn't
+            // move the issue's time).
+            let merged: Vec<u64> = i.fixed_by.iter().filter(|p| p.1 == "MERGED").map(|p| p.0).collect();
+            if due && run.len() < batch::AT_ONCE && self.auto_done.insert((i.number, format!("{}{merged:?}", i.updated))) {
+                run.push(i.number);
             }
         }
         run
@@ -1121,7 +1139,13 @@ impl Issues {
 
     /// Claude triages `ns` (`extra`: your instructions), each as listed now (`Ask`).
     fn triage(&mut self, ns: Vec<u64>, extra: String) {
-        let asks = ns.into_iter().map(|n| (n, (self.items.iter().find(|i| i.number == n).map_or(String::new(), |i| i.updated.clone()), self.fixes(n)))).collect();
+        let asks = ns
+            .into_iter()
+            .map(|n| match self.items.iter().find(|i| i.number == n) {
+                Some(i) => Ask { n, updated: i.updated.clone(), fixes: i.fixed_by.clone() },
+                None => Ask { n, updated: String::new(), fixes: vec![] },
+            })
+            .collect();
         self.running_rx.push(triage_all(asks, self.root.clone(), extra));
     }
 
@@ -1285,7 +1309,7 @@ impl Issues {
         // An issue open: its own title bar (no tabs: they're the list's), it, and the status bar.
         if let Some(v) = self.view.as_mut() {
             v.title_bar(f, ui, Rect { height: 1.min(area.height), ..area });
-            v.draw(f, ui, Rect { y: area.y + 1, height: area.height.saturating_sub(2), ..area });
+            let cursor = v.draw(f, ui, Rect { y: area.y + 1, height: area.height.saturating_sub(2), ..area });
             let left = if self.msg.is_empty() { " ? keys · q back to the issues".to_owned() } else { format!(" {}", self.msg) };
             status_bar(f, ui, &left, &format!("#{}", v.number), self.auto, "");
             if self.help {
@@ -1295,7 +1319,7 @@ impl Issues {
             } else {
                 // The keys most often wanted here, bottom right, as the PR view shows them.
                 let keys = [("C", "comment"), ("Space l", "labels, assignees"), ("X X", "close it"), ("a a", "triage again"), ("Enter", "open link"), ("o", "in the browser"), ("?", "all keys")];
-                draw_keys(f, ui, &keys, v.cursor_at.map(|(x, y)| Rect { x, y, width: 1, height: 1 }));
+                draw_keys(f, ui, &keys, cursor);
             }
             return;
         }
@@ -1376,7 +1400,7 @@ impl Issues {
             }
             keys.extend([("m", "mark"), ("a a", "Claude triages (marked)"), ("U U", "unmark all"), ("C", "auto on / off (triage, ranking)"), ("I I", "the PRs"), ("?", "all keys"), ("q", "quit")]);
             // (Off the selected card: the list's cursor.)
-            let card = Rect { y: 1 + ((sel - top) * rows) as u16, height: rows as u16, ..area };
+            let card = Rect { y: 1 + (sel.saturating_sub(top) * rows) as u16, height: rows as u16, ..area };
             draw_keys(f, ui, &keys, Some(card));
         }
         if self.help {
@@ -1440,8 +1464,7 @@ fn issue_card(i: &Issue, ui: &Ui, selected: bool, marked: bool, num_w: usize, wi
     // What would fix it; what's next.
     let mut fix = vec![indent()];
     if !i.fixed_by.is_empty() {
-        let prs: Vec<String> = i.fixed_by.iter().map(|(n, s, _)| format!("#{n} ({})", s.to_lowercase())).collect();
-        fix.push(sp(format!("fixed by {}   ", prs.join(", ")), tint(ui.plus)));
+        fix.push(sp(format!("fixed by {}   ", fixes_text(&i.fixed_by)), tint(ui.plus)));
     }
     match (draft, t.filter(|t| !t.next.is_empty())) {
         // Claude's draft fixing it: that, not what's next (it is).
@@ -1584,8 +1607,8 @@ fn issues_listed_triaged_filtered() {
     assert_eq!(shown(&l), [8]);
     let t = |seen: Vec<u64>| Triage { updated: "2026-01-01T00:00:00Z".into(), fixes_seen: seen, ..Triage::default() };
     let needs = |t: Triage| issue_needs(&l.items[0], Some(&t), None, "");
-    assert!(needs(t(vec![])).contains(&crate::todo::Need::FixMerged(9)) && needs(t(vec![])).contains(&crate::todo::Need::Retriage));
-    assert!(!needs(t(vec![9])).iter().any(|n| matches!(n, crate::todo::Need::FixMerged(_) | crate::todo::Need::Retriage)));
+    assert!(needs(t(vec![])).contains(&crate::todo::Need::FixMerged(9)));
+    assert!(!needs(t(vec![9])).iter().any(|n| matches!(n, crate::todo::Need::FixMerged(_))));
     l.items[0].fixed_by[0].1 = "OPEN".into();
     l.tab = ITab::Open;
     l.query = "label:bug".into();
@@ -1624,11 +1647,11 @@ fn issues_listed_triaged_filtered() {
     assert_eq!(l.meta.as_ref().map(|m| m.1), Some(1));
     l.meta = None;
     // Auto: what isn't triaged (#7), once at an update; again once it's changed.
-    assert_eq!(l.auto_picks().iter().map(|p| p.0).collect::<Vec<_>>(), [7]);
+    assert_eq!(l.auto_picks(), [7]);
     assert!(l.auto_picks().is_empty());
     l.items[0].updated = "2026-02-01T00:00:00Z".into();
     l.find_todo();
-    assert_eq!(l.auto_picks(), [(7, "2026-02-01T00:00:00Z".to_owned())]);
+    assert_eq!(l.auto_picks(), [7]);
     // Until its fix PR gets a push, or 2 weeks: from #9's head now; back once it moves on.
     l.deferred_file = Some(dir.join("deferred-issues.json"));
     let key = l.todo.iter().find(|it| it.number == 7).unwrap().key();
@@ -1691,10 +1714,14 @@ fn auto_triages_each_issue_once_at_a_time() {
     l.todo = vec![put_aside, it(2, vec![Need::Untriaged]), it(3, vec![]), it(4, vec![Need::Retriage]), it(5, vec![Need::Untriaged])];
     // Not what's deferred, nor what needs no triage; at most AT_ONCE (the rest next time).
     assert_eq!(batch::AT_ONCE, 2);
-    assert_eq!(l.auto_picks(), [(2, "t1".to_owned()), (4, "t1".to_owned())]);
-    assert_eq!(l.auto_picks(), [(5, "t1".to_owned())]);
+    assert_eq!(l.auto_picks(), [2, 4]);
+    assert_eq!(l.auto_picks(), [5]);
     // Each once at its updatedAt: again only once it changes.
     assert!(l.auto_picks().is_empty());
     l.items[1].updated = "t2".into();
-    assert_eq!(l.auto_picks(), [(2, "t2".to_owned())]);
+    assert_eq!(l.auto_picks(), [2]);
+    // Or once a PR linked as fixing it merges (the issue's time stays as it was).
+    l.items[1].fixed_by = vec![(9, "MERGED".into(), String::new())];
+    l.todo[1].needs = vec![Need::FixMerged(9)];
+    assert_eq!(l.auto_picks(), [2]);
 }

@@ -121,7 +121,7 @@ impl Numbered for u64 {
     }
 }
 
-impl<T> Numbered for (u64, T) {
+impl Numbered for (u64, String) {
     fn number(&self) -> u64 {
         self.0
     }
