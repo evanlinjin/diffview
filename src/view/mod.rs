@@ -78,6 +78,14 @@ pub(super) const MARK_STALE_DOT: u8 = 3;
 pub(super) const MARK_CLAUDE_DOT: u8 = 4;
 pub(super) const MARK_DOT: u8 = 5;
 
+/// What a row scrolls sideways with (`App::scroller`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum Scroller {
+    Diff,
+    /// A comment's code block or table, by its first row.
+    Block(usize),
+}
+
 /// `Row::info` for Claude's review summary (it isn't one of `info`'s lines).
 const SUMMARY: usize = usize::MAX;
 /// `Row::info` for the text of your pending review, in the pending view.

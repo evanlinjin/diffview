@@ -192,7 +192,11 @@ impl App {
         // The cursor kept in view: in a comment's code block by scrolling only that block (to
         // its box's edge, as `render_row` cuts it); elsewhere in a comment there's nothing to
         // scroll; in the diff by `left`.
-        let block = self.code_block(self.head.row).filter(|_| self.box_part(self.head.row).is_some());
+        let scroller = self.scroller(self.head.row);
+        let block = match scroller {
+            Some(Scroller::Block(b)) => Some(b),
+            _ => None,
+        };
         if block != self.code_at {
             (self.code_at, self.code_left) = (block, 0);
         }
@@ -202,10 +206,10 @@ impl App {
         let nudge = std::mem::take(&mut self.hnudge);
         let len = self.len(self.head.row);
         let w = self.text_w(self.head.row, cur_w).max(1);
-        let left = match (block, self.box_part(self.head.row)) {
-            (Some(_), _) => &mut self.code_left,
-            (None, Some(_)) => return,
-            (None, None) => &mut self.left,
+        let left = match scroller {
+            Some(Scroller::Block(_)) => &mut self.code_left,
+            Some(Scroller::Diff) => &mut self.left,
+            None => return,
         };
         if nudge != 0 {
             *left = (*left as isize + nudge).clamp(0, len.saturating_sub(1) as isize) as usize;

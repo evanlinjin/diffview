@@ -191,21 +191,24 @@ impl App {
         Some((0..r).rev().take_while(|&i| same(&self.rows[i])).last().unwrap_or(r))
     }
 
-    /// Whether row `r` scrolls sideways: the diff's, and a comment's code blocks and tables
-    /// (not its prose: that wraps).
-    pub(super) fn hscrolls(&self, r: usize) -> bool {
-        self.box_part(r).is_none() || self.code_block(r).is_some()
+    /// What row `r` scrolls sideways with: the diff, by `left`; a comment's code block or
+    /// table (from its first row), by its own offset; nothing (`None`): a comment's prose
+    /// wraps, and the pinned title isn't the diff's.
+    pub(super) fn scroller(&self, r: usize) -> Option<Scroller> {
+        match self.box_part(r) {
+            None if r == 0 && self.pin => None,
+            None => Some(Scroller::Diff),
+            Some(_) => self.code_block(r).map(Scroller::Block),
+        }
     }
 
-    /// How far row `r`'s text is scrolled sideways: the diff by `left`; in a comment's box,
-    /// not at all, but for the cursor's code block, by its own offset.
+    /// How far row `r`'s text is scrolled sideways: a code block only while the cursor's in
+    /// it (`code_at`).
     pub(super) fn hscroll(&self, r: usize) -> usize {
-        match self.box_part(r) {
-            // The pinned title isn't the diff's.
-            None if r == 0 && self.pin => 0,
-            None => self.left,
-            Some(_) if self.code_at.is_some() && self.code_block(r) == self.code_at => self.code_left,
-            Some(_) => 0,
+        match self.scroller(r) {
+            Some(Scroller::Diff) => self.left,
+            Some(Scroller::Block(b)) if self.code_at == Some(b) => self.code_left,
+            _ => 0,
         }
     }
 
