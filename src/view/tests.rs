@@ -1853,7 +1853,8 @@ fn long_code_cut_at_the_box_edge() {
     let x = line.chars().position(|c| c == 'x').unwrap() as u16;
     app.mouse(MouseEvent { kind: MouseEventKind::ScrollDown, column: x, row: y as u16, modifiers: KeyModifiers::SHIFT });
     let t = screen(220, 45, |f| app.draw(f));
-    assert!(t.lines().nth(y).unwrap().contains("‹x") && app.code_left == 8, "{}", t.lines().nth(y).unwrap());
+    // (The cursor, scrolled off, at its first column shown: there, not `‹`.)
+    assert_eq!((app.code_left, app.head.col), (8, 8), "{}", t.lines().nth(y).unwrap());
     assert_eq!((code(&s), app.left), (code(&t), 0));
 }
 
@@ -3131,4 +3132,26 @@ fn enter_opens_code_or_what_is_under_the_cursor() {
         enter(&mut app);
         assert!(matches!(app.action.take(), Some(Action::Open(p)) if p.starts_with("src/a.rs:")), "{kind:?}");
     }
+}
+
+#[test]
+fn mouse_sideways_keeps_the_cursor_on_screen() {
+    use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
+    let body = format!("+{}\n", "y".repeat(400));
+    let text = format!("diff --git a/w.rs b/w.rs\nnew file mode 100644\n--- /dev/null\n+++ b/w.rs\n@@ -0,0 +1,1 @@\n{body}");
+    let mut app = App::with("base".into(), diff::parse(&text));
+    let r = app.rows.iter().position(|r| r.line.text.contains("yyy")).unwrap();
+    app.goto(r, 0);
+    let s = screen(120, 20, |f| app.draw(f));
+    let (y, line) = s.lines().enumerate().find(|(_, l)| l.contains("yyy")).unwrap();
+    let x = line.chars().position(|c| c == 'y').unwrap() as u16;
+    for _ in 0..3 {
+        app.mouse(MouseEvent { kind: MouseEventKind::ScrollRight, column: x + 2, row: y as u16, modifiers: KeyModifiers::NONE });
+        _ = screen(120, 20, |f| app.draw(f));
+    }
+    // Scrolled, the cursor (off the left) pinned to the first column shown.
+    assert_eq!((app.left, app.head.col), (24, 24));
+    app.mouse(MouseEvent { kind: MouseEventKind::ScrollLeft, column: x, row: y as u16, modifiers: KeyModifiers::NONE });
+    _ = screen(120, 20, |f| app.draw(f));
+    assert_eq!((app.left, app.head.col), (16, 24));
 }

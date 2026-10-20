@@ -194,42 +194,29 @@ impl App {
         if block != self.code_at {
             (self.code_at, self.code_left) = (block, 0);
         }
-        // The mouse's sideways scroll: what the cursor's in, by it (not past the line's end),
-        // and the cursor along, so the following below keeps it.
+        // What the cursor's in scrolls sideways (the mouse's, by `nudge`; not past the line's
+        // end), and the cursor kept on screen: one scrolled off stays at the edge it went off;
+        // otherwise what scrolls follows the cursor.
         let nudge = std::mem::take(&mut self.hnudge);
         let len = self.len(self.head.row);
+        let w = self.text_w(self.head.row, cur_w).max(1);
         let left = match (block, self.box_part(self.head.row)) {
-            (Some(_), _) => Some(&mut self.code_left),
-            (None, Some(_)) => None,
-            (None, None) => Some(&mut self.left),
+            (Some(_), _) => &mut self.code_left,
+            (None, Some(_)) => return,
+            (None, None) => &mut self.left,
         };
-        if let Some(left) = left.filter(|_| nudge != 0) {
-            let to = (*left as isize + nudge).clamp(0, len.saturating_sub(1) as isize) as usize;
-            // (Not left of where it's scrolled to: `follow` would take it all the way there.)
-            let last = len.saturating_sub(1) as isize;
-            self.head.col = (self.head.col as isize + to as isize - *left as isize).clamp((to as isize).min(last), last) as usize;
-            *left = to;
+        if nudge != 0 {
+            *left = (*left as isize + nudge).clamp(0, len.saturating_sub(1) as isize) as usize;
+            self.head.col = self.head.col.clamp(*left, *left + w - 1).min(len.saturating_sub(1));
             if !self.select {
                 self.anchor = self.head;
             }
             self.want_col = self.head.col;
         }
-        let col = self.head.col;
-        let follow = |left: &mut usize, w: usize| {
-            *left = (*left).min(col);
-            if col >= *left + w {
-                *left = col + 1 - w;
-            }
-        };
-        match (block, self.box_part(self.head.row)) {
-            (Some(_), _) => {
-                let w = self.text_w(self.head.row, cur_w);
-                follow(&mut self.code_left, w)
-            }
-            (None, Some(_)) => {}
-            (None, None) => follow(&mut self.left, cur_w),
+        *left = (*left).min(self.head.col);
+        if self.head.col >= *left + w {
+            *left = self.head.col + 1 - w;
         }
-
     }
 
     /// The rows on screen: the code (split view's halves), the pane beside it (a column) or over
