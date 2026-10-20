@@ -120,7 +120,7 @@ pub fn pool<T: Numbered + Send + 'static>(items: Vec<T>, work: impl Fn(&T, &Send
             while let Some(item) = queue.lock().ok().and_then(|mut q| q.pop_front()) {
                 // (A panic in one: it failed, and the worker goes on to the next.)
                 let st = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&item, &tx)));
-                _ = tx.send(st.unwrap_or_else(|p| (item.number(), Status::Failed(panicked(&p)))));
+                _ = tx.send(st.unwrap_or_else(|p| (item.number(), Status::Failed(stopped(&p)))));
             }
         });
     }
@@ -172,13 +172,18 @@ fn run(n: u64, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sender<
 /// `f`'s result, or a failure if it panics: a background run always says how it ended (its
 /// view counts it as under way till then: dv would ask before quitting forever).
 pub fn guarded<T>(f: impl FnOnce() -> anyhow::Result<T>) -> anyhow::Result<T> {
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or_else(|p| Err(anyhow::anyhow!(panicked(&p))))
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or_else(|p| Err(anyhow::anyhow!(stopped(&p))))
 }
 
-/// What a panic said, as a failure's word.
+/// What a panic said: "dv hit a bug: …".
 pub(crate) fn panicked(p: &Box<dyn std::any::Any + Send>) -> String {
     let said = p.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| p.downcast_ref::<String>().cloned()).unwrap_or_default();
-    format!("its run stopped (dv hit a bug: {said})")
+    format!("dv hit a bug: {said}")
+}
+
+/// A background run's failure from its panic.
+fn stopped(p: &Box<dyn std::any::Any + Send>) -> String {
+    format!("its run stopped ({})", panicked(p))
 }
 
 /// Claude drafts one replacement for `prs` (see `replace.rs`) in the background: its news
