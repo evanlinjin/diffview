@@ -37,6 +37,17 @@ pub enum Task {
 }
 
 impl Task {
+    /// Which model it runs on (`dv.model.<this>`), shared with the PR view's same asks.
+    pub fn model(&self) -> &'static str {
+        match self {
+            Task::Review | Task::Update(_) => "review",
+            Task::Answer { .. } => "answer",
+            Task::FixChecks => "fix-ci",
+            Task::Close => "close",
+            Task::Describe(_) => "describe",
+        }
+    }
+
     /// For the cards and messages: "reviewing", "updating its review", "answering".
     pub fn doing(&self) -> &'static str {
         match self {
@@ -164,7 +175,7 @@ fn run(n: u64, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sender<
     let prompt = crate::claude::with_instructions(&prompt, extra);
     let log = std::env::temp_dir().join(format!("dv-claude-batch-{}-{n}.log", std::process::id()));
     let more = crate::claude::tools_for(matches!(task, Task::FixChecks).then_some(n), matches!(task, Task::Answer { .. }));
-    let st = crate::claude::claude_command(&prompt, &dir, &session, &more.iter().map(String::as_str).collect::<Vec<_>>(), None)
+    let st = crate::claude::claude_command(task.model(), &prompt, &dir, &session, &more.iter().map(String::as_str).collect::<Vec<_>>(), None)
         .stdin(std::process::Stdio::null())
         .stdout(std::fs::File::create(&log)?)
         .stderr(std::fs::File::create(log.with_extension("err"))?)
@@ -237,7 +248,7 @@ fn suggest_groups(prs: &[(u64, String, String, String)], root: &Path) -> anyhow:
         list.join("\n")
     );
     let tools = ["Bash(gh pr view:*)", "Bash(gh pr diff:*)"];
-    let out = crate::claude::claude_reader(&prompt, root, &tools).stdin(std::process::Stdio::null()).output()?;
+    let out = crate::claude::claude_reader("group", &prompt, root, &tools).stdin(std::process::Stdio::null()).output()?;
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
     anyhow::ensure!(v["is_error"] == false, "Claude couldn't group them ({})", out.status);
     parse_groups(v["result"].as_str().unwrap_or(""))

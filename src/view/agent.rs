@@ -22,6 +22,20 @@ pub(super) enum Ask {
     Close,
 }
 
+impl Ask {
+    /// Which model it runs on (`dv.model.<this>`), as dv list's same tasks (`Task::model`).
+    pub(super) fn model(self) -> &'static str {
+        match self {
+            Ask::Review => "review",
+            Ask::Answer => "answer",
+            Ask::Fix | Ask::Edit => "change",
+            Ask::Describe => "describe",
+            Ask::FixChecks => "fix-ci",
+            Ask::Close => "close",
+        }
+    }
+}
+
 /// A background `claude -p` run.
 pub(super) struct ClaudeJob {
     pub(super) child: std::process::Child,
@@ -610,7 +624,7 @@ impl App {
                 }
                 Err(e) => (format!("{e:#}"), false),
             },
-            false => match self.spawn_claude(&prompt, label, false, &more.iter().map(String::as_str).collect::<Vec<_>>()) {
+            false => match self.spawn_claude(&prompt, label, ask.model(), false, &more.iter().map(String::as_str).collect::<Vec<_>>()) {
                 Ok(job) => {
                     self.claude.job = Some(job);
                     (format!("Claude is {label} in the background…"), true)
@@ -648,7 +662,7 @@ impl App {
         let prompt = self.claude_prompt(Ask::Answer, "");
         let forked = self.claude_pane().is_some();
         let more = tools_for(None, true);
-        match self.spawn_claude(&prompt, "answering", forked, &more.iter().map(String::as_str).collect::<Vec<_>>()) {
+        match self.spawn_claude(&prompt, "answering", "answer", forked, &more.iter().map(String::as_str).collect::<Vec<_>>()) {
             Ok(job) => {
                 self.claude.job = Some(job);
                 "reply sent; Claude is answering…".into()
@@ -785,7 +799,8 @@ impl App {
     /// It runs in the PR's session (or, `forked`, a fork of it), so Claude keeps the review's
     /// context across runs.
     /// `more`: tools it may use on top of `ALLOWED`.
-    pub(super) fn spawn_claude(&mut self, prompt: &str, label: &'static str, forked: bool, more: &[&str]) -> Result<ClaudeJob> {
+    /// `task`: its model's (`dv.model.<task>`).
+    pub(super) fn spawn_claude(&mut self, prompt: &str, label: &'static str, task: &str, forked: bool, more: &[&str]) -> Result<ClaudeJob> {
         use std::os::unix::process::CommandExt;
         // One log per run, so a follow-up run doesn't wipe the one a message points to.
         self.claude.runs += 1;
@@ -795,7 +810,7 @@ impl App {
         if forked {
             session.push("--fork-session".into());
         }
-        let child = claude_command(prompt, &self.root, &session, more, None)
+        let child = claude_command(task, prompt, &self.root, &session, more, None)
             .stdin(std::process::Stdio::null())
             .stdout(std::fs::File::create(&log)?)
             .stderr(std::fs::File::create(&err)?)

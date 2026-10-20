@@ -294,7 +294,7 @@ impl App {
         // On a fork of the PR's session when it has one: what it knows, without this side task
         // in the review's conversation (nor its failure costing it).
         let forked = self.claude.path.as_ref().and_then(|r| crate::claude::load_session(r, &self.root)).is_some_and(|(id, ok)| ok && crate::claude::session_exists(&id));
-        self.claude.job = Some(self.spawn_claude(&prompt, COMMIT_LABEL, forked, &[])?);
+        self.claude.job = Some(self.spawn_claude(&prompt, COMMIT_LABEL, "commit", forked, &[])?);
         Ok("Claude is writing the commit message (your editor opens with it)…".into())
     }
 

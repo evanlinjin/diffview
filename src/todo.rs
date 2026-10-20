@@ -774,7 +774,7 @@ pub fn interpret(text: String, about: String, root: std::path::PathBuf) -> Recei
             crate::claude::now()
         );
         let res = crate::batch::guarded(|| {
-            let out = crate::claude::claude_reader(&prompt, &root, &[]).stdin(std::process::Stdio::null()).output()?;
+            let out = crate::claude::claude_reader("interpret", &prompt, &root, &[]).stdin(std::process::Stdio::null()).output()?;
             let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
             anyhow::ensure!(v["is_error"] == false, "Claude couldn't read it ({})", out.status);
             let answer = v["result"].as_str().unwrap_or("");
@@ -881,7 +881,7 @@ fn ask(lines: &[String], root: &std::path::Path, of: Of) -> Result<(Order, f64)>
         lines.join("\n")
     );
     let tools = ["Bash(gh pr view:*)", "Bash(gh pr diff:*)", "Bash(gh issue view:*)"];
-    let out = crate::claude::claude_reader(&prompt, root, &tools).stdin(std::process::Stdio::null()).output()?;
+    let out = crate::claude::claude_reader("rank", &prompt, root, &tools).stdin(std::process::Stdio::null()).output()?;
     let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
     anyhow::ensure!(v["is_error"] == false, "Claude couldn't rank them ({})", out.status);
     Ok((parse(v["result"].as_str().unwrap_or(""))?, v["total_cost_usd"].as_f64().unwrap_or(0.0)))

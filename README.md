@@ -74,6 +74,11 @@ Claude and dv share a review file in dv's data directory (`~/.local/share/dv/`),
 reloads as Claude writes it; comments follow their code as it changes, and show `[outdated]`
 when it's gone.
 
+Each task can run on its own model: `git config dv.model.<task> <model>` (`review`, `answer`,
+`change`, `describe`, `fix-ci`, `close`, `commit`, `amend`, `rebase`, `replace`, `triage`,
+`rank`, `interpret`, `group`), else `git config dv.model <model>`, else Claude Code's default.
+For example, `git config --global dv.model.rank haiku`.
+
 ## Replacing a low-effort PR
 
 For a PR not worth coaching into shape (often AI-generated): `A A` on it in `dv list` (or
