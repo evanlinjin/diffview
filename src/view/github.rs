@@ -190,8 +190,8 @@ impl App {
             Err(e) => self.msg = format!("loading comments: {e:#}"),
         }
         match info {
-            Ok(Info { lines, title, head, url, state, unsigned, awaiting, failing, base }) => {
-                (self.awaiting, self.failing) = (awaiting, failing);
+            Ok(Info { lines, title, head, url, state, unsigned, awaiting, failing, base, conflicts }) => {
+                (self.awaiting, self.failing, self.conflicts) = (awaiting, failing, conflicts);
                 (self.info, self.pr_state) = (lines, Some(state));
                 // GitHub's word on its commits' signatures, for the contents' commits (none this
                 // time: what was known stands).

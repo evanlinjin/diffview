@@ -98,8 +98,9 @@ pub struct Info {
     /// Workflow runs awaiting approval, checks failing.
     pub awaiting: usize,
     pub failing: usize,
-    /// Its base branch.
+    /// Its base branch, and whether it conflicts with it.
     pub base: String,
+    pub conflicts: bool,
 }
 
 /// The PR section's lines, its title, head, URL and state, its commits GitHub has no valid
@@ -110,7 +111,7 @@ pub fn parse_info(v: &Value) -> Info {
     // (What fails that decides: required checks, when its base names any.)
     let failing = gate(v["statusCheckRollup"].as_array().map(Vec::as_slice).unwrap_or(&[])).1;
     let awaiting = v["dvAwaiting"].as_u64().unwrap_or(0) as usize;
-    Info { lines: info_lines(v), title: s("title"), head: s("headRefOid"), url: s("url"), state: state(v), unsigned, awaiting, failing, base: s("baseRefName") }
+    Info { lines: info_lines(v), title: s("title"), head: s("headRefOid"), url: s("url"), state: state(v), unsigned, awaiting, failing, base: s("baseRefName"), conflicts: s("mergeable") == "CONFLICTING" }
 }
 
 /// A PR's state as GitHub shows it, with its color: DRAFT, OPEN, MERGED or CLOSED.

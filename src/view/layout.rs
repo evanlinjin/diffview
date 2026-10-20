@@ -527,7 +527,11 @@ impl App {
     /// "Viewed" state on a file's.
     pub(super) fn header_tag(&self, file: usize) -> Option<(String, Style)> {
         if file == INFO {
-            return self.pr_state.map(|(s, color)| (format!(" {s} "), chip(color)));
+            // (Open and conflicting with its base: said there, in red, wherever you are.)
+            return self.pr_state.map(|(s, color)| match self.conflicts && matches!(s, "OPEN" | "DRAFT") {
+                true => (format!(" {s} · conflicts "), chip("da3633")),
+                false => (format!(" {s} "), chip(color)),
+            });
         }
         let (t, st) = match self.viewed.get(&self.files.get(file)?.path)?.as_str() {
             "VIEWED" => ("✓ Viewed ", self.ui.plus),

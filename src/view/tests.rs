@@ -1754,7 +1754,7 @@ fn github_changes_shown_when_idle() {
     newer[0].comments.push(reply);
     let fetched = |threads: Vec<Thread>| -> github::Fetched {
         let r = gh::Review { pr_id: "PR".into(), mine: true, me: "you".into(), pending: None, pending_body: String::new(), threads, viewed: Default::default() };
-        (Ok(r), Ok(Info { lines: app_info(), title: "Fix the thing".into(), head: "abc".into(), url: String::new(), state: ("OPEN", "238636"), unsigned: Some(vec![]), awaiting: 0, failing: 0, base: String::new() }))
+        (Ok(r), Ok(Info { lines: app_info(), title: "Fix the thing".into(), head: "abc".into(), url: String::new(), state: ("OPEN", "238636"), unsigned: Some(vec![]), awaiting: 0, failing: 0, base: String::new(), conflicts: false }))
     };
     let replies = |app: &App| app.threads.iter().flat_map(|t| &t.comments).filter(|c| c.body == "Fair.").count();
     // Mid-way through something (here a picker): it waits. (What's shown came from the cache.)
@@ -2426,6 +2426,19 @@ fn claude_proposes_a_description() {
     assert!(!std::fs::read_to_string(&path).unwrap().contains("description"));
     assert!(app.rows.iter().any(|r| r.main.is_some() && r.line.text == "description"));
     _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn conflicts_on_the_state_chip() {
+    let mut app = fixture();
+    app.pr_state = Some(("OPEN", "238636"));
+    assert_eq!(app.header_tag(INFO).map(|t| t.0), Some(" OPEN ".into()));
+    app.conflicts = true;
+    assert_eq!(app.header_tag(INFO).map(|t| t.0), Some(" OPEN · conflicts ".into()));
+    app.pr_state = Some(("MERGED", "8957e5")); // (not after it's merged)
+    assert_eq!(app.header_tag(INFO).map(|t| t.0), Some(" MERGED ".into()));
+    // GitHub's word, from the PR's info.
+    assert!(parse_info(&serde_json::json!({ "mergeable": "CONFLICTING" })).conflicts);
 }
 
 #[test]
