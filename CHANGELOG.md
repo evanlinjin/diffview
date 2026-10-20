@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.72.5] - 2026-10-20
+
+### Fixed
+- Posting Claude's comment (`c`/`C`) leaves the cursor on its line, not the file's top; so does
+  any thread that goes (deleted, dismissed).
+
 ## [0.72.4] - 2026-10-20
 
 ### Fixed
