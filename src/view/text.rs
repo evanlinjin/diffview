@@ -142,10 +142,18 @@ impl App {
     pub(super) fn claude_attached(&self) -> Vec<Row> {
         let questions = self.threads.iter().any(|t| t.conversation == ON_SUMMARY && self.in_view(t));
         let summary = !self.claude.summary.trim().is_empty();
-        if !summary && !questions {
-            return self.claude_activity(); // (what it did all the same)
-        }
         let mk = |kind, text| Row::text(INFO, kind, text);
+        // What `dv list`'s ranking said to do next, first.
+        let mut next = vec![];
+        if let Some((says, at)) = &self.ranked_next {
+            next.push(mk(Kind::Thread, format!("next, as Claude ranked it ({} ago)", crate::gh::ago_secs(crate::claude::now_secs() - at))));
+            next.extend(self.md_rows_at(says, self.info_w(), mk));
+            next.push(mk(Kind::Comment, String::new()));
+        }
+        if !summary && !questions {
+            next.extend(self.claude_activity()); // (what it did all the same)
+            return next;
+        }
         let mut rows = match summary {
             // (No summary: nothing of it to quote or post, so not the summary's rows.)
             false => vec![mk(Kind::Thread, "questions for Claude".into())],
@@ -159,7 +167,8 @@ impl App {
         };
         rows.extend(self.summary_threads());
         rows.extend(self.claude_activity());
-        rows
+        next.extend(rows);
+        next
     }
 
     /// The Claude tab's activity, as the Comments tab has the PR's: what Claude wrote last (a

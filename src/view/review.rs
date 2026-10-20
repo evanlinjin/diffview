@@ -374,6 +374,14 @@ impl App {
             return;
         }
         self.claude.broken = None;
+        // (`dv list`'s ranking: its word on this PR, or this replacement.)
+        let key = match (&self.replacement, &self.pr) {
+            (Some(r), _) => Some(format!("rep-{}", r.id)),
+            (None, Some(p)) => Some(format!("pr-{}", p.number)),
+            _ => None,
+        };
+        let ranked = crate::todo::load_of(crate::todo::Of::Prs);
+        self.ranked_next = key.and_then(|k| Some((ranked.as_ref()?.items.iter().find(|i| i.0 == k)?.1.clone(), ranked.as_ref()?.at))).filter(|n| !n.0.trim().is_empty());
         self.threads.retain(|t| t.claude.is_none());
         self.claude.summary.clear();
         self.claude.head.clear();

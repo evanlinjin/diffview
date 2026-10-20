@@ -2429,6 +2429,16 @@ fn claude_proposes_a_description() {
 }
 
 #[test]
+fn claude_tab_says_the_rankings_next_step() {
+    let mut app = fixture();
+    app.ranked_next = Some(("Review #2258; this closes when it merges".into(), crate::claude::now_secs() - 7200));
+    app.view = View::Claude;
+    app.build();
+    let s = screen(160, 40, |f| app.draw(f));
+    assert!(s.contains("next, as Claude ranked it (2h ago)") && s.contains("Review #2258; this closes when it merges"), "{s}");
+}
+
+#[test]
 fn conflicts_on_the_state_chip() {
     let mut app = fixture();
     app.pr_state = Some(("OPEN", "238636"));

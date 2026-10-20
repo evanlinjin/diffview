@@ -492,6 +492,9 @@ pub struct App {
     pr_state: Option<State>,
     /// It conflicts with its base (GitHub's word): said on its state's chip.
     conflicts: bool,
+    /// What `dv list`'s ranking said to do next about it, and when it ranked (the Claude tab
+    /// says it).
+    ranked_next: Option<(String, i64)>,
     /// The replacement checked out here, if it is one (`replace.rs`): shown in the PR section;
     /// and when its record last changed (Claude redrafting it: it's shown again).
     replacement: Option<crate::replace::Record>,
