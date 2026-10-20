@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.58.1] - 2026-10-20
+
+### Fixed
+- When only uncommitted changes are shown, a commit, an amend or a drop that leaves nothing
+  uncommitted shows the whole diff again, not an empty view.
+
 ## [0.58.0] - 2026-10-20
 
 ### Added
