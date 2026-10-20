@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.61.1] - 2026-10-20
+
+### Fixed
+- Claude's commit rewords:
+  - the amend picker shows them first;
+  - the count is right;
+  - questions on a reworded commit stay with it;
+  - a message that would itself be autosquashed is ignored.
+- Builds on Rust 1.89 again.
+
 ## [0.61.0] - 2026-10-20
 
 ### Added
