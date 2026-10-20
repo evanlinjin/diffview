@@ -5,6 +5,25 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.69.0] - 2026-10-20
+
+### Added
+- An issue's activity shows its timeline:
+  - comments;
+  - labels added or removed, assigned, retitled;
+  - closed (and with what), reopened;
+  - mentioned elsewhere, marked a duplicate, linked PRs.
+- What Claude's triage suggests doing (labels, title, closing) is a box of its own.
+
+### Fixed
+- dv issues:
+  - a failed draft doesn't hide its issue;
+  - drafts' state updates as they start and finish;
+  - the `Space l` picker gets the wheel, says it's loading, and doesn't panic narrow;
+  - the keys' box no longer hides an issue's last lines.
+- Stalled: an author's push from an email not on their account counts as their answer.
+- The keys' box pads to its longest key.
+
 ## [0.68.0] - 2026-10-20
 
 ### Added
