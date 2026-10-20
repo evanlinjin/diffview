@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.72.3] - 2026-10-20
+
+### Fixed
+- Under Claude's comment, replies' code boxes and the cursor stay inside the screen.
+- A resolved talk no longer counts as Claude's turn, and resolving it again folds it.
+
 ## [0.72.2] - 2026-10-20
 
 ### Fixed
