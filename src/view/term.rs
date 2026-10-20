@@ -18,7 +18,20 @@ pub fn init_terminal() -> DefaultTerminal {
     // A panic off the main thread (a background run's: it's caught there, a failure) leaves
     // the terminal to dv: ratatui's hook, which gives it back, runs for the main thread only.
     // Theirs goes to a log, not over the screen.
+    // (Each time, over the hook `ratatui::init` just put on: ours must come first, or a
+    // background run's panic would give the terminal back under dv.)
+    hook_panics();
+    if MOUSE.load(std::sync::atomic::Ordering::Relaxed) {
+        _ = ratatui::crossterm::execute!(std::io::stdout(), ratatui::crossterm::event::EnableMouseCapture);
+    }
+    term
+}
+
+/// dv's panic hook, over ratatui's (`init_terminal`).
+fn hook_panics() {
     let hook = std::panic::take_hook();
+    // (Where theirs go, found now: the hook only writes. In dv's directory, not a shared /tmp.)
+    let log = crate::claude::dv_dir().map(|d| d.join("panic.log")).ok().filter(|p| p.parent().is_some_and(|d| std::fs::create_dir_all(d).is_ok()));
     // (Main's: the mouse given back too, which ratatui's leaves on.) Logged by dv's pid, kept.
     std::panic::set_hook(Box::new(move |info| match std::thread::current().name() {
         Some("main") => {
@@ -27,20 +40,16 @@ pub fn init_terminal() -> DefaultTerminal {
         }
         _ => {
             use std::io::Write;
-            // (In dv's directory, not a shared /tmp; past a MiB, the old one kept as `.old`.)
-            let Ok(path) = crate::claude::dv_dir().map(|d| d.join("panic.log")) else { return };
-            if std::fs::metadata(&path).is_ok_and(|m| m.len() > 1 << 20) {
-                _ = std::fs::rename(&path, path.with_extension("log.old"));
+            // (Past a MiB, the old one kept as `.old`.)
+            let Some(path) = &log else { return };
+            if std::fs::metadata(path).is_ok_and(|m| m.len() > 1 << 20) {
+                _ = std::fs::rename(path, path.with_extension("log.old"));
             }
             let log = std::fs::OpenOptions::new().create(true).append(true).open(path);
             // (One write: two panics at once don't mix their lines.)
             _ = log.map(|mut f| f.write_all(format!("dv {}: {info}\n", std::process::id()).as_bytes()));
         }
     }));
-    if MOUSE.load(std::sync::atomic::Ordering::Relaxed) {
-        _ = ratatui::crossterm::execute!(std::io::stdout(), ratatui::crossterm::event::EnableMouseCapture);
-    }
-    term
 }
 
 /// Give the terminal back (mouse capture off first, so an editor or the shell gets it clean).
