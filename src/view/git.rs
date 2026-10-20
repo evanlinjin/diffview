@@ -545,7 +545,9 @@ impl App {
         self.forget_tree_colors();
         // Showing only what isn't committed, and it's all committed (an amend, a commit, a
         // drop): the whole diff, not an empty view (switched first: the cursor stays put).
-        if self.uncommitted() && diff::git(&["status", "--porcelain"]).is_ok_and(|s| s.trim().is_empty()) {
+        // (By the view's own diff, not `git status`: they differ on a submodule's, a change
+        // staged then undone, untracked files status is told not to show.)
+        if self.uncommitted() && diff::diff("HEAD", None, 0, &[]).is_ok_and(|f| f.is_empty()) {
             self.diff_against(self.full_base.clone());
         }
         let res = self.reload(threads);
