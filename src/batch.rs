@@ -167,6 +167,12 @@ fn run(n: u64, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sender<
     )))
 }
 
+/// `f`'s result, or a failure if it panics: a background run always says how it ended (its
+/// view counts it as under way till then: dv would ask before quitting forever).
+pub fn guarded<T>(f: impl FnOnce() -> anyhow::Result<T>) -> anyhow::Result<T> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or_else(|_| Err(anyhow::anyhow!("its run stopped (dv hit a bug)")))
+}
+
 /// Claude drafts one replacement for `prs` (see `replace.rs`) in the background: its news
 /// comes back on the receiver, under the replacement's number (the first PR's).
 pub fn replace(prs: Vec<u64>, root: PathBuf, extra: String) -> Receiver<(u64, Status)> {
@@ -175,7 +181,7 @@ pub fn replace(prs: Vec<u64>, root: PathBuf, extra: String) -> Receiver<(u64, St
     _ = tx.send((id, Status::Preparing));
     std::thread::spawn(move || {
         let ready = tx.clone();
-        let st = crate::replace::draft(&prs, &root, &extra, move || _ = ready.send((id, Status::Reviewing)));
+        let st = guarded(|| crate::replace::draft(&prs, &root, &extra, move || _ = ready.send((id, Status::Reviewing))));
         _ = tx.send((id, st.map_or_else(|e| Status::Failed(format!("{e:#}")), Status::Done)));
     });
     rx
@@ -259,4 +265,11 @@ pub fn reviewed_in(dir: &std::path::Path) -> std::collections::HashSet<u64> {
         .flatten()
         .filter_map(|e| e.file_name().to_str()?.strip_prefix("pr-")?.strip_suffix(".json")?.parse().ok())
         .collect()
+}
+
+#[test]
+fn a_run_that_panics_says_so() {
+    assert_eq!(guarded(|| Ok(1)).unwrap(), 1);
+    let e = guarded::<()>(|| panic!("boom")).unwrap_err();
+    assert!(format!("{e}").contains("its run stopped"));
 }

@@ -475,7 +475,7 @@ impl Issues {
         self.todo.iter().filter(|it| it.deferred.is_none() && it.needs.contains(&crate::todo::Need::Untriaged)).count()
     }
 
-    /// Claude at work from here: triaging, or drafting a fix.
+    /// Claude at work from here: triaging, drafting a fix or a closing comment, ranking.
     pub fn busy(&self) -> bool {
         self.running.values().any(batch::Status::running) || !self.drafting.is_empty() || self.closing_rx.is_some() || self.rank_rx.is_some()
     }
@@ -793,7 +793,7 @@ impl Issues {
             (Some('q'), KeyCode::Char('q')) => return Some(IssuesDo::Quit),
             (_, KeyCode::Char('q')) if self.busy() => {
                 self.pending = Some('q');
-                self.msg = "Claude is still at work (triaging, drafting): q again quits (what's under way is lost)".into();
+                self.msg = "Claude is still at work (triaging, drafting, ranking): q again quits (what's under way is lost)".into();
             }
             (_, KeyCode::Char('q')) => return Some(IssuesDo::Quit),
             (_, KeyCode::Char('R')) => {
