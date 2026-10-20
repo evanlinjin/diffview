@@ -314,7 +314,12 @@ pub(super) fn todo_says(it: &crate::todo::Item) -> (Vec<String>, String) {
             format!("waiting until {c} ({from}) · {core}")
         }
         Some(d) => {
-            let when = d.cond.as_ref().map_or_else(|| format!("in {}", crate::todo::in_secs(d.until - crate::claude::now_secs())), |c| format!("until {}", c.says()));
+            let left = || crate::todo::in_secs(d.until - crate::claude::now_secs());
+            let when = match &d.cond {
+                None => format!("in {}", left()),
+                Some(c) if d.until < i64::MAX => format!("until {}, or in {}", c.says(), left()),
+                Some(c) => format!("until {}", c.says()),
+            };
             format!("deferred, back {when} (or sooner if it changes; s brings it back now) · {core}")
         }
         None if it.changed => format!("(placed since Claude ranked) {core}"),

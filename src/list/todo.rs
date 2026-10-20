@@ -454,6 +454,7 @@ impl List {
             todo::Until::Reviewed(Some(who)) => reviews.iter().any(|r| &r.0 == who),
             // (Someone else: not you, nor its author answering in a review.)
             todo::Until::Reviewed(None) => reviews.iter().any(|r| r.0 != self.me && pr.is_some_and(|p| r.0 != p.author)),
+            todo::Until::PushedTo(n, head) => self.extra.get(n).is_some_and(|e| !head.is_empty() && !e.head_oid.is_empty() && !e.head_oid.starts_with(head.as_str())),
             todo::Until::Pushed(head) => extra.is_some_and(|e| !head.is_empty() && !e.head_oid.is_empty() && !e.head_oid.starts_with(head.as_str())),
         }
     }
@@ -461,12 +462,14 @@ impl List {
     /// `s` then `u`: defer the item until what you write happens (`key`: the item's). dv reads
     /// the usual phrasings itself; the rest Claude puts in a form dv can watch for (one small
     /// run, in the background: `until_news`).
+    /// "…, or 2 weeks": whichever comes first.
     pub(super) fn defer_until(&mut self, key: String, text: &str) {
-        match todo::Until::parse(text, crate::claude::now_secs()) {
-            Some(c) => self.defer_on(&key, c),
+        let (text, or) = todo::or_time(text, crate::claude::now_secs());
+        match todo::Until::parse(&text, crate::claude::now_secs()) {
+            Some(c) => self.defer_on(&key, c, or),
             None => {
                 self.msg = "Claude is reading when you mean…".into();
-                self.until_rx = Some((key, todo::interpret(text.trim().to_owned(), self.root.clone())));
+                self.until_rx = Some((key, or, todo::interpret(text, "a pull request".into(), self.root.clone())));
             }
         }
     }
@@ -479,7 +482,7 @@ impl List {
         }
     }
 
-    fn defer_on(&mut self, key: &str, c: todo::Until) {
+    fn defer_on(&mut self, key: &str, c: todo::Until, or: Option<i64>) {
         let Some(it) = self.todo.iter().find(|it| it.key() == key).cloned() else { return };
         // A push, a review: from where its PR is now (known once its details are in), so
         // what it had already doesn't count.
@@ -494,16 +497,17 @@ impl List {
                 Some(h) => todo::Until::Pushed(h),
                 None => return self.msg = "not deferred: its head on GitHub isn't known yet, to see a push by (try again in a moment)".into(),
             },
+            // Another PR's push: from its head now (a listed PR's).
+            todo::Until::PushedTo(n, _) => match self.extra.get(&n).map(|e| e.head_oid.clone()).filter(|h| !h.is_empty()) {
+                Some(h) => todo::Until::PushedTo(n, h),
+                None => return self.msg = format!("not deferred: #{n}'s head isn't known (an open PR of this repo's?), to see a push by"),
+            },
             todo::Until::Approved(_) | todo::Until::Reviewed(_) if extra.is_none() => {
                 return self.msg = "not deferred: its reviews on GitHub aren't known yet, to tell a new one by (try again in a moment)".into();
             }
             c => c,
         };
-        let (until, cond) = match c {
-            todo::Until::Time(t) => (t, None),
-            c => (i64::MAX, Some(c)),
-        };
-        let says = cond.as_ref().map_or_else(|| todo::in_secs(until - crate::claude::now_secs()), todo::Until::says);
+        let (until, cond, says) = todo::until_or(c, or);
         // (By GitHub's clock, and what dv had shown you: not one it hadn't, nor your clock's.)
         let at = extra.and_then(|e| e.reviews.iter().map(|r| r.2).max()).unwrap_or(0);
         self.deferred.insert(key.to_owned(), todo::Deferral { until, needs: it.needs_key(), cond, at });
@@ -517,12 +521,12 @@ impl List {
     /// Whether it deferred the item under the cursor (your own move: the cursor stays put, on
     /// what's next, rather than following it).
     pub(super) fn until_news(&mut self) -> bool {
-        let Some(Ok(res)) = self.until_rx.as_ref().map(|(_, rx)| rx.try_recv()) else { return false };
-        let Some((key, _)) = self.until_rx.take() else { return false };
+        let Some(Ok(res)) = self.until_rx.as_ref().map(|(_, _, rx)| rx.try_recv()) else { return false };
+        let Some((key, or, _)) = self.until_rx.take() else { return false };
         match res {
             Ok(c) => {
                 let on_it = self.selected_item().is_some_and(|it| it.key() == key);
-                self.defer_on(&key, c);
+                self.defer_on(&key, c, or);
                 on_it
             }
             Err(e) => {

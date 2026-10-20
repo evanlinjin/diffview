@@ -470,6 +470,8 @@ pub enum Until {
     Reviewed(Option<String>),
     /// A push to this PR: its head no longer this commit (filled in as it's deferred).
     Pushed(String),
+    /// A push to PR N (an issue's fix, another PR): past this commit, as `Pushed`.
+    PushedTo(u64, String),
 }
 
 impl Until {
@@ -483,6 +485,8 @@ impl Until {
             Until::Approved(None) => "it's approved".into(),
             Until::Pushed(h) if h.is_empty() => "the author pushes".into(),
             Until::Pushed(h) => format!("the author pushes (past {})", h.get(..7).unwrap_or(h)),
+            Until::PushedTo(n, h) if h.is_empty() => format!("#{n} gets a push"),
+            Until::PushedTo(n, h) => format!("#{n} gets a push (past {})", h.get(..7).unwrap_or(h)),
             Until::Reviewed(Some(who)) => format!("@{who} reviews it"),
             Until::Reviewed(None) => "someone else reviews it".into(),
         }
@@ -497,6 +501,7 @@ impl Until {
             Until::Approved(who) => json!({ "approved": who }),
             Until::Reviewed(who) => json!({ "reviewed": who }),
             Until::Pushed(head) => json!({ "pushed": head }),
+            Until::PushedTo(n, head) => json!({ "pushed": n, "head": head }),
         }
     }
 
@@ -515,6 +520,8 @@ impl Until {
             Until::Green
         } else if v.get("approved").is_some() {
             Until::Approved(s("approved"))
+        } else if let Some(n) = v["pushed"].as_u64() {
+            Until::PushedTo(n, s("head").unwrap_or_default()) // (Claude: a PR's number)
         } else if v.get("pushed").is_some() {
             Until::Pushed(s("pushed").unwrap_or_default()) // (Claude says `true`: filled in as it's deferred)
         } else if v.get("reviewed").is_some() {
@@ -572,12 +579,15 @@ impl Until {
             // What the author does next: "addresses the reviews", "pushes", "updates it" (no one
             // else named, no other PR, no time: those are someone else's doing, or a while). As
             // `p` posts it, past the head it was at: "the author pushes (past abc1234)".
-            _ if who.is_none() && dur.is_none() && ["address", "push", "updat", "respond", "fixes", "rebase"].iter().any(|w| has(w)) => {
+            // Another PR named here: a push to it ("#2258 gets a push"); named before "until"
+            // (what waits), for Claude to read.
+            _ if who.is_none() && dur.is_none() && ["address", "push", "updat", "respond", "fixes", "rebase", "progress"].iter().any(|w| has(w)) => {
                 let head = words.windows(2).find(|p| p[0].trim_start_matches('(') == "past").map(|p| p[1].trim_matches(|c: char| !c.is_ascii_alphanumeric())).filter(|w| (7..=40).contains(&w.len()) && w.chars().all(|c| c.is_ascii_hexdigit()));
-                match (head, num) {
-                    (Some(h), _) => Until::Pushed(h.to_owned()),
-                    (None, None) => Until::Pushed(String::new()),
-                    (None, Some(_)) => return None, // (another PR's: for Claude to read)
+                let head = head.unwrap_or_default().to_owned();
+                match (said, num) {
+                    (Some(n), _) => Until::PushedTo(n, head),
+                    (None, None) => Until::Pushed(head),
+                    (None, Some(_)) => return None,
                 }
             }
             // Someone's review, or someone else's said so ("someone else reviews it"); not a time,
@@ -585,6 +595,36 @@ impl Until {
             _ if has("review") && dur.is_none() && !another && !has("comment") && (who.is_some() || word(&["someone", "someone's", "somebody", "anyone", "anyone's", "anybody", "else", "else's"])) => Until::Reviewed(who),
             _ => Until::Time(now + dur?),
         })
+    }
+}
+
+/// "… or <a time>" (`text`, any case): what's before it, and that time: a deferral ends at
+/// whichever comes first ("until #2258 gets a push, or 2 weeks").
+pub fn or_time(text: &str, now: i64) -> (String, Option<i64>) {
+    let t = text.trim();
+    let lower = t.to_lowercase();
+    match lower.rfind(" or ").and_then(|i| Some((i, Until::parse_one(&lower[i + 4..], None, now)?))) {
+        Some((i, Until::Time(at))) => (t[..i].trim_end_matches([',', ' ']).to_owned(), Some(at)),
+        _ => (t.to_owned(), None),
+    }
+}
+
+/// A deferral until `c`, or time `or` if that comes first: (till when, what it waits for), and
+/// what that says ("until #2258 gets a push, or in 2 weeks").
+pub fn until_or(c: Until, or: Option<i64>) -> (i64, Option<Until>, String) {
+    let now = crate::claude::now_secs();
+    match c {
+        Until::Time(t) => {
+            let t = or.map_or(t, |o| o.min(t));
+            (t, None, in_secs(t - now))
+        }
+        c => {
+            let says = match or {
+                Some(o) => format!("{}, or in {}", c.says(), in_secs(o - now)),
+                None => c.says(),
+            };
+            (or.unwrap_or(i64::MAX), Some(c), says)
+        }
     }
 }
 
@@ -710,15 +750,15 @@ pub fn defer(items: Vec<Item>, deferred: &Deferred, now: i64, met: impl Fn(&Item
 
 /// Claude puts `text` (a deferral's "until …", in your words) as one of `Until`'s, in the
 /// background: one small run, reading only.
-pub fn interpret(text: String, root: std::path::PathBuf) -> Receiver<Result<Until>> {
+pub fn interpret(text: String, about: String, root: std::path::PathBuf) -> Receiver<Result<Until>> {
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
         let prompt = format!(
-            "A maintainer defers a pull request until: \"{text}\". It's {} now (UTC). Reply with only one JSON object \
+            "A maintainer defers {about} until: \"{text}\". It's {} now (UTC). Reply with only one JSON object \
              saying when, one of: {{\"merged\": N}} (PR N merged), {{\"closed\": N}} (PR N closed), {{\"green\": true}} \
              (this PR's checks pass), {{\"approved\": \"login\"}} or {{\"approved\": null}} (an approval), \
              {{\"reviewed\": \"login\"}} (a review from them) or {{\"reviewed\": null}} (a review from anyone but the maintainer and the PR's author), {{\"pushed\": true}} (the author pushes to it: \
-             addresses the reviews, updates it), {{\"at\": \"2026-10-20T09:00:00Z\"}} (a time). If it's \
+             addresses the reviews, updates it), {{\"pushed\": N}} (PR N gets a push: its author makes progress on it), {{\"at\": \"2026-10-20T09:00:00Z\"}} (a time). If it's \
              none of these, {{\"none\": \"why, in a few words\"}}. No other text.",
             crate::claude::now()
         );
@@ -1066,6 +1106,18 @@ mod tests {
 
     fn items_needs() -> String {
         Need::ReadyToMerge.weight().to_string()
+    }
+
+    #[test]
+    fn or_a_time() {
+        let now = 1000;
+        assert_eq!(or_time("#2258 gets a push, or 2 weeks", now), ("#2258 gets a push".into(), Some(now + 14 * 86400)));
+        assert_eq!(or_time("#12 merged or closed", now), ("#12 merged or closed".into(), None)); // not a time
+        assert_eq!(Until::parse("#2258 gets a push", now), Some(Until::PushedTo(2258, String::new())));
+        assert_eq!(Until::parse("#2258 gets a push (past abc1234)", now), Some(Until::PushedTo(2258, "abc1234".into())));
+        let u = Until::PushedTo(7, "abc1234".into());
+        assert_eq!(Until::from_json(&u.to_json()), Some(u));
+        assert_eq!(Until::from_json(&json!({ "pushed": 9 })), Some(Until::PushedTo(9, String::new()))); // Claude's
     }
 
     #[test]

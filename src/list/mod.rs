@@ -141,7 +141,7 @@ pub struct List {
     deferring: Option<String>,
     /// A deferral's "until …" Claude is reading (the item's key), and the states of PRs that
     /// deferrals wait on and that aren't listed.
-    until_rx: Option<(String, Receiver<Result<crate::todo::Until>>)>,
+    until_rx: Option<(String, Option<i64>, Receiver<Result<crate::todo::Until>>)>,
     others: HashMap<u64, String>,
     /// Those being looked up (in the background: a GitHub call each).
     others_rx: Vec<Receiver<Vec<(u64, String)>>>,
@@ -350,7 +350,7 @@ impl List {
                     }
                 }
                 Some(Do::DeferUntil(key)) => {
-                    let what = "defer it until… (e.g. #2380 is merged, CI is green, @amy approves, the author pushes, 3 days, monday)";
+                    let what = "defer it until… (e.g. #2380 is merged, CI is green, @amy approves, someone else reviews it, the author pushes, #2380 gets a push, 3 days; \"…, or 2 weeks\": whichever first)";
                     if let Some(text) = self.edit_text(term, what, "", false) {
                         self.defer_until(key, &text);
                     }
