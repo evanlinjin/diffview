@@ -296,7 +296,9 @@ pub(super) fn status_bar(f: &mut Frame, ui: &Ui, left: &str, order: &str, auto: 
 /// A list's keys for what's shown, bottom right (as dv's diff view shows them).
 pub(super) fn draw_keys(f: &mut Frame, ui: &Ui, keys: &[(&str, &str)]) {
     let area = f.area();
-    let lines: Vec<Line> = keys.iter().map(|(k, d)| Line::from(vec![Span::styled(format!("{k:<6}"), ui.key), Span::raw(d.to_string())])).collect();
+    // (Keys padded to the longest: "Space l" runs into nothing.)
+    let kw = keys.iter().map(|k| k.0.chars().count()).max().unwrap_or(0) + 2;
+    let lines: Vec<Line> = keys.iter().map(|(k, d)| Line::from(vec![Span::styled(format!("{k:<kw$}"), ui.key), Span::raw(d.to_string())])).collect();
     let w = (lines.iter().map(Line::width).max().unwrap_or(10) as u16 + 4).min(area.width);
     let h = (lines.len() as u16 + 2).min(area.height.saturating_sub(1));
     let r = Rect { x: area.width - w, y: area.height.saturating_sub(1 + h), width: w, height: h };
