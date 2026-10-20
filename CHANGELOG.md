@@ -5,6 +5,25 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.68.0] - 2026-10-20
+
+### Added
+- In an issue:
+  - `Space l` toggles its labels and assignees, as in a PR;
+  - a key box shows the most used keys;
+  - its view lists the drafts of Claude's that fix it, published or not.
+- `dv issues`: an issue Claude is drafting a fix for, or has an unpublished draft fix, leaves the
+  todo; its card says so.
+
+### Fixed
+- No "✓" that reads as approval: "claude: drafted", "claude: triaged".
+- Stalled PRs:
+  - only maintainers' reviews and comments count;
+  - an approval since clears them;
+  - a maintainer's "Update branch" isn't the author's word;
+  - drafts and bots' PRs are left out.
+- An issue view's cursor stays on its side across a resize.
+
 ## [0.67.0] - 2026-10-20
 
 ### Added
