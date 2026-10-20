@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.76.0] - 2026-10-20
+
+### Added
+- `h` / `l` go to the previous / next tab in dv list and the issues list (as `gp` / `gn`).
+
 ## [0.75.4] - 2026-10-20
 
 ### Fixed
