@@ -52,6 +52,7 @@ VIEW
   Ctrl-w f             comments pane: a column beside the code / floating over it
   Ctrl-w ,  Ctrl-w .   the pane you're in narrower / wider (Ctrl-w = usual width)
   Ctrl-w q             hide the pane you're in (files' list or comments)
+  Ctrl-w o             maximize the pane you're in, till you leave it (again: as it was)
   Enter                code: open in hx; text: its link, file:line, or where the name
                        under it is defined (Ctrl-o comes back)
 
@@ -368,6 +369,7 @@ impl App {
                 (".", "wider pane"),
                 ("=", "the pane at its usual width"),
                 ("q", "hide the pane you're in (files / comments)"),
+                ("o", "maximize the pane you're in (till you leave it)"),
                 ("j", "the commits (in the files' list)"),
                 ("k", "the files (in the files' list)"),
                 ("h", "the pane to the left"),
@@ -462,6 +464,18 @@ impl App {
             (CTRL_W, 'q') if self.files_focus => self.toggle_files(),
             (CTRL_W, 'q') if self.margin_side() => self.pending_key(CTRL_W, 'c'),
             (CTRL_W, 'q') => self.msg = "the code stays; Ctrl-w q hides the files' list or comments pane you're in".into(),
+            (CTRL_W, 'o') if self.files_focus => self.msg = "Ctrl-w o maximizes the code or the comments pane".into(),
+            (CTRL_W, 'o') => {
+                self.zoom = match self.zoom {
+                    Some(_) => None,
+                    None => Some(self.margin_side()),
+                };
+                self.msg = match self.zoom {
+                    Some(_) => "maximized till you leave it (Ctrl-w o: as it was)",
+                    None => "as it was",
+                }
+                .into();
+            }
             (CTRL_W, ',') | (CTRL_W, '.') => {
                 let w = self.margin_w as isize + if c == '.' { MARGIN_STEP } else { -MARGIN_STEP };
                 let w = w.max(MARGIN_NARROW as isize) as usize;

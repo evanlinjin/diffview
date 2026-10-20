@@ -84,9 +84,20 @@ impl App {
     /// The frame's columns (`Cols`) for this draw: the files' list's, the pinned title, the code's
     /// and its gutters, the pane's (shown or not, floating or a column), as the window allows and
     /// as set; the rows rebuilt when what they wrap to changes.
+    /// Laid out again for the window as last drawn (what's beside the cursor is as it'll be).
+    pub(super) fn relayout(&mut self) {
+        self.frame_cols(self.full);
+    }
+
     fn frame_cols(&mut self, full: Rect) -> Cols {
+        self.full = full;
+        // Maximized till you leave it: the code (into the files' list or a comment in the
+        // pane), the pane (back to the code).
+        if self.zoom.is_some_and(|pane| self.files_focus || pane != self.margin_side()) {
+            self.zoom = None;
+        }
         // The changed files' list on the left (`Ctrl-w e`), the rest beside it.
-        let sw = self.files_width(full.width as usize);
+        let sw = if self.zoom.is_some() { 0 } else { self.files_width(full.width as usize) };
         self.files_w = sw;
         let area = Rect { x: full.x + sw as u16, width: full.width - sw as u16, ..full };
         // The PR's title line pinned at the top, as a panel over the code and the pane.
@@ -125,9 +136,10 @@ impl App {
         if !shown && self.in_margin(self.head.row) && !self.rows[self.head.row].attached {
             (self.margin_pref, shown) = (Some(true), true);
         }
-        // A very narrow window: shown, the pane floats over all of the code beside it (else a
-        // comment the cursor goes to would be nowhere).
-        let tiny = width <= mw + gw + 10;
+        shown &= self.zoom != Some(false);
+        // A very narrow window, or the pane maximized: shown, the pane floats over all of the
+        // code beside it (else a comment the cursor goes to would be nowhere).
+        let tiny = width <= mw + gw + 10 || self.zoom == Some(true);
         if tiny {
             mw = width.saturating_sub(gw + 1).max(12);
         }

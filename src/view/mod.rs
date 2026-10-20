@@ -556,6 +556,11 @@ pub struct App {
     /// Its width, when you've set it (`Ctrl-w ,` / `.` in it).
     files_w_pref: Option<usize>,
     files_w: usize,
+    /// The pane you're in maximized (`Ctrl-w o`): the code (`false`; no files' list, no
+    /// comments pane) or the comments pane (`true`; over all of the code), till you leave it.
+    zoom: Option<bool>,
+    /// The window as last drawn (to lay it out again unzoomed, `side`).
+    full: Rect,
     /// How far the list under its heading (the contents, then the commits) is scrolled.
     files_top: usize,
     /// What each line of the list under its heading is (for clicks).

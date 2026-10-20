@@ -3280,3 +3280,33 @@ fn a_comment_atop_the_second_file_keyed_by_its_own() {
     let row = &app.rows[app.head.row];
     assert_eq!((app.files[row.file].path.as_str(), row.line.kind), ("src/a.rs", Kind::File));
 }
+
+#[test]
+fn a_pane_maximized_till_you_leave_it() {
+    let ctrl_w = |app: &mut App, c: char| {
+        app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
+        app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+        _ = screen(220, 40, |f| app.draw(f));
+    };
+    // The code: no files' list, no comments pane.
+    let mut app = fixture();
+    app.files_pref = Some(true);
+    _ = screen(220, 40, |f| app.draw(f));
+    assert!(app.files_w > 0 && app.margin_active);
+    let r = app.rows.iter().position(|r| r.line.new == Some(12)).unwrap();
+    app.goto(r, 0);
+    ctrl_w(&mut app, 'o');
+    assert!(app.files_w == 0 && !app.margin_active && app.zoom == Some(false));
+    // Into the pane: as it was, and there.
+    ctrl_w(&mut app, 'l');
+    assert!(app.zoom.is_none() && app.margin_active && app.files_w > 0 && app.margin_side());
+    // The pane: over all of the code; back to the code, as it was.
+    ctrl_w(&mut app, 'o');
+    assert!(app.zoom == Some(true) && app.margin_float && app.geom.ctw == 0);
+    ctrl_w(&mut app, 'h');
+    assert!(app.zoom.is_none() && !app.margin_side() && !app.margin_float);
+    // Again: as it was.
+    ctrl_w(&mut app, 'o');
+    ctrl_w(&mut app, 'o');
+    assert!(app.zoom.is_none() && app.files_w > 0);
+}
