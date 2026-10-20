@@ -193,10 +193,7 @@ impl App {
         // its box's edge, as `render_row` cuts it); elsewhere in a comment there's nothing to
         // scroll; in the diff by `left`.
         let scroller = self.scroller(self.head.row);
-        let block = match scroller {
-            Some(Scroller::Block(b)) => Some(b),
-            _ => None,
-        };
+        let block = if let Some(Scroller::Block(b)) = scroller { Some(b) } else { None };
         if block != self.code_at {
             (self.code_at, self.code_left) = (block, 0);
         }

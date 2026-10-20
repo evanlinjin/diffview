@@ -305,8 +305,7 @@ impl App {
         }
         // A line cut, a diff's by the window or code by its box: `‹` / `›` where there's more,
         // to scroll to (not over the cursor).
-        let title = r == 0 && self.pin; // (not scrolled: its own line)
-        if (row.nowrap || part.is_none()) && !title && spans.len() > g {
+        if self.scroller(r).is_some() && spans.len() > g {
             let more = Style::new().fg(ui.linenr.fg.unwrap_or(Color::DarkGray));
             // (Not over a jump label; over a wide character, a space after it: the rest stays put.)
             let mark = |sp: &mut Span<'static>, c: &str, at: usize| {

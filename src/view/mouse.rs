@@ -55,11 +55,11 @@ impl App {
         let kind = if code { sideways(&m) } else { m.kind };
         match kind {
             // Sideways: what's under it (a comment's code block or table, or the diff), the
-            // cursor to it first, as a click. Not the pinned title (it'd go to the top), nor a
-            // line too short to show where it's scrolled to (the cursor there would take it back).
+            // cursor to it first, as a click. Not what doesn't scroll (a comment's prose, the
+            // pinned title: the cursor stays), nor a line too short to show where it's scrolled
+            // to (the cursor there would take it back).
             MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight if code => {
-                let Some((row, col, _)) = self.at_screen(x, y).filter(|_| !(self.pin && y == 0)) else { return };
-                // (Nor what doesn't scroll, a comment's prose: the cursor stays.)
+                let Some((row, col, _)) = self.at_screen(x, y) else { return };
                 if self.scroller(row).is_none() || kind == MouseEventKind::ScrollRight && self.len(row) <= self.hscroll(row) + 1 && self.hscroll(row) > 0 {
                     return;
                 }
