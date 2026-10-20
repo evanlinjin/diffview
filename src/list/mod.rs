@@ -152,6 +152,8 @@ pub struct List {
     /// PRs Claude has a review of, and when its reviews directory last changed: a review
     /// written from a PR's view (or still being, in Claude's pane) shows up as it lands.
     reviewed: HashSet<u64>,
+    /// How many days without the author's answer make a PR stalled (`git config dv.stalledDays`).
+    stalled_days: i64,
     /// Claude's comments on each PR not resolved yet, and whether it reviewed an older head (its
     /// review read: `find_todo`; `None`: the file won't read).
     claude_open: HashMap<u64, Option<(usize, bool)>>,
@@ -199,6 +201,7 @@ impl List {
             flags,
             ranked: crate::todo::load_of(crate::todo::Of::Prs),
             auto: crate::diff::git(&["config", "--get", "dv.auto"]).is_ok_and(|v| v.trim() == "true"),
+            stalled_days: crate::diff::git(&["config", "--get", "dv.stalledDays"]).ok().and_then(|v| v.trim().parse().ok()).unwrap_or(14),
             deferred: crate::todo::load_deferred(crate::todo::deferred_path_of(crate::todo::Of::Prs).as_deref()),
             deferred_file: crate::todo::deferred_path_of(crate::todo::Of::Prs),
             wide: true,
@@ -352,6 +355,7 @@ impl List {
                         };
                     }
                 }
+                Some(Do::Nudge(n)) => self.nudge(term, n),
                 Some(Do::DeferUntil(key)) => {
                     let what = "defer it until… (e.g. #2380 is merged, CI is green, @amy approves, someone else reviews it, the author pushes, #2380 gets a push, 3 days; \"…, or 2 weeks\": whichever first)";
                     if let Some(text) = self.edit_text(term, what, "", false) {
@@ -681,6 +685,34 @@ impl List {
     }
 
     /// The tab's PRs matching every filter term, in the chosen order.
+    /// Whether PR `p`'s author has left a review or a maintainer's comment unanswered for
+    /// `stalled_days` or more (nothing of theirs since: no push, no comment, no reply): how
+    /// long, and whose. Not yours (you'd know), nor one waiting on reviews (they had the last
+    /// word).
+    pub(super) fn stalled(&self, p: &Listed) -> Option<(i64, String)> {
+        let (at, who) = self.extra.get(&p.number)?.unanswered.clone()?;
+        let days = (crate::claude::now_secs() - at) / 86400;
+        (p.author != self.me && days >= self.stalled_days).then_some((days, who))
+    }
+
+    /// `H` on a stalled PR: your editor on a note asking its author whether they need help,
+    /// posted on the PR when you save (nothing: not posted).
+    fn nudge(&mut self, term: &mut DefaultTerminal, n: u64) {
+        let Some(p) = self.prs.iter().find(|p| p.number == n) else { return };
+        let (days, who) = self.stalled(p).unwrap_or((0, String::new()));
+        let whose = if who == self.me { "my review".to_owned() } else { format!("@{who}'s review") };
+        let draft = format!(
+            "Hi @{}, checking in on this one: {whose} has been waiting for {days} days. Are you still working on it? \
+             If you're stuck or short on time, let us know: we're happy to help, or to take it over from here.",
+            p.author
+        );
+        let Some(body) = self.edit_text(term, &format!("a comment asking #{n}'s author if they need help (posted when you save)"), &draft, false) else { return };
+        self.msg = match crate::gh::gh(&["pr", "comment", &n.to_string(), "--body", &body]) {
+            Ok(_) => format!("asked #{n}'s author whether they need help"),
+            Err(e) => format!("not posted: {e:#}"),
+        };
+    }
+
     fn shown(&self) -> Vec<&Listed> {
         self.shown_cards().into_iter().map(|(card, _)| card).collect()
     }
@@ -691,6 +723,7 @@ impl List {
         let in_tab = |p: &&Listed| match self.tab {
             Tab::Worktrees => self.local.contains_key(&p.number),
             Tab::CanClose => p.open() && self.closable.contains_key(&p.number),
+            Tab::Stalled => p.open() && self.stalled(p).is_some(),
             _ => p.open(),
         };
         let all: Vec<(&Listed, Option<&crate::todo::Item>)> = match self.tab {
@@ -743,6 +776,8 @@ enum Do {
     AskRebase(u64),
     /// Defer this todo item (its key) until something happens, written in your editor.
     DeferUntil(String),
+    /// Ask PR N's author whether they need help (your editor first, then posted).
+    Nudge(u64),
     /// Post on this PR what it's deferred until, for everyone (and their dv) to see.
     PostWait(u64, String),
 }
@@ -755,6 +790,9 @@ enum Tab {
     Open,
     /// What Claude's reviews would close: the premise is wrong, a competing PR is better.
     CanClose,
+    /// Where the author hasn't answered a review or a maintainer's comment for a while
+    /// (`dv.stalledDays`): to ask whether they need help.
+    Stalled,
     Worktrees,
     Replacements,
 }
@@ -764,14 +802,15 @@ impl Tab {
         match self {
             Tab::Todo => Tab::Open,
             Tab::Open => Tab::CanClose,
-            Tab::CanClose => Tab::Worktrees,
+            Tab::CanClose => Tab::Stalled,
+            Tab::Stalled => Tab::Worktrees,
             Tab::Worktrees => Tab::Replacements,
             Tab::Replacements => Tab::Todo,
         }
     }
 
     fn prev(self) -> Tab {
-        self.next().next().next().next()
+        self.next().next().next().next().next()
     }
 }
 

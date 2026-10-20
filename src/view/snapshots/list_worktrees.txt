@@ -1,8 +1,8 @@
- PRs   todo 0   open 3   close 0   worktrees 0   draft keys
-                                                       Enter review, in its worktree
- no PR worktrees here yet: `dv N -w` (or dv list -w, t gn gp replacements
-                                                       /     filter
-                                                       o O   sort / reverse
-                                                       R     refresh (from GitHub)
-                                                       m     mark
+ PRs   todo 0   open 3   close 0   stalle keys
+                                          Enter review (H asks its author whether they need help)
+ nothing stalled: no author has left a re gn gp PRs with a worktree
+                                          /     filter
+                                          o O   sort / reverse
+                                          R     refresh (from GitHub)
+                                          m     mark
                                                                          by created ↓  ·  auto off

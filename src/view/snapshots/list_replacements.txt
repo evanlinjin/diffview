@@ -1,8 +1,8 @@
- PRs   todo 0   open 3   close 0   worktrees 0   draft keys
-                                                       Enter review it, in its worktree
- no replacements yet: A A on a PR (or marked ones) has gn gp what needs you
+ PRs   todo 0   open 3   close 0   stalled 0   worktre keys
+                                                       Enter review, in its worktree
+ no PR worktrees here yet: `dv N -w` (or dv list -w, t gn gp replacements
                                                        /     filter
                                                        o O   sort / reverse
                                                        R     refresh (from GitHub)
-                                                       N N   Claude drafts a new PR (unpublished)
+                                                       m     mark
                                                                          by created ↓  ·  auto off

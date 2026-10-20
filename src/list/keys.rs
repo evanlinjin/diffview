@@ -6,7 +6,9 @@ MOVE
   j k, Up Down         move
   gg ge                first / last PR
   Ctrl-d Ctrl-u        half a page down / up
-  gn gp                next / previous tab (todo, open, can close, worktrees, drafts)
+  gn gp                next / previous tab (todo, open, can close, stalled, worktrees, drafts)
+  H                    stalled tab: ask the author whether they need help (your editor first;
+                       stalled: a review or maintainer's comment unanswered dv.stalledDays, 14)
   Enter                review the PR (with dv list's flags; q there comes back)
   ?                    this help
   q, Ctrl-c            quit
@@ -107,6 +109,7 @@ impl List {
             KeyCode::Char('m' | 'a' | 'A') if self.tab == Tab::Replacements => {
                 self.msg = "a draft: Enter opens it in dv, D D removes it (N N drafts a new PR)".into();
             }
+            KeyCode::Char('H') if self.tab == Tab::Stalled => return Some(Do::Nudge(self.shown().get(self.sel)?.number)),
             KeyCode::Char('D') if self.tab == Tab::Worktrees => {
                 let p = self.shown().get(self.sel).map(|p| p.number)?;
                 let (dir, _) = self.local.get(&p)?;

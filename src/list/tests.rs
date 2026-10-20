@@ -65,7 +65,9 @@ fn filter_and_keys() {
     assert_eq!(shown(&l), [1, 22, 333]); // open tab: not the merged one
     k(&mut l, KeyCode::Char('g'));
     k(&mut l, KeyCode::Char('n'));
-    // (past "can close")
+    // (past "can close" and "stalled")
+    k(&mut l, KeyCode::Char('g'));
+    k(&mut l, KeyCode::Char('n'));
     k(&mut l, KeyCode::Char('g'));
     k(&mut l, KeyCode::Char('n'));
     assert_eq!(shown(&l), [9, 22]); // (still by number, ascending)
@@ -77,6 +79,8 @@ fn filter_and_keys() {
     assert!(k(&mut l, KeyCode::Char('D')).is_none());
     assert!(matches!(k(&mut l, KeyCode::Char('D')), Some(Do::Remove(22))));
     // m marks (and moves on); a asks, a again has Claude review the marked ones.
+    k(&mut l, KeyCode::Char('g'));
+    k(&mut l, KeyCode::Char('p')); // (past "stalled")
     k(&mut l, KeyCode::Char('g'));
     k(&mut l, KeyCode::Char('p')); // (past "can close")
     k(&mut l, KeyCode::Char('g'));
@@ -127,7 +131,9 @@ fn filter_and_keys() {
     assert_eq!(l.draft_state(1, "claude"), Some(("claude: drafting…".into(), true)));
     k(&mut l, KeyCode::Char('g'));
     k(&mut l, KeyCode::Char('n'));
-    // (past "can close")
+    // (past "can close" and "stalled")
+    k(&mut l, KeyCode::Char('g'));
+    k(&mut l, KeyCode::Char('n'));
     k(&mut l, KeyCode::Char('g'));
     k(&mut l, KeyCode::Char('n'));
     k(&mut l, KeyCode::Char('g'));
@@ -618,4 +624,32 @@ fn closed_worktree_prs_looked_up_in_the_background() {
     assert!(l.gone.contains_key(&3) && !l.gone.contains_key(&9)); // 9 is asked again next time
     assert_eq!(l.marked, HashSet::from([9])); // merged: its mark goes; unknown: kept
     assert!(l.gone_rx.is_empty() && l.gone_pending.is_empty());
+}
+
+#[test]
+fn stalled_when_the_author_leaves_feedback_unanswered() {
+    let t = |d: &str| format!("2026-10-{d}T00:00:00Z");
+    let pr = |comments: serde_json::Value| {
+        serde_json::json!({ "author": { "login": "amy" },
+            "commits": { "nodes": [{ "commit": { "committedDate": t("01") } }] },
+            "reviews": { "nodes": [{ "author": { "login": "bo" }, "state": "CHANGES_REQUESTED", "submittedAt": t("02") },
+                                   { "author": { "login": "cy" }, "state": "APPROVED", "submittedAt": t("05") }] },
+            "comments": { "nodes": comments } })
+    };
+    // bo asked for changes after amy's push, and she's said nothing since (an approval asks nothing).
+    let e = super::github::extra(&pr(serde_json::json!([])), "me");
+    assert_eq!(e.unanswered.map(|u| u.1), Some("bo".to_owned()));
+    // She answered: waiting on reviews, not stalled.
+    let e = super::github::extra(&pr(serde_json::json!([{ "author": { "login": "amy" }, "createdAt": t("03"), "body": "on it" }])), "me");
+    assert_eq!(e.unanswered, None);
+    // In the list: stalled once it's been `dv.stalledDays`, not before; never your own.
+    let mut l = List { stalled_days: 14, me: "me".into(), ..Default::default() };
+    let p = Listed { number: 1, author: "amy".into(), ..Listed::default() };
+    let at = |days: i64| Extra { unanswered: Some((crate::claude::now_secs() - days * 86400, "bo".into())), ..Default::default() };
+    l.extra.insert(1, at(20));
+    assert_eq!(l.stalled(&p), Some((20, "bo".into())));
+    l.extra.insert(1, at(3));
+    assert_eq!(l.stalled(&p), None);
+    l.extra.insert(1, at(20));
+    assert_eq!(l.stalled(&Listed { author: "me".into(), ..p }), None);
 }

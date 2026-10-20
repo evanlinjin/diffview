@@ -298,9 +298,14 @@ pub(super) fn cut_spans(spans: Vec<Span<'static>>, w: usize) -> Vec<Span<'static
 
 /// Under a card's title on the "can close" tab: why Claude's review would close the PR.
 pub(super) fn close_line(why: &str, cx: &Cards, selected: bool) -> Line<'static> {
+    note_line("✕", why, cx, selected)
+}
+
+/// A card's line under its title: `mark`, then `why`'s first line (cut at the card's edge).
+pub(super) fn note_line(mark: &str, why: &str, cx: &Cards, selected: bool) -> Line<'static> {
     let row = card_row(cx.ui, selected);
     let bar = Span::styled(if selected { "▌" } else { " " }, row.patch(Style { bg: None, ..cx.ui.key }));
-    let lead = format!("{}{:w$}  ✕ ", " ".repeat(MARK_W), "", w = cx.num_w - 1);
+    let lead = format!("{}{:w$}  {mark} ", " ".repeat(MARK_W), "", w = cx.num_w - 1);
     let text: String = why.lines().next().unwrap_or("").chars().take(cx.width.saturating_sub(lead.chars().count() + 2)).collect();
     Line::from(vec![bar, Span::styled(lead, row), Span::styled(text, row.patch(Style { bg: None, ..cx.ui.warning }))])
 }

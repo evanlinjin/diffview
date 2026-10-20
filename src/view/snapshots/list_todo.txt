@@ -1,4 +1,4 @@
- PRs   todo 3   open 3   close 0   worktrees 0   dr keys
+ PRs   todo 3   open 3   close 0   stalled 0   work keys
 ▌   #2  Docs                                        Enter see to it (opens the PR or replacement)
 ▌   3.  → z                                         gn gp open PRs
 ▌       @bo   +0 −0 in 1 file                       /     filter

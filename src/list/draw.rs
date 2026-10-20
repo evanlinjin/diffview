@@ -18,7 +18,7 @@ impl List {
         let lines = if self.wide { 3 } else { 4 };
         let more = match self.tab {
             // A line under its title, or (as many rows) beside the card (`msg_column`).
-            Tab::Todo | Tab::CanClose => 1,
+            Tab::Todo | Tab::CanClose | Tab::Stalled => 1,
             _ => 0,
         };
         lines + more + 1
@@ -42,6 +42,7 @@ impl List {
             (Tab::Todo, format!("todo {}", self.todo_now())),
             (Tab::Open, format!("open {open}{}", if self.prs.len() >= github::LIST_MAX { "+" } else { "" })),
             (Tab::CanClose, format!("close {}", self.prs.iter().filter(|p| p.open() && self.closable.contains_key(&p.number)).count())),
+            (Tab::Stalled, format!("stalled {}", self.prs.iter().filter(|p| p.open() && self.stalled(p).is_some()).count())),
             (Tab::Worktrees, format!("worktrees {}", self.local.len())),
             (Tab::Replacements, format!("drafts {}", self.reps.len())),
         ];
@@ -122,6 +123,11 @@ impl List {
                 if let Some(why) = self.closable.get(&p.number).filter(|_| self.tab == Tab::CanClose) {
                     lines.insert(1, close_line(why, &cx, i == sel));
                 }
+                // How long its author hasn't answered, and whom.
+                if let Some((days, who)) = self.stalled(p).filter(|_| self.tab == Tab::Stalled) {
+                    let why = format!("@{} hasn't answered @{who} for {days} days (H asks whether they need help)", p.author);
+                    lines.insert(1, note_line("⏸", &why, &cx, i == sel));
+                }
                 lines.push(Line::raw("")); // room between cards
                 lines
             })
@@ -129,6 +135,7 @@ impl List {
         let typed = self.query.trim().trim_start_matches('#').parse::<u64>().ok();
         let none = match (self.tab, self.query.is_empty(), typed) {
             (Tab::CanClose, true, _) => " nothing Claude would close: its reviews say when a PR's premise is wrong, or a competing PR does it better".into(),
+            (Tab::Stalled, true, _) => format!(" nothing stalled: no author has left a review or a maintainer's comment unanswered for {} days or more (git config dv.stalledDays)", self.stalled_days),
             (Tab::Worktrees, true, _) => " no PR worktrees here yet: `dv N -w` (or dv list -w, then Enter) makes one".into(),
             (Tab::Replacements, true, _) => " no replacements yet: A A on a PR (or marked ones) has Claude draft one".into(),
             (_, _, Some(n)) => format!(" #{n} isn't listed: Enter opens it anyway"),
@@ -164,6 +171,7 @@ impl List {
                 Tab::Todo => "see to it (opens the PR or replacement)".to_owned(),
                 Tab::Worktrees => "review, in its worktree".to_owned(),
                 Tab::CanClose => "review (Space a there drafts a closing comment)".to_owned(),
+                Tab::Stalled => "review (H asks its author whether they need help)".to_owned(),
                 Tab::Replacements => "review it, in its worktree".to_owned(),
                 Tab::Open if self.flags.is_empty() => "review".to_owned(),
                 Tab::Open => format!("review (dv N {})", self.flags),
@@ -171,7 +179,8 @@ impl List {
             let tab = match self.tab {
                 Tab::Todo => "open PRs",
                 Tab::Open => "what Claude would close",
-                Tab::CanClose => "PRs with a worktree",
+                Tab::CanClose => "stalled PRs",
+                Tab::Stalled => "PRs with a worktree",
                 Tab::Worktrees => "replacements",
                 Tab::Replacements => "what needs you",
             };

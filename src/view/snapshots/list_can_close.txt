@@ -1,6 +1,6 @@
- PRs   todo 3   open 3   close 1   worktree keys
+ PRs   todo 3   open 3   close 1   stalled  keys
 ▌   #2  Docs                                Enter review (Space a there drafts a closing comment)
-▌      ✕ #1 does this better                gn gp PRs with a worktree
+▌      ✕ #1 does this better                gn gp stalled PRs
 ▌       @bo   +0 −0 in 1 file               /     filter
 ▌                                           o O   sort / reverse
 ▌       b                                   R     refresh (from GitHub)
