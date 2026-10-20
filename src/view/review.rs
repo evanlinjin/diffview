@@ -375,9 +375,10 @@ impl App {
         }
         self.claude.broken = None;
         // (`dv list`'s ranking: its word on this PR, or this replacement.)
-        let key = match (&self.replacement, &self.pr) {
-            (Some(r), _) => Some(format!("rep-{}", r.id)),
-            (None, Some(p)) => Some(format!("pr-{}", p.number)),
+        // (A published replacement is a PR like any: its own item.)
+        let key = match (&self.pr, &self.replacement) {
+            (Some(p), _) => Some(format!("pr-{}", p.number)),
+            (None, Some(r)) => Some(format!("rep-{}", r.id)),
             _ => None,
         };
         let ranked = crate::todo::load_of(crate::todo::Of::Prs);
