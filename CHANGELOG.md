@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.54.1] - 2026-10-20
+
+### Fixed
+- Deferring "until … review …" means someone else's review only when it says so
+  ("someone else", "anyone"). "review it in 2 days" is a time, and the rest go to Claude.
+
 ## [0.54.0] - 2026-10-19
 
 ### Added
