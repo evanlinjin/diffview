@@ -335,24 +335,33 @@ impl IssueView {
                 true => md(&self.t("summary"), inner, 1),
                 false => vec![(Line::from(Span::styled("none yet: a a triages it", dim)), vec![])],
             };
-            {
-                // (Wrapped as markdown: a long `next` stays in the bubble.)
-                let mut said = |k: &str, v: String| {
-                    if !v.is_empty() {
+            // (Wrapped as markdown: a long `next` stays in the bubble.)
+            let said = |b: &mut Vec<(Line<'static>, Links)>, k: &str, v: String| {
+                if !v.is_empty() {
+                    if !b.is_empty() {
                         b.push((Line::default(), vec![]));
-                        b.extend(md(&format!("**{k}:** {v}"), inner, 1));
                     }
-                };
-                said("next", self.t("next"));
-                said(if self.can_triage { "labels to add (L L)" } else { "labels to suggest (labelling takes triage access)" }, self.new_labels().join(", "));
-                said("title (T T)", self.new_title().unwrap_or_default());
-                said("close (X X)", self.t("close"));
-                if let Some(c) = self.closing().filter(|c| !c.is_empty()) {
-                    b.extend([(Line::default(), vec![]), (Line::from(Span::styled("closing comment:", ui.key)), vec![])]);
-                    b.extend(md(&c, inner, 1));
+                    b.extend(md(&format!("**{k}:** {v}"), inner, 1));
                 }
-            }
+            };
+            said(&mut b, "next", self.t("next"));
             right.extend(bubble(claude(title), b, right_w));
+            // What it suggests doing, a box of its own, each with its keys.
+            let mut acts = vec![];
+            said(&mut acts, if self.can_triage { "add the labels (L L)" } else { "labels to suggest (labelling takes triage access)" }, self.new_labels().join(", "));
+            said(&mut acts, "retitle it (T T)", self.new_title().unwrap_or_default());
+            said(&mut acts, "close it (X X)", self.t("close"));
+            if let Some(c) = self.closing().filter(|c| !c.is_empty()) {
+                if !acts.is_empty() {
+                    acts.push((Line::default(), vec![]));
+                }
+                acts.push((Line::from(Span::styled("closing comment:", ui.key)), vec![]));
+                acts.extend(md(&c, inner, 1));
+            }
+            if !acts.is_empty() {
+                right.push((Line::default(), 0..0, vec![]));
+                right.extend(bubble(claude("claude suggests".into()), acts, right_w));
+            }
         }
         // The drafts of Claude's that fix it, published or not.
         if !self.drafts.is_empty() {

@@ -3,12 +3,15 @@
                                                                                                    ││ Still on master: src/a.rs:12 unwraps.                    │
   description                                                                                      ││                                                          │
   It panics.                                                                                       ││ next: review #9                                          │
+                                                                                                   │╰──────────────────────────────────────────────────────────╯
+                                                                                                   │
+                                                                                                   │╭─ ◆ claude suggests ──────────────────────────────────────╮
+                                                                                                   ││ add the labels (L L): chain                              │
                                                                                                    ││                                                          │
-                                                                                                   ││ labels to add (L L): chain                               │
+                                                                                                   ││ retitle it (T T): LocalChain panics on reorg past        │
+                                                                                                   ││ genesis                                                  │
                                                                                                    ││                                                          │
-                                                                                                   ││ title (T T): LocalChain panics on reorg past genesis     │
-                                                                                                   ││                                                          │
-                                                                                                   ││ close (X X): fixed by #9                                 │
+                                                                                                   ││ close it (X X): fixed by #9                              │
                                                                                                    ││                                                          │
                                                                                                    ││ closing comment:                                         │
                                                                                                    ││ Fixed by #9, thanks!                                     │
@@ -17,6 +20,3 @@
                                                                                                    │draft fixes (1)
                                                                                                    │• new PR 3: Claude is drafting it
                                                                                                    │
-                                                                                                   │activity (1)
-                                                                                                   │╭─ @bo ────────────────────────────────────────────────────╮
-                                                                                                   ││ Same here.                                               │
