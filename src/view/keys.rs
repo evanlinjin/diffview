@@ -602,7 +602,11 @@ impl App {
                         Target::AmendAsk => self.amend_ask(false),
                         Target::AmendAll => self.amend_ask(true),
                         Target::GitView => self.toggle_uncommitted(),
-                        Target::Commits(sel) => self.show_commits(sel),
+                        Target::Commit(None) => self.show_commits(None),
+                        Target::Commit(Some(sha)) => match self.commits.iter().position(|c| c.sha == sha) {
+                            Some(i) => self.show_commits(Some((i, i))),
+                            None => self.msg = "that commit's gone (rewritten since): Space C again".into(),
+                        },
                         Target::GitMerge => (self.merge, self.quit) = (true, true),
                         Target::GitTakeTheirs(sure) => self.take_theirs(sure),
                         Target::GitDrop(path, sure) => self.msg = self.drop_uncommitted(path, sure).unwrap_or_else(|e| format!("not dropped: {e:#}")),

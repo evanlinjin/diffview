@@ -423,14 +423,15 @@ impl App {
     /// `Space C`: the PR's commits to pick one of (its diff alone), or all of them (newest first;
     /// the one shown marked).
     pub(super) fn commit_picker(&mut self) {
-        let mut items = vec![Item::new(format!("{} all commits: the whole diff", if self.commit_shown.is_none() { "●" } else { " " }), Target::Commits(None))];
-        items.extend(self.commits.iter().enumerate().rev().map(|(i, c)| {
-            let on = if self.commit_shown == Some((i, i)) { "●" } else { " " };
-            Item::new(format!("{on} {} {}", c.short, c.subject), Target::Commits(Some((i, i))))
-        }));
         if self.commits.is_empty() {
             return self.msg = "no commits here to pick from".into();
         }
+        let all = self.commit_shown.is_none() && !self.uncommitted();
+        let mut items = vec![Item::new(format!("{} all commits: the whole diff", if all { "●" } else { " " }), Target::Commit(None))];
+        items.extend(self.commits.iter().enumerate().rev().map(|(i, c)| {
+            let on = if self.commit_shown == Some((i, i)) { "●" } else { " " };
+            Item::new(format!("{on} {} {}", c.short, c.subject), Target::Commit(Some(c.sha.clone())))
+        }));
         self.picker = Some(Picker::new(" commits ", items));
     }
 

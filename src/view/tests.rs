@@ -2451,7 +2451,7 @@ fn commit_picker_lists_the_commits() {
     assert!(p.items[0].label.contains("all commits") && p.items[0].label.starts_with('●'));
     assert_eq!(p.items.len(), app.commits.len() + 1);
     assert!(p.items[1].label.contains("bbb second")); // newest first
-    assert!(matches!(p.items[1].target, Target::Commits(Some((1, 1)))));
+    assert!(matches!(&p.items[1].target, Target::Commit(Some(s)) if s == "bbb"));
 }
 
 #[test]
