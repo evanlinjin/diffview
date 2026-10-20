@@ -731,7 +731,10 @@ impl IssueView {
                     (true, Some((a, _))) => (a, row + 1),
                     _ => ((row, self.text(row).start), row),
                 };
-                while to + 1 + PAD < self.lines(self.side_of(col)).len() && self.text(to).is_empty() {
+                // (No line after the last: it stays, the selection whole.)
+                let last = self.lines(self.side_of(col)).len().saturating_sub(1 + PAD);
+                to = to.min(last);
+                while to < last && self.text(to).is_empty() {
                     to += 1;
                 }
                 let end = self.text(to).end.saturating_sub(1);
@@ -988,6 +991,12 @@ fn an_issue_and_its_triage() {
     v.mouse(MouseEventKind::ScrollLeft, 2, 0);
     v.mouse(MouseEventKind::ScrollLeft, 2, 0);
     assert_eq!(v.code_left, [0, 0]);
+    // `ge x x y` on the last line: still the whole line.
+    v.go(usize::MAX, 0);
+    v.key(None, KeyCode::Char('x'), false);
+    v.key(None, KeyCode::Char('x'), false);
+    let (a, b) = v.sel.unwrap();
+    assert!(a.0 == b.0 && b.1 > a.1, "{a:?} {b:?}");
     // A click in the margin: the cursor on the text beside it, nothing copied, the view still.
     let _ = screen(160, 22, |f| v.draw(f, &ui, f.area()));
     (v.scroll, v.shown) = ([0; 2], 20);
