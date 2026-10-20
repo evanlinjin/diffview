@@ -73,7 +73,7 @@ impl App {
 
         // The key hints, without the contents list: off the cursor, where they cover the least.
         if let Some((title, keys)) = keys.filter(|_| sw == 0) {
-            draw_hints(f, &self.ui, Rect { y: area.y + pin as u16, height: h as u16, ..area }, title, keys, Some(self.cursor_cell(&c)));
+            draw_hints(f, &self.ui, Rect { y: area.y + pin as u16, height: h as u16, ..area }, title, keys, Some(self.keep_clear(&c)));
         }
 
         self.draw_popup(f, full);
@@ -667,11 +667,13 @@ impl App {
         }
     }
 
-    /// Which keys do what here (`title`, `keys`): bottom right of `above` (the code, above the
-    /// status bar), as Helix has them; bottom left while the cursor is in the comment margin, so
-    /// they don't cover the comments there.
-    /// Where the cursor is on screen, as drawn (`c`): its cell.
-    fn cursor_cell(&self, c: &Cols) -> Rect {
+    /// What the key hints keep clear of, as drawn (`c`): the cursor's cell; in the comments
+    /// pane, all of it (the comment being read).
+    fn keep_clear(&self, c: &Cols) -> Rect {
+        if self.margin_side() {
+            let x = c.relw + c.gw + c.code_tw;
+            return Rect { x: c.area.x + x as u16, y: c.area.y + c.pin as u16, width: c.area.width.saturating_sub(x as u16), height: c.h as u16 };
+        }
         let row = self.head.row;
         let x = self.text_x(c) + self.rows[row].guide_w() + self.col_of(row, self.head.col).saturating_sub(self.hscroll(row));
         let y = c.pin + c.hd.saturating_sub(self.top);

@@ -220,7 +220,7 @@ impl List {
                 .map(|(k, d)| (*k, *d))
                 .collect();
             // (Off the selected card: the list's cursor.)
-            let card = Rect { y: 1 + ((self.sel - self.top) * rows) as u16, height: rows as u16, ..area };
+            let card = Rect { y: 1 + (self.sel.saturating_sub(self.top) * rows) as u16, height: rows as u16, ..area };
             draw_keys(f, ui, &lines, Some(card));
         }
         if self.help {
