@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.75.3] - 2026-10-20
+
+### Changed
+- A Claude dv starts on a PR (from its view, its pane, or dv list) gets the PR's number
+  (`DV_PR`): its `dv review-info` / `review-check` / `review-comments` read the PR and its
+  threads from what dv fetched of it in the last 15 minutes, not GitHub again for each check.
+
 ## [0.75.2] - 2026-10-20
 
 ### Fixed
