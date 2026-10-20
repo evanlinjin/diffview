@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.69.7] - 2026-10-20
+
+### Fixed
+- A draft or a ranking whose run hits a bug ends as failed, rather than counting as under way
+  for the rest of the session.
+
 ## [0.69.6] - 2026-10-20
 
 ### Fixed
