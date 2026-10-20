@@ -375,14 +375,10 @@ impl App {
         }
         self.claude.broken = None;
         // (`dv list`'s ranking: its word on this PR, or this replacement.)
-        // (A published replacement is a PR like any: its own item.)
-        let key = match (&self.pr, &self.replacement) {
-            (Some(p), _) => Some(format!("pr-{}", p.number)),
-            (None, Some(r)) => Some(format!("rep-{}", r.id)),
-            _ => None,
-        };
+        // (Its PR's item, then a replacement's own: closing what it replaces, say.)
+        let keys: Vec<String> = self.pr.iter().map(|p| format!("pr-{}", p.number)).chain(self.replacement.iter().map(|r| format!("rep-{}", r.id))).collect();
         let ranked = crate::todo::load_of(crate::todo::Of::Prs);
-        self.ranked_next = key.and_then(|k| Some((ranked.as_ref()?.items.iter().find(|i| i.0 == k)?.1.clone(), ranked.as_ref()?.at))).filter(|n| !n.0.trim().is_empty());
+        self.ranked_next = ranked.and_then(|r| keys.iter().find_map(|k| r.items.iter().find(|i| &i.0 == k && !i.1.trim().is_empty())).map(|i| (i.1.clone(), r.at)));
         self.threads.retain(|t| t.claude.is_none());
         self.claude.summary.clear();
         self.claude.head.clear();
