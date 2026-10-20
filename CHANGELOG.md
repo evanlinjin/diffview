@@ -5,6 +5,18 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.74.0] - 2026-10-20
+
+### Added
+- In an issue, a drag at the view's top or bottom edge scrolls it on.
+
+### Fixed
+- A sideways scroll in an issue no longer sends the cursor to its first line.
+- A talk resolved again (by you or by Claude) folds, even if `Tab` had it shown.
+- The cursor is kept clear of a floating comment beside its line.
+- Sideways over a comment's prose leaves the cursor where it is.
+- `dv-panic.log` starts over once past a MiB.
+
 ## [0.73.0] - 2026-10-20
 
 ### Added
