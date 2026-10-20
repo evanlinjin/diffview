@@ -161,7 +161,7 @@ pub(crate) enum Work {
 }
 
 impl Work {
-    /// Every one (the README test's match keeps it whole).
+    /// Every one. (A new one: here and in the README test's match, which the compiler asks for.)
     #[cfg(test)]
     const ALL: [Work; 14] = [Work::Review, Work::Answer, Work::Change, Work::Describe, Work::FixCi, Work::Close, Work::Commit, Work::Amend, Work::Rebase, Work::Replace, Work::Triage, Work::Rank, Work::Interpret, Work::Group];
 
