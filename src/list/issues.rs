@@ -299,6 +299,9 @@ pub struct Issues {
     /// `Space l` in an issue: its labels and assignees to toggle (what, name, on it), and the
     /// one selected.
     meta: Option<(Vec<Meta>, usize)>,
+    /// Issues a draft of Claude's (unpublished: `N N`'s) is to fix: its label, whether Claude's
+    /// at it now. Not on the todo till it's done: nothing for you there meanwhile.
+    draft_fix: HashMap<u64, (String, bool)>,
     /// Claude reading a deferral's "until …": the item's key, the "or" time, its answer.
     until_rx: Option<(String, Option<i64>, Receiver<Result<crate::todo::Until>>)>,
     running: HashMap<u64, batch::Status>,
@@ -377,6 +380,13 @@ impl Issues {
                 (!needs.is_empty()).then(|| Item { kind: Kind::Issue, number: i.number, needs, claude: None, updated: i.updated.clone(), reason: None, changed: false, deferred: None, busy: None, waits: None })
             })
             .collect();
+        // (A draft fixing it, unpublished: its record's task starts "Fix #N", as `N N` has it.)
+        self.draft_fix = crate::replace::all()
+            .into_iter()
+            .filter(|r| r.published.is_none())
+            .filter_map(|r| Some((fixes(&r.task)?, (crate::replace::label(r.id), r.drafting_now()))))
+            .collect();
+        let items: Vec<Item> = items.into_iter().filter(|it| !self.draft_fix.contains_key(&it.number)).collect();
         let (items, _) = crate::todo::order(items, self.ranked.as_ref());
         // What deferrals waited for that has happened: they're over (said so, once).
         let met: Vec<(String, String)> = items
@@ -797,7 +807,7 @@ impl Issues {
                     self.msg = format!("#{n}…");
                     _ = term.draw(|f| self.draw(f)); // (said while GitHub's asked)
                     self.msg.clear();
-                    match super::issue_view::IssueView::load(n, self.reviews_dir.as_deref(), self.can_triage) {
+                    match self.load_issue(n) {
                         Ok(v) => self.view = Some(v),
                         Err(e) => self.msg = format!("#{n}: {e:#}"),
                     }
@@ -866,7 +876,7 @@ impl Issues {
                     if pr || crate::gh::gh(&["pr", "view", &n.to_string(), "--json", "number"]).is_ok() {
                         return Some(IssuesDo::Pr(n));
                     }
-                    match super::issue_view::IssueView::load(n, self.reviews_dir.as_deref(), self.can_triage) {
+                    match self.load_issue(n) {
                         Ok(v) => self.view = Some(v),
                         Err(e) => self.msg = format!("#{n}: {e:#}"),
                     }
@@ -999,7 +1009,7 @@ impl Issues {
     /// The issue open, from GitHub again (after a comment, a label, a title).
     fn reload_view(&mut self, n: u64) {
         let keep = self.view.as_ref().map_or([0; 2], |v| v.scroll_at());
-        match super::issue_view::IssueView::load(n, self.reviews_dir.as_deref(), self.can_triage) {
+        match self.load_issue(n) {
             Ok(mut v) => {
                 v.set_scroll(keep);
                 self.view = Some(v);
@@ -1092,6 +1102,24 @@ impl Issues {
         self.deferred.insert(key.to_owned(), crate::todo::Deferral { until, needs: it.needs_key(), cond, at: 0 });
         self.msg = format!("deferred until {says} (s on it brings it back)");
         self.save_defer();
+    }
+
+    /// Issue `n`'s view, from GitHub, with the drafts of Claude's that fix it.
+    fn load_issue(&self, n: u64) -> Result<super::issue_view::IssueView> {
+        let mut v = super::issue_view::IssueView::load(n, self.reviews_dir.as_deref(), self.can_triage)?;
+        v.drafts = crate::replace::all()
+            .into_iter()
+            .filter(|r| fixes(&r.task) == Some(n))
+            .map(|r| {
+                let label = crate::replace::label(r.id);
+                match (r.published, r.drafting_now()) {
+                    (Some(p), _) => format!("{label}: published, #{p}"),
+                    (None, true) => format!("{label}: Claude is drafting it"),
+                    (None, false) => format!("{label}: drafted, unpublished (dv list's drafts tab: review it, S publishes it)"),
+                }
+            })
+            .collect();
+        Ok(v)
     }
 
     /// `Space l` in an issue: its labels and assignees, from GitHub, to toggle (it's said while
@@ -1252,7 +1280,7 @@ impl Issues {
                 let card_w = column.unwrap_or(width);
                 let rank = item.filter(|_| column.is_some()).map(|_| k + 1); // (narrow: on the line under the title)
                 let close = self.close_why(i.number).unwrap_or_default();
-                let mut l = issue_card(i, ui, k == sel, self.marked.contains(&i.number), num_w, card_w, self.triage.get(&i.number), self.running.get(&i.number), rank, &close);
+                let mut l = issue_card(i, ui, k == sel, self.marked.contains(&i.number), num_w, card_w, self.triage.get(&i.number), self.running.get(&i.number), rank, &close, self.draft_fix.get(&i.number));
                 if let Some(it) = item {
                     let cx = Cards { ui, num_w: num_w.max(3), width: card_w, checks_loading: false, usual: "" };
                     match column {
@@ -1308,7 +1336,7 @@ impl Issues {
 /// it and who has it, and Claude's triage (what kind, how pressing); the PRs that would fix it,
 /// and what Claude says is next (or that it's at it).
 #[allow(clippy::too_many_arguments)]
-fn issue_card(i: &Issue, ui: &Ui, selected: bool, marked: bool, num_w: usize, width: usize, t: Option<&Triage>, run: Option<&batch::Status>, rank: Option<usize>, close: &str) -> Vec<Line<'static>> {
+fn issue_card(i: &Issue, ui: &Ui, selected: bool, marked: bool, num_w: usize, width: usize, t: Option<&Triage>, run: Option<&batch::Status>, rank: Option<usize>, close: &str, draft: Option<&(String, bool)>) -> Vec<Line<'static>> {
     let row = card_row(ui, selected);
     let tint = |st: Style| row.patch(Style { bg: None, ..st });
     let dim = tint(ui.stale);
@@ -1373,6 +1401,13 @@ fn issue_card(i: &Issue, ui: &Ui, selected: bool, marked: bool, num_w: usize, wi
         None => vec![],
     };
     vec![zones(top, talk), zones(who, triage), zones(fix, claude)]
+}
+
+/// The issue a draft's task is to fix: its first line's "Fix #N" (as `N N` writes it).
+fn fixes(task: &str) -> Option<u64> {
+    let first = task.lines().next()?.trim();
+    let rest = first.get(..5).filter(|p| p.eq_ignore_ascii_case("fix #")).map(|_| &first[5..])?;
+    rest.split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()
 }
 
 /// A label or an assignee of `Space l`'s: which, its name, whether it's on the issue.
@@ -1522,4 +1557,12 @@ fn live_triage() {
     let dir = crate::claude::dv_dir().unwrap().join("reviews");
     println!("{:?}", triage_of(&dir, n));
     assert!(triage_of(&dir, n).is_some());
+}
+
+#[test]
+fn a_drafts_task_names_the_issue_it_fixes() {
+    assert_eq!(fixes("Fix #2217: KeychainTxOutIndex returns stale entries\n\nFrom triaging it: …"), Some(2217));
+    assert_eq!(fixes("fix #12"), Some(12));
+    assert_eq!(fixes("Refactor the index (see #12)"), None);
+    assert_eq!(fixes(""), None);
 }

@@ -66,6 +66,8 @@ pub struct IssueView {
     /// pane's, and how far each could go (as last drawn).
     code_left: [usize; 2],
     code_over: [usize; 2],
+    /// The drafts of Claude's that fix it (published or not), as `dv issues` found them.
+    pub drafts: Vec<String>,
     /// Whether you may label it (triage access and up): Claude's labels are suggestions else.
     can_triage: bool,
     /// Text dragged over (line, column), from where the drag began to where it is.
@@ -103,6 +105,7 @@ impl IssueView {
             code_left: [0; 2],
             code_over: [0; 2],
             can_triage,
+            drafts: vec![],
             sel: None,
             hl: crate::highlight::Highlighter::new(&Theme::load()),
         })
@@ -281,6 +284,14 @@ impl IssueView {
                 }
             }
             right.extend(bubble(claude(title), b, right_w));
+        }
+        // The drafts of Claude's that fix it, published or not.
+        if !self.drafts.is_empty() {
+            right.push((Line::default(), 0..0, vec![]));
+            right.push((Line::from(Span::styled(format!("draft fixes ({})", self.drafts.len()), ui.heading)), 0..right_w, vec![]));
+            for d in &self.drafts {
+                right.extend(md(&format!("- {d}"), inner + 2, 1).into_iter().map(|(l, links)| (l, 0..right_w, links)));
+            }
         }
         right.push((Line::default(), 0..0, vec![]));
         right.push((Line::from(Span::styled(format!("activity ({})", self.comments.len()), ui.heading)), 0..right_w, vec![]));
@@ -754,7 +765,7 @@ fn an_issue_and_its_triage() {
     let mut v = IssueView {
         number: 7, title: "panic".into(), author: "amy".into(), url: "https://github.com/o/r/issues/7".into(),
         body: "It **panics**.".into(), labels: vec![("bug".into(), "d73a4a".into())],
-        comments: vec![("bo".into(), String::new(), "Same here.".into())], triage, scroll: [0; 2], sides: vec![], width: 0, pane_x: None, shown: 0, cur: (0, 2), select: false, lines_sel: false, desc_rows: 0, code_left: [0; 2], code_over: [0; 2], can_triage: true, sel: None,
+        comments: vec![("bo".into(), String::new(), "Same here.".into())], triage, scroll: [0; 2], sides: vec![], width: 0, pane_x: None, shown: 0, cur: (0, 2), select: false, lines_sel: false, desc_rows: 0, code_left: [0; 2], code_over: [0; 2], can_triage: true, drafts: vec!["new PR 3: Claude is drafting it".into()], sel: None,
         hl: crate::highlight::Highlighter::default(),
     };
     assert_eq!(v.new_labels(), ["chain"]); // bug it has
