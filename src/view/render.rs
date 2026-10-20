@@ -210,10 +210,7 @@ impl App {
         if nudge != 0 {
             *left = (*left as isize + nudge).clamp(0, len.saturating_sub(1) as isize) as usize;
             self.head.col = self.head.col.clamp(*left, *left + w - 1).min(len.saturating_sub(1));
-            if !self.select {
-                self.anchor = self.head;
-            }
-            self.want_col = self.head.col;
+            (self.anchor, self.want_col) = (self.head, self.head.col); // (the mouse: no selection)
         }
         *left = (*left).min(self.head.col);
         if self.head.col >= *left + w {
