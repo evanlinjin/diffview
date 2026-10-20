@@ -561,7 +561,8 @@ impl List {
     }
 
     /// How a replacement's draft stands, for its card, or (`of`) for those of the PRs it
-    /// replaces: "claude ✓" there reads "replacement ✓".
+    /// replaces: "claude: drafted" there reads "replacement: drafted" (not a ✓: it reads as
+    /// approving).
     fn draft_state(&self, id: u64, of: &str) -> Option<(String, bool)> {
         let (what, ok) = match self.drafting.get(&id) {
             _ if self.drafting_elsewhere.contains(&id) => ("drafting…", true),
@@ -570,10 +571,10 @@ impl List {
             _ => match self.rep_of.get(&id)? {
                 r if r.published.is_some() => return Some((format!("{of}: published as #{}", r.published.unwrap_or(0)), true)),
                 r if r.title.is_empty() => ("no draft yet", false),
-                _ => ("✓", true),
+                _ => ("drafted", true),
             },
         };
-        Some((format!("{of}{}{what}", if what == "✓" { " " } else { ": " }), ok))
+        Some((format!("{of}: {what}"), ok))
     }
 
     /// How Claude's reviews are going: each card shows it; one finished counts as reviewed.

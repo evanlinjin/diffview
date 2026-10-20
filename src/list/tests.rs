@@ -126,7 +126,7 @@ fn filter_and_keys() {
     let r = crate::replace::Record { id: 1, replaces: vec![o(1), o(22)], title: "Do it properly".into(), ..Default::default() };
     l.reps = vec![Listed { number: 1, title: r.title.clone(), ..Listed::default() }];
     l.rep_of.insert(1, r);
-    assert_eq!(l.claude_state(22), Some(("replacement ✓".into(), true)));
+    assert_eq!(l.claude_state(22), Some(("replacement: drafted".into(), true)));
     l.drafting.insert(1, batch::Status::Reviewing);
     assert_eq!(l.draft_state(1, "claude"), Some(("claude: drafting…".into(), true)));
     k(&mut l, KeyCode::Char('g'));
@@ -152,7 +152,7 @@ fn selected_card_readable() {
     (ui.menu_selected, ui.stale, ui.cursorline) = (Style::new().fg(Color::Black).bg(Color::Cyan), Style::new().fg(Color::Gray), Some(Color::Blue));
     let cx = Cards { ui: &ui, num_w: 5, width: 120, checks_loading: false, usual: "main" };
     let p = Listed { number: 1, title: "t".into(), author: "amy".into(), checks: Some((3, 1, 0)), labels: vec![("bug".into(), "d73a4a".into())], ..Listed::default() };
-    let mark = || Mark { marked: false, claude: Some(("claude ✓".into(), true)), new: true, replaces: None, awaiting: 0, rank: None, tags: vec![] };
+    let mark = || Mark { marked: false, claude: Some(("claude: all addressed".into(), true)), new: true, replaces: None, awaiting: 0, rank: None, tags: vec![] };
     let card_of = |selected, cx: &Cards| card(&p, cx, selected, None, mark());
     // Wide: three lines in two zones, what it is on the left, how it stands on the right.
     let lines = card_of(true, &cx);
@@ -172,14 +172,14 @@ fn selected_card_readable() {
     // [new] follows the title.
     let at = |l: &Line, what: &str| text(l).find(what).map(|b| text(l)[..b].chars().count());
     let right = at(&lines[0], "CI ✓3 ✗1").unwrap();
-    assert_eq!(at(&lines[2], "claude ✓"), Some(right));
+    assert_eq!(at(&lines[2], "claude: all addressed"), Some(right));
     assert!(text(&lines[0]).contains("t  [new]"));
     assert!(!text(&card(&p, &cx, false, None, Mark { new: false, ..mark() })[0]).contains("[new]"));
     // Narrow: four lines, how it stands on its own (the third), each cut at the width.
     let narrow = Cards { width: 80, ..cx };
     let lines = card(&p, &narrow, false, None, mark());
     assert_eq!(lines.len(), 4);
-    assert!(text(&lines[2]).contains("CI ✓3 ✗1") && text(&lines[2]).contains("claude ✓"));
+    assert!(text(&lines[2]).contains("CI ✓3 ✗1") && text(&lines[2]).contains("claude: all addressed"));
     let p = Listed { branch: "a-very-long-branch-name-indeed-and-then-some-more-and-more-and-more".into(), ..p };
     assert!(card(&p, &Cards { width: 30, ..cx }, false, None, mark()).iter().all(|l| l.width() == 30));
     assert!(card(&p, &cx, false, None, mark()).iter().all(|l| l.width() == 120));

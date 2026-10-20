@@ -1361,11 +1361,15 @@ fn issue_card(i: &Issue, ui: &Ui, selected: bool, marked: bool, num_w: usize, wi
         let prs: Vec<String> = i.fixed_by.iter().map(|(n, s, _)| format!("#{n} ({})", s.to_lowercase())).collect();
         fix.push(sp(format!("fixed by {}   ", prs.join(", ")), tint(ui.plus)));
     }
-    if let Some(t) = t.filter(|t| !t.next.is_empty()) {
-        fix.push(sp(format!("→ {}", t.next), tint(ui.key)));
+    match (draft, t.filter(|t| !t.next.is_empty())) {
+        // Claude's draft fixing it: that, not what's next (it is).
+        (Some((d, true)), _) => fix.push(sp(format!("Claude is drafting a fix: {d}"), tint(ui.key))),
+        (Some((d, false)), _) => fix.push(sp(format!("a draft fix: {d} (dv list's drafts tab: review it, S publishes it)"), tint(ui.plus))),
+        (None, Some(t)) => fix.push(sp(format!("→ {}", t.next), tint(ui.key))),
+        (None, None) => {}
     }
     let claude = match t {
-        Some(_) => vec![sp("claude ✓".into(), tint(ui.key))],
+        Some(_) => vec![sp("claude: triaged".into(), tint(ui.key))],
         None => vec![],
     };
     vec![zones(top, talk), zones(who, triage), zones(fix, claude)]
