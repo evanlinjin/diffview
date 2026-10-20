@@ -13,6 +13,10 @@ fn shift(links: Links, by: usize) -> Links {
     links.into_iter().map(|(r, u)| (r.start + by..r.end + by, u)).collect()
 }
 
+/// Blank lines after each side's: the keys' box (`dv issues`'s, 7 keys and its frame) sits
+/// over the bottom right, and the last lines scroll clear of it. The cursor stays above them.
+const PAD: usize = 10;
+
 /// A side of the view: its lines, where each's text is (the screen's columns: not margins,
 /// bubbles' sides) and its links, and its columns on screen. Its lines are its rows: the cursor's
 /// and a selection's rows count in the side they're on.
@@ -34,36 +38,49 @@ pub enum Act {
 }
 
 /// What of an issue's timeline dv shows, and each type's fields.
-const ISSUE_TIMELINE: &str = "timelineItems(last: 100, itemTypes: [ISSUE_COMMENT, LABELED_EVENT, UNLABELED_EVENT, \
+const ISSUE_TIMELINE: &str = "timelineItems(first: 100, after: $after, itemTypes: [ISSUE_COMMENT, LABELED_EVENT, UNLABELED_EVENT, \
 ASSIGNED_EVENT, UNASSIGNED_EVENT, RENAMED_TITLE_EVENT, CLOSED_EVENT, REOPENED_EVENT, CROSS_REFERENCED_EVENT, \
-MARKED_AS_DUPLICATE_EVENT, CONNECTED_EVENT]) { nodes { __typename \
+MARKED_AS_DUPLICATE_EVENT, CONNECTED_EVENT]) { pageInfo { hasNextPage endCursor } nodes { __typename \
 ... on IssueComment { createdAt author { login } body } \
 ... on LabeledEvent { createdAt actor { login } label { name } } \
 ... on UnlabeledEvent { createdAt actor { login } label { name } } \
-... on AssignedEvent { createdAt actor { login } assignee { ... on User { login } } } \
-... on UnassignedEvent { createdAt actor { login } assignee { ... on User { login } } } \
+... on AssignedEvent { createdAt actor { login } assignee { ... on User { login } ... on Bot { login } ... on Mannequin { login } ... on Organization { login } } } \
+... on UnassignedEvent { createdAt actor { login } assignee { ... on User { login } ... on Bot { login } ... on Mannequin { login } ... on Organization { login } } } \
 ... on RenamedTitleEvent { createdAt actor { login } previousTitle currentTitle } \
 ... on ClosedEvent { createdAt actor { login } stateReason closer { ... on PullRequest { number url } ... on Commit { abbreviatedOid url } } } \
 ... on ReopenedEvent { createdAt actor { login } } \
-... on CrossReferencedEvent { createdAt actor { login } source { ... on Issue { number title url } ... on PullRequest { number title url } } } \
-... on MarkedAsDuplicateEvent { createdAt actor { login } canonical { ... on Issue { number url } ... on PullRequest { number url } } } \
-... on ConnectedEvent { createdAt actor { login } subject { ... on Issue { number title url } ... on PullRequest { number title url } } } } }";
+... on CrossReferencedEvent { createdAt actor { login } source { ... on Issue { number title url repository { nameWithOwner } } ... on PullRequest { number title url repository { nameWithOwner } } } } \
+... on MarkedAsDuplicateEvent { createdAt actor { login } canonical { ... on Issue { number url repository { nameWithOwner } } ... on PullRequest { number url repository { nameWithOwner } } } } \
+... on ConnectedEvent { createdAt actor { login } subject { ... on Issue { number title url repository { nameWithOwner } } ... on PullRequest { number title url repository { nameWithOwner } } } } } }";
 
-/// An issue's timeline (`ISSUE_TIMELINE`'s nodes), as dv shows it.
-fn acts(nodes: &[Value]) -> Vec<Act> {
+/// `owner/name` of a GitHub URL (`https://github.com/o/r/issues/7`).
+fn url_repo(url: &str) -> &str {
+    let rest = url.strip_prefix("https://github.com/").unwrap_or("");
+    rest.match_indices('/').nth(1).map_or(rest, |(i, _)| &rest[..i])
+}
+
+/// An issue's timeline (`ISSUE_TIMELINE`'s nodes), as dv shows it (`here`: its repo,
+/// `owner/name`: another's things are named with theirs).
+fn acts(nodes: &[Value], here: &str) -> Vec<Act> {
     let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
+    // (A deleted account's: GitHub's "ghost".)
+    let login = |v: &Value| v["login"].as_str().unwrap_or("ghost").to_owned();
     nodes
         .iter()
         .filter_map(|it| {
-            let (who, at) = (s(&it["actor"]["login"]), s(&it["createdAt"]));
+            let (who, at) = (login(&it["actor"]), s(&it["createdAt"]));
             let ev = |what: String, url: Option<String>| Some(Act::Event(who.clone(), what, at.clone(), url));
-            let to = |x: &Value| (format!("#{} {}", x["number"], s(&x["title"])).trim_end().to_owned(), Some(s(&x["url"])).filter(|u| !u.is_empty()));
+            let to = |x: &Value| {
+                let repo = x["repository"]["nameWithOwner"].as_str().filter(|r| !r.eq_ignore_ascii_case(here)).unwrap_or("");
+                let n = x["number"].as_u64().map_or("a deleted or private one".to_owned(), |n| format!("{repo}#{n}"));
+                (format!("{n} {}", s(&x["title"])).trim_end().to_owned(), Some(s(&x["url"])).filter(|u| !u.is_empty()))
+            };
             match it["__typename"].as_str()? {
-                "IssueComment" => Some(Act::Comment(s(&it["author"]["login"]), at, s(&it["body"]).replace("\r\n", "\n"))),
+                "IssueComment" => Some(Act::Comment(login(&it["author"]), at, s(&it["body"]).replace("\r\n", "\n"))),
                 "LabeledEvent" => ev(format!("added the label {}", s(&it["label"]["name"])), None),
                 "UnlabeledEvent" => ev(format!("removed the label {}", s(&it["label"]["name"])), None),
-                "AssignedEvent" => ev(format!("assigned @{}", s(&it["assignee"]["login"])), None),
-                "UnassignedEvent" => ev(format!("unassigned @{}", s(&it["assignee"]["login"])), None),
+                "AssignedEvent" => ev(format!("assigned @{}", login(&it["assignee"])), None),
+                "UnassignedEvent" => ev(format!("unassigned @{}", login(&it["assignee"])), None),
                 "RenamedTitleEvent" => ev(format!("changed the title: {} → {}", s(&it["previousTitle"]), s(&it["currentTitle"])), None),
                 "ClosedEvent" => {
                     let c = &it["closer"];
@@ -145,9 +162,22 @@ impl IssueView {
     pub fn load(n: u64, dir: Option<&std::path::Path>, can_triage: bool) -> Result<IssueView> {
         let v: Value = gh::gh_json(&["issue", "view", &n.to_string(), "--json", "number,title,author,url,body,labels"])?;
         // Its timeline: comments, and what else happened (labels, who has it, what mentions it).
-        let q = format!("query($owner: String!, $name: String!, $n: Int!) {{ repository(owner: $owner, name: $name) {{ issue(number: $n) {{ {ISSUE_TIMELINE} }} }} }}");
-        let t: Value = gh::gh_json(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-F", &format!("n={n}"), "-f", &format!("query={q}")])?;
-        let timeline = acts(t["data"]["repository"]["issue"]["timelineItems"]["nodes"].as_array().map(Vec::as_slice).unwrap_or(&[]));
+        // (All of it, a page at a time: ponytail, 10 pages, 1,000 at most.)
+        let q = format!("query($owner: String!, $name: String!, $n: Int!, $after: String) {{ repository(owner: $owner, name: $name) {{ issue(number: $n) {{ {ISSUE_TIMELINE} }} }} }}");
+        let (mut nodes, mut after) = (vec![], None::<String>);
+        for _ in 0..10 {
+            let mut args = vec!["api".to_owned(), "graphql".into(), "-F".into(), "owner={owner}".into(), "-F".into(), "name={repo}".into(), "-F".into(), format!("n={n}"), "-f".into(), format!("query={q}")];
+            if let Some(a) = &after {
+                args.extend(["-f".into(), format!("after={a}")]);
+            }
+            let t: Value = gh::gh_json(&args.iter().map(String::as_str).collect::<Vec<_>>())?;
+            let page = &t["data"]["repository"]["issue"]["timelineItems"];
+            nodes.extend(page["nodes"].as_array().cloned().unwrap_or_default());
+            match page["pageInfo"]["endCursor"].as_str().filter(|_| page["pageInfo"]["hasNextPage"] == true) {
+                Some(c) => after = Some(c.to_owned()),
+                None => break,
+            }
+        }
         let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
         let triage = dir
             .and_then(|d| std::fs::read_to_string(d.join(format!("issue-{n}.json"))).ok())
@@ -160,7 +190,7 @@ impl IssueView {
             url: s(&v["url"]),
             body: s(&v["body"]).replace("\r\n", "\n"),
             labels: v["labels"].as_array().into_iter().flatten().map(|l| (s(&l["name"]), s(&l["color"]))).collect(),
-            activity: timeline,
+            activity: acts(&nodes, url_repo(&s(&v["url"]))),
             triage,
             scroll: [0; 2],
             sides: vec![],
@@ -426,7 +456,7 @@ impl IssueView {
         // (Room at the end of each side, under the keys' box: the last lines scroll clear of it.)
         let mut sides = sides;
         for side in &mut sides {
-            for _ in 0..10 {
+            for _ in 0..PAD {
                 side.lines.push(Line::default());
                 side.text.push(0..0);
                 side.links.push(vec![]);
@@ -603,7 +633,7 @@ impl IssueView {
     /// (`row`, `col`) as a cursor can be there: in that line's text on `side`, or that side's
     /// columns on a line with none there.
     fn clamp(&self, row: usize, col: usize, side: usize) -> (usize, usize) {
-        let row = row.min(self.lines(side).len().saturating_sub(1));
+        let row = row.min(self.lines(side).len().saturating_sub(1 + PAD));
         let t = self.text_on(side, row);
         // (The side's own columns, text there or not: not past it, nor into the other.)
         let cols = match (side, self.pane_x) {
@@ -701,7 +731,7 @@ impl IssueView {
                     (true, Some((a, _))) => (a, row + 1),
                     _ => ((row, self.text(row).start), row),
                 };
-                while to + 1 < self.lines(self.side_of(col)).len() && self.text(to).is_empty() {
+                while to + 1 + PAD < self.lines(self.side_of(col)).len() && self.text(to).is_empty() {
                     to += 1;
                 }
                 let end = self.text(to).end.saturating_sub(1);
@@ -993,10 +1023,14 @@ fn an_issues_timeline() {
           "source": { "number": 9, "title": "Fix the panic", "url": "https://github.com/o/r/pull/9" } },
         { "__typename": "ClosedEvent", "createdAt": "2026-01-04T00:00:00Z", "actor": { "login": "bo" }, "stateReason": "COMPLETED",
           "closer": { "number": 9, "url": "https://github.com/o/r/pull/9" } },
+        { "__typename": "CrossReferencedEvent", "createdAt": "2026-01-05T00:00:00Z", "actor": null,
+          "source": { "number": 4, "title": "Elsewhere", "url": "https://github.com/o/w/issues/4", "repository": { "nameWithOwner": "o/w" } } },
         { "__typename": "SubscribedEvent" },
     ]);
-    let a = acts(nodes.as_array().unwrap());
+    let a = acts(nodes.as_array().unwrap(), "o/r");
     assert!(matches!(&a[0], Act::Comment(who, _, body) if who == "amy" && body == "it panics"));
     let said: Vec<String> = a[1..].iter().map(|e| match e { Act::Event(who, what, _, url) => format!("@{who} {what} {}", url.as_deref().unwrap_or("")), _ => String::new() }).collect();
-    assert_eq!(said, ["@bo added the label bug ", "@cy mentioned this in #9 Fix the panic https://github.com/o/r/pull/9", "@bo closed it with #9 (completed) https://github.com/o/r/pull/9"]);
+    assert_eq!(said, ["@bo added the label bug ", "@cy mentioned this in #9 Fix the panic https://github.com/o/r/pull/9", "@bo closed it with #9 (completed) https://github.com/o/r/pull/9",
+        "@ghost mentioned this in o/w#4 Elsewhere https://github.com/o/w/issues/4"]); // (another repo's, named so; a deleted account's)
+    assert_eq!(url_repo("https://github.com/o/r/issues/7"), "o/r");
 }
