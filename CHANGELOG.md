@@ -5,6 +5,20 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.56.0] - 2026-10-20
+
+### Added
+- `dv issues`: `s` then `u` defers an issue until a fix PR merges, closes or gets a push
+  ("the author makes progress": its open fix PR's push), or a time.
+- Either list: "…, or 2 weeks" ends the deferral at whichever comes first. A PR can wait for
+  another PR's push ("#2258 gets a push").
+
+### Fixed
+- Reading waits from comments:
+  - "Waiting on CI, then review" and "Waiting for me to review" aren't someone else's review;
+  - bold markers read wherever the bold is;
+  - "#12 until it's approved" is #12's.
+
 ## [0.55.1] - 2026-10-20
 
 ### Fixed
