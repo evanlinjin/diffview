@@ -74,7 +74,8 @@ impl Task {
                  comment on GitHub: the user closes it in dv."
             ),
             Task::Describe(old) => format!(
-                "{what} has changed since {old} (`git diff {old}`). Read its description (`gh pr view {n} --json body`). \
+                "{what} has changed since {old} (`git diff {old} HEAD`; that commit gone, a force-push: the whole PR, \
+                 `gh pr diff {n}`). Read its description (`gh pr view {n} --json body`). \
                  If it no longer describes the PR (what it changes now, why, how it's tested, anything in it now wrong \
                  or missing), use the dv-review skill to propose a new one in the review file's top-level \
                  \"description\" field (see \"Propose a description\"), changing only what needs to, keeping the rest. \

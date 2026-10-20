@@ -218,15 +218,18 @@ impl List {
                     self.described.insert(p.number, head);
                     noted = true;
                 }
-                Some(old) if old != head && !batch_busy && run.len() < batch::AT_ONCE && !busy(p.number) && !run.iter().any(|r| r.0 == p.number) => {
-                    // (A proposal already waiting on you: that first.)
+                // (A draft: its description's still to come. One Claude hasn't reviewed: that's
+                // its first run, not this: a description alone would stand for a review.)
+                Some(old) if old != head && !p.draft && !batch_busy && run.len() < batch::AT_ONCE && !busy(p.number) && !run.iter().any(|r| r.0 == p.number) => {
                     let f = self.reviews_dir.as_ref().map(|d| d.join(format!("pr-{}.json", p.number)));
-                    let waiting = f.and_then(|f| crate::claude::load(&f).ok().flatten()).is_some_and(|r| !r.description.trim().is_empty());
-                    if !waiting {
+                    let review = f.and_then(|f| crate::claude::load(&f).ok().flatten());
+                    // A proposal already waiting on you: that first, and the head not noted, so
+                    // what's changed since is checked after.
+                    if review.as_ref().is_some_and(|r| r.description.trim().is_empty()) {
                         run.push((p.number, batch::Task::Describe(old)));
+                        self.described.insert(p.number, head);
+                        noted = true;
                     }
-                    self.described.insert(p.number, head);
-                    noted = true;
                 }
                 _ => {}
             }

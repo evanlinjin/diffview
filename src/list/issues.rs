@@ -1001,6 +1001,10 @@ impl Issues {
                 let draft = format!("From #{n} ({}):\n\n> {}\n\nWhat a PR should do about it: ", v.title(), v.picked_text().trim().replace('\n', "\n> "));
                 let what = format!("a new PR from #{n}, for Claude to draft (what it should do; unpublished until you publish it)");
                 let task = said(edit(term, &what, &draft, false), &mut self.msg)?;
+                // (Saved as it was: nothing said of what it should do. Not asked.)
+                if task.trim() == draft.trim() {
+                    return (self.msg = "not asked: say what a PR should do about it".into(), None).1;
+                }
                 match start_new_pr(&task, &self.root) {
                     Ok((id, rx)) => {
                         self.drafts.push(rx);
