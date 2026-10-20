@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.63.1] - 2026-10-20
+
+### Fixed
+- Dropping a commit an amend empties works whatever your rebase settings. With
+  `rebase.abbreviateCommands`, it used to keep the commit and lose the changes.
+- The amend no longer runs your sequence editor.
+- A dropped commit's questions don't move onto another commit.
+- A published replacement's Claude tab shows its PR's next step.
+
 ## [0.63.0] - 2026-10-20
 
 ### Changed
