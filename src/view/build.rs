@@ -90,13 +90,15 @@ impl App {
         let Some(r) = self.rows.get(row) else { return CursorKey { line: None, thread: None, info: None, section: None, goes: None } };
         CursorKey {
             // (The code line it's on, or under: a comment's, should its thread go, as one posted
-            // or deleted does, outdated or not.)
+            // or deleted does, outdated or not; under none shown, its own line.)
             line: self.files.get(r.file).map(|f| {
                 let at = match r.thread {
-                    Some(_) => self.rows[..=row].iter().rev().find(|x| x.file == r.file && x.line.kind.is_code()),
+                    Some(_) => self.rows[..=row].iter().rev().take_while(|x| x.file == r.file).find(|x| x.line.kind.is_code()),
                     None => Some(r),
                 };
-                (f.path.clone(), at.and_then(|x| x.line.old), at.and_then(|x| x.line.new))
+                let own = || r.thread.and_then(|t| self.threads[t].line.map(|l| if self.threads[t].left { (Some(l), None) } else { (None, Some(l)) }));
+                let (old, new) = at.map(|x| (x.line.old, x.line.new)).or_else(own).unwrap_or_default();
+                (f.path.clone(), old, new)
             }),
             thread: r.thread.and_then(|t| {
                 let first = self.rows.iter().position(|r| r.thread == Some(t))?;
