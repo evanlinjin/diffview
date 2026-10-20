@@ -13,6 +13,18 @@ fn shift(links: Links, by: usize) -> Links {
     links.into_iter().map(|(r, u)| (r.start + by..r.end + by, u)).collect()
 }
 
+/// A side of the view: its lines, where each's text is (the screen's columns: not margins,
+/// bubbles' sides) and its links, and its columns on screen. Its lines are its rows: the cursor's
+/// and a selection's rows count in the side they're on.
+#[derive(Default)]
+struct Side {
+    lines: Vec<Line<'static>>,
+    text: Vec<std::ops::Range<usize>>,
+    links: Vec<Links>,
+    x: usize,
+    w: usize,
+}
+
 /// What a key in the view came to, for the list to do: text to copy, a link to open.
 pub enum Did {
     Nothing,
@@ -34,15 +46,13 @@ pub struct IssueView {
     /// (who, when, what), oldest first.
     comments: Vec<(String, String, String)>,
     triage: Value,
-    scroll: usize,
-    /// The lines as last drawn, at what width, where the pane starts (side by side), the columns
-    /// each line's text is in (the description's, the pane's: not margins, bubbles' sides), and
-    /// how many lines show.
-    lines: Vec<Line<'static>>,
+    /// How far each side's scrolled (one column: the first's), on its own.
+    scroll: [usize; 2],
+    /// The sides as last drawn (side by side: the description, the pane; else one, all of it),
+    /// at what width, where the pane starts, and how many lines show.
+    sides: Vec<Side>,
     width: usize,
     pane_x: Option<usize>,
-    text_at: Vec<[std::ops::Range<usize>; 2]>,
-    links_at: Vec<Links>,
     shown: usize,
     /// The cursor (line, column), as Helix's: `v` selects from where it was (`sel` then
     /// follows it), `x` the line.
@@ -81,12 +91,10 @@ impl IssueView {
             labels: v["labels"].as_array().into_iter().flatten().map(|l| (s(&l["name"]), s(&l["color"]))).collect(),
             comments: v["comments"].as_array().into_iter().flatten().map(|c| (s(&c["author"]["login"]), s(&c["createdAt"]), s(&c["body"]).replace("\r\n", "\n"))).collect(),
             triage,
-            scroll: 0,
-            lines: vec![],
+            scroll: [0; 2],
+            sides: vec![],
             width: 0,
             pane_x: None,
-            text_at: vec![],
-            links_at: vec![],
             shown: 0,
             cur: (0, 2),
             select: false,
@@ -287,36 +295,35 @@ impl IssueView {
         // (The description's text: after its margin.)
         let desc = 2..left_w;
         self.desc_rows = left.len();
-        // Each line, the columns of its text on each side, its links.
-        type Row = (Line<'static>, [std::ops::Range<usize>; 2], Links);
-        let rows: Vec<Row> = match two {
-            true => (0..left.len().max(right.len()))
-                .map(|k| {
-                    // (The description cut at its column: a wide code line doesn't push the pane.)
-                    let (dl, mut links) = left.get(k).cloned().unwrap_or_default();
-                    links.retain(|(r, _)| r.start < left_w);
-                    let mut l = Line::from(super::card::fit(dl.spans, left_w, Style::new()));
-                    l.spans.push(Span::styled("│", border));
-                    let (r, at, rl) = right.get(k).cloned().unwrap_or_default();
-                    l.spans.extend(r.spans);
-                    links.extend(shift(rl, left_w + 1));
-                    (l, [if k < left.len() { desc.clone() } else { 0..0 }, at.start + left_w + 1..at.end + left_w + 1], links)
-                })
-                .collect(),
-            false => left
-                .into_iter()
-                .map(|(l, links)| (l, [desc.clone(), 0..0], links))
-                .chain([(Line::default(), [0..0, 0..0], vec![])])
-                .chain(right.into_iter().map(|(l, at, links)| (l, [at, 0..0], links)))
-                .collect(),
+        let sides = match two {
+            true => vec![
+                Side {
+                    // (The description cut at its column: a wide code line doesn't spill over.)
+                    text: vec![desc.clone(); left.len()],
+                    links: left.iter().map(|(_, l)| l.iter().filter(|(r, _)| r.start < left_w).cloned().collect()).collect(),
+                    lines: left.into_iter().map(|(l, _)| Line::from(super::card::fit(l.spans, left_w, Style::new()))).collect(),
+                    x: 0,
+                    w: left_w,
+                },
+                Side {
+                    text: right.iter().map(|(_, at, _)| at.start + left_w + 1..at.end + left_w + 1).collect(),
+                    links: right.iter().map(|(_, _, l)| shift(l.clone(), left_w + 1)).collect(),
+                    lines: right.into_iter().map(|(l, ..)| l).collect(),
+                    x: left_w + 1,
+                    w: right_w,
+                },
+            ],
+            false => {
+                let mut one = Side { x: 0, w: width, ..Side::default() };
+                for (l, at, links) in left.into_iter().map(|(l, links)| (l, desc.clone(), links)).chain([(Line::default(), 0..0, vec![])]).chain(right) {
+                    one.lines.push(l);
+                    one.text.push(at);
+                    one.links.push(links);
+                }
+                vec![one]
+            }
         };
-        let (mut out, mut text_at, mut links_at) = (vec![], vec![], vec![]);
-        for (l, t, k) in rows {
-            out.push(l);
-            text_at.push(t);
-            links_at.push(k);
-        }
-        (self.lines, self.width, self.pane_x, self.text_at, self.links_at, self.sel) = (out, width, two.then_some(left_w + 1), text_at, links_at, None);
+        (self.sides, self.width, self.pane_x, self.sel) = (sides, width, two.then_some(left_w + 1), None);
         (self.select, self.lines_sel) = (false, false); // (what it was over may have moved)
         self.code_over = over.get();
     }
@@ -337,66 +344,93 @@ impl IssueView {
         &self.url
     }
 
-    pub fn scroll_at(&self) -> usize {
+    pub fn scroll_at(&self) -> [usize; 2] {
         self.scroll
     }
 
-    pub fn set_scroll(&mut self, at: usize) {
+    pub fn set_scroll(&mut self, at: [usize; 2]) {
         self.scroll = at;
     }
 
-    pub fn scroll(&mut self, by: isize, height: usize) {
-        let max = self.lines.len().saturating_sub(height);
-        self.scroll = (self.scroll as isize + by).clamp(0, max as isize) as usize;
+    /// Side `i`'s lines (none drawn yet: none).
+    fn lines(&self, i: usize) -> &[Line<'static>] {
+        self.sides.get(i).map_or(&[], |s| &s.lines)
+    }
+
+    /// The side at column `x` scrolled by `by` lines (the wheel: the side it's over).
+    pub fn scroll(&mut self, x: usize, by: isize) {
+        let i = self.side_of(x);
+        let max = self.lines(i).len().saturating_sub(self.shown);
+        self.scroll[i] = (self.scroll[i] as isize + by).clamp(0, max as isize) as usize;
     }
 
     pub fn draw(&mut self, f: &mut Frame, ui: &Ui, area: Rect) {
-        if self.width != area.width as usize || self.lines.is_empty() {
+        let h = area.height as usize;
+        if self.width != area.width as usize || self.sides.is_empty() {
             self.render(ui, area.width as usize);
             // (Fewer lines now, a narrower window wider: not past the end.)
-            self.scroll = self.scroll.min(self.lines.len().saturating_sub(area.height as usize));
+            for i in 0..2 {
+                self.scroll[i] = self.scroll[i].min(self.lines(i).len().saturating_sub(h));
+            }
         }
-        self.shown = area.height as usize;
-        let body: Vec<Line> = self.lines.iter().skip(self.scroll).take(area.height as usize).cloned().collect();
-        f.render_widget(Paragraph::new(body).style(ui.base), area);
+        self.shown = h;
+        f.render_widget(Paragraph::new("").style(ui.base), area);
+        for (i, side) in self.sides.iter().enumerate() {
+            let body: Vec<Line> = side.lines.iter().skip(self.scroll[i]).take(h).cloned().collect();
+            f.render_widget(Paragraph::new(body).style(ui.base), Rect { x: area.x + side.x as u16, width: side.w as u16, ..area });
+        }
+        // Side by side, a dim line between, the whole height.
+        if let Some(p) = self.pane_x {
+            let line: Vec<Line> = (0..h).map(|_| Line::from(Span::styled("│", ui.linenr))).collect();
+            f.render_widget(Paragraph::new(line), Rect { x: area.x + p as u16 - 1, width: 1, ..area });
+        }
         // What's selected (dragged over, `v`, `x`), reversed; the cursor.
         for y in 0..area.height {
             for x in 0..area.width {
-                if self.selected(self.scroll + y as usize, x as usize) {
+                if self.selected(self.scroll[self.side_of(x as usize)] + y as usize, x as usize) {
                     f.buffer_mut()[(area.x + x, area.y + y)].modifier.insert(ratatui::style::Modifier::REVERSED);
                 }
             }
         }
         let (row, col) = self.cur;
-        if (self.scroll..self.scroll + area.height as usize).contains(&row) && col < area.width as usize {
+        let top = self.scroll[self.side_of(col)];
+        if (top..top + h).contains(&row) && col < area.width as usize {
             let style = if self.select { ui.cursor_select } else { ui.cursor };
-            f.buffer_mut()[(area.x + col as u16, area.y + (row - self.scroll) as u16)].set_style(style);
+            f.buffer_mut()[(area.x + col as u16, area.y + (row - top) as u16)].set_style(style);
         }
     }
 
-    /// The side column `x` is on: 0 the description's, 1 the pane's (side by side).
+    /// The side column `x` is on: 0 the description's, 1 the pane's (side by side; one column:
+    /// 0, all of it).
     fn side_of(&self, x: usize) -> usize {
         self.pane_x.is_some_and(|p| x >= p) as usize
     }
 
-    /// Line `row`'s text columns on the cursor's side.
-    fn text(&self, row: usize) -> std::ops::Range<usize> {
-        self.text_at.get(row).map_or(0..0, |t| t[self.side_of(self.cur.1)].clone())
+    /// Line `row`'s text columns, on side `i`.
+    fn text_on(&self, i: usize, row: usize) -> std::ops::Range<usize> {
+        self.sides.get(i).and_then(|s| s.text.get(row).cloned()).unwrap_or(0..0)
     }
 
-    /// Line `row`'s columns: what each shows (a wide character's second: empty).
+    /// Line `row`'s text columns on the cursor's side.
+    fn text(&self, row: usize) -> std::ops::Range<usize> {
+        self.text_on(self.side_of(self.cur.1), row)
+    }
+
+    /// Line `row` of the cursor's side, column by column across the screen: what each shows (a
+    /// wide character's second, and the other side's: empty).
     fn cells(&self, row: usize) -> Vec<String> {
+        let Some(side) = self.sides.get(self.side_of(self.cur.1)) else { return vec![] };
         let w = self.width as u16;
         let mut buf = ratatui::buffer::Buffer::empty(Rect::new(0, 0, w, 1));
-        if let Some(l) = self.lines.get(row) {
-            buf.set_line(0, 0, l, w);
+        if let Some(l) = side.lines.get(row) {
+            buf.set_line(side.x as u16, 0, l, side.w as u16);
         }
-        let mut covered = 0;
+        let mut covered: usize = 0;
         (0..self.width)
             .map(|x| {
                 let sym = buf[(x as u16, 0)].symbol().to_owned();
-                if covered > 0 {
-                    covered -= 1;
+                if covered > 0 || !(side.x..side.x + side.w).contains(&x) {
+                    covered = covered.saturating_sub(1);
                     return String::new();
                 }
                 covered = Span::raw(sym.as_str()).width().saturating_sub(1);
@@ -415,22 +449,22 @@ impl IssueView {
             (true, None) => self.sel = Some((self.cur, self.cur)),
             (false, _) => self.sel = None,
         }
-        // (In view, three lines from its edges where there are.)
-        let row = self.cur.0;
-        let h = self.shown.max(1);
+        // (In view on its side, three lines from its edges where there are.)
+        let (row, i) = (self.cur.0, self.side_of(self.cur.1));
+        let (h, n) = (self.shown.max(1), self.lines(i).len());
         let off = 3.min(h / 2);
-        if row < self.scroll + off {
-            self.scroll = row.saturating_sub(off);
-        } else if row + off >= self.scroll + h {
-            self.scroll = (row + off + 1).saturating_sub(h).min(self.lines.len().saturating_sub(h));
+        if row < self.scroll[i] + off {
+            self.scroll[i] = row.saturating_sub(off);
+        } else if row + off >= self.scroll[i] + h {
+            self.scroll[i] = (row + off + 1).saturating_sub(h).min(n.saturating_sub(h));
         }
     }
 
     /// (`row`, `col`) as a cursor can be there: in that line's text on `side`, or that side's
     /// columns on a line with none there.
     fn clamp(&self, row: usize, col: usize, side: usize) -> (usize, usize) {
-        let row = row.min(self.lines.len().saturating_sub(1));
-        let t = self.text_at.get(row).map_or(0..0, |t| t[side].clone());
+        let row = row.min(self.lines(side).len().saturating_sub(1));
+        let t = self.text_on(side, row);
         // (The side's own columns, text there or not: not past it, nor into the other.)
         let cols = match (side, self.pane_x) {
             (1, Some(p)) => p..self.width.max(p + 1),
@@ -452,7 +486,8 @@ impl IssueView {
         };
         // Every column of the side's text, in reading order, with its class.
         let (row0, col0) = self.cur;
-        let rows: Box<dyn Iterator<Item = usize>> = if fwd { Box::new(row0..self.lines.len()) } else { Box::new((0..=row0).rev()) };
+        let n = self.lines(self.side_of(col0)).len();
+        let rows: Box<dyn Iterator<Item = usize>> = if fwd { Box::new(row0..n) } else { Box::new((0..=row0).rev()) };
         let mut seq = vec![];
         for row in rows.take(200) {
             let cells = self.cells(row);
@@ -524,7 +559,7 @@ impl IssueView {
                     (true, Some((a, _))) => (a, row + 1),
                     _ => ((row, self.text(row).start), row),
                 };
-                while to + 1 < self.lines.len() && self.text(to).is_empty() {
+                while to + 1 < self.lines(self.side_of(col)).len() && self.text(to).is_empty() {
                     to += 1;
                 }
                 let end = self.text(to).end.saturating_sub(1);
@@ -542,7 +577,8 @@ impl IssueView {
                 };
             }
             (_, KeyCode::Enter) => {
-                let link = self.links_at.get(row).and_then(|l| l.iter().find(|(r, _)| r.contains(&col)));
+                let links = self.sides.get(self.side_of(col)).and_then(|s| s.links.get(row));
+                let link = links.and_then(|l| l.iter().find(|(r, _)| r.contains(&col)));
                 return link.map_or(Did::Nothing, |(_, u)| Did::Open(u.clone()));
             }
             _ => return Did::Not,
@@ -553,9 +589,11 @@ impl IssueView {
     /// The cursor to the pane (`pane`) or the description, on its line (side by side).
     fn go_side(&mut self, pane: bool) {
         let Some(p) = self.pane_x else { return };
-        let to = if pane { p } else { 0 };
-        self.cur.1 = to;
-        self.go(self.cur.0, to);
+        // (At the same height on screen: the sides' rows are their own.)
+        let (from, to) = (self.side_of(self.cur.1), pane as usize);
+        let row = self.scroll[to] + self.cur.0.saturating_sub(self.scroll[from]);
+        self.cur.1 = if pane { p } else { 0 };
+        self.go(row, self.cur.1);
     }
 
     /// Whether there's a selection to drop (`Esc` drops it before leaving).
@@ -572,8 +610,7 @@ impl IssueView {
     fn selected(&self, row: usize, x: usize) -> bool {
         let Some((from, to)) = self.sel else { return false };
         let (a, b) = if from <= to { (from, to) } else { (to, from) };
-        let side = self.pane_x.is_some_and(|p| from.1 >= p) as usize;
-        self.text_at.get(row).is_some_and(|t| t[side].contains(&x)) && (row, x) >= a && (row, x) <= b
+        self.text_on(self.side_of(from.1), row).contains(&x) && (row, x) >= a && (row, x) <= b
     }
 
     /// The mouse, at (column, row) of the issue's area (rows past it: its last): a press begins a
@@ -581,7 +618,10 @@ impl IssueView {
     /// nothing, and nothing kept).
     pub fn mouse(&mut self, kind: ratatui::crossterm::event::MouseEventKind, x: usize, y: usize) -> Option<String> {
         use ratatui::crossterm::event::{MouseButton, MouseEventKind};
-        let at = (self.scroll + y.min(self.shown.saturating_sub(1)), x);
+        // (A row on the side it's over; a drag's, on the side it began on.)
+        let y = y.min(self.shown.saturating_sub(1));
+        let side = self.sel.filter(|_| matches!(kind, MouseEventKind::Drag(_) | MouseEventKind::Up(_))).map_or(self.side_of(x), |((_, ax), _)| self.side_of(ax));
+        let at = (self.scroll[side] + y, x);
         match kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 // The cursor there, kept on that side's columns (the view where it is: a drag
@@ -620,7 +660,8 @@ impl IssueView {
     /// The text dragged over, line by line.
     fn selection(&self) -> String {
         let Some(((r0, _), (r1, _))) = self.sel.map(|(a, b)| if a <= b { (a, b) } else { (b, a) }) else { return String::new() };
-        let out: Vec<String> = (r0..=r1.min(self.lines.len().saturating_sub(1)))
+        let side = self.sel.map_or(0, |((_, ax), _)| self.side_of(ax));
+        let out: Vec<String> = (r0..=r1.min(self.lines(side).len().saturating_sub(1)))
             .map(|row| {
                 let text: String = self.cells(row).iter().enumerate().filter(|(x, _)| self.selected(row, *x)).map(|(_, c)| c.as_str()).collect();
                 text.trim_end().to_owned()
@@ -631,7 +672,7 @@ impl IssueView {
 
     /// Forget the lines drawn: the issue or its triage changed.
     pub fn redraw(&mut self) {
-        self.lines.clear();
+        self.sides.clear();
     }
 
     /// Its triage, read again (Claude's just written it).
@@ -652,7 +693,8 @@ MOVE
   v, x                 select from here; the line (again: the next too); ; drops it
   y                    copy what's selected
   Enter                open the link under the cursor (a PR or issue here: in dv)
-  mouse                wheel scrolls (Shift or sideways: the code blocks); a drag copies
+  mouse                wheel scrolls the side it's over (Shift or sideways: the code
+                       blocks); a drag copies
                        the text it's over (one side's)
   q, Esc               back to the issues
   ?                    this help
@@ -678,7 +720,7 @@ fn an_issue_and_its_triage() {
     let mut v = IssueView {
         number: 7, title: "panic".into(), author: "amy".into(), url: "https://github.com/o/r/issues/7".into(),
         body: "It **panics**.".into(), labels: vec![("bug".into(), "d73a4a".into())],
-        comments: vec![("bo".into(), String::new(), "Same here.".into())], triage, scroll: 0, lines: vec![], width: 0, pane_x: None, text_at: vec![], links_at: vec![], shown: 0, cur: (0, 2), select: false, lines_sel: false, desc_rows: 0, code_left: [0; 2], code_over: [0; 2], can_triage: true, sel: None,
+        comments: vec![("bo".into(), String::new(), "Same here.".into())], triage, scroll: [0; 2], sides: vec![], width: 0, pane_x: None, shown: 0, cur: (0, 2), select: false, lines_sel: false, desc_rows: 0, code_left: [0; 2], code_over: [0; 2], can_triage: true, sel: None,
         hl: crate::highlight::Highlighter::default(),
     };
     assert_eq!(v.new_labels(), ["chain"]); // bug it has
@@ -704,9 +746,9 @@ fn an_issue_and_its_triage() {
     }));
     // A drag in the pane copies the comment's text, not the description beside it nor the bubble.
     use ratatui::crossterm::event::{MouseButton, MouseEventKind};
-    let row = v.lines.iter().position(|l| l.to_string().contains("Same here.")).unwrap();
+    let row = v.lines(1).iter().position(|l| l.to_string().contains("Same here.")).unwrap();
     let p = v.pane_x.unwrap();
-    v.shown = v.lines.len(); // (all of it on screen: rows are lines)
+    v.shown = v.lines(0).len().max(v.lines(1).len()); // (all of it on screen: rows are lines)
     v.mouse(MouseEventKind::Down(MouseButton::Left), p, row);
     v.mouse(MouseEventKind::Drag(MouseButton::Left), 159, row);
     assert_eq!(v.mouse(MouseEventKind::Up(MouseButton::Left), 159, row).as_deref(), Some("Same here."));
@@ -714,14 +756,14 @@ fn an_issue_and_its_triage() {
     v.mouse(MouseEventKind::Down(MouseButton::Left), p, row - 1);
     assert_eq!(v.mouse(MouseEventKind::Up(MouseButton::Left), 159, row + 1).as_deref(), Some("Same here."));
     // The description, from its margin: its text.
-    let row = v.lines.iter().position(|l| l.to_string().contains("It panics.")).unwrap();
+    let row = v.lines(0).iter().position(|l| l.to_string().contains("It panics.")).unwrap();
     v.mouse(MouseEventKind::Down(MouseButton::Left), 0, row);
     assert_eq!(v.mouse(MouseEventKind::Up(MouseButton::Left), p - 2, row).as_deref(), Some("It panics."));
     // The cursor (Helix's): Enter on the link under it opens it; `x` then `y` copies its line;
     // `w` to the next word; `Tab` to the pane.
     v.cur = (0, 2);
     assert!(matches!(v.key(None, KeyCode::Enter, false), Did::Open(u) if u == "https://github.com/o/r/issues/7"));
-    let row = v.lines.iter().position(|l| l.to_string().contains("It panics.")).unwrap();
+    let row = v.lines(0).iter().position(|l| l.to_string().contains("It panics.")).unwrap();
     v.go(row, 0);
     assert_eq!(v.cur, (row, 2)); // (its text, past the margin)
     v.key(None, KeyCode::Char('w'), false);
@@ -735,7 +777,7 @@ fn an_issue_and_its_triage() {
     v.key(None, KeyCode::Char('l'), true); // Ctrl-l: the pane
     assert!(v.cur.1 >= v.pane_x.unwrap());
     // `x` again: on through lines with no text (a bubble's frame), not dropping what it had.
-    let row = v.lines.iter().position(|l| l.to_string().contains("Same here.")).unwrap();
+    let row = v.lines(1).iter().position(|l| l.to_string().contains("Same here.")).unwrap();
     v.go(row, 0);
     v.key(None, KeyCode::Char('x'), false);
     v.key(None, KeyCode::Char('x'), false);
@@ -751,15 +793,15 @@ fn an_issue_and_its_triage() {
     v.body = format!("```\n{}\n{}\n```\n\n| ab | cd |\n|---|---|\n| 1 | 2 |", "x".repeat(300), "y".repeat(110));
     v.redraw();
     let _ = screen(160, 22, |f| v.draw(f, &ui, f.area()));
-    assert!(v.lines.iter().any(|l| l.to_string().contains("  xxx")));
+    assert!(v.lines(0).iter().any(|l| l.to_string().contains("  xxx")));
     v.mouse(MouseEventKind::ScrollRight, 2, 0);
     let _ = screen(160, 22, |f| v.draw(f, &ui, f.area()));
     assert_eq!(v.code_left, [8, 0]);
     // (Cut both ways now: `‹` and `›` say there's more.)
-    let code = v.lines.iter().map(|l| l.to_string()).find(|l| l.contains("xxx")).unwrap();
+    let code = v.lines(0).iter().map(|l| l.to_string()).find(|l| l.contains("xxx")).unwrap();
     assert!(code.contains("  ‹x") && code.contains("x›"), "{code}");
     // (The table beside it fits: it stays put.)
-    assert!(v.lines.iter().any(|l| l.to_string().contains("ab │ cd")), "{:?}", v.lines.iter().map(|l| l.to_string()).collect::<Vec<_>>());
+    assert!(v.lines(0).iter().any(|l| l.to_string().contains("ab │ cd")));
     // (Far right: a shorter line of the block scrolled past its end, no overflow.)
     for _ in 0..30 {
         v.mouse(MouseEventKind::ScrollRight, 2, 0);
@@ -770,11 +812,19 @@ fn an_issue_and_its_triage() {
     v.mouse(MouseEventKind::ScrollLeft, 2, 0);
     assert_eq!(v.code_left, [0, 0]);
     // A click in the margin: the cursor on the text beside it, nothing copied, the view still.
-    (v.scroll, v.shown) = (0, 20);
+    let _ = screen(160, 22, |f| v.draw(f, &ui, f.area()));
+    (v.scroll, v.shown) = ([0; 2], 20);
     v.mouse(MouseEventKind::Down(MouseButton::Left), 0, 0); // (the issue's link line, "  https://…")
-    assert_eq!((v.mouse(MouseEventKind::Up(MouseButton::Left), 0, 0), v.cur, v.scroll), (None, (0, 2), 0));
+    assert_eq!((v.mouse(MouseEventKind::Up(MouseButton::Left), 0, 0), v.cur, v.scroll), (None, (0, 2), [0; 2]));
     v.mouse(MouseEventKind::Down(MouseButton::Left), 2, 19); // (near the bottom: no scroll)
-    assert_eq!(v.scroll, 0);
+    assert_eq!(v.scroll, [0; 2]);
+    // Each side scrolls on its own: the wheel over the pane moves the pane only.
+    let p = v.pane_x.unwrap();
+    v.shown = 3;
+    v.scroll(p + 1, 2);
+    assert_eq!(v.scroll, [0, 2]);
+    v.scroll(1, 1);
+    assert_eq!(v.scroll, [1, 2]);
     // A click: nothing, and nothing left selected.
     v.mouse(MouseEventKind::Down(MouseButton::Left), 2, 0);
     assert_eq!(v.mouse(MouseEventKind::Up(MouseButton::Left), 2, 0), None);

@@ -659,8 +659,7 @@ impl Issues {
                 // In an issue the wheel scrolls it, the cursor where it is.
                 Event::Mouse(m) if matches!(m.kind, event::MouseEventKind::ScrollDown | event::MouseEventKind::ScrollUp) && !self.help => {
                     if let Some(v) = self.view.as_mut() {
-                        let page = ratatui::crossterm::terminal::size().map_or(20, |(_, h)| h.saturating_sub(2) as usize);
-                        v.scroll(if m.kind == event::MouseEventKind::ScrollDown { 3 } else { -3 }, page);
+                        v.scroll(m.column as usize, if m.kind == event::MouseEventKind::ScrollDown { 3 } else { -3 });
                         continue;
                     }
                     KeyEvent::new(KeyCode::Char(if m.kind == event::MouseEventKind::ScrollDown { 'j' } else { 'k' }), KeyModifiers::NONE)
@@ -986,7 +985,7 @@ impl Issues {
 
     /// The issue open, from GitHub again (after a comment, a label, a title).
     fn reload_view(&mut self, n: u64) {
-        let keep = self.view.as_ref().map_or(0, |v| v.scroll_at());
+        let keep = self.view.as_ref().map_or([0; 2], |v| v.scroll_at());
         match super::issue_view::IssueView::load(n, self.reviews_dir.as_deref(), self.can_triage) {
             Ok(mut v) => {
                 v.set_scroll(keep);
