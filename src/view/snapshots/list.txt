@@ -1,7 +1,7 @@
  PRs   todo 0   open 3   close 0   worktrees 0   draft keys
      #1  Fix CI                                        Enter review
           @ann   +1 −0 in 1 file                       gn gp what Claude would close
-          claude ✓                                     /     filter
+          claude reviewed                              /     filter
           b                                            o O   sort / reverse
                                                        R     refresh (from GitHub)
 ▌   #22  Add docs   DRAFT   [new]                      m     mark

@@ -48,7 +48,8 @@ pub(super) struct Mark {
 }
 
 impl List {
-    /// What a card says about Claude's review: ("claude ✓", good) or ("claude: reviewing…", …).
+    /// What a card says about Claude's review: how many of its comments are still to address
+    /// ("claude: 3 to address"; none: "claude: all addressed"), or what it's at.
     pub(super) fn claude_state(&self, n: u64) -> Option<(String, bool)> {
         // A PR being replaced says so too.
         let id = self.rep_of.values().find(|r| r.replaces.iter().any(|o| o.number == n)).map(|r| r.id);
@@ -69,7 +70,12 @@ impl List {
             // Why, in short (the status bar said it in full): `a a` asks again.
             // All of it (the card cuts it where the window ends).
             Some(batch::Status::Failed(e)) => Some((format!("claude failed: {}", e.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" · ")), false)),
-            _ if self.reviewed.contains(&n) => Some(("claude ✓".into(), true)),
+            // (Not a ✓: that'd read as Claude approving it. What's left of what it said.)
+            _ if self.reviewed.contains(&n) => Some(match self.claude_open.get(&n) {
+                Some(0) => ("claude: all addressed".into(), true),
+                Some(k) => (format!("claude: {k} to address"), false),
+                None => ("claude reviewed".into(), true),
+            }),
             _ => None,
         }
     }

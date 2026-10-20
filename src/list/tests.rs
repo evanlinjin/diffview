@@ -100,7 +100,13 @@ fn filter_and_keys() {
     l.batch.insert(333, batch::Status::Reviewing);
     l.reviewed.insert(1);
     assert_eq!(l.claude_state(333), Some(("claude: reviewing…".into(), true)));
-    assert_eq!(l.claude_state(1), Some(("claude ✓".into(), true)));
+    assert_eq!(l.claude_state(1), Some(("claude reviewed".into(), true)));
+    // Its comments read: how many are left to address (not a ✓, which reads as approving).
+    l.claude_open.insert(1, 2);
+    assert_eq!(l.claude_state(1), Some(("claude: 2 to address".into(), false)));
+    l.claude_open.insert(1, 0);
+    assert_eq!(l.claude_state(1), Some(("claude: all addressed".into(), true)));
+    l.claude_open.clear();
     assert!(k(&mut l, KeyCode::Char('q')).is_none() && l.msg.starts_with("Claude is still reviewing"));
     assert!(matches!(k(&mut l, KeyCode::Char('q')), Some(Do::Quit)));
     // A A drafts one replacement for the marked PRs (or this one).
@@ -242,7 +248,7 @@ fn reviews_from_a_pr_view_show_up() {
     std::fs::write(dir.join("pr-7.session"), "").unwrap();
     std::fs::write(dir.join("pr-7.json"), "{}").unwrap();
     l.watch_reviews();
-    assert_eq!(l.claude_state(7), Some(("claude ✓".into(), true)));
+    assert_eq!(l.claude_state(7).map(|c| c.1), Some(true)); // (reviewed: none to address, or not read yet)
     let _ = std::fs::remove_dir_all(&dir);
 }
 

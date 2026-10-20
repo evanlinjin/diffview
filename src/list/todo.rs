@@ -20,6 +20,7 @@ impl List {
         let mut closable = HashMap::new();
         // (And which Claude would replace with one of its own: auto drafts it.)
         let mut replaceable = HashMap::new();
+        let mut claude_open = HashMap::new();
         for p in self.prs.iter().filter(|p| p.open()) {
             let file = dir.as_ref().map(|d| d.join(format!("pr-{}.json", p.number)));
             let review = file.as_ref().and_then(|f| crate::claude::load(f).ok().flatten());
@@ -28,6 +29,9 @@ impl List {
                 let head = self.extra.get(&p.number).map_or("", |e| e.head_oid.as_str());
                 let older = !r.head.is_empty() && !head.is_empty() && r.head != head;
                 closable.insert(p.number, format!("{}{}", r.close.trim(), if older { " (reviewed at an older head)" } else { "" }));
+            }
+            if let Some(r) = &review {
+                claude_open.insert(p.number, r.threads.iter().filter(|t| t.by_claude() && !t.resolved && !t.outdated).count());
             }
             if let Some(r) = review.as_ref().filter(|r| !r.replace.trim().is_empty() && r.close.trim().is_empty()) {
                 replaceable.insert(p.number, r.replace.trim().to_owned());
@@ -43,6 +47,7 @@ impl List {
         }
         self.closable = closable;
         self.replaceable = replaceable;
+        self.claude_open = claude_open;
         for r in self.rep_of.values() {
             let needs = todo::rep_needs(r);
             let updated = self.reps.iter().find(|c| c.number == r.id).map_or(String::new(), |c| c.updated.clone());
