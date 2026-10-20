@@ -3200,6 +3200,27 @@ fn the_cursor_not_under_a_floating_comment() {
 }
 
 #[test]
+fn the_cursor_not_under_a_floating_comment_in_split_view() {
+    let z = "z".repeat(300);
+    let text = format!("diff --git a/w.rs b/w.rs\n--- a/w.rs\n+++ b/w.rs\n@@ -1,1 +1,1 @@\n-{z}\n+{z}y\n");
+    let mut app = App::with("base".into(), diff::parse(&text));
+    app.files_pref = Some(false);
+    let mut th = fixture().threads.remove(0);
+    (th.path, th.line, th.original_line) = ("w.rs".into(), Some(1), Some(1));
+    app.threads = vec![th];
+    (app.margin_pref, app.margin_float_pref, app.split) = (Some(true), Some(true), true);
+    app.build();
+    let r = app.rows.iter().position(|r| r.line.new == Some(1)).unwrap();
+    app.goto(r, 0);
+    _ = screen(160, 20, |f| app.draw(f));
+    app.goto(r, app.left + 60);
+    _ = screen(160, 20, |f| app.draw(f));
+    let g = app.geom;
+    assert!(app.margin_float && app.right);
+    assert!(app.right_x() + app.head.col - app.left < g.relw + g.gw + g.ctw, "{} {} {:?}", app.left, app.head.col, (app.right_x(), g.ctw));
+}
+
+#[test]
 fn the_pinned_title_doesnt_scroll_the_diff() {
     let mut app = fixture();
     app.left = 4;

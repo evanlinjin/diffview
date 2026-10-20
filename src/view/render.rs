@@ -166,7 +166,7 @@ impl App {
     /// The code scrolled to the cursor, up and down, and sideways: in a comment's code block by
     /// that block only, in the diff by `left`.
     fn scroll_to_cursor(&mut self, c: &Cols) {
-        let Cols { pin, h, tw, mtw, ctw, htw_l, htw_r, hd, float, mx, .. } = *c;
+        let Cols { pin, h, gw, relw, tw, mtw, ctw, htw_l, htw_r, hd, float, mx, .. } = *c;
         let so = scrolloff(h);
         // Scroll the code to the cursor.
         if hd < self.top + so {
@@ -182,10 +182,14 @@ impl App {
             DRow::Margin(..) if self.margin_side() => mtw - self.pane_pad(),
             // Split view beside the pane: a line is one half, paired or not.
             DRow::Margin(..) if self.split && code_line => htw_l.min(htw_r),
-            // Floating, a comment beside it covers the code from `mx` on (`draw_body`).
-            DRow::Margin(_, _, Some(_)) if float => mx,
             DRow::Margin(..) => ctw,
             DRow::Full(_) => tw,
+        };
+        // Floating, a comment beside it covers the code from `mx` on (`draw_body`), a split
+        // half's too.
+        let cur_w = match self.drows[hd] {
+            DRow::Margin(_, _, Some(_)) if float && !self.margin_side() => cur_w.min((relw + gw + mx).saturating_sub(self.text_x(c))),
+            _ => cur_w,
         };
         // A code line's last column is for comment marks.
         let cur_w = if code_line && !self.margin_side() { cur_w.saturating_sub(1) } else { cur_w };
@@ -446,25 +450,30 @@ impl App {
         f.render_widget(Paragraph::new(Line::from(spans)), Rect { height: 1, ..area });
     }
 
+    /// Where the cursor line's text starts on screen: in the pane, after the code column, the
+    /// gap and its own gutter; in split view, at its half's.
+    fn text_x(&self, c: &Cols) -> usize {
+        let Cols { gw, ghw, relw, hd, .. } = *c;
+        match self.drows[hd] {
+            _ if self.margin_side() => self.pane_x(),
+            DRow::Pair(..) | DRow::Margin(Some(_), Some(_), _) if self.right => self.right_x(),
+            DRow::Pair(..) => relw + ghw,
+            DRow::Margin(Some(_), Some(_), _) if self.split => relw + ghw,
+            DRow::Margin(Some(l), None, _) if self.split && self.rows[l].line.kind == Kind::Del => relw + ghw,
+            DRow::Margin(None, Some(_), _) if self.split => self.right_x(),
+            _ => relw + gw,
+        }
+    }
+
     /// While the cursor is on a link, its URL just under (or over) it.
     fn draw_link_tip(&self, f: &mut Frame, c: &Cols) {
-        let Cols { area, pin, h, gw, ghw, relw, hd, .. } = *c;
+        let Cols { area, pin, h, hd, .. } = *c;
         // Link tooltip: while the cursor is on a link, show its URL just under (or over) it.
         // Not on the PR header (where dv starts): the status hint says it links there.
         let header = self.rows[self.head.row].line.kind == Kind::File;
         if let (Some(url), None, None, false) = (self.link_at_cursor(), &self.picker, &self.popup, header) {
             let y = (hd - self.top) as u16 + pin as u16;
-            // In the margin, the text starts after the code column, the gap and its own gutter.
-            let start = match self.drows[hd] {
-                _ if self.margin_side() => self.pane_x(),
-                DRow::Pair(..) | DRow::Margin(Some(_), Some(_), _) if self.right => self.right_x(),
-                DRow::Pair(..) => relw + ghw,
-                DRow::Margin(Some(_), Some(_), _) if self.split => relw + ghw,
-                DRow::Margin(Some(l), None, _) if self.split && self.rows[l].line.kind == Kind::Del => relw + ghw,
-                DRow::Margin(None, Some(_), _) if self.split => self.right_x(),
-                _ => relw + gw,
-            };
-            let x = ((start + self.rows[self.head.row].guide_w() + self.head.col.saturating_sub(self.hscroll(self.head.row))) as u16).min(area.width.saturating_sub(20));
+            let x = ((self.text_x(c) + self.rows[self.head.row].guide_w() + self.head.col.saturating_sub(self.hscroll(self.head.row))) as u16).min(area.width.saturating_sub(20));
             // (Just where it goes: its keys are in the key hints.)
             let text = format!(" ↗ {url} ");
             let w = (text.chars().count() as u16).min(area.width - x);
