@@ -573,7 +573,7 @@ impl App {
             ask_request(&p, &head, &hunks, &commits, all)?;
             let prompt = ask_prompt(&p, &head, all);
             let forked = self.claude_pane().is_some();
-            self.claude.job = Some(self.spawn_claude(&prompt, AMEND_LABEL, "amend", forked, &[])?);
+            self.claude.job = Some(self.spawn_claude(&prompt, AMEND_LABEL, crate::claude::Work::Amend, forked, &[])?);
             self.amend_then = all;
             Ok(())
         })();
@@ -817,7 +817,7 @@ fn live_claude_amend_ask() {
     let data = std::env::temp_dir().join(format!("dv-live-amend-data-{}", std::process::id()));
     let p = data.join("amend/pr-1.json");
     ask_request(&p, &head, &hunks, &commits, true).unwrap();
-    let out = crate::claude::claude_command("amend", &ask_prompt(&p, &head, true), &dir, &[], &[], Some(&data)).stdin(std::process::Stdio::null()).output().unwrap();
+    let out = crate::claude::claude_command(crate::claude::Work::Amend, &ask_prompt(&p, &head, true), &dir, &[], &[], Some(&data)).stdin(std::process::Stdio::null()).output().unwrap();
     let said: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
     println!("claude: {}\nrefused: {}", said["result"].as_str().unwrap_or(&String::from_utf8_lossy(&out.stderr)), said["permission_denials"]);
     let mut hunks = hunks;

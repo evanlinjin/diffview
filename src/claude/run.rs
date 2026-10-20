@@ -140,11 +140,53 @@ pub(crate) fn claude_dirs() -> Vec<std::ffi::OsString> {
 /// never changing.
 const READ_ONLY: &[&str] = &["Bash(git diff:*)", "Bash(git show:*)", "Bash(git log:*)", "Bash(git rev-parse:*)", "Bash(gh pr view:*)"];
 
-/// `--model` for Claude's `task` (`review`, `rank`, …): `git config dv.model.<task>`, else
-/// `dv.model`; neither set, Claude Code's own default.
-fn model_args(task: &str, dir: &Path) -> Vec<String> {
+/// What Claude is run for: each can have its own model (`model_args`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Work {
+    Review,
+    Answer,
+    Change,
+    Describe,
+    FixCi,
+    /// A comment closing a PR or an issue.
+    Close,
+    Commit,
+    Amend,
+    Rebase,
+    Replace,
+    Triage,
+    Rank,
+    Interpret,
+    Group,
+}
+
+impl Work {
+    /// Its name in `git config dv.model.<name>` (the README lists them).
+    pub(crate) fn key(self) -> &'static str {
+        match self {
+            Work::Review => "review",
+            Work::Answer => "answer",
+            Work::Change => "change",
+            Work::Describe => "describe",
+            Work::FixCi => "fix-ci",
+            Work::Close => "close",
+            Work::Commit => "commit",
+            Work::Amend => "amend",
+            Work::Rebase => "rebase",
+            Work::Replace => "replace",
+            Work::Triage => "triage",
+            Work::Rank => "rank",
+            Work::Interpret => "interpret",
+            Work::Group => "group",
+        }
+    }
+}
+
+/// `--model` for `work`: `git config dv.model.<work>`, else `dv.model` (no work: Claude's pane,
+/// for anything), else none: Claude Code's own default.
+pub(crate) fn model_args(work: Option<Work>, dir: &Path) -> Vec<String> {
     let get = |k: &str| crate::diff::git_in(dir, &["config", "--get", k]).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
-    get(&format!("dv.model.{task}")).or_else(|| get("dv.model")).map_or(vec![], |m| vec!["--model".into(), m])
+    work.and_then(|w| get(&format!("dv.model.{}", w.key()))).or_else(|| get("dv.model")).map_or(vec![], |m| vec!["--model".into(), m])
 }
 
 #[test]
@@ -153,16 +195,17 @@ fn a_model_per_task() {
     let set = |k: &str, v: &str| crate::diff::git_in(&dir, &["config", k, v]).unwrap();
     set("dv.model", "opus");
     set("dv.model.rank", "haiku");
-    assert_eq!((model_args("rank", &dir), model_args("review", &dir)), (vec!["--model".to_owned(), "haiku".into()], vec!["--model".to_owned(), "opus".into()]));
+    assert_eq!((model_args(Some(Work::Rank), &dir), model_args(Some(Work::Review), &dir)), (vec!["--model".to_owned(), "haiku".into()], vec!["--model".to_owned(), "opus".into()]));
+    assert_eq!(model_args(None, &dir), ["--model", "opus"]);
     std::fs::remove_dir_all(dir).unwrap();
 }
 
 /// `claude -p prompt` in `dir` that only reads: what it says is its answer. `dontAsk`: whatever
 /// isn't allowed is refused (left unsaid, the user's own default mode would rule, and `auto`
-/// lets it edit). `more`: commands on top of `READ_ONLY`. No session. `task`: its model's.
-pub(crate) fn claude_reader(task: &str, prompt: &str, dir: &Path, more: &[&str]) -> std::process::Command {
+/// lets it edit). `more`: commands on top of `READ_ONLY`. No session. `work`: its model's.
+pub(crate) fn claude_reader(work: Work, prompt: &str, dir: &Path, more: &[&str]) -> std::process::Command {
     let mut cmd = std::process::Command::new("claude");
-    cmd.env("PATH", path_for_claude()).args(["-p", prompt, "--output-format", "json", "--permission-mode", "dontAsk"]).args(model_args(task, dir));
+    cmd.env("PATH", path_for_claude()).args(["-p", prompt, "--output-format", "json", "--permission-mode", "dontAsk"]).args(model_args(Some(work), dir));
     cmd.arg("--allowedTools").args(READ_ONLY).args(more).current_dir(dir);
     cmd
 }
@@ -188,13 +231,13 @@ pub(crate) fn json_in(answer: &str, open: char) -> Option<serde_json::Value> {
 /// with dv's directory reachable, and only the commands the skill needs.
 /// `more`: tools allowed on top of the usual ones; `access`: the one directory outside `dir`
 /// Claude may write to (`None`: all of dv's), besides its scratch checkouts (`dv scratch`).
-/// `task`: its model's (`model_args`).
-pub(crate) fn claude_command(task: &str, prompt: &str, dir: &Path, session: &[String], more: &[&str], access: Option<&Path>) -> std::process::Command {
+/// `work`: its model's (`model_args`).
+pub(crate) fn claude_command(work: Work, prompt: &str, dir: &Path, session: &[String], more: &[&str], access: Option<&Path>) -> std::process::Command {
     let mut cmd = std::process::Command::new("claude");
     // No editor to wait on (`git rebase --continue`, `git commit` without -m).
     cmd.env("PATH", path_for_claude()).env("GIT_EDITOR", "true")
         .args(["-p", prompt, "--output-format", "json", "--permission-mode", "acceptEdits"])
-        .args(model_args(task, dir))
+        .args(model_args(Some(work), dir))
         .args(session);
     match access {
         Some(d) => _ = cmd.arg("--add-dir").arg(d).args(scratch_dir().ok().map(|s| [std::ffi::OsString::from("--add-dir"), s.into_os_string()]).into_iter().flatten()),
@@ -248,7 +291,7 @@ fn live_claude_change_on_their_pr() {
     }]});
     std::fs::write(&file, review.to_string()).unwrap();
     // (As dv grants the repo it runs in: here the test is elsewhere, so this run's directory.)
-    let out = claude_command("answer", &answer_prompt("the current branch", true), &dir, &[], &[], Some(&data.join("dv"))).env("XDG_DATA_HOME", &data).stdin(std::process::Stdio::null()).output().unwrap();
+    let out = claude_command(Work::Answer, &answer_prompt("the current branch", true), &dir, &[], &[], Some(&data.join("dv"))).env("XDG_DATA_HOME", &data).stdin(std::process::Stdio::null()).output().unwrap();
     let said: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
     println!("claude: {}\nrefused: {}", said["result"].as_str().unwrap_or(&String::from_utf8_lossy(&out.stderr)), said["permission_denials"]);
     let code = std::fs::read_to_string(dir.join("count.py")).unwrap();

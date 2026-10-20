@@ -500,7 +500,7 @@ fn run_claude(r: &Record, dir: &Path, first: bool, extra: &str, prepared: impl F
         false => ["--resume".to_owned(), r.session.clone()],
     };
     let log = std::env::temp_dir().join(format!("dv-claude-replace-{}-{}.log", std::process::id(), r.id));
-    let st = crate::claude::claude_command("replace", &prompt(r, extra), dir, &session, crate::claude::REPLACE_TOOLS, Some(&writable()?))
+    let st = crate::claude::claude_command(crate::claude::Work::Replace, &prompt(r, extra), dir, &session, crate::claude::REPLACE_TOOLS, Some(&writable()?))
         .stdin(std::process::Stdio::null())
         .stdout(std::fs::File::create(&log)?)
         .stderr(std::fs::File::create(log.with_extension("err"))?)

@@ -192,7 +192,7 @@ fn triage_run(n: u64, updated: &str, root: &std::path::Path, extra: &str) -> Res
     );
     let prompt = crate::claude::with_instructions(&prompt, extra);
     let tools = ["Bash(gh issue view:*)", "Bash(gh issue list:*)", "Bash(gh search:*)", "Bash(gh label list:*)"];
-    let out = crate::claude::claude_reader("triage", &prompt, root, &tools).stdin(std::process::Stdio::null()).output().context("is Claude Code (`claude`) installed?")?;
+    let out = crate::claude::claude_reader(crate::claude::Work::Triage, &prompt, root, &tools).stdin(std::process::Stdio::null()).output().context("is Claude Code (`claude`) installed?")?;
     let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
     let answer = v["result"].as_str().unwrap_or("");
     // (Its own word for what went wrong, where it said one.)
@@ -241,7 +241,7 @@ fn draft_closing(n: u64, root: PathBuf) -> Receiver<Result<()>> {
                 file.display()
             );
             let tools = ["Bash(gh issue view:*)", "Bash(gh issue list:*)", "Bash(gh search:*)"];
-            let out = crate::claude::claude_reader("close", &prompt, &root, &tools).stdin(std::process::Stdio::null()).output()?;
+            let out = crate::claude::claude_reader(crate::claude::Work::Close, &prompt, &root, &tools).stdin(std::process::Stdio::null()).output()?;
             let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
             anyhow::ensure!(v["is_error"] == false, "Claude couldn't draft it ({})", out.status);
             let d = crate::claude::json_in(v["result"].as_str().unwrap_or(""), '{').filter(Value::is_object).context("no draft in Claude's answer")?;

@@ -38,13 +38,14 @@ pub enum Task {
 
 impl Task {
     /// Which model it runs on (`dv.model.<this>`), shared with the PR view's same asks.
-    pub fn model(&self) -> &'static str {
+    pub fn model(&self) -> crate::claude::Work {
+        use crate::claude::Work;
         match self {
-            Task::Review | Task::Update(_) => "review",
-            Task::Answer { .. } => "answer",
-            Task::FixChecks => "fix-ci",
-            Task::Close => "close",
-            Task::Describe(_) => "describe",
+            Task::Review | Task::Update(_) => Work::Review,
+            Task::Answer { .. } => Work::Answer,
+            Task::FixChecks => Work::FixCi,
+            Task::Close => Work::Close,
+            Task::Describe(_) => Work::Describe,
         }
     }
 
@@ -248,7 +249,7 @@ fn suggest_groups(prs: &[(u64, String, String, String)], root: &Path) -> anyhow:
         list.join("\n")
     );
     let tools = ["Bash(gh pr view:*)", "Bash(gh pr diff:*)"];
-    let out = crate::claude::claude_reader("group", &prompt, root, &tools).stdin(std::process::Stdio::null()).output()?;
+    let out = crate::claude::claude_reader(crate::claude::Work::Group, &prompt, root, &tools).stdin(std::process::Stdio::null()).output()?;
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
     anyhow::ensure!(v["is_error"] == false, "Claude couldn't group them ({})", out.status);
     parse_groups(v["result"].as_str().unwrap_or(""))

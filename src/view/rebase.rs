@@ -138,7 +138,7 @@ impl App {
         // Onto what it started onto (the PR's base may have changed meanwhile).
         let onto = noted(&self.root).map(|n| n.1).filter(|o| !o.is_empty()).or_else(|| self.rebase_onto()).unwrap_or_else(|| "its base".into());
         let forked = self.claude_pane().is_some();
-        self.claude.job = Some(self.spawn_claude(&rebase_prompt(&onto), REBASE_LABEL, "rebase", forked, REBASE_TOOLS)?);
+        self.claude.job = Some(self.spawn_claude(&rebase_prompt(&onto), REBASE_LABEL, crate::claude::Work::Rebase, forked, REBASE_TOOLS)?);
         Ok(())
     }
 
@@ -257,7 +257,7 @@ fn live_claude_rebase() {
     git(&["commit", "-q", "-am", "greet: a stranger when no name"]);
     git(&["checkout", "-q", "pr"]);
     assert!(!rebase(&dir, "main", "dv-backup/live").unwrap(), "should stop on the conflict");
-    let out = crate::claude::claude_command("rebase", &rebase_prompt("main"), &dir, &[], REBASE_TOOLS, None).stdin(std::process::Stdio::null()).output().unwrap();
+    let out = crate::claude::claude_command(crate::claude::Work::Rebase, &rebase_prompt("main"), &dir, &[], REBASE_TOOLS, None).stdin(std::process::Stdio::null()).output().unwrap();
     let said: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
     println!("claude: {}", said["result"].as_str().unwrap_or(&String::from_utf8_lossy(&out.stderr)));
     println!("refused: {}", said["permission_denials"]);

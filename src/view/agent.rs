@@ -24,14 +24,15 @@ pub(super) enum Ask {
 
 impl Ask {
     /// Which model it runs on (`dv.model.<this>`), as dv list's same tasks (`Task::model`).
-    pub(super) fn model(self) -> &'static str {
+    pub(super) fn model(self) -> crate::claude::Work {
+        use crate::claude::Work;
         match self {
-            Ask::Review => "review",
-            Ask::Answer => "answer",
-            Ask::Fix | Ask::Edit => "change",
-            Ask::Describe => "describe",
-            Ask::FixChecks => "fix-ci",
-            Ask::Close => "close",
+            Ask::Review => Work::Review,
+            Ask::Answer => Work::Answer,
+            Ask::Fix | Ask::Edit => Work::Change,
+            Ask::Describe => Work::Describe,
+            Ask::FixChecks => Work::FixCi,
+            Ask::Close => Work::Close,
         }
     }
 }
@@ -613,7 +614,7 @@ impl App {
             // Floating and unfocused: hidden while zellij's floating panes are (`Space a` →
             // show it, or zellij's own toggle); dv says when it's asking you something, and
             // closes it once Claude's done there (`close_if_done`).
-            true => match self.claude_pane_run(&format!("claude: {label}"), Some(&prompt), false, false) {
+            true => match self.claude_pane_run(&format!("claude: {label}"), Some(&prompt), Some(ask.model()), false, false) {
                 Ok(()) => {
                     // For dv list: at it while its pane is open (a session: when it's done
                     // working there, only the pane knows).
@@ -662,7 +663,7 @@ impl App {
         let prompt = self.claude_prompt(Ask::Answer, "");
         let forked = self.claude_pane().is_some();
         let more = tools_for(None, true);
-        match self.spawn_claude(&prompt, "answering", "answer", forked, &more.iter().map(String::as_str).collect::<Vec<_>>()) {
+        match self.spawn_claude(&prompt, "answering", Ask::Answer.model(), forked, &more.iter().map(String::as_str).collect::<Vec<_>>()) {
             Ok(job) => {
                 self.claude.job = Some(job);
                 "reply sent; Claude is answering…".into()
@@ -681,7 +682,7 @@ impl App {
     /// hidden (`focus`: shown and focused). Floating and unfocused, it's hidden while zellij's floating panes are
     /// (`Space a` → show it, or zellij's own toggle); dv says when it's asking you something,
     /// and closes it once Claude's done there (`close_if_done`).
-    fn claude_pane_run(&mut self, name: &str, prompt: Option<&str>, focus: bool, fork: bool) -> Result<()> {
+    fn claude_pane_run(&mut self, name: &str, prompt: Option<&str>, work: Option<crate::claude::Work>, focus: bool, fork: bool) -> Result<()> {
         let mut path_env = std::ffi::OsString::from("PATH=");
         path_env.push(path_for_claude());
         let mut cmd = std::process::Command::new("zellij");
@@ -694,6 +695,7 @@ impl App {
             .args(data_env()) // and so the same dv directory as this one, which it watches
             .arg("claude")
             .args(prompt)
+            .args(crate::claude::model_args(work, &self.root)) // (none: `dv.model`, it's for anything)
             .args(self.session_args())
             .args(fork.then_some("--fork-session"))
             .args(claude_dirs())
@@ -709,7 +711,7 @@ impl App {
     /// work on it, a fork of it (two at once on one session would trip each other up).
     pub(super) fn open_claude_pane(&mut self) {
         let busy = self.claude_busy();
-        if let Err(e) = self.claude_pane_run(if busy { "claude (a copy)" } else { "claude" }, None, true, busy) {
+        if let Err(e) = self.claude_pane_run(if busy { "claude (a copy)" } else { "claude" }, None, None, true, busy) {
             self.msg = format!("{e:#}");
         }
     }
@@ -799,8 +801,8 @@ impl App {
     /// It runs in the PR's session (or, `forked`, a fork of it), so Claude keeps the review's
     /// context across runs.
     /// `more`: tools it may use on top of `ALLOWED`.
-    /// `task`: its model's (`dv.model.<task>`).
-    pub(super) fn spawn_claude(&mut self, prompt: &str, label: &'static str, task: &str, forked: bool, more: &[&str]) -> Result<ClaudeJob> {
+    /// `work`: its model's (`dv.model.<work>`).
+    pub(super) fn spawn_claude(&mut self, prompt: &str, label: &'static str, work: crate::claude::Work, forked: bool, more: &[&str]) -> Result<ClaudeJob> {
         use std::os::unix::process::CommandExt;
         // One log per run, so a follow-up run doesn't wipe the one a message points to.
         self.claude.runs += 1;
@@ -810,7 +812,7 @@ impl App {
         if forked {
             session.push("--fork-session".into());
         }
-        let child = claude_command(task, prompt, &self.root, &session, more, None)
+        let child = claude_command(work, prompt, &self.root, &session, more, None)
             .stdin(std::process::Stdio::null())
             .stdout(std::fs::File::create(&log)?)
             .stderr(std::fs::File::create(&err)?)
