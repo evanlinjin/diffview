@@ -763,6 +763,20 @@ impl App {
         self.rows[r].line.text.chars().count()
     }
 
+    /// How many of row `r`'s chars from `from` fit in `w` columns (past its end, a column each).
+    pub(super) fn fit_chars(&self, r: usize, from: usize, w: usize) -> usize {
+        let mut used = 0;
+        self.rows[r].line.text.chars().chain(std::iter::repeat(' ')).skip(from).take_while(|&c| {
+            used += row::char_w(c);
+            used <= w
+        }).count()
+    }
+
+    /// The columns row `r`'s chars `from..to` take on screen (past its end, a column each).
+    pub(super) fn cols(&self, r: usize, from: usize, to: usize) -> usize {
+        self.rows[r].line.text.chars().chain(std::iter::repeat(' ')).take(to).skip(from).map(row::char_w).sum()
+    }
+
     fn chars(&self, r: usize) -> Vec<char> {
         self.rows[r].line.text.chars().collect()
     }

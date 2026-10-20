@@ -185,7 +185,8 @@ impl App {
             DRow::Margin(l, r, note) => (l.or(r).or(note)?, g.relw + g.gw),
         };
         // (A reply's guide is before its text.)
-        Some((row, x.saturating_sub(start + self.rows[row].guide_w()) + self.hscroll(row), x < start))
+        let from = self.hscroll(row);
+        Some((row, from + self.fit_chars(row, from, x.saturating_sub(start + self.rows[row].guide_w())), x < start))
     }
 
 }

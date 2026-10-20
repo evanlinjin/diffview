@@ -3158,6 +3158,23 @@ fn mouse_sideways_keeps_the_cursor_on_screen() {
 }
 
 #[test]
+fn tabs_and_wide_chars_scroll_by_their_columns() {
+    // A tab is 4 columns, a wide character 2: the cursor at the end of a line of them is shown,
+    // and a click lands on the character under it.
+    for lead in ["\t".repeat(60), "中".repeat(100)] {
+        let text = format!("diff --git a/w.rs b/w.rs\nnew file mode 100644\n--- /dev/null\n+++ b/w.rs\n@@ -0,0 +1,1 @@\n+{lead}xEND\n");
+        let mut app = App::with("base".into(), diff::parse(&text));
+        let r = app.rows.iter().position(|r| r.line.text.ends_with("END")).unwrap();
+        let n = lead.chars().count();
+        app.goto(r, n + 1);
+        let s = screen(120, 20, |f| app.draw(f));
+        let (y, line) = s.lines().enumerate().find(|(_, l)| l.contains("xE")).expect(&s);
+        let x = line.find("xE").map(|b| line[..b].chars().count()).unwrap();
+        assert_eq!(app.at_screen(x, y).map(|(r2, c, _)| (r2, c)), Some((r, n)));
+    }
+}
+
+#[test]
 fn a_thread_gone_leaves_the_cursor_on_its_line() {
     // Claude's comment posted (its copy dismissed): the cursor on the line it was on, not the
     // file's top.

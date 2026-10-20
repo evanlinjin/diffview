@@ -22,6 +22,11 @@ pub(super) fn fit(line: Line<'static>, w: usize) -> Line<'static> {
     Line::from(spans)
 }
 
+/// The columns `c` takes on screen (a tab, 4: as `render_row` draws it).
+pub(super) fn char_w(c: char) -> usize {
+    if c == '\t' { 4 } else { Span::raw(c.to_string()).width() }
+}
+
 /// `spans` cut to `w` columns, padded to them if shorter.
 pub(super) fn clip(spans: Vec<Span<'static>>, w: usize) -> Vec<Span<'static>> {
     let mut out = vec![];
@@ -276,7 +281,8 @@ impl App {
         let (text_w, bw) = (self.text_w(r, tw), self.box_w(r, tw).saturating_sub(row.guide_w()));
         let tw = tw.saturating_sub(row.guide_w());
         let skip = self.hscroll(r);
-        for (i, c) in l.text.chars().enumerate().skip(skip).take(text_w) {
+        let end = skip + self.fit_chars(r, skip, text_w);
+        for (i, c) in l.text.chars().enumerate().take(end).skip(skip) {
             let p = Pos { row: r, col: i };
             let mut st = style;
             if let Some(c) = syn.and_then(|syn| syn.get(i).copied().flatten()) {
@@ -296,7 +302,6 @@ impl App {
                 n = i + 1;
                 continue;
             }
-            // ponytail: tab drawn as 4 cols but scrolled as 1 char; fine unless tab-heavy files.
             spans.push(Span::styled(if c == '\t' { "    ".into() } else { c.to_string() }, st));
             n = i + 1;
         }
@@ -317,9 +322,9 @@ impl App {
             if skip > 0 {
                 mark(&mut spans[g], "‹", skip);
             }
-            if l.text.chars().count() > skip + text_w {
+            if l.text.chars().count() > end {
                 let last = spans.len() - 1;
-                mark(&mut spans[last], "›", skip + text_w - 1);
+                mark(&mut spans[last], "›", end - 1);
             }
         }
         // Pad to the full width (so split halves line up), and tint the whole row, so

@@ -207,20 +207,28 @@ impl App {
         let nudge = std::mem::take(&mut self.hnudge);
         let len = self.len(self.head.row);
         let w = self.text_w(self.head.row, cur_w).max(1);
-        let left = match scroller {
-            Some(Scroller::Block(_)) => &mut self.code_left,
-            Some(Scroller::Diff) => &mut self.left,
-            None => return,
-        };
+        let Some(scroller) = scroller else { return };
+        let (row, mut left) = (self.head.row, self.hscroll(self.head.row));
+        // (In columns: a tab's 4, a wide character's 2.)
         if nudge != 0 {
-            *left = (*left as isize + nudge).clamp(0, len.saturating_sub(1) as isize) as usize;
-            self.head.col = self.head.col.clamp(*left, *left + w - 1).min(len.saturating_sub(1));
+            left = (left as isize + nudge).clamp(0, len.saturating_sub(1) as isize) as usize;
+            let last = left + self.fit_chars(row, left, w).max(1) - 1;
+            self.head.col = self.head.col.clamp(left, last).min(len.saturating_sub(1));
             (self.anchor, self.want_col) = (self.head, self.head.col); // (the mouse: no selection)
         }
-        *left = (*left).min(self.head.col);
-        if self.head.col >= *left + w {
-            *left = self.head.col + 1 - w;
+        left = left.min(self.head.col);
+        if self.cols(row, left, self.head.col + 1) > w {
+            let (chars, mut used) = (self.chars(row), 0);
+            let fit = (0..=self.head.col).rev().take_while(|&i| {
+                used += chars.get(i).map_or(1, |&c| super::row::char_w(c));
+                used <= w
+            });
+            left = self.head.col + 1 - fit.count().max(1);
         }
+        *match scroller {
+            Scroller::Block(_) => &mut self.code_left,
+            Scroller::Diff => &mut self.left,
+        } = left;
     }
 
     /// The rows on screen: the code (split view's halves), the pane beside it (a column) or over
@@ -473,7 +481,7 @@ impl App {
         let header = self.rows[self.head.row].line.kind == Kind::File;
         if let (Some(url), None, None, false) = (self.link_at_cursor(), &self.picker, &self.popup, header) {
             let y = (hd - self.top) as u16 + pin as u16;
-            let x = ((self.text_x(c) + self.rows[self.head.row].guide_w() + self.head.col.saturating_sub(self.hscroll(self.head.row))) as u16).min(area.width.saturating_sub(20));
+            let x = ((self.text_x(c) + self.rows[self.head.row].guide_w() + self.cols(self.head.row, self.hscroll(self.head.row), self.head.col)) as u16).min(area.width.saturating_sub(20));
             // (Just where it goes: its keys are in the key hints.)
             let text = format!(" ↗ {url} ");
             let w = (text.chars().count() as u16).min(area.width - x);
