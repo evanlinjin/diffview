@@ -59,12 +59,15 @@ fn url_repo(url: &str) -> &str {
     rest.match_indices('/').nth(1).map_or(rest, |(i, _)| &rest[..i])
 }
 
+/// Who `v` (an author, an actor) is: a deleted account's, GitHub's "ghost".
+fn login(v: &Value) -> String {
+    v["login"].as_str().unwrap_or("ghost").to_owned()
+}
+
 /// An issue's timeline (`ISSUE_TIMELINE`'s nodes), as dv shows it (`here`: its repo,
 /// `owner/name`: another's things are named with theirs).
 fn acts(nodes: &[Value], here: &str) -> Vec<Act> {
     let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
-    // (A deleted account's: GitHub's "ghost".)
-    let login = |v: &Value| v["login"].as_str().unwrap_or("ghost").to_owned();
     nodes
         .iter()
         .filter_map(|it| {
@@ -175,7 +178,8 @@ impl IssueView {
             }
             let t: Value = gh::gh_json(&args.iter().map(String::as_str).collect::<Vec<_>>())?;
             let issue = &t["data"]["repository"]["issue"];
-            anyhow::ensure!(issue.is_object(), "no issue #{n} here");
+            // (GitHub's reason, if it gave one: a PR's number, no access to the repo.)
+            anyhow::ensure!(issue.is_object(), "#{n}: {}", t["errors"][0]["message"].as_str().unwrap_or("no such issue here"));
             if v.is_null() {
                 v = issue.clone();
             }
@@ -194,7 +198,7 @@ impl IssueView {
         Ok(IssueView {
             number: n,
             title: s(&v["title"]),
-            author: s(&v["author"]["login"]),
+            author: login(&v["author"]),
             url: s(&v["url"]),
             body: s(&v["body"]).replace("\r\n", "\n"),
             labels: v["labels"]["nodes"].as_array().into_iter().flatten().map(|l| (s(&l["name"]), s(&l["color"]))).collect(),
