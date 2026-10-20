@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.69.5] - 2026-10-20
+
+### Fixed
+- dv list: Esc while Claude's reviews run says how to quit (q, then q again) rather than
+  arming a confirm the next Esc calls off.
+
 ## [0.69.4] - 2026-10-20
 
 ### Fixed
