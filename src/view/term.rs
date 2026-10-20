@@ -27,10 +27,12 @@ pub fn init_terminal() -> DefaultTerminal {
         }
         _ => {
             use std::io::Write;
-            // (Started over past a MiB: kept, not grown without end.)
-            let path = std::env::temp_dir().join("dv-panic.log");
-            let big = std::fs::metadata(&path).is_ok_and(|m| m.len() > 1 << 20);
-            let log = std::fs::OpenOptions::new().create(true).append(!big).write(true).truncate(big).open(path);
+            // (In dv's directory, not a shared /tmp; past a MiB, the old one kept as `.old`.)
+            let Ok(path) = crate::claude::dv_dir().map(|d| d.join("panic.log")) else { return };
+            if std::fs::metadata(&path).is_ok_and(|m| m.len() > 1 << 20) {
+                _ = std::fs::rename(&path, path.with_extension("log.old"));
+            }
+            let log = std::fs::OpenOptions::new().create(true).append(true).open(path);
             // (One write: two panics at once don't mix their lines.)
             _ = log.map(|mut f| f.write_all(format!("dv {}: {info}\n", std::process::id()).as_bytes()));
         }
