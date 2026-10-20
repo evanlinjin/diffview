@@ -108,6 +108,11 @@ pub struct Anchor {
 }
 
 /// `gh args`, its output as JSON.
+/// Who `v` (GitHub's author, actor: `{login}`) is: a deleted account's, GitHub's "ghost".
+pub(crate) fn login(v: &Value) -> String {
+    v["login"].as_str().unwrap_or("ghost").to_owned()
+}
+
 pub(crate) fn gh_json(args: &[&str]) -> Result<Value> {
     Ok(serde_json::from_str(&gh(args)?)?)
 }
@@ -188,7 +193,7 @@ pub fn pr(n: Option<u64>) -> Result<Pr> {
         base_oid: v["baseRefOid"].as_str().unwrap_or("").to_owned(),
         head_branch: v["headRefName"].as_str().unwrap_or("").to_owned(),
         head_owner: v["headRepositoryOwner"]["login"].as_str().unwrap_or("").to_owned(),
-        author: v["author"]["login"].as_str().unwrap_or("").to_owned(),
+        author: login(&v["author"]),
         cross_repo: v["isCrossRepository"].as_bool().unwrap_or(false),
         head_repo: v["headRepository"]["nameWithOwner"].as_str().unwrap_or("").to_owned(),
         maintainer_can_modify: v["maintainerCanModify"] == true,
@@ -685,7 +690,7 @@ fn parse_thread(t: &Value) -> Thread {
                 node_id: c["id"].as_str().unwrap_or("").to_owned(),
                 can_edit: c["viewerCanUpdate"] == true,
                 can_delete: c["viewerCanDelete"] == true,
-                author: c["author"]["login"].as_str().unwrap_or("ghost").to_owned(),
+                author: login(&c["author"]),
                 body: c["body"].as_str().unwrap_or("").replace("\r\n", "\n"),
                 created: c["createdAt"].as_str().unwrap_or("").to_owned(),
                 pending: c["state"] == "PENDING",

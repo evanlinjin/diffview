@@ -143,7 +143,7 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
     };
 
     // Author, branches, size (the state is on the PR's header line).
-    let author = s(&v["author"]["login"]);
+    let author = crate::gh::login(&v["author"]);
     let mut l = InfoLine::new(false, false);
     l.put(&format!("@{author}"), Some(Mark::Link(format!("https://github.com/{author}"))))
         .put(&format!(" · {} ← {} · ", s(&v["baseRefName"]), s(&v["headRefName"])), None)
@@ -363,7 +363,7 @@ fn activity_items(v: &Value, items: &[Value]) -> Vec<Vec<(String, InfoLine)>> {
         let node = s(&c["id"]);
         let at = c["submittedAt"].as_str().or(c["createdAt"].as_str()).unwrap_or("").to_owned();
         let mut h = InfoLine { url, node: node.clone(), hidden, ..InfoLine::new(true, false) };
-        h.put(&format!("@{} · ", s(&c["author"]["login"])), None);
+        h.put(&format!("@{} · ", crate::gh::login(&c["author"])), None);
         if !what.is_empty() {
             h.put(what, mark).put(" · ", None);
         }
@@ -390,7 +390,7 @@ fn activity_items(v: &Value, items: &[Value]) -> Vec<Vec<(String, InfoLine)>> {
     let t = |t: &str| (t.to_owned(), None);
     for it in items {
         let at = s(&it["createdAt"]);
-        let who = it["actor"]["login"].as_str().unwrap_or("ghost");
+        let who = &*crate::gh::login(&it["actor"]);
         // Its id (two at once, two labels added, happen at the same second).
         let key = s(&it["id"]);
         let item = match it["__typename"].as_str().unwrap_or("") {
@@ -399,7 +399,7 @@ fn activity_items(v: &Value, items: &[Value]) -> Vec<Vec<(String, InfoLine)>> {
                 // Its own link: questions about it (`a`) are kept by it. (The fragment is the
                 // review's id: the link opens the PR.)
                 let url = format!("{}#review-{}", s(&v["url"]), s(&it["id"]));
-                let reviewer = it["author"]["login"].as_str().unwrap_or("ghost");
+                let reviewer = &*crate::gh::login(&it["author"]);
                 let at = it["submittedAt"].as_str().unwrap_or(&at);
                 match s(&it["state"]).as_str() {
                     "APPROVED" => said(it, url, "✓ approved", Some(Mark::Pass), String::new()),

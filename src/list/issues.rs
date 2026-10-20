@@ -105,7 +105,7 @@ fn issue(i: &Value) -> Issue {
     Issue {
         number: i["number"].as_u64().unwrap_or(0),
         title: s(&i["title"]),
-        author: s(&i["author"]["login"]),
+        author: crate::gh::login(&i["author"]),
         updated: s(&i["updatedAt"]),
         labels: nodes("labels").iter().map(|l| (s(&l["name"]), s(&l["color"]))).collect(),
         comments: i["comments"]["totalCount"].as_u64().unwrap_or(0),

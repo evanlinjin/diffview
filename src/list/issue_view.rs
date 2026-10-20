@@ -59,11 +59,6 @@ fn url_repo(url: &str) -> &str {
     rest.match_indices('/').nth(1).map_or(rest, |(i, _)| &rest[..i])
 }
 
-/// Who `v` (an author, an actor) is: a deleted account's, GitHub's "ghost".
-fn login(v: &Value) -> String {
-    v["login"].as_str().unwrap_or("ghost").to_owned()
-}
-
 /// An issue's timeline (`ISSUE_TIMELINE`'s nodes), as dv shows it (`here`: its repo,
 /// `owner/name`: another's things are named with theirs).
 fn acts(nodes: &[Value], here: &str) -> Vec<Act> {
@@ -71,7 +66,7 @@ fn acts(nodes: &[Value], here: &str) -> Vec<Act> {
     nodes
         .iter()
         .filter_map(|it| {
-            let (who, at) = (login(&it["actor"]), s(&it["createdAt"]));
+            let (who, at) = (gh::login(&it["actor"]), s(&it["createdAt"]));
             let ev = |what: String, url: Option<String>| Some(Act::Event(who.clone(), what, at.clone(), url));
             let to = |x: &Value| {
                 let repo = x["repository"]["nameWithOwner"].as_str().filter(|r| !r.eq_ignore_ascii_case(here)).unwrap_or("");
@@ -79,11 +74,11 @@ fn acts(nodes: &[Value], here: &str) -> Vec<Act> {
                 (format!("{n} {}", s(&x["title"])).trim_end().to_owned(), Some(s(&x["url"])).filter(|u| !u.is_empty()))
             };
             match it["__typename"].as_str()? {
-                "IssueComment" => Some(Act::Comment(login(&it["author"]), at, s(&it["body"]).replace("\r\n", "\n"))),
+                "IssueComment" => Some(Act::Comment(gh::login(&it["author"]), at, s(&it["body"]).replace("\r\n", "\n"))),
                 "LabeledEvent" => ev(format!("added the label {}", s(&it["label"]["name"])), None),
                 "UnlabeledEvent" => ev(format!("removed the label {}", s(&it["label"]["name"])), None),
-                "AssignedEvent" => ev(format!("assigned @{}", login(&it["assignee"])), None),
-                "UnassignedEvent" => ev(format!("unassigned @{}", login(&it["assignee"])), None),
+                "AssignedEvent" => ev(format!("assigned @{}", gh::login(&it["assignee"])), None),
+                "UnassignedEvent" => ev(format!("unassigned @{}", gh::login(&it["assignee"])), None),
                 "RenamedTitleEvent" => ev(format!("changed the title: {} → {}", s(&it["previousTitle"]), s(&it["currentTitle"])), None),
                 "ClosedEvent" => {
                     let c = &it["closer"];
@@ -198,7 +193,7 @@ impl IssueView {
         Ok(IssueView {
             number: n,
             title: s(&v["title"]),
-            author: login(&v["author"]),
+            author: gh::login(&v["author"]),
             url: s(&v["url"]),
             body: s(&v["body"]).replace("\r\n", "\n"),
             labels: v["labels"]["nodes"].as_array().into_iter().flatten().map(|l| (s(&l["name"]), s(&l["color"]))).collect(),

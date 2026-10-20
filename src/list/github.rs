@@ -53,7 +53,7 @@ fn listed(p: &Value) -> Listed {
     Listed {
         number: n(&p["number"]),
         title: s(&p["title"]),
-        author: s(&p["author"]["login"]),
+        author: crate::gh::login(&p["author"]),
         base: s(&p["baseRefName"]),
         branch: s(&p["headRefName"]),
         draft: p["isDraft"] == true,
@@ -154,7 +154,7 @@ pub(super) fn extra(p: &Value, me: &str) -> Extra {
     let nodes = |k: &str| p[k]["nodes"].as_array().cloned().unwrap_or_default();
     let my_review = nodes("latestReviews").into_iter().find(|r| r["author"]["login"] == me).map(|r| (s(&r["state"]), s(&r["commit"]["oid"])));
     let at = |v: &Value| crate::gh::epoch_secs(&s(v)).unwrap_or(0);
-    let author = s(&p["author"]["login"]);
+    let author = crate::gh::login(&p["author"]);
     let trusted = |c: &Value| c["author"]["login"] == me || matches!(c["authorAssociation"].as_str(), Some("OWNER" | "MEMBER" | "COLLABORATOR"));
     // The author's last word (their push: not a maintainer's "Update branch"; a comment; a
     // review: a reply on a thread is one), and what maintainers said since, waiting on them
