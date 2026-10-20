@@ -147,14 +147,14 @@ pub(super) fn plan(dir: &Path, base: &str, blame: bool) -> Result<Plan> {
 /// first, a fixup commit and `rebase --autosquash` from the merge-base with `base` (newest first:
 /// the older ones' shas stay as they were). One that conflicts (a later commit changed those
 /// lines) is undone and its changes stay uncommitted; the rest go in. HEAD is kept on `backup`
-/// first. `reword`: (a commit, its new message), with its changes or none. How many commits
+/// first. `rewords`: (a commit, its new message) each, with its changes or none. How many commits
 /// were amended, and those that weren't (with git's word why); none amended: an error, all as
 /// it was.
-pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], reword: Option<(&str, &str)>, backup: &str) -> Result<(usize, Vec<(String, String)>)> {
+pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], rewords: &[(&str, &str)], backup: &str) -> Result<(usize, Vec<(String, String)>)> {
     let mb = git_in(dir, &["merge-base", base, "HEAD"])?.trim().to_owned();
     let order = git_in(dir, &["rev-list", "--first-parent", &format!("{mb}..HEAD")])?; // newest first
     let mut targets: Vec<&str> = vec![];
-    for t in hunks.iter().filter_map(|h| h.to.as_deref()).chain(reword.map(|r| r.0)) {
+    for t in hunks.iter().filter_map(|h| h.to.as_deref()).chain(rewords.iter().map(|r| r.0)) {
         if !targets.contains(&t) {
             targets.push(t);
         }
@@ -209,7 +209,7 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], reword: Option<(&str
             }
             // By its sha, not its subject: two commits may share one ("wip"). `amend!`: its
             // message replaced too, by what follows the first line.
-            match reword.filter(|r| r.0 == t) {
+            match rewords.iter().find(|r| r.0 == t) {
                 Some((_, m)) => own(&["commit", "-q", "--no-verify", "--allow-empty", "-m", &format!("amend! {t}\n\n{m}")])?,
                 None => own(&["commit", "-q", "--no-verify", "-m", &format!("fixup! {t}")])?,
             }
@@ -261,7 +261,7 @@ pub(super) fn fold(dir: &Path, base: &str, sha: &str, paths: &[String], message:
     hunks.retain(|h| !h.path.is_empty() && (paths.is_empty() && message.is_none() || paths.contains(&h.path)));
     anyhow::ensure!(!hunks.is_empty() || message.is_some(), "nothing uncommitted to amend");
     hunks.iter_mut().for_each(|h| h.to = Some(sha.to_owned()));
-    amend(dir, base, &hunks, message.map(|m| (sha, m)), backup).map(drop) // (one commit: in, or an error)
+    amend(dir, base, &hunks, &message.map(|m| (sha, m)).into_iter().collect::<Vec<_>>(), backup).map(drop) // (one commit: in, or an error)
 }
 
 /// `dv amend <commit> [file…] [-F <message file>]` (for Claude: dv's amend, not a rebase by
@@ -294,6 +294,25 @@ fn claude_answers(p: &Path, head: &str, hunks: &mut [Hunk], commits: &[(String, 
             (h.to, h.why) = (Some(sha), format!("Claude: {}", if why.is_empty() { "fits there" } else { why }));
         }
     }
+}
+
+/// The new messages Claude gave commits in `p` (their changes there make the old ones wrong),
+/// answered at HEAD `head`: (full sha, message), of `commits` only.
+fn claude_messages(p: &Path, head: &str, commits: &[(String, String)]) -> Vec<(String, String)> {
+    let Some(v) = std::fs::read_to_string(p).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()) else { return vec![] };
+    if v["head"] != head {
+        return vec![];
+    }
+    v["commits"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|c| {
+            let m = c["message"].as_str()?.trim();
+            let sha = commits.iter().find(|k| c["sha"].as_str().is_some_and(|s| !s.is_empty() && k.0.starts_with(s)))?.0.clone();
+            (!m.is_empty()).then(|| (sha, m.to_owned()))
+        })
+        .collect()
 }
 
 impl App {
@@ -406,7 +425,15 @@ impl App {
         anyhow::ensure!(!self.claude_busy(), "Claude is still at work here: amend once it's done");
         let (hunks, commits) = self.amend_plan()?;
         let (short, backup) = self.backup_name()?;
-        let (n, skipped) = amend(&self.root, &self.full_base, &hunks, None, &backup)?;
+        // Claude's new messages, for the commits that take changes (what they say then fits).
+        let head = git_in(&self.root, &["rev-parse", "HEAD"])?.trim().to_owned();
+        let messages: Vec<(String, String)> = self.amend_file().map(|p| claude_messages(&p, &head, &commits)).unwrap_or_default();
+        let messages: Vec<(&str, &str)> = messages.iter().filter(|m| hunks.iter().any(|h| h.to.as_deref() == Some(m.0.as_str()))).map(|m| (m.0.as_str(), m.1.as_str())).collect();
+        let (n, skipped) = amend(&self.root, &self.full_base, &hunks, &messages, &backup)?;
+        let reworded = match messages.len() {
+            0 => String::new(),
+            k => format!(", {k} reworded by Claude"),
+        };
         if let Some(p) = self.amend_file() {
             _ = std::fs::remove_file(p); // answered for a HEAD that's gone
         }
@@ -419,7 +446,7 @@ impl App {
                 commits.iter().find(|c| c.0 == *t).map_or("", |c| c.1.as_str()),
             ),
         };
-        Ok(self.and_reload(format!("amended into {n} commit(s) (was {short}: {backup}){left}; {}", self.next_step(true))))
+        Ok(self.and_reload(format!("amended into {n} commit(s){reworded} (was {short}: {backup}){left}; {}", self.next_step(true))))
     }
 
     /// `f` on a commit in the list: everything uncommitted folded into that one (new lines too).
@@ -486,8 +513,12 @@ fn ask_prompt(p: &Path, head: &str, all: bool) -> String {
          For each entry in \"hunks\" (a change, as a diff of {}'s file), decide which of the commits in \"commits\" \
          it belongs in: the one whose change it completes or fixes (look at them: `git show <sha>`; `git diff` shows \
          all the uncommitted changes). Set its \"commit\" to that commit's full sha, and \"why\" to a few words why; \
-         leave \"commit\" empty if none fits (it then stays uncommitted). Edit only that file, with your Edit \
-         tool: don't change the code, and don't commit.",
+         leave \"commit\" empty if none fits (it then stays uncommitted). Then, for each commit that gets changes: \
+         if its message (`git log -1 --format=%B <sha>`) would no longer describe it with them in (they add \
+         something it doesn't mention, or change what it says), set that entry's \"message\" in \"commits\" to the \
+         whole new message (subject, a blank line, the body), in the repo's style (Conventional Commits, if it uses \
+         them); otherwise leave it out. Edit only that file, with your Edit tool: don't change the code, and don't \
+         commit.",
         p.display(),
         &head[..7.min(head.len())],
     )
@@ -495,6 +526,16 @@ fn ask_prompt(p: &Path, head: &str, all: bool) -> String {
 
 /// The background run placing changes: when it's done, the amend picker opens again.
 pub(super) const AMEND_LABEL: &str = "placing changes in commits";
+
+#[test]
+fn claude_rewords_commits_that_take_changes() {
+    let p = std::env::temp_dir().join(format!("dv-amend-msg-{}.json", std::process::id()));
+    std::fs::write(&p, r#"{"head": "h1", "commits": [{"sha": "aaaa1", "subject": "a", "message": "feat: a, and b\n\nBoth."}, {"sha": "bbbb2", "subject": "b"}]}"#).unwrap();
+    let commits = vec![("aaaa111".to_owned(), "a".to_owned()), ("bbbb222".to_owned(), "b".to_owned())];
+    assert_eq!(claude_messages(&p, "h1", &commits), [("aaaa111".to_owned(), "feat: a, and b\n\nBoth.".to_owned())]);
+    assert!(claude_messages(&p, "h2", &commits).is_empty()); // (asked at another HEAD)
+    _ = std::fs::remove_file(p);
+}
 
 #[test]
 fn amend_by_blame() {
@@ -528,7 +569,7 @@ fn amend_by_blame() {
             ("a.rs:9".into(), None),
         ]
     );
-    let (n, skipped) = amend(&dir, &base, &hunks, None, "dv-backup/t").unwrap();
+    let (n, skipped) = amend(&dir, &base, &hunks, &[], "dv-backup/t").unwrap();
     assert_eq!((n, skipped.len()), (2, 0));
     // Each change in its commit; the history still two commits; the rest uncommitted.
     assert_eq!(git(&["log", "--format=%s", &format!("{base}..HEAD")]).lines().collect::<Vec<_>>(), ["second", "first"]);
@@ -551,7 +592,7 @@ fn amend_by_blame() {
     claude_answers(&p, &head, &mut hunks, &commits);
     assert_eq!(hunks[0].to.as_deref(), Some(first_now.as_str()));
     // A pure addition placed so (above another change, not placed) lands where it was.
-    amend(&dir, &base, &hunks, None, "dv-backup/t2").unwrap();
+    amend(&dir, &base, &hunks, &[], "dv-backup/t2").unwrap();
     assert_eq!(git(&["show", "HEAD~1:a.rs"]), "base\n/// one\n/// one, more\n// two\nadded\nkeep\n");
     assert_eq!(git(&["diff", "HEAD", "--stat"]).lines().count(), 2); // "new" still uncommitted
     // Staged changes, a staged new file too: amended all the same (dv's own index makes the fixups).
@@ -561,7 +602,7 @@ fn amend_by_blame() {
     let (mut hunks, commits) = plan(&dir, &base, true).unwrap();
     let last = commits.last().unwrap().0.clone();
     hunks.iter_mut().for_each(|h| h.to = Some(last.clone()));
-    amend(&dir, &base, &hunks, None, "dv-backup/t3").unwrap();
+    amend(&dir, &base, &hunks, &[], "dv-backup/t3").unwrap();
     assert_eq!(git(&["status", "--porcelain", "--untracked-files=no"]), "");
     // Into a commit a later one changes those lines of: that one's left uncommitted, the rest go in.
     let now = git(&["show", "HEAD:a.rs"]);
@@ -571,13 +612,13 @@ fn amend_by_blame() {
     for h in hunks.iter_mut() {
         h.to = Some(if h.body.contains("TWO") { second.clone() } else { first.clone() }); // "/// three" is second's
     }
-    let (n, skipped) = amend(&dir, &base, &hunks, None, "dv-backup/t4").unwrap();
+    let (n, skipped) = amend(&dir, &base, &hunks, &[], "dv-backup/t4").unwrap();
     assert_eq!((n, skipped.iter().map(|s| s.0.as_str()).collect::<Vec<_>>()), (1, vec![first.as_str()]));
     assert!(git(&["show", "HEAD:a.rs"]).contains("// TWO"));
     assert_eq!(git(&["diff", "HEAD"]).lines().filter(|l| l.starts_with('+') && !l.starts_with("+++")).collect::<Vec<_>>(), ["+/// THREE"]);
     // A message alone (`dv amend <sha> -F`): reworded, nothing else changed.
     let first = git(&["rev-list", "--reverse", &format!("{base}..HEAD")]).lines().next().unwrap().to_owned();
-    amend(&dir, &base, &[], Some((&first, "first, reworded\n\nwith a body")), "dv-backup/t5").unwrap();
+    amend(&dir, &base, &[], &[(&first, "first, reworded\n\nwith a body")], "dv-backup/t5").unwrap();
     assert_eq!(git(&["log", "--format=%s", &format!("{base}..HEAD")]).lines().collect::<Vec<_>>(), ["second", "first, reworded"]);
     assert_eq!(git(&["diff", "HEAD"]).lines().filter(|l| l.starts_with('+') && !l.starts_with("+++")).collect::<Vec<_>>(), ["+/// THREE"]);
     _ = std::fs::remove_dir_all(&dir);
@@ -601,7 +642,7 @@ fn amend_same_subjects_renames_crlf() {
     write("y.rs", "a\r\nb\r\nC\r\n");
     let (hunks, _) = plan(&dir, &base, true).unwrap();
     assert_eq!(hunks.iter().map(|h| h.to.as_deref()).collect::<Vec<_>>(), [Some(second.as_str())]);
-    amend(&dir, &base, &hunks, None, "dv-backup/t").unwrap();
+    amend(&dir, &base, &hunks, &[], "dv-backup/t").unwrap();
     // Into the second "wip", CRLF and all; nothing left over.
     assert_eq!(git(&["show", "HEAD:y.rs"]), "a\r\nb\r\nC\r\n");
     assert_eq!(git(&["show", "HEAD~1:y.rs"]), "a\r\nb\r\n");
@@ -644,7 +685,7 @@ fn live_claude_amend_ask() {
     claude_answers(&p, &head, &mut hunks, &commits);
     println!("placed: {:?}", hunks.iter().map(|h| (h.place(), h.to.clone(), h.why.clone())).collect::<Vec<_>>());
     assert_eq!(hunks[0].to.as_deref(), Some(parse.as_str()));
-    amend(&dir, &base, &hunks, None, "dv-backup/live").unwrap();
+    amend(&dir, &base, &hunks, &[], "dv-backup/live").unwrap();
     assert!(git(&["show", "HEAD~1:lib.rs"]).contains("/// Parses"));
     _ = std::fs::remove_dir_all(&dir);
     _ = std::fs::remove_dir_all(&data);
