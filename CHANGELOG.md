@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.72.0] - 2026-10-20
+
+### Changed
+- Claude's comment on the code is what's kept:
+  - replies under it are indented, as talk about it;
+  - `Space r` resolves that talk (it folds to a line) and leaves the comment open; the comment
+    itself is only deleted (`Space d`);
+  - "suggest" has Claude revise its comment and resolve the talk; a change made marks the
+    comment done.
+
 ## [0.71.0] - 2026-10-20
 
 ### Added
