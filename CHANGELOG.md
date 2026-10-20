@@ -5,6 +5,17 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.66.0] - 2026-10-20
+
+### Added
+- An issue's description and the pane beside it scroll separately. The wheel scrolls the
+  side it's over.
+
+### Fixed
+- A `#N` link: "opening #N…" shows while it's looked up, and a link to the open issue goes to
+  the browser.
+- Backspace (Ctrl-h in many terminals) goes to the description.
+
 ## [0.65.0] - 2026-10-20
 
 ### Added
