@@ -893,6 +893,7 @@ impl Issues {
         match (pending, k.code) {
             // Esc drops a selection first, as Helix's.
             (_, KeyCode::Esc) if v.selecting() => v.drop_selection(),
+            (Some(' '), KeyCode::Esc) => {} // (Space called off, as Helix's)
             (_, KeyCode::Char('q') | KeyCode::Esc) => self.view = None,
             (_, KeyCode::Char('?')) => self.help = true,
             (_, KeyCode::Char('o')) => self.msg = crate::view::open_url(v.url()),
@@ -1121,10 +1122,10 @@ impl Issues {
     /// A draft started or finished: the todo, and the open issue's list of them, again.
     fn drafts_changed(&mut self) {
         self.find_todo();
-        let drafting = self.drafting.clone();
         // (Drawn again only if they changed: a redraw drops a selection being made.)
-        if let Some(v) = self.view.as_mut().filter(|v| v.drafts != drafts_for(v.number, &drafting)) {
-            v.drafts = drafts_for(v.number, &drafting);
+        let Some(d) = self.view.as_ref().map(|v| drafts_for(v.number, &self.drafting)) else { return };
+        if let Some(v) = self.view.as_mut().filter(|v| v.drafts != d) {
+            v.drafts = d;
             v.redraw();
         }
     }
