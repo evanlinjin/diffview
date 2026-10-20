@@ -161,8 +161,8 @@ pub(super) fn extra(p: &Value, me: &str) -> Extra {
     // (bots' and drive-bys' aren't); an approval since: the ball's with the maintainers.
     // (Theirs, or no one's linked to it: a commit from an email not on their account.)
     let theirs = |c: &Value| {
-        let a = c["commit"]["authors"]["nodes"].as_array().cloned().unwrap_or_default();
-        a.iter().any(|u| u["user"]["login"] == author.as_str()) || a.iter().all(|u| u["user"].is_null())
+        let a = c["commit"]["authors"]["nodes"].as_array().map_or(&[][..], Vec::as_slice);
+        a.iter().any(|u| u["user"]["login"] == author.as_str()) || !a.is_empty() && a.iter().all(|u| u["user"].is_null())
     };
     let pushed = nodes("commits").iter().filter(|c| theirs(c)).map(|c| at(&c["commit"]["committedDate"])).max().unwrap_or(0);
     let by_author = |k: &str, t: &str| nodes(k).into_iter().filter(|c| c["author"]["login"] == author.as_str()).map(|c| at(&c[t])).max().unwrap_or(0);
