@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.60.0] - 2026-10-20
+
+### Added
+- Amending with Claude ("Amend it all…", or its answers in the amend picker): when a commit's
+  message wouldn't describe it once the changes are in, Claude writes a new one and dv rewords
+  the commit in the same amend.
+
+### Changed
+- Checking whether anything's uncommitted no longer reads every changed file.
+
 ## [0.59.1] - 2026-10-20
 
 ### Fixed
