@@ -653,6 +653,11 @@ fn stalled_when_the_author_leaves_feedback_unanswered() {
     let mut j = pr(serde_json::json!([]), vec![]);
     j["commits"]["nodes"].as_array_mut().unwrap().push(serde_json::json!({ "commit": { "committedDate": t("03"), "authors": { "nodes": [{ "user": null }] } } }));
     assert_eq!(super::github::extra(&j, "me").unanswered, None);
+    // Hers rebased by bo (he committed it): not her word.
+    let mut j = pr(serde_json::json!([]), vec![]);
+    let rebased = serde_json::json!({ "commit": { "committedDate": t("03"), "committer": { "user": { "login": "bo" } }, "authors": { "nodes": [{ "user": { "login": "amy" } }] } } });
+    j["commits"]["nodes"].as_array_mut().unwrap().push(rebased);
+    assert!(super::github::extra(&j, "me").unanswered.is_some());
     // A maintainer's approval since: the ball's with the maintainers.
     let e = super::github::extra(&pr(serde_json::json!([]), vec![review("cy", "APPROVED", "05", "MEMBER")]), "me");
     assert_eq!(e.unanswered, None);
