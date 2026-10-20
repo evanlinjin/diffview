@@ -105,6 +105,9 @@ pub(super) struct ClaudeState {
 }
 
 /// How "make the changes" can land them: the key (`ClaudeState::land`), the picker's item.
+/// How changes on someone else's PR may land too: as suggestions for you to post (`Ask::Fix`).
+pub(super) const SUGGEST: &str = "suggest";
+
 pub(super) const LANDS: [(&str, &str); 3] = [
     ("", "Leave them uncommitted (you commit them)"),
     ("amend", "Amend each into the commit it belongs in (dv's amend: a backup branch first)"),
@@ -189,7 +192,7 @@ impl App {
         let review = match (has_review, self.reviewed_before()) {
             (true, Some(old)) => format!("Update Claude's review: what changed since it reviewed {}", &old[..old.len().min(8)]),
             (true, None) => "Update Claude's review (keeps comments that still apply, and your replies)".into(),
-            (false, _) => "Ask Claude to review this".into(),
+            (false, _) => "Review this".into(),
         };
         let n = self.waiting_replies();
         let open = self.change_requests();
@@ -199,38 +202,26 @@ impl App {
         };
         let mut items = vec![
             Item::new(review, Target::Claude(Ask::Review)),
-            Item::new(format!("Ask Claude to answer your replies ({n} waiting)"), Target::Claude(Ask::Answer)),
+            Item::new(format!("Answer your replies ({n} waiting)"), Target::Claude(Ask::Answer)),
+            // (How: suggested, on someone else's PR, or made here; and how they land.)
             Item::new(
-                match (open, self.theirs) {
-                    (0, false) => "Ask Claude to make a change (no open comments: you say what)".to_owned(),
-                    (n, false) => format!("Ask Claude to make the changes ({n} open comments)"),
-                    // Someone else's PR: as suggestions you can post, not edits.
-                    (0, true) => "Ask Claude to suggest a change (you say what; their PR: no edits)".to_owned(),
-                    (n, true) => format!("Ask Claude to suggest the changes ({n} open comments; their PR: no edits)"),
+                match open {
+                    0 => "Make a change… (no open comments: you say what)".to_owned(),
+                    n => format!("Make the changes… ({n} open comments)"),
                 },
                 Target::Claude(Ask::Fix),
             ),
         ];
-        // Someone else's PR: Claude can make the changes all the same, here, for you to push to
-        // their branch (when they let maintainers: else they stay here).
-        if self.theirs {
-            let push = match self.pr.as_ref().is_some_and(|p| p.maintainer_can_modify || !p.cross_repo) {
-                true => "Space g pushes them to their branch",
-                false => "they don't allow maintainer edits: the commits stay here",
-            };
-            let what = if open == 0 { "a change (you say what)".to_owned() } else { format!("the changes ({open} open comments)") };
-            items.push(Item::new(format!("Ask Claude to make {what} here ({push})"), Target::Claude(Ask::Edit)));
-        }
         // Your PR's CI failing: Claude finds out why; or found it isn't the PR's doing, and had
         // a fix of its own in mind, a new PR's.
         if let Some(n) = self.pr.as_ref().map(|p| p.number).filter(|_| self.failing > 0 && !self.theirs) {
             let s = if self.failing == 1 { "" } else { "s" };
-            items.push(Item::new(format!("Ask Claude to fix the failing CI ({} check{s}: it reads the failed runs' logs; you push)", self.failing), Target::Claude(Ask::FixChecks)));
+            items.push(Item::new(format!("Fix the failing CI ({} check{s}: it reads the failed runs' logs; you push)", self.failing), Target::Claude(Ask::FixChecks)));
             if let Some(c) = self.ci_note(n).filter(|c| !c.task.is_empty()) {
-                items.insert(0, Item::new(format!("Have Claude draft a PR fixing CI (not this PR's doing: {})…", c.why), Target::Do(Action::CiFixPr)));
+                items.insert(0, Item::new(format!("Draft a PR fixing CI (not this PR's doing: {})…", c.why), Target::Do(Action::CiFixPr)));
             }
         }
-        items.push(Item::new("Ask Claude a question about this PR… (it answers in the Claude tab)", Target::ClaudeQuestion));
+        items.push(Item::new("Ask a question about this PR… (it answers in the Claude tab)", Target::ClaudeQuestion));
         items.extend([
             Item::new(notes, Target::ClaudeNotes),
             Item::new("Check Claude's review now (dv watches it; this reads it again)", Target::ClaudeCheck),
@@ -247,10 +238,10 @@ impl App {
         // A description Claude proposed: yours to approve (posted then), take further, or drop.
         if !self.claude.description.is_empty() {
             items.insert(0, Item::new("Discard Claude's proposed description", Target::DescDiscard));
-            items.insert(0, Item::new("Ask Claude for more changes to the description…", Target::Claude(Ask::Describe)));
-            items.insert(0, Item::new("Approve Claude's description: it replaces the PR's on GitHub…", Target::DescApprove(false)));
+            items.insert(0, Item::new("More changes to the description…", Target::Claude(Ask::Describe)));
+            items.insert(0, Item::new("Approve Claude's description… (it replaces the PR's on GitHub)", Target::DescApprove(false)));
         } else if self.pr.is_some() {
-            items.push(Item::new("Ask Claude to change the PR's description (you approve it)…", Target::Claude(Ask::Describe)));
+            items.push(Item::new("Change the PR's description… (you approve it)", Target::Claude(Ask::Describe)));
         }
         // Closing it: Claude drafts the comment; you edit it, then close with it (or don't).
         // (Closed or merged meanwhile: the draft can only go.)
@@ -260,10 +251,10 @@ impl App {
             items.insert(0, Item::new("Discard Claude's closing comment", Target::CloseDiscard));
         }
         if drafted && open {
-            items.insert(0, Item::new("Ask Claude for changes to the closing comment…", Target::Claude(Ask::Close)));
+            items.insert(0, Item::new("Changes to the closing comment…", Target::Claude(Ask::Close)));
             items.insert(0, Item::new("Close the PR with Claude's comment (your editor first)…", Target::Do(Action::ClosePr)));
         } else if self.pr.is_some() && open {
-            items.push(Item::new("Ask Claude to draft a comment closing the PR (you edit it, then close)…", Target::Claude(Ask::Close)));
+            items.push(Item::new("Draft a comment closing the PR… (you edit it, then close)", Target::Claude(Ask::Close)));
         }
         // One that seems stuck: it can be stopped (the session stays, so the next run resumes it).
         if let Some(j) = &self.claude.job {
@@ -282,7 +273,7 @@ impl App {
                 format!("Draft a replacement for #{} (Claude writes it properly, unpublished, in the background)", p.number),
                 Target::Do(Action::Replace(vec![p.number], None)),
             )),
-            (None, Some(r)) if r.drafting_now() => items.push(Item::new("Claude is at work on this replacement (dv shows it as it goes)", Target::Nothing)),
+            (None, Some(r)) if r.drafting_now() => items.push(Item::new("Claude is at work on this replacement (dv shows it as it goes)", Target::Note(""))),
             (None, Some(r)) => items.push(Item::new(
                 "Redraft this (Claude carries on, with your instructions)",
                 Target::Do(Action::Replace(r.ids(), None)),
@@ -292,8 +283,7 @@ impl App {
         // Preselected: answering your replies if any wait, else the review (never Stop: Enter
         // out of habit mustn't end a run).
         let want = |t: &Target| matches!(t, Target::Claude(a) if matches!((a, n > 0), (Ask::Answer, true) | (Ask::Review, false)));
-        let sel = items.iter().position(|i| want(&i.target)).unwrap_or(0);
-        self.picker = Some(Picker { sel, ..Picker::new(" claude ", items) });
+        self.picker = Some(Picker::new(" claude ", items).select(want));
     }
 
     /// `Space a` → check now: the review file read again (as if it had changed), and the
@@ -537,24 +527,39 @@ impl App {
         match ask {
             Ask::Describe | Ask::Close if self.pr.is_none() => self.msg = "no PR here".into(),
             // Making the changes (not suggesting them): how they land, first.
-            Ask::Fix | Ask::Edit if !(self.theirs && matches!(ask, Ask::Fix)) => {
-                let items: Vec<Item> = LANDS.iter().map(|&(key, label)| Item::new(label, Target::Land(ask, key))).collect();
-                // (Their PR, made here: Space g pushes commits, so as commits, unless you've said.)
+            // Making the changes: how they land. On someone else's PR, suggested (for you to
+            // post) or made here (`Edit`: for you to push to their branch, when they let
+            // maintainers: else they stay here).
+            Ask::Fix | Ask::Edit => {
+                let here = if self.theirs { Ask::Edit } else { Ask::Fix };
+                let mut items: Vec<Item> = LANDS.iter().map(|&(key, label)| Item::new(label, Target::Land(here, key))).collect();
+                if self.theirs {
+                    let push = match self.pr.as_ref().is_some_and(|p| p.maintainer_can_modify || !p.cross_repo) {
+                        true => "Space g pushes them to their branch",
+                        false => "they don't allow maintainer edits: the commits stay here",
+                    };
+                    items.iter_mut().for_each(|i| i.label = format!("{} ({push})", i.label));
+                    items.insert(0, Item::new("As suggestions for you to post (their code stays as it is)", Target::Land(Ask::Fix, SUGGEST)));
+                }
+                // (Their PR: suggested, unless you've said how; made here, Space g pushes
+                // commits, so as commits.)
                 let land = match (self.theirs, self.claude.land) {
-                    (true, "") => "commit",
+                    (true, "") => SUGGEST,
                     (_, l) => l,
                 };
-                let sel = LANDS.iter().position(|l| l.0 == land).unwrap_or(0);
-                self.picker = Some(Picker { sel, ..Picker::new(" how should the changes land? ", items) });
+                let p = Picker::new(" how should the changes land? ", items).select(|t| matches!(t, Target::Land(_, k) if *k == land));
+                self.picker = Some(p);
             }
-            Ask::Review | Ask::Fix | Ask::Edit | Ask::Describe | Ask::Close => self.action = Some(Action::ClaudeWith(ask)),
+            Ask::Review | Ask::Describe | Ask::Close => self.action = Some(Action::ClaudeWith(ask)),
             ask => _ = self.run_claude(ask, ""),
         }
     }
 
     /// How the changes land picked (`Space a` → make the changes): on to your instructions.
     pub(super) fn land(&mut self, ask: Ask, land: &'static str) {
-        self.claude.land = land;
+        if land != SUGGEST {
+            self.claude.land = land;
+        }
         self.action = Some(Action::ClaudeWith(ask));
     }
 

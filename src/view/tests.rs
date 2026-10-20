@@ -346,8 +346,8 @@ fn comments_placed_and_anchored() {
     let labels: Vec<String> = app.picker.take().unwrap().items.into_iter().map(|i| i.label).collect();
     assert_eq!(labels[..4], ["Comment", "Approve", "Request changes", "Close the PR (with a comment, optional)"]); // no pending review → no discard option
     // Then what's still open: the thread here is unresolved (and the test's PR head isn't HEAD).
-    assert_eq!(labels[4], "  ! 1 unresolved thread(s) on GitHub");
-    assert!(labels[5].starts_with("  ! your checkout isn't the PR's head") && labels.len() == 6);
+    assert_eq!(labels[4], "1 unresolved thread(s) on GitHub");
+    assert!(labels[5].starts_with("your checkout isn't the PR's head") && labels.len() == 6);
     app.review = Some("R".into());
     press(&mut app, 'S');
     assert_eq!(app.picker.as_ref().unwrap().items[4].label, "Discard pending review (1 comment(s))");
@@ -530,7 +530,7 @@ fn claude_menu() {
     let p = app.picker.as_ref().unwrap();
     assert!(p.items[0].label.starts_with("Update Claude's review"));
     assert!(p.items[1].label.contains("(1 waiting)") && p.sel == 1); // answering preselected
-    assert!(p.items[2].label.contains("make the changes (2 open comments")); // the resolved one is skipped
+    assert!(p.items.iter().any(|i| i.label.contains("Make the changes… (2 open comments"))); // the resolved one is skipped
     // Picking it asks how they land, then for your own instructions (an editor), then runs Claude.
     app.picker = None;
     app.pick_claude(agent::Ask::Fix);
@@ -1016,7 +1016,8 @@ fn mouse() {
     app.key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
     app.mouse(at(MouseEventKind::ScrollDown, 30, 5));
     assert_eq!(app.picker.as_ref().unwrap().sel, 1);
-    app.geom.picker = Some(mouse::PickerGeom { list: Rect { x: 10, y: 4, width: 60, height: 5 }, item_h: 1, off: 0 });
+    app.geom.picker = Some(mouse::PickerGeom { list: Rect { x: 10, y: 4, width: 60, height: 5 }, off: 0 });
+    app.picker.as_mut().unwrap().lines = (0..5).map(Some).collect();
     app.mouse(at(MouseEventKind::Down(MouseButton::Left), 20, 6)); // the third file
     assert_eq!(app.picker.as_ref().unwrap().sel, 2);
     app.mouse(at(MouseEventKind::Down(MouseButton::Left), 20, 6)); // again: opens it
@@ -1065,11 +1066,14 @@ fn whose_turn_and_severity() {
     assert_eq!(app.picker.as_ref().unwrap().items[0].label, "src/a.rs:2  2 replies · [bug] [answered] @claude");
     // Before submitting, what's still open in Claude's review shows.
     assert_eq!(app.submit_notes()[0], "3 open comment(s) in Claude's review (1 answered, your turn)");
-    // On someone else's PR, Claude suggests the changes instead of making them.
+    // On someone else's PR, Claude suggests the changes, unless you say to make them here.
     app.picker = None;
     app.theirs = true;
     app.claude_menu();
-    assert_eq!(app.picker.take().unwrap().items[2].label, "Ask Claude to suggest the changes (3 open comments; their PR: no edits)");
+    assert!(app.picker.take().unwrap().items.iter().any(|i| i.label == "Make the changes… (3 open comments)"));
+    app.pick_claude(agent::Ask::Fix);
+    let p = app.picker.take().unwrap();
+    assert!(matches!(p.items[p.sel].target, Target::Land(agent::Ask::Fix, agent::SUGGEST)));
     assert!(app.claude_prompt(agent::Ask::Fix, "").contains("don't edit the code"));
     // Replies: what you said you want, else a suggestion where one asks for a change.
     let p = app.claude_prompt(agent::Ask::Answer, "");
@@ -1961,7 +1965,7 @@ fn stop_a_stuck_claude() {
     app.claude_menu();
     let p = app.picker.take().unwrap();
     let items = p.items;
-    assert!(matches!(items[0].target, Target::ClaudeStop) && items[0].label.starts_with("Stop Claude (reviewing for "));
+    assert!(items.iter().any(|i| matches!(i.target, Target::ClaudeStop) && i.label.starts_with("Stop Claude (reviewing for ")));
     assert!(matches!(items[p.sel].target, Target::Claude(agent::Ask::Review)), "Enter doesn't stop it");
     assert!(items.iter().any(|i| matches!(i.target, Target::ClaudeCheck)));
     // Typed, a word picks what has it, not what has its letters in order ("Edit Claude's notes").
@@ -2443,7 +2447,7 @@ fn claude_proposes_a_description() {
     assert!(app.rows[head..].iter().take_while(|r| r.main.is_some()).any(|r| r.line.kind == Kind::Ctx && r.line.text.starts_with("Fixes **the thing**")));
     // Space a: approve (after a confirmation), more changes, discard; a on it asks for more.
     app.claude_menu();
-    let items = app.picker.take().unwrap().items;
+    let items: Vec<Item> = app.picker.take().unwrap().items.into_iter().filter(|i| i.section == "Description").collect();
     assert!(matches!(items[0].target, Target::DescApprove(false)) && matches!(items[2].target, Target::DescDiscard));
     app.approve_description(false);
     assert!(app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::DescApprove(true))));
@@ -2509,7 +2513,7 @@ fn claude_drafts_a_closing_comment() {
     let head = app.rows.iter().position(|r| r.main == Some(CLOSING_PR)).expect("its section");
     assert!(app.rows[head].line.text.starts_with("closing comment · Claude's draft") && app.rows[head + 1].line.text == "Thanks! Superseded by #9.");
     app.claude_menu();
-    let items = app.picker.take().unwrap().items;
+    let items: Vec<Item> = app.picker.take().unwrap().items.into_iter().filter(|i| i.section == "Closing").collect();
     assert!(matches!(items[0].target, Target::Do(Action::ClosePr)) && matches!(items[1].target, Target::Claude(agent::Ask::Close)) && matches!(items[2].target, Target::CloseDiscard));
     app.goto(head + 1, 0);
     app.start_ask_claude();
@@ -2527,7 +2531,7 @@ fn claude_drafts_a_closing_comment() {
     app.load_claude();
     app.claude_menu();
     let items = app.picker.take().unwrap().items;
-    assert!(matches!(items[0].target, Target::CloseDiscard) && !items.iter().any(|i| matches!(i.target, Target::Do(Action::ClosePr))));
+    assert!(items.iter().any(|i| matches!(i.target, Target::CloseDiscard)) && !items.iter().any(|i| matches!(i.target, Target::Do(Action::ClosePr))));
     _ = std::fs::remove_file(&path);
 }
 
@@ -2706,21 +2710,21 @@ fn contents_and_commits_scroll_together() {
 
 #[test]
 fn claude_makes_changes_on_their_pr() {
-    // Someone else's PR: Claude can suggest the changes, or make them here all the same (for you
-    // to push to their branch, when they let maintainers).
+    // Someone else's PR: making the changes asks how, suggested (the first) or made here all
+    // the same (for you to push to their branch, when they let maintainers).
     let mut app = fixture();
     app.claude.path = Some(std::env::temp_dir().join("dv-unused-review.json"));
     app.theirs = true;
     if let Some(p) = &mut app.pr {
         (p.cross_repo, p.maintainer_can_modify) = (true, true);
     }
-    let menu = |app: &mut App| {
-        app.claude_menu();
+    let lands = |app: &mut App| {
+        app.pick_claude(agent::Ask::Fix);
         app.picker.take().unwrap().items.into_iter().map(|i| (i.label, i.target)).collect::<Vec<_>>()
     };
-    let items = menu(&mut app);
-    assert!(items.iter().any(|(l, t)| l.starts_with("Ask Claude to suggest") && matches!(t, Target::Claude(agent::Ask::Fix))));
-    let (label, _) = items.iter().find(|(_, t)| matches!(t, Target::Claude(agent::Ask::Edit))).expect("make them");
+    let items = lands(&mut app);
+    assert!(items[0].0.starts_with("As suggestions") && matches!(items[0].1, Target::Land(agent::Ask::Fix, agent::SUGGEST)));
+    let (label, _) = items.iter().find(|(_, t)| matches!(t, Target::Land(agent::Ask::Edit, "commit"))).expect("make them");
     assert!(label.contains("Space g pushes them to their branch"), "{label}");
     // The prompt makes them (no "don't edit the code").
     let p = app.claude_prompt(agent::Ask::Edit, "rename it");
@@ -2729,10 +2733,10 @@ fn claude_makes_changes_on_their_pr() {
     if let Some(p) = &mut app.pr {
         p.maintainer_can_modify = false;
     }
-    assert!(menu(&mut app).iter().any(|(l, _)| l.contains("they don't allow maintainer edits")));
-    // Your own PR: only "make the changes", as before.
+    assert!(lands(&mut app).iter().any(|(l, _)| l.contains("they don't allow maintainer edits")));
+    // Your own PR: made here, no suggesting.
     app.theirs = false;
-    assert!(!menu(&mut app).iter().any(|(_, t)| matches!(t, Target::Claude(agent::Ask::Edit))));
+    assert!(lands(&mut app).iter().all(|(_, t)| matches!(t, Target::Land(agent::Ask::Fix, k) if *k != agent::SUGGEST)));
 }
 
 #[test]
@@ -3074,7 +3078,7 @@ fn labels_picker_comes_back_as_left() {
 #[test]
 fn picker_matches_words_not_scattered_letters() {
     let mut app = fixture();
-    let items = ["Ask Claude to draft a comment closing the PR (you edit it, then close)…", "Update Claude's review", "Check Claude's review now"];
+    let items = ["Draft a comment closing the PR… (you edit it, then close)", "Update Claude's review", "Check Claude's review now"];
     app.picker = Some(Picker::new(" claude ", items.iter().map(|l| Item::new(*l, Target::Nothing)).collect()));
     let found = |app: &mut App, q: &str| {
         app.picker.as_mut().unwrap().query = q.into();

@@ -5,6 +5,17 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+### Changed
+- Pickers and popups float in a rounded border with the title set in it, as zellij's floating
+  panes. Pickers list their items by section (the Claude menu: Review, Changes, Description,
+  Closing, Claude, Replacement; git: Working tree, Branch, CI, Pull request; reviewers, labels,
+  assignees), each with a Nerd Font icon colored by what it does (`git config dv.icons false`
+  turns them off), the aside in its last parentheses dimmed. Rows that only say what's so (the
+  amend plan, "can't push", what's still open before you submit) aren't drawn as choices.
+- The Claude menu's labels drop "Ask Claude to"; on someone else's PR there's one "Make the
+  changes…", whose first choice of how they land is as suggestions to post (or made here, as
+  before).
+
 ## [0.74.6] - 2026-10-20
 
 ### Fixed
