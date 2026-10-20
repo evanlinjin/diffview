@@ -123,7 +123,7 @@ pub fn list_extra() -> Result<(String, std::collections::HashMap<u64, Extra>)> {
             "query($owner: String!, $name: String!) {{ viewer {{ login }} repository(owner: $owner, name: $name) {{
                pullRequests(states: OPEN, first: 100{from}, orderBy: {{ field: UPDATED_AT, direction: DESC }}) {{ {PAGE} nodes {{
                  number headRefOid mergeable baseRefName author {{ login }} {SIGNATURE_RULES}
-                 commits(last: 100) {{ nodes {{ commit {{ committedDate committer {{ user {{ login }} }} authors(first: 5) {{ nodes {{ user {{ login }} }} }} signature {{ isValid }} }} }} }}
+                 commits(last: 100) {{ nodes {{ commit {{ committedDate authoredDate committer {{ user {{ login }} }} authors(first: 5) {{ nodes {{ user {{ login }} }} }} signature {{ isValid }} }} }} }}
                  reviewRequests(first: 30) {{ nodes {{ requestedReviewer {{ ... on User {{ login }} }} }} }}
                  latestReviews(first: 50) {{ nodes {{ author {{ login }} state commit {{ oid }} }} }}
                  reviews(last: 50) {{ nodes {{ author {{ login }} authorAssociation state submittedAt }} }}
@@ -159,15 +159,19 @@ pub(super) fn extra(p: &Value, me: &str) -> Extra {
     // The author's last word (their push: not a maintainer's "Update branch"; a comment; a
     // review: a reply on a thread is one), and what maintainers said since, waiting on them
     // (bots' and drive-bys' aren't); an approval since: the ball's with the maintainers.
-    // (Theirs, or no one's linked to it: a commit from an email not on their account. Not one
-    // someone else committed: a maintainer's rebase; GitHub's web edits are web-flow's.)
+    // (Theirs, or no one's linked to it: a commit from an email not on their account. One
+    // someone else committed, a maintainer's rebase: when they wrote it, not when it was
+    // rebased. GitHub's web edits are web-flow's.)
     let theirs = |c: &Value| {
         let a = c["commit"]["authors"]["nodes"].as_array().map_or(&[][..], Vec::as_slice);
+        a.iter().any(|u| u["user"]["login"] == author.as_str()) || !a.is_empty() && a.iter().all(|u| u["user"].is_null())
+    };
+    let when = |c: &Value| {
         let by = &c["commit"]["committer"]["user"]["login"];
         let other = by.as_str().is_some_and(|by| by != author && by != "web-flow");
-        !other && (a.iter().any(|u| u["user"]["login"] == author.as_str()) || !a.is_empty() && a.iter().all(|u| u["user"].is_null()))
+        at(&c["commit"][if other { "authoredDate" } else { "committedDate" }])
     };
-    let pushed = nodes("commits").iter().filter(|c| theirs(c)).map(|c| at(&c["commit"]["committedDate"])).max().unwrap_or(0);
+    let pushed = nodes("commits").iter().filter(|c| theirs(c)).map(when).max().unwrap_or(0);
     let by_author = |k: &str, t: &str| nodes(k).into_iter().filter(|c| c["author"]["login"] == author.as_str()).map(|c| at(&c[t])).max().unwrap_or(0);
     let last_word = pushed.max(by_author("comments", "createdAt")).max(by_author("reviews", "submittedAt"));
     let others = |c: &Value| c["author"]["login"] != author.as_str() && trusted(c);
