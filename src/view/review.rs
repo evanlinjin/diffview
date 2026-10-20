@@ -352,11 +352,6 @@ impl App {
             }
             // Claude's comment is what's kept (and posted): Space r resolves the talk under it,
             // not it (Space d deletes it). One Claude marked done (its change made): reopened.
-            // (Resolved: folded again, even if Tab had it shown.)
-            if let Some(id) = self.root_id(t) {
-                self.talk_shown.remove(&id);
-            }
-            let th = &self.threads[t];
             return match (th.resolved, th.talk_resolved, th.comments.len() > 1) {
                 (true, ..) => self.edit_claude(&k, |p, k| crate::claude::set_resolved(p, k, false), "reopened (Claude's comment)"),
                 (_, true, _) => self.edit_claude(&k, |p, k| crate::claude::set_talk_resolved(p, k, false), "the conversation under Claude's comment reopened"),
@@ -418,6 +413,10 @@ impl App {
             }
             (self.claude.summary, self.claude.head, self.claude.description, self.claude.closing) = (r.summary, r.head, r.description, r.closing);
             self.threads.extend(r.threads);
+            // (Tab's shown talks: while resolved only, so one resolved again, by you or Claude,
+            // folds.)
+            let resolved: HashSet<u64> = (0..self.threads.len()).filter(|&t| self.threads[t].talk_resolved).filter_map(|t| self.root_id(t)).collect();
+            self.talk_shown.retain(|id| resolved.contains(id));
             self.unfold_new(&had_new);
         }
     }
