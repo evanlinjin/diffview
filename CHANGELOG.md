@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.66.1] - 2026-10-20
+
+### Fixed
+- In an issue, switching sides with a selection drops it instead of breaking `y`, and the
+  cursor stays where it can be after a resize.
+
 ## [0.66.0] - 2026-10-20
 
 ### Added
