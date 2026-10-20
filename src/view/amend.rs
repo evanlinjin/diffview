@@ -149,23 +149,21 @@ fn dropped_file(dir: &Path) -> Option<std::path::PathBuf> {
     git_in(dir, &["rev-parse", "--path-format=absolute", "--git-common-dir"]).ok().map(|d| std::path::PathBuf::from(d.trim()).join("dv-dropped"))
 }
 
-/// The commits amends here dropped (their changes undone: gone, not rewritten).
+/// The commits amends here dropped (their changes undone: gone, not rewritten), once each.
 pub(super) fn dropped_in(dir: &Path) -> Vec<String> {
-    dropped_file(dir).and_then(|f| std::fs::read_to_string(f).ok()).unwrap_or_default().lines().map(str::to_owned).collect()
-}
-
-/// Record `dropped` with the commits dropped before (once each). Written whole and renamed into
-/// place: another dv reading it meanwhile sees the old list or the new, never half.
-fn record_dropped(dir: &Path, dropped: &[String]) {
-    let Some(f) = dropped_file(dir) else { return };
-    let mut all: Vec<String> = std::fs::read_to_string(&f).unwrap_or_default().lines().map(str::to_owned).collect();
-    all.extend(dropped.iter().cloned());
+    let mut all: Vec<String> = dropped_file(dir).and_then(|f| std::fs::read_to_string(f).ok()).unwrap_or_default().lines().filter(|l| !l.is_empty()).map(str::to_owned).collect();
     all.sort();
     all.dedup();
-    let tmp = f.with_extension(format!("{}", std::process::id()));
-    if std::fs::write(&tmp, all.join("\n")).and_then(|()| std::fs::rename(&tmp, &f)).is_err() {
-        _ = std::fs::remove_file(&tmp); // (not left behind in .git)
-    }
+    all
+}
+
+/// Record `dropped` after the commits dropped before. Appended, a line each in one write:
+/// amends in two dvs at once both kept.
+fn record_dropped(dir: &Path, dropped: &[String]) {
+    use std::io::Write;
+    let Some(f) = dropped_file(dir) else { return };
+    let lines: String = dropped.iter().map(|d| format!("\n{d}\n")).collect();
+    _ = std::fs::OpenOptions::new().create(true).append(true).open(f).and_then(|mut f| f.write_all(lines.as_bytes()));
 }
 
 /// What an amend dropped, said: ", dropped a commit (its changes all undone): "first"".
