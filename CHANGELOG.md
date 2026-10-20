@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.74.6] - 2026-10-20
+
+### Fixed
+- Scrolled sideways, every line moves by the same columns: tab-indented and space-indented
+  lines stay aligned.
+- No panic drawing a line that starts with a tab or a wide character in a very narrow box.
+- Stalled tab: after a maintainer rebases the author's commits, they count from when the
+  author wrote them (a rebase no longer hides the author's answer).
+- A dropped commit half written to its record by another dv isn't misread.
+
 ## [0.74.5] - 2026-10-20
 
 ### Fixed
