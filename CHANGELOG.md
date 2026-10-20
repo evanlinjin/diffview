@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.54.2] - 2026-10-20
+
+### Fixed
+- A PR comment saying "Waiting for reviews" waits for someone else's review again. The newest
+  "waiting on" line decides, even when dv can't read it; it no longer falls back to an older one.
+
 ## [0.54.1] - 2026-10-20
 
 ### Fixed
