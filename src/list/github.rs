@@ -123,7 +123,7 @@ pub fn list_extra() -> Result<(String, std::collections::HashMap<u64, Extra>)> {
             "query($owner: String!, $name: String!) {{ viewer {{ login }} repository(owner: $owner, name: $name) {{
                pullRequests(states: OPEN, first: 100{from}, orderBy: {{ field: UPDATED_AT, direction: DESC }}) {{ {PAGE} nodes {{
                  number headRefOid mergeable baseRefName author {{ login }} {SIGNATURE_RULES}
-                 commits(last: 100) {{ nodes {{ commit {{ committedDate authoredDate committer {{ user {{ login }} }} authors(first: 5) {{ nodes {{ user {{ login }} }} }} signature {{ isValid }} }} }} }}
+                 commits(last: 100) {{ nodes {{ commit {{ committedDate authoredDate committer {{ user {{ login }} }} author {{ user {{ login }} }} signature {{ isValid }} }} }} }}
                  reviewRequests(first: 30) {{ nodes {{ requestedReviewer {{ ... on User {{ login }} }} }} }}
                  latestReviews(first: 50) {{ nodes {{ author {{ login }} state commit {{ oid }} }} }}
                  reviews(last: 50) {{ nodes {{ author {{ login }} authorAssociation state submittedAt }} }}
@@ -162,9 +162,11 @@ pub(super) fn extra(p: &Value, me: &str) -> Extra {
     // (Theirs, or no one's linked to it: a commit from an email not on their account. One
     // someone else committed, a maintainer's rebase: when they wrote it, not when it was
     // rebased. GitHub's web edits are web-flow's.)
+    // (Its author, not `authors`, co-authors too: a connection per commit, of 100 commits of
+    // 100 PRs, cost the query 100 of GitHub's points a page, not 6.)
     let theirs = |c: &Value| {
-        let a = c["commit"]["authors"]["nodes"].as_array().map_or(&[][..], Vec::as_slice);
-        a.iter().any(|u| u["user"]["login"] == author.as_str()) || !a.is_empty() && a.iter().all(|u| u["user"].is_null())
+        let by = &c["commit"]["author"];
+        by.is_object() && (by["user"]["login"] == author.as_str() || by["user"].is_null())
     };
     let when = |c: &Value| {
         let by = &c["commit"]["committer"]["user"]["login"];
