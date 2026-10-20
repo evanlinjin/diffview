@@ -5,6 +5,19 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.57.0] - 2026-10-20
+
+### Added
+- An issue in dv has a cursor, as in Helix:
+  - `h j k l`, `w b e`, `gh gl`, `gg ge`, and `Tab` to the other side;
+  - `v` and `x` select, `y` copies;
+  - Enter opens the link under it.
+
+### Fixed
+- A deferral until another PR gets a push also ends when that PR is merged or closed.
+- An issue can only wait on its own fix PRs.
+- "…, or 2 weeks" can't crash on non-ASCII text.
+
 ## [0.56.0] - 2026-10-20
 
 ### Added
