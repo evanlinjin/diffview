@@ -87,7 +87,7 @@ impl App {
             items.push(Item::new(format!("Commit everything that isn't ({changed} file(s))…"), Target::Do(Action::Commit)));
             items.extend(self.amend_items());
             // (This file's, when it has some: `git status` names it from the repo's root.)
-            let path = self.file_path().map(str::to_owned).filter(|p| diff::git(&["status", "--porcelain", "--", p]).is_ok_and(|s| !s.trim().is_empty()));
+            let path = self.file_path().map(str::to_owned).filter(|p| diff::git(&["status", "--porcelain", "--", &format!(":(literal){p}")]).is_ok_and(|s| !s.trim().is_empty()));
             if let Some(p) = path.filter(|_| changed > 1) {
                 items.push(Item::new(format!("Drop what isn't committed in {p}… (stashed)"), Target::GitDrop(Some(p), false)));
             }
@@ -231,7 +231,9 @@ impl App {
             return Ok(String::new());
         }
         let mut args = vec!["stash", "push", "--include-untracked", "-q", "-m", "dv: dropped"];
-        if let Some(p) = &path {
+        // (The path as it is: not a pattern, `f*` isn't `fx` too.)
+        let literal = path.as_ref().map(|p| format!(":(literal){p}"));
+        if let Some(p) = &literal {
             args.extend(["--", p.as_str()]);
         }
         diff::git(&args)?;
