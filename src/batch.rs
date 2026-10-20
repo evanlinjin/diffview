@@ -37,7 +37,7 @@ pub enum Task {
 }
 
 impl Task {
-    /// Which model it runs on (`dv.model.<this>`), shared with the PR view's same asks.
+    /// Its `Work` (its model: `dv.model.<key>`), as the PR view's same asks have.
     pub fn work(&self) -> crate::claude::Work {
         use crate::claude::Work;
         match self {

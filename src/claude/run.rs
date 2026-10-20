@@ -161,6 +161,10 @@ pub(crate) enum Work {
 }
 
 impl Work {
+    /// Every one (the README test's match keeps it whole).
+    #[cfg(test)]
+    const ALL: [Work; 14] = [Work::Review, Work::Answer, Work::Change, Work::Describe, Work::FixCi, Work::Close, Work::Commit, Work::Amend, Work::Rebase, Work::Replace, Work::Triage, Work::Rank, Work::Interpret, Work::Group];
+
     /// Its name in `git config dv.model.<name>` (the README lists them).
     pub(crate) fn key(self) -> &'static str {
         match self {
@@ -197,10 +201,13 @@ fn a_model_per_task() {
     set("dv.model.rank", "haiku");
     assert_eq!((model_args(Some(Work::Rank), &dir), model_args(Some(Work::Review), &dir)), (vec!["--model".to_owned(), "haiku".into()], vec!["--model".to_owned(), "opus".into()]));
     assert_eq!(model_args(None, &dir), ["--model", "opus"]);
-    // Each named in the README, as it says.
+    // Each named in the README, as it says. (`ALL` whole: a new one fails to compile here.)
     let readme = include_str!("../../README.md");
-    use Work::*;
-    for w in [Review, Answer, Change, Describe, FixCi, Close, Commit, Amend, Rebase, Replace, Triage, Rank, Interpret, Group] {
+    for w in Work::ALL {
+        use Work::*;
+        match w {
+            Review | Answer | Change | Describe | FixCi | Close | Commit | Amend | Rebase | Replace | Triage | Rank | Interpret | Group => {}
+        }
         assert!(readme.contains(&format!("`{}`", w.key())), "{w:?}");
     }
     std::fs::remove_dir_all(dir).unwrap();

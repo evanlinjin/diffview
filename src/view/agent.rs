@@ -23,7 +23,7 @@ pub(super) enum Ask {
 }
 
 impl Ask {
-    /// Which model it runs on (`dv.model.<this>`), as dv list's same tasks (`Task::model`).
+    /// Its `Work` (its model: `dv.model.<key>`), as dv list's same tasks have (`Task::work`).
     pub(super) fn work(self) -> crate::claude::Work {
         use crate::claude::Work;
         match self {
