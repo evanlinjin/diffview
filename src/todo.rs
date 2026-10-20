@@ -543,8 +543,13 @@ impl Until {
         let t = t.trim();
         let words: Vec<&str> = t.split(|c: char| c.is_whitespace() || c == ',').filter(|w| !w.is_empty()).collect();
         let has = |w: &str| words.iter().any(|x| x.starts_with(w));
-        let num = words.iter().find_map(|w| w.trim_start_matches('#').parse::<u64>().ok().filter(|_| w.starts_with('#') || words.len() <= 4)).or(named);
-        let who = words.iter().find_map(|w| w.strip_prefix('@')).map(|w| w.trim_end_matches(|c: char| !c.is_alphanumeric() && c != '-').to_owned());
+        // A PR it names (`said`: here; `named`: before "until", what waits, for merged/closed).
+        let said = words.iter().find_map(|w| w.trim_start_matches('#').parse::<u64>().ok().filter(|_| w.starts_with('#') || words.len() <= 4));
+        let num = said.or(named);
+        let another = said.is_some() || words.iter().any(|w| w.contains('#'));
+        // (A login ends at what can't be in one: "@bo's" is bo.)
+        let who = words.iter().find_map(|w| w.strip_prefix('@')).and_then(|w| w.split(|c: char| !c.is_alphanumeric() && c != '-').next()).filter(|w| !w.is_empty()).map(str::to_owned);
+        let word = |set: &[&str]| words.iter().any(|w| set.contains(&w.trim_matches(|c: char| !c.is_alphanumeric() && c != '\'')));
         // A duration: "3h", "3 hours", "2d", "a week".
         let unit = |w: &str| match w.trim_end_matches('s') {
             "h" | "hr" | "hour" => Some(3600),
@@ -576,7 +581,7 @@ impl Until {
             }
             // Someone's review, or someone else's said so ("someone else reviews it"); not a time,
             // another PR's, or the author's fixing what reviews said: for Claude to read.
-            _ if has("review") && dur.is_none() && (who.is_some() && !words.iter().any(|w| w.starts_with('#')) || num.is_none() && words.iter().any(|w| ["someone", "someone's", "anyone", "anyone's", "else", "else's"].contains(w))) => Until::Reviewed(who),
+            _ if has("review") && dur.is_none() && !another && (who.is_some() || word(&["someone", "someone's", "somebody", "anyone", "anyone's", "anybody", "else", "else's"])) => Until::Reviewed(who),
             _ => Until::Time(now + dur?),
         })
     }
@@ -594,14 +599,20 @@ pub fn waiting_on(said: &[(String, String, i64)], now: i64) -> Option<(Until, St
             if l.starts_with("unblocked") || l.starts_with("no longer waiting") {
                 return None;
             }
-            let Some(rest) = LEADS.iter().find_map(|p| l.strip_prefix(p)) else { continue };
+            // (A lead as a word: "waiting only …" isn't "waiting on".)
+            let Some((lead, rest)) = LEADS.iter().find_map(|p| Some((*p, l.strip_prefix(p).filter(|r| r.is_empty() || r.starts_with([':', ' ']))?))) else { continue };
             let rest = rest.trim_start_matches([':', ' ']);
             let bare = rest.trim_end_matches(['.', ' ', ')']).trim_start_matches('#').parse::<u64>().ok();
-            // (A push from no known head: nothing to tell it by.) "Waiting for reviews": in a
-            // comment, someone else's. The newest such line says it, read or not: not an older one.
-            let review = || rest.split_whitespace().any(|w| w.starts_with("review")) && !rest.contains(['#', '@']);
-            let c = bare.map(Until::Merged).or_else(|| Until::parse(rest, now)).or_else(|| review().then_some(Until::Reviewed(None)));
-            return c.filter(|c| *c != Until::Pushed(String::new())).map(|c| (c, who.clone(), *at));
+            // (A push from no known head: nothing to tell it by.) "Waiting for (a) review(s)": in
+            // a comment, someone else's; not "the review comments …" (the author's to fix).
+            let review = rest.split_whitespace().find(|w| !["a", "more", "another"].contains(w)).is_some_and(|w| w.starts_with("review")) && !rest.contains(['#', '@']);
+            let c = bare.map(Until::Merged).or_else(|| Until::parse(rest, now)).or_else(|| review.then_some(Until::Reviewed(None)));
+            // The newest marker says it, read or not (not an older one); a bare "until" is often
+            // just prose ("Until then, LGTM"): only if it reads.
+            match c {
+                None if lead == "until" => continue,
+                c => return c.filter(|c| *c != Until::Pushed(String::new())).map(|c| (c, who.clone(), *at)),
+            }
         }
     }
     None
@@ -1063,6 +1074,11 @@ mod tests {
         // "Waiting for reviews": someone else's; and it's the newest that says, read or not.
         assert_eq!(waiting_on(&[c("me", "Waiting on @amy approves it"), c("me", "Waiting for reviews")], now).map(|w| w.0), Some(Until::Reviewed(None)));
         assert_eq!(waiting_on(&[c("me", "Blocked on #1"), c("me", "Blocked on the design call")], now), None);
+        // Prose isn't a marker; the author's fixing isn't someone's review.
+        assert_eq!(waiting_on(&[c("me", "Blocked on #1"), c("bo", "Until then, LGTM")], now).map(|w| w.0), Some(Until::Merged(1)));
+        assert_eq!(waiting_on(&[c("me", "Blocked on #1"), c("bo", "Waiting only for CI")], now).map(|w| w.0), Some(Until::Merged(1)));
+        assert_eq!(waiting_on(&[c("me", "Waiting for the review comments to be fixed")], now), None);
+        assert_eq!(waiting_on(&[c("me", "Waiting on @bo's review")], now).map(|w| w.0), Some(Until::Reviewed(Some("bo".into()))));
         assert_eq!(waiting_on(&[c("me", "I'm waiting to see what amy thinks")], now), None);
         // What `p` posts reads back as itself.
         for u in [Until::Merged(2380), Until::Green, Until::Approved(Some("amy".into())), Until::Reviewed(Some("bo".into())), Until::Reviewed(None), Until::Closed(7), Until::Pushed("abc1234".into())] {
@@ -1083,6 +1099,8 @@ mod tests {
         assert_eq!(p("@bo reviews it"), Some(Until::Reviewed(Some("bo".into()))));
         assert_eq!(p("someone else reviews it"), Some(Until::Reviewed(None)));
         assert_eq!(p("anyone reviews it"), Some(Until::Reviewed(None)));
+        assert_eq!(p("it's reviewed by someone."), Some(Until::Reviewed(None)));
+        assert_eq!(p("@bo reviews it (#12)"), None); // another PR's: Claude's to read
         assert_eq!(p("review it in 2 days"), Some(Until::Time(now + 2 * 86400)));
         assert_eq!(p("@bo reviews in 2 days"), Some(Until::Time(now + 2 * 86400))); // (as a time, too)
         for t in ["the review comments are fixed", "#12 is reviewed", "review again next week", "@bo reviews #12", "it's reviewed elsewhere"] {
