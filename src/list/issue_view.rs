@@ -599,7 +599,8 @@ impl IssueView {
                 if let Some((_, b)) = &mut self.sel {
                     *b = at;
                 }
-                self.cur = self.clamp(at.0, at.1, self.side_of(at.1));
+                // (On the side the drag began on, as what it selects is.)
+                self.cur = self.clamp(at.0, at.1, self.sel.map_or(self.side_of(at.1), |(a, _)| self.side_of(a.1)));
                 if kind == MouseEventKind::Drag(MouseButton::Left) {
                     return None;
                 }
