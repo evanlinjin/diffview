@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.63.0] - 2026-10-20
+
+### Changed
+- dv list: a reviewed PR's card says how many of Claude's comments are left to address
+  ("claude: 3 to address", "claude: all addressed"), not "claude ✓", which read as approval.
+
 ## [0.62.0] - 2026-10-20
 
 ### Added
