@@ -238,12 +238,16 @@ impl App {
         Ok(self.and_reload(format!("dropped {what} (git stash pop brings it back)")))
     }
 
-    /// Between the whole diff and only what isn't committed.
-    pub(super) fn toggle_uncommitted(&mut self) {
-        let to = if self.uncommitted() { self.full_base.clone() } else { "HEAD".into() };
-        self.base = to;
+    /// The diff against `base` from now on (the whole diff's, or `HEAD`'s: what isn't committed).
+    fn diff_against(&mut self, base: String) {
+        self.base = base;
         (self.to, self.commit_shown, self.commit_anchor) = (None, None, None);
         self.extra.clear(); // per-hunk context: the hunks are different ones now
+    }
+
+    /// Between the whole diff and only what isn't committed.
+    pub(super) fn toggle_uncommitted(&mut self) {
+        self.diff_against(if self.uncommitted() { self.full_base.clone() } else { "HEAD".into() });
         self.msg = match (self.reload(false), self.uncommitted()) {
             (Err(e), _) => format!("{e:#}"),
             (Ok(()), true) if self.files.is_empty() => "nothing that isn't committed (Space g shows the whole diff)".into(),
@@ -536,7 +540,13 @@ impl App {
     /// followed, a retarget that waited on a rebase, the tree as seen now.
     pub(super) fn reload_all(&mut self, threads: bool) -> Result<()> {
         self.forget_tree_colors();
-        let res = self.reload(threads);
+        let mut res = self.reload(threads);
+        // Showing only what isn't committed, and it's all committed now (an amend, a commit,
+        // a drop): the whole diff again, not an empty view.
+        if res.is_ok() && self.uncommitted() && self.files.is_empty() {
+            self.diff_against(self.full_base.clone());
+            res = self.reload(false);
+        }
         self.rekey_commits(); // (commits rewritten here or elsewhere)
         self.follow_github_base(false); // (a retarget that waited on a rebase now through)
         self.tree_seen = Some(self.tree_stamp());
