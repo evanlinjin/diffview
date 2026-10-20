@@ -595,12 +595,12 @@ impl IssueView {
                 self.code_left[side] = (self.code_left[side] as isize + by).clamp(0, self.code_over[side] as isize) as usize;
                 self.redraw();
             }
-            MouseEventKind::Drag(MouseButton::Left) | MouseEventKind::Up(MouseButton::Left) if self.sel.is_some() => {
+            MouseEventKind::Drag(MouseButton::Left) | MouseEventKind::Up(MouseButton::Left) if let Some(((_, ax), _)) = self.sel => {
                 if let Some((_, b)) = &mut self.sel {
                     *b = at;
                 }
                 // (On the side the drag began on, as what it selects is.)
-                self.cur = self.clamp(at.0, at.1, self.sel.map_or(self.side_of(at.1), |(a, _)| self.side_of(a.1)));
+                self.cur = self.clamp(at.0, at.1, self.side_of(ax));
                 if kind == MouseEventKind::Drag(MouseButton::Left) {
                     return None;
                 }
