@@ -143,11 +143,22 @@ pub(super) fn plan(dir: &Path, base: &str, blame: bool) -> Result<Plan> {
     Ok((hunks, commits))
 }
 
-/// The commits amends here dropped (their changes undone: gone, not rewritten), as recorded in
-/// the repo's git dir.
+/// Where amends record the commits they dropped: the repo's common git dir (every worktree's,
+/// as the review files are every checkout's).
+fn dropped_file(dir: &Path) -> Option<std::path::PathBuf> {
+    git_in(dir, &["rev-parse", "--path-format=absolute", "--git-common-dir"]).ok().map(|d| std::path::PathBuf::from(d.trim()).join("dv-dropped"))
+}
+
+/// The commits amends here dropped (their changes undone: gone, not rewritten).
 pub(super) fn dropped_in(dir: &Path) -> Vec<String> {
-    let gitdir = git_in(dir, &["rev-parse", "--absolute-git-dir"]).map(|d| std::path::PathBuf::from(d.trim())).unwrap_or_default();
-    std::fs::read_to_string(gitdir.join("dv-dropped")).unwrap_or_default().lines().map(str::to_owned).collect()
+    dropped_file(dir).and_then(|f| std::fs::read_to_string(f).ok()).unwrap_or_default().lines().map(str::to_owned).collect()
+}
+
+/// Record the dropped commits as `all` (none: the file goes).
+fn record_dropped(dir: &Path, all: &[String]) {
+    if let Some(f) = dropped_file(dir) {
+        _ = if all.is_empty() { std::fs::remove_file(f) } else { std::fs::write(f, all.join("\n")) };
+    }
 }
 
 /// What an amend dropped, said: ", dropped a commit (its changes all undone): "first"".
@@ -279,7 +290,7 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], rewords: &[(&str, &s
     if !dropped.is_empty() {
         let mut all = dropped_in(dir);
         all.extend(dropped.iter().cloned());
-        _ = std::fs::write(gitdir.join("dv-dropped"), all.join("\n"));
+        record_dropped(dir, &all);
     }
     if skipped.len() == targets.len() {
         _ = git_in(dir, &["reset", "-q", &orig]);
@@ -413,8 +424,14 @@ impl App {
             .filter_map(|t| Some((t.conversation.clone(), super::commit_of(&t.conversation)?.to_owned())))
             .filter(|(_, sha)| !self.commits.iter().any(|c| &c.sha == sha))
             .collect();
-        // (One an amend dropped is gone, its questions with it: not moved onto another.)
-        let dropped = dropped_in(&self.root);
+        // (One an amend dropped is gone, its questions with it: not moved onto another. One
+        // back here (a reset to the backup), or that git no longer has, is forgotten.)
+        let mut dropped = dropped_in(&self.root);
+        let had = dropped.len();
+        dropped.retain(|d| !self.commits.iter().any(|c| &c.sha == d) && git_in(&self.root, &["cat-file", "-e", &format!("{d}^{{commit}}")]).is_ok());
+        if dropped.len() != had {
+            record_dropped(&self.root, &dropped);
+        }
         lost.retain(|(_, sha)| !dropped.contains(sha));
         lost.sort();
         lost.dedup();
