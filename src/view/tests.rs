@@ -3198,3 +3198,30 @@ fn the_cursor_not_under_a_floating_comment() {
     _ = screen(110, 20, |f| app.draw(f));
     assert!(app.margin_float && app.head.col - app.left < app.geom.ctw, "{} {} {}", app.left, app.head.col, app.geom.ctw);
 }
+
+#[test]
+fn the_pinned_title_doesnt_scroll_the_diff() {
+    let mut app = fixture();
+    app.left = 4;
+    _ = screen(40, 20, |f| app.draw(f));
+    app.goto(0, 30); // along the title, past the window
+    _ = screen(40, 20, |f| app.draw(f));
+    assert!(app.pin);
+    assert_eq!(app.left, 4);
+}
+
+#[test]
+fn a_comment_atop_the_second_file_keyed_by_its_own() {
+    // An outdated comment of a.rs (no line to sit under: under its header), keyed by a.rs's
+    // header, not the line of src/big.rs before it.
+    let mut app = fixture();
+    (app.threads[2].outdated, app.threads[2].line, app.threads[2].original_line, app.threads[2].hunk) = (true, None, None, vec![]);
+    app.build();
+    let r = app.rows.iter().position(|r| r.thread == Some(2)).unwrap();
+    app.goto(r, 0);
+    let keep = app.cursor_key();
+    app.threads.remove(2);
+    app.rebuild(keep);
+    let row = &app.rows[app.head.row];
+    assert_eq!((app.files[row.file].path.as_str(), row.line.kind), ("src/a.rs", Kind::File));
+}
