@@ -5,6 +5,17 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.59.0] - 2026-10-20
+
+### Added
+- In a PR, the state chip says when it conflicts with its base: " OPEN · conflicts " in red.
+
+### Fixed
+- In an issue, a click in the margin doesn't copy a character, and a click near the edge
+  doesn't scroll.
+- Back to the whole diff once nothing's uncommitted: the cursor keeps its place, and Space g
+  says so rather than flipping back a second later.
+
 ## [0.58.2] - 2026-10-20
 
 ### Fixed
