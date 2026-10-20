@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.59.1] - 2026-10-20
+
+### Fixed
+- Whether anything is uncommitted is judged by the diff dv shows, not `git status`, so a
+  submodule's changes or a staged-then-undone change can't leave an empty view.
+- In an issue, a drag into the other side keeps the cursor on the side it selects.
+
 ## [0.59.0] - 2026-10-20
 
 ### Added
