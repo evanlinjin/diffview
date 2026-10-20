@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.65.0] - 2026-10-20
+
+### Added
+- In an issue's view:
+  - `Ctrl-h` / `Ctrl-l` move the cursor to the description / the pane;
+  - Enter on a `#N` link opens that PR's review (back to the issues after) or that issue in dv.
+
 ## [0.64.3] - 2026-10-20
 
 ### Fixed
