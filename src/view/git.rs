@@ -249,12 +249,13 @@ impl App {
 
     /// Between the whole diff and only what isn't committed.
     pub(super) fn toggle_uncommitted(&mut self) {
-        self.diff_against(if self.uncommitted() { self.full_base.clone() } else { "HEAD".into() });
-        self.msg = match (self.reload(false), self.uncommitted()) {
-            (Err(e), _) => format!("{e:#}"),
-            (Ok(()), true) if self.files.is_empty() => "nothing that isn't committed (Space g shows the whole diff)".into(),
-            (Ok(()), true) => "only what isn't committed (Space g shows the whole diff)".into(),
-            (Ok(()), false) => "the whole diff".into(),
+        let want = !self.uncommitted();
+        self.diff_against(if want { "HEAD".into() } else { self.full_base.clone() });
+        self.msg = match (self.reload_all(false), want, self.uncommitted()) {
+            (Err(e), ..) => format!("{e:#}"),
+            (Ok(()), true, false) => "nothing that isn't committed: still the whole diff".into(),
+            (Ok(()), _, true) => "only what isn't committed (Space g shows the whole diff)".into(),
+            (Ok(()), _, false) => "the whole diff".into(),
         };
     }
 
@@ -542,13 +543,12 @@ impl App {
     /// followed, a retarget that waited on a rebase, the tree as seen now.
     pub(super) fn reload_all(&mut self, threads: bool) -> Result<()> {
         self.forget_tree_colors();
-        let mut res = self.reload(threads);
-        // Showing only what isn't committed, and it's all committed now (an amend, a commit,
-        // a drop): the whole diff again, not an empty view.
-        if res.is_ok() && self.uncommitted() && self.files.is_empty() {
+        // Showing only what isn't committed, and it's all committed (an amend, a commit, a
+        // drop): the whole diff, not an empty view (switched first: the cursor stays put).
+        if self.uncommitted() && diff::git(&["status", "--porcelain"]).is_ok_and(|s| s.trim().is_empty()) {
             self.diff_against(self.full_base.clone());
-            res = self.reload(false);
         }
+        let res = self.reload(threads);
         self.rekey_commits(); // (commits rewritten here or elsewhere)
         self.follow_github_base(false); // (a retarget that waited on a rebase now through)
         self.tree_seen = Some(self.tree_stamp());
