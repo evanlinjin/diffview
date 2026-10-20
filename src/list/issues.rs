@@ -381,11 +381,7 @@ impl Issues {
             })
             .collect();
         // (A draft fixing it, unpublished: its record's task starts "Fix #N", as `N N` has it.)
-        self.draft_fix = records()
-            .into_iter()
-            .filter(|r| r.published.is_none() && (r.drafting_now() || !r.title.is_empty()))
-            .filter_map(|r| Some((fixes(&r.task)?, (crate::replace::label(r.id), r.drafting_now()))))
-            .collect();
+        self.draft_fix = draft_fix(&records(), &self.drafting);
         let items: Vec<Item> = items.into_iter().filter(|it| !self.draft_fix.contains_key(&it.number)).collect();
         let (items, _) = crate::todo::order(items, self.ranked.as_ref());
         // What deferrals waited for that has happened: they're over (said so, once).
@@ -592,6 +588,9 @@ impl Issues {
             for (id, st) in self.drafts.iter().flat_map(|rx| rx.try_iter()).collect::<Vec<_>>() {
                 if !st.running() {
                     self.drafting.remove(&id);
+                }
+                // (Under way, or done: its record says so now.)
+                if !matches!(st, batch::Status::Queued | batch::Status::Preparing) {
                     self.drafts_changed();
                 }
                 match st {
@@ -648,7 +647,7 @@ impl Issues {
                 // card, twice opens it (as dv list's).
                 // In an issue, a drag copies what it's over, and sideways (Shift and the wheel too)
                 // scrolls its code blocks.
-                Event::Mouse(m) if self.view.is_some() && !self.help && {
+                Event::Mouse(m) if self.view.is_some() && !self.help && self.meta.is_none() && {
                     use event::MouseEventKind::*;
                     matches!(m.kind, Down(_) | Drag(_) | Up(_) | ScrollLeft | ScrollRight) || matches!(m.kind, ScrollDown | ScrollUp) && m.modifiers.contains(KeyModifiers::SHIFT)
                 } =>
@@ -995,6 +994,7 @@ impl Issues {
                 self.open_meta(n);
             }
             (_, KeyCode::Char(' ')) => (self.pending, self.msg) = (Some(' '), "Space: l labels, assignees".into()),
+            (Some(' '), _) => self.msg.clear(), // (Space, then not l: called off)
             (_, KeyCode::Char(c @ ('g' | 'L' | 'T' | 'X' | 'N' | 'a'))) => {
                 self.pending = Some(c);
                 self.msg = match c {
@@ -1121,8 +1121,10 @@ impl Issues {
     /// A draft started or finished: the todo, and the open issue's list of them, again.
     fn drafts_changed(&mut self) {
         self.find_todo();
-        if let Some(v) = self.view.as_mut() {
-            v.drafts = drafts_for(v.number);
+        let drafting = self.drafting.clone();
+        // (Drawn again only if they changed: a redraw drops a selection being made.)
+        if let Some(v) = self.view.as_mut().filter(|v| v.drafts != drafts_for(v.number, &drafting)) {
+            v.drafts = drafts_for(v.number, &drafting);
             v.redraw();
         }
     }
@@ -1130,7 +1132,7 @@ impl Issues {
     /// Issue `n`'s view, from GitHub, with the drafts of Claude's that fix it.
     fn load_issue(&self, n: u64) -> Result<super::issue_view::IssueView> {
         let mut v = super::issue_view::IssueView::load(n, self.reviews_dir.as_deref(), self.can_triage)?;
-        v.drafts = drafts_for(n);
+        v.drafts = drafts_for(n, &self.drafting);
         Ok(v)
     }
 
@@ -1419,14 +1421,30 @@ fn records() -> Vec<crate::replace::Record> {
     if cfg!(test) { vec![] } else { crate::replace::all() }
 }
 
-/// The drafts of Claude's that fix issue `n`, and how each stands.
-fn drafts_for(n: u64) -> Vec<String> {
+/// Unpublished drafts fixing an issue: the issue → the draft's label, whether Claude's at it
+/// (its record says so, or this dv just started it: its record may not say yet). One whose
+/// run failed or stopped before drafting doesn't count: nothing to wait on.
+fn draft_fix(records: &[crate::replace::Record], here: &HashSet<u64>) -> HashMap<u64, (String, bool)> {
+    records
+        .iter()
+        .filter(|r| r.published.is_none())
+        .filter_map(|r| {
+            let n = fixes(&r.task)?;
+            let at_it = here.contains(&r.id) || r.drafting_now();
+            (at_it || !r.title.is_empty()).then(|| (n, (crate::replace::label(r.id), at_it)))
+        })
+        .collect()
+}
+
+/// The drafts of Claude's that fix issue `n`, and how each stands (`here`: those this dv
+/// started, under way).
+fn drafts_for(n: u64, here: &HashSet<u64>) -> Vec<String> {
     records()
         .into_iter()
         .filter(|r| fixes(&r.task) == Some(n))
         .map(|r| {
             let label = crate::replace::label(r.id);
-            match (r.published, r.drafting_now()) {
+            match (r.published, here.contains(&r.id) || r.drafting_now()) {
                 (Some(p), _) => format!("{label}: published, #{p}"),
                 (None, true) => format!("{label}: Claude is drafting it"),
                 // (Its run failed, or stopped, before a draft: nothing to publish.)
@@ -1599,4 +1617,16 @@ fn a_drafts_task_names_the_issue_it_fixes() {
     assert_eq!(fixes("fix #12"), Some(12));
     assert_eq!(fixes("Refactor the index (see #12)"), None);
     assert_eq!(fixes(""), None);
+}
+
+#[test]
+fn a_draft_holds_its_issue_while_it_can_come() {
+    use crate::replace::Record;
+    let rec = |id: u64, task: &str, title: &str| Record { id, task: task.into(), title: title.into(), ..Default::default() };
+    let records = [rec(1, "Fix #7: it panics", "Fix the panic"), rec(2, "Fix #8: slow", ""), rec(3, "Fix #9: odd", ""), rec(4, "Refactor", "x")];
+    // #7 drafted; #8 started here (its record doesn't say yet); #9's run failed before drafting.
+    let fix = draft_fix(&records, &HashSet::from([2]));
+    assert_eq!(fix.get(&7).map(|f| f.1), Some(false));
+    assert_eq!(fix.get(&8).map(|f| f.1), Some(true));
+    assert!(!fix.contains_key(&9) && fix.len() == 2);
 }
