@@ -205,8 +205,8 @@ pub fn rerun_failed(head: &str) -> Result<String> {
     let mut errors = vec![];
     for batch in ids.chunks(4) {
         std::thread::scope(|s| {
-            let runs: Vec<_> = batch.iter().map(|id| s.spawn(move || gh(&["run", "rerun", id, "--failed"]).err().map(|e| format!("run {id}: {e:#}")))).collect();
-            errors.extend(runs.into_iter().filter_map(|r| r.join().unwrap_or_else(|p| Some(crate::batch::panicked(&p)))));
+            let runs: Vec<_> = batch.iter().map(|id| (id, s.spawn(move || gh(&["run", "rerun", id, "--failed"]).err().map(|e| format!("run {id}: {e:#}"))))).collect();
+            errors.extend(runs.into_iter().filter_map(|(id, r)| r.join().unwrap_or_else(|p| Some(format!("run {id}: {}", crate::batch::panicked(&p))))));
         });
     }
     rerun_says(ids.len(), &errors)

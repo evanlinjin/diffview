@@ -28,7 +28,8 @@ pub fn init_terminal() -> DefaultTerminal {
         _ => {
             use std::io::Write;
             let log = std::fs::OpenOptions::new().create(true).append(true).open(std::env::temp_dir().join("dv-panic.log"));
-            _ = log.map(|mut f| writeln!(f, "dv {}: {info}", std::process::id()));
+            // (One write: two panics at once don't mix their lines.)
+            _ = log.map(|mut f| f.write_all(format!("dv {}: {info}\n", std::process::id()).as_bytes()));
         }
     }));
     if MOUSE.load(std::sync::atomic::Ordering::Relaxed) {
