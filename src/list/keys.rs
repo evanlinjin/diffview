@@ -98,6 +98,8 @@ impl List {
             }
             KeyCode::Esc if !self.query.is_empty() => (self.query.clear(), self.sel = 0).1,
             // Reviews running: they'd stop with dv (the ones started finish; queued ones don't start).
+            // Esc only says so: it asks nothing (a second Esc calls things off, not quits).
+            KeyCode::Esc if self.batch.values().any(batch::Status::running) => self.msg = "Claude is still reviewing: q, then q again, quits".into(),
             KeyCode::Char('q') | KeyCode::Esc => {
                 let running = self.batch.values().any(batch::Status::running);
                 if !running || self.again(armed, ('q', 0), "Claude is still reviewing: q again quits (reviews under way finish; queued ones don't start)") {
