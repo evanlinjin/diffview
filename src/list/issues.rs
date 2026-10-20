@@ -264,6 +264,8 @@ pub enum IssuesDo {
     Quit,
     /// Back to the PRs (`I I`).
     Prs,
+    /// Review PR N (Enter on a link to it), then back here.
+    Pr(u64),
 }
 
 #[derive(Default)]
@@ -846,7 +848,20 @@ impl Issues {
                     self.msg = format!("copied {} line{}", t.lines().count(), if t.lines().count() == 1 { "" } else { "s" });
                     return None;
                 }
-                super::issue_view::Did::Open(u) => return (self.msg = crate::view::open_url(&u), None).1,
+                super::issue_view::Did::Open(u) => {
+                    // This repo's #N: a PR's view, an issue's, in dv; anything else, the browser.
+                    let here = v.url().rsplit_once("/issues/").map(|(r, _)| r.to_owned());
+                    let n = here.as_deref().and_then(|r| u.strip_prefix(r)).and_then(|t| t.strip_prefix("/issues/").or_else(|| t.strip_prefix("/pull/"))).and_then(|t| t.split(['#', '/', '?']).next()?.parse::<u64>().ok());
+                    let Some(n) = n else { return (self.msg = crate::view::open_url(&u), None).1 };
+                    if crate::gh::gh(&["pr", "view", &n.to_string(), "--json", "number"]).is_ok() {
+                        return Some(IssuesDo::Pr(n));
+                    }
+                    match super::issue_view::IssueView::load(n, self.reviews_dir.as_deref(), self.can_triage) {
+                        Ok(v) => self.view = Some(v),
+                        Err(e) => self.msg = format!("#{n}: {e:#}"),
+                    }
+                    return None;
+                }
             }
         }
         match (pending, k.code) {

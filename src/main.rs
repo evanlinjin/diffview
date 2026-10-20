@@ -275,6 +275,17 @@ fn pick_and_review(o: &Opts, root: &Path) -> anyhow::Result<()> {
                 }
                 list::issues::IssuesDo::Quit => return Ok(()),
                 list::issues::IssuesDo::Prs => on_issues = false,
+                // A PR from an issue (Enter on its link): reviewed, then back to the issues.
+                list::issues::IssuesDo::Pr(n) => {
+                    let res = review(o, Some(n), None).and_then(|(_, res)| res);
+                    progress(None);
+                    std::env::set_current_dir(root)?;
+                    match res {
+                        Err(e) => issues.msg = format!("PR #{n}: {e:#}"),
+                        Ok(true) => issues.msg = merge::merge(n, view::in_zellij()).unwrap_or_else(|e| format!("not merged: {e:#}")),
+                        Ok(false) => {}
+                    }
+                }
             }
             continue;
         }
