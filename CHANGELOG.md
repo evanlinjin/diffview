@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.69.1] - 2026-10-20
+
+### Fixed
+- An issue's timeline is read whole, not just its last 100 entries. Other repos' issues and
+  PRs are named owner/repo#N, bots show when assigned, and deleted accounts read @ghost.
+- A draft fix just started holds its issue off the todo right away.
+- With the `Space l` picker open, the mouse doesn't reach the issue behind it.
+- The cursor stays out of the blank lines at an issue's end.
+
 ## [0.69.0] - 2026-10-20
 
 ### Added
