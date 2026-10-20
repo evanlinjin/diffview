@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.69.10] - 2026-10-20
+
+### Fixed
+- Two panics at once don't mix their lines in the panic log.
+- A CI rerun that hits a bug says which run, and that it was dv's bug.
+
 ## [0.69.9] - 2026-10-20
 
 ### Fixed
