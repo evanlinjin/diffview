@@ -118,7 +118,9 @@ pub fn pool<T: Numbered + Send + 'static>(items: Vec<T>, work: impl Fn(&T, &Send
         let (queue, tx, work) = (queue.clone(), tx.clone(), work.clone());
         std::thread::spawn(move || {
             while let Some(item) = queue.lock().ok().and_then(|mut q| q.pop_front()) {
-                _ = tx.send(work(&item, &tx));
+                // (A panic in one: it failed, and the worker goes on to the next.)
+                let st = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&item, &tx)));
+                _ = tx.send(st.unwrap_or_else(|p| (item.number(), Status::Failed(panicked(&p)))));
             }
         });
     }
@@ -170,7 +172,13 @@ fn run(n: u64, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sender<
 /// `f`'s result, or a failure if it panics: a background run always says how it ended (its
 /// view counts it as under way till then: dv would ask before quitting forever).
 pub fn guarded<T>(f: impl FnOnce() -> anyhow::Result<T>) -> anyhow::Result<T> {
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or_else(|_| Err(anyhow::anyhow!("its run stopped (dv hit a bug)")))
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or_else(|p| Err(anyhow::anyhow!(panicked(&p))))
+}
+
+/// What a panic said, as a failure's word.
+fn panicked(p: &Box<dyn std::any::Any + Send>) -> String {
+    let said = p.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| p.downcast_ref::<String>().cloned()).unwrap_or_default();
+    format!("its run stopped (dv hit a bug: {said})")
 }
 
 /// Claude drafts one replacement for `prs` (see `replace.rs`) in the background: its news
@@ -181,7 +189,7 @@ pub fn replace(prs: Vec<u64>, root: PathBuf, extra: String) -> Receiver<(u64, St
     _ = tx.send((id, Status::Preparing));
     std::thread::spawn(move || {
         let ready = tx.clone();
-        let st = guarded(|| crate::replace::draft(&prs, &root, &extra, move || _ = ready.send((id, Status::Reviewing))));
+        let st = crate::replace::draft(&prs, &root, &extra, move || _ = ready.send((id, Status::Reviewing)));
         _ = tx.send((id, st.map_or_else(|e| Status::Failed(format!("{e:#}")), Status::Done)));
     });
     rx
@@ -195,7 +203,7 @@ pub type Groups = Vec<(Vec<u64>, String)>;
 /// reads them.
 pub fn group(prs: Vec<(u64, String, String, String)>, root: PathBuf) -> Receiver<anyhow::Result<Groups>> {
     let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || _ = tx.send(suggest_groups(&prs, &root)));
+    std::thread::spawn(move || _ = tx.send(guarded(|| suggest_groups(&prs, &root))));
     rx
 }
 
@@ -271,5 +279,10 @@ pub fn reviewed_in(dir: &std::path::Path) -> std::collections::HashSet<u64> {
 fn a_run_that_panics_says_so() {
     assert_eq!(guarded(|| Ok(1)).unwrap(), 1);
     let e = guarded::<()>(|| panic!("boom")).unwrap_err();
-    assert!(format!("{e}").contains("its run stopped"));
+    assert!(format!("{e}").contains("its run stopped (dv hit a bug: boom)"));
+    // A worker's panic: that one failed, the next still runs.
+    let rx = pool(vec![1u64, 2], |&n, _| if n == 1 { panic!("one") } else { (n, Status::Done("ok".into())) });
+    let ends: Vec<(u64, Status)> = rx.iter().filter(|(_, s)| !matches!(s, Status::Queued)).collect();
+    assert!(ends.iter().any(|(n, s)| *n == 1 && matches!(s, Status::Failed(e) if e.contains("one"))));
+    assert!(ends.iter().any(|(n, s)| *n == 2 && matches!(s, Status::Done(_))));
 }

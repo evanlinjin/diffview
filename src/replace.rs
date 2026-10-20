@@ -459,7 +459,8 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
     let mut set_up = false;
     // What it was given of what you asked (by text and draft: Claude may reorder the record).
     let mut given: Vec<(String, String)> = vec![];
-    let res = (|| {
+    // (A panic in it: a failure, the record's mark off all the same, not "drafting" for good.)
+    let res = crate::batch::guarded(|| {
         let dir = match prs {
             [id] if is_new(*id) => prepare_new(*id, root)?,
             _ => prepare(prs, root)?,
@@ -472,7 +473,7 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
         })?;
         given = r.asks.iter().filter(|a| !a.done()).map(|a| (a.text.clone(), a.on.clone())).collect();
         run_claude(&r, &dir, first, if first { extra } else { "" }, prepared)
-    })();
+    });
     // Claude has written to the record meanwhile (its answers): the mark comes off; a change
     // it was given and made (it finished) without saying so is done all the same, not asked
     // again and again.

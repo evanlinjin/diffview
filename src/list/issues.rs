@@ -228,7 +228,7 @@ fn triage_all(ns: Vec<(u64, String)>, root: PathBuf, extra: String) -> Receiver<
 fn draft_closing(n: u64, root: PathBuf) -> Receiver<Result<()>> {
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
-        let res = (|| -> Result<()> {
+        let res = crate::batch::guarded(|| -> Result<()> {
             let file = crate::claude::dv_dir()?.join("reviews").join(format!("issue-{n}.json"));
             let prompt = format!(
                 "{}The maintainer is closing issue #{n}. Read it (`gh issue view {n} --comments`, its triage in {} if \
@@ -253,7 +253,7 @@ fn draft_closing(n: u64, root: PathBuf) -> Receiver<Result<()>> {
             }
             std::fs::create_dir_all(file.parent().context("no dir")?)?;
             crate::claude::write(&file, &t)
-        })();
+        });
         _ = tx.send(res);
     });
     rx

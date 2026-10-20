@@ -772,7 +772,7 @@ pub fn interpret(text: String, about: String, root: std::path::PathBuf) -> Recei
              none of these, {{\"none\": \"why, in a few words\"}}. No other text.",
             crate::claude::now()
         );
-        let res = (|| {
+        let res = crate::batch::guarded(|| {
             let out = crate::claude::claude_reader(&prompt, &root, &[]).stdin(std::process::Stdio::null()).output()?;
             let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
             anyhow::ensure!(v["is_error"] == false, "Claude couldn't read it ({})", out.status);
@@ -782,7 +782,7 @@ pub fn interpret(text: String, about: String, root: std::path::PathBuf) -> Recei
                 anyhow::bail!("not something dv can watch for: {why}");
             }
             Until::from_json(&w).context("not something dv can watch for")
-        })();
+        });
         _ = tx.send(res);
     });
     rx

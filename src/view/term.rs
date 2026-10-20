@@ -15,6 +15,14 @@ pub static MOUSE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool:
 /// Take over the terminal (ratatui), with mouse capture unless `--no-mouse`.
 pub fn init_terminal() -> DefaultTerminal {
     let term = ratatui::init();
+    // A panic off the main thread (a background run's: it's caught there, a failure) leaves
+    // the terminal to dv: ratatui's hook, which gives it back, runs for the main thread only.
+    // Theirs goes to a log, not over the screen.
+    let hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| match std::thread::current().name() {
+        Some("main") => hook(info),
+        _ => _ = std::fs::write(std::env::temp_dir().join("dv-panic.log"), info.to_string()),
+    }));
     if MOUSE.load(std::sync::atomic::Ordering::Relaxed) {
         _ = ratatui::crossterm::execute!(std::io::stdout(), ratatui::crossterm::event::EnableMouseCapture);
     }
