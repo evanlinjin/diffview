@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.73.0] - 2026-10-20
+
+### Added
+- A model per Claude task: `git config dv.model.<task>` (`review`, `answer`, `change`, `rank`,
+  `triage`, …; see the README), else `dv.model`, else Claude Code's default. Claude's pane
+  (`Space a` → open) keeps Claude Code's own.
+
 ## [0.72.5] - 2026-10-20
 
 ### Fixed
