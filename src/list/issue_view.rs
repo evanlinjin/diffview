@@ -408,7 +408,27 @@ impl IssueView {
     /// The cursor to (`row`, `col`), kept in that line's text on its side (or the side's
     /// start, a line with none there), in view; `v` on: the selection follows it.
     fn go(&mut self, row: usize, col: usize) {
-        let side = self.side_of(self.cur.1);
+        self.cur = self.clamp(row, col, self.side_of(self.cur.1));
+        self.lines_sel = false;
+        match (self.select, &mut self.sel) {
+            (true, Some((_, b))) => *b = self.cur,
+            (true, None) => self.sel = Some((self.cur, self.cur)),
+            (false, _) => self.sel = None,
+        }
+        // (In view, three lines from its edges where there are.)
+        let row = self.cur.0;
+        let h = self.shown.max(1);
+        let off = 3.min(h / 2);
+        if row < self.scroll + off {
+            self.scroll = row.saturating_sub(off);
+        } else if row + off >= self.scroll + h {
+            self.scroll = (row + off + 1).saturating_sub(h).min(self.lines.len().saturating_sub(h));
+        }
+    }
+
+    /// (`row`, `col`) as a cursor can be there: in that line's text on `side`, or that side's
+    /// columns on a line with none there.
+    fn clamp(&self, row: usize, col: usize, side: usize) -> (usize, usize) {
         let row = row.min(self.lines.len().saturating_sub(1));
         let t = self.text_at.get(row).map_or(0..0, |t| t[side].clone());
         // (The side's own columns, text there or not: not past it, nor into the other.)
@@ -418,21 +438,7 @@ impl IssueView {
             _ => 0..self.width.max(1),
         };
         let col = if t.is_empty() { col.clamp(cols.start, cols.end - 1) } else { col.clamp(t.start, t.end - 1) };
-        self.cur = (row, col);
-        self.lines_sel = false;
-        match (self.select, &mut self.sel) {
-            (true, Some((_, b))) => *b = self.cur,
-            (true, None) => self.sel = Some((self.cur, self.cur)),
-            (false, _) => self.sel = None,
-        }
-        // (In view, three lines from its edges where there are.)
-        let h = self.shown.max(1);
-        let off = 3.min(h / 2);
-        if row < self.scroll + off {
-            self.scroll = row.saturating_sub(off);
-        } else if row + off >= self.scroll + h {
-            self.scroll = (row + off + 1).saturating_sub(h).min(self.lines.len().saturating_sub(h));
-        }
+        (row, col)
     }
 
     /// The next (`fwd`) or previous word's start (`end`: its end) from the cursor, as Helix's
@@ -574,10 +580,10 @@ impl IssueView {
         let at = (self.scroll + y.min(self.shown.saturating_sub(1)), x);
         match kind {
             MouseEventKind::Down(MouseButton::Left) => {
-                // (The cursor there, kept on that side's columns.)
-                (self.select, self.cur.1) = (false, at.1);
-                self.go(at.0, at.1);
-                self.sel = Some((self.cur, self.cur));
+                // The cursor there, kept on that side's columns (the view where it is: a drag
+                // goes on from the row under the mouse); the drag from the very point.
+                self.cur = self.clamp(at.0, at.1, self.side_of(at.1));
+                (self.select, self.lines_sel, self.sel) = (false, false, Some((at, at)));
             }
             // Sideways: the code blocks and tables of the side it's over.
             MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight => {
@@ -593,7 +599,7 @@ impl IssueView {
                 if let Some((_, b)) = &mut self.sel {
                     *b = at;
                 }
-                self.cur = at;
+                self.cur = self.clamp(at.0, at.1, self.side_of(at.1));
                 if kind == MouseEventKind::Drag(MouseButton::Left) {
                     return None;
                 }
@@ -753,6 +759,12 @@ fn an_issue_and_its_triage() {
     v.mouse(MouseEventKind::ScrollLeft, 2, 0);
     v.mouse(MouseEventKind::ScrollLeft, 2, 0);
     assert_eq!(v.code_left, [0, 0]);
+    // A click in the margin: the cursor on the text beside it, nothing copied, the view still.
+    (v.scroll, v.shown) = (0, 20);
+    v.mouse(MouseEventKind::Down(MouseButton::Left), 0, 0); // (the issue's link line, "  https://…")
+    assert_eq!((v.mouse(MouseEventKind::Up(MouseButton::Left), 0, 0), v.cur, v.scroll), (None, (0, 2), 0));
+    v.mouse(MouseEventKind::Down(MouseButton::Left), 2, 19); // (near the bottom: no scroll)
+    assert_eq!(v.scroll, 0);
     // A click: nothing, and nothing left selected.
     v.mouse(MouseEventKind::Down(MouseButton::Left), 2, 0);
     assert_eq!(v.mouse(MouseEventKind::Up(MouseButton::Left), 2, 0), None);
