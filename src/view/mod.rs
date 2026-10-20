@@ -251,6 +251,8 @@ enum Target {
     ClaudeCheck,
     ClaudeStop,
     GitView,
+    /// Show those commits (first, last; `None`: all of them).
+    Commits(Option<(usize, usize)>),
     /// The amend picker / amend what isn't committed into the PR's commits / ask Claude where
     /// what blame couldn't place goes.
     AmendMenu,

@@ -18,6 +18,7 @@ MOVE
 DIFF
   ]g [g                next / prev hunk (change)
   ]f [f, Space f       next / prev file, file picker
+  Space C              commit picker: one commit's diff, or all of them
   ]c [c                next / prev comment thread
   ]u [u                next / prev unresolved one (wraps around)
   ]a [a                next / prev Claude comment (wraps around)
@@ -316,6 +317,7 @@ impl App {
         Some(match p {
             ' ' => ("space", &[
                 ("f", "file picker"),
+                ("C", "commit picker (one commit, or all)"),
                 ("t", "review threads (Tab: unresolved, pending, …)"),
                 ("p", "… your pending comments"),
                 ("A", "… Claude's comments"),
@@ -483,6 +485,7 @@ impl App {
                     .collect();
                 self.picker = Some(Picker::new(" files ", items));
             }
+            (' ', 'C') => self.commit_picker(),
             (' ', 'y') => self.yank(false),
             (' ', 'c') => self.copy_ref(),
             (' ', 'r') => self.toggle_resolved(),
@@ -599,6 +602,7 @@ impl App {
                         Target::AmendAsk => self.amend_ask(false),
                         Target::AmendAll => self.amend_ask(true),
                         Target::GitView => self.toggle_uncommitted(),
+                        Target::Commits(sel) => self.show_commits(sel),
                         Target::GitMerge => (self.merge, self.quit) = (true, true),
                         Target::GitTakeTheirs(sure) => self.take_theirs(sure),
                         Target::GitDrop(path, sure) => self.msg = self.drop_uncommitted(path, sure).unwrap_or_else(|e| format!("not dropped: {e:#}")),

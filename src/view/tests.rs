@@ -2439,6 +2439,22 @@ fn claude_tab_says_the_rankings_next_step() {
 }
 
 #[test]
+fn commit_picker_lists_the_commits() {
+    let mut app = fixture();
+    app.commits.clear();
+    app.commit_picker();
+    assert_eq!(app.msg, "no commits here to pick from");
+    let c = |sha: &str, subject: &str| super::files::Commit { sha: sha.into(), short: sha.into(), subject: subject.into(), at: String::new(), signed: true };
+    app.commits = vec![c("aaa", "first"), c("bbb", "second")];
+    app.commit_picker();
+    let p = app.picker.as_ref().unwrap();
+    assert!(p.items[0].label.contains("all commits") && p.items[0].label.starts_with('●'));
+    assert_eq!(p.items.len(), app.commits.len() + 1);
+    assert!(p.items[1].label.contains("bbb second")); // newest first
+    assert!(matches!(p.items[1].target, Target::Commits(Some((1, 1)))));
+}
+
+#[test]
 fn conflicts_on_the_state_chip() {
     let mut app = fixture();
     app.pr_state = Some(("OPEN", "238636"));
