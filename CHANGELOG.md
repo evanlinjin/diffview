@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.58.0] - 2026-10-20
+
+### Added
+- `Space g` → drop what isn't committed, all of it or the cursor's file. It's stashed first,
+  so `git stash pop` brings it back.
+- `‹` and `›` mark a line cut short with more to scroll to: diff lines in a PR, code blocks
+  and tables in an issue.
+
 ## [0.57.0] - 2026-10-20
 
 ### Added
