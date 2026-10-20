@@ -159,14 +159,18 @@ pub(super) fn extra(p: &Value, me: &str) -> Extra {
     // The author's last word (their push: not a maintainer's "Update branch"; a comment; a
     // review: a reply on a thread is one), and what maintainers said since, waiting on them
     // (bots' and drive-bys' aren't); an approval since: the ball's with the maintainers.
-    let theirs = |c: &Value| c["commit"]["authors"]["nodes"].as_array().is_some_and(|a| a.iter().any(|u| u["user"]["login"] == author.as_str()));
+    // (Theirs, or no one's linked to it: a commit from an email not on their account.)
+    let theirs = |c: &Value| {
+        let a = c["commit"]["authors"]["nodes"].as_array().cloned().unwrap_or_default();
+        a.iter().any(|u| u["user"]["login"] == author.as_str()) || a.iter().all(|u| u["user"].is_null())
+    };
     let pushed = nodes("commits").iter().filter(|c| theirs(c)).map(|c| at(&c["commit"]["committedDate"])).max().unwrap_or(0);
     let by_author = |k: &str, t: &str| nodes(k).into_iter().filter(|c| c["author"]["login"] == author.as_str()).map(|c| at(&c[t])).max().unwrap_or(0);
     let last_word = pushed.max(by_author("comments", "createdAt")).max(by_author("reviews", "submittedAt"));
     let others = |c: &Value| c["author"]["login"] != author.as_str() && trusted(c);
-    let reviews = nodes("reviews").into_iter().filter(|r| others(r) && matches!(r["state"].as_str(), Some("CHANGES_REQUESTED" | "COMMENTED" | "APPROVED")));
+    let reviews = nodes("reviews").into_iter().filter(|r| others(r) && matches!(r["state"].as_str(), Some("CHANGES_REQUESTED" | "COMMENTED")));
     let said = reviews
-        .map(|r| (at(&r["submittedAt"]), s(&r["author"]["login"]), r["state"] != "APPROVED"))
+        .map(|r| (at(&r["submittedAt"]), s(&r["author"]["login"]), true))
         .chain(nodes("comments").into_iter().filter(others).map(|c| (at(&c["createdAt"]), s(&c["author"]["login"]), false)))
         .filter(|(t, ..)| *t > last_word)
         .max_by_key(|(t, ..)| *t);

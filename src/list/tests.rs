@@ -644,6 +644,10 @@ fn stalled_when_the_author_leaves_feedback_unanswered() {
     // asks nothing of her).
     let e = super::github::extra(&pr(serde_json::json!([]), vec![review("copilot", "COMMENTED", "05", "NONE")]), "me");
     assert_eq!(e.unanswered, Some((crate::gh::epoch_secs(&t("02")).unwrap(), "bo".to_owned(), true)));
+    // amy's push from an email not on her account (no user linked): hers, an answer.
+    let mut j = pr(serde_json::json!([]), vec![]);
+    j["commits"]["nodes"].as_array_mut().unwrap().push(serde_json::json!({ "commit": { "committedDate": t("03"), "authors": { "nodes": [{ "user": null }] } } }));
+    assert_eq!(super::github::extra(&j, "me").unanswered, None);
     // A maintainer's approval since: the ball's with the maintainers.
     let e = super::github::extra(&pr(serde_json::json!([]), vec![review("cy", "APPROVED", "05", "MEMBER")]), "me");
     assert_eq!(e.unanswered, None);
