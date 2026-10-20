@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.69.2] - 2026-10-20
+
+### Fixed
+- In an issue, `x` again on the last line keeps the whole line selected.
+- `Space` then `Esc` calls Space off rather than leaving the issue.
+
 ## [0.69.1] - 2026-10-20
 
 ### Fixed
