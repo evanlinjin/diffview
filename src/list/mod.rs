@@ -694,11 +694,12 @@ impl List {
     /// `stalled_days` or more (nothing of theirs since: no push, no comment, no reply): how
     /// long, and whose. Not yours (you'd know), nor one waiting on reviews (they had the last
     /// word).
-    /// (A draft's author may be slow on purpose; a bot's (`app/…`) isn't one to ask.)
+    /// (A draft's author may be slow on purpose; a bot's (`app/…`) isn't one to ask, nor a
+    /// deleted account, ghost.)
     pub(super) fn stalled(&self, p: &Listed) -> Option<(i64, String, bool)> {
         let (at, who, review) = self.extra.get(&p.number)?.unanswered.clone()?;
         let days = (crate::claude::now_secs() - at) / 86400;
-        (p.author != self.me && !p.draft && !p.author.starts_with("app/") && days >= self.stalled_days).then_some((days, who, review))
+        (p.author != self.me && !p.draft && !p.author.starts_with("app/") && p.author != "ghost" && days >= self.stalled_days).then_some((days, who, review))
     }
 
     /// `H` on a stalled PR: your editor on a note asking its author whether they need help,
