@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.77.1] - 2026-10-20
+
+### Fixed
+- A PR linked as fixing an issue, merged, doesn't make the issue closable by itself (it may fix
+  only part of it, or have merged to another branch): the close tab keeps to what Claude says
+  to close, as before 0.77.0. Claude's triage is told which PRs are linked as fixes and checks
+  the base branch before saying to close; one that merges after it triaged has the issue
+  triaged again (auto runs it), and till then the todo tab says to check it's fixed.
+
 ## [0.77.0] - 2026-10-20
 
 ### Changed
