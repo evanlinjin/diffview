@@ -33,7 +33,7 @@ pub fn rollups(ns: &[u64]) -> Result<std::collections::HashMap<u64, Rollup>> {
     for group in chunks.chunks(4) {
         let got: Vec<Result<Vec<(u64, Rollup)>>> = std::thread::scope(|s| {
             let handles: Vec<_> = group.iter().map(|c| s.spawn(move || rollup_chunk(c))).collect();
-            handles.into_iter().map(|h| h.join().unwrap_or_else(|_| Err(anyhow::anyhow!("panicked")))).collect()
+            handles.into_iter().map(|h| h.join().unwrap_or_else(|p| Err(anyhow::anyhow!(crate::batch::panicked(&p))))).collect()
         });
         // (A batch GitHub failed on leaves the others': only all failing is a failure.)
         for r in got {
@@ -206,7 +206,7 @@ pub fn rerun_failed(head: &str) -> Result<String> {
     for batch in ids.chunks(4) {
         std::thread::scope(|s| {
             let runs: Vec<_> = batch.iter().map(|id| s.spawn(move || gh(&["run", "rerun", id, "--failed"]).err().map(|e| format!("run {id}: {e:#}")))).collect();
-            errors.extend(runs.into_iter().filter_map(|r| r.join().unwrap_or_else(|_| Some("a rerun went wrong".into()))));
+            errors.extend(runs.into_iter().filter_map(|r| r.join().unwrap_or_else(|p| Some(crate::batch::panicked(&p)))));
         });
     }
     rerun_says(ids.len(), &errors)

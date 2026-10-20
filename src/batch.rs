@@ -176,7 +176,7 @@ pub fn guarded<T>(f: impl FnOnce() -> anyhow::Result<T>) -> anyhow::Result<T> {
 }
 
 /// What a panic said, as a failure's word.
-fn panicked(p: &Box<dyn std::any::Any + Send>) -> String {
+pub(crate) fn panicked(p: &Box<dyn std::any::Any + Send>) -> String {
     let said = p.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| p.downcast_ref::<String>().cloned()).unwrap_or_default();
     format!("its run stopped (dv hit a bug: {said})")
 }
@@ -189,7 +189,8 @@ pub fn replace(prs: Vec<u64>, root: PathBuf, extra: String) -> Receiver<(u64, St
     _ = tx.send((id, Status::Preparing));
     std::thread::spawn(move || {
         let ready = tx.clone();
-        let st = crate::replace::draft(&prs, &root, &extra, move || _ = ready.send((id, Status::Reviewing)));
+        // (Its run guarded inside, the record's mark coming off; and all of it, here.)
+        let st = guarded(|| crate::replace::draft(&prs, &root, &extra, move || _ = ready.send((id, Status::Reviewing))));
         _ = tx.send((id, st.map_or_else(|e| Status::Failed(format!("{e:#}")), Status::Done)));
     });
     rx

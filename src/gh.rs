@@ -917,7 +917,7 @@ pub fn info_json(n: u64) -> Result<Value> {
     let (activity, signatures) = std::thread::scope(|sc| {
         let activity = sc.spawn(|| activity(&id));
         let signatures = pr_query(n).and_then(|p| signatures_of(&p)).map_err(|e| format!("{e:#}"));
-        (activity.join().unwrap_or_else(|_| Err(anyhow::anyhow!("panicked"))), signatures.map_err(|w| first_line(&w)))
+        (activity.join().unwrap_or_else(|p| Err(anyhow::anyhow!(crate::batch::panicked(&p)))), signatures.map_err(|w| first_line(&w)))
     });
     v["dvActivity"] = activity.unwrap_or_else(|e| json!({ "error": first_line(&format!("{e:#}")) }));
     match signatures {

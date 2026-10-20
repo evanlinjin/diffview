@@ -15,7 +15,7 @@ pub(super) type Fetched = (Result<gh::Review>, Result<Info>);
 pub(super) fn fetch_github(n: u64, cache: Option<&Path>) -> Fetched {
     let (threads, mut info) = std::thread::scope(|s| {
         let info = s.spawn(|| gh::info_json(n));
-        (gh::threads_json(n), info.join().unwrap_or_else(|_| Err(anyhow!("panicked"))))
+        (gh::threads_json(n), info.join().unwrap_or_else(|p| Err(anyhow!(crate::batch::panicked(&p)))))
     });
     // What GitHub couldn't give this time: the last it gave, kept.
     if let (Some(p), Ok(i)) = (cache, &mut info)

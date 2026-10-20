@@ -19,9 +19,17 @@ pub fn init_terminal() -> DefaultTerminal {
     // the terminal to dv: ratatui's hook, which gives it back, runs for the main thread only.
     // Theirs goes to a log, not over the screen.
     let hook = std::panic::take_hook();
+    // (Main's: the mouse given back too, which ratatui's leaves on.) Logged by dv's pid, kept.
     std::panic::set_hook(Box::new(move |info| match std::thread::current().name() {
-        Some("main") => hook(info),
-        _ => _ = std::fs::write(std::env::temp_dir().join("dv-panic.log"), info.to_string()),
+        Some("main") => {
+            restore_terminal();
+            hook(info)
+        }
+        _ => {
+            use std::io::Write;
+            let log = std::fs::OpenOptions::new().create(true).append(true).open(std::env::temp_dir().join("dv-panic.log"));
+            _ = log.map(|mut f| writeln!(f, "dv {}: {info}", std::process::id()));
+        }
     }));
     if MOUSE.load(std::sync::atomic::Ordering::Relaxed) {
         _ = ratatui::crossterm::execute!(std::io::stdout(), ratatui::crossterm::event::EnableMouseCapture);
