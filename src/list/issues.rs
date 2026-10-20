@@ -298,7 +298,7 @@ pub struct Issues {
     deferred_file: Option<PathBuf>,
     /// `Space l` in an issue: its labels and assignees to toggle (what, name, on it), and the
     /// one selected.
-    meta: Option<(Vec<Meta>, usize)>,
+    meta: Option<(Vec<Meta>, usize, bool)>,
     /// Issues a draft of Claude's (unpublished: `N N`'s) is to fix: its label, whether Claude's
     /// at it now. Not on the todo till it's done: nothing for you there meanwhile.
     draft_fix: HashMap<u64, (String, bool)>,
@@ -381,9 +381,9 @@ impl Issues {
             })
             .collect();
         // (A draft fixing it, unpublished: its record's task starts "Fix #N", as `N N` has it.)
-        self.draft_fix = crate::replace::all()
+        self.draft_fix = records()
             .into_iter()
-            .filter(|r| r.published.is_none())
+            .filter(|r| r.published.is_none() && (r.drafting_now() || !r.title.is_empty()))
             .filter_map(|r| Some((fixes(&r.task)?, (crate::replace::label(r.id), r.drafting_now()))))
             .collect();
         let items: Vec<Item> = items.into_iter().filter(|it| !self.draft_fix.contains_key(&it.number)).collect();
@@ -592,6 +592,7 @@ impl Issues {
             for (id, st) in self.drafts.iter().flat_map(|rx| rx.try_iter()).collect::<Vec<_>>() {
                 if !st.running() {
                     self.drafting.remove(&id);
+                    self.drafts_changed();
                 }
                 match st {
                     batch::Status::Done(took) => self.msg = format!("Claude drafted {} ({took}): dv list's drafts tab has it (I I there)", crate::replace::label(id)),
@@ -670,6 +671,12 @@ impl Issues {
                     continue;
                 }
                 // In an issue the wheel scrolls it, the cursor where it is.
+                // (The picker open: the wheel moves it.)
+                Event::Mouse(m) if self.meta.is_some() => match m.kind {
+                    event::MouseEventKind::ScrollDown => KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+                    event::MouseEventKind::ScrollUp => KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
+                    _ => continue,
+                },
                 Event::Mouse(m) if matches!(m.kind, event::MouseEventKind::ScrollDown | event::MouseEventKind::ScrollUp) && !self.help => {
                     if let Some(v) = self.view.as_mut() {
                         v.scroll(m.column as usize, if m.kind == event::MouseEventKind::ScrollDown { 3 } else { -3 });
@@ -966,6 +973,7 @@ impl Issues {
                         self.drafts.push(rx);
                         self.drafting.insert(id);
                         self.msg = format!("Claude is drafting {} (fixes #{n}): dv list's drafts tab shows it", crate::replace::label(id));
+                        self.drafts_changed();
                     }
                     Err(e) => self.msg = format!("couldn't start it: {e:#}"),
                 }
@@ -979,8 +987,14 @@ impl Issues {
                     self.msg = format!("Claude is triaging #{n}…");
                 }
             }
-            (Some(' '), KeyCode::Char('l')) => self.open_meta(n),
-            (_, KeyCode::Char(' ')) => self.pending = Some(' '),
+            (Some(' '), KeyCode::Char('l')) => {
+                // (Three asks of GitHub: said meanwhile.)
+                self.msg = format!("asking GitHub for #{n}'s labels and assignees…");
+                _ = term.draw(|f| self.draw(f));
+                self.msg.clear();
+                self.open_meta(n);
+            }
+            (_, KeyCode::Char(' ')) => (self.pending, self.msg) = (Some(' '), "Space: l labels, assignees".into()),
             (_, KeyCode::Char(c @ ('g' | 'L' | 'T' | 'X' | 'N' | 'a'))) => {
                 self.pending = Some(c);
                 self.msg = match c {
@@ -1104,21 +1118,19 @@ impl Issues {
         self.save_defer();
     }
 
+    /// A draft started or finished: the todo, and the open issue's list of them, again.
+    fn drafts_changed(&mut self) {
+        self.find_todo();
+        if let Some(v) = self.view.as_mut() {
+            v.drafts = drafts_for(v.number);
+            v.redraw();
+        }
+    }
+
     /// Issue `n`'s view, from GitHub, with the drafts of Claude's that fix it.
     fn load_issue(&self, n: u64) -> Result<super::issue_view::IssueView> {
         let mut v = super::issue_view::IssueView::load(n, self.reviews_dir.as_deref(), self.can_triage)?;
-        v.drafts = crate::replace::all()
-            .into_iter()
-            .filter(|r| fixes(&r.task) == Some(n))
-            .map(|r| {
-                let label = crate::replace::label(r.id);
-                match (r.published, r.drafting_now()) {
-                    (Some(p), _) => format!("{label}: published, #{p}"),
-                    (None, true) => format!("{label}: Claude is drafting it"),
-                    (None, false) => format!("{label}: drafted, unpublished (dv list's drafts tab: review it, S publishes it)"),
-                }
-            })
-            .collect();
+        v.drafts = drafts_for(n);
         Ok(v)
     }
 
@@ -1132,7 +1144,7 @@ impl Issues {
         self.meta = match crate::gh::issue_fields(n) {
             Ok((labels, people)) => {
                 let items = people.into_iter().map(|(p, on)| (Field::Assignee, p, on)).chain(labels.into_iter().map(|(l, on)| (Field::Label, l, on))).collect();
-                Some((items, 0))
+                Some((items, 0, false))
             }
             Err(e) => return self.msg = format!("#{n}: {e:#}"),
         };
@@ -1141,7 +1153,7 @@ impl Issues {
     /// A key in `Space l`'s picker: j / k move, Enter or Space puts it on or takes it off (on
     /// GitHub, now), q or Esc closes it (the issue read again).
     fn meta_key(&mut self, k: KeyEvent) {
-        let Some((items, sel)) = &mut self.meta else { return };
+        let Some((items, sel, changed)) = &mut self.meta else { return };
         let n = self.view.as_ref().map_or(0, |v| v.number);
         match k.code {
             KeyCode::Char('j') | KeyCode::Down => *sel = (*sel + 1).min(items.len().saturating_sub(1)),
@@ -1151,16 +1163,15 @@ impl Issues {
                 let to = !*on;
                 self.msg = match crate::gh::set_issue_field(n, *field, name, to) {
                     Ok(()) => {
-                        *on = to;
+                        (*on, *changed) = (to, true);
                         format!("#{n}: {} {name}", if to { "added" } else { "removed" })
                     }
                     Err(e) => format!("not changed: {e:#}"),
                 };
             }
-            KeyCode::Char('q') | KeyCode::Esc => {
-                self.meta = None;
-                self.reload_view(n);
-            }
+            // (Read again only if something changed.)
+            KeyCode::Char('q') | KeyCode::Esc if self.meta.take().is_some_and(|m| m.2) => self.reload_view(n),
+            KeyCode::Char('q') | KeyCode::Esc => {}
             _ => {}
         }
     }
@@ -1238,7 +1249,7 @@ impl Issues {
             status_bar(f, ui, &left, &format!("#{}", v.number), self.auto, "");
             if self.help {
                 draw_help(f, ui, super::issue_view::VIEW_HELP, "an issue's keys");
-            } else if let Some((items, sel)) = &self.meta {
+            } else if let Some((items, sel, _)) = &self.meta {
                 draw_meta(f, ui, items, *sel, v.number);
             } else {
                 // The keys most often wanted here, bottom right, as the PR view shows them.
@@ -1403,6 +1414,29 @@ fn issue_card(i: &Issue, ui: &Ui, selected: bool, marked: bool, num_w: usize, wi
     vec![zones(top, talk), zones(who, triage), zones(fix, claude)]
 }
 
+/// The drafts' records (none from tests: not the user's own).
+fn records() -> Vec<crate::replace::Record> {
+    if cfg!(test) { vec![] } else { crate::replace::all() }
+}
+
+/// The drafts of Claude's that fix issue `n`, and how each stands.
+fn drafts_for(n: u64) -> Vec<String> {
+    records()
+        .into_iter()
+        .filter(|r| fixes(&r.task) == Some(n))
+        .map(|r| {
+            let label = crate::replace::label(r.id);
+            match (r.published, r.drafting_now()) {
+                (Some(p), _) => format!("{label}: published, #{p}"),
+                (None, true) => format!("{label}: Claude is drafting it"),
+                // (Its run failed, or stopped, before a draft: nothing to publish.)
+                (None, false) if r.title.is_empty() => format!("{label}: no draft (its run failed or stopped: dv list's drafts tab)"),
+                (None, false) => format!("{label}: drafted, unpublished (dv list's drafts tab: review it, S publishes it)"),
+            }
+        })
+        .collect()
+}
+
 /// The issue a draft's task is to fix: its first line's "Fix #N" (as `N N` writes it).
 fn fixes(task: &str) -> Option<u64> {
     let first = task.lines().next()?.trim();
@@ -1425,7 +1459,7 @@ fn draw_meta(f: &mut Frame, ui: &Ui, items: &[Meta], sel: usize, n: u64) {
             Line::from(vec![Span::styled(format!(" {} ", if *on { "●" } else { "○" }), st.patch(ui.key)), Span::styled(format!("{what:<9}"), st.patch(ui.stale)), Span::styled(name.clone(), st)])
         })
         .collect();
-    let w = (lines.iter().map(Line::width).max().unwrap_or(20) as u16 + 4).clamp(30, area.width);
+    let w = (lines.iter().map(Line::width).max().unwrap_or(20) as u16 + 4).max(48).min(area.width);
     let h = (lines.len() as u16 + 2).min(area.height.saturating_sub(2));
     let r = Rect { x: (area.width - w) / 2, y: (area.height - h) / 2, width: w, height: h };
     let inner = crate::view::popup_frame(ui, f, r, &format!("#{n}: labels, assignees (Enter toggles, q done)"), "");
@@ -1517,7 +1551,7 @@ fn issues_listed_triaged_filtered() {
     l.can_triage = false;
     l.open_meta(7);
     assert!(l.msg.starts_with("labels and assignees here take triage access"), "{}", l.msg);
-    l.meta = Some((vec![(crate::gh::Field::Assignee, "amy".into(), false), (crate::gh::Field::Label, "bug".into(), true)], 0));
+    l.meta = Some((vec![(crate::gh::Field::Assignee, "amy".into(), false), (crate::gh::Field::Label, "bug".into(), true)], 0, false));
     l.meta_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
     assert_eq!(l.meta.as_ref().map(|m| m.1), Some(1));
     l.meta = None;

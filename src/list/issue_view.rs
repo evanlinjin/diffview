@@ -423,6 +423,15 @@ impl IssueView {
                 vec![one]
             }
         };
+        // (Room at the end of each side, under the keys' box: the last lines scroll clear of it.)
+        let mut sides = sides;
+        for side in &mut sides {
+            for _ in 0..10 {
+                side.lines.push(Line::default());
+                side.text.push(0..0);
+                side.links.push(vec![]);
+            }
+        }
         (self.sides, self.width, self.pane_x, self.sel) = (sides, width, two.then_some(left_w + 1), None);
         (self.select, self.lines_sel) = (false, false); // (what it was over may have moved)
         self.code_over = over.get();
