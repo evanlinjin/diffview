@@ -5,6 +5,19 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.55.0] - 2026-10-20
+
+### Added
+- In a PR's activity, a review says how many comments it left on the code, and, if it was of
+  an older commit, which one.
+
+### Fixed
+- Reading waits from comments:
+  - "Until then, LGTM" doesn't hide an older "Blocked on #1";
+  - "waiting only for CI" isn't "waiting on";
+  - "the review comments to be fixed" is the author's to do;
+  - "@bo's review" is bo's.
+
 ## [0.54.2] - 2026-10-20
 
 ### Fixed
