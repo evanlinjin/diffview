@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.70.0] - 2026-10-20
+
+### Added
+- `Space N` in a PR or an issue: Claude drafts a new PR from what's selected (or the cursor's
+  line). You say what it should do in your editor first. The draft shows in dv list's drafts
+  tab.
+
 ## [0.69.10] - 2026-10-20
 
 ### Fixed
