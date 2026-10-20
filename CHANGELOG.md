@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.69.8] - 2026-10-20
+
+### Fixed
+- A bug in a background run (a review, a triage, a draft, a ranking) no longer gives the
+  terminal back mid-session or leaves its work marked as under way. It fails, says why, and
+  the rest goes on.
+
 ## [0.69.7] - 2026-10-20
 
 ### Fixed
