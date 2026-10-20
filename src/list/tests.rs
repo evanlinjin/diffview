@@ -58,6 +58,9 @@ fn filter_and_keys() {
     k(&mut l, KeyCode::Char('?'));
     assert!(l.help);
     assert!(k(&mut l, KeyCode::Char('q')).is_none() && !l.help);
+    // Esc after a key waiting for its second calls it off, it doesn't quit.
+    k(&mut l, KeyCode::Char('g'));
+    assert!(k(&mut l, KeyCode::Esc).is_none());
     // gn: the PRs with a worktree, including one that's merged (not in the open tab).
     l.prs.push(Listed { number: 9, state: "MERGED".into(), ..pr(9, "old", "dee", "2025-01") });
     l.local.insert(9, ("/x/r-9".into(), None));

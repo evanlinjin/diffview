@@ -787,6 +787,7 @@ impl Issues {
                     false => "auto off: a a triages, r r ranks".into(),
                 };
             }
+            (Some(_), KeyCode::Esc) => {} // (a pending key called off, as Helix's)
             (_, KeyCode::Esc) => (self.query.clear(), self.sel = 0).1,
             (_, KeyCode::Char('?')) => self.help = true,
             (Some('q'), KeyCode::Char('q')) => return Some(IssuesDo::Quit),
@@ -891,8 +892,8 @@ impl Issues {
             }
         }
         match (pending, k.code) {
-            // Esc drops a selection first, as Helix's.
             (Some(_), KeyCode::Esc) => {} // (a pending key called off, as Helix's: L, g, Space…)
+            // Esc drops a selection first, as Helix's.
             (_, KeyCode::Esc) if v.selecting() => v.drop_selection(),
             (_, KeyCode::Char('q') | KeyCode::Esc) => self.view = None,
             (_, KeyCode::Char('?')) => self.help = true,

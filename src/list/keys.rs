@@ -70,6 +70,11 @@ impl List {
         }
         let half = (self.height() / 2).max(1);
         let g = std::mem::take(&mut self.pending_g);
+        // Esc after a key waiting for its second (g, M, D, s, …): called off, as Helix's, not quit.
+        if k.code == KeyCode::Esc && (g || armed.is_some() || self.deferring.is_some()) {
+            self.deferring = None;
+            return None;
+        }
         // After `s`: how long to defer it for, or until what (any other key: not).
         if let Some(key) = self.deferring.take() {
             match k.code {
