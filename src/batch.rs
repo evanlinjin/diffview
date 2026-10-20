@@ -38,7 +38,7 @@ pub enum Task {
 
 impl Task {
     /// Which model it runs on (`dv.model.<this>`), shared with the PR view's same asks.
-    pub fn model(&self) -> crate::claude::Work {
+    pub fn work(&self) -> crate::claude::Work {
         use crate::claude::Work;
         match self {
             Task::Review | Task::Update(_) => Work::Review,
@@ -176,7 +176,7 @@ fn run(n: u64, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sender<
     let prompt = crate::claude::with_instructions(&prompt, extra);
     let log = std::env::temp_dir().join(format!("dv-claude-batch-{}-{n}.log", std::process::id()));
     let more = crate::claude::tools_for(matches!(task, Task::FixChecks).then_some(n), matches!(task, Task::Answer { .. }));
-    let st = crate::claude::claude_command(task.model(), &prompt, &dir, &session, &more.iter().map(String::as_str).collect::<Vec<_>>(), None)
+    let st = crate::claude::claude_command(task.work(), &prompt, &dir, &session, &more.iter().map(String::as_str).collect::<Vec<_>>(), None)
         .stdin(std::process::Stdio::null())
         .stdout(std::fs::File::create(&log)?)
         .stderr(std::fs::File::create(log.with_extension("err"))?)

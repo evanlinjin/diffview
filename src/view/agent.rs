@@ -24,7 +24,7 @@ pub(super) enum Ask {
 
 impl Ask {
     /// Which model it runs on (`dv.model.<this>`), as dv list's same tasks (`Task::model`).
-    pub(super) fn model(self) -> crate::claude::Work {
+    pub(super) fn work(self) -> crate::claude::Work {
         use crate::claude::Work;
         match self {
             Ask::Review => Work::Review,
@@ -614,7 +614,7 @@ impl App {
             // Floating and unfocused: hidden while zellij's floating panes are (`Space a` →
             // show it, or zellij's own toggle); dv says when it's asking you something, and
             // closes it once Claude's done there (`close_if_done`).
-            true => match self.claude_pane_run(&format!("claude: {label}"), Some(&prompt), Some(ask.model()), false, false) {
+            true => match self.claude_pane_run(&format!("claude: {label}"), Some(&prompt), Some(ask.work()), false, false) {
                 Ok(()) => {
                     // For dv list: at it while its pane is open (a session: when it's done
                     // working there, only the pane knows).
@@ -625,7 +625,7 @@ impl App {
                 }
                 Err(e) => (format!("{e:#}"), false),
             },
-            false => match self.spawn_claude(&prompt, label, ask.model(), false, &more.iter().map(String::as_str).collect::<Vec<_>>()) {
+            false => match self.spawn_claude(&prompt, label, ask.work(), false, &more.iter().map(String::as_str).collect::<Vec<_>>()) {
                 Ok(job) => {
                     self.claude.job = Some(job);
                     (format!("Claude is {label} in the background…"), true)
@@ -663,7 +663,7 @@ impl App {
         let prompt = self.claude_prompt(Ask::Answer, "");
         let forked = self.claude_pane().is_some();
         let more = tools_for(None, true);
-        match self.spawn_claude(&prompt, "answering", Ask::Answer.model(), forked, &more.iter().map(String::as_str).collect::<Vec<_>>()) {
+        match self.spawn_claude(&prompt, "answering", Ask::Answer.work(), forked, &more.iter().map(String::as_str).collect::<Vec<_>>()) {
             Ok(job) => {
                 self.claude.job = Some(job);
                 "reply sent; Claude is answering…".into()
