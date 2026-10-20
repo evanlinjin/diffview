@@ -142,7 +142,7 @@ Do exactly that, whoever's PR it is, and whatever the wording suggests:
 | `want` | do | don't |
 |---|---|---|
 | `"ask"` | answer (explain, discuss, give your opinion) | edit the code; draft a suggestion |
-| `"suggest"` | propose the change as in 5 (a suggestion block they can post), reply `"Suggested: …"` | edit the code |
+| `"suggest"` | revise your comment itself as in 5 (its text, a suggestion block they can post), reply `"Suggested: …"`, set `"talk_resolved": true` on it (not `"resolved"`: the comment stays, to be posted) | edit the code |
 | `"change"` | make the change in the code here, uncommitted (commit or amend only when they say so), reply `"Changed: …"`, resolve | ask whether to; only suggest it |
 | `"amend"` | make the change, then amend it into the branch's commit it belongs in (`dv amend <sha> <files>`: the commit whose change it completes or fixes; `git blame` hints), reply `"Changed: … (amended into <short sha> \"<subject>\")"`, resolve | leave it uncommitted; make a new commit |
 | `"commit"` | make the change as a new commit (`git add <files>`, `git commit`, a message in the repo's style), reply `"Changed: … (commit <short sha>)"`, resolve | amend an existing commit |
@@ -179,11 +179,18 @@ there (revert the fix, add a repro) and run `cargo test --manifest-path <dir>/Ca
 without the fix: …") instead of asking the user or the author to check. Never change the
 user's own checkout for this.
 
-Once a thread is settled, resolve it: set `"resolved": true` on the comment after your reply.
-It's settled when you've made the change it asked for, or you and the user agree it doesn't
-apply. Don't resolve one where you've only answered a question: the user may have more to say.
-A resolved thread folds in dv, where the user can unfold it to check your change, and `Space r`
-there reopens it if they disagree.
+Your comment on the code is what's kept (and what the user may post): the replies under it are
+talk about it. So there are two ways a thread settles:
+
+- The comment's done with: set `"resolved": true` on it, after your reply. That's when you've
+  made the change it asked for, or you and the user agree it doesn't apply. It folds in dv,
+  where the user can unfold it to check your change.
+- The talk about it is settled and your comment stands, revised as the talk said (a
+  `"suggest"`, a correction): set `"talk_resolved": true` on it, not `"resolved"`. dv folds the
+  replies to a line under the comment, which stays open.
+
+Don't settle one where you've only answered a question: the user may have more to say. `Space r`
+in dv reopens the talk if they disagree.
 
 The user can reply in dv while you work, and dv writes the same file. So make small, targeted
 edits to it (your Edit tool, not rewriting the whole file from what you read earlier), and if
@@ -224,9 +231,9 @@ the user can post:
   `code`). The user copies it to GitHub with `c`;
 - on the user's own comment (`"author": "user"`): leave it as it is, and add a comment of yours
   on those lines with the block, saying which of theirs it's for;
-- reply `"Suggested: <what>"` and leave it unresolved: whether it goes to GitHub is the user's
-  call. If a change can't be a suggestion (it spans files, or isn't near the diff), describe it
-  in the reply instead.
+- reply `"Suggested: <what>"` and set `"talk_resolved": true` on the comment, not `"resolved"`:
+  the comment stays open, and whether it goes to GitHub is the user's call. If a change can't be
+  a suggestion (it spans files, or isn't near the diff), say it in the comment's text instead.
 
 Then run `dv review-check`.
 

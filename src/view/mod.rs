@@ -131,11 +131,14 @@ struct Row {
     /// A line standing for a comment shown elsewhere (Claude's activity): (thread, comment),
     /// where Enter goes.
     goes: Option<(usize, usize)>,
+    /// How many of its first chars are a guide, not its text (a reply under Claude's comment,
+    /// indented): left out of what's copied or quoted.
+    guide: usize,
 }
 
 impl Row {
     fn new(file: usize, line: DLine) -> Row {
-        Row { file, line, thread: None, syn: vec![], links: vec![], info: None, edge: false, nowrap: false, main: None, attached: false, goes: None }
+        Row { file, line, thread: None, syn: vec![], links: vec![], info: None, edge: false, nowrap: false, main: None, attached: false, goes: None, guide: 0 }
     }
 
     /// A row of plain text (headers, comments, PR info).

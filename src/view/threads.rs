@@ -262,7 +262,25 @@ impl App {
             syn[a..b].fill(Some(self.ui.stale));
             syn
         };
+        // Claude's comment is what's kept; replies under it are talk about it: indented, behind
+        // a dim guide, and once that's resolved, one line.
+        let talk = t.claude.is_some();
+        let guide = "  │ ";
+        let indent = |mut r: Row| {
+            r.line.text = format!("{guide}{}", r.line.text);
+            r.syn = [vec![Some(self.ui.stale); guide.chars().count()], r.syn].concat();
+            r.links.iter_mut().for_each(|l| (l.0, l.1) = (l.0 + guide.chars().count(), l.1 + guide.chars().count()));
+            r.guide = guide.chars().count();
+            r
+        };
         for (k, c) in t.comments.iter().enumerate() {
+            if talk && k == 1 && t.talk_resolved {
+                let n = t.comments.len() - 1;
+                let text = format!("  ▸ {n} repl{} under it, resolved (Space r reopens them)", if n == 1 { "y" } else { "ies" });
+                out.push(Row { syn: vec![Some(self.ui.stale); text.chars().count()], ..mk(Kind::Comment, text) });
+                break;
+            }
+            let start = out.len();
             let note = self.hidden_note(&c.hidden, &c.node_id);
             if k == 0 {
                 // In the margin the tags get a line of their own, under the header, so the header
@@ -316,7 +334,7 @@ impl App {
                 continue;
             }
             // In the margin, comments wrap to its width (less the gutter mark and box sides).
-            let w = self.info_w();
+            let w = self.info_w().saturating_sub(if talk && k > 0 { guide.chars().count() } else { 0 });
             let rows = self.md_rows_at(&c.body, w, mk);
             match t.stale() {
                 // Resolved/outdated: rendered the same, but dimmed throughout (links still open).
@@ -325,6 +343,10 @@ impl App {
                     r
                 })),
                 false => out.extend(rows),
+            }
+            if talk && k > 0 {
+                let mine: Vec<Row> = out.drain(start..).map(indent).collect();
+                out.extend(mine);
             }
         }
         if open {

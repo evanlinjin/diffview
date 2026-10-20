@@ -12,6 +12,7 @@
 //!   "comments": [
 //!     { "path": "src/a.rs", "line": 42, "start_line": 40, "side": "new", "severity": "nit", "body": "markdown",
 //!       "resolved": false,
+//!       "talk_resolved": false,
 //!       "replies": [ { "author": "user", "body": "why?" }, { "author": "claude", "body": "…" } ] }
 //!   ]
 //! }
@@ -552,6 +553,7 @@ fn parse(text: &str) -> Result<Review> {
                 original_line: end,
                 conversation,
                 resolved: c["resolved"] == true,
+                talk_resolved: c["talk_resolved"] == true,
                 outdated: false,
                 // The recorded code, diff-style (+ new side, - old), as outdated threads show it.
                 hunk: c["code"]
@@ -759,11 +761,19 @@ pub fn reply(path: &std::path::Path, key: &str, body: &str, want: &str) -> Resul
         if let Some(a) = c[i]["replies"].as_array_mut() {
             a.push(r);
         }
+        // (Talk again: the conversation's open again.)
+        c[i]["talk_resolved"] = false.into();
     })
 }
 
 pub fn set_resolved(path: &std::path::Path, key: &str, on: bool) -> Result<()> {
     update(path, key, |c, i| c[i]["resolved"] = Value::Bool(on))
+}
+
+/// The conversation under Claude's comment `key` resolved (`on`) or reopened: the comment
+/// itself stays as it is.
+pub fn set_talk_resolved(path: &std::path::Path, key: &str, on: bool) -> Result<()> {
+    update(path, key, |c, i| c[i]["talk_resolved"] = Value::Bool(on))
 }
 
 /// The time now as ISO 8601 (UTC), e.g. 2026-10-16T12:00:00Z.

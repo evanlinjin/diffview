@@ -227,7 +227,7 @@ fn comments_placed_and_anchored() {
     };
     let t = |left, line, resolved, comments| Thread {
         id: format!("T{line:?}"),
-        path: "src/a.rs".into(), left, line, start_line: None, original_line: Some(1), resolved, outdated: line.is_none(),
+        path: "src/a.rs".into(), left, line, start_line: None, original_line: Some(1), resolved, talk_resolved: false, outdated: line.is_none(),
         hunk: vec![], comments, claude: None, severity: String::new(), about: None, conversation: String::new(),
         want: String::new(),
     };
@@ -449,11 +449,21 @@ fn claude_review() {
     assert_eq!(app.picker.as_ref().map(|p| p.sel), Some(2));
     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert!(matches!(app.action.take(), Some(Action::ClaudeReply(k, "change", _)) if k == "c1")); // ids given on load
-    // Space r resolves it in the file: it folds, and the cursor stays on it.
+    // Claude's comment is what's kept: Space r on it alone resolves nothing (Space d deletes it).
     press(&mut app, " r");
-    assert!(std::fs::read_to_string(&p).unwrap().contains("\"resolved\": true"));
+    assert!(app.msg.contains("no conversation to resolve") && !std::fs::read_to_string(&p).unwrap().contains("\"resolved\": true"));
+    // With talk under it, Space r resolves that: the replies fold to a line, the comment stays.
+    crate::claude::reply(&p, "c1", "Why not a guard here?", "ask").unwrap();
+    app.load_claude();
+    app.build();
+    app.goto(row(&app, false), 0);
     let t = app.rows[app.head.row].thread.unwrap();
-    assert!(app.threads[t].resolved && !app.thread_open(t));
+    assert!(app.rows.iter().any(|r| r.thread == Some(t) && r.guide > 0 && r.line.text.contains("Why not a guard"))); // (indented)
+    press(&mut app, " r");
+    assert!(std::fs::read_to_string(&p).unwrap().contains("\"talk_resolved\": true"));
+    let t = app.rows[app.head.row].thread.unwrap();
+    assert!(app.threads[t].talk_resolved && !app.threads[t].resolved && app.thread_open(t));
+    assert!(app.rows.iter().any(|r| r.thread == Some(t) && r.line.text.contains("1 reply under it, resolved")));
     // Space d dismisses one; Space e explains instead of editing.
     app.goto(row(&app, true), 0);
     press(&mut app, " e");
@@ -591,6 +601,7 @@ fn copy_refs() {
     app.threads = vec![gh::Thread {
         id: "T".into(), path: "src/a.rs".into(), left: false, line: Some(2), start_line: None, original_line: Some(2),
         resolved: false, outdated: false, hunk: vec![], comments: vec![c(11), c(12)], claude: None, severity: String::new(), about: None, conversation: String::new(),
+        talk_resolved: false,
         want: String::new(),
     }];
     let heading = |text: &str, url: &str| InfoLine { heading: true, md: false, text: text.into(), url: url.into(), ..Default::default() };
@@ -763,6 +774,7 @@ fn cycle_pending_comments() {
     let t = |line, comments| gh::Thread {
         id: String::new(), path: "src/a.rs".into(), left: false, line: Some(line), start_line: None, original_line: Some(line),
         resolved: false, outdated: false, hunk: vec![], comments, claude: None, severity: String::new(), about: None, conversation: String::new(),
+        talk_resolved: false,
         want: String::new(),
     };
     // A pending reply on line 3's thread, a pending comment on line 1, a posted one between.
@@ -842,6 +854,7 @@ fn comments_in_the_margin() {
     let t = |line, comments| gh::Thread {
         id: String::new(), path: "a.rs".into(), left: false, line: Some(line), start_line: None, original_line: Some(line),
         resolved: false, outdated: false, hunk: vec![], comments, claude: None, severity: String::new(), about: None, conversation: String::new(),
+        talk_resolved: false,
         want: String::new(),
     };
     app.threads = vec![t(1, vec![c(1, "first")]), t(2, vec![c(2, "second")])];
@@ -945,6 +958,7 @@ fn margin_tags_on_their_own_line() {
     app.threads = vec![gh::Thread {
         id: String::new(), path: "src/a.rs".into(), left: false, line: Some(2), start_line: None, original_line: Some(2),
         resolved: true, outdated: false, hunk: vec![], comments: vec![c], claude: None, severity: String::new(), about: None, conversation: String::new(),
+        talk_resolved: false,
         want: String::new(),
     }];
     let rows = |app: &App| app.rows.iter().filter(|r| r.thread == Some(0)).map(|r| r.line.text.clone()).collect::<Vec<_>>();
@@ -1144,6 +1158,7 @@ fn threads_on_files_gone_from_the_diff() {
     app.threads = vec![gh::Thread {
         id: "T1".into(), path: "src/reverted.rs".into(), left: false, line: Some(4), start_line: None, original_line: Some(4),
         resolved: false, outdated: false, hunk: vec![], comments: vec![c], claude: None, severity: String::new(), about: None, conversation: String::new(),
+        talk_resolved: false,
         want: String::new(),
     }];
     app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new(), ..Default::default() });
@@ -1279,6 +1294,7 @@ fn claude_view() {
     let t = |path: &str, line, claude: Option<&str>, author| gh::Thread {
         id: String::new(), path: path.into(), left: false, line: Some(line), start_line: None, original_line: Some(line),
         resolved: false, outdated: false, hunk: vec![], comments: vec![c(author)], claude: claude.map(Into::into), severity: String::new(), about: None, conversation: String::new(),
+        talk_resolved: false,
         want: String::new(),
     };
     app.threads = vec![t("big.rs", 20, Some("c1"), "claude"), t("big.rs", 5, None, "amy"), t("src/a.rs", 2, None, "amy")];
@@ -1565,6 +1581,7 @@ fn range_comment_lights_its_lines() {
     app.threads = vec![gh::Thread {
         id: String::new(), path: "a.rs".into(), left: false, line: Some(4), start_line: Some(2), original_line: Some(4),
         resolved: false, outdated: false, hunk: vec![], comments: vec![c], claude: None, severity: String::new(), about: None, conversation: String::new(),
+        talk_resolved: false,
         want: String::new(),
     }];
     app.margin_active = true;
@@ -1611,6 +1628,7 @@ fn gf_after_w() {
     app.threads = vec![gh::Thread {
         id: String::new(), path: "src/a.rs".into(), left: false, line: Some(2), start_line: None, original_line: Some(2),
         resolved: false, outdated: false, hunk: vec![], comments: vec![c], claude: Some("c1".into()), severity: String::new(), about: None, conversation: String::new(),
+        talk_resolved: false,
         want: String::new(),
     }];
     app.build();
@@ -1662,7 +1680,7 @@ fn fixture() -> App {
     let c = |author: &str, body: &str, pending| gh::Comment { id: { id.set(id.get() + 1); id.get() }, node_id: String::new(), can_edit: true, can_delete: true, author: author.into(), body: body.into(), created: String::new(), pending, reactions: vec![], hidden: String::new() };
     let t = |path: &str, line, comments, claude: Option<&str>, resolved| gh::Thread {
         id: String::new(), path: path.into(), left: false, line: Some(line), start_line: None, original_line: Some(line),
-        resolved, outdated: false, hunk: vec![], comments, claude: claude.map(Into::into), severity: if claude.is_some() { "nit".into() } else { String::new() }, about: None, conversation: String::new(),
+        resolved, talk_resolved: false, outdated: false, hunk: vec![], comments, claude: claude.map(Into::into), severity: if claude.is_some() { "nit".into() } else { String::new() }, about: None, conversation: String::new(),
         want: String::new(),
     };
     app.threads = vec![
@@ -2779,7 +2797,7 @@ fn hidden_on_github_folded() {
         id, node_id: format!("C{id}"), can_edit: false, can_delete: false, author: "amy".into(), body: format!("secret{id}"), created: String::new(), pending: false, reactions: vec![], hidden: hidden.into(),
     };
     app.threads = vec![Thread {
-        id: "T".into(), path: "src/a.rs".into(), left: true, line: Some(2), start_line: None, original_line: Some(2), resolved: false, outdated: false,
+        id: "T".into(), path: "src/a.rs".into(), left: true, line: Some(2), start_line: None, original_line: Some(2), resolved: false, talk_resolved: false, outdated: false,
         hunk: vec![], comments: vec![c(1, "spam"), c(2, "off topic"), c(3, "")], claude: None, severity: String::new(), about: None, conversation: String::new(), want: String::new(),
     }];
     app.build();

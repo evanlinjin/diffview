@@ -57,6 +57,9 @@ pub struct Thread {
     pub start_line: Option<u32>,
     pub original_line: Option<u32>,
     pub resolved: bool,
+    /// Claude's (from its review file): the conversation under its comment resolved, the
+    /// comment itself still open (what's kept, and posted).
+    pub talk_resolved: bool,
     pub outdated: bool,
     /// Tail of the first comment's diff hunk (with +/-/space prefixes), ending at the commented
     /// line. Shown for outdated threads and used to relocate them.
@@ -665,6 +668,7 @@ fn parse_thread(t: &Value) -> Thread {
         start_line: line("startLine"),
         original_line: line("originalLine"),
         resolved: t["isResolved"].as_bool().unwrap_or(false),
+        talk_resolved: false,
         outdated: t["isOutdated"].as_bool().unwrap_or(false),
         hunk: comments
             .first()
