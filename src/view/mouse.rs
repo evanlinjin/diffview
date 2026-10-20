@@ -59,9 +59,8 @@ impl App {
             // line too short to show where it's scrolled to (the cursor there would take it back).
             MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight if code => {
                 let Some((row, col, _)) = self.at_screen(x, y).filter(|_| !(self.pin && y == 0)) else { return };
-                // (Nor a comment's prose: it wraps, with nothing to scroll; the cursor stays.)
-                let prose = self.box_part(row).is_some() && self.code_block(row).is_none();
-                if prose || kind == MouseEventKind::ScrollRight && self.len(row) <= self.hscroll(row) + 1 && self.hscroll(row) > 0 {
+                // (Nor what doesn't scroll, a comment's prose: the cursor stays.)
+                if !self.hscrolls(row) || kind == MouseEventKind::ScrollRight && self.len(row) <= self.hscroll(row) + 1 && self.hscroll(row) > 0 {
                     return;
                 }
                 self.select = false;

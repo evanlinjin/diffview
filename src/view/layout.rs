@@ -191,6 +191,12 @@ impl App {
         Some((0..r).rev().take_while(|&i| same(&self.rows[i])).last().unwrap_or(r))
     }
 
+    /// Whether row `r` scrolls sideways: the diff's, and a comment's code blocks and tables
+    /// (not its prose: that wraps).
+    pub(super) fn hscrolls(&self, r: usize) -> bool {
+        self.box_part(r).is_none() || self.code_block(r).is_some()
+    }
+
     /// How far row `r`'s text is scrolled sideways: the diff by `left`; in a comment's box,
     /// not at all, but for the cursor's code block, by its own offset.
     pub(super) fn hscroll(&self, r: usize) -> usize {
