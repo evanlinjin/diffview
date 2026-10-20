@@ -349,6 +349,14 @@ fn markdown(t: String) -> InfoLine {
 fn activity_items(v: &Value, items: &[Value]) -> Vec<Vec<(String, InfoLine)>> {
     let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
     let mut out: Vec<Vec<(String, InfoLine)>> = vec![];
+    // A review's comments on the code, and the commit it's of (said if not the PR's head now).
+    let review_of = |r: &Value| -> Vec<String> {
+        let n = r["comments"]["totalCount"].as_u64().unwrap_or(0);
+        let comments = (n > 0).then(|| format!("{n} comment{}", if n == 1 { "" } else { "s" }));
+        let older = r["commit"]["oid"].as_str().filter(|o| v["headRefOid"].as_str().is_some_and(|h| h != *o));
+        let on = older.map(|_| format!("on {} (an older commit)", s(&r["commit"]["abbreviatedOid"])));
+        comments.into_iter().chain(on).collect()
+    };
     // A comment, or a review with something to read: (who, what they did, its verdict's color).
     let said = |c: &Value, url: String, what: &str, mark: Option<Mark>, hidden: String| {
         let node = s(&c["id"]);
@@ -357,6 +365,9 @@ fn activity_items(v: &Value, items: &[Value]) -> Vec<Vec<(String, InfoLine)>> {
         h.put(&format!("@{} · ", s(&c["author"]["login"])), None);
         if !what.is_empty() {
             h.put(what, mark).put(" · ", None);
+        }
+        for m in review_of(c) {
+            h.put(&m, Some(Mark::Dim)).put(" · ", None);
         }
         h.put(&ago(&at), None);
         let r = reactions(&c["reactionGroups"]);
@@ -395,7 +406,10 @@ fn activity_items(v: &Value, items: &[Value]) -> Vec<Vec<(String, InfoLine)>> {
                     "DISMISSED" => said(it, url, "reviewed (dismissed)", None, String::new()),
                     "COMMENTED" if !s(&it["body"]).trim().is_empty() => said(it, url, "reviewed", None, String::new()),
                     // Only comments on the code: they're threads there.
-                    "COMMENTED" => event(key, reviewer, &[t("reviewed")], at),
+                    "COMMENTED" => {
+                        let more = review_of(it).iter().map(|m| format!(" · {m}")).collect::<String>();
+                        event(key, reviewer, &[t(&format!("reviewed{more}"))], at)
+                    }
                     _ => continue, // pending: not on GitHub yet
                 }
             }
@@ -521,13 +535,13 @@ mod tests {
         };
         let commit = |oid: &str, by: &str| item("PullRequestCommit", json!({ "commit": { "abbreviatedOid": oid, "messageHeadline": format!("subject {oid}"), "committedDate": "2026-01-01T00:00:00Z", "author": { "user": { "login": by } } } }));
         let v = json!({
-            "url": "https://github.com/o/r/pull/1", "body": "",
+            "url": "https://github.com/o/r/pull/1", "body": "", "headRefOid": "head2",
             "dvActivity": { "reactions": [], "items": [
                 item("IssueComment", json!({ "id": "IC_1", "author": { "login": "amy" }, "body": "first", "url": "c1" })),
                 commit("aaa1", "bo"), commit("aaa2", "bo"),
                 item("LabeledEvent", json!({ "label": { "name": "bug", "color": "d73a4a" } })),
-                item("PullRequestReview", json!({ "id": "R2", "author": { "login": "bo" }, "state": "APPROVED", "body": "", "submittedAt": "2026-01-02T00:00:00Z" })),
-                item("PullRequestReview", json!({ "id": "R3", "author": { "login": "cy" }, "state": "COMMENTED", "body": "", "submittedAt": "2026-01-04T00:00:00Z" })),
+                item("PullRequestReview", json!({ "id": "R2", "author": { "login": "bo" }, "state": "APPROVED", "body": "", "submittedAt": "2026-01-02T00:00:00Z", "comments": { "totalCount": 3 }, "commit": { "oid": "head1", "abbreviatedOid": "head1" } })),
+                item("PullRequestReview", json!({ "id": "R3", "author": { "login": "cy" }, "state": "COMMENTED", "body": "", "submittedAt": "2026-01-04T00:00:00Z", "comments": { "totalCount": 1 }, "commit": { "oid": "head2", "abbreviatedOid": "head2" } })),
                 item("PullRequestReview", json!({ "author": { "login": "me" }, "state": "PENDING", "body": "draft" })),
                 item("SubscribedEvent", json!({})),
             ] },
@@ -542,8 +556,9 @@ mod tests {
         assert!(rest[0].starts_with("@amy · ") && rest[1] == "first");
         assert!(rest[2].starts_with("○ @bo pushed 2 commits · ") && rest[3] == "  aaa1 subject aaa1" && rest[4] == "  aaa2 subject aaa2", "{rest:?}");
         assert!(rest[5].starts_with("● @amy added  bug "));
-        assert!(rest[6].starts_with("@bo · ✓ approved · ") && rest[7].is_empty());
-        assert!(rest[8].starts_with("● @cy reviewed · ") && rest.len() == 9);
+        // A review's comments on the code, and its commit if not the head now.
+        assert!(rest[6].starts_with("@bo · ✓ approved · 3 comments · on head1 (an older commit) · ") && rest[7].is_empty(), "{}", rest[6]);
+        assert!(rest[8].starts_with("● @cy reviewed · 1 comment · ") && rest.len() == 9, "{}", rest[8]);
         // Events are lines of their own (no box); each comment and review its own link.
         assert!(lines[at + 3].event && lines[at + 6].event && !lines[at + 1].event);
         assert_eq!(lines[at + 7].url, "https://github.com/o/r/pull/1#review-R2");

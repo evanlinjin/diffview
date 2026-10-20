@@ -855,7 +855,7 @@ BASE_REF_CHANGED_EVENT, CROSS_REFERENCED_EVENT, REVIEW_DISMISSED_EVENT";
 /// Each of those, with what `view::info` says of it.
 const ACTIVITY: &str = "__typename ... on Node { id } \
 ... on IssueComment { id url body createdAt author { login } isMinimized minimizedReason reactionGroups { content viewerHasReacted reactors { totalCount } } } \
-... on PullRequestReview { id body state submittedAt createdAt author { login } reactionGroups { content viewerHasReacted reactors { totalCount } } } \
+... on PullRequestReview { id body state submittedAt createdAt author { login } comments { totalCount } commit { oid abbreviatedOid } reactionGroups { content viewerHasReacted reactors { totalCount } } } \
 ... on PullRequestCommit { commit { abbreviatedOid messageHeadline committedDate author { user { login } name } } } \
 ... on HeadRefForcePushedEvent { createdAt actor { login } beforeCommit { abbreviatedOid } afterCommit { abbreviatedOid } } \
 ... on LabeledEvent { createdAt actor { login } label { name color } } \
