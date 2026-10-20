@@ -654,6 +654,15 @@ impl Issues {
                     }
                     continue;
                 }
+                // In an issue the wheel scrolls it, the cursor where it is.
+                Event::Mouse(m) if matches!(m.kind, event::MouseEventKind::ScrollDown | event::MouseEventKind::ScrollUp) && !self.help => {
+                    if let Some(v) = self.view.as_mut() {
+                        let page = ratatui::crossterm::terminal::size().map_or(20, |(_, h)| h.saturating_sub(2) as usize);
+                        v.scroll(if m.kind == event::MouseEventKind::ScrollDown { 3 } else { -3 }, page);
+                        continue;
+                    }
+                    KeyEvent::new(KeyCode::Char(if m.kind == event::MouseEventKind::ScrollDown { 'j' } else { 'k' }), KeyModifiers::NONE)
+                }
                 Event::Mouse(m) => match m.kind {
                     event::MouseEventKind::ScrollDown => KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
                     event::MouseEventKind::ScrollUp => KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
@@ -819,7 +828,6 @@ impl Issues {
     /// A key in the issue's view.
     fn view_key(&mut self, term: &mut DefaultTerminal, k: KeyEvent) -> Option<IssuesDo> {
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
-        let page = ratatui::crossterm::terminal::size().map_or(20, |(_, h)| h.saturating_sub(2) as usize);
         let pending = self.pending.take();
         // (Scrolling, the wheel too, leaves what was said.)
         if !matches!(k.code, KeyCode::Char('j' | 'k') | KeyCode::Up | KeyCode::Down) && !ctrl {
@@ -827,13 +835,22 @@ impl Issues {
         }
         let v = self.view.as_mut()?;
         let n = v.number;
+        // The cursor's keys (Helix's), but not the second of another pair (`L L`).
+        if pending.is_none_or(|p| p == 'g') {
+            match v.key(pending, k.code, ctrl) {
+                super::issue_view::Did::Not => {}
+                super::issue_view::Did::Nothing => return None,
+                super::issue_view::Did::Copy(t) => {
+                    crate::view::clipboard(&t);
+                    self.msg = format!("copied {} line{}", t.lines().count(), if t.lines().count() == 1 { "" } else { "s" });
+                    return None;
+                }
+                super::issue_view::Did::Open(u) => return (self.msg = crate::view::open_url(&u), None).1,
+            }
+        }
         match (pending, k.code) {
-            (_, KeyCode::Char('d')) if ctrl => v.scroll(page as isize / 2, page),
-            (_, KeyCode::Char('u')) if ctrl => v.scroll(-(page as isize) / 2, page),
-            (_, KeyCode::Char('j') | KeyCode::Down) => v.scroll(1, page),
-            (_, KeyCode::Char('k') | KeyCode::Up) => v.scroll(-1, page),
-            (Some('g'), KeyCode::Char('g')) => v.scroll(-(isize::MAX / 2), page),
-            (Some('g'), KeyCode::Char('e')) => v.scroll(isize::MAX / 2, page),
+            // Esc drops a selection first, as Helix's.
+            (_, KeyCode::Esc) if v.selecting() => v.drop_selection(),
             (_, KeyCode::Char('q') | KeyCode::Esc) => self.view = None,
             (_, KeyCode::Char('?')) => self.help = true,
             (_, KeyCode::Char('o')) => self.msg = crate::view::open_url(v.url()),

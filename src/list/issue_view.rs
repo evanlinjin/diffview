@@ -5,6 +5,23 @@
 use super::*;
 use serde_json::Value;
 
+/// A line's links: their columns, and where they go.
+type Links = Vec<(std::ops::Range<usize>, String)>;
+
+/// `links`, `by` columns to the right.
+fn shift(links: Links, by: usize) -> Links {
+    links.into_iter().map(|(r, u)| (r.start + by..r.end + by, u)).collect()
+}
+
+/// What a key in the view came to, for the list to do: text to copy, a link to open.
+pub enum Did {
+    Nothing,
+    Copy(String),
+    Open(String),
+    /// Not the view's key.
+    Not,
+}
+
 /// An issue as dv shows it: as GitHub has it, and Claude's triage (all of it: the summary,
 /// labels, title and closing comment too, not just what its card shows).
 pub struct IssueView {
@@ -25,7 +42,12 @@ pub struct IssueView {
     width: usize,
     pane_x: Option<usize>,
     text_at: Vec<[std::ops::Range<usize>; 2]>,
+    links_at: Vec<Links>,
     shown: usize,
+    /// The cursor (line, column), as Helix's: `v` selects from where it was (`sel` then
+    /// follows it), `x` the line.
+    cur: (usize, usize),
+    select: bool,
     /// How many lines the description takes (one column: the pane's after them).
     desc_rows: usize,
     /// Code blocks and tables scrolled sideways (the mouse's), the description's and the
@@ -62,7 +84,10 @@ impl IssueView {
             width: 0,
             pane_x: None,
             text_at: vec![],
+            links_at: vec![],
             shown: 0,
+            cur: (0, 2),
+            select: false,
             desc_rows: 0,
             code_left: [0; 2],
             code_over: [0; 2],
@@ -132,7 +157,7 @@ impl IssueView {
         // (Code and tables scrolled sideways, as far as the side's are; how far they'd go.)
         let over = std::cell::Cell::new([0; 2]);
         // (`seen`: the columns shown, the description's 2 more than it's wrapped at.)
-        let md = |text: &str, w: usize, side: usize| -> Vec<Line<'static>> {
+        let md = |text: &str, w: usize, side: usize| -> Vec<(Line<'static>, Links)> {
             let seen = if side == 0 { w + 2 } else { w };
             let lines = crate::md::render(text, w, &ui.md, &self.hl, repo.as_deref());
             // Each block (code, a table: its lines in a run) by as much of the side's scroll as
@@ -154,12 +179,15 @@ impl IssueView {
                 .zip(by)
                 .map(|(l, by)| {
                     let code = code_bg.filter(|&bg| l.nowrap && l.styles.last().copied().flatten().and_then(|s| s.bg) == Some(bg));
+                    // (Its links' columns, as drawn: chars to columns, less what's scrolled.)
+                    let col = |c: usize| Span::raw(l.text.chars().take(c).collect::<String>()).width().saturating_sub(by);
+                    let links: Links = l.links.iter().map(|(s, e, u)| (col(*s)..col(*e), u.clone())).filter(|(r, _)| !r.is_empty()).collect();
                     let mut line = l.into_line();
                     line.spans = crate::view::skip_cols(line.spans, by);
                     if let Some(bg) = code {
                         line.spans.push(Span::styled(" ".repeat(w.saturating_sub(line.width())), Style::new().bg(bg)));
                     }
-                    line
+                    (line, links)
                 })
                 .collect()
         };
@@ -167,28 +195,33 @@ impl IssueView {
         let border = ui.linenr;
         // A bubble: `╭─ title ──╮`, its lines between `│ … │`, `╰──╯`, `w` wide (each with the
         // columns of its text: none on its frame).
-        let bubble = |title: Vec<Span<'static>>, body: Vec<Line<'static>>, w: usize| -> Vec<(Line<'static>, std::ops::Range<usize>)> {
+        let bubble = |title: Vec<Span<'static>>, body: Vec<(Line<'static>, Links)>, w: usize| -> Vec<(Line<'static>, std::ops::Range<usize>, Links)> {
             let tw: usize = title.iter().map(Span::width).sum();
             let mut top = vec![Span::styled("╭─ ", border)];
             top.extend(title);
             top.push(Span::styled(format!(" {}╮", "─".repeat(w.saturating_sub(tw + 5))), border));
-            let mut out = vec![(Line::from(top), 0..0)];
-            for l in body {
+            let mut out = vec![(Line::from(top), 0..0, vec![])];
+            for (l, links) in body {
                 // (A code block or table line wider than the bubble: cut at its edge.)
                 let mut v = vec![Span::styled("│ ", border)];
                 v.extend(super::card::fit(l.spans, w.saturating_sub(4), Style::new()));
                 v.push(Span::styled(" │", border));
-                out.push((Line::from(v), 2..w.saturating_sub(2)));
+                out.push((Line::from(v), 2..w.saturating_sub(2), shift(links, 2)));
             }
-            out.push((Line::from(Span::styled(format!("╰{}╯", "─".repeat(w.saturating_sub(2))), border)), 0..0));
+            out.push((Line::from(Span::styled(format!("╰{}╯", "─".repeat(w.saturating_sub(2))), border)), 0..0, vec![]));
             out
         };
         // The description, as the PR view's text.
-        let mut left = vec![Line::from(Span::styled(format!("  {}", self.url), dim)), Line::default(), Line::from(Span::styled("  description", ui.heading.add_modifier(ratatui::style::Modifier::BOLD)))];
+        let url_w = Span::raw(self.url.as_str()).width();
+        let mut left: Vec<(Line, Links)> = vec![
+            (Line::from(Span::styled(format!("  {}", self.url), dim)), vec![(2..2 + url_w, self.url.clone())]),
+            (Line::default(), vec![]),
+            (Line::from(Span::styled("  description", ui.heading.add_modifier(ratatui::style::Modifier::BOLD))), vec![]),
+        ];
         let body = if self.body.trim().is_empty() { "_(no description)_" } else { &self.body };
-        left.extend(md(body, left_w.saturating_sub(4).max(20), 0).into_iter().map(|mut l| {
+        left.extend(md(body, left_w.saturating_sub(4).max(20), 0).into_iter().map(|(mut l, links)| {
             l.spans.insert(0, Span::raw("  "));
-            l
+            (l, shift(links, 2))
         }));
         // The pane: Claude's triage, then the conversation.
         let inner = right_w.saturating_sub(4).max(20);
@@ -201,13 +234,13 @@ impl IssueView {
             let title = ["claude's triage".to_owned(), self.t("kind"), self.t("priority")].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ");
             let mut b = match triaged {
                 true => md(&self.t("summary"), inner, 1),
-                false => vec![Line::from(Span::styled("none yet: a a triages it", dim))],
+                false => vec![(Line::from(Span::styled("none yet: a a triages it", dim)), vec![])],
             };
             {
                 // (Wrapped as markdown: a long `next` stays in the bubble.)
                 let mut said = |k: &str, v: String| {
                     if !v.is_empty() {
-                        b.push(Line::default());
+                        b.push((Line::default(), vec![]));
                         b.extend(md(&format!("**{k}:** {v}"), inner, 1));
                     }
                 };
@@ -216,14 +249,14 @@ impl IssueView {
                 said("title (T T)", self.new_title().unwrap_or_default());
                 said("close (X X)", self.t("close"));
                 if let Some(c) = self.closing().filter(|c| !c.is_empty()) {
-                    b.extend([Line::default(), Line::from(Span::styled("closing comment:", ui.key))]);
+                    b.extend([(Line::default(), vec![]), (Line::from(Span::styled("closing comment:", ui.key)), vec![])]);
                     b.extend(md(&c, inner, 1));
                 }
             }
             right.extend(bubble(claude(title), b, right_w));
         }
-        right.push((Line::default(), 0..0));
-        right.push((Line::from(Span::styled(format!("activity ({})", self.comments.len()), ui.heading)), 0..right_w));
+        right.push((Line::default(), 0..0, vec![]));
+        right.push((Line::from(Span::styled(format!("activity ({})", self.comments.len()), ui.heading)), 0..right_w, vec![]));
         for (who, when, body) in &self.comments {
             let mut title = vec![Span::styled(format!("@{who}"), ui.thread)];
             if !when.is_empty() {
@@ -235,25 +268,36 @@ impl IssueView {
         // (The description's text: after its margin.)
         let desc = 2..left_w;
         self.desc_rows = left.len();
-        let (out, text_at): (Vec<_>, Vec<_>) = match two {
+        // Each line, the columns of its text on each side, its links.
+        type Row = (Line<'static>, [std::ops::Range<usize>; 2], Links);
+        let rows: Vec<Row> = match two {
             true => (0..left.len().max(right.len()))
                 .map(|k| {
                     // (The description cut at its column: a wide code line doesn't push the pane.)
-                    let mut l = Line::from(super::card::fit(left.get(k).cloned().unwrap_or_default().spans, left_w, Style::new()));
+                    let (dl, mut links) = left.get(k).cloned().unwrap_or_default();
+                    links.retain(|(r, _)| r.start < left_w);
+                    let mut l = Line::from(super::card::fit(dl.spans, left_w, Style::new()));
                     l.spans.push(Span::styled("│", border));
-                    let (r, at) = right.get(k).cloned().unwrap_or_default();
+                    let (r, at, rl) = right.get(k).cloned().unwrap_or_default();
                     l.spans.extend(r.spans);
-                    (l, [if k < left.len() { desc.clone() } else { 0..0 }, at.start + left_w + 1..at.end + left_w + 1])
+                    links.extend(shift(rl, left_w + 1));
+                    (l, [if k < left.len() { desc.clone() } else { 0..0 }, at.start + left_w + 1..at.end + left_w + 1], links)
                 })
-                .unzip(),
+                .collect(),
             false => left
                 .into_iter()
-                .map(|l| (l, [desc.clone(), 0..0]))
-                .chain([(Line::default(), [0..0, 0..0])])
-                .chain(right.into_iter().map(|(l, at)| (l, [at, 0..0])))
-                .unzip(),
+                .map(|(l, links)| (l, [desc.clone(), 0..0], links))
+                .chain([(Line::default(), [0..0, 0..0], vec![])])
+                .chain(right.into_iter().map(|(l, at, links)| (l, [at, 0..0], links)))
+                .collect(),
         };
-        (self.lines, self.width, self.pane_x, self.text_at, self.sel) = (out, width, two.then_some(left_w + 1), text_at, None);
+        let (mut out, mut text_at, mut links_at) = (vec![], vec![], vec![]);
+        for (l, t, k) in rows {
+            out.push(l);
+            text_at.push(t);
+            links_at.push(k);
+        }
+        (self.lines, self.width, self.pane_x, self.text_at, self.links_at, self.sel) = (out, width, two.then_some(left_w + 1), text_at, links_at, None);
         self.code_over = over.get();
     }
 
@@ -295,7 +339,7 @@ impl IssueView {
         self.shown = area.height as usize;
         let body: Vec<Line> = self.lines.iter().skip(self.scroll).take(area.height as usize).cloned().collect();
         f.render_widget(Paragraph::new(body).style(ui.base), area);
-        // What's dragged over, reversed.
+        // What's selected (dragged over, `v`, `x`), reversed; the cursor.
         for y in 0..area.height {
             for x in 0..area.width {
                 if self.selected(self.scroll + y as usize, x as usize) {
@@ -303,6 +347,190 @@ impl IssueView {
                 }
             }
         }
+        let (row, col) = self.cur;
+        if (self.scroll..self.scroll + area.height as usize).contains(&row) && col < area.width as usize {
+            let style = if self.select { ui.cursor_select } else { ui.cursor };
+            f.buffer_mut()[(area.x + col as u16, area.y + (row - self.scroll) as u16)].set_style(style);
+        }
+    }
+
+    /// The side column `x` is on: 0 the description's, 1 the pane's (side by side).
+    fn side_of(&self, x: usize) -> usize {
+        self.pane_x.is_some_and(|p| x >= p) as usize
+    }
+
+    /// Line `row`'s text columns on the cursor's side.
+    fn text(&self, row: usize) -> std::ops::Range<usize> {
+        self.text_at.get(row).map_or(0..0, |t| t[self.side_of(self.cur.1)].clone())
+    }
+
+    /// Line `row`'s columns: what each shows (a wide character's second: empty).
+    fn cells(&self, row: usize) -> Vec<String> {
+        let w = self.width as u16;
+        let mut buf = ratatui::buffer::Buffer::empty(Rect::new(0, 0, w, 1));
+        if let Some(l) = self.lines.get(row) {
+            buf.set_line(0, 0, l, w);
+        }
+        let mut covered = 0;
+        (0..self.width)
+            .map(|x| {
+                let sym = buf[(x as u16, 0)].symbol().to_owned();
+                if covered > 0 {
+                    covered -= 1;
+                    return String::new();
+                }
+                covered = Span::raw(sym.as_str()).width().saturating_sub(1);
+                sym
+            })
+            .collect()
+    }
+
+    /// The cursor to (`row`, `col`), kept in that line's text on its side (or the side's
+    /// start, a line with none there), in view; `v` on: the selection follows it.
+    fn go(&mut self, row: usize, col: usize) {
+        let side = self.side_of(self.cur.1);
+        let row = row.min(self.lines.len().saturating_sub(1));
+        let t = self.text_at.get(row).map_or(0..0, |t| t[side].clone());
+        let base = match side {
+            1 => self.pane_x.unwrap_or(0),
+            _ => 0,
+        };
+        let col = if t.is_empty() { col.max(base) } else { col.clamp(t.start, t.end - 1) };
+        self.cur = (row, col);
+        match (self.select, &mut self.sel) {
+            (true, Some((_, b))) => *b = self.cur,
+            (true, None) => self.sel = Some((self.cur, self.cur)),
+            (false, _) => self.sel = None,
+        }
+        // (In view, three lines from its edges where there are.)
+        let h = self.shown.max(1);
+        let off = 3.min(h / 2);
+        if row < self.scroll + off {
+            self.scroll = row.saturating_sub(off);
+        } else if row + off >= self.scroll + h {
+            self.scroll = (row + off + 1).saturating_sub(h).min(self.lines.len().saturating_sub(h));
+        }
+    }
+
+    /// The next (`fwd`) or previous word's start (`end`: its end) from the cursor, as Helix's
+    /// `w`, `b`, `e`: on through the lines of the cursor's side.
+    fn word(&self, fwd: bool, end: bool) -> (usize, usize) {
+        let class = |s: &str| match s.chars().next() {
+            None => 0,
+            Some(c) if c.is_whitespace() => 0,
+            Some(c) if c.is_alphanumeric() || c == '_' => 1,
+            Some(_) => 2,
+        };
+        // Every column of the side's text, in reading order, with its class.
+        let (row0, col0) = self.cur;
+        let rows: Box<dyn Iterator<Item = usize>> = if fwd { Box::new(row0..self.lines.len()) } else { Box::new((0..=row0).rev()) };
+        let mut seq = vec![];
+        for row in rows.take(200) {
+            let cells = self.cells(row);
+            let t = self.text(row);
+            let mut cols: Vec<(usize, usize)> = t.filter(|&x| !cells.get(x).is_some_and(String::is_empty)).map(|x| (row, x)).collect();
+            if !fwd {
+                cols.reverse();
+            }
+            let line: Vec<((usize, usize), u8)> = cols.into_iter().map(|p| (p, class(cells.get(p.1).map_or("", String::as_str)))).collect();
+            seq.extend(line);
+            seq.push(((row, usize::MAX), 0)); // (a line's end: a space)
+        }
+        let at = seq.iter().position(|(p, _)| *p == (row0, col0)).unwrap_or(0);
+        let mut i = at + 1;
+        let is_start = |i: usize| seq[i].1 != 0 && (i == 0 || seq[i - 1].1 != seq[i].1);
+        let is_end = |i: usize| seq[i].1 != 0 && (i + 1 == seq.len() || seq[i + 1].1 != seq[i].1);
+        while i < seq.len() {
+            let hit = match (fwd, end) {
+                (true, false) => is_start(i),
+                (true, true) => is_end(i),
+                // (Back: the start of a word is where the reversed run ends.)
+                (false, _) => is_end(i),
+            };
+            if hit {
+                return seq[i].0;
+            }
+            i += 1;
+        }
+        self.cur
+    }
+
+    /// A key in the view, Helix's: `h j k l` (and arrows), `w b e`, `gh gl`, `gg ge`,
+    /// `Ctrl-d Ctrl-u`, `Tab` to the other side; `v` selects, `x` the line (again: the next
+    /// too), `;` drops it, `y` copies it; Enter opens the link under the cursor.
+    pub fn key(&mut self, pending: Option<char>, k: KeyCode, ctrl: bool) -> Did {
+        let (row, col) = self.cur;
+        let half = (self.shown / 2).max(1);
+        match (pending, k) {
+            (_, KeyCode::Char('d')) if ctrl => self.go(row + half, col),
+            (_, KeyCode::Char('u')) if ctrl => self.go(row.saturating_sub(half), col),
+            _ if ctrl => return Did::Not,
+            (Some('g'), KeyCode::Char('g')) => self.go(0, col),
+            (Some('g'), KeyCode::Char('e')) => self.go(usize::MAX, col),
+            (Some('g'), KeyCode::Char('h')) => self.go(row, 0),
+            (Some('g'), KeyCode::Char('l')) => {
+                // (Its last character, not the space after.)
+                let cells = self.cells(row);
+                let last = self.text(row).rev().find(|&x| cells.get(x).is_some_and(|c| !c.trim().is_empty()));
+                self.go(row, last.unwrap_or(col));
+            }
+            (_, KeyCode::Char('j') | KeyCode::Down) => self.go(row + 1, col),
+            (_, KeyCode::Char('k') | KeyCode::Up) => self.go(row.saturating_sub(1), col),
+            (_, KeyCode::Char('h') | KeyCode::Left) => self.go(row, col.saturating_sub(1)),
+            (_, KeyCode::Char('l') | KeyCode::Right) => self.go(row, col + 1),
+            (_, KeyCode::Char(c @ ('w' | 'b' | 'e'))) => {
+                let (r, x) = self.word(c != 'b', c == 'e');
+                self.go(r, x);
+            }
+            (_, KeyCode::Tab) => {
+                // The other side, side by side: its text on this line (or the nearest above).
+                let Some(p) = self.pane_x else { return Did::Nothing };
+                let to = if self.side_of(col) == 0 { p } else { 0 };
+                self.cur.1 = to;
+                self.go(row, to);
+            }
+            (_, KeyCode::Char('v')) => {
+                self.select = !self.select;
+                self.sel = self.select.then_some((self.cur, self.cur));
+            }
+            (_, KeyCode::Char('x')) => {
+                // The line's text; again (the line selected): the next one too.
+                let t = self.text(row);
+                let whole = self.sel.is_some_and(|(a, b)| a.1 <= t.start && b == (row, t.end.saturating_sub(1)));
+                let (anchor, to) = match whole {
+                    true => (self.sel.map_or(self.cur, |s| s.0), row + 1),
+                    false => ((row, t.start), row),
+                };
+                let end = self.text(to).end.saturating_sub(1);
+                self.select = false;
+                self.go(to, end);
+                self.sel = Some((anchor, self.cur));
+            }
+            (_, KeyCode::Char(';')) => (self.select, self.sel) = (false, None),
+            (_, KeyCode::Char('y')) => {
+                let text = self.selection();
+                (self.select, self.sel) = (false, None);
+                return match text.trim().is_empty() {
+                    true => Did::Nothing,
+                    false => Did::Copy(text),
+                };
+            }
+            (_, KeyCode::Enter) => {
+                let link = self.links_at.get(row).and_then(|l| l.iter().find(|(r, _)| r.contains(&col)));
+                return link.map_or(Did::Nothing, |(_, u)| Did::Open(u.clone()));
+            }
+            _ => return Did::Not,
+        }
+        Did::Nothing
+    }
+
+    /// Whether there's a selection to drop (`Esc` drops it before leaving).
+    pub fn selecting(&self) -> bool {
+        self.select || self.sel.is_some()
+    }
+
+    pub fn drop_selection(&mut self) {
+        (self.select, self.sel) = (false, None);
     }
 
     /// Whether (line, column) is dragged over: from where the drag began to where it is, as text
@@ -321,7 +549,7 @@ impl IssueView {
         use ratatui::crossterm::event::{MouseButton, MouseEventKind};
         let at = (self.scroll + y.min(self.shown.saturating_sub(1)), x);
         match kind {
-            MouseEventKind::Down(MouseButton::Left) => self.sel = Some((at, at)),
+            MouseEventKind::Down(MouseButton::Left) => (self.sel, self.select, self.cur) = (Some((at, at)), false, at),
             // Sideways: the code blocks and tables of the side it's over.
             MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight => {
                 let side = match self.pane_x {
@@ -336,6 +564,7 @@ impl IssueView {
                 if let Some((_, b)) = &mut self.sel {
                     *b = at;
                 }
+                self.cur = at;
                 if kind == MouseEventKind::Drag(MouseButton::Left) {
                     return None;
                 }
@@ -389,9 +618,13 @@ impl IssueView {
 
 pub(super) const VIEW_HELP: &str = "
 MOVE
-  j k, Up Down         scroll
+  h j k l, arrows      move the cursor (Helix's); w b e by word; gh gl the line's start / end
   Ctrl-d Ctrl-u        half a page down / up
   gg ge                top / end
+  Tab                  to the other side (the description, the pane)
+  v, x                 select from here; the line (again: the next too); ; drops it
+  y                    copy what's selected
+  Enter                open the link under the cursor
   mouse                wheel scrolls (Shift or sideways: the code blocks); a drag copies
                        the text it's over (one side's)
   q, Esc               back to the issues
@@ -418,7 +651,7 @@ fn an_issue_and_its_triage() {
     let mut v = IssueView {
         number: 7, title: "panic".into(), author: "amy".into(), url: "https://github.com/o/r/issues/7".into(),
         body: "It **panics**.".into(), labels: vec![("bug".into(), "d73a4a".into())],
-        comments: vec![("bo".into(), String::new(), "Same here.".into())], triage, scroll: 0, lines: vec![], width: 0, pane_x: None, text_at: vec![], shown: 0, desc_rows: 0, code_left: [0; 2], code_over: [0; 2], can_triage: true, sel: None,
+        comments: vec![("bo".into(), String::new(), "Same here.".into())], triage, scroll: 0, lines: vec![], width: 0, pane_x: None, text_at: vec![], links_at: vec![], shown: 0, cur: (0, 2), select: false, desc_rows: 0, code_left: [0; 2], code_over: [0; 2], can_triage: true, sel: None,
         hl: crate::highlight::Highlighter::default(),
     };
     assert_eq!(v.new_labels(), ["chain"]); // bug it has
@@ -457,6 +690,19 @@ fn an_issue_and_its_triage() {
     let row = v.lines.iter().position(|l| l.to_string().contains("It panics.")).unwrap();
     v.mouse(MouseEventKind::Down(MouseButton::Left), 0, row);
     assert_eq!(v.mouse(MouseEventKind::Up(MouseButton::Left), p - 2, row).as_deref(), Some("It panics."));
+    // The cursor (Helix's): Enter on the link under it opens it; `x` then `y` copies its line;
+    // `w` to the next word; `Tab` to the pane.
+    v.cur = (0, 2);
+    assert!(matches!(v.key(None, KeyCode::Enter, false), Did::Open(u) if u == "https://github.com/o/r/issues/7"));
+    let row = v.lines.iter().position(|l| l.to_string().contains("It panics.")).unwrap();
+    v.go(row, 0);
+    assert_eq!(v.cur, (row, 2)); // (its text, past the margin)
+    v.key(None, KeyCode::Char('w'), false);
+    assert_eq!(v.cur, (row, 5)); // "panics"
+    v.key(None, KeyCode::Char('x'), false);
+    assert!(matches!(v.key(None, KeyCode::Char('y'), false), Did::Copy(t) if t == "It panics."));
+    v.key(None, KeyCode::Tab, false);
+    assert!(v.cur.1 >= v.pane_x.unwrap());
     // Sideways over the description: its code, from its start.
     v.body = format!("```\n{}\n```\n\n| ab | cd |\n|---|---|\n| 1 | 2 |", "x".repeat(300));
     v.redraw();
