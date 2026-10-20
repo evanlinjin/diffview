@@ -493,6 +493,8 @@ impl IssueView {
         match (pending, k) {
             (_, KeyCode::Char('d')) if ctrl => self.go(row + half, col),
             (_, KeyCode::Char('u')) if ctrl => self.go(row.saturating_sub(half), col),
+            // Ctrl-h / Ctrl-l: to the description / the pane (as the PR view's sides).
+            (_, KeyCode::Char(c @ ('h' | 'l'))) if ctrl => self.go_side(c == 'l'),
             _ if ctrl => return Did::Not,
             (Some('g'), KeyCode::Char('g')) => self.go(0, col),
             (Some('g'), KeyCode::Char('e')) => self.go(usize::MAX, col),
@@ -511,13 +513,7 @@ impl IssueView {
                 let (r, x) = self.word(c != 'b', c == 'e');
                 self.go(r, x);
             }
-            (_, KeyCode::Tab) => {
-                // The other side, side by side: its text on this line (or the nearest above).
-                let Some(p) = self.pane_x else { return Did::Nothing };
-                let to = if self.side_of(col) == 0 { p } else { 0 };
-                self.cur.1 = to;
-                self.go(row, to);
-            }
+            (_, KeyCode::Tab) => self.go_side(self.side_of(col) == 0),
             (_, KeyCode::Char('v')) => {
                 (self.select, self.lines_sel) = (!self.select, false);
                 self.sel = self.select.then_some((self.cur, self.cur));
@@ -552,6 +548,14 @@ impl IssueView {
             _ => return Did::Not,
         }
         Did::Nothing
+    }
+
+    /// The cursor to the pane (`pane`) or the description, on its line (side by side).
+    fn go_side(&mut self, pane: bool) {
+        let Some(p) = self.pane_x else { return };
+        let to = if pane { p } else { 0 };
+        self.cur.1 = to;
+        self.go(self.cur.0, to);
     }
 
     /// Whether there's a selection to drop (`Esc` drops it before leaving).
@@ -644,10 +648,10 @@ MOVE
   h j k l, arrows      move the cursor (Helix's); w b e by word; gh gl the line's start / end
   Ctrl-d Ctrl-u        half a page down / up
   gg ge                top / end
-  Tab                  to the other side (the description, the pane)
+  Tab, Ctrl-h Ctrl-l   to the other side / the description / the pane
   v, x                 select from here; the line (again: the next too); ; drops it
   y                    copy what's selected
-  Enter                open the link under the cursor
+  Enter                open the link under the cursor (a PR or issue here: in dv)
   mouse                wheel scrolls (Shift or sideways: the code blocks); a drag copies
                        the text it's over (one side's)
   q, Esc               back to the issues
@@ -725,6 +729,10 @@ fn an_issue_and_its_triage() {
     v.key(None, KeyCode::Char('x'), false);
     assert!(matches!(v.key(None, KeyCode::Char('y'), false), Did::Copy(t) if t == "It panics."));
     v.key(None, KeyCode::Tab, false);
+    assert!(v.cur.1 >= v.pane_x.unwrap());
+    v.key(None, KeyCode::Char('h'), true); // Ctrl-h: the description
+    assert!(v.cur.1 < v.pane_x.unwrap());
+    v.key(None, KeyCode::Char('l'), true); // Ctrl-l: the pane
     assert!(v.cur.1 >= v.pane_x.unwrap());
     // `x` again: on through lines with no text (a bubble's frame), not dropping what it had.
     let row = v.lines.iter().position(|l| l.to_string().contains("Same here.")).unwrap();
