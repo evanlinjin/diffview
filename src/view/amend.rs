@@ -339,10 +339,19 @@ fn claude_messages(p: &Path, head: &str, commits: &[(String, String)]) -> Vec<(S
         .flatten()
         .filter_map(|c| {
             let m = c["message"].as_str()?.trim();
-            let sha = commits.iter().find(|k| c["sha"].as_str().is_some_and(|s| !s.is_empty() && k.0.starts_with(s)))?.0.clone();
-            (!m.is_empty()).then(|| (sha, m.to_owned()))
+            let (sha, old) = commits.iter().find(|k| c["sha"].as_str().is_some_and(|s| !s.is_empty() && k.0.starts_with(s)))?;
+            // Not a subject a later autosquash would take for its own; not the same subject
+            // with no body (nothing to change).
+            let squashy = ["fixup!", "amend!", "squash!"].iter().any(|p| m.starts_with(p));
+            let same = m.trim() == old.trim();
+            (!m.is_empty() && !squashy && !same).then(|| (sha.clone(), m.to_owned()))
         })
-        .collect()
+        .fold(vec![], |mut all: Vec<(String, String)>, m| {
+            if !all.iter().any(|a| a.0 == m.0) {
+                all.push(m); // (one each: the first)
+            }
+            all
+        })
 }
 
 impl App {
@@ -350,6 +359,13 @@ impl App {
     fn amend_file(&self) -> Option<std::path::PathBuf> {
         let p = self.claude.path.as_ref()?;
         Some(p.parent()?.parent()?.join("amend").join(p.file_name()?))
+    }
+
+    /// Claude's new messages for the commits that take changes (those that'd no longer fit).
+    fn amend_messages(&self, hunks: &[Hunk], commits: &[(String, String)]) -> Vec<(String, String)> {
+        let head = git_in(&self.root, &["rev-parse", "HEAD"]).map(|h| h.trim().to_owned()).unwrap_or_default();
+        let all = self.amend_file().map(|p| claude_messages(&p, &head, commits)).unwrap_or_default();
+        all.into_iter().filter(|m| hunks.iter().any(|h| h.to.as_deref() == Some(m.0.as_str()))).collect()
     }
 
     fn amend_plan(&self) -> Result<Plan> {
@@ -385,13 +401,16 @@ impl App {
         let moves: Vec<(String, String)> = lost
             .into_iter()
             .filter_map(|(url, sha)| {
-                let was = git_in(&self.root, &["log", "-1", "--format=%at%x09%s", &sha]).ok()?;
-                let (at, subject) = was.trim_end_matches('\n').split_once('\t')?;
-                let mut same = self.commits.iter().filter(|c| c.at == at && c.subject.trim() == subject.trim());
-                match (same.next(), same.next()) {
-                    (Some(c), None) => Some((url.clone(), url.replace(&sha, &c.sha))),
-                    _ => None,
-                }
+                let was = git_in(&self.root, &["log", "-1", "--format=%at%x09%ae%x09%s", &sha]).ok()?;
+                let mut f = was.trim_end_matches('\n').splitn(3, '\t');
+                let (at, email, subject) = (f.next()?, f.next()?, f.next()?);
+                let one = |v: Vec<&String>| (v.len() == 1).then(|| v[0].clone());
+                // The same date and subject; reworded (a new subject), the same date and author.
+                let dated = || self.commits.iter().filter(|c| c.at == at);
+                let by_subject = one(dated().filter(|c| c.subject.trim() == subject.trim()).map(|c| &c.sha).collect());
+                let email_of = |sha: &str| git_in(&self.root, &["log", "-1", "--format=%ae", sha]).is_ok_and(|e| e.trim() == email);
+                let to = by_subject.or_else(|| one(dated().filter(|c| email_of(&c.sha)).map(|c| &c.sha).collect()))?;
+                Some((url.clone(), url.replace(&sha, &to)))
             })
             .collect();
         if !moves.is_empty() && crate::claude::rename_conversations(&p, &moves).is_ok() {
@@ -425,6 +444,10 @@ impl App {
         if unplaced > 0 && !commits.is_empty() {
             items.push(Item::new(format!("Ask Claude where the other {unplaced} belong… (it answers here; nothing changes till you amend)"), Target::AmendAsk));
         }
+        // What Claude would reword, said before it's done.
+        for (sha, m) in self.amend_messages(&hunks, &commits) {
+            items.push(Item::new(format!("  ✎ {}  → new message: {}", subject(&sha), m.lines().next().unwrap_or("")), Target::Nothing));
+        }
         for h in &hunks {
             let label = match &h.to {
                 Some(t) => format!("  {}  → {}{}", h.place(), subject(t), if h.why == "blame" { String::new() } else { format!("  ({})", h.why) }),
@@ -456,9 +479,8 @@ impl App {
         let (hunks, commits) = self.amend_plan()?;
         let (short, backup) = self.backup_name()?;
         // Claude's new messages, for the commits that take changes (what they say then fits).
-        let head = git_in(&self.root, &["rev-parse", "HEAD"])?.trim().to_owned();
-        let messages: Vec<(String, String)> = self.amend_file().map(|p| claude_messages(&p, &head, &commits)).unwrap_or_default();
-        let messages: Vec<(&str, &str)> = messages.iter().filter(|m| hunks.iter().any(|h| h.to.as_deref() == Some(m.0.as_str()))).map(|m| (m.0.as_str(), m.1.as_str())).collect();
+        let messages = self.amend_messages(&hunks, &commits);
+        let messages: Vec<(&str, &str)> = messages.iter().map(|m| (m.0.as_str(), m.1.as_str())).collect();
         let (n, skipped, dropped) = amend(&self.root, &self.full_base, &hunks, &messages, &backup)?;
         // (By subject: the sha's gone.)
         let gone = match dropped.as_slice() {
@@ -469,7 +491,8 @@ impl App {
                 d.iter().map(|t| format!("\"{}\"", commits.iter().find(|c| c.0 == *t).map_or("?", |c| c.1.as_str()))).collect::<Vec<_>>().join(", "),
             ),
         };
-        let reworded = match messages.len() {
+        // (Those that went in: not skipped, nor dropped.)
+        let reworded = match messages.iter().filter(|m| !skipped.iter().any(|s| s.0 == m.0) && !dropped.iter().any(|d| d == m.0)).count() {
             0 => String::new(),
             k => format!(", {k} reworded by Claude"),
         };
@@ -570,8 +593,10 @@ pub(super) const AMEND_LABEL: &str = "placing changes in commits";
 #[test]
 fn claude_rewords_commits_that_take_changes() {
     let p = std::env::temp_dir().join(format!("dv-amend-msg-{}.json", std::process::id()));
-    std::fs::write(&p, r#"{"head": "h1", "commits": [{"sha": "aaaa1", "subject": "a", "message": "feat: a, and b\n\nBoth."}, {"sha": "bbbb2", "subject": "b"}]}"#).unwrap();
-    let commits = vec![("aaaa111".to_owned(), "a".to_owned()), ("bbbb222".to_owned(), "b".to_owned())];
+    std::fs::write(&p, r#"{"head": "h1", "commits": [{"sha": "aaaa1", "subject": "a", "message": "feat: a, and b\n\nBoth."},
+        {"sha": "aaaa", "message": "again"}, {"sha": "bbbb2", "subject": "b", "message": "fixup! a"}, {"sha": "cccc", "message": "c"}]}"#).unwrap();
+    // (One each; not one autosquash would take; not the same.)
+    let commits = vec![("aaaa111".to_owned(), "a".to_owned()), ("bbbb222".to_owned(), "b".to_owned()), ("cccc333".to_owned(), "c".to_owned())];
     assert_eq!(claude_messages(&p, "h1", &commits), [("aaaa111".to_owned(), "feat: a, and b\n\nBoth.".to_owned())]);
     assert!(claude_messages(&p, "h2", &commits).is_empty()); // (asked at another HEAD)
     _ = std::fs::remove_file(p);
