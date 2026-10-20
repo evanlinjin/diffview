@@ -530,7 +530,7 @@ impl Until {
             Until::Green
         } else if v.get("approved").is_some() {
             Until::Approved(s("approved"))
-        } else if let Some(n) = v["pushed_to"].as_u64().or_else(|| v["pushed"].as_u64()).or_else(|| v["pushed"].as_str()?.trim_start_matches('#').parse().ok()) {
+        } else if let Some(n) = v["pushed_to"].as_u64().or_else(|| v["pushed"].as_u64()).or_else(|| v["pushed"].as_str()?.strip_prefix('#')?.parse().ok()) {
             Until::PushedTo(n, s("head").unwrap_or_default()) // (Claude says `"pushed": N`)
         } else if v.get("pushed").is_some() {
             Until::Pushed(s("pushed").unwrap_or_default()) // (Claude says `true`: filled in as it's deferred)
