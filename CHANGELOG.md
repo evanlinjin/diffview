@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.55.1] - 2026-10-20
+
+### Fixed
+- Reading waits from comments:
+  - "Waiting for the review" (or your, code, maintainer review) waits for someone else's
+    review again;
+  - "**Blocked on** #12" reads;
+  - "Until it's updated, LGTM" doesn't end an older wait.
+
 ## [0.55.0] - 2026-10-20
 
 ### Added
