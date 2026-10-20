@@ -89,10 +89,14 @@ impl App {
     fn key_at(&self, row: usize) -> CursorKey {
         let Some(r) = self.rows.get(row) else { return CursorKey { line: None, thread: None, info: None, section: None, goes: None } };
         CursorKey {
-            // (A comment's row: the line it's on, should its thread go, as one posted does.)
-            line: self.files.get(r.file).map(|f| match r.thread.map(|t| &self.threads[t]) {
-                Some(th) if r.line.old.is_none() && r.line.new.is_none() => (f.path.clone(), th.line.filter(|_| th.left), th.line.filter(|_| !th.left)),
-                _ => (f.path.clone(), r.line.old, r.line.new),
+            // (The code line it's on, or under: a comment's, should its thread go, as one posted
+            // or deleted does, outdated or not.)
+            line: self.files.get(r.file).map(|f| {
+                let at = match r.thread {
+                    Some(_) => self.rows[..=row].iter().rev().find(|x| x.file == r.file && x.line.kind.is_code()),
+                    None => Some(r),
+                };
+                (f.path.clone(), at.and_then(|x| x.line.old), at.and_then(|x| x.line.new))
             }),
             thread: r.thread.and_then(|t| {
                 let first = self.rows.iter().position(|r| r.thread == Some(t))?;

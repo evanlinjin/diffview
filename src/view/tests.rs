@@ -3168,6 +3168,17 @@ fn a_thread_gone_leaves_the_cursor_on_its_line() {
     app.threads.remove(0);
     app.rebuild(keep);
     assert_eq!(app.rows[app.head.row].line.new, Some(12), "{:?}", app.rows[app.head.row].line.text);
+    // Outdated (no line of its own now, drawn where it was): the same.
+    let mut app = fixture();
+    (app.threads[0].outdated, app.threads[0].line) = (true, None);
+    app.build();
+    let r = app.rows.iter().position(|r| r.thread == Some(0)).unwrap();
+    let above = app.rows[..r].iter().rev().find(|x| x.line.kind.is_code()).map(|x| x.line.new);
+    app.goto(r, 0);
+    let keep = app.cursor_key();
+    app.threads.remove(0);
+    app.rebuild(keep);
+    assert_eq!(Some(app.rows[app.head.row].line.new), above);
 }
 
 #[test]
