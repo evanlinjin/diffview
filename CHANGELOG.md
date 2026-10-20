@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.61.0] - 2026-10-20
+
+### Added
+- An amend whose changes undo all a commit did drops that commit, where before the amend failed.
+  dv says which commits it dropped, and the backup branch keeps them. Claude, placing changes,
+  puts undoing changes in the commit they undo.
+
 ## [0.60.0] - 2026-10-20
 
 ### Added
