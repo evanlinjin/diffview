@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.64.1] - 2026-10-20
+
+### Fixed
+- A commit an amend drops (via `f`, `dv amend` or Claude) is recorded, so its questions don't
+  move onto another commit; `f` and `dv amend` say "dropped".
+- dv list: Claude's count says "on an older head" when it reviewed one (some may be
+  outdated), and says when a review file won't read.
+- A published replacement's Claude tab falls back to its own next step.
+
 ## [0.64.0] - 2026-10-20
 
 ### Added
