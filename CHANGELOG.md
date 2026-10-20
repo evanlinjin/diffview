@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.74.3] - 2026-10-20
+
+### Fixed
+- A deleted account shows as ghost everywhere (PR and issue lists, a PR's author, its
+  comments), not as a blank.
+
+### Changed
+- dv takes the terminal itself, with one panic hook of its own, set once.
+
 ## [0.74.2] - 2026-10-20
 
 ### Fixed
