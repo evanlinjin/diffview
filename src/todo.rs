@@ -574,7 +574,9 @@ impl Until {
                     (None, Some(_)) => return None, // (another PR's: for Claude to read)
                 }
             }
-            _ if has("review") => Until::Reviewed(who),
+            // Someone's review, or someone else's said so ("someone else reviews it"); not a time,
+            // another PR's, or the author's fixing what reviews said: for Claude to read.
+            _ if has("review") && (who.is_some() || num.is_none() && dur.is_none() && (has("someone") || has("anyone") || has("else"))) => Until::Reviewed(who),
             _ => Until::Time(now + dur?),
         })
     }
@@ -636,7 +638,11 @@ pub fn load_deferred(p: Option<&std::path::Path>) -> Deferred {
         .into_iter()
         .flatten()
         .filter_map(|(k, e)| {
-            let cond = e.get("cond").and_then(Until::from_json);
+            // (A condition this dv can't read, a later one's: not kept as one that's never met.)
+            let cond = match e.get("cond") {
+                Some(c) => Some(Until::from_json(c)?),
+                None => None,
+            };
             Some((k.clone(), Deferral { until: e["until"].as_i64()?, needs: e["needs"].as_str().unwrap_or("").to_owned(), cond, at: e["at"].as_i64().unwrap_or(0) }))
         })
         .filter(|(_, d)| d.until > now)
@@ -1072,6 +1078,11 @@ mod tests {
         assert_eq!(p("it's approved"), Some(Until::Approved(None)));
         assert_eq!(p("@bo reviews it"), Some(Until::Reviewed(Some("bo".into()))));
         assert_eq!(p("someone else reviews it"), Some(Until::Reviewed(None)));
+        assert_eq!(p("anyone reviews it"), Some(Until::Reviewed(None)));
+        assert_eq!(p("review it in 2 days"), Some(Until::Time(now + 2 * 86400)));
+        for t in ["the review comments are fixed", "#12 is reviewed", "review again next week"] {
+            assert_eq!(p(t), None, "{t}"); // Claude's to read
+        }
         assert_eq!(Until::from_json(&json!({ "reviewed": null })), Some(Until::Reviewed(None)));
         assert_eq!(Until::from_json(&json!({ "none": "why" })), None);
         assert_eq!(p("3h"), Some(Until::Time(now + 3 * 3600)));
