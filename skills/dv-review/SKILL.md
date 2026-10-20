@@ -355,6 +355,8 @@ Asked to triage issue #N, reply with its triage, only a JSON object (dv keeps it
 - `title`: a clearer title, only when the one it has misleads or says too little; else empty.
 - `next`: what should happen next, in a few words (a repro from the author, ready to work on,
   review #N, needs a decision).
+- PRs linked as fixing it (the prompt names them): a merged one may not fix it (only part of it,
+  or merged to another branch). Check the code on the base branch before saying to close it.
 - `close`: only when it should be closed, why in a few words ("duplicate of #12", "fixed by
   #40", "answered", "won't fix: out of scope", "stale: no repro since March"); `closing`: a
   comment to close it with, for the user to edit; `reason`: how it closes, `completed` (fixed,

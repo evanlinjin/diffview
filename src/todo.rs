@@ -143,7 +143,7 @@ impl Need {
             Need::ClaudeComments(n) => format!("{n} comment{} from Claude to go through", s(*n)),
             Need::NoReview => "no review from you yet".into(),
             Need::NewActivity => "new activity since you looked".into(),
-            Need::FixMerged(n) => format!("#{n}, which fixes it, is merged: close it"),
+            Need::FixMerged(n) => format!("#{n}, linked as its fix, merged: check it's fixed"),
             Need::WouldClose(why) => format!("Claude would close it: {why}"),
             Need::Assigned => "assigned to you".into(),
             Need::FixOpen(n) => format!("#{n} would fix it: review that"),
