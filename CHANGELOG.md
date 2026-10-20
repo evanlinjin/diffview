@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.75.4] - 2026-10-20
+
+### Fixed
+- Claude's `dv review-*` read the PR from the cache its view keeps current (fetched again as
+  the PR changes: a push, a rebase), not a copy of its own that nothing refreshed, which could
+  give them an old head or base for 15 minutes. `dv rerun-failed` asks GitHub for the head.
+  `DV_PR` counts only while the checkout is still on that PR's branch.
+
 ## [0.75.3] - 2026-10-20
 
 ### Changed
