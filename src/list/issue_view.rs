@@ -160,18 +160,26 @@ pub struct IssueView {
 impl IssueView {
     /// Issue `n` from GitHub, with its triage from `dir` (the reviews' directory).
     pub fn load(n: u64, dir: Option<&std::path::Path>, can_triage: bool) -> Result<IssueView> {
-        let v: Value = gh::gh_json(&["issue", "view", &n.to_string(), "--json", "number,title,author,url,body,labels"])?;
-        // Its timeline: comments, and what else happened (labels, who has it, what mentions it).
-        // (All of it, a page at a time: ponytail, 10 pages, 1,000 at most.)
-        let q = format!("query($owner: String!, $name: String!, $n: Int!, $after: String) {{ repository(owner: $owner, name: $name) {{ issue(number: $n) {{ {ISSUE_TIMELINE} }} }} }}");
-        let (mut nodes, mut after) = (vec![], None::<String>);
+        // The issue, and its timeline: comments, and what else happened (labels, who has it,
+        // what mentions it), in one query. (All of it, a page at a time: ponytail, 10 pages,
+        // 1,000 at most.)
+        let q = format!(
+            "query($owner: String!, $name: String!, $n: Int!, $after: String) {{ repository(owner: $owner, name: $name) {{ issue(number: $n) {{ \
+             title url body author {{ login }} labels(first: 100) {{ nodes {{ name color }} }} {ISSUE_TIMELINE} }} }} }}"
+        );
+        let (mut nodes, mut after, mut v) = (vec![], None::<String>, Value::Null);
         for _ in 0..10 {
             let mut args = vec!["api".to_owned(), "graphql".into(), "-F".into(), "owner={owner}".into(), "-F".into(), "name={repo}".into(), "-F".into(), format!("n={n}"), "-f".into(), format!("query={q}")];
             if let Some(a) = &after {
                 args.extend(["-f".into(), format!("after={a}")]);
             }
             let t: Value = gh::gh_json(&args.iter().map(String::as_str).collect::<Vec<_>>())?;
-            let page = &t["data"]["repository"]["issue"]["timelineItems"];
+            let issue = &t["data"]["repository"]["issue"];
+            anyhow::ensure!(issue.is_object(), "no issue #{n} here");
+            if v.is_null() {
+                v = issue.clone();
+            }
+            let page = &issue["timelineItems"];
             nodes.extend(page["nodes"].as_array().cloned().unwrap_or_default());
             match page["pageInfo"]["endCursor"].as_str().filter(|_| page["pageInfo"]["hasNextPage"] == true) {
                 Some(c) => after = Some(c.to_owned()),
@@ -189,7 +197,7 @@ impl IssueView {
             author: s(&v["author"]["login"]),
             url: s(&v["url"]),
             body: s(&v["body"]).replace("\r\n", "\n"),
-            labels: v["labels"].as_array().into_iter().flatten().map(|l| (s(&l["name"]), s(&l["color"]))).collect(),
+            labels: v["labels"]["nodes"].as_array().into_iter().flatten().map(|l| (s(&l["name"]), s(&l["color"]))).collect(),
             activity: acts(&nodes, url_repo(&s(&v["url"]))),
             triage,
             scroll: [0; 2],
