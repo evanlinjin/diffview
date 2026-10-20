@@ -5,6 +5,17 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.77.0] - 2026-10-20
+
+### Changed
+- Key hints go in the corner where they cover the least (bottom right first), and never over
+  the cursor: in a PR's view, an issue's, and dv list's and the issues list's (off the
+  selected card).
+
+### Fixed
+- The issues list's close tab has the issues whose fixing PR merged, as its todo tab says to
+  close them (it counted only what Claude's triage would close).
+
 ## [0.76.0] - 2026-10-20
 
 ### Added
