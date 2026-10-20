@@ -612,8 +612,11 @@ impl App {
                 _ => st,
             };
             let mut spans = vec![Span::styled(if i == sel { "▌" } else { " " }, st.patch(ui.key))];
+            // (Chosen: in the row's colors, as its text, so nothing on it is lost in the tint.
+            // A space after the icon: a Nerd Font's are drawn wider than their cell.)
             if icons {
-                spans.push(Span::styled(format!("{icon} "), st.fg(color.unwrap_or(Color::Reset))));
+                let icon_st = if i == sel { st } else { st.fg(color.unwrap_or(Color::Reset)) };
+                spans.push(Span::styled(format!("{icon}  "), icon_st));
             }
             // What the filter matched lit (where `matches` finds it); what's in the label's last
             // parentheses dimmed: what the item is, said first.
@@ -627,7 +630,7 @@ impl App {
             }
             let note = aside(&item.label);
             spans.extend(label.iter().enumerate().map(|(k, c)| {
-                let base = if k >= note { st.patch(ui.stale) } else { st };
+                let base = if k >= note && i != sel { st.patch(ui.stale) } else { st };
                 Span::styled(c.to_string(), if hit[k] { base.patch(ui.key) } else { base })
             }));
             lines.push((Line::from(spans).style(st), Some(i)));
@@ -729,7 +732,7 @@ impl App {
     }
 }
 
-/// A popup as zellij floats a pane: the theme's popup background in a rounded border, the
+/// A popup as zellij floats a pane: the window's background in a rounded border, the
 /// title set in its top (`pos` at its right). Returns the area inside, a column in from each
 /// side. (dv list's too.)
 pub(crate) fn popup_frame(ui: &Ui, f: &mut Frame, r: Rect, title: &str, pos: &str) -> Rect {
@@ -745,7 +748,7 @@ pub(crate) fn popup_frame(ui: &Ui, f: &mut Frame, r: Rect, title: &str, pos: &st
     let mut block = Block::bordered()
         .border_type(ratatui::widgets::BorderType::Rounded)
         .border_style(edge)
-        .style(ui.base.patch(ui.popup))
+        .style(ui.base)
         .title(Span::styled(format!(" {title} "), ui.key));
     if !pos.is_empty() {
         block = block.title(ratatui::text::Line::from(Span::styled(format!(" {pos} "), ui.linenr)).right_aligned());
