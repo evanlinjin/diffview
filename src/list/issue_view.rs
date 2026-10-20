@@ -182,8 +182,21 @@ impl IssueView {
                     // (Its links' columns, as drawn: chars to columns, less what's scrolled.)
                     let col = |c: usize| Span::raw(l.text.chars().take(c).collect::<String>()).width().saturating_sub(by);
                     let links: Links = l.links.iter().map(|(s, e, u)| (col(*s)..col(*e), u.clone())).filter(|(r, _)| !r.is_empty()).collect();
+                    let wide = Span::raw(l.text.as_str()).width();
+                    let nowrap = l.nowrap;
                     let mut line = l.into_line();
                     line.spans = crate::view::skip_cols(line.spans, by);
+                    // Cut where it's shown, `‹` / `›` where there's more to scroll to.
+                    if nowrap && wide > seen {
+                        let more = Style::new().fg(ui.linenr.fg.unwrap_or(ratatui::style::Color::DarkGray));
+                        if wide - by > seen {
+                            line.spans = super::card::cut_spans(std::mem::take(&mut line.spans), seen.saturating_sub(1));
+                            line.spans.push(Span::styled("›", more));
+                        }
+                        if let Some(first) = line.spans.first_mut().filter(|_| by > 0) {
+                            *first = Span::styled("‹", first.style.patch(more));
+                        }
+                    }
                     if let Some(bg) = code {
                         line.spans.push(Span::styled(" ".repeat(w.saturating_sub(line.width())), Style::new().bg(bg)));
                     }
@@ -711,6 +724,9 @@ fn an_issue_and_its_triage() {
     v.mouse(MouseEventKind::ScrollRight, 2, 0);
     let _ = screen(160, 22, |f| v.draw(f, &ui, f.area()));
     assert_eq!(v.code_left, [8, 0]);
+    // (Cut both ways now: `‹` and `›` say there's more.)
+    let code = v.lines.iter().map(|l| l.to_string()).find(|l| l.contains("xxx")).unwrap();
+    assert!(code.contains("  ‹x") && code.contains("x›"), "{code}");
     // (The table beside it fits: it stays put.)
     assert!(v.lines.iter().any(|l| l.to_string().contains("ab │ cd")), "{:?}", v.lines.iter().map(|l| l.to_string()).collect::<Vec<_>>());
     v.mouse(MouseEventKind::ScrollLeft, 2, 0);

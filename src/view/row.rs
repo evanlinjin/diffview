@@ -298,8 +298,10 @@ impl App {
         if cursor_here && self.head.col >= n.max(skip) {
             spans.push(Span::styled(" ", if self.select { ui.cursor_select } else { ui.cursor }));
         }
-        // A code line cut by its box: `‹` / `›` where there's more (not over the cursor).
-        if row.nowrap && part.is_some() && spans.len() > g {
+        // A line cut, a diff's by the window or code by its box: `‹` / `›` where there's more,
+        // to scroll to (not over the cursor).
+        let title = r == 0 && self.pin; // (not scrolled: its own line)
+        if (row.nowrap || part.is_none()) && !title && spans.len() > g {
             let more = Style::new().fg(ui.linenr.fg.unwrap_or(Color::DarkGray));
             let mark = |sp: &mut Span<'static>, c: &str, at: usize| {
                 if !(cursor_here && self.head.col == at) {
