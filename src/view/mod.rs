@@ -59,7 +59,7 @@ mod term;
 mod threads;
 pub use term::{MOUSE, clipboard, init_terminal, restore_terminal};
 pub(crate) use term::{compose_with, in_zellij};
-pub(crate) use github::{prefetch_github, recent_threads};
+pub(crate) use github::{prefetch_github, recent_github};
 pub(crate) use render::{chip, popup_frame};
 use {agent::ClaudeState, git::with_reload, keys::*, layout::*, motion::*, ra::*, seen::Seen, threads::*};
 use term::*;

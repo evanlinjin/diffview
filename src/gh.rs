@@ -180,21 +180,10 @@ pub fn checkout(n: u64, force: bool, detach: bool) -> Result<()> {
 /// The PR `n`, or the PR for the current branch.
 pub fn pr(n: Option<u64>) -> Result<Pr> {
     let n = n.map(|n| n.to_string());
-    let mut args = vec!["pr", "view", "--json", "number,title,url,baseRefName,headRefOid,baseRefOid,headRefName,headRepositoryOwner,author,isCrossRepository,headRepository,maintainerCanModify"];
+    let mut args = vec!["pr", "view", "--json", PR_FIELDS];
     args.extend(n.as_deref());
     let v: Value = gh_json(&args)?;
-    let pr = pr_of(&v)?;
-    // Kept, for dv's commands Claude runs (`pr_recent`).
-    if let Some(p) = pr_cache(pr.number) {
-        _ = p.parent().map(std::fs::create_dir_all);
-        _ = crate::claude::write(&p, &v);
-    }
-    Ok(pr)
-}
-
-/// Where `pr` keeps PR `n` as GitHub last gave it.
-fn pr_cache(n: u64) -> Option<std::path::PathBuf> {
-    Some(crate::claude::dv_dir().ok()?.join("cache").join(format!("pr-{n}-pr.json")))
+    pr_of(&v)
 }
 
 /// How long what dv last fetched of a PR stands in for asking GitHub again, in dv's commands
@@ -206,13 +195,21 @@ pub(crate) fn recent(p: &std::path::Path) -> bool {
     std::fs::metadata(p).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age < RECENT)
 }
 
-/// PR `n` as `pr` last fetched it, if that was recent (`RECENT`).
-pub fn pr_recent(n: u64) -> Option<Pr> {
-    let p = pr_cache(n).filter(|p| recent(p))?;
-    pr_of(&serde_json::from_str(&std::fs::read_to_string(p).ok()?).ok()?).ok()
+/// What `pr_of` reads.
+const PR_FIELDS: &str = "number,title,url,baseRefName,headRefOid,baseRefOid,headRefName,headRepositoryOwner,author,isCrossRepository,headRepository,maintainerCanModify";
+
+#[test]
+fn a_pr_from_its_info() {
+    // dv's cache of a PR's info stands in for `pr` (`view::recent_github`): it has all `pr_of` reads.
+    for f in PR_FIELDS.split(',') {
+        assert!(INFO_FIELDS.split(',').any(|i| i == f), "{f}");
+    }
+    let p = pr_of(&serde_json::json!({ "number": 3, "baseRefOid": "b", "headRefName": "x", "author": { "login": "a" } })).unwrap();
+    assert_eq!((p.number, p.base_oid.as_str(), p.head_branch.as_str(), p.author.as_str()), (3, "b", "x", "a"));
 }
 
-fn pr_of(v: &Value) -> Result<Pr> {
+/// The PR in `v`: `gh pr view`'s JSON, `pr`'s or `info_json`'s (`INFO_FIELDS` has all it reads).
+pub(crate) fn pr_of(v: &Value) -> Result<Pr> {
     Ok(Pr {
         number: v["number"].as_u64().context("pr number")?,
         node_id: String::new(),
@@ -859,7 +856,7 @@ pub fn unsigned_blocking(n: u64) -> Result<Option<String>> {
     }))
 }
 
-const INFO_FIELDS: &str = "headRefOid,title,author,state,isDraft,url,baseRefName,headRefName,additions,deletions,\
+const INFO_FIELDS: &str = "number,baseRefOid,headRepositoryOwner,isCrossRepository,headRepository,maintainerCanModify,headRefOid,title,author,state,isDraft,url,baseRefName,headRefName,additions,deletions,\
 changedFiles,labels,assignees,reviewDecision,reviewRequests,latestReviews,statusCheckRollup,body,id,mergeable";
 
 /// What GitHub couldn't say this time (`new`) but did before (`old`, as dv kept it), kept: its

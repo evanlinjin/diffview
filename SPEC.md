@@ -96,9 +96,10 @@ disk: rust-analyzer can index it and `hx` can open it.
    place it; warnings: GitHub won't take it, more than 3 lines from a change, or it's outdated).
    `review-check` also records each comment's `code` (the commented lines' text) and moves
    comments whose code moved. Run by a Claude dv started on a PR (`DV_PR=<n>` in its
-   environment), `dv review-*` take the PR, and `review-comments` its threads, from what dv
-   fetched of it in the last 15 minutes (`cache/` in dv's directory), not GitHub again for
-   each of a review's many checks. dv does the same on every load, keeping comments on their code
+   environment; while the checkout is on its branch), `dv review-info`, `review-check` and
+   `review-comments` take the PR and its threads from what dv fetched of them in the last 15
+   minutes (`cache/pr-N.json` in dv's directory, which the PR's view fetches again as it
+   changes), not GitHub again for each of a review's many checks; `rerun-failed` asks GitHub. dv does the same on every load, keeping comments on their code
    through new commits and edits (Claude's or yours); a comment whose code is gone is
    `[outdated]`: folded, dimmed, showing that code, placed near its old line (or under the file
    header), and `c`/`C` refuse it. dv shows the

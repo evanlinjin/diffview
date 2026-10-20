@@ -31,12 +31,13 @@ pub(super) fn fetch_github(n: u64, cache: Option<&Path>) -> Fetched {
     (threads.map(|t| gh::parse_threads(&t)), info.map(|i| parse_info(&i)))
 }
 
-/// PR `n`'s review threads as dv last fetched them, if that was recent (`gh::RECENT`): for
-/// `dv review-comments`, which Claude runs.
-pub(crate) fn recent_threads(n: u64) -> Option<Value> {
+/// PR `n` (`gh::Pr`) and its review threads (as `threads_json`) as dv last fetched them, if
+/// that was recent (`gh::RECENT`; its view's watcher fetches them again as they change): for
+/// `dv review-*`, which Claude runs.
+pub(crate) fn recent_github(n: u64) -> Option<(gh::Pr, Value)> {
     let p = cache_path(n).filter(|p| gh::recent(p))?;
     let v: Value = serde_json::from_str(&std::fs::read_to_string(p).ok()?).ok()?;
-    Some(v["threads"].clone()).filter(|t| !t.is_null())
+    Some((gh::pr_of(&v["info"]).ok()?, v["threads"].clone()))
 }
 
 /// Where the PR's last answers from GitHub are kept, to show at once next time.

@@ -438,18 +438,25 @@ fn diff_base(o: &Opts, pr: Option<&gh::Pr>) -> anyhow::Result<String> {
 
 /// `dv review-info` / `dv review-check`, for the current checkout (or PR `-p N`), no checkout.
 fn review_file(cmd: &str, o: &Opts) -> anyhow::Result<()> {
-    // The PR dv ran Claude on (`DV_PR`): as dv last fetched it, if lately, not GitHub again
-    // for each of a review's many checks.
-    let n = o.pr.or_else(|| std::env::var("DV_PR").ok()?.parse().ok());
-    let pr = n.and_then(gh::pr_recent).map_or_else(|| gh::pr(n).ok(), Some);
-    if cmd == "review-comments" {
-        return review_comments(pr.as_ref());
-    }
-    // (Claude may run this when fixing CI, not `gh run rerun`: that could rerun anything.)
+    // (Claude may run this when fixing CI, not `gh run rerun`: that could rerun anything. On
+    // the head as GitHub has it now.)
     if cmd == "rerun-failed" {
-        let p = pr.context("no PR here (dv rerun-failed -p N for PR N)")?;
+        let p = gh::pr(o.pr).ok().context("no PR here (dv rerun-failed -p N for PR N)")?;
         println!("{}", gh::rerun_failed(&p.head_oid)?);
         return Ok(());
+    }
+    // The PR dv ran Claude on (`claude::PR_ENV`), while this checkout is still on it, or the one
+    // named: as dv last fetched it and its threads, if lately (not GitHub again for each of a
+    // review's many checks), else from GitHub.
+    let theirs = |p: &gh::Pr| diff::git(&["symbolic-ref", "-q", "--short", "HEAD"]).map_or(true, |b| b.trim() == p.head_branch);
+    let dv_pr = std::env::var(claude::PR_ENV).ok().and_then(|n| n.parse().ok());
+    let cached = o.pr.or(dv_pr).and_then(view::recent_github).filter(|(p, _)| o.pr.is_some() || theirs(p));
+    let (pr, threads) = match cached {
+        Some((p, t)) => (Some(p), Some(t)),
+        None => (gh::pr(o.pr).ok(), None),
+    };
+    if cmd == "review-comments" {
+        return review_comments(pr.as_ref(), threads);
     }
     let path = claude::path(pr.as_ref().map(|p| p.number))?;
     let base = diff_base(o, pr.as_ref())?;
@@ -484,13 +491,9 @@ fn review_file(cmd: &str, o: &Opts) -> anyhow::Result<()> {
 
 /// `dv review-comments`: the PR's review threads on GitHub as JSON, for Claude to read (and
 /// answer, with `"about": <id>` on a comment of its own). Read only.
-fn review_comments(pr: Option<&gh::Pr>) -> anyhow::Result<()> {
+fn review_comments(pr: Option<&gh::Pr>, threads: Option<serde_json::Value>) -> anyhow::Result<()> {
     let p = pr.context("no PR here (dv review-comments -p N for PR N)")?;
-    let threads = match view::recent_threads(p.number) {
-        Some(t) => t,
-        None => gh::threads_json(p.number)?,
-    };
-    let review = gh::parse_threads(&threads);
+    let review = gh::parse_threads(&threads.map_or_else(|| gh::threads_json(p.number), Ok)?);
     let threads: Vec<serde_json::Value> = review
         .threads
         .iter()

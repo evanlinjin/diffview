@@ -270,6 +270,10 @@ pub(crate) fn path_for_claude() -> std::ffi::OsString {
     std::env::join_paths(own.into_iter().chain(rest)).unwrap_or_default()
 }
 
+/// The PR a Claude dv runs is on, in its environment: `dv review-*` read what dv has of it
+/// lately, not GitHub again for each check.
+pub(crate) const PR_ENV: &str = "DV_PR";
+
 /// `XDG_DATA_HOME=…` as dv has it (set, or its default): where its review files are, whatever
 /// the pane's environment says.
 pub(crate) fn data_env() -> Option<std::ffi::OsString> {
