@@ -475,6 +475,16 @@ pub enum Until {
 }
 
 impl Until {
+    /// A push from no known head: nothing to tell it by (it'd wait forever).
+    pub fn unwatchable(&self) -> bool {
+        matches!(self, Until::Pushed(h) | Until::PushedTo(_, h) if h.is_empty())
+    }
+
+    /// Whether a PR's head `now` has moved on from `head` (a push since).
+    pub fn moved_past(head: &str, now: &str) -> bool {
+        !head.is_empty() && !now.is_empty() && !now.starts_with(head)
+    }
+
     pub fn says(&self) -> String {
         match self {
             Until::Time(t) => format!("in {}", in_secs(t - crate::claude::now_secs())),
@@ -501,7 +511,7 @@ impl Until {
             Until::Approved(who) => json!({ "approved": who }),
             Until::Reviewed(who) => json!({ "reviewed": who }),
             Until::Pushed(head) => json!({ "pushed": head }),
-            Until::PushedTo(n, head) => json!({ "pushed": n, "head": head }),
+            Until::PushedTo(n, head) => json!({ "pushed_to": n, "head": head }),
         }
     }
 
@@ -520,8 +530,8 @@ impl Until {
             Until::Green
         } else if v.get("approved").is_some() {
             Until::Approved(s("approved"))
-        } else if let Some(n) = v["pushed"].as_u64() {
-            Until::PushedTo(n, s("head").unwrap_or_default()) // (Claude: a PR's number)
+        } else if let Some(n) = v["pushed_to"].as_u64().or_else(|| v["pushed"].as_u64()).or_else(|| v["pushed"].as_str()?.trim_start_matches('#').parse().ok()) {
+            Until::PushedTo(n, s("head").unwrap_or_default()) // (Claude says `"pushed": N`)
         } else if v.get("pushed").is_some() {
             Until::Pushed(s("pushed").unwrap_or_default()) // (Claude says `true`: filled in as it's deferred)
         } else if v.get("reviewed").is_some() {
@@ -602,7 +612,7 @@ impl Until {
 /// whichever comes first ("until #2258 gets a push, or 2 weeks").
 pub fn or_time(text: &str, now: i64) -> (String, Option<i64>) {
     let t = text.trim();
-    let lower = t.to_lowercase();
+    let lower = t.to_ascii_lowercase(); // (its byte offsets are `t`'s)
     match lower.rfind(" or ").and_then(|i| Some((i, Until::parse_one(&lower[i + 4..], None, now)?))) {
         Some((i, Until::Time(at))) => (t[..i].trim_end_matches([',', ' ']).to_owned(), Some(at)),
         _ => (t.to_owned(), None),
@@ -654,7 +664,7 @@ pub fn waiting_on(said: &[(String, String, i64)], now: i64) -> Option<(Until, St
             let review = head.is_some_and(|w| w.starts_with("review")) && !ws.iter().any(|w| w.starts_with("comment")) && !rest.contains(['#', '@']);
             let c = bare.map(Until::Merged).or_else(|| Until::parse(rest, now)).or_else(|| review.then_some(Until::Reviewed(None)));
             // (A push from no known head: nothing to tell it by.)
-            let c = c.filter(|c| *c != Until::Pushed(String::new()));
+            let c = c.filter(|c| !c.unwatchable());
             // The newest marker says it, read or not (not an older one); a bare "until" is often
             // just prose ("Until then, LGTM"): only if it reads.
             match c {
@@ -1118,6 +1128,11 @@ mod tests {
         let u = Until::PushedTo(7, "abc1234".into());
         assert_eq!(Until::from_json(&u.to_json()), Some(u));
         assert_eq!(Until::from_json(&json!({ "pushed": 9 })), Some(Until::PushedTo(9, String::new()))); // Claude's
+        assert_eq!(Until::from_json(&json!({ "pushed": "#9" })), Some(Until::PushedTo(9, String::new())));
+        assert_eq!(or_time("İİİİİİİİİİİİİİ or 1h", now).1, Some(now + 3600)); // (not a panic)
+        // Another PR's push, from no known head: not a wait (it'd never end).
+        let c = |who: &str, body: &str| (who.to_owned(), body.to_owned(), 0);
+        assert_eq!(waiting_on(&[c("me", "Waiting on #2258 to be updated")], now), None);
     }
 
     #[test]

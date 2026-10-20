@@ -994,16 +994,22 @@ impl Issues {
         (self.pending, self.deferring) = (Some('s'), Some(it.key()));
     }
 
-    /// Whether what an issue's deferral waits for has happened: a fix PR (any issue's) merged,
-    /// closed, or pushed to past the commit it was at.
+    /// Whether what an issue's deferral waits for has happened: its fix PR merged, closed,
+    /// or pushed to past the commit it was at (a push: or no more to come, merged or closed).
+    /// One no listed issue has as a fix any more (its issue closed with it): over.
     fn happened(&self, c: &crate::todo::Until) -> bool {
         use crate::todo::Until;
-        let pr = |n: u64| self.items.iter().flat_map(|i| &i.fixed_by).find(|p| p.0 == n);
+        let Some(n) = (match c {
+            Until::Merged(n) | Until::Closed(n) | Until::PushedTo(n, _) => Some(*n),
+            _ => None,
+        }) else {
+            return false;
+        };
+        let Some(p) = self.items.iter().flat_map(|i| &i.fixed_by).find(|p| p.0 == n) else { return self.started };
         match c {
-            Until::Merged(n) => pr(*n).is_some_and(|p| p.1 == "MERGED"),
-            Until::Closed(n) => pr(*n).is_some_and(|p| p.1 == "MERGED" || p.1 == "CLOSED"),
-            Until::PushedTo(n, head) => pr(*n).is_some_and(|p| !head.is_empty() && !p.2.is_empty() && !p.2.starts_with(head.as_str())),
-            Until::Time(t) => crate::claude::now_secs() >= *t,
+            Until::Merged(_) => p.1 == "MERGED",
+            Until::Closed(_) => p.1 != "OPEN",
+            Until::PushedTo(_, head) => Until::moved_past(head, &p.2) || p.1 != "OPEN",
             _ => false,
         }
     }
@@ -1022,6 +1028,7 @@ impl Issues {
                     true => format!("issue #{n} (no PR fixes it yet)"),
                     false => format!("issue #{n} (the PRs fixing it: {}; \"the author\" is theirs)", fixes.join(", ")),
                 };
+                let about = format!("{about}; for an issue only a fix PR merged, closed or pushed to, or a time, apply");
                 self.msg = "Claude is reading when you mean…".into();
                 self.until_rx = Some((key, or, crate::todo::interpret(text, about, self.root.clone())));
             }
@@ -1042,9 +1049,13 @@ impl Issues {
         let c = match c {
             Until::Pushed(_) if open.len() == 1 => Until::PushedTo(open[0].0, open[0].2.clone()),
             Until::Pushed(_) => return self.msg = format!("not deferred: whose push? #{} has {} open fix PRs (say which: \"#N gets a push\")", it.number, open.len()),
-            Until::PushedTo(n, _) => match self.items.iter().flat_map(|i| &i.fixed_by).find(|p| p.0 == n && !p.2.is_empty()) {
-                Some(p) => Until::PushedTo(n, p.2.clone()),
-                None => return self.msg = format!("not deferred: #{n} isn't a PR fixing an issue here, to see a push to"),
+            // (Its own fix PRs': what dv sees of a PR here.)
+            Until::PushedTo(n, _) | Until::Merged(n) | Until::Closed(n) if !self.fixes(it.number).iter().any(|p| p.0 == n) => {
+                return self.msg = format!("not deferred: #{n} isn't a PR fixing #{}, which dv could watch", it.number);
+            }
+            Until::PushedTo(n, _) => match self.fixes(it.number).into_iter().find(|p| p.0 == n && !p.2.is_empty()) {
+                Some(p) => Until::PushedTo(n, p.2),
+                None => return self.msg = format!("not deferred: #{n}'s head isn't known, to see a push by"),
             },
             c @ (Until::Merged(_) | Until::Closed(_) | Until::Time(_)) => c,
             c => return self.msg = format!("not deferred: an issue can't wait until {} (a fix PR merging, closing or getting a push, or a time)", c.says()),
@@ -1378,6 +1389,9 @@ fn issues_listed_triaged_filtered() {
     l.items[0].fixed_by[0].2 = "h10".into();
     l.find_todo();
     assert!(l.todo.iter().find(|it| it.number == 7).unwrap().deferred.is_none() && l.msg.starts_with("#7 is back"), "{}", l.msg);
+    // A PR that doesn't fix it: dv wouldn't see it.
+    l.defer_until(key.clone(), "#99 is merged");
+    assert!(l.msg.starts_with("not deferred: #99 isn't a PR fixing #7"), "{}", l.msg);
     // What an issue can't wait for: said so.
     l.defer_until(key, "@bo approves");
     assert!(l.msg.starts_with("not deferred: an issue can't wait until @bo approves it"), "{}", l.msg);

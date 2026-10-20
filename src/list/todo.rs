@@ -76,7 +76,7 @@ impl List {
             // A comment's word, else what Claude saw in the conversation when it ranked.
             let claude = self.ranked.as_ref().and_then(|r| r.waits.get(&it.key())).map(|c| (c.clone(), String::new()));
             // (A push from no known head: nothing to tell it by.)
-            let claude = claude.filter(|(c, _)| *c != todo::Until::Pushed(String::new()));
+            let claude = claude.filter(|(c, _)| !c.unwatchable());
             // (A review since it was said: the comment's, or since Claude ranked.)
             let (waits, since) = match todo::waiting_on(said, now) {
                 Some((c, who, at)) => (Some((c, who)), at),
@@ -454,8 +454,11 @@ impl List {
             todo::Until::Reviewed(Some(who)) => reviews.iter().any(|r| &r.0 == who),
             // (Someone else: not you, nor its author answering in a review.)
             todo::Until::Reviewed(None) => reviews.iter().any(|r| r.0 != self.me && pr.is_some_and(|p| r.0 != p.author)),
-            todo::Until::PushedTo(n, head) => self.extra.get(n).is_some_and(|e| !head.is_empty() && !e.head_oid.is_empty() && !e.head_oid.starts_with(head.as_str())),
-            todo::Until::Pushed(head) => extra.is_some_and(|e| !head.is_empty() && !e.head_oid.is_empty() && !e.head_oid.starts_with(head.as_str())),
+            // (Or no more pushes to come: merged, closed.)
+            todo::Until::PushedTo(n, head) => {
+                self.extra.get(n).is_some_and(|e| todo::Until::moved_past(head, &e.head_oid)) || state(*n).is_some_and(|s| s != "OPEN")
+            }
+            todo::Until::Pushed(head) => extra.is_some_and(|e| todo::Until::moved_past(head, &e.head_oid)),
         }
     }
 
@@ -543,7 +546,7 @@ impl List {
             .deferred
             .values()
             .filter_map(|d| match d.cond {
-                Some(todo::Until::Merged(n) | todo::Until::Closed(n)) => Some(n),
+                Some(todo::Until::Merged(n) | todo::Until::Closed(n) | todo::Until::PushedTo(n, _)) => Some(n),
                 _ => None,
             })
             .filter(|n| !self.prs.iter().any(|p| p.number == *n) && !self.others_pending.contains(n))
