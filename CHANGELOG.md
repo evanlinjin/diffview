@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.74.5] - 2026-10-20
+
+### Fixed
+- Split view with the comment pane floating: the cursor stays clear of a comment over the
+  right half, as it does in the unified view.
+- Tabs and wide characters (CJK, emoji): sideways scrolling, clicks and the link tip count
+  the columns they take, so the cursor stays on screen on a line of them.
+- Stalled tab: a maintainer's rebase of the author's commits isn't the author's word.
+- Amends in two dvs at once both keep their record of the commits they dropped.
+
 ## [0.74.4] - 2026-10-20
 
 ### Fixed
