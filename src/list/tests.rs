@@ -629,25 +629,33 @@ fn closed_worktree_prs_looked_up_in_the_background() {
 #[test]
 fn stalled_when_the_author_leaves_feedback_unanswered() {
     let t = |d: &str| format!("2026-10-{d}T00:00:00Z");
-    let pr = |comments: serde_json::Value| {
+    let review = |who: &str, state: &str, d: &str, assoc: &str| serde_json::json!({ "author": { "login": who }, "authorAssociation": assoc, "state": state, "submittedAt": t(d) });
+    let pr = |comments: serde_json::Value, more: Vec<serde_json::Value>| {
+        let mut reviews = vec![review("bo", "CHANGES_REQUESTED", "02", "MEMBER")];
+        reviews.extend(more);
         serde_json::json!({ "author": { "login": "amy" },
-            "commits": { "nodes": [{ "commit": { "committedDate": t("01") } }] },
-            "reviews": { "nodes": [{ "author": { "login": "bo" }, "state": "CHANGES_REQUESTED", "submittedAt": t("02") },
-                                   { "author": { "login": "cy" }, "state": "APPROVED", "submittedAt": t("05") }] },
+            // (A maintainer's "Update branch" since: not amy's word.)
+            "commits": { "nodes": [{ "commit": { "committedDate": t("01"), "authors": { "nodes": [{ "user": { "login": "amy" } }] } } },
+                                   { "commit": { "committedDate": t("04"), "authors": { "nodes": [{ "user": { "login": "bo" } }] } } }] },
+            "reviews": { "nodes": reviews },
             "comments": { "nodes": comments } })
     };
-    // bo asked for changes after amy's push, and she's said nothing since (an approval asks nothing).
-    let e = super::github::extra(&pr(serde_json::json!([])), "me");
-    assert_eq!(e.unanswered.map(|u| u.1), Some("bo".to_owned()));
+    // bo asked for changes after amy's push, and she's said nothing since (a bot's review after
+    // asks nothing of her).
+    let e = super::github::extra(&pr(serde_json::json!([]), vec![review("copilot", "COMMENTED", "05", "NONE")]), "me");
+    assert_eq!(e.unanswered, Some((crate::gh::epoch_secs(&t("02")).unwrap(), "bo".to_owned(), true)));
+    // A maintainer's approval since: the ball's with the maintainers.
+    let e = super::github::extra(&pr(serde_json::json!([]), vec![review("cy", "APPROVED", "05", "MEMBER")]), "me");
+    assert_eq!(e.unanswered, None);
     // She answered: waiting on reviews, not stalled.
-    let e = super::github::extra(&pr(serde_json::json!([{ "author": { "login": "amy" }, "createdAt": t("03"), "body": "on it" }])), "me");
+    let e = super::github::extra(&pr(serde_json::json!([{ "author": { "login": "amy" }, "createdAt": t("03"), "body": "on it" }]), vec![]), "me");
     assert_eq!(e.unanswered, None);
     // In the list: stalled once it's been `dv.stalledDays`, not before; never your own.
     let mut l = List { stalled_days: 14, me: "me".into(), ..Default::default() };
     let p = Listed { number: 1, author: "amy".into(), ..Listed::default() };
-    let at = |days: i64| Extra { unanswered: Some((crate::claude::now_secs() - days * 86400, "bo".into())), ..Default::default() };
+    let at = |days: i64| Extra { unanswered: Some((crate::claude::now_secs() - days * 86400, "bo".into(), true)), ..Default::default() };
     l.extra.insert(1, at(20));
-    assert_eq!(l.stalled(&p), Some((20, "bo".into())));
+    assert_eq!(l.stalled(&p), Some((20, "bo".into(), true)));
     l.extra.insert(1, at(3));
     assert_eq!(l.stalled(&p), None);
     l.extra.insert(1, at(20));

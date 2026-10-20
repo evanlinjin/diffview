@@ -106,9 +106,10 @@ pub struct Extra {
     pub signatures_required: bool,
     /// Workflow runs on its head waiting for a maintainer's approval.
     pub awaiting: usize,
-    /// What the author hasn't answered: the newest review (not an approval) or maintainer's
-    /// comment since their last push, comment or review, (when, who). None: they were last.
-    pub unanswered: Option<(i64, String)>,
+    /// What the author hasn't answered: the newest maintainer's review (not an approval) or
+    /// comment since their last push, comment or review, (when, who, a review or not). None:
+    /// they had the last word, or an approval since did.
+    pub unanswered: Option<(i64, String, bool)>,
 }
 
 /// You (your login), and `Extra` for the open PRs (the most recently updated, as `list` lists
@@ -122,10 +123,10 @@ pub fn list_extra() -> Result<(String, std::collections::HashMap<u64, Extra>)> {
             "query($owner: String!, $name: String!) {{ viewer {{ login }} repository(owner: $owner, name: $name) {{
                pullRequests(states: OPEN, first: 100{from}, orderBy: {{ field: UPDATED_AT, direction: DESC }}) {{ {PAGE} nodes {{
                  number headRefOid mergeable baseRefName author {{ login }} {SIGNATURE_RULES}
-                 commits(last: 100) {{ nodes {{ commit {{ committedDate signature {{ isValid }} }} }} }}
+                 commits(last: 100) {{ nodes {{ commit {{ committedDate authors(first: 5) {{ nodes {{ user {{ login }} }} }} signature {{ isValid }} }} }} }}
                  reviewRequests(first: 30) {{ nodes {{ requestedReviewer {{ ... on User {{ login }} }} }} }}
                  latestReviews(first: 50) {{ nodes {{ author {{ login }} state commit {{ oid }} }} }}
-                 reviews(last: 50) {{ nodes {{ author {{ login }} state submittedAt }} }}
+                 reviews(last: 50) {{ nodes {{ author {{ login }} authorAssociation state submittedAt }} }}
                  comments(last: 20) {{ nodes {{ author {{ login }} authorAssociation body createdAt }} }} }} }} }} }}"
         );
         let v: Value = gh_json(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-f", &format!("query={q}")])?;
@@ -155,24 +156,28 @@ pub(super) fn extra(p: &Value, me: &str) -> Extra {
     let at = |v: &Value| crate::gh::epoch_secs(&s(v)).unwrap_or(0);
     let author = s(&p["author"]["login"]);
     let trusted = |c: &Value| c["author"]["login"] == me || matches!(c["authorAssociation"].as_str(), Some("OWNER" | "MEMBER" | "COLLABORATOR"));
-    // The author's last word (a push, a comment, a review: a reply on a thread is one), and
-    // what others said since, waiting on them.
-    let pushed = nodes("commits").iter().map(|c| at(&c["commit"]["committedDate"])).max().unwrap_or(0);
+    // The author's last word (their push: not a maintainer's "Update branch"; a comment; a
+    // review: a reply on a thread is one), and what maintainers said since, waiting on them
+    // (bots' and drive-bys' aren't); an approval since: the ball's with the maintainers.
+    let theirs = |c: &Value| c["commit"]["authors"]["nodes"].as_array().is_some_and(|a| a.iter().any(|u| u["user"]["login"] == author.as_str()));
+    let pushed = nodes("commits").iter().filter(|c| theirs(c)).map(|c| at(&c["commit"]["committedDate"])).max().unwrap_or(0);
     let by_author = |k: &str, t: &str| nodes(k).into_iter().filter(|c| c["author"]["login"] == author.as_str()).map(|c| at(&c[t])).max().unwrap_or(0);
     let last_word = pushed.max(by_author("comments", "createdAt")).max(by_author("reviews", "submittedAt"));
-    let reviews = nodes("reviews").into_iter().filter(|r| r["author"]["login"] != author.as_str() && matches!(r["state"].as_str(), Some("CHANGES_REQUESTED" | "COMMENTED")));
-    let comments = nodes("comments").into_iter().filter(|c| c["author"]["login"] != author.as_str() && trusted(c));
-    let unanswered = reviews
-        .map(|r| (at(&r["submittedAt"]), s(&r["author"]["login"])))
-        .chain(comments.map(|c| (at(&c["createdAt"]), s(&c["author"]["login"]))))
-        .filter(|(t, _)| *t > last_word)
-        .max_by_key(|(t, _)| *t);
+    let others = |c: &Value| c["author"]["login"] != author.as_str() && trusted(c);
+    let reviews = nodes("reviews").into_iter().filter(|r| others(r) && matches!(r["state"].as_str(), Some("CHANGES_REQUESTED" | "COMMENTED" | "APPROVED")));
+    let said = reviews
+        .map(|r| (at(&r["submittedAt"]), s(&r["author"]["login"]), r["state"] != "APPROVED"))
+        .chain(nodes("comments").into_iter().filter(others).map(|c| (at(&c["createdAt"]), s(&c["author"]["login"]), false)))
+        .filter(|(t, ..)| *t > last_word)
+        .max_by_key(|(t, ..)| *t);
+    let approved_last = nodes("reviews").iter().filter(|r| others(r) && r["state"] == "APPROVED").map(|r| at(&r["submittedAt"])).max().unwrap_or(0);
+    let unanswered = said.filter(|(t, ..)| *t > approved_last);
     Extra {
         my_review,
         reviews: nodes("reviews").iter().map(|r| (s(&r["author"]["login"]), s(&r["state"]), crate::gh::epoch_secs(&s(&r["submittedAt"])).unwrap_or(0))).collect(),
         said: nodes("comments")
             .iter()
-            .filter(|c| c["author"]["login"] == me || matches!(c["authorAssociation"].as_str(), Some("OWNER" | "MEMBER" | "COLLABORATOR")))
+            .filter(|c| trusted(c))
             .map(|c| (s(&c["author"]["login"]), s(&c["body"]), crate::gh::epoch_secs(&s(&c["createdAt"])).unwrap_or(0)))
             .collect(),
         requested: nodes("reviewRequests").iter().any(|r| r["requestedReviewer"]["login"] == me),

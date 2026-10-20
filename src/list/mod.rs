@@ -689,18 +689,20 @@ impl List {
     /// `stalled_days` or more (nothing of theirs since: no push, no comment, no reply): how
     /// long, and whose. Not yours (you'd know), nor one waiting on reviews (they had the last
     /// word).
-    pub(super) fn stalled(&self, p: &Listed) -> Option<(i64, String)> {
-        let (at, who) = self.extra.get(&p.number)?.unanswered.clone()?;
+    /// (A draft's author may be slow on purpose; a bot's (`app/…`) isn't one to ask.)
+    pub(super) fn stalled(&self, p: &Listed) -> Option<(i64, String, bool)> {
+        let (at, who, review) = self.extra.get(&p.number)?.unanswered.clone()?;
         let days = (crate::claude::now_secs() - at) / 86400;
-        (p.author != self.me && days >= self.stalled_days).then_some((days, who))
+        (p.author != self.me && !p.draft && !p.author.starts_with("app/") && days >= self.stalled_days).then_some((days, who, review))
     }
 
     /// `H` on a stalled PR: your editor on a note asking its author whether they need help,
     /// posted on the PR when you save (nothing: not posted).
     fn nudge(&mut self, term: &mut DefaultTerminal, n: u64) {
         let Some(p) = self.prs.iter().find(|p| p.number == n) else { return };
-        let (days, who) = self.stalled(p).unwrap_or((0, String::new()));
-        let whose = if who == self.me { "my review".to_owned() } else { format!("@{who}'s review") };
+        let Some((days, who, review)) = self.stalled(p) else { return };
+        let what = if review { "review" } else { "comment" };
+        let whose = if who == self.me { format!("my {what}") } else { format!("@{who}'s {what}") };
         let draft = format!(
             "Hi @{}, checking in on this one: {whose} has been waiting for {days} days. Are you still working on it? \
              If you're stuck or short on time, let us know: we're happy to help, or to take it over from here.",

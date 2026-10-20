@@ -124,7 +124,7 @@ impl List {
                     lines.insert(1, close_line(why, &cx, i == sel));
                 }
                 // How long its author hasn't answered, and whom.
-                if let Some((days, who)) = self.stalled(p).filter(|_| self.tab == Tab::Stalled) {
+                if let Some((days, who, _)) = self.stalled(p).filter(|_| self.tab == Tab::Stalled) {
                     let why = format!("@{} hasn't answered @{who} for {days} days (H asks whether they need help)", p.author);
                     lines.insert(1, note_line("⏸", &why, &cx, i == sel));
                 }
