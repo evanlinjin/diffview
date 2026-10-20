@@ -89,7 +89,11 @@ impl App {
     fn key_at(&self, row: usize) -> CursorKey {
         let Some(r) = self.rows.get(row) else { return CursorKey { line: None, thread: None, info: None, section: None, goes: None } };
         CursorKey {
-            line: self.files.get(r.file).map(|f| (f.path.clone(), r.line.old, r.line.new)),
+            // (A comment's row: the line it's on, should its thread go, as one posted does.)
+            line: self.files.get(r.file).map(|f| match r.thread.map(|t| &self.threads[t]) {
+                Some(th) if r.line.old.is_none() && r.line.new.is_none() => (f.path.clone(), th.line.filter(|_| th.left), th.line.filter(|_| !th.left)),
+                _ => (f.path.clone(), r.line.old, r.line.new),
+            }),
             thread: r.thread.and_then(|t| {
                 let first = self.rows.iter().position(|r| r.thread == Some(t))?;
                 Some((self.root_id(t)?, row - first))

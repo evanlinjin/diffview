@@ -3156,3 +3156,16 @@ fn mouse_sideways_keeps_the_cursor_on_screen() {
     _ = screen(120, 20, |f| app.draw(f));
     assert_eq!((app.left, app.head.col), (16, 24));
 }
+
+#[test]
+fn a_thread_gone_leaves_the_cursor_on_its_line() {
+    // Claude's comment posted (its copy dismissed): the cursor on the line it was on, not the
+    // file's top.
+    let mut app = fixture();
+    let r = app.rows.iter().position(|r| r.thread == Some(0)).unwrap();
+    app.goto(r, 0);
+    let keep = app.cursor_key();
+    app.threads.remove(0);
+    app.rebuild(keep);
+    assert_eq!(app.rows[app.head.row].line.new, Some(12), "{:?}", app.rows[app.head.row].line.text);
+}
