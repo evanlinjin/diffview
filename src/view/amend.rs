@@ -195,19 +195,6 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], rewords: &[(&str, &s
     };
     let mut done: Vec<&Hunk> = vec![];
     let (mut skipped, mut dropped) = (vec![], vec![]);
-    // Merges kept (not flattened), the backup branch left where it is, and no editor (see
-    // `diff::git`); `drop`: a sequence editor's script taking lines out of the todo.
-    let rebase = |drop: Option<&str>| -> Result<()> {
-        let mut cmd = std::process::Command::new("git");
-        cmd.arg("-C").arg(dir).args(["-c", "rebase.updateRefs=false", "rebase", "-q", "-i", "--autosquash", "--autostash", "--rebase-merges", &mb]);
-        cmd.env("GIT_EDITOR", "true").env("GIT_OPTIONAL_LOCKS", "0");
-        if let Some(d) = drop {
-            cmd.env("GIT_SEQUENCE_EDITOR", d);
-        }
-        let out = cmd.output()?;
-        anyhow::ensure!(out.status.success(), "git rebase: {}", String::from_utf8_lossy(&out.stderr).trim());
-        Ok(())
-    };
     for &t in &targets {
         let was = git_in(dir, &["rev-parse", "HEAD"])?.trim().to_owned();
         let mine: Vec<&Hunk> = hunks.iter().filter(|h| h.to.as_deref() == Some(t)).collect();
@@ -230,18 +217,20 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], rewords: &[(&str, &s
                 Some((_, m)) => own(&["commit", "-q", "--no-verify", "--allow-empty", "-m", &format!("amend! {t}\n\n{m}")])?,
                 None => own(&["commit", "-q", "--no-verify", "-m", &format!("fixup! {t}")])?,
             }
-            match rebase(None) {
-                Ok(()) => Ok(false),
-                // Its changes undo all it did: git won't make it empty. Dropped, it and the fixup
-                // (`fixup!`, `amend!`; what's uncommitted keeps the undoing: the same, the commit gone).
-                Err(e) if format!("{e:#}").contains("would make") || format!("{e:#}").contains("No changes") => {
-                    _ = git_in(dir, &["rebase", "--abort"]);
-                    let short = &t[..7.min(t.len())];
-                    let script = format!("f() {{ grep -v -e '^pick {short}[0-9a-f]* ' -e '! {t}' \"$1\" > \"$1.dv\"; mv \"$1.dv\" \"$1\"; }}; f");
-                    rebase(Some(&script)).map(|()| true)
-                }
-                Err(e) => Err(e),
-            }
+            let fix = git_in(dir, &["rev-parse", "HEAD"])?.trim().to_owned();
+            // Merges kept (not flattened), and the backup branch left where it is. (No editor:
+            // see `diff::git`.)
+            let Err(e) = git_in(dir, &["-c", "rebase.updateRefs=false", "rebase", "-q", "-i", "--autosquash", "--autostash", "--rebase-merges", &mb]) else {
+                return Ok(false);
+            };
+            // Stopped on our fixup with the commit left as its parent was (its changes undo all
+            // it did: git won't make it empty): the commit goes, and the rebase goes on.
+            let at = |r: &str| git_in(dir, &["rev-parse", "-q", "--verify", r]).map(|s| s.trim().to_owned()).unwrap_or_default();
+            let emptied = at("REBASE_HEAD") == fix && git_in(dir, &["write-tree"]).is_ok_and(|w| w.trim() == at("HEAD^^{tree}"));
+            anyhow::ensure!(emptied, "{e:#}");
+            git_in(dir, &["reset", "-q", "--soft", "HEAD^"])?;
+            git_in(dir, &["rebase", "--continue"])?;
+            Ok(true)
         })();
         match one {
             Ok(gone) => {
@@ -409,7 +398,9 @@ impl App {
                 let dated = || self.commits.iter().filter(|c| c.at == at);
                 let by_subject = one(dated().filter(|c| c.subject.trim() == subject.trim()).map(|c| &c.sha).collect());
                 let email_of = |sha: &str| git_in(&self.root, &["log", "-1", "--format=%ae", sha]).is_ok_and(|e| e.trim() == email);
-                let to = by_subject.or_else(|| one(dated().filter(|c| email_of(&c.sha)).map(|c| &c.sha).collect()))?;
+                // (Not one an amend dropped: gone, its questions with it, not on a neighbour.)
+                let dropped = self.dropped.contains(&sha);
+                let to = by_subject.or_else(|| (!dropped).then(|| one(dated().filter(|c| email_of(&c.sha)).map(|c| &c.sha).collect())).flatten())?;
                 Some((url.clone(), url.replace(&sha, &to)))
             })
             .collect();
@@ -482,6 +473,7 @@ impl App {
         let messages = self.amend_messages(&hunks, &commits);
         let messages: Vec<(&str, &str)> = messages.iter().map(|m| (m.0.as_str(), m.1.as_str())).collect();
         let (n, skipped, dropped) = amend(&self.root, &self.full_base, &hunks, &messages, &backup)?;
+        self.dropped.extend(dropped.iter().cloned());
         // (By subject: the sha's gone.)
         let gone = match dropped.as_slice() {
             [] => String::new(),
@@ -606,6 +598,9 @@ fn claude_rewords_commits_that_take_changes() {
 fn amend_undoing_a_whole_commit() {
     let dir = crate::diff::scratch_repo("amend-undo");
     let git = |args: &[&str]| git_in(&dir, args).unwrap();
+    // (Whatever the todo looks like: abbreviated, its lines without subjects.)
+    git(&["config", "rebase.abbreviateCommands", "true"]);
+    git(&["config", "rebase.instructionFormat", "%an"]);
     let write = |f: &str, s: &str| std::fs::write(dir.join(f), s).unwrap();
     write("a.rs", "base\n");
     write("b.rs", "b\n");
@@ -626,6 +621,7 @@ fn amend_undoing_a_whole_commit() {
     // Nothing of it left, here or uncommitted; the backup has it.
     assert_eq!((git(&["show", "HEAD:a.rs"]).as_str(), git(&["status", "--porcelain"]).as_str()), ("base\n", ""));
     assert_eq!(git(&["log", "-1", "--format=%s", "dv-backup/undo~1"]).trim(), "first");
+    assert!(git_in(&dir, &["merge-base", "--is-ancestor", &base, "HEAD"]).is_ok()); // (the base as it was)
 }
 
 #[test]

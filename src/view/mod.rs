@@ -495,6 +495,8 @@ pub struct App {
     /// What `dv list`'s ranking said to do next about it, and when it ranked (the Claude tab
     /// says it).
     ranked_next: Option<(String, i64)>,
+    /// Commits an amend here dropped (its changes undid all they did).
+    dropped: Vec<String>,
     /// The replacement checked out here, if it is one (`replace.rs`): shown in the PR section;
     /// and when its record last changed (Claude redrafting it: it's shown again).
     replacement: Option<crate::replace::Record>,
