@@ -827,8 +827,6 @@ impl IssueView {
                 let by = if kind == MouseEventKind::ScrollRight { 8 } else { -8 };
                 self.code_left[side] = (self.code_left[side] as isize + by).clamp(0, self.code_over[side] as isize) as usize;
                 self.redraw();
-                // (The cursor on the text as it now is: a line scrolled short takes it back.)
-                self.cur = self.clamp(self.cur.0, self.cur.1, self.side_of(self.cur.1));
             }
             MouseEventKind::Drag(MouseButton::Left) | MouseEventKind::Up(MouseButton::Left) if self.sel.is_some() => {
                 let ax = self.sel.map_or(at.1, |((_, x), _)| x);
@@ -997,9 +995,12 @@ fn an_issue_and_its_triage() {
     v.redraw();
     let _ = screen(160, 22, |f| v.draw(f, &ui, f.area()));
     assert!(v.lines(0).iter().any(|l| l.to_string().contains("  xxx")));
+    v.cur = v.clamp(4, 3, 0);
+    let at = v.cur;
+    assert!(at.0 > 0);
     v.mouse(MouseEventKind::ScrollRight, 2, 0);
     let _ = screen(160, 22, |f| v.draw(f, &ui, f.area()));
-    assert_eq!(v.code_left, [8, 0]);
+    assert_eq!((v.code_left, v.cur), ([8, 0], at)); // (the cursor where it was)
     // (Cut both ways now: `‹` and `›` say there's more.)
     let code = v.lines(0).iter().map(|l| l.to_string()).find(|l| l.contains("xxx")).unwrap();
     assert!(code.contains("  ‹x") && code.contains("x›"), "{code}");
@@ -1014,6 +1015,7 @@ fn an_issue_and_its_triage() {
     v.mouse(MouseEventKind::ScrollLeft, 2, 0);
     v.mouse(MouseEventKind::ScrollLeft, 2, 0);
     assert_eq!(v.code_left, [0, 0]);
+    let _ = screen(160, 22, |f| v.draw(f, &ui, f.area()));
     // `ge x x y` on the last line: still the whole line.
     v.go(usize::MAX, 0);
     v.key(None, KeyCode::Char('x'), false);
