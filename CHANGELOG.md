@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.67.0] - 2026-10-20
+
+### Added
+- dv list's "stalled" tab lists PRs whose author has left a review or a maintainer's comment
+  unanswered for `dv.stalledDays` (git config; 14 days by default). A PR waiting on reviews
+  doesn't count. `H` drafts a "do you need help with this?" comment in your editor and posts
+  it.
+
 ## [0.66.1] - 2026-10-20
 
 ### Fixed
