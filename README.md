@@ -78,7 +78,8 @@ Each task can run on its own model: `git config dv.model.<task> <model>` (`revie
 `change`, `describe`, `fix-ci`, `close`, `commit`, `amend`, `rebase`, `replace`, `triage`,
 `rank`, `interpret`, `group`), else `git config dv.model <model>`, else Claude Code's default.
 For example, `git config --global dv.model.rank haiku`. (`close`: closing comments, PRs' and
-issues'. Claude's pane, `Space a` → open, takes `dv.model`.) A PR's tasks share its Claude
+issues'. Claude's pane, `Space a` → open, takes `dv.model`; an ask while it's open is sent to
+it, on the model it has.) A PR's tasks share its Claude
 session: one switching models reads that session again, uncached.
 
 ## Replacing a low-effort PR
