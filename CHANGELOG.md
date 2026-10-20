@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.72.4] - 2026-10-20
+
+### Fixed
+- Scrolling sideways with the mouse keeps the cursor on screen: scrolled off, it stays at the
+  first (or last) column shown, in the PR view and the issue view.
+- The wheel with Alt or Ctrl scrolls sideways too: kitty keeps Shift and the mouse for itself,
+  so Shift and the wheel did nothing there.
+
 ## [0.72.3] - 2026-10-20
 
 ### Fixed
