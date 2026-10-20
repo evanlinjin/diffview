@@ -170,19 +170,19 @@ pub(super) fn extra(p: &Value, me: &str) -> Extra {
     let others = |c: &Value| c["author"]["login"] != author.as_str() && trusted(c);
     let reviews = nodes("reviews").into_iter().filter(|r| others(r) && matches!(r["state"].as_str(), Some("CHANGES_REQUESTED" | "COMMENTED")));
     let said = reviews
-        .map(|r| (at(&r["submittedAt"]), s(&r["author"]["login"]), true))
-        .chain(nodes("comments").into_iter().filter(others).map(|c| (at(&c["createdAt"]), s(&c["author"]["login"]), false)))
+        .map(|r| (at(&r["submittedAt"]), crate::gh::login(&r["author"]), true))
+        .chain(nodes("comments").into_iter().filter(others).map(|c| (at(&c["createdAt"]), crate::gh::login(&c["author"]), false)))
         .filter(|(t, ..)| *t > last_word)
         .max_by_key(|(t, ..)| *t);
     let approved_last = nodes("reviews").iter().filter(|r| others(r) && r["state"] == "APPROVED").map(|r| at(&r["submittedAt"])).max().unwrap_or(0);
     let unanswered = said.filter(|(t, ..)| *t > approved_last);
     Extra {
         my_review,
-        reviews: nodes("reviews").iter().map(|r| (s(&r["author"]["login"]), s(&r["state"]), crate::gh::epoch_secs(&s(&r["submittedAt"])).unwrap_or(0))).collect(),
+        reviews: nodes("reviews").iter().map(|r| (crate::gh::login(&r["author"]), s(&r["state"]), crate::gh::epoch_secs(&s(&r["submittedAt"])).unwrap_or(0))).collect(),
         said: nodes("comments")
             .iter()
             .filter(|c| trusted(c))
-            .map(|c| (s(&c["author"]["login"]), s(&c["body"]), crate::gh::epoch_secs(&s(&c["createdAt"])).unwrap_or(0)))
+            .map(|c| (crate::gh::login(&c["author"]), s(&c["body"]), crate::gh::epoch_secs(&s(&c["createdAt"])).unwrap_or(0)))
             .collect(),
         requested: nodes("reviewRequests").iter().any(|r| r["requestedReviewer"]["login"] == me),
         mergeable: s(&p["mergeable"]),

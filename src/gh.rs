@@ -107,12 +107,12 @@ pub struct Anchor {
     pub start: Option<(u32, bool)>,
 }
 
-/// `gh args`, its output as JSON.
 /// Who `v` (GitHub's author, actor: `{login}`) is: a deleted account's, GitHub's "ghost".
 pub(crate) fn login(v: &Value) -> String {
     v["login"].as_str().unwrap_or("ghost").to_owned()
 }
 
+/// `gh args`, its output as JSON.
 pub(crate) fn gh_json(args: &[&str]) -> Result<Value> {
     Ok(serde_json::from_str(&gh(args)?)?)
 }
@@ -585,7 +585,7 @@ pub fn pr_fields(n: u64) -> Result<(Choices, Choices, Choices)> {
         .filter_map(|r| r["login"].as_str().or_else(|| r["slug"].as_str()).map(str::to_owned))
         .collect();
     let (all, people) = repo_choices()?;
-    let author = v["author"]["login"].as_str().unwrap_or("");
+    let author = &*login(&v["author"]);
     let reviewers = people.iter().filter(|p| *p != author).cloned().collect();
     Ok((mark(all, &labels), mark(people, &assigned), mark(reviewers, &asked)))
 }

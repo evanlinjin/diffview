@@ -110,7 +110,7 @@ fn issue(i: &Value) -> Issue {
         labels: nodes("labels").iter().map(|l| (s(&l["name"]), s(&l["color"]))).collect(),
         comments: i["comments"]["totalCount"].as_u64().unwrap_or(0),
         thumbs: i["reactions"]["totalCount"].as_u64().unwrap_or(0),
-        assignees: nodes("assignees").iter().map(|a| s(&a["login"])).collect(),
+        assignees: nodes("assignees").iter().map(crate::gh::login).collect(),
         fixed_by: nodes("closedByPullRequestsReferences").iter().map(|p| (p["number"].as_u64().unwrap_or(0), s(&p["state"]), s(&p["headRefOid"]))).collect(),
     }
 }

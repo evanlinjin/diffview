@@ -170,7 +170,7 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         let mut l = InfoLine::new(false, false);
         l.put("assigned", Some(Mark::Dim));
         for a in &assigned {
-            l.put(&format!(" @{}", s(&a["login"])), None);
+            l.put(&format!(" @{}", crate::gh::login(a)), None);
         }
         push("assigned".into(), l);
     }
@@ -186,7 +186,7 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
     // Who did what, one reviewer a line (no scrolling sideways for them all): "✗ @bo requested
     // changes", "✓ @amy approved", "● @cy requested" (waiting on them); in their colors.
     let reviews = list(&v["latestReviews"]);
-    let by = |state: &str| -> Vec<String> { reviews.iter().filter(|r| r["state"] == state).map(|r| s(&r["author"]["login"])).collect() };
+    let by = |state: &str| -> Vec<String> { reviews.iter().filter(|r| r["state"] == state).map(|r| crate::gh::login(&r["author"])).collect() };
     let requested: Vec<String> = list(&v["reviewRequests"]).iter().map(|r| r["login"].as_str().or(r["slug"].as_str()).or(r["name"].as_str()).unwrap_or("?").to_owned()).collect();
     let groups = [
         ("✗", "requested changes", by("CHANGES_REQUESTED"), Mark::Fail),
@@ -455,7 +455,7 @@ fn activity_items(v: &Value, items: &[Value]) -> Vec<Vec<(String, InfoLine)>> {
             }
             k @ ("AssignedEvent" | "UnassignedEvent") => {
                 let what = if k == "AssignedEvent" { "assigned" } else { "unassigned" };
-                event(key, who, &[t(&format!("{what} @{}", s(&it["assignee"]["login"])))], &at)
+                event(key, who, &[t(&format!("{what} @{}", crate::gh::login(&it["assignee"])))], &at)
             }
             "RenamedTitleEvent" => event(key, who, &[t(&format!("changed the title: {} → {}", s(&it["previousTitle"]), s(&it["currentTitle"])))], &at),
             "MergedEvent" => {
