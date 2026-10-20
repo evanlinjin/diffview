@@ -303,9 +303,11 @@ impl App {
         let title = r == 0 && self.pin; // (not scrolled: its own line)
         if (row.nowrap || part.is_none()) && !title && spans.len() > g {
             let more = Style::new().fg(ui.linenr.fg.unwrap_or(Color::DarkGray));
+            // (Not over a jump label; over a wide character, a space after it: the rest stays put.)
             let mark = |sp: &mut Span<'static>, c: &str, at: usize| {
-                if !(cursor_here && self.head.col == at) {
-                    (sp.content, sp.style) = (c.to_owned().into(), sp.style.patch(more));
+                if !(cursor_here && self.head.col == at) && !overlay.contains_key(&Pos { row: r, col: at }) {
+                    let pad = " ".repeat(sp.width().saturating_sub(1));
+                    (sp.content, sp.style) = (format!("{c}{pad}").into(), sp.style.patch(more));
                 }
             };
             if skip > 0 {
