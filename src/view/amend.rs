@@ -149,12 +149,11 @@ fn dropped_file(dir: &Path) -> Option<std::path::PathBuf> {
     git_in(dir, &["rev-parse", "--path-format=absolute", "--git-common-dir"]).ok().map(|d| std::path::PathBuf::from(d.trim()).join("dv-dropped"))
 }
 
-/// The commits amends here dropped (their changes undone: gone, not rewritten), once each.
+/// The commits amends here dropped (their changes undone: gone, not rewritten). (Whole shas
+/// only: one being appended meanwhile may be read half written.)
 pub(super) fn dropped_in(dir: &Path) -> Vec<String> {
-    let mut all: Vec<String> = dropped_file(dir).and_then(|f| std::fs::read_to_string(f).ok()).unwrap_or_default().lines().filter(|l| !l.is_empty()).map(str::to_owned).collect();
-    all.sort();
-    all.dedup();
-    all
+    let text = dropped_file(dir).and_then(|f| std::fs::read_to_string(f).ok()).unwrap_or_default();
+    text.lines().filter(|l| matches!(l.len(), 40 | 64) && l.bytes().all(|b| b.is_ascii_hexdigit())).map(str::to_owned).collect()
 }
 
 /// Record `dropped` after the commits dropped before. Appended, a line each in one write:
@@ -669,9 +668,7 @@ fn amend_undoing_a_whole_commit() {
     write("b.rs", "b\n");
     let second = git(&["rev-parse", "HEAD"]).trim().to_owned();
     assert!(fold(&dir, &base, &second, &[], None, "dv-backup/undo2").unwrap());
-    let mut both = vec![first, second];
-    both.sort();
-    assert_eq!(dropped_in(&dir), both); // (once each, sorted)
+    assert_eq!(dropped_in(&dir), [first, second]); // (each recorded, in turn)
 }
 
 #[test]
