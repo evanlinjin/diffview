@@ -44,6 +44,7 @@ use info::*;
 pub(crate) use info::info_lines_of;
 pub(crate) use files::cut;
 pub(crate) use row::skip_cols;
+pub(crate) use mouse::sideways;
 mod keys;
 mod layout;
 mod mouse;

@@ -24,6 +24,17 @@ pub(super) struct PickerGeom {
     pub(super) off: usize,
 }
 
+/// The wheel as it scrolls: sideways with Shift, Alt or Ctrl held (for a wheel that only goes
+/// up and down; kitty keeps Shift and the mouse for its own selection).
+pub(crate) fn sideways(m: &MouseEvent) -> MouseEventKind {
+    let held = m.modifiers.intersects(KeyModifiers::SHIFT | KeyModifiers::ALT | KeyModifiers::CONTROL);
+    match m.kind {
+        MouseEventKind::ScrollDown if held => MouseEventKind::ScrollRight,
+        MouseEventKind::ScrollUp if held => MouseEventKind::ScrollLeft,
+        k => k,
+    }
+}
+
 impl App {
     pub(super) fn mouse(&mut self, m: MouseEvent) {
         let (x, y) = (m.column as usize, m.row as usize);
@@ -39,15 +50,9 @@ impl App {
             return;
         }
         let x = if self.picker.is_some() || self.popup.is_some() { x } else { x.saturating_sub(self.files_w) };
-        // Shift and the wheel: sideways (as terminals that don't send it so), over the code (a
-        // popup or a picker scrolls as with the wheel).
+        // Sideways over the code (a popup or a picker scrolls as with the wheel).
         let code = self.picker.is_none() && self.popup.is_none();
-        let shift = m.modifiers.contains(KeyModifiers::SHIFT) && code;
-        let kind = match m.kind {
-            MouseEventKind::ScrollDown if shift => MouseEventKind::ScrollRight,
-            MouseEventKind::ScrollUp if shift => MouseEventKind::ScrollLeft,
-            k => k,
-        };
+        let kind = if code { sideways(&m) } else { m.kind };
         match kind {
             // Sideways: what's under it (a comment's code block or table, or the diff), the
             // cursor to it first, as a click. Not the pinned title (it'd go to the top), nor a

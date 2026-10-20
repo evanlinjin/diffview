@@ -3151,7 +3151,8 @@ fn mouse_sideways_keeps_the_cursor_on_screen() {
     }
     // Scrolled, the cursor (off the left) pinned to the first column shown.
     assert_eq!((app.left, app.head.col), (24, 24));
-    app.mouse(MouseEvent { kind: MouseEventKind::ScrollLeft, column: x, row: y as u16, modifiers: KeyModifiers::NONE });
+    // (The wheel with Alt: kitty keeps Shift and the mouse.)
+    app.mouse(MouseEvent { kind: MouseEventKind::ScrollUp, column: x, row: y as u16, modifiers: KeyModifiers::ALT });
     _ = screen(120, 20, |f| app.draw(f));
     assert_eq!((app.left, app.head.col), (16, 24));
 }

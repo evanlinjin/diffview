@@ -645,19 +645,14 @@ impl Issues {
                 Event::Key(k) if k.kind == KeyEventKind::Press => k,
                 // The wheel moves the cursor (scrolls the issue), as j / k; a click picks a tab or a
                 // card, twice opens it (as dv list's).
-                // In an issue, a drag copies what it's over, and sideways (Shift and the wheel too)
-                // scrolls its code blocks.
+                // In an issue, a drag copies what it's over, and sideways scrolls its code blocks.
                 Event::Mouse(m) if self.view.is_some() && !self.help && self.meta.is_none() && {
                     use event::MouseEventKind::*;
-                    matches!(m.kind, Down(_) | Drag(_) | Up(_) | ScrollLeft | ScrollRight) || matches!(m.kind, ScrollDown | ScrollUp) && m.modifiers.contains(KeyModifiers::SHIFT)
+                    matches!(crate::view::sideways(&m), Down(_) | Drag(_) | Up(_) | ScrollLeft | ScrollRight)
                 } =>
                 {
                     let v = self.view.as_mut().expect("an issue open");
-                    let kind = match m.kind {
-                        event::MouseEventKind::ScrollDown => event::MouseEventKind::ScrollRight,
-                        event::MouseEventKind::ScrollUp => event::MouseEventKind::ScrollLeft,
-                        k => k,
-                    };
+                    let kind = crate::view::sideways(&m);
                     // (Row 0's the title bar: the view's from row 1.)
                     match v.mouse(kind, m.column as usize, (m.row as usize).saturating_sub(1)) {
                         Some(t) if t.trim().is_empty() => self.msg = "nothing to copy".into(),
