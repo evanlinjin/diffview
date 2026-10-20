@@ -1,6 +1,6 @@
  PRs   todo 3   open 3   close 0   stalled 0   wor╭ keys ──────────────────────────────────────────╮
 ▌   #2  Docs                                      │ Enter  see to it (opens the PR or replacement) │
-▌   3.  → z                                       │ gn gp  open PRs                                │
+▌   3.  → z                                       │ h l    open PRs                                │
 ▌       @bo   +0 −0 in 1 file                     │ /      filter                                  │
 ▌       CI ✓5           claude could review       │ R      refresh (from GitHub)                   │
 ▌       b                                         │ r r    Claude ranks what needs you (a run)     │

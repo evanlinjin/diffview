@@ -1,6 +1,6 @@
  Issues   todo 2   open 2   mine 1   close 1     I I the PRs                                      ╭ keys ──────────────────────────────────╮
 ▌   #7 Panics on reorg  bug                                                                       │ Enter  open it                         │
-▌      @amy  → @me                                                                                │ gn gp  tabs                            │
+▌      @amy  → @me                                                                                │ h l    tabs                            │
 ▌      fixed by #9 (open)                                                                         │ /      filter                          │
                                                                                                   │ R      refresh (from GitHub)           │
     #8 How do I sync?                                                                             │ m      mark                            │

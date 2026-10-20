@@ -1,6 +1,6 @@
  PRs   todo 0   open 3   close 0   stall╭ keys ────────────────────────────────────────────────────╮
                                         │ Enter  review (H asks its author whether they need help) │
- nothing stalled: no author has left a r│ gn gp  PRs with a worktree                               │
+ nothing stalled: no author has left a r│ h l    PRs with a worktree                               │
                                         │ /      filter                                            │
                                         │ o O    sort / reverse                                    │
                                         │ R      refresh (from GitHub)                             │

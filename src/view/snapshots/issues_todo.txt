@@ -1,6 +1,6 @@
  Issues   todo 2   open 2   mine 1   close 1     I I the PRs                                  ╭ keys ──────────────────────────────────────╮
 ▌   #8 How do I sync?                                                                         │ Enter  open it                             │
-▌   1.  → Claude would close it: answered in #3                                               │ gn gp  tabs                                │
+▌   1.  → Claude would close it: answered in #3                                               │ h l    tabs                                │
 ▌      @bo                                                                                    │ /      filter                              │
 ▌      → answer it                                                                            │ R      refresh (from GitHub)               │
                                                                                               │ r r    Claude ranks what needs you (a run) │

@@ -6,7 +6,7 @@ MOVE
   j k, Up Down         move
   gg ge                first / last PR
   Ctrl-d Ctrl-u        half a page down / up
-  gn gp                next / previous tab (todo, open, can close, stalled, worktrees, drafts)
+  l h, gn gp           next / previous tab (todo, open, can close, stalled, worktrees, drafts)
   H                    stalled tab: ask the author whether they need help (your editor first;
                        stalled: a review or maintainer's comment unanswered dv.stalledDays, 14)
   Enter                review the PR (with dv list's flags; q there comes back)
@@ -84,9 +84,15 @@ impl List {
             }
             return None;
         }
-        // `gn` / `gp`: the next / previous tab, as in dv (before `p` and such on a tab).
-        if let (true, KeyCode::Char(c @ ('n' | 'p'))) = (g, k.code) {
-            let tab = if c == 'n' { self.tab.next() } else { self.tab.prev() };
+        // `l` / `h` (or `gn` / `gp`, as in dv): the next / previous tab (before `p` and such on
+        // a tab).
+        let step = match (g, k.code) {
+            (true, KeyCode::Char('n')) | (false, KeyCode::Char('l')) => Some(true),
+            (true, KeyCode::Char('p')) | (false, KeyCode::Char('h')) => Some(false),
+            _ => None,
+        };
+        if let Some(next) = step {
+            let tab = if next { self.tab.next() } else { self.tab.prev() };
             (self.tab, self.sel, self.top) = (tab, 0, 0);
             return None;
         }

@@ -1,6 +1,6 @@
  PRs   todo 0   open 3   close 0   stalled 0   worktr╭ keys ───────────────────────────────────────╮
                                                      │ Enter  review, in its worktree              │
- no PR worktrees here yet: `dv N -w` (or dv list -w, │ gn gp  replacements                         │
+ no PR worktrees here yet: `dv N -w` (or dv list -w, │ h l    replacements                         │
                                                      │ /      filter                               │
                                                      │ o O    sort / reverse                       │
                                                      │ R      refresh (from GitHub)                │

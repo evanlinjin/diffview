@@ -68,11 +68,11 @@ fn filter_and_keys() {
     assert_eq!(shown(&l), [1, 22, 333]); // open tab: not the merged one
     k(&mut l, KeyCode::Char('g'));
     k(&mut l, KeyCode::Char('n'));
-    // (past "can close" and "stalled")
-    k(&mut l, KeyCode::Char('g'));
-    k(&mut l, KeyCode::Char('n'));
-    k(&mut l, KeyCode::Char('g'));
-    k(&mut l, KeyCode::Char('n'));
+    // (past "can close" and "stalled": l, as gn; h back, l again)
+    k(&mut l, KeyCode::Char('l'));
+    k(&mut l, KeyCode::Char('l'));
+    k(&mut l, KeyCode::Char('h'));
+    k(&mut l, KeyCode::Char('l'));
     assert_eq!(shown(&l), [9, 22]); // (still by number, ascending)
     k(&mut l, KeyCode::Char('j'));
     assert!(matches!(k(&mut l, KeyCode::Enter), Some(Do::Open(22))));

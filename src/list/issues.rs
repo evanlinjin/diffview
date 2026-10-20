@@ -728,8 +728,8 @@ impl Issues {
             (_, KeyCode::Char('u')) if ctrl => self.sel = self.sel.saturating_sub(half),
             (Some('g'), KeyCode::Char('g')) => self.sel = 0,
             (Some('g'), KeyCode::Char('e')) => self.sel = n.saturating_sub(1),
-            (Some('g'), KeyCode::Char('n')) => (self.tab, self.sel) = (self.tab.next(), 0),
-            (Some('g'), KeyCode::Char('p')) => (self.tab, self.sel) = (self.tab.prev(), 0),
+            (Some('g'), KeyCode::Char('n')) | (None, KeyCode::Char('l')) => (self.tab, self.sel) = (self.tab.next(), 0),
+            (Some('g'), KeyCode::Char('p')) | (None, KeyCode::Char('h')) => (self.tab, self.sel) = (self.tab.prev(), 0),
             (Some('I'), KeyCode::Char('I')) => return Some(IssuesDo::Prs),
             (Some('U'), KeyCode::Char('U')) => {
                 self.msg = format!("unmarked {}", self.marked.len());
@@ -1346,7 +1346,7 @@ impl Issues {
         status_bar(f, ui, &left, &order, self.auto, "");
         // The keys for this tab, bottom right (not over the todo tab's message column).
         if !self.help && !self.filtering && column.is_none() {
-            let mut keys = vec![("Enter", "open it"), ("gn gp", "tabs"), ("/", "filter"), ("R", "refresh (from GitHub)")];
+            let mut keys = vec![("Enter", "open it"), ("h l", "tabs"), ("/", "filter"), ("R", "refresh (from GitHub)")];
             if self.tab == ITab::Todo {
                 keys.extend([("r r", "Claude ranks what needs you (a run)"), ("s", "defer it (or bring it back)")]);
             }
@@ -1505,7 +1505,7 @@ MOVE
   j k, Up Down         move
   gg ge                first / last issue
   Ctrl-d Ctrl-u        half a page down / up
-  gn gp                next / previous tab (todo, open, mine, can close)
+  l h, gn gp           next / previous tab (todo, open, mine, can close)
   Enter                open it (its text, comments, Claude's triage; what to do about it)
   I I                  back to the PRs
   ?                    this help
