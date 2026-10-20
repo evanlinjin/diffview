@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.71.0] - 2026-10-20
+
+### Added
+- Auto mode: once one of your PRs changes, Claude checks its description. If it no longer
+  fits, Claude proposes a new one, which you approve in the PR's view (`Space a`).
+
 ## [0.70.0] - 2026-10-20
 
 ### Added
