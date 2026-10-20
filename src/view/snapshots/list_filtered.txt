@@ -1,12 +1,12 @@
- PRs   todo 0   open 3   close 0   stalled 0   worktr keys
-     #1  Fix CI                                       Enter  review
-          @ann   +1 −0 in 1 file                      gn gp  what Claude would close
-          claude reviewed                             /      filter
-          b                                           o O    sort / reverse
-                                                      R      refresh (from GitHub)
-▌ ● #333  fix fees                                    m      mark
-▌         @cy   +333 −0 in 1 file                     a a    Claude reviews marked
-▌         CI ✓3 ✗1                                    A A    Claude drafts a replacement
-▌         b                                           M M    merge (github-merge.py)
-                                                      W W    approve its workflow runs
+ PRs   todo 0   open 3   close 0   stalled 0   worktr╭ keys ───────────────────────────────────────╮
+     #1  Fix CI                                      │ Enter  review                               │
+          @ann   +1 −0 in 1 file                     │ gn gp  what Claude would close              │
+          claude reviewed                            │ /      filter                               │
+          b                                          │ o O    sort / reverse                       │
+                                                     │ R      refresh (from GitHub)                │
+▌ ● #333  fix fees                                   │ m      mark                                 │
+▌         @cy   +333 −0 in 1 file                    │ a a    Claude reviews marked                │
+▌         CI ✓3 ✗1                                   │ A A    Claude drafts a replacement          │
+▌         b                                          │ M M    merge (github-merge.py)              │
+                                                     ╰─────────────────────────────────────────────╯
  filter: fix  (Esc clears)                                               by created ↓  ·  auto off

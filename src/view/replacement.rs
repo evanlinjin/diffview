@@ -11,8 +11,8 @@ impl App {
         let dirty = !diff::git(&["-C", &self.root.to_string_lossy(), "status", "--porcelain"]).unwrap_or_default().trim().is_empty();
         let to = crate::replace::remote().map_or("your remote: dv asks which".to_owned(), |r| format!("to {r}"));
         let mut items = match r.published {
-            _ if r.drafting_now() => vec![item("Claude is at work on it: wait for it to finish".into(), Target::Nothing)],
-            None if r.title.is_empty() => vec![item("Claude hasn't drafted it yet (Space a → Redraft)".into(), Target::Nothing)],
+            _ if r.drafting_now() => vec![item("Claude is at work on it: wait for it to finish".into(), Target::Note(""))],
+            None if r.title.is_empty() => vec![item("Claude hasn't drafted it yet (Space a → Redraft)".into(), Target::Note(""))],
             // Only commits are published: what isn't committed would be left out.
             None if dirty => {
                 let mut v = vec![item("Commit the uncommitted changes first (they'd be left out)…".into(), Target::Do(Action::Commit))];
@@ -26,10 +26,10 @@ impl App {
                 }
                 v
             }
-            Some(n) => vec![item(format!("Published as PR #{n}"), Target::Nothing)],
+            Some(n) => vec![item(format!("Published as PR #{n}"), Target::Note(""))],
         };
         match (r.published, open.is_empty()) {
-            (_, true) => items.push(item("  the PRs it replaces are closed".into(), Target::Nothing)),
+            (_, true) => items.push(item("The PRs it replaces are closed".into(), Target::Note(""))),
             (Some(_), false) => items.push(item(format!("Close {} with the closing note (now)…", open.join(", ")), Target::Do(Action::CloseOriginals))),
             (None, false) => {}
         }

@@ -553,52 +553,99 @@ impl App {
 
     }
 
-    /// The picker open, centered: its query, then its items (cards, with details), the words the
-    /// filter matched lit.
+    /// The picker open, centered, as wide as its items (up to most of the window): its query,
+    /// then its items by section, each under its heading (when there are two or more), an icon
+    /// in its color before it (`dv.icons`), what's in its last parentheses dimmed, the words
+    /// the filter matched lit; items with details as cards.
     fn draw_picker(&mut self, f: &mut Frame, full: Rect) {
         let Some(p) = &self.picker else { return };
         let m = self.matches();
         let sel = p.sel.min(m.len().saturating_sub(1));
+        let ui = &self.ui;
+        let icons = crate::theme::icons();
         // Items are cards when they have detail lines (comment pickers): all the same height.
         let per = 1 + p.items.iter().map(|i| i.detail.len()).max().unwrap_or(0);
-        let gap = (per > 1) as usize; // a blank line between cards
-        let item_h = per + gap;
-        let w = (full.width * 3 / 4).max(20).min(full.width);
-        let ph = ((m.len() * item_h) as u16 + 3).min(full.height.saturating_sub(4)).max(3);
-        let r = centered(full, w, ph);
-        let vis = ((ph as usize).saturating_sub(3) / item_h).max(1);
-        let off = sel.saturating_sub(vis.saturating_sub(1));
-        let mut lines = vec![Line::from(format!("> {}", p.query))];
+        let headed = p.items.iter().map(|i| i.section).collect::<HashSet<_>>().len() > 1;
         let q = p.query.to_lowercase();
-        for (i, &it) in m.iter().enumerate().skip(off).take(vis) {
-            let st = if i == sel { self.ui.menu_selected } else { Style::new() };
-            // Highlight the words the filter matched, where they are (as `matches` checks).
-            let label: Vec<char> = p.items[it].label.chars().collect();
-            let lower: Vec<char> = p.items[it].label.to_lowercase().chars().collect();
+        let heading = ui.heading.add_modifier(ratatui::style::Modifier::BOLD);
+        // Every line, and which match it's of (a heading's, a gap's: none).
+        let mut lines: Vec<(Line<'static>, Option<usize>)> = vec![];
+        for (i, &it) in m.iter().enumerate() {
+            let item = &p.items[it];
+            let first_of = i == 0 || p.items[m[i - 1]].section != item.section;
+            if headed && first_of && !item.section.is_empty() {
+                if i > 0 {
+                    lines.push((Line::default(), None));
+                }
+                lines.push((Line::from(Span::styled(format!(" {}", item.section), heading)), None));
+            } else if per > 1 && i > 0 {
+                lines.push((Line::default(), None)); // a blank line between cards
+            }
+            let st = if i == sel { ui.menu_selected } else { Style::new() };
+            let (icon, tone, _) = item.target.look();
+            let color = match tone {
+                Tone::Plain => ui.key.fg,
+                Tone::Claude => ui.pending.fg,
+                Tone::Good => ui.resolved.fg,
+                Tone::Danger => ui.error.fg,
+                Tone::Warn => ui.warning.fg,
+            };
+            let st = match item.target {
+                Target::Warn => st.patch(ui.warning),
+                _ => st,
+            };
+            let mut spans = vec![Span::styled(if i == sel { "▌" } else { " " }, st.patch(ui.key))];
+            if icons {
+                spans.push(Span::styled(format!("{icon} "), st.fg(color.unwrap_or(Color::Reset))));
+            }
+            // What the filter matched lit (where `matches` finds it); what's in the label's last
+            // parentheses dimmed: what the item is, said first.
+            let label: Vec<char> = item.label.chars().collect();
+            let lower: Vec<char> = item.label.to_lowercase().chars().collect();
             let mut hit = vec![false; label.len()];
             for w in q.split_whitespace().map(|w| w.chars().collect::<Vec<_>>()) {
                 for k in (0..lower.len().saturating_sub(w.len() - 1)).filter(|&k| lower.len() == label.len() && lower[k..].starts_with(&w)) {
                     hit[k..k + w.len()].iter_mut().for_each(|h| *h = true);
                 }
             }
-            let spans: Vec<Span> = label.iter().zip(&hit).map(|(c, &h)| Span::styled(c.to_string(), if h { st.patch(self.ui.key) } else { st })).collect();
-            lines.push(Line::from(spans).style(st));
-            let detail = &p.items[it].detail;
+            let note = aside(&item.label);
+            spans.extend(label.iter().enumerate().map(|(k, c)| {
+                let base = if k >= note { st.patch(ui.stale) } else { st };
+                Span::styled(c.to_string(), if hit[k] { base.patch(ui.key) } else { base })
+            }));
+            lines.push((Line::from(spans).style(st), Some(i)));
             for k in 0..per - 1 {
-                let text = detail.get(k).map_or(String::new(), |d| format!("  {d}"));
-                lines.push(Line::from(Span::styled(text, st.patch(self.ui.stale))).style(st));
-            }
-            if gap > 0 {
-                lines.push(Line::default());
+                let text = item.detail.get(k).map_or(String::new(), |d| format!("   {d}"));
+                lines.push((Line::from(Span::styled(text, st.patch(ui.stale))).style(st), Some(i)));
             }
         }
+        // As wide as its widest line (and its title), from 40 to most of the window.
+        let widest = lines.iter().map(|(l, _)| l.width()).max().unwrap_or(0).max(p.title.trim().chars().count() + 12);
+        let w = (widest as u16 + 5).clamp(40.min(full.width), (full.width * 3 / 4).max(40).min(full.width));
+        // The border, the query and a rule under it, the lines.
+        let ph = (lines.len() as u16 + 4).min(full.height.saturating_sub(4)).max(5);
+        let r = centered(full, w, ph);
+        let vis = (ph as usize).saturating_sub(4).max(1);
+        // Scrolled to the chosen item, all its lines (and its heading, when they fit).
+        let at = |i: usize| lines.iter().position(|l| l.1 == Some(i)).unwrap_or(0);
+        let (top, end) = (at(sel), at(sel) + per);
+        let top = if headed && top > 0 && lines[top - 1].1.is_none() { top - 1 } else { top };
+        let off = end.saturating_sub(vis).min(top);
         let pos = if m.is_empty() { "0 / 0".into() } else { format!("{} / {}", sel + 1, m.len()) };
         let inner = self.popup_frame(f, r, p.title, &pos);
-        f.render_widget(Paragraph::new(lines), inner);
-        // Items start below the query line.
-        let list = Rect { y: inner.y + 1, height: inner.height.saturating_sub(1), ..inner };
-        self.scrollbar(f, list, m.len(), vis, off);
-        self.geom.picker = Some(mouse::PickerGeom { list, item_h, off });
+        let prompt = if icons { "\u{f422} " } else { "> " };
+        let query = Line::from(vec![Span::styled(prompt, self.ui.key), Span::raw(p.query.clone()), Span::styled(" ", self.ui.cursor)]);
+        let rule = Line::from(Span::styled("─".repeat(inner.width as usize), self.ui.linenr));
+        let shown: Vec<Line> = [query, rule].into_iter().chain(lines.iter().skip(off).take(vis).map(|l| l.0.clone())).collect();
+        f.render_widget(Paragraph::new(shown), inner);
+        // Items start below the query and its rule.
+        let list = Rect { y: inner.y + 2, height: inner.height.saturating_sub(2), ..inner };
+        self.scrollbar(f, list, lines.len(), vis, off);
+        self.geom.picker = Some(mouse::PickerGeom { list, off });
+        let lines = lines.into_iter().map(|l| l.1).collect();
+        if let Some(p) = &mut self.picker {
+            p.lines = lines;
+        }
     }
 
     /// Which keys do what here (`title`, `keys`): bottom right of `above` (the code, above the
@@ -610,7 +657,7 @@ impl App {
             .iter()
             .map(|(k, d)| Line::from(vec![Span::styled(format!("{k:<kw$}  "), self.ui.key), Span::raw(*d)]))
             .collect();
-        let w = (lines.iter().map(Line::width).max().unwrap_or(10) as u16 + 4).max(title.len() as u16 + 4).min(above.width);
+        let w = (lines.iter().map(Line::width).max().unwrap_or(10) as u16 + 4).max(title.len() as u16 + 6).min(above.width);
         let ph = (lines.len() as u16 + 2).min(above.height);
         let x = if self.margin_side() { above.x } else { above.x + above.width - w };
         let r = Rect { x, y: above.y + above.height.saturating_sub(ph), width: w, height: ph };
@@ -623,9 +670,9 @@ impl App {
         let Some((title, text, scroll)) = self.popup.clone() else { return };
         // As wide as the text (hover is wrapped to fit 100; help may be two columns), and the title.
         let text_w = text.iter().map(Line::width).max().unwrap_or(0).max(title.chars().count() + 1);
-        let w = (text_w as u16 + 3).max(30).min(full.width.saturating_sub(4));
+        let w = (text_w as u16 + 5).max(30).min(full.width.saturating_sub(4));
         // ponytail: wrapped height estimated from line widths (char wrap, not word wrap).
-        let cw = w.saturating_sub(3).max(1) as usize;
+        let cw = w.saturating_sub(5).max(1) as usize;
         let total: usize = text.iter().map(|l| l.width().div_ceil(cw).max(1)).sum();
         let h = (total as u16 + 2).min(full.height.saturating_sub(4)).max(3);
         let r = centered(full, w, h);
@@ -665,24 +712,30 @@ impl App {
     }
 }
 
-/// Helix-style popup: no border, the theme's popup background, the title as a header row in the
-/// header color (`pos` at its right). Returns the padded content area. (dv list's too.)
+/// A popup as zellij floats a pane: the theme's popup background in a rounded border, the
+/// title set in its top (`pos` at its right). Returns the area inside, a column in from each
+/// side. (dv list's too.)
 pub(crate) fn popup_frame(ui: &Ui, f: &mut Frame, r: Rect, title: &str, pos: &str) -> Rect {
     f.render_widget(Clear, r);
-    f.render_widget(Block::new().style(ui.base.patch(ui.popup)), r);
-    let head = Rect { height: 1.min(r.height), ..r };
-    let head_style = ui.base.patch(ui.header);
     // A long title gives way to the position on the right.
-    let room = (r.width as usize).saturating_sub(pos.chars().count() + 3);
+    let room = (r.width as usize).saturating_sub(pos.chars().count() + 8);
     let title = title.trim();
     let title = match title.chars().count() > room {
         true => format!("{}…", title.chars().take(room.saturating_sub(1)).collect::<String>()),
         false => title.to_owned(),
     };
-    f.render_widget(Paragraph::new(format!(" {title}")).style(head_style), head);
-    // Where you are in the content, on the right of the header.
-    f.render_widget(Paragraph::new(format!("{pos} ")).alignment(Alignment::Right).style(head_style), head);
-    Rect { x: r.x + 1, y: r.y + 1, width: r.width.saturating_sub(2), height: r.height.saturating_sub(2) }
+    let edge = Style::new().fg(ui.key.fg.unwrap_or(Color::Reset));
+    let mut block = Block::bordered()
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(edge)
+        .style(ui.base.patch(ui.popup))
+        .title(Span::styled(format!(" {title} "), ui.key));
+    if !pos.is_empty() {
+        block = block.title(ratatui::text::Line::from(Span::styled(format!(" {pos} "), ui.linenr)).right_aligned());
+    }
+    let inner = block.inner(r);
+    f.render_widget(block, r);
+    Rect { x: inner.x + 1, width: inner.width.saturating_sub(2), ..inner }
 }
 
 /// A popup's code blocks' lines (`hover_lines` gives them `code_bg` as their line's style) with
@@ -698,6 +751,28 @@ pub(super) fn code_to_edge(text: Vec<Line<'static>>, w: usize, code_bg: Option<C
             l
         })
         .collect()
+}
+
+/// Where `label`'s last parenthetical starts (`…` after it too), what says more about the
+/// item than what it is; else its end.
+fn aside(label: &str) -> usize {
+    let chars: Vec<char> = label.trim_end_matches('…').chars().collect();
+    if chars.last() != Some(&')') {
+        return label.chars().count();
+    }
+    let mut depth = 0;
+    for (k, &c) in chars.iter().enumerate().rev() {
+        depth += match c {
+            ')' => 1,
+            '(' => -1,
+            _ => 0,
+        };
+        if depth == 0 {
+            // (Not one that's all of it.)
+            return if k > 0 { k } else { label.chars().count() };
+        }
+    }
+    label.chars().count()
 }
 
 /// A popup's place: centered in `full`, near its top, `w` × `h` (as much as fits).

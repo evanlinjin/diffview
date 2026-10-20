@@ -300,7 +300,12 @@ enum Target {
     DescApprove(bool),
     DescDiscard,
     CloseDiscard,
+    /// No, don't (a question's answer); or nothing to do.
     Nothing,
+    /// Not to pick: what's so, under that section ("": the one before it's).
+    Note(&'static str),
+    /// Not to pick: what to see to before going on (`Tone::Warn`).
+    Warn,
 }
 
 /// What the diff shows: all of it, or only the threads of Claude's review / your pending one.
@@ -317,11 +322,95 @@ struct Item {
     /// More lines under the label (dimmed), e.g. a comment's text; matched by the filter too.
     detail: Vec<String>,
     target: Target,
+    /// The section it's listed under (its target's, else the one before it's: `Picker::new`).
+    section: &'static str,
 }
 
 impl Item {
     fn new(label: impl Into<String>, target: Target) -> Item {
-        Item { label: label.into(), detail: vec![], target }
+        Item { label: label.into(), detail: vec![], target, section: "" }
+    }
+}
+
+/// An item's icon's color: what it does, at a glance.
+#[derive(Clone, Copy)]
+enum Tone {
+    Plain,
+    /// Claude does it.
+    Claude,
+    Good,
+    /// It undoes, drops or closes something.
+    Danger,
+    Warn,
+}
+
+/// The pickers' sections, in the order they're listed.
+const SECTIONS: [&str; 15] = [
+    "Review", "Changes", "Description", "Closing", "Claude", "Replacement", "Working tree", "Where each change goes", "Branch", "CI",
+    "Pull request", "Reviewers", "Labels", "Assignees", "Still open",
+];
+
+impl Target {
+    /// How its item looks: its icon (a Nerd Font's; ' ': none), its color, its section ("": the
+    /// one before it's).
+    fn look(&self) -> (char, Tone, &'static str) {
+        use {agent::Ask, Tone::*};
+        match self {
+            Target::Claude(Ask::Review) => ('\u{f441}', Claude, "Review"),
+            Target::Claude(Ask::Answer) => ('\u{f4a8}', Claude, "Review"),
+            Target::ClaudeQuestion => ('\u{f420}', Claude, "Review"),
+            Target::ClaudeNotes => ('\u{f4f6}', Plain, "Claude"),
+            Target::ClaudeDismissOutdated(_) => ('\u{f48e}', Danger, "Review"),
+            Target::Claude(Ask::Fix | Ask::Edit) => ('\u{f448}', Claude, "Changes"),
+            Target::Claude(Ask::FixChecks) => ('\u{f425}', Claude, "Changes"),
+            Target::Do(Action::CiFixPr) => ('\u{f407}', Claude, "Changes"),
+            Target::Claude(Ask::Describe) => ('\u{f4ed}', Claude, "Description"),
+            Target::DescApprove(_) => ('\u{f42e}', Good, "Description"),
+            Target::DescDiscard => ('\u{f48e}', Danger, "Description"),
+            Target::Claude(Ask::Close) => ('\u{f4dc}', Claude, "Closing"),
+            Target::Do(Action::ClosePr) => ('\u{f4dc}', Danger, "Closing"),
+            Target::CloseDiscard => ('\u{f48e}', Danger, "Closing"),
+            Target::ClaudeStop => ('\u{f46e}', Danger, "Claude"),
+            Target::ClaudePane | Target::ClaudeOpen => ('\u{f489}', Plain, "Claude"),
+            Target::ClaudeCheck => ('\u{f46a}', Plain, "Claude"),
+            Target::ClaudeFresh => ('\u{f44d}', Plain, "Claude"),
+            Target::Do(Action::Replace(..)) => ('\u{f402}', Claude, "Replacement"),
+            Target::GitView => ('\u{f440}', Plain, "Working tree"),
+            Target::Do(Action::Commit) | Target::AmendMenu | Target::Amend => ('\u{f417}', Plain, "Working tree"),
+            Target::AmendAsk | Target::AmendAll => ('\u{f417}', Claude, "Working tree"),
+            Target::GitDrop(..) => ('\u{f48e}', Danger, "Working tree"),
+            Target::Run(Job::Push(_)) => ('\u{f403}', Plain, "Branch"),
+            Target::GitTakeTheirs(_) | Target::Run(Job::Pull) => ('\u{f409}', Plain, "Branch"),
+            Target::Run(Job::Rebase) => ('\u{f418}', Claude, "Branch"),
+            Target::Run(Job::Rerun) => ('\u{f46a}', Plain, "CI"),
+            Target::GitApproveRuns => ('\u{f52e}', Good, "CI"),
+            Target::GitReady => ('\u{f407}', Good, "Pull request"),
+            Target::GitMerge => ('\u{f419}', Good, "Pull request"),
+            Target::Run(Job::SetField(gh::Field::Reviewer, ..)) => ('\u{f415}', Plain, "Reviewers"),
+            Target::Run(Job::SetField(gh::Field::Label, ..)) => ('\u{f412}', Plain, "Labels"),
+            Target::Run(Job::SetField(gh::Field::Assignee, ..)) => ('\u{f415}', Plain, "Assignees"),
+            Target::RebaseClaude => ('\u{f51b}', Claude, ""),
+            Target::RebaseAbort => ('\u{f467}', Danger, ""),
+            Target::Do(Action::Submit("APPROVE")) => ('\u{f42e}', Good, ""),
+            Target::Do(Action::Submit("REQUEST_CHANGES")) => ('\u{f421}', Plain, ""),
+            Target::Do(Action::Submit(review::CLOSE) | Action::CloseOriginals) => ('\u{f4dc}', Danger, ""),
+            Target::Do(Action::Submit(_)) => ('\u{f41f}', Plain, ""),
+            Target::Do(Action::Publish(_)) => ('\u{f403}', Good, ""),
+            Target::Discard | Target::Run(Job::Discard(_) | Job::DeleteComment(_)) => ('\u{f48e}', Danger, ""),
+            Target::Want("ask") => ('\u{f420}', Claude, ""),
+            Target::Want("suggest") => ('\u{f41f}', Claude, ""),
+            Target::Want("change") => ('\u{f448}', Claude, ""),
+            Target::Want(_) | Target::Land(..) => ('\u{f417}', Claude, ""),
+            Target::Row(_) => ('\u{f4a5}', Plain, ""),
+            Target::Commit(_) => ('\u{f417}', Plain, ""),
+            Target::Loc(_) => ('\u{f450}', Plain, ""),
+            Target::Comment(..) => ('\u{f41f}', Plain, ""),
+            Target::ReplaceRemote(..) => ('\u{f402}', Plain, ""),
+            Target::Nothing => ('\u{f467}', Plain, ""),
+            Target::Note(s) => (' ', Plain, s),
+            Target::Warn => ('\u{f421}', Warn, "Still open"),
+            _ => (' ', Plain, ""),
+        }
     }
 }
 
@@ -343,12 +432,31 @@ struct Picker {
     items: Vec<Item>,
     query: String,
     sel: usize,
+    /// Its lines as last drawn, below the query: which match each is (`None`: a section's
+    /// heading, a gap), for a click.
+    lines: Vec<Option<usize>>,
 }
 
 impl Picker {
-    /// `items` under `title`, nothing typed, the first chosen.
-    fn new(title: &'static str, items: Vec<Item>) -> Self {
-        Picker { title, items, query: String::new(), sel: 0 }
+    /// `items` under `title`, by section (as `SECTIONS` has them, each as given; one without a
+    /// section stays with the one before it), nothing typed, the first chosen.
+    fn new(title: &'static str, mut items: Vec<Item>) -> Self {
+        let mut last = "";
+        for it in &mut items {
+            last = match it.target.look().2 {
+                "" => last,
+                s => s,
+            };
+            it.section = last;
+        }
+        items.sort_by_key(|it| SECTIONS.iter().position(|&s| s == it.section));
+        Picker { title, items, query: String::new(), sel: 0, lines: vec![] }
+    }
+
+    /// The item `want` picks chosen (else the first).
+    fn select(self, want: impl Fn(&Target) -> bool) -> Self {
+        let sel = self.items.iter().position(|i| want(&i.target)).unwrap_or(0);
+        Picker { sel, ..self }
     }
 }
 

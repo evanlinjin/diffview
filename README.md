@@ -32,7 +32,8 @@ Or a binary for Linux or macOS from the [releases](https://github.com/evanlinjin
 Needs `git`, and for PRs [`gh`](https://cli.github.com) (logged in). Optional: `rust-analyzer`,
 `hx` (or `$VISUAL` / `$EDITOR`) for writing comments, [Claude Code](https://claude.com/claude-code)
 (then `dv install-skill`, once), `python3` for merging. Inside [zellij](https://zellij.dev),
-editors, Claude and the merge script get panes of their own beside dv.
+editors, Claude and the merge script get panes of their own beside dv. Pickers show
+[Nerd Font](https://www.nerdfonts.com) icons; without one, `git config --global dv.icons false`.
 
 ## Usage
 

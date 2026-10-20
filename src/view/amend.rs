@@ -483,15 +483,15 @@ impl App {
         }
         // What Claude would reword, said before it's done.
         for (sha, m) in self.amend_messages(&hunks, &commits) {
-            items.push(Item::new(format!("  ✎ {}  → new message: {}", subject(&sha), m.lines().next().unwrap_or("")), Target::Nothing));
+            items.push(Item::new(format!("✎ {}  → new message: {}", subject(&sha), m.lines().next().unwrap_or("")), Target::Note("Where each change goes")));
         }
         for h in &hunks {
             let label = match &h.to {
-                Some(t) => format!("  {}  → {}{}", h.place(), subject(t), if h.why == "blame" { String::new() } else { format!("  ({})", h.why) }),
-                None if h.old.1 == 0 => format!("  {}  ✗ new lines: stays uncommitted", h.place()),
-                None => format!("  {}  ✗ no one commit of the PR wrote these lines: stays uncommitted", h.place()),
+                Some(t) => format!("{}  → {}{}", h.place(), subject(t), if h.why == "blame" { String::new() } else { format!("  ({})", h.why) }),
+                None if h.old.1 == 0 => format!("{}  ✗ new lines: stays uncommitted", h.place()),
+                None => format!("{}  ✗ no one commit of the PR wrote these lines: stays uncommitted", h.place()),
             };
-            items.push(Item::new(label, Target::Nothing));
+            items.push(Item::new(label, Target::Note("Where each change goes")));
         }
         self.picker = Some(Picker::new(" amend into the PR's commits ", items));
     }

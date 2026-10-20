@@ -268,7 +268,7 @@ impl App {
             }
         }
         // What's still open, to see before you say you're done (approving most of all).
-        items.extend(self.submit_notes().iter().map(|n| item(&format!("  ! {n}"), Target::Nothing)));
+        items.extend(self.submit_notes().iter().map(|n| item(n, Target::Warn)));
         self.picker = Some(Picker::new(" submit review ", items));
     }
 
@@ -531,14 +531,11 @@ impl App {
     /// typed, and where you were, as given. It stays as you pick (one after another).
     pub(super) fn fields_menu(&mut self, query: String, sel: usize) {
         let Some((labels, people, reviewers)) = &self.fields else { return };
+        // (Under their sections: Reviewers, Labels, Assignees.)
         let item = |field: gh::Field, name: &str, on: bool| {
-            let shown = match field {
-                gh::Field::Label => format!("label {name}"),
-                gh::Field::Assignee => format!("assignee @{name}"),
-                gh::Field::Reviewer => format!("review from @{name}"),
-            };
+            let at = if matches!(field, gh::Field::Label) { "" } else { "@" };
             let tick = if on { "✓ " } else { "  " };
-            Item::new(format!("{tick}{shown}"), Target::Run(Job::SetField(field, name.to_owned(), !on)))
+            Item::new(format!("{tick}{at}{name}"), Target::Run(Job::SetField(field, name.to_owned(), !on)))
         };
         let items: Vec<Item> = [(gh::Field::Reviewer, &reviewers), (gh::Field::Label, &labels), (gh::Field::Assignee, &people)]
             .into_iter()
@@ -547,7 +544,7 @@ impl App {
         if items.is_empty() {
             return self.msg = "no labels in this repo, nor anyone to assign or ask".into();
         }
-        let p = Picker::new(" labels, assignees, reviewers (✓: on it; Enter adds or removes; Esc: done) ", items);
+        let p = Picker::new(" reviewers, labels, assignees (✓ on it: Enter adds or takes it off) ", items);
         self.picker = Some(Picker { query, sel, ..p });
     }
 

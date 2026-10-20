@@ -234,10 +234,10 @@ pub(super) fn draw_help(f: &mut Frame, ui: &Ui, help: &str, title: &str) {
     let area = f.area();
     let body = crate::view::help_lines(help, ui, area.width.saturating_sub(4) as usize, "");
     let w = (body.iter().map(Line::width).max().unwrap_or(0) as u16 + 4).min(area.width);
-    let h = (body.len() as u16 + 3).min(area.height);
+    let h = (body.len() as u16 + 2).min(area.height);
     let r = Rect { x: (area.width - w) / 2, y: (area.height - h) / 2, width: w, height: h };
     let inner = crate::view::popup_frame(ui, f, r, title, "any key closes");
-    f.render_widget(Paragraph::new(body), Rect { y: inner.y + 1, height: inner.height.saturating_sub(1), ..inner });
+    f.render_widget(Paragraph::new(body), inner);
 }
 
 /// A list's top bar: which list it is (`title`), its tabs (the one shown lit), how to get to the
@@ -303,6 +303,5 @@ pub(super) fn draw_keys(f: &mut Frame, ui: &Ui, keys: &[(&str, &str)]) {
     let h = (lines.len() as u16 + 2).min(area.height.saturating_sub(1));
     let r = Rect { x: area.width - w, y: area.height.saturating_sub(1 + h), width: w, height: h };
     let inner = crate::view::popup_frame(ui, f, r, "keys", "");
-    // (Down to its last row: it sits on the status bar.)
-    f.render_widget(Paragraph::new(lines), Rect { height: inner.height + 1, ..inner });
+    f.render_widget(Paragraph::new(lines), inner);
 }

@@ -1,20 +1,20 @@
           PR #7 · Fix the thing  @bo · main ← amy:fix
  ▾        description
-          Fi threads: [all] unresolved pending Claude new                        1 / 4
-       ╭─ st >                                                                         ────────────╮
-       │  OP src/big.rs:12  [nit] @claude                                                          │
-       │  re   Name it new_value; see src/a.rs:2.                                                  │
-       ╰────                                                                           ────────────╯
-       ╭─ yo src/big.rs:20  1 reply · @amy                                             ────────────╮
-       │  Ne   Why line 20?                                                                        │
-       ╰────                                                                           ────────────╯
- ▾        sr src/a.rs:2  [pending] @you
-          ──   Pass y here.                                                            ───── L9–15 ─
-  9   9   li
- 10  10   li src/a.rs:1  [resolved] @amy
- 11  11   li   Old news.
- 12     -
-     12 +                                                                                          ◆
+          Fixes the╭ threads: [all] unresolved pending Claude new ────── 1 / 4 ╮
+       ╭─ status ──│                                                          │───────────────────╮
+       │  OPEN @bo │ ───────────────────────────────────────────────────────── │                   │
+       │  review: w│ ▌ src/big.rs:12  [nit] @claude                           │                   │
+       ╰───────────│    Name it new_value; see src/a.rs:2.                     │───────────────────╯
+       ╭─ your revi│                                                           │───────────────────╮
+       │  Nearly th│   src/big.rs:20  1 reply · @amy                          │                   │
+       ╰───────────│    Why line 20?                                           │───────────────────╯
+ ▾        src/big.r│                                                           │
+          ─────────│   src/a.rs:2  [pending] @you                             │──────────── L9–15 ─
+  9   9   line 9   │    Pass y here.                                           │
+ 10  10   line 10  │                                                           │
+ 11  11   line 11  │   src/a.rs:1  [resolved] @amy                            │
+ 12     -     let x│    Old news.                                              │
+     12 +     let x╰───────────────────────────────────────────────────────────╯                   ◆
  13  13   line 13
  14  14   line 14
  15  15   line 15

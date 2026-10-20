@@ -621,7 +621,7 @@ impl App {
                         Target::DescApprove(sure) => self.approve_description(sure),
                         Target::DescDiscard => self.discard("description", "Claude's proposed description"),
                         Target::CloseDiscard => self.discard("closing", "Claude's closing comment"),
-                        Target::Nothing => {}
+                        Target::Nothing | Target::Note(_) | Target::Warn => {}
                     }
                 }
             }

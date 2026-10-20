@@ -66,6 +66,12 @@ pub struct Settings {
     pub relative: bool,
 }
 
+/// Whether pickers show icons (a Nerd Font's): unless `git config dv.icons false`.
+pub fn icons() -> bool {
+    static ICONS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ICONS.get_or_init(|| crate::diff::git(&["config", "--get", "dv.icons"]).map_or(true, |v| v.trim() != "false"))
+}
+
 pub fn settings() -> Settings {
     let cfg = helix_config_dir()
         .and_then(|d| std::fs::read_to_string(d.join("config.toml")).ok())

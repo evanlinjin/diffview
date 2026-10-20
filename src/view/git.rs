@@ -72,7 +72,7 @@ impl App {
                     Item::new("Abort the rebase (back to before it)", Target::RebaseAbort),
                 ],
                 None => vec![
-                    Item::new("A rebase you started is stopped: finish it with git (git rebase --continue)", Target::Nothing),
+                    Item::new("A rebase you started is stopped: finish it with git (git rebase --continue)", Target::Note("")),
                     Item::new("Abort it (back to before it)", Target::RebaseAbort),
                 ],
             };
@@ -96,7 +96,7 @@ impl App {
         // A draft no one has seen: published (S), not pushed.
         let push = if self.unpublished() { Err(anyhow!("it's a draft: S publishes it")) } else { self.push_target() };
         match push {
-            Err(_) if self.unpublished() => items.push(Item::new("Publish it as a draft PR: S (nothing to push to before)", Target::Nothing)),
+            Err(_) if self.unpublished() => items.push(Item::new("Publish it as a draft PR: S (nothing to push to before)", Target::Note(""))),
             Ok((remote, branch, name)) => match self.unpushed(&remote, &branch) {
                 Push::Nothing => {}
                 Push::Ahead(n) => items.push(Item::new(format!("Push {n} commit(s) to {name}"), Target::Run(Job::Push(false)))),
@@ -118,7 +118,7 @@ impl App {
                     items.push(Item::new(label, Target::GitTakeTheirs(ours == 0)));
                 }
             },
-            Err(e) => items.push(Item::new(format!("Can't push: {e:#}"), Target::Nothing)),
+            Err(e) => items.push(Item::new(format!("Can't push: {e:#}"), Target::Note(""))),
         }
         // Onto the base branch: Claude resolves conflicts.
         if let Some(onto) = self.rebase_onto() {

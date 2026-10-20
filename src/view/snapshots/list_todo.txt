@@ -1,12 +1,12 @@
- PRs   todo 3   open 3   close 0   stalled 0   wor keys
-▌   #2  Docs                                       Enter  see to it (opens the PR or replacement)
-▌   3.  → z                                        gn gp  open PRs
-▌       @bo   +0 −0 in 1 file                      /      filter
-▌       CI ✓5           claude could review        R      refresh (from GitHub)
-▌       b                                          r r    Claude ranks what needs you (a run)
-                                                   s      defer it (or bring it back)
-                                                   p      post what it waits on (a comment)
-                                                   m      mark
-                                                   a a    Claude does its part (marked)
-                                                   A A    Claude drafts a replacement
+ PRs   todo 3   open 3   close 0   stalled 0   wor╭ keys ──────────────────────────────────────────╮
+▌   #2  Docs                                      │ Enter  see to it (opens the PR or replacement) │
+▌   3.  → z                                       │ gn gp  open PRs                                │
+▌       @bo   +0 −0 in 1 file                     │ /      filter                                  │
+▌       CI ✓5           claude could review       │ R      refresh (from GitHub)                   │
+▌       b                                         │ r r    Claude ranks what needs you (a run)     │
+                                                  │ s      defer it (or bring it back)             │
+                                                  │ p      post what it waits on (a comment)       │
+                                                  │ m      mark                                    │
+                                                  │ a a    Claude does its part (marked)           │
+                                                  ╰────────────────────────────────────────────────╯
                                    ranked 1h ago, cost $0.38, nothing's changed since  ·  auto off

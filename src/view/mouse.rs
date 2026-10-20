@@ -18,9 +18,8 @@ pub(super) struct Geom {
 
 #[derive(Clone, Copy)]
 pub(super) struct PickerGeom {
-    /// The items' area, how many lines each takes, and the first one shown.
+    /// The items' area, and the first of its lines shown (`Picker::lines`).
     pub(super) list: Rect,
-    pub(super) item_h: usize,
     pub(super) off: usize,
 }
 
@@ -131,12 +130,9 @@ impl App {
         if y < top || y >= top + h {
             return self.picker = None; // outside its items: close it, as Esc
         }
-        let i = g.off + (y - top) / g.item_h.max(1);
-        let n = self.matches().len();
         let Some(p) = &mut self.picker else { return };
-        if i >= n {
-            return;
-        }
+        // (A section's heading, a gap: nothing.)
+        let Some(i) = p.lines.get(g.off + y - top).copied().flatten() else { return };
         match p.sel == i {
             true => self.picker_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
             false => p.sel = i,

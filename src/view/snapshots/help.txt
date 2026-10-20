@@ -1,50 +1,50 @@
           PR #7 · Fix the thing  @bo · main ← amy:fix          3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)
  ▾        description
-          Fixes the th keys · / search · j/k scroll · other keys close                 1–44 / 139
-       ╭─ status ─────  MOVE                                                                    ┃ ─────────────╮
-       │  OPEN @bo · m   h j k l, arrows      move (counts: 5j)                                 ┃              │
-       │  review: wait   w b e  W B E         word motions (select)                             ┃              │
-       ╰──────────────   gh gl gs             line start / end / first non-blank                ┃ ─────────────╯
-       ╭─ your review    f t F T <c>          find char                                         ┃ ─────────────╮
-       │  Nearly there   gw                   jump labels                                       ┃              │
-       ╰──────────────   mm                   matching bracket                                  ┃ ─────────────╯
- ▾        src/big.rs     gg ge                top / end (in the comments pane: its first / last)┃
-          ────────────   Ctrl-d Ctrl-u        half page down / up                               ┃ ────────────── L9–15 ─
-  9   9   line 9         Ctrl-e Ctrl-y        scroll 5 lines                                    ┃
- 10  10   line 10        zz zt zb             cursor line to center / top / bottom              ┃
- 11  11   line 11        Ctrl-o               jump back                                         ┃
- 12     -     let x =                                                                           ┃
-     12 +     let x =   DIFF                                                                    ┃                      ◆
- 13  13   line 13        ]g [g                next / prev hunk (change)                         │
- 14  14   line 14        ]f [f, Space f       next / prev file, file picker                     │
- 15  15   line 15        Space C              commit picker: one commit's diff, or all of them  │
- ▾        src/a.rs  +1   Space N              Claude drafts a new PR from what's selected (or   │
-          ── fn main ─                        the line): your editor                            │ ─────────────── L1–3 ─
-  1   1   fn main() {                         first, on what it should do; dv list's drafts tab │                      ○
-  2     -     old();                          has it                                            │
-      2 +     new_call   ]c [c                next / prev comment thread                        │                      ●
-  3   3   }              ]u [u                next / prev unresolved one (wraps around)         │
- ▾        new.rs (rena   ]a [a                next / prev Claude comment (wraps around)         │
- ▾        img.png (bin   ]p [p                next / prev comment of your pending review (wraps │
-                                              around)                                           │
-                         /  n N  *            search, next / prev match, search selection       │
-                                                                                                │
-                        SELECT & COPY                                                           │
-                         x                    select line (repeat to extend)                    │
-                         v  ;  Esc            select mode / collapse / exit select mode         │
-                         y  (or Space y)      copy text                                         │
-                         Y                    copy as patch                                     │
-                         Space c              copy: a link's URL, file:line, or a comment's /   │
-                                              the PR's link                                     │
-                                                                                                │
-                        VIEW                                                                    │
-                         + =  -               hunk context +10 / -10 lines                      │
-                         Z                    whole file                                        │
-                         Tab                  fold file / PR info / thread                      │
-                         gn  gp               comments pane: next / previous tab (comments,     │
-                                              Claude's, the PR's)                               │
-                         Shift-Tab            fold / unfold all files                           │
-                         Ctrl-w v             toggle split (side-by-side) view                  │
-
+          Fixes the t╭ keys · / search · j/k scroll · other keys close ─────────────── 1–44 / 139 ╮
+       ╭─ status ────│  MOVE                                                                    ┃ │────────────╮
+       │  OPEN @bo · │   h j k l, arrows      move (counts: 5j)                                 ┃ │            │
+       │  review: wai│   w b e  W B E         word motions (select)                             ┃ │            │
+       ╰─────────────│   gh gl gs             line start / end / first non-blank                ┃ │────────────╯
+       ╭─ your review│   f t F T <c>          find char                                         ┃ │────────────╮
+       │  Nearly ther│   gw                   jump labels                                       ┃ │            │
+       ╰─────────────│   mm                   matching bracket                                  ┃ │────────────╯
+ ▾        src/big.rs │   gg ge                top / end (in the comments pane: its first / last)┃ │
+          ───────────│   Ctrl-d Ctrl-u        half page down / up                               ┃ │───────────── L9–15 ─
+  9   9   line 9     │   Ctrl-e Ctrl-y        scroll 5 lines                                    ┃ │
+ 10  10   line 10    │   zz zt zb             cursor line to center / top / bottom              ┃ │
+ 11  11   line 11    │   Ctrl-o               jump back                                         ┃ │
+ 12     -     let x =│                                                                          ┃ │
+     12 +     let x =│  DIFF                                                                    ┃ │                    ◆
+ 13  13   line 13    │   ]g [g                next / prev hunk (change)                         │ │
+ 14  14   line 14    │   ]f [f, Space f       next / prev file, file picker                     │ │
+ 15  15   line 15    │   Space C              commit picker: one commit's diff, or all of them  │ │
+ ▾        src/a.rs  +│   Space N              Claude drafts a new PR from what's selected (or   │ │
+          ── fn main │                        the line): your editor                            │ │────────────── L1–3 ─
+  1   1   fn main() {│                        first, on what it should do; dv list's drafts tab │ │                    ○
+  2     -     old(); │                        has it                                            │ │
+      2 +     new_cal│   ]c [c                next / prev comment thread                        │ │                    ●
+  3   3   }          │   ]u [u                next / prev unresolved one (wraps around)         │ │
+ ▾        new.rs (ren│   ]a [a                next / prev Claude comment (wraps around)         │ │
+ ▾        img.png (bi│   ]p [p                next / prev comment of your pending review (wraps │ │
+                     │                        around)                                           │ │
+                     │   /  n N  *            search, next / prev match, search selection       │ │
+                     │                                                                          │ │
+                     │  SELECT & COPY                                                           │ │
+                     │   x                    select line (repeat to extend)                    │ │
+                     │   v  ;  Esc            select mode / collapse / exit select mode         │ │
+                     │   y  (or Space y)      copy text                                         │ │
+                     │   Y                    copy as patch                                     │ │
+                     │   Space c              copy: a link's URL, file:line, or a comment's /   │ │
+                     │                        the PR's link                                     │ │
+                     │                                                                          │ │
+                     │  VIEW                                                                    │ │
+                     │   + =  -               hunk context +10 / -10 lines                      │ │
+                     │   Z                    whole file                                        │ │
+                     │   Tab                  fold file / PR info / thread                      │ │
+                     │   gn  gp               comments pane: next / previous tab (comments,     │ │
+                     │                        Claude's, the PR's)                               │ │
+                     │   Shift-Tab            fold / unfold all files                           │ │
+                     │   Ctrl-w v             toggle split (side-by-side) view                  │ │
+                     ╰────────────────────────────────────────────────────────────────────────────╯
 
  NOR                                                                                                               1/40

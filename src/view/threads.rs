@@ -36,12 +36,12 @@ impl App {
             _ => (self.thread_items(|_| true), "no review threads"),
         };
         if items.is_empty() {
-            items.push(Item::new(none, Target::Nothing));
+            items.push(Item::new(none, Target::Note("")));
         }
-        if tab == THREADS_PENDING && !matches!(items[0].target, Target::Nothing) {
+        if tab == THREADS_PENDING && !matches!(items[0].target, Target::Note(_)) {
             self.msg = "Enter jumps there · Ctrl-d deletes it".into();
         }
-        self.picker = Some(Picker { title: THREAD_TABS[tab], items, query, sel: 0 });
+        self.picker = Some(Picker { query, ..Picker::new(THREAD_TABS[tab], items) });
     }
 
     /// A card per thread that `keep`s: where, what state, who; then the start of what was said.

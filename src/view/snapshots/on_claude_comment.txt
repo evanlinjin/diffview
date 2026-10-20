@@ -19,12 +19,12 @@
  15  15   line 15                                 ╰────────────────────────────────────────────────╯
  ▾        src/a.rs  +1 −1  · 1 comment
           ── fn main ──────────────────────────────────────────────────────────────────────── L1–3 ─
- Claude's comment                                               1 comment
- r        reply to Claude
- Enter    go to the file:line, name or link under the cursor   ────────────────────────────────────╮
- c        copy to your review                                                                      │
- C        post it now                                          e.                                  │
- Space r  resolve                                              ────────────────────────────────────╯
- Space d  dismiss
-
+╭ Claude's comment ───────────────────────────────────────────╮ 1 comment
+│ r        reply to Claude                                    │
+│ Enter    go to the file:line, name or link under the cursor │────────────────────────────────────╮
+│ c        copy to your review                                │                                    │
+│ C        post it now                                        │e.                                  │
+│ Space r  resolve                                            │────────────────────────────────────╯
+│ Space d  dismiss                                            │
+╰─────────────────────────────────────────────────────────────╯
  NOR   src/big.rs                                       0/4 viewed · 1 pending (S submits)    23/43

@@ -12,19 +12,19 @@
           ────────────────────────────────────────────────────────────────────────────────── L9–15 ─
   9   9   line 9
  10  10   line 10
- 11  11   line 11                             window
- 12     -     let x = old(12);                v  toggle split view
-     12 +     let x = new_call(12);           n  relative line numbers on / off
- 13  13   line 13                             e  the files' list on / off
- 14  14   line 14                             c  show / hide the comments pane
- 15  15   line 15                             f  comments pane: a column / floating over the code
- ▾        src/a.rs  +1 −1  · 1 comment        ,  narrower pane (the one you're in, else comments)
-          ── fn main ──────────────────────── .  wider pane
-  1   1   fn main() {                         =  the pane at its usual width
-  2     -     old();                          q  hide the pane you're in (files / comments)
-      2 +     new_call(x);                    j  the commits (in the files' list)
-  3   3   }                                   k  the files (in the files' list)
- ▾        new.rs (renamed from old.rs)  +0 −0 h  the pane to the left
- ▾        img.png (binary)  +0 −0             l  the pane to the right
-
+ 11  11   line 11                            ╭ window ─────────────────────────────────────────────╮
+ 12     -     let x = old(12);               │ v  toggle split view                                │
+     12 +     let x = new_call(12);          │ n  relative line numbers on / off                   │
+ 13  13   line 13                            │ e  the files' list on / off                         │
+ 14  14   line 14                            │ c  show / hide the comments pane                    │
+ 15  15   line 15                            │ f  comments pane: a column / floating over the code │
+ ▾        src/a.rs  +1 −1  · 1 comment       │ ,  narrower pane (the one you're in, else comments) │
+          ── fn main ────────────────────────│ .  wider pane                                       │
+  1   1   fn main() {                        │ =  the pane at its usual width                      │
+  2     -     old();                         │ q  hide the pane you're in (files / comments)       │
+      2 +     new_call(x);                   │ j  the commits (in the files' list)                 │
+  3   3   }                                  │ k  the files (in the files' list)                   │
+ ▾        new.rs (renamed from old.rs)  +0 −0│ h  the pane to the left                             │
+ ▾        img.png (binary)  +0 −0            │ l  the pane to the right                            │
+                                             ╰─────────────────────────────────────────────────────╯
  NOR                           3 threads + 1 Claude · 0/4 viewed · 1 pending (S submits)  C-w  1/40
