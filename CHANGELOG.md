@@ -5,6 +5,19 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.74.1] - 2026-10-20
+
+### Fixed
+- In zellij, the PR view's asks (review, change, describe, fix CI, close) take their task's model
+  too; Claude's pane takes `dv.model`.
+- A comment that goes (posted, deleted) leaves the cursor on the line it was under, outdated or
+  not.
+- In an issue, a drag scrolls only once past the view's edge, not on its first line.
+- The panic log is in dv's directory (`panic.log`), the one before kept as `panic.log.old`.
+
+### Changed
+- An issue opens with one GitHub query, not two.
+
 ## [0.74.0] - 2026-10-20
 
 ### Added
