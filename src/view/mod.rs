@@ -763,18 +763,24 @@ impl App {
         self.rows[r].line.text.chars().count()
     }
 
-    /// How many of row `r`'s chars from `from` fit in `w` columns (past its end, a column each).
-    pub(super) fn fit_chars(&self, r: usize, from: usize, w: usize) -> usize {
+    /// The column row `r`'s char `i` starts at on screen (past its end, a column each).
+    pub(super) fn col_of(&self, r: usize, i: usize) -> usize {
+        self.rows[r].line.text.chars().chain(std::iter::repeat(' ')).take(i).map(row::char_w).sum()
+    }
+
+    /// Row `r`'s char at column `c`, the one it's in (past its end, a column each).
+    pub(super) fn char_at(&self, r: usize, c: usize) -> usize {
         let mut used = 0;
-        self.rows[r].line.text.chars().chain(std::iter::repeat(' ')).skip(from).take_while(|&c| {
-            used += row::char_w(c);
-            used <= w
+        self.rows[r].line.text.chars().chain(std::iter::repeat(' ')).take_while(|&ch| {
+            used += row::char_w(ch);
+            used <= c
         }).count()
     }
 
-    /// The columns row `r`'s chars `from..to` take on screen (past its end, a column each).
-    pub(super) fn cols(&self, r: usize, from: usize, to: usize) -> usize {
-        self.rows[r].line.text.chars().chain(std::iter::repeat(' ')).take(to).skip(from).map(row::char_w).sum()
+    /// Row `r`'s first char wholly at or after column `c` (one cut by it isn't shown).
+    pub(super) fn char_from(&self, r: usize, c: usize) -> usize {
+        let i = self.char_at(r, c);
+        i + usize::from(self.col_of(r, i) < c)
     }
 
     fn chars(&self, r: usize) -> Vec<char> {

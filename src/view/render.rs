@@ -188,7 +188,11 @@ impl App {
         // Floating, a comment beside it covers the code from `mx` on (`draw_body`), a split
         // half's too.
         let cur_w = match self.drows[hd] {
-            DRow::Margin(_, _, Some(_)) if float && !self.margin_side() => cur_w.min((relw + gw + mx).saturating_sub(self.text_x(c))),
+            // (Over all of it: nowhere to keep the cursor; as without it, not pinned to it.)
+            DRow::Margin(_, _, Some(_)) if float && !self.margin_side() => match (relw + gw + mx).saturating_sub(self.text_x(c)) {
+                0 => cur_w,
+                seen => cur_w.min(seen),
+            },
             _ => cur_w,
         };
         // A code line's last column is for comment marks.
@@ -208,22 +212,19 @@ impl App {
         let len = self.len(self.head.row);
         let w = self.text_w(self.head.row, cur_w).max(1);
         let Some(scroller) = scroller else { return };
+        // (In columns, as `render_row` draws it: a tab's 4, a wide character's 2.)
         let (row, mut left) = (self.head.row, self.hscroll(self.head.row));
-        // (In columns: a tab's 4, a wide character's 2.)
         if nudge != 0 {
-            left = (left as isize + nudge).clamp(0, len.saturating_sub(1) as isize) as usize;
-            let last = left + self.fit_chars(row, left, w).max(1) - 1;
-            self.head.col = self.head.col.clamp(left, last).min(len.saturating_sub(1));
+            left = (left as isize + nudge).clamp(0, self.col_of(row, len).saturating_sub(1) as isize) as usize;
+            let first = self.char_from(row, left);
+            let last = self.char_at(row, left + w).saturating_sub(1).max(first);
+            self.head.col = self.head.col.clamp(first, last).min(len.saturating_sub(1));
             (self.anchor, self.want_col) = (self.head, self.head.col); // (the mouse: no selection)
         }
-        left = left.min(self.head.col);
-        if self.cols(row, left, self.head.col + 1) > w {
-            let (chars, mut used) = (self.chars(row), 0);
-            let fit = (0..=self.head.col).rev().take_while(|&i| {
-                used += chars.get(i).map_or(1, |&c| super::row::char_w(c));
-                used <= w
-            });
-            left = self.head.col + 1 - fit.count().max(1);
+        let (start, end) = (self.col_of(row, self.head.col), self.col_of(row, self.head.col + 1));
+        left = left.min(start);
+        if end > left + w {
+            left = end.saturating_sub(w).min(start);
         }
         *match scroller {
             Scroller::Block(_) => &mut self.code_left,
@@ -481,7 +482,7 @@ impl App {
         let header = self.rows[self.head.row].line.kind == Kind::File;
         if let (Some(url), None, None, false) = (self.link_at_cursor(), &self.picker, &self.popup, header) {
             let y = (hd - self.top) as u16 + pin as u16;
-            let x = ((self.text_x(c) + self.rows[self.head.row].guide_w() + self.cols(self.head.row, self.hscroll(self.head.row), self.head.col)) as u16).min(area.width.saturating_sub(20));
+            let x = ((self.text_x(c) + self.rows[self.head.row].guide_w() + self.col_of(self.head.row, self.head.col).saturating_sub(self.hscroll(self.head.row))) as u16).min(area.width.saturating_sub(20));
             // (Just where it goes: its keys are in the key hints.)
             let text = format!(" ↗ {url} ");
             let w = (text.chars().count() as u16).min(area.width - x);

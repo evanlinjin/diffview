@@ -60,7 +60,7 @@ impl App {
             // to (the cursor there would take it back).
             MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight if code => {
                 let Some((row, col, _)) = self.at_screen(x, y) else { return };
-                if self.scroller(row).is_none() || kind == MouseEventKind::ScrollRight && self.len(row) <= self.hscroll(row) + 1 && self.hscroll(row) > 0 {
+                if self.scroller(row).is_none() || kind == MouseEventKind::ScrollRight && self.col_of(row, self.len(row)) <= self.hscroll(row) + 1 && self.hscroll(row) > 0 {
                     return;
                 }
                 self.select = false;
@@ -185,8 +185,7 @@ impl App {
             DRow::Margin(l, r, note) => (l.or(r).or(note)?, g.relw + g.gw),
         };
         // (A reply's guide is before its text.)
-        let from = self.hscroll(row);
-        Some((row, from + self.fit_chars(row, from, x.saturating_sub(start + self.rows[row].guide_w())), x < start))
+        Some((row, self.char_at(row, self.hscroll(row) + x.saturating_sub(start + self.rows[row].guide_w())), x < start))
     }
 
 }

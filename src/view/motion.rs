@@ -372,7 +372,7 @@ impl App {
             }
             let chars = self.chars(row);
             let class = |c: char| if c.is_whitespace() { 0 } else if c.is_alphanumeric() || c == '_' { 1 } else { 2 };
-            let mut i = self.hscroll(row); // where its text starts on screen
+            let mut i = self.char_from(row, self.hscroll(row)); // where its text starts on screen
             while i < chars.len() {
                 let (c, start) = (class(chars[i]), i);
                 while i < chars.len() && class(chars[i]) == c {

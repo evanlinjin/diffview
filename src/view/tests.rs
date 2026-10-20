@@ -3175,6 +3175,19 @@ fn tabs_and_wide_chars_scroll_by_their_columns() {
 }
 
 #[test]
+fn scrolled_sideways_tab_and_space_lines_stay_aligned() {
+    // Scrolled by columns, every row alike: a tab-indented line and a space-indented one,
+    // their text under each other.
+    let text = "diff --git a/w.rs b/w.rs\nnew file mode 100644\n--- /dev/null\n+++ b/w.rs\n@@ -0,0 +1,2 @@\n+\t\tabcdefghij\n+        abcdefghij\n";
+    let mut app = App::with("base".into(), diff::parse(text));
+    let r = app.rows.iter().position(|r| r.line.text.starts_with(' ')).unwrap();
+    (app.left, _) = (5, app.goto(r, 12));
+    let s = screen(120, 30, |f| app.draw(f));
+    let at: Vec<usize> = s.lines().filter_map(|l| l.find("ghij").map(|b| l[..b].chars().count())).collect();
+    assert!(at.len() == 2 && at[0] == at[1] && app.left == 5, "{s}");
+}
+
+#[test]
 fn a_thread_gone_leaves_the_cursor_on_its_line() {
     // Claude's comment posted (its copy dismissed): the cursor on the line it was on, not the
     // file's top.

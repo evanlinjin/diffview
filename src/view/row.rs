@@ -24,7 +24,7 @@ pub(super) fn fit(line: Line<'static>, w: usize) -> Line<'static> {
 
 /// The columns `c` takes on screen (a tab, 4: as `render_row` draws it).
 pub(super) fn char_w(c: char) -> usize {
-    if c == '\t' { 4 } else { Span::raw(c.to_string()).width() }
+    if c == '\t' { 4 } else { Span::raw(&*c.encode_utf8(&mut [0; 4])).width() }
 }
 
 /// `spans` cut to `w` columns, padded to them if shorter.
@@ -280,8 +280,14 @@ impl App {
         // (Its box as wide as the comment's, measured from after a reply's guide.)
         let (text_w, bw) = (self.text_w(r, tw), self.box_w(r, tw).saturating_sub(row.guide_w()));
         let tw = tw.saturating_sub(row.guide_w());
-        let skip = self.hscroll(r);
-        let end = skip + self.fit_chars(r, skip, text_w);
+        // Scrolled by columns, every row alike (a tab's 4, a wide character's 2): the chars
+        // wholly in `left..left + text_w`, after the part of one cut at the left.
+        let left = self.hscroll(r);
+        let (skip, end) = (self.char_from(r, left), self.char_at(r, left + text_w));
+        let cut = self.col_of(r, skip) - left;
+        if cut > 0 {
+            spans.push(Span::styled(" ".repeat(cut), style));
+        }
         for (i, c) in l.text.chars().enumerate().take(end).skip(skip) {
             let p = Pos { row: r, col: i };
             let mut st = style;
@@ -319,10 +325,10 @@ impl App {
                     (sp.content, sp.style) = (format!("{c}{pad}").into(), sp.style.patch(more));
                 }
             };
-            if skip > 0 {
+            if left > 0 {
                 mark(&mut spans[g], "‹", skip);
             }
-            if l.text.chars().count() > end {
+            if l.text.chars().count() > end && end > skip {
                 let last = spans.len() - 1;
                 mark(&mut spans[last], "›", end - 1);
             }
