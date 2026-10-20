@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.69.9] - 2026-10-20
+
+### Fixed
+- After a crash, the mouse is given back to the shell too.
+- A draft always ends, even when reading its record hits a bug.
+- The panic log keeps every panic.
+
 ## [0.69.8] - 2026-10-20
 
 ### Fixed
