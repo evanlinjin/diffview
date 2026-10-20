@@ -810,6 +810,14 @@ impl IssueView {
     /// nothing, and nothing kept).
     pub fn mouse(&mut self, kind: ratatui::crossterm::event::MouseEventKind, x: usize, y: usize) -> Option<String> {
         use ratatui::crossterm::event::{MouseButton, MouseEventKind};
+        // A drag at the edge (or past it): its side scrolls on, a line each move.
+        if let (MouseEventKind::Drag(_), Some(((_, ax), _))) = (kind, self.sel) {
+            match y {
+                0 => self.scroll(ax, -1),
+                y if y >= self.shown => self.scroll(ax, 1),
+                _ => {}
+            }
+        }
         // (A row on the side it's over; a drag's, on the side it began on.)
         let y = y.min(self.shown.saturating_sub(1));
         let side = self.sel.filter(|_| matches!(kind, MouseEventKind::Drag(_) | MouseEventKind::Up(_))).map_or(self.side_of(x), |((_, ax), _)| self.side_of(ax));
@@ -1046,6 +1054,12 @@ fn an_issue_and_its_triage() {
     v.mouse(MouseEventKind::Down(MouseButton::Left), 2, 0);
     assert_eq!(v.mouse(MouseEventKind::Up(MouseButton::Left), 2, 0), None);
     assert!(v.sel.is_none());
+    // A drag past the bottom scrolls its side on; at the top, back.
+    v.mouse(MouseEventKind::Down(MouseButton::Left), 2, 1);
+    v.mouse(MouseEventKind::Drag(MouseButton::Left), 2, 5);
+    assert_eq!(v.scroll, [2, 2]);
+    v.mouse(MouseEventKind::Drag(MouseButton::Left), 2, 0);
+    assert_eq!(v.scroll, [1, 2]);
 }
 
 #[test]
