@@ -23,15 +23,27 @@ impl List {
         let mut claude_open = HashMap::new();
         for p in self.prs.iter().filter(|p| p.open()) {
             let file = dir.as_ref().map(|d| d.join(format!("pr-{}.json", p.number)));
-            let review = file.as_ref().and_then(|f| crate::claude::load(f).ok().flatten());
+            let (review, unreadable) = match file.as_ref().map(|f| crate::claude::load(f)) {
+                Some(Ok(r)) => (r, false),
+                Some(Err(_)) => (None, true),
+                None => (None, false),
+            };
             if let Some(r) = review.as_ref().filter(|r| !r.close.trim().is_empty()) {
                 // (Reviewed at an older head: as the todo tab has it, its review's to update.)
                 let head = self.extra.get(&p.number).map_or("", |e| e.head_oid.as_str());
                 let older = !r.head.is_empty() && !head.is_empty() && r.head != head;
                 closable.insert(p.number, format!("{}{}", r.close.trim(), if older { " (reviewed at an older head)" } else { "" }));
             }
-            if let Some(r) = &review {
-                claude_open.insert(p.number, r.threads.iter().filter(|t| t.by_claude() && !t.resolved && !t.outdated).count());
+            // Claude's comments not resolved; reviewed at an older head, some may be outdated
+            // (the view would say: the list doesn't diff); a file that won't read, said so.
+            match &review {
+                Some(r) => {
+                    let head = self.extra.get(&p.number).map_or("", |e| e.head_oid.as_str());
+                    let older = !r.head.is_empty() && !head.is_empty() && r.head != head;
+                    claude_open.insert(p.number, Some((r.threads.iter().filter(|t| t.by_claude() && !t.resolved).count(), older)));
+                }
+                None if unreadable => _ = claude_open.insert(p.number, None),
+                None => {}
             }
             if let Some(r) = review.as_ref().filter(|r| !r.replace.trim().is_empty() && r.close.trim().is_empty()) {
                 replaceable.insert(p.number, r.replace.trim().to_owned());

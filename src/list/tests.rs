@@ -102,10 +102,14 @@ fn filter_and_keys() {
     assert_eq!(l.claude_state(333), Some(("claude: reviewing…".into(), true)));
     assert_eq!(l.claude_state(1), Some(("claude reviewed".into(), true)));
     // Its comments read: how many are left to address (not a ✓, which reads as approving).
-    l.claude_open.insert(1, 2);
+    l.claude_open.insert(1, Some((2, false)));
     assert_eq!(l.claude_state(1), Some(("claude: 2 to address".into(), false)));
-    l.claude_open.insert(1, 0);
+    l.claude_open.insert(1, Some((0, true)));
     assert_eq!(l.claude_state(1), Some(("claude: all addressed".into(), true)));
+    l.claude_open.insert(1, Some((2, true)));
+    assert_eq!(l.claude_state(1), Some(("claude: 2 open, on an older head".into(), false)));
+    l.claude_open.insert(1, None);
+    assert_eq!(l.claude_state(1), Some(("claude: its review won't read".into(), false)));
     l.claude_open.clear();
     assert!(k(&mut l, KeyCode::Char('q')).is_none() && l.msg.starts_with("Claude is still reviewing"));
     assert!(matches!(k(&mut l, KeyCode::Char('q')), Some(Do::Quit)));

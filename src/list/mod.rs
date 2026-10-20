@@ -152,8 +152,9 @@ pub struct List {
     /// PRs Claude has a review of, and when its reviews directory last changed: a review
     /// written from a PR's view (or still being, in Claude's pane) shows up as it lands.
     reviewed: HashSet<u64>,
-    /// Claude's comments on each PR not resolved yet (its review read: `find_todo`).
-    claude_open: HashMap<u64, usize>,
+    /// Claude's comments on each PR not resolved yet, and whether it reviewed an older head (its
+    /// review read: `find_todo`; `None`: the file won't read).
+    claude_open: HashMap<u64, Option<(usize, bool)>>,
     reviews_dir: Option<std::path::PathBuf>,
     reviews_mtime: Option<std::time::SystemTime>,
     /// PRs with something you haven't seen (`fresh`).

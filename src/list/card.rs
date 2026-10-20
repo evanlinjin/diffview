@@ -72,8 +72,11 @@ impl List {
             Some(batch::Status::Failed(e)) => Some((format!("claude failed: {}", e.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" · ")), false)),
             // (Not a ✓: that'd read as Claude approving it. What's left of what it said.)
             _ if self.reviewed.contains(&n) => Some(match self.claude_open.get(&n) {
-                Some(0) => ("claude: all addressed".into(), true),
-                Some(k) => (format!("claude: {k} to address"), false),
+                Some(Some((0, _))) => ("claude: all addressed".into(), true),
+                Some(Some((k, false))) => (format!("claude: {k} to address"), false),
+                // (Its code may have changed since: some may be addressed, outdated.)
+                Some(Some((k, true))) => (format!("claude: {k} open, on an older head"), false),
+                Some(None) => ("claude: its review won't read".into(), false),
                 None => ("claude reviewed".into(), true),
             }),
             _ => None,
