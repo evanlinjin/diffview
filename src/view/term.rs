@@ -14,25 +14,29 @@ pub static MOUSE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool:
 
 /// Take over the terminal (ratatui), with mouse capture unless `--no-mouse`.
 pub fn init_terminal() -> DefaultTerminal {
-    let term = ratatui::init();
-    // A panic off the main thread (a background run's: it's caught there, a failure) leaves
-    // the terminal to dv: ratatui's hook, which gives it back, runs for the main thread only.
-    // Theirs goes to a log, not over the screen.
-    // (Each time, over the hook `ratatui::init` just put on: ours must come first, or a
-    // background run's panic would give the terminal back under dv.)
-    hook_panics();
+    // As `ratatui::init`, but for its panic hook, which would give the terminal back on any
+    // thread's panic (and stack up, one each time dv takes the terminal again): dv's, once.
+    static HOOKED: std::sync::Once = std::sync::Once::new();
+    HOOKED.call_once(hook_panics);
+    use ratatui::crossterm::{execute, terminal};
+    terminal::enable_raw_mode().expect("raw mode");
+    _ = execute!(std::io::stdout(), terminal::EnterAlternateScreen);
+    let term = ratatui::Terminal::new(ratatui::backend::CrosstermBackend::new(std::io::stdout())).expect("a terminal");
     if MOUSE.load(std::sync::atomic::Ordering::Relaxed) {
         _ = ratatui::crossterm::execute!(std::io::stdout(), ratatui::crossterm::event::EnableMouseCapture);
     }
     term
 }
 
-/// dv's panic hook, over ratatui's (`init_terminal`).
+/// dv's panic hook: a panic on the main thread gives the terminal back, then says so; one off
+/// it (a background run's: it's caught there, a failure) leaves the terminal to dv, and goes to
+/// a log, not over the screen.
 fn hook_panics() {
     let hook = std::panic::take_hook();
     // (Where theirs go, found now: the hook only writes. In dv's directory, not a shared /tmp.)
     let log = crate::claude::dv_dir().map(|d| d.join("panic.log")).ok().filter(|p| p.parent().is_some_and(|d| std::fs::create_dir_all(d).is_ok()));
-    // (Main's: the mouse given back too, which ratatui's leaves on.) Logged by dv's pid, kept.
+    // (Main's: the terminal back, the mouse too, before the default hook prints.) Theirs logged
+    // by dv's pid.
     std::panic::set_hook(Box::new(move |info| match std::thread::current().name() {
         Some("main") => {
             restore_terminal();
