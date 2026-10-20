@@ -1,12 +1,12 @@
- PRs   todo 0   open 3   close 0   stalled 0   worktr╭ keys ───────────────────────────────────────╮
-     #1  Fix CI                                      │ Enter  review                               │
-          @ann   +1 −0 in 1 file                     │ h l    what Claude would close              │
-          claude reviewed                            │ /      filter                               │
-          b                                          │ o O    sort / reverse                       │
-                                                     │ R      refresh (from GitHub)                │
-▌   #22  Add docs   DRAFT   [new]                    │ m      mark                                 │
-▌         @bo   +22 −0 in 1 file    docs             │ a a    Claude reviews marked                │
-▌         ✓ approved                                 │ A A    Claude drafts a replacement          │
-▌         b                                          │ M M    merge (github-merge.py)              │
+ PRs   todo 0   open 3   close 0   stalled 0   worktrees 0   drafts 0     I I the issues      2 / 3
+     #1  Fix CI                                      ╭ keys ───────────────────────────────────────╮
+          @ann   +1 −0 in 1 file                     │ Enter  review                               │
+          claude reviewed                            │ h l    what Claude would close              │
+          b                                          │ /      filter                               │
+                                                     │ o O    sort / reverse                       │
+▌   #22  Add docs   DRAFT   [new]                    │ R      refresh (from GitHub)                │
+▌         @bo   +22 −0 in 1 file    docs             │ m      mark                                 │
+▌         ✓ approved                                 │ a a    Claude reviews marked                │
+▌         b                                          │ A A    Claude drafts a replacement          │
                                                      ╰─────────────────────────────────────────────╯
                                                                          by created ↓  ·  auto off

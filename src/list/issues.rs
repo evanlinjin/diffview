@@ -1271,7 +1271,7 @@ impl Issues {
             } else {
                 // The keys most often wanted here, bottom right, as the PR view shows them.
                 let keys = [("C", "comment"), ("Space l", "labels, assignees"), ("X X", "close it"), ("a a", "triage again"), ("Enter", "open link"), ("o", "in the browser"), ("?", "all keys")];
-                draw_keys(f, ui, &keys);
+                draw_keys(f, ui, &keys, v.cursor_at.map(|(x, y)| Rect { x, y, width: 1, height: 1 }));
             }
             return;
         }
@@ -1351,7 +1351,9 @@ impl Issues {
                 keys.extend([("r r", "Claude ranks what needs you (a run)"), ("s", "defer it (or bring it back)")]);
             }
             keys.extend([("m", "mark"), ("a a", "Claude triages (marked)"), ("U U", "unmark all"), ("C", "auto on / off (triage, ranking)"), ("I I", "the PRs"), ("?", "all keys"), ("q", "quit")]);
-            draw_keys(f, ui, &keys);
+            // (Off the selected card: the list's cursor.)
+            let card = Rect { y: 1 + ((sel - top) * rows) as u16, height: rows as u16, ..area };
+            draw_keys(f, ui, &keys, Some(card));
         }
         if self.help {
             draw_help(f, ui, ISSUES_HELP, "dv issues keys");

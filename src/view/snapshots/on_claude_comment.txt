@@ -1,12 +1,12 @@
           PR #7 · Fix the thing  @bo · main ← amy  Comments 1/4  Claude 0/1  Pending 1           gn
- ▾        description
-          Fixes the thing, see new_call.          ╭─ status ───────────────────────────────────────╮
-                                                  │  OPEN @bo · main ← fix · +2 −2 in 3 files      │
-                                                  │  review: waiting on @cy                        │
-                                                  ╰────────────────────────────────────────────────╯
-                                                  ╭─ your review (pending) ────────────────────────╮
-                                                  │  Nearly there.                                 │
-                                                  ╰────────────────────────────────────────────────╯
+╭ Claude's comment ───────────────────────────────────────────╮
+│ r        reply to Claude                                    │────────────────────────────────────╮
+│ Enter    go to the file:line, name or link under the cursor │ main ← fix · +2 −2 in 3 files      │
+│ c        copy to your review                                │iting on @cy                        │
+│ C        post it now                                        │────────────────────────────────────╯
+│ Space r  resolve                                            │w (pending) ────────────────────────╮
+│ Space d  dismiss                                            │re.                                 │
+╰─────────────────────────────────────────────────────────────╯────────────────────────────────────╯
  ▾        src/big.rs  +1 −1  · 2 comments
           ─────────────────────────────────────── ╭─ amy · L20 ────────────────────────────────────╮
   9   9   line 9                                  │  Why line 20?                                  │
@@ -19,12 +19,12 @@
  15  15   line 15                                 ╰────────────────────────────────────────────────╯
  ▾        src/a.rs  +1 −1  · 1 comment
           ── fn main ──────────────────────────────────────────────────────────────────────── L1–3 ─
-╭ Claude's comment ───────────────────────────────────────────╮ 1 comment
-│ r        reply to Claude                                    │
-│ Enter    go to the file:line, name or link under the cursor │────────────────────────────────────╮
-│ c        copy to your review                                │                                    │
-│ C        post it now                                        │e.                                  │
-│ Space r  resolve                                            │────────────────────────────────────╯
-│ Space d  dismiss                                            │
-╰─────────────────────────────────────────────────────────────╯
+  1   1   fn main() {                              ▸ amy · L1 · 1 comment
+  2     -     old();                               ┃ [resolved]
+      2 +     new_call(x);                        ╭─ you · L2 ─────────────────────────────────────╮
+  3   3   }                                       │  [pending]                                     │
+                                                  │  Pass y here.                                  │
+                                                  ╰────────────────────────────────────────────────╯
+ ▾        new.rs (renamed from old.rs)  +0 −0
+ ▾        img.png (binary)  +0 −0
  NOR   src/big.rs                                       0/4 viewed · 1 pending (S submits)    23/43

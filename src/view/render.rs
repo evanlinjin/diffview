@@ -71,10 +71,9 @@ impl App {
 
         self.draw_picker(f, full);
 
-        // The key hints, without the contents list: bottom right, as Helix has them; bottom left
-        // while the cursor is in the comment margin, so they don't cover the comments there.
+        // The key hints, without the contents list: off the cursor, where they cover the least.
         if let Some((title, keys)) = keys.filter(|_| sw == 0) {
-            self.draw_key_popup(f, Rect { y: area.y + pin as u16, height: h as u16, ..area }, title, keys);
+            draw_hints(f, &self.ui, Rect { y: area.y + pin as u16, height: h as u16, ..area }, title, keys, Some(self.cursor_cell(&c)));
         }
 
         self.draw_popup(f, full);
@@ -671,18 +670,12 @@ impl App {
     /// Which keys do what here (`title`, `keys`): bottom right of `above` (the code, above the
     /// status bar), as Helix has them; bottom left while the cursor is in the comment margin, so
     /// they don't cover the comments there.
-    fn draw_key_popup(&self, f: &mut Frame, above: Rect, title: &str, keys: &[(&str, &str)]) {
-        let kw = keys.iter().map(|k| k.0.len()).max().unwrap_or(1);
-        let lines: Vec<Line> = keys
-            .iter()
-            .map(|(k, d)| Line::from(vec![Span::styled(format!("{k:<kw$}  "), self.ui.key), Span::raw(*d)]))
-            .collect();
-        let w = (lines.iter().map(Line::width).max().unwrap_or(10) as u16 + 4).max(title.len() as u16 + 6).min(above.width);
-        let ph = (lines.len() as u16 + 2).min(above.height);
-        let x = if self.margin_side() { above.x } else { above.x + above.width - w };
-        let r = Rect { x, y: above.y + above.height.saturating_sub(ph), width: w, height: ph };
-        let inner = self.popup_frame(f, r, title, "");
-        f.render_widget(Paragraph::new(lines), inner);
+    /// Where the cursor is on screen, as drawn (`c`): its cell.
+    fn cursor_cell(&self, c: &Cols) -> Rect {
+        let row = self.head.row;
+        let x = self.text_x(c) + self.rows[row].guide_w() + self.col_of(row, self.head.col).saturating_sub(self.hscroll(row));
+        let y = c.pin + c.hd.saturating_sub(self.top);
+        Rect { x: c.area.x + x as u16, y: c.area.y + y as u16, width: 1, height: 1 }
     }
 
     /// The popup open (help, hover, messages), centered, as wide as its text; scrolled.
@@ -730,6 +723,24 @@ impl App {
     pub(super) fn popup_frame(&self, f: &mut Frame, r: Rect, title: &str, pos: &str) -> Rect {
         popup_frame(&self.ui, f, r, title, pos)
     }
+}
+
+/// Which keys do what (`title`, `keys`), as Helix shows them, in a corner of `above` (bottom
+/// right first, then bottom left, top right, top left): never over the cursor (`avoid`; unless
+/// it's under all of them), and of the rest, where they cover the least of what's drawn. (dv
+/// list's too.)
+pub(crate) fn draw_hints(f: &mut Frame, ui: &Ui, above: Rect, title: &str, keys: &[(&str, &str)], avoid: Option<Rect>) {
+    let kw = keys.iter().map(|k| k.0.chars().count()).max().unwrap_or(1);
+    let lines: Vec<Line> = keys.iter().map(|(k, d)| Line::from(vec![Span::styled(format!("{k:<kw$}  "), ui.key), Span::raw(d.to_string())])).collect();
+    let w = (lines.iter().map(Line::width).max().unwrap_or(10) as u16 + 4).max(title.chars().count() as u16 + 6).min(above.width);
+    let h = (lines.len() as u16 + 2).min(above.height);
+    let (right, bottom) = (above.x + above.width - w, above.y + above.height - h);
+    let corners = [(right, bottom), (above.x, bottom), (right, above.y), (above.x, above.y)].map(|(x, y)| Rect { x, y, width: w, height: h });
+    let buf = f.buffer_mut();
+    let covered = |r: &Rect| r.positions().filter(|&p| buf.cell(p).is_some_and(|c| !c.symbol().trim().is_empty())).count();
+    let r = corners.into_iter().min_by_key(|r| (avoid.is_some_and(|a| r.intersects(a)), covered(r))).unwrap_or(corners[0]);
+    let inner = popup_frame(ui, f, r, title, "");
+    f.render_widget(Paragraph::new(lines), inner);
 }
 
 /// A popup as zellij floats a pane: the window's background in a rounded border, the

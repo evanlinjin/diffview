@@ -1,12 +1,12 @@
- Issues   todo 2   open 2   mine 1   close 1     I I the PRs                                      ╭ keys ──────────────────────────────────╮
-▌   #7 Panics on reorg  bug                                                                       │ Enter  open it                         │
-▌      @amy  → @me                                                                                │ h l    tabs                            │
-▌      fixed by #9 (open)                                                                         │ /      filter                          │
-                                                                                                  │ R      refresh (from GitHub)           │
-    #8 How do I sync?                                                                             │ m      mark                            │
-       @bo                                                                                        │ a a    Claude triages (marked)         │
-       → answer it                                                                                │ U U    unmark all                      │
+ Issues   todo 2   open 2   mine 1   close 1     I I the PRs                                                                          1 / 2
+▌   #7 Panics on reorg  bug                                                                       ╭ keys ──────────────────────────────────╮
+▌      @amy  → @me                                                                                │ Enter  open it                         │
+▌      fixed by #9 (open)                                                                         │ h l    tabs                            │
+                                                                                                  │ /      filter                          │
+    #8 How do I sync?                                                                             │ R      refresh (from GitHub)           │
+       @bo                                                                                        │ m      mark                            │
+       → answer it                                                                                │ a a    Claude triages (marked)         │
+                                                                                                  │ U U    unmark all                      │
                                                                                                   │ C      auto on / off (triage, ranking) │
-                                                                                                  │ I I    the PRs                         │
                                                                                                   ╰────────────────────────────────────────╯
                                                                                                                  by updated ↓  ·  auto off

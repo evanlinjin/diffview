@@ -677,3 +677,24 @@ fn stalled_when_the_author_leaves_feedback_unanswered() {
     l.extra.insert(1, at(20));
     assert_eq!(l.stalled(&Listed { author: "me".into(), ..p }), None);
 }
+
+#[test]
+fn the_keys_keep_off_the_cursor() {
+    // Where they cover the least (bottom right first), never over the cursor: (bottom, right).
+    let ui = crate::theme::Theme::ansi().ui();
+    let keys = [("C", "comment"), ("?", "all keys")];
+    let corner = |text: &str, avoid| {
+        let s = crate::view::tests::screen(60, 20, |f| {
+            let lines: Vec<Line> = (0..19).map(|_| Line::from(text.to_owned())).collect();
+            f.render_widget(Paragraph::new(lines), f.area());
+            super::draw::draw_keys(f, &ui, &keys, avoid)
+        });
+        let (y, line) = s.lines().enumerate().find(|(_, l)| l.contains("╭ keys")).unwrap();
+        (y > 10, line.find("╭ keys").map(|b| line[..b].chars().count()).unwrap() > 20)
+    };
+    let full = "x".repeat(60);
+    assert_eq!(corner("", None), (true, true)); // nothing under any: bottom right
+    assert_eq!(corner(&full, Some(ratatui::layout::Rect { x: 55, y: 17, width: 1, height: 1 })), (true, false)); // the cursor there: bottom left
+    let right = format!("{}{}", " ".repeat(30), "x".repeat(30));
+    assert_eq!(corner(&right, None), (true, false)); // text on the right: the left
+}

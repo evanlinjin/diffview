@@ -219,7 +219,9 @@ impl List {
                 })
                 .map(|(k, d)| (*k, *d))
                 .collect();
-            draw_keys(f, ui, &lines);
+            // (Off the selected card: the list's cursor.)
+            let card = Rect { y: 1 + ((self.sel - self.top) * rows) as u16, height: rows as u16, ..area };
+            draw_keys(f, ui, &lines, Some(card));
         }
         if self.help {
             draw_help(f, ui, HELP, "dv list keys");
@@ -293,15 +295,9 @@ pub(super) fn status_bar(f: &mut Frame, ui: &Ui, left: &str, order: &str, auto: 
     f.render_widget(Paragraph::new(left.to_owned()).style(bar), Rect { width: status.width - right, ..status });
 }
 
-/// A list's keys for what's shown, bottom right (as dv's diff view shows them).
-pub(super) fn draw_keys(f: &mut Frame, ui: &Ui, keys: &[(&str, &str)]) {
+/// A list's keys for what's shown, between its top bar and status bar, as dv's view shows them
+/// (`view::draw_hints`): off the cursor (`avoid`), where they cover the least.
+pub(super) fn draw_keys(f: &mut Frame, ui: &Ui, keys: &[(&str, &str)], avoid: Option<Rect>) {
     let area = f.area();
-    // (Keys padded to the longest: "Space l" runs into nothing.)
-    let kw = keys.iter().map(|k| k.0.chars().count()).max().unwrap_or(0) + 2;
-    let lines: Vec<Line> = keys.iter().map(|(k, d)| Line::from(vec![Span::styled(format!("{k:<kw$}"), ui.key), Span::raw(d.to_string())])).collect();
-    let w = (lines.iter().map(Line::width).max().unwrap_or(10) as u16 + 4).min(area.width);
-    let h = (lines.len() as u16 + 2).min(area.height.saturating_sub(1));
-    let r = Rect { x: area.width - w, y: area.height.saturating_sub(1 + h), width: w, height: h };
-    let inner = crate::view::popup_frame(ui, f, r, "keys", "");
-    f.render_widget(Paragraph::new(lines), inner);
+    crate::view::draw_hints(f, ui, Rect { y: 1.min(area.height), height: area.height.saturating_sub(2), ..area }, "keys", keys, avoid);
 }

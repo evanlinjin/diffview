@@ -1,12 +1,12 @@
- PRs   todo 0   open 3   close 0   stalled 0   worktr╭ keys ───────────────────────────────────────╮
-     #1  Fix CI                                      │ Enter  review                               │
-          @ann   +1 −0 in 1 file                     │ h l    what Claude would close              │
-          claude reviewed                            │ /      filter                               │
-          b                                          │ o O    sort / reverse                       │
-                                                     │ R      refresh (from GitHub)                │
-▌ ● #333  fix fees                                   │ m      mark                                 │
-▌         @cy   +333 −0 in 1 file                    │ a a    Claude reviews marked                │
-▌         CI ✓3 ✗1                                   │ A A    Claude drafts a replacement          │
-▌         b                                          │ M M    merge (github-merge.py)              │
+ PRs   todo 0   open 3   close 0   stalled 0   worktrees 0   drafts 0     I I the issues      2 / 2
+     #1  Fix CI                                      ╭ keys ───────────────────────────────────────╮
+          @ann   +1 −0 in 1 file                     │ Enter  review                               │
+          claude reviewed                            │ h l    what Claude would close              │
+          b                                          │ /      filter                               │
+                                                     │ o O    sort / reverse                       │
+▌ ● #333  fix fees                                   │ R      refresh (from GitHub)                │
+▌         @cy   +333 −0 in 1 file                    │ m      mark                                 │
+▌         CI ✓3 ✗1                                   │ a a    Claude reviews marked                │
+▌         b                                          │ A A    Claude drafts a replacement          │
                                                      ╰─────────────────────────────────────────────╯
  filter: fix  (Esc clears)                                               by created ↓  ·  auto off
