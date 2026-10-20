@@ -183,6 +183,10 @@ pub(crate) fn open_url(url: &str) -> String {
     if cfg!(test) {
         return format!("opened {url}"); // (no browser from tests)
     }
+    // (Only the web's: a link's text, from anyone's markdown, may hide another scheme.)
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return format!("not opened: only http(s) links are ({url})");
+    }
     let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
     let spawned = std::process::Command::new(opener)
         .arg(url)
