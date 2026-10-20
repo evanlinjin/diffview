@@ -166,7 +166,7 @@ impl App {
     /// The code scrolled to the cursor, up and down, and sideways: in a comment's code block by
     /// that block only, in the diff by `left`.
     fn scroll_to_cursor(&mut self, c: &Cols) {
-        let Cols { pin, h, tw, mtw, ctw, htw_l, htw_r, hd, .. } = *c;
+        let Cols { pin, h, tw, mtw, ctw, htw_l, htw_r, hd, float, mx, .. } = *c;
         let so = scrolloff(h);
         // Scroll the code to the cursor.
         if hd < self.top + so {
@@ -182,6 +182,8 @@ impl App {
             DRow::Margin(..) if self.margin_side() => mtw - self.pane_pad(),
             // Split view beside the pane: a line is one half, paired or not.
             DRow::Margin(..) if self.split && code_line => htw_l.min(htw_r),
+            // Floating, a comment beside it covers the code from `mx` on (`draw_body`).
+            DRow::Margin(_, _, Some(_)) if float => mx,
             DRow::Margin(..) => ctw,
             DRow::Full(_) => tw,
         };

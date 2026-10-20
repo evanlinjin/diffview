@@ -3169,3 +3169,21 @@ fn a_thread_gone_leaves_the_cursor_on_its_line() {
     app.rebuild(keep);
     assert_eq!(app.rows[app.head.row].line.new, Some(12), "{:?}", app.rows[app.head.row].line.text);
 }
+
+#[test]
+fn the_cursor_not_under_a_floating_comment() {
+    let text = format!("diff --git a/w.rs b/w.rs\nnew file mode 100644\n--- /dev/null\n+++ b/w.rs\n@@ -0,0 +1,1 @@\n+{}\n", "z".repeat(300));
+    let mut app = App::with("base".into(), diff::parse(&text));
+    app.files_pref = Some(false);
+    let mut th = fixture().threads.remove(0);
+    (th.path, th.line, th.original_line) = ("w.rs".into(), Some(1), Some(1));
+    app.threads = vec![th];
+    (app.margin_pref, app.margin_float_pref) = (Some(true), Some(true));
+    app.build();
+    let r = app.rows.iter().position(|r| r.line.new == Some(1)).unwrap();
+    app.goto(r, 0);
+    _ = screen(110, 20, |f| app.draw(f));
+    app.goto(r, app.left + 90);
+    _ = screen(110, 20, |f| app.draw(f));
+    assert!(app.margin_float && app.head.col - app.left < app.geom.ctw, "{} {} {}", app.left, app.head.col, app.geom.ctw);
+}
