@@ -48,6 +48,8 @@ pub struct IssueView {
     /// follows it), `x` the line.
     cur: (usize, usize),
     select: bool,
+    /// The selection is `x`'s, whole lines: `x` again takes the next.
+    lines_sel: bool,
     /// How many lines the description takes (one column: the pane's after them).
     desc_rows: usize,
     /// Code blocks and tables scrolled sideways (the mouse's), the description's and the
@@ -88,6 +90,7 @@ impl IssueView {
             shown: 0,
             cur: (0, 2),
             select: false,
+            lines_sel: false,
             desc_rows: 0,
             code_left: [0; 2],
             code_over: [0; 2],
@@ -181,7 +184,7 @@ impl IssueView {
                     let code = code_bg.filter(|&bg| l.nowrap && l.styles.last().copied().flatten().and_then(|s| s.bg) == Some(bg));
                     // (Its links' columns, as drawn: chars to columns, less what's scrolled.)
                     let col = |c: usize| Span::raw(l.text.chars().take(c).collect::<String>()).width().saturating_sub(by);
-                    let links: Links = l.links.iter().map(|(s, e, u)| (col(*s)..col(*e), u.clone())).filter(|(r, _)| !r.is_empty()).collect();
+                    let links: Links = l.links.iter().map(|(s, e, u)| (col(*s)..col(*e).min(seen), u.clone())).filter(|(r, _)| !r.is_empty()).collect();
                     let wide = Span::raw(l.text.as_str()).width();
                     let nowrap = l.nowrap;
                     let mut line = l.into_line();
@@ -189,12 +192,15 @@ impl IssueView {
                     // Cut where it's shown, `‹` / `›` where there's more to scroll to.
                     if nowrap && wide > seen {
                         let more = Style::new().fg(ui.linenr.fg.unwrap_or(ratatui::style::Color::DarkGray));
-                        if wide - by > seen {
+                        if wide.saturating_sub(by) > seen {
                             line.spans = super::card::cut_spans(std::mem::take(&mut line.spans), seen.saturating_sub(1));
                             line.spans.push(Span::styled("›", more));
                         }
-                        if let Some(first) = line.spans.first_mut().filter(|_| by > 0) {
-                            *first = Span::styled("‹", first.style.patch(more));
+                        if by > 0 && !line.spans.is_empty() {
+                            // (Over a wide character: a space after, the rest where it was.)
+                            let first = line.spans.remove(0);
+                            let pad = " ".repeat(first.width().saturating_sub(1));
+                            line.spans.splice(0..0, [Span::styled("‹", first.style.patch(more)), Span::styled(pad, first.style)]);
                         }
                     }
                     if let Some(bg) = code {
@@ -311,6 +317,7 @@ impl IssueView {
             links_at.push(k);
         }
         (self.lines, self.width, self.pane_x, self.text_at, self.links_at, self.sel) = (out, width, two.then_some(left_w + 1), text_at, links_at, None);
+        (self.select, self.lines_sel) = (false, false); // (what it was over may have moved)
         self.code_over = over.get();
     }
 
@@ -404,12 +411,15 @@ impl IssueView {
         let side = self.side_of(self.cur.1);
         let row = row.min(self.lines.len().saturating_sub(1));
         let t = self.text_at.get(row).map_or(0..0, |t| t[side].clone());
-        let base = match side {
-            1 => self.pane_x.unwrap_or(0),
-            _ => 0,
+        // (The side's own columns, text there or not: not past it, nor into the other.)
+        let cols = match (side, self.pane_x) {
+            (1, Some(p)) => p..self.width.max(p + 1),
+            (_, Some(p)) => 0..p.saturating_sub(1).max(1),
+            _ => 0..self.width.max(1),
         };
-        let col = if t.is_empty() { col.max(base) } else { col.clamp(t.start, t.end - 1) };
+        let col = if t.is_empty() { col.clamp(cols.start, cols.end - 1) } else { col.clamp(t.start, t.end - 1) };
         self.cur = (row, col);
+        self.lines_sel = false;
         match (self.select, &mut self.sel) {
             (true, Some((_, b))) => *b = self.cur,
             (true, None) => self.sel = Some((self.cur, self.cur)),
@@ -503,23 +513,24 @@ impl IssueView {
                 self.go(row, to);
             }
             (_, KeyCode::Char('v')) => {
-                self.select = !self.select;
+                (self.select, self.lines_sel) = (!self.select, false);
                 self.sel = self.select.then_some((self.cur, self.cur));
             }
             (_, KeyCode::Char('x')) => {
-                // The line's text; again (the line selected): the next one too.
-                let t = self.text(row);
-                let whole = self.sel.is_some_and(|(a, b)| a.1 <= t.start && b == (row, t.end.saturating_sub(1)));
-                let (anchor, to) = match whole {
-                    true => (self.sel.map_or(self.cur, |s| s.0), row + 1),
-                    false => ((row, t.start), row),
+                // The line's text; again (`x`'s lines selected): on to the next with text.
+                let (anchor, mut to) = match (self.lines_sel, self.sel) {
+                    (true, Some((a, _))) => (a, row + 1),
+                    _ => ((row, self.text(row).start), row),
                 };
+                while to + 1 < self.lines.len() && self.text(to).is_empty() {
+                    to += 1;
+                }
                 let end = self.text(to).end.saturating_sub(1);
                 self.select = false;
                 self.go(to, end);
-                self.sel = Some((anchor, self.cur));
+                (self.sel, self.lines_sel) = (Some((anchor, self.cur)), true);
             }
-            (_, KeyCode::Char(';')) => (self.select, self.sel) = (false, None),
+            (_, KeyCode::Char(';')) => (self.select, self.sel, self.lines_sel) = (false, None, false),
             (_, KeyCode::Char('y')) => {
                 let text = self.selection();
                 (self.select, self.sel) = (false, None);
@@ -562,7 +573,12 @@ impl IssueView {
         use ratatui::crossterm::event::{MouseButton, MouseEventKind};
         let at = (self.scroll + y.min(self.shown.saturating_sub(1)), x);
         match kind {
-            MouseEventKind::Down(MouseButton::Left) => (self.sel, self.select, self.cur) = (Some((at, at)), false, at),
+            MouseEventKind::Down(MouseButton::Left) => {
+                // (The cursor there, kept on that side's columns.)
+                (self.select, self.cur.1) = (false, at.1);
+                self.go(at.0, at.1);
+                self.sel = Some((self.cur, self.cur));
+            }
             // Sideways: the code blocks and tables of the side it's over.
             MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight => {
                 let side = match self.pane_x {
@@ -592,26 +608,12 @@ impl IssueView {
     /// The text dragged over, line by line.
     fn selection(&self) -> String {
         let Some(((r0, _), (r1, _))) = self.sel.map(|(a, b)| if a <= b { (a, b) } else { (b, a) }) else { return String::new() };
-        let w = self.width as u16;
-        let mut out = vec![];
-        for row in r0..=r1.min(self.lines.len().saturating_sub(1)) {
-            let mut buf = ratatui::buffer::Buffer::empty(Rect::new(0, 0, w, 1));
-            buf.set_line(0, 0, &self.lines[row], w);
-            // (A wide character's cell, then the one it covers: not a space.)
-            let (mut text, mut covered) = (String::new(), 0);
-            for x in 0..self.width {
-                let sym = buf[(x as u16, 0)].symbol();
-                if covered > 0 {
-                    covered -= 1;
-                    continue;
-                }
-                covered = Span::raw(sym).width().saturating_sub(1);
-                if self.selected(row, x) {
-                    text.push_str(sym);
-                }
-            }
-            out.push(text.trim_end().to_owned());
-        }
+        let out: Vec<String> = (r0..=r1.min(self.lines.len().saturating_sub(1)))
+            .map(|row| {
+                let text: String = self.cells(row).iter().enumerate().filter(|(x, _)| self.selected(row, *x)).map(|(_, c)| c.as_str()).collect();
+                text.trim_end().to_owned()
+            })
+            .collect();
         out.join("\n").trim_matches('\n').to_owned()
     }
 
@@ -664,7 +666,7 @@ fn an_issue_and_its_triage() {
     let mut v = IssueView {
         number: 7, title: "panic".into(), author: "amy".into(), url: "https://github.com/o/r/issues/7".into(),
         body: "It **panics**.".into(), labels: vec![("bug".into(), "d73a4a".into())],
-        comments: vec![("bo".into(), String::new(), "Same here.".into())], triage, scroll: 0, lines: vec![], width: 0, pane_x: None, text_at: vec![], links_at: vec![], shown: 0, cur: (0, 2), select: false, desc_rows: 0, code_left: [0; 2], code_over: [0; 2], can_triage: true, sel: None,
+        comments: vec![("bo".into(), String::new(), "Same here.".into())], triage, scroll: 0, lines: vec![], width: 0, pane_x: None, text_at: vec![], links_at: vec![], shown: 0, cur: (0, 2), select: false, lines_sel: false, desc_rows: 0, code_left: [0; 2], code_over: [0; 2], can_triage: true, sel: None,
         hl: crate::highlight::Highlighter::default(),
     };
     assert_eq!(v.new_labels(), ["chain"]); // bug it has
@@ -716,8 +718,21 @@ fn an_issue_and_its_triage() {
     assert!(matches!(v.key(None, KeyCode::Char('y'), false), Did::Copy(t) if t == "It panics."));
     v.key(None, KeyCode::Tab, false);
     assert!(v.cur.1 >= v.pane_x.unwrap());
+    // `x` again: on through lines with no text (a bubble's frame), not dropping what it had.
+    let row = v.lines.iter().position(|l| l.to_string().contains("Same here.")).unwrap();
+    v.go(row, 0);
+    v.key(None, KeyCode::Char('x'), false);
+    v.key(None, KeyCode::Char('x'), false);
+    let (a, b) = v.sel.unwrap();
+    assert!(a.0 == row && b.0 > row, "{a:?} {b:?}");
+    // On a line with no text on its side, `l` stays on that side's columns.
+    v.go(row + 1, 0); // (the bubble's frame)
+    for _ in 0..300 {
+        v.key(None, KeyCode::Char('l'), false);
+    }
+    assert!(v.cur.1 < v.width && v.side_of(v.cur.1) == 1);
     // Sideways over the description: its code, from its start.
-    v.body = format!("```\n{}\n```\n\n| ab | cd |\n|---|---|\n| 1 | 2 |", "x".repeat(300));
+    v.body = format!("```\n{}\n{}\n```\n\n| ab | cd |\n|---|---|\n| 1 | 2 |", "x".repeat(300), "y".repeat(110));
     v.redraw();
     let _ = screen(160, 22, |f| v.draw(f, &ui, f.area()));
     assert!(v.lines.iter().any(|l| l.to_string().contains("  xxx")));
@@ -729,6 +744,12 @@ fn an_issue_and_its_triage() {
     assert!(code.contains("  ‹x") && code.contains("x›"), "{code}");
     // (The table beside it fits: it stays put.)
     assert!(v.lines.iter().any(|l| l.to_string().contains("ab │ cd")), "{:?}", v.lines.iter().map(|l| l.to_string()).collect::<Vec<_>>());
+    // (Far right: a shorter line of the block scrolled past its end, no overflow.)
+    for _ in 0..30 {
+        v.mouse(MouseEventKind::ScrollRight, 2, 0);
+        let _ = screen(160, 22, |f| v.draw(f, &ui, f.area()));
+    }
+    v.code_left = [8, 0];
     v.mouse(MouseEventKind::ScrollLeft, 2, 0);
     v.mouse(MouseEventKind::ScrollLeft, 2, 0);
     assert_eq!(v.code_left, [0, 0]);

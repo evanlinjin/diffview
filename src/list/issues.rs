@@ -83,7 +83,7 @@ pub fn fetch() -> Fetch {
                  number title updatedAt author {{ login }}
                  labels(first: 10) {{ nodes {{ name color }} }} comments {{ totalCount }}
                  reactions(content: THUMBS_UP) {{ totalCount }} assignees(first: 5) {{ nodes {{ login }} }}
-                 closedByPullRequestsReferences(first: 5, includeClosedPrs: true) {{ nodes {{ number state headRefOid }} }} }} }} }} }}"
+                 closedByPullRequestsReferences(first: 20, includeClosedPrs: true) {{ nodes {{ number state headRefOid }} }} }} }} }} }}"
         );
         let v: Value = gh_json(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-f", &format!("query={q}")])?;
         crate::gh::refused(&v)?;
@@ -836,8 +836,9 @@ impl Issues {
         let v = self.view.as_mut()?;
         let n = v.number;
         // The cursor's keys (Helix's), but not the second of another pair (`L L`).
-        if pending.is_none_or(|p| p == 'g') {
-            match v.key(pending, k.code, ctrl) {
+        // (A pair's second key isn't the cursor's: `L j` moves it, `L` called off.)
+        {
+            match v.key(pending.filter(|&p| p == 'g'), k.code, ctrl) {
                 super::issue_view::Did::Not => {}
                 super::issue_view::Did::Nothing => return None,
                 super::issue_view::Did::Copy(t) => {
