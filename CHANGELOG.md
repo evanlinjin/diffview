@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.69.4] - 2026-10-20
+
+### Fixed
+- dv list: Esc after a key waiting for its second (`g`, `M`, `D`, `s`, …) calls it off
+  instead of quitting. In dv issues' list, it no longer clears the filter too.
+
 ## [0.69.3] - 2026-10-20
 
 ### Fixed
