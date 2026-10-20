@@ -51,15 +51,20 @@ impl Thread {
         self.claude.is_some() && self.comments.first().is_some_and(|c| c.author == AUTHOR)
     }
 
-    /// An open thread of the review file where you had the last word: Claude's turn.
-    pub fn waiting(&self) -> bool {
-        self.claude.is_some() && !self.resolved && self.comments.last().is_some_and(|c| c.author == "you")
+    /// A thread of the review file still being talked over: not done, its talk not resolved
+    /// (settled, Claude's comment as it now stands).
+    fn talking(&self) -> bool {
+        self.claude.is_some() && !self.resolved && !self.talk_resolved
     }
 
-    /// An open thread of the review file where Claude has answered you: your turn.
+    /// One being talked over where you had the last word: Claude's turn.
+    pub fn waiting(&self) -> bool {
+        self.talking() && self.comments.last().is_some_and(|c| c.author == "you")
+    }
+
+    /// One being talked over where Claude has answered you: your turn.
     pub fn answered(&self) -> bool {
-        // (Its talk resolved: settled, Claude's comment as it now stands.)
-        self.claude.is_some() && !self.resolved && !self.talk_resolved && !self.waiting() && self.comments.iter().any(|c| c.author == "you")
+        self.talking() && !self.waiting() && self.comments.iter().any(|c| c.author == "you")
     }
 }
 

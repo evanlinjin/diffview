@@ -341,22 +341,27 @@ impl App {
     }
 
     pub(super) fn toggle_resolved(&mut self) {
-        // Claude's comment is what's kept (and posted): Space r resolves the conversation under
-        // it, not it (Space d deletes it). One Claude marked done (its change made): reopened.
-        if let Some((t, k)) = self.claude_at_cursor().filter(|(t, _)| self.threads[*t].by_claude()) {
+        if let Some((t, k)) = self.claude_at_cursor() {
+            let th = &self.threads[t];
+            // Your note for Claude: resolved or reopened.
+            if !th.by_claude() {
+                return match th.resolved {
+                    true => self.edit_claude(&k, |p, k| crate::claude::set_resolved(p, k, false), "unresolved (your note for Claude)"),
+                    false => self.edit_claude(&k, |p, k| crate::claude::set_resolved(p, k, true), "resolved (your note for Claude)"),
+                };
+            }
+            // Claude's comment is what's kept (and posted): Space r resolves the talk under it,
+            // not it (Space d deletes it). One Claude marked done (its change made): reopened.
+            // (Resolved: folded again, even if Tab had it shown.)
+            if let Some(id) = self.root_id(t) {
+                self.talk_shown.remove(&id);
+            }
             let th = &self.threads[t];
             return match (th.resolved, th.talk_resolved, th.comments.len() > 1) {
                 (true, ..) => self.edit_claude(&k, |p, k| crate::claude::set_resolved(p, k, false), "reopened (Claude's comment)"),
                 (_, true, _) => self.edit_claude(&k, |p, k| crate::claude::set_talk_resolved(p, k, false), "the conversation under Claude's comment reopened"),
                 (_, false, true) => self.edit_claude(&k, |p, k| crate::claude::set_talk_resolved(p, k, true), "the conversation under Claude's comment resolved (the comment stays)"),
                 (_, false, false) => self.msg = "Claude's comment has no conversation to resolve (Space d deletes the comment)".into(),
-            };
-        }
-        // Your note for Claude: resolved or reopened, as before.
-        if let Some((t, k)) = self.claude_at_cursor() {
-            return match self.threads[t].resolved {
-                true => self.edit_claude(&k, |p, k| crate::claude::set_resolved(p, k, false), "unresolved (your note for Claude)"),
-                false => self.edit_claude(&k, |p, k| crate::claude::set_resolved(p, k, true), "resolved (your note for Claude)"),
             };
         }
         match self.rows[self.head.row].thread.map(|t| &self.threads[t]) {
