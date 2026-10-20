@@ -383,6 +383,11 @@ impl App {
     pub(super) fn pending_key(&mut self, p: char, c: char) {
         let file = |rows: &[Row], r: usize| rows[r].line.kind == Kind::File;
         let so = super::render::scrolloff(self.height);
+        // The window's other keys act on it as you set it, not as maximized (`Ctrl-w o`, `h` /
+        // `l`: `side`): as it was first.
+        if p == CTRL_W && !matches!(c, 'o' | 'h' | 'l') && self.zoom.take().is_some() {
+            self.relayout();
+        }
         match (p, c) {
             // In the pane, its own top / end (the first and last comment, or the PR's text).
             ('g', 'g') => self.goto(self.pane_rows().first().copied().unwrap_or(0), 0),

@@ -81,19 +81,24 @@ impl App {
     }
 
 
-    /// The frame's columns (`Cols`) for this draw: the files' list's, the pinned title, the code's
-    /// and its gutters, the pane's (shown or not, floating or a column), as the window allows and
-    /// as set; the rows rebuilt when what they wrap to changes.
     /// Laid out again for the window as last drawn (what's beside the cursor is as it'll be).
     pub(super) fn relayout(&mut self) {
         self.frame_cols(self.full);
     }
 
+    /// The frame's columns (`Cols`) for this draw: the files' list's, the pinned title, the code's
+    /// and its gutters, the pane's (shown or not, floating or a column), as the window allows and
+    /// as set; the rows rebuilt when what they wrap to changes.
     fn frame_cols(&mut self, full: Rect) -> Cols {
         self.full = full;
-        // Maximized till you leave it: the code (into the files' list or a comment in the
-        // pane), the pane (back to the code).
-        if self.zoom.is_some_and(|pane| self.files_focus || pane != self.margin_side()) {
+        // Maximized till you leave it: the code (into the files' list, or onto a comment: `]c`,
+        // say), the pane (back to the code).
+        let left = match self.zoom {
+            Some(false) => self.files_focus || self.rows[self.head.row].thread.is_some(),
+            Some(true) => self.files_focus || !self.margin_side(),
+            None => false,
+        };
+        if left {
             self.zoom = None;
         }
         // The changed files' list on the left (`Ctrl-w e`), the rest beside it.

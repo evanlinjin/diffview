@@ -3309,4 +3309,19 @@ fn a_pane_maximized_till_you_leave_it() {
     ctrl_w(&mut app, 'o');
     ctrl_w(&mut app, 'o');
     assert!(app.zoom.is_none() && app.files_w > 0);
+    // The window's other keys act on it as set, not as maximized: Ctrl-w c hides the pane.
+    ctrl_w(&mut app, 'o');
+    ctrl_w(&mut app, 'c');
+    assert!(app.zoom.is_none() && app.margin_pref == Some(false) && app.files_w > 0);
+    ctrl_w(&mut app, 'c');
+    // Onto a comment (]c): as it was, the comment shown.
+    ctrl_w(&mut app, 'o');
+    app.key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+    _ = screen(220, 40, |f| app.draw(f));
+    assert!(app.zoom.is_none() && app.margin_side(), "{}", app.msg);
+    // The pane maximized, Ctrl-l (as far right as it goes): still maximized.
+    ctrl_w(&mut app, 'o');
+    ctrl_w(&mut app, 'l');
+    assert_eq!(app.zoom, Some(true));
 }

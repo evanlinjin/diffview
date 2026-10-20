@@ -23,10 +23,20 @@ impl App {
     /// the margin, from the code (its new side) into the margin (the comment beside it, else
     /// the nearest one) and back (the code line beside it, else the nearest above).
     pub(super) fn side(&mut self, right: bool) {
-        // Out of a maximized pane: laid out as before first, to go into what's beside it.
-        if self.zoom.take().is_some() {
+        // Out of a maximized pane: laid out as before first, to go into what's beside it; still
+        // in it (as far as it goes, or the other half of the code), maximized still.
+        if let Some(pane) = self.zoom.take() {
             self.relayout();
+            self.go_side(right);
+            if !self.files_focus && self.margin_side() == pane {
+                self.zoom = Some(pane);
+            }
+            return;
         }
+        self.go_side(right);
+    }
+
+    fn go_side(&mut self, right: bool) {
         if self.files_focus {
             self.files_focus = !right;
             return;
