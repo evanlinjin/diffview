@@ -384,13 +384,20 @@ impl IssueView {
     pub fn draw(&mut self, f: &mut Frame, ui: &Ui, area: Rect) {
         let h = area.height as usize;
         if self.width != area.width as usize || self.sides.is_empty() {
+            // (The cursor's side, and where on it, as it was: the pane moves with the width.)
+            let (side, old_x) = (self.side_of(self.cur.1), self.pane_x);
             self.render(ui, area.width as usize);
             // (Fewer lines now, a narrower window wider: not past the end; the cursor where it
-            // can be.)
+            // can be, on its side if it's still there, else the first.)
             for i in 0..2 {
                 self.scroll[i] = self.scroll[i].min(self.lines(i).len().saturating_sub(h));
             }
-            self.cur = self.clamp(self.cur.0, self.cur.1, self.side_of(self.cur.1));
+            let (side, col) = match (side, old_x, self.pane_x) {
+                (1, Some(o), Some(p)) => (1, p + self.cur.1.saturating_sub(o)),
+                (1, ..) => (0, 0),
+                _ => (0, self.cur.1),
+            };
+            self.cur = self.clamp(self.cur.0, col, side);
         }
         self.shown = h;
         f.render_widget(Paragraph::new("").style(ui.base), area);
