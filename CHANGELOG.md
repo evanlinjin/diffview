@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.72.1] - 2026-10-20
+
+### Fixed
+- `Space N` in a PR hands your editor the terminal properly, and the draft runs on its own,
+  carrying on if dv quits. Left untouched in the editor, nothing is asked.
+- Auto description checks:
+  - only on PRs Claude has reviewed (one never reviewed was kept from its review);
+  - changes made while a proposal waits are checked after.
+
 ## [0.72.0] - 2026-10-20
 
 ### Changed
