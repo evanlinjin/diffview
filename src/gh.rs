@@ -576,19 +576,34 @@ pub fn pr_fields(n: u64) -> Result<(Choices, Choices, Choices)> {
         .flatten()
         .filter_map(|r| r["login"].as_str().or_else(|| r["slug"].as_str()).map(str::to_owned))
         .collect();
-    let all: Value = gh_json(&["label", "list", "--limit", "500", "--json", "name"])?;
-    let all: Vec<String> = all.as_array().into_iter().flatten().filter_map(|x| x["name"].as_str().map(str::to_owned)).collect();
-    let people = gh(&["api", "--paginate", "repos/{owner}/{repo}/assignees", "-q", ".[].login"]).unwrap_or_default();
-    let mark = |all: Vec<String>, on: &[String]| {
-        let mut out: Vec<(String, bool)> = all.into_iter().chain(on.iter().cloned()).map(|x| (x.clone(), on.contains(&x))).collect();
-        out.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.to_lowercase().cmp(&b.0.to_lowercase())));
-        out.dedup();
-        out
-    };
-    let people: Vec<String> = people.lines().map(str::to_owned).collect();
+    let (all, people) = repo_choices()?;
     let author = v["author"]["login"].as_str().unwrap_or("");
     let reviewers = people.iter().filter(|p| *p != author).cloned().collect();
     Ok((mark(all, &labels), mark(people, &assigned), mark(reviewers, &asked)))
+}
+
+/// Issue `n`'s labels and assignees, and what it could have, as `pr_fields`.
+pub fn issue_fields(n: u64) -> Result<(Choices, Choices)> {
+    let v: Value = gh_json(&["issue", "view", &n.to_string(), "--json", "labels,assignees"])?;
+    let on = |k: &str, f: &str| -> Vec<String> { v[k].as_array().into_iter().flatten().filter_map(|x| x[f].as_str().map(str::to_owned)).collect() };
+    let (all, people) = repo_choices()?;
+    Ok((mark(all, &on("labels", "name")), mark(people, &on("assignees", "login"))))
+}
+
+/// The repo's labels, and the people its issues and PRs can be assigned to.
+fn repo_choices() -> Result<(Vec<String>, Vec<String>)> {
+    let all: Value = gh_json(&["label", "list", "--limit", "500", "--json", "name"])?;
+    let all: Vec<String> = all.as_array().into_iter().flatten().filter_map(|x| x["name"].as_str().map(str::to_owned)).collect();
+    let people = gh(&["api", "--paginate", "repos/{owner}/{repo}/assignees", "-q", ".[].login"]).unwrap_or_default();
+    Ok((all, people.lines().map(str::to_owned).collect()))
+}
+
+/// `all`, each with whether it's `on`, those on first, then by name (one each).
+fn mark(all: Vec<String>, on: &[String]) -> Choices {
+    let mut out: Vec<(String, bool)> = all.into_iter().chain(on.iter().cloned()).map(|x| (x.clone(), on.contains(&x))).collect();
+    out.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.to_lowercase().cmp(&b.0.to_lowercase())));
+    out.dedup();
+    out
 }
 
 /// Names, each with whether it's on the PR.
@@ -596,6 +611,16 @@ pub type Choices = Vec<(String, bool)>;
 
 /// Add (`on`) or remove a label, an assignee or a requested reviewer on PR `n`.
 pub fn set_field(n: u64, field: Field, name: &str, on: bool) -> Result<()> {
+    set_on("pr", n, field, name, on)
+}
+
+/// As `set_field`, on issue `n` (a label or an assignee).
+pub fn set_issue_field(n: u64, field: Field, name: &str, on: bool) -> Result<()> {
+    set_on("issue", n, field, name, on)
+}
+
+/// A label, assignee or reviewer on `what` (`pr`, `issue`) `n`.
+fn set_on(what: &str, n: u64, field: Field, name: &str, on: bool) -> Result<()> {
     // A label's name may have a comma in it, which `gh pr edit` splits on: the API takes it whole.
     if field == Field::Label {
         let ep = format!("repos/{{owner}}/{{repo}}/issues/{n}/labels");
@@ -611,7 +636,7 @@ pub fn set_field(n: u64, field: Field, name: &str, on: bool) -> Result<()> {
         (Field::Reviewer, true) => "--add-reviewer",
         (Field::Reviewer, false) => "--remove-reviewer",
     };
-    gh(&["pr", "edit", &n.to_string(), flag, name]).map(drop)
+    gh(&[what, "edit", &n.to_string(), flag, name]).map(drop)
 }
 
 pub fn set_resolved(thread: &str, resolved: bool) -> Result<()> {

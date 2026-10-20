@@ -727,6 +727,7 @@ MOVE
 
 ON GITHUB
   C                    comment on it (your editor first)
+  Space l              its labels and assignees (Enter toggles one; triage access)
   L L                  add the labels Claude's triage suggests
   T T                  give it the title Claude's triage suggests
   X X                  close it, with Claude's closing comment (your editor first; none

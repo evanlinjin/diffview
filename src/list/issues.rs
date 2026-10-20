@@ -296,6 +296,9 @@ pub struct Issues {
     deferred: crate::todo::Deferred,
     deferring: Option<String>,
     deferred_file: Option<PathBuf>,
+    /// `Space l` in an issue: its labels and assignees to toggle (what, name, on it), and the
+    /// one selected.
+    meta: Option<(Vec<Meta>, usize)>,
     /// Claude reading a deferral's "until …": the item's key, the "or" time, its answer.
     until_rx: Option<(String, Option<i64>, Receiver<Result<crate::todo::Until>>)>,
     running: HashMap<u64, batch::Status>,
@@ -686,6 +689,10 @@ impl Issues {
         if std::mem::take(&mut self.help) {
             return None; // any key closes it
         }
+        if self.meta.is_some() {
+            self.meta_key(k);
+            return None;
+        }
         if self.view.is_some() {
             return self.view_key(term, k);
         }
@@ -839,7 +846,9 @@ impl Issues {
         // The cursor's keys (Helix's), but not the second of another pair (`L L`).
         // (A pair's second key isn't the cursor's: `L j` moves it, `L` called off.)
         {
-            match v.key(pending.filter(|&p| p == 'g'), k.code, ctrl) {
+            // (`Space l`'s l isn't the cursor's either.)
+            let key = if pending == Some(' ') { super::issue_view::Did::Not } else { v.key(pending.filter(|&p| p == 'g'), k.code, ctrl) };
+            match key {
                 super::issue_view::Did::Not => {}
                 super::issue_view::Did::Nothing => return None,
                 super::issue_view::Did::Copy(t) => {
@@ -960,6 +969,8 @@ impl Issues {
                     self.msg = format!("Claude is triaging #{n}…");
                 }
             }
+            (Some(' '), KeyCode::Char('l')) => self.open_meta(n),
+            (_, KeyCode::Char(' ')) => self.pending = Some(' '),
             (_, KeyCode::Char(c @ ('g' | 'L' | 'T' | 'X' | 'N' | 'a'))) => {
                 self.pending = Some(c);
                 self.msg = match c {
@@ -1083,6 +1094,49 @@ impl Issues {
         self.save_defer();
     }
 
+    /// `Space l` in an issue: its labels and assignees, from GitHub, to toggle (it's said while
+    /// it's asked). Changing them takes triage access.
+    fn open_meta(&mut self, n: u64) {
+        if !self.can_triage {
+            return self.msg = "labels and assignees here take triage access, which you don't have".into();
+        }
+        use crate::gh::Field;
+        self.meta = match crate::gh::issue_fields(n) {
+            Ok((labels, people)) => {
+                let items = people.into_iter().map(|(p, on)| (Field::Assignee, p, on)).chain(labels.into_iter().map(|(l, on)| (Field::Label, l, on))).collect();
+                Some((items, 0))
+            }
+            Err(e) => return self.msg = format!("#{n}: {e:#}"),
+        };
+    }
+
+    /// A key in `Space l`'s picker: j / k move, Enter or Space puts it on or takes it off (on
+    /// GitHub, now), q or Esc closes it (the issue read again).
+    fn meta_key(&mut self, k: KeyEvent) {
+        let Some((items, sel)) = &mut self.meta else { return };
+        let n = self.view.as_ref().map_or(0, |v| v.number);
+        match k.code {
+            KeyCode::Char('j') | KeyCode::Down => *sel = (*sel + 1).min(items.len().saturating_sub(1)),
+            KeyCode::Char('k') | KeyCode::Up => *sel = sel.saturating_sub(1),
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                let Some((field, name, on)) = items.get_mut(*sel) else { return };
+                let to = !*on;
+                self.msg = match crate::gh::set_issue_field(n, *field, name, to) {
+                    Ok(()) => {
+                        *on = to;
+                        format!("#{n}: {} {name}", if to { "added" } else { "removed" })
+                    }
+                    Err(e) => format!("not changed: {e:#}"),
+                };
+            }
+            KeyCode::Char('q') | KeyCode::Esc => {
+                self.meta = None;
+                self.reload_view(n);
+            }
+            _ => {}
+        }
+    }
+
     fn defer_for(&mut self, c: char) {
         let Some(key) = self.deferring.take() else { return };
         let Some(it) = self.todo.iter().find(|it| it.key() == key) else { return };
@@ -1156,6 +1210,12 @@ impl Issues {
             status_bar(f, ui, &left, &format!("#{}", v.number), self.auto, "");
             if self.help {
                 draw_help(f, ui, super::issue_view::VIEW_HELP, "an issue's keys");
+            } else if let Some((items, sel)) = &self.meta {
+                draw_meta(f, ui, items, *sel, v.number);
+            } else {
+                // The keys most often wanted here, bottom right, as the PR view shows them.
+                let keys = [("C", "comment"), ("Space l", "labels, assignees"), ("X X", "close it"), ("a a", "triage again"), ("Enter", "open link"), ("o", "in the browser"), ("?", "all keys")];
+                draw_keys(f, ui, &keys);
             }
             return;
         }
@@ -1311,6 +1371,29 @@ fn issue_card(i: &Issue, ui: &Ui, selected: bool, marked: bool, num_w: usize, wi
     vec![zones(top, talk), zones(who, triage), zones(fix, claude)]
 }
 
+/// A label or an assignee of `Space l`'s: which, its name, whether it's on the issue.
+type Meta = (crate::gh::Field, String, bool);
+
+/// `Space l`'s picker over the issue: each label and assignee, on it or not.
+fn draw_meta(f: &mut Frame, ui: &Ui, items: &[Meta], sel: usize, n: u64) {
+    let area = f.area();
+    let lines: Vec<Line> = items
+        .iter()
+        .enumerate()
+        .map(|(i, (field, name, on))| {
+            let what = if *field == crate::gh::Field::Label { "label" } else { "assignee" };
+            let st = if i == sel { ui.selection } else { Style::new() };
+            Line::from(vec![Span::styled(format!(" {} ", if *on { "●" } else { "○" }), st.patch(ui.key)), Span::styled(format!("{what:<9}"), st.patch(ui.stale)), Span::styled(name.clone(), st)])
+        })
+        .collect();
+    let w = (lines.iter().map(Line::width).max().unwrap_or(20) as u16 + 4).clamp(30, area.width);
+    let h = (lines.len() as u16 + 2).min(area.height.saturating_sub(2));
+    let r = Rect { x: (area.width - w) / 2, y: (area.height - h) / 2, width: w, height: h };
+    let inner = crate::view::popup_frame(ui, f, r, &format!("#{n}: labels, assignees (Enter toggles, q done)"), "");
+    let top = sel.saturating_sub(inner.height.saturating_sub(1) as usize);
+    f.render_widget(Paragraph::new(lines.into_iter().skip(top).collect::<Vec<_>>()), inner);
+}
+
 pub(super) const ISSUES_HELP: &str = "
 MOVE
   j k, Up Down         move
@@ -1391,6 +1474,14 @@ fn issues_listed_triaged_filtered() {
     assert!(!click(&mut l, 10, 5) && l.sel == 1); // the second card (four rows each, after the bar)
     assert!(click(&mut l, 10, 5)); // again: open it
     l.tab = ITab::Todo;
+    // Space l in an issue: without triage access, said; its picker moves with j / k.
+    l.can_triage = false;
+    l.open_meta(7);
+    assert!(l.msg.starts_with("labels and assignees here take triage access"), "{}", l.msg);
+    l.meta = Some((vec![(crate::gh::Field::Assignee, "amy".into(), false), (crate::gh::Field::Label, "bug".into(), true)], 0));
+    l.meta_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    assert_eq!(l.meta.as_ref().map(|m| m.1), Some(1));
+    l.meta = None;
     // Auto: what isn't triaged (#7), once at an update; again once it's changed.
     assert_eq!(l.auto_picks().iter().map(|p| p.0).collect::<Vec<_>>(), [7]);
     assert!(l.auto_picks().is_empty());
