@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.64.3] - 2026-10-20
+
+### Fixed
+- The record of dropped commits is only added to, once each, and written whole. One worktree
+  can no longer undo another's drop, and another dv never reads it half written.
+
 ## [0.64.2] - 2026-10-20
 
 ### Fixed
