@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.69.6] - 2026-10-20
+
+### Fixed
+- Quitting dv list or dv issues asks first while Claude drafts a replacement or a new PR, or
+  ranks, not only while it reviews.
+
 ## [0.69.5] - 2026-10-20
 
 ### Fixed
