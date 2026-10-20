@@ -385,10 +385,12 @@ impl IssueView {
         let h = area.height as usize;
         if self.width != area.width as usize || self.sides.is_empty() {
             self.render(ui, area.width as usize);
-            // (Fewer lines now, a narrower window wider: not past the end.)
+            // (Fewer lines now, a narrower window wider: not past the end; the cursor where it
+            // can be.)
             for i in 0..2 {
                 self.scroll[i] = self.scroll[i].min(self.lines(i).len().saturating_sub(h));
             }
+            self.cur = self.clamp(self.cur.0, self.cur.1, self.side_of(self.cur.1));
         }
         self.shown = h;
         f.render_widget(Paragraph::new("").style(ui.base), area);
@@ -436,7 +438,12 @@ impl IssueView {
     /// Line `row` of the cursor's side, column by column across the screen: what each shows (a
     /// wide character's second, and the other side's: empty).
     fn cells(&self, row: usize) -> Vec<String> {
-        let Some(side) = self.sides.get(self.side_of(self.cur.1)) else { return vec![] };
+        self.cells_on(self.side_of(self.cur.1), row)
+    }
+
+    /// Line `row` of side `i`, as `cells`.
+    fn cells_on(&self, i: usize, row: usize) -> Vec<String> {
+        let Some(side) = self.sides.get(i) else { return vec![] };
         let w = self.width as u16;
         let mut buf = ratatui::buffer::Buffer::empty(Rect::new(0, 0, w, 1));
         if let Some(l) = side.lines.get(row) {
@@ -611,6 +618,8 @@ impl IssueView {
         // (At the same height on screen: the sides' rows are their own.)
         let (from, to) = (self.side_of(self.cur.1), pane as usize);
         let row = self.scroll[to] + self.cur.0.saturating_sub(self.scroll[from]);
+        // (A selection's rows are its side's: not carried over to the other.)
+        (self.select, self.sel, self.lines_sel) = (false, None, false);
         self.cur.1 = if pane { p } else { 0 };
         self.go(row, self.cur.1);
     }
@@ -650,10 +659,7 @@ impl IssueView {
             }
             // Sideways: the code blocks and tables of the side it's over.
             MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight => {
-                let side = match self.pane_x {
-                    Some(p) => (x >= p) as usize,
-                    None => (at.0 >= self.desc_rows) as usize,
-                };
+                let side = if self.pane_x.is_some() { self.side_of(x) } else { (at.0 >= self.desc_rows) as usize };
                 let by = if kind == MouseEventKind::ScrollRight { 8 } else { -8 };
                 self.code_left[side] = (self.code_left[side] as isize + by).clamp(0, self.code_over[side] as isize) as usize;
                 self.redraw();
@@ -682,7 +688,7 @@ impl IssueView {
         let side = self.sel.map_or(0, |((_, ax), _)| self.side_of(ax));
         let out: Vec<String> = (r0..=r1.min(self.lines(side).len().saturating_sub(1)))
             .map(|row| {
-                let text: String = self.cells(row).iter().enumerate().filter(|(x, _)| self.selected(row, *x)).map(|(_, c)| c.as_str()).collect();
+                let text: String = self.cells_on(side, row).iter().enumerate().filter(|(x, _)| self.selected(row, *x)).map(|(_, c)| c.as_str()).collect();
                 text.trim_end().to_owned()
             })
             .collect();
@@ -792,6 +798,10 @@ fn an_issue_and_its_triage() {
     assert!(matches!(v.key(None, KeyCode::Char('y'), false), Did::Copy(t) if t == "It panics."));
     v.key(None, KeyCode::Tab, false);
     assert!(v.cur.1 >= v.pane_x.unwrap());
+    v.key(None, KeyCode::Char('v'), false);
+    v.key(None, KeyCode::Char('j'), false);
+    v.key(None, KeyCode::Tab, false); // (a selection stays on its side: dropped)
+    assert!(v.sel.is_none() && !v.select);
     v.key(None, KeyCode::Char('h'), true); // Ctrl-h: the description
     assert!(v.cur.1 < v.pane_x.unwrap());
     v.key(None, KeyCode::Char('l'), true); // Ctrl-l: the pane
