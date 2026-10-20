@@ -202,6 +202,38 @@ impl List {
                 run.push((n, batch::Task::Close));
             }
         }
+        // Your PRs changed since their descriptions were checked: Claude checks again, proposing
+        // a new one if it no longer fits (Space a in the PR approves it). One first seen: its
+        // head noted, nothing asked (nothing's changed that dv knows of).
+        let file = crate::claude::dv_dir().ok().map(|d| d.join("described.json")).filter(|_| !cfg!(test));
+        if self.described.is_empty() {
+            self.described = file.as_ref().and_then(|f| serde_json::from_str(&std::fs::read_to_string(f).ok()?).ok()).unwrap_or_default();
+        }
+        let mut noted = false;
+        let busy = |n: u64| self.todo.iter().any(|it| it.number == n && (it.busy.is_some() || it.deferred.is_some()));
+        for p in self.prs.iter().filter(|p| p.open() && p.author == self.me) {
+            let Some(head) = self.extra.get(&p.number).map(|e| e.head_oid.clone()).filter(|h| !h.is_empty()) else { continue };
+            match self.described.get(&p.number).cloned() {
+                None => {
+                    self.described.insert(p.number, head);
+                    noted = true;
+                }
+                Some(old) if old != head && !batch_busy && run.len() < batch::AT_ONCE && !busy(p.number) && !run.iter().any(|r| r.0 == p.number) => {
+                    // (A proposal already waiting on you: that first.)
+                    let f = self.reviews_dir.as_ref().map(|d| d.join(format!("pr-{}.json", p.number)));
+                    let waiting = f.and_then(|f| crate::claude::load(&f).ok().flatten()).is_some_and(|r| !r.description.trim().is_empty());
+                    if !waiting {
+                        run.push((p.number, batch::Task::Describe(old)));
+                    }
+                    self.described.insert(p.number, head);
+                    noted = true;
+                }
+                _ => {}
+            }
+        }
+        if let (true, Some(f)) = (noted, &file) {
+            _ = std::fs::write(f, serde_json::to_string(&self.described).unwrap_or_default());
+        }
         // A PR Claude would replace (low effort, worth keeping) with no replacement of it yet:
         // drafted, one at a time, once each at a head (unpublished: the drafts tab has it).
         let drafting = self.drafting.values().any(batch::Status::running) || !self.drafting_elsewhere.is_empty();

@@ -165,6 +165,9 @@ pub struct List {
     closable: HashMap<u64, String>,
     /// PRs Claude's review would replace with one of its own, and why (auto drafts it).
     replaceable: HashMap<u64, String>,
+    /// Your PRs' heads as their descriptions were last checked against (auto: one that's moved
+    /// has Claude check it again), kept in dv's directory (`described.json`).
+    described: HashMap<u64, String>,
     /// The repo, for the reviews' worktrees.
     root: PathBuf,
     pub msg: String,
