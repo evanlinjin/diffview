@@ -197,6 +197,12 @@ fn a_model_per_task() {
     set("dv.model.rank", "haiku");
     assert_eq!((model_args(Some(Work::Rank), &dir), model_args(Some(Work::Review), &dir)), (vec!["--model".to_owned(), "haiku".into()], vec!["--model".to_owned(), "opus".into()]));
     assert_eq!(model_args(None, &dir), ["--model", "opus"]);
+    // Each named in the README, as it says.
+    let readme = include_str!("../../README.md");
+    use Work::*;
+    for w in [Review, Answer, Change, Describe, FixCi, Close, Commit, Amend, Rebase, Replace, Triage, Rank, Interpret, Group] {
+        assert!(readme.contains(&format!("`{}`", w.key())), "{w:?}");
+    }
     std::fs::remove_dir_all(dir).unwrap();
 }
 

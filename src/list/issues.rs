@@ -1650,12 +1650,14 @@ fn a_draft_holds_its_issue_while_it_can_come() {
 fn auto_triages_each_issue_once_at_a_time() {
     use crate::todo::{Item, Kind, Need};
     let it = |n, needs: Vec<Need>| Item { kind: Kind::Issue, number: n, needs, claude: None, updated: String::new(), reason: None, changed: false, deferred: None, busy: None, waits: None };
-    let mut l = Issues { items: (1..=4).map(|n| Issue { number: n, updated: "t1".into(), ..Default::default() }).collect(), ..Default::default() };
+    let mut l = Issues { items: (1..=5).map(|n| Issue { number: n, updated: "t1".into(), ..Default::default() }).collect(), ..Default::default() };
     let mut put_aside = it(1, vec![Need::Untriaged]);
     put_aside.deferred = Some(crate::todo::Deferral { until: i64::MAX, needs: String::new(), cond: None, at: 0 });
-    l.todo = vec![put_aside, it(2, vec![Need::Untriaged]), it(3, vec![]), it(4, vec![Need::Retriage])];
-    // Not what's deferred, nor what needs no triage; at most AT_ONCE.
+    l.todo = vec![put_aside, it(2, vec![Need::Untriaged]), it(3, vec![]), it(4, vec![Need::Retriage]), it(5, vec![Need::Untriaged])];
+    // Not what's deferred, nor what needs no triage; at most AT_ONCE (the rest next time).
+    assert_eq!(batch::AT_ONCE, 2);
     assert_eq!(l.auto_picks(), [(2, "t1".to_owned()), (4, "t1".to_owned())]);
+    assert_eq!(l.auto_picks(), [(5, "t1".to_owned())]);
     // Each once at its updatedAt: again only once it changes.
     assert!(l.auto_picks().is_empty());
     l.items[1].updated = "t2".into();
