@@ -5,6 +5,18 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.77.2] - 2026-10-20
+
+### Fixed
+- Auto triages an issue again once a PR linked as fixing it merges, even when it triaged it
+  already this session (a merge doesn't change the issue's time). Its todo item says once "#N,
+  linked as its fix, merged: check it's fixed", ranked with re-triages, not at the top.
+  Issues triaged before 0.77.1 that have a merged linked fix are triaged once more, for
+  Claude to check them.
+- In a PR's comments pane, the key hints keep off the pane (the comment being read), not just
+  the cursor's cell.
+- dv list and the issues list don't crash in a window too short for one card.
+
 ## [0.77.1] - 2026-10-20
 
 ### Fixed
