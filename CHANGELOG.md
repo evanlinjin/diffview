@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.64.2] - 2026-10-20
+
+### Fixed
+- A dropped commit is recorded for every worktree of the repo, and forgotten once it's back.
+- `Space C` picks a commit by its sha (it may have moved since the picker opened), and doesn't
+  mark "all commits" while only uncommitted changes show.
+
 ## [0.64.1] - 2026-10-20
 
 ### Fixed
