@@ -1645,3 +1645,20 @@ fn a_draft_holds_its_issue_while_it_can_come() {
     assert_eq!(fix.get(&8).map(|f| f.1), Some(true));
     assert!(!fix.contains_key(&9) && fix.len() == 2);
 }
+
+#[test]
+fn auto_triages_each_issue_once_at_a_time() {
+    use crate::todo::{Item, Kind, Need};
+    let it = |n, needs: Vec<Need>| Item { kind: Kind::Issue, number: n, needs, claude: None, updated: String::new(), reason: None, changed: false, deferred: None, busy: None, waits: None };
+    let mut l = Issues::default();
+    l.items = (1..=4).map(|n| Issue { number: n, updated: "t1".into(), ..Default::default() }).collect();
+    let mut put_aside = it(1, vec![Need::Untriaged]);
+    put_aside.deferred = Some(crate::todo::Deferral { until: i64::MAX, needs: String::new(), cond: None, at: 0 });
+    l.todo = vec![put_aside, it(2, vec![Need::Untriaged]), it(3, vec![]), it(4, vec![Need::Retriage])];
+    // Not what's deferred, nor what needs no triage; at most AT_ONCE.
+    assert_eq!(l.auto_picks(), [(2, "t1".to_owned()), (4, "t1".to_owned())]);
+    // Each once at its updatedAt: again only once it changes.
+    assert!(l.auto_picks().is_empty());
+    l.items[1].updated = "t2".into();
+    assert_eq!(l.auto_picks(), [(2, "t2".to_owned())]);
+}
