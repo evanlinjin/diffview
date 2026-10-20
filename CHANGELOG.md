@@ -5,6 +5,18 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.72.2] - 2026-10-20
+
+### Fixed
+- Claude's comment and the talk under it:
+  - `c`/`C` posts the comment, wherever the cursor is in its thread (a reply was posted, and
+    the comment dropped);
+  - `Space r` on your own note for Claude resolves it as before;
+  - a resolved talk no longer counts as "answered, your turn";
+  - `Tab` shows a resolved talk to read, without reopening it.
+- Replies' guide is drawn beside their text, not in it: motions, copying and `Space N` see the
+  text as it is.
+
 ## [0.72.1] - 2026-10-20
 
 ### Fixed
