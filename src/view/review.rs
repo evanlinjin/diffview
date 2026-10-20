@@ -343,13 +343,20 @@ impl App {
     pub(super) fn toggle_resolved(&mut self) {
         // Claude's comment is what's kept (and posted): Space r resolves the conversation under
         // it, not it (Space d deletes it). One Claude marked done (its change made): reopened.
-        if let Some((t, k)) = self.claude_at_cursor() {
+        if let Some((t, k)) = self.claude_at_cursor().filter(|(t, _)| self.threads[*t].by_claude()) {
             let th = &self.threads[t];
             return match (th.resolved, th.talk_resolved, th.comments.len() > 1) {
                 (true, ..) => self.edit_claude(&k, |p, k| crate::claude::set_resolved(p, k, false), "reopened (Claude's comment)"),
                 (_, true, _) => self.edit_claude(&k, |p, k| crate::claude::set_talk_resolved(p, k, false), "the conversation under Claude's comment reopened"),
                 (_, false, true) => self.edit_claude(&k, |p, k| crate::claude::set_talk_resolved(p, k, true), "the conversation under Claude's comment resolved (the comment stays)"),
                 (_, false, false) => self.msg = "Claude's comment has no conversation to resolve (Space d deletes the comment)".into(),
+            };
+        }
+        // Your note for Claude: resolved or reopened, as before.
+        if let Some((t, k)) = self.claude_at_cursor() {
+            return match self.threads[t].resolved {
+                true => self.edit_claude(&k, |p, k| crate::claude::set_resolved(p, k, false), "unresolved (your note for Claude)"),
+                false => self.edit_claude(&k, |p, k| crate::claude::set_resolved(p, k, true), "resolved (your note for Claude)"),
             };
         }
         match self.rows[self.head.row].thread.map(|t| &self.threads[t]) {
@@ -458,9 +465,11 @@ impl App {
             return self.msg = "Claude's answer here is for you, on no lines: C on the comment above quotes it in a new conversation comment".into();
         }
         let anchor = Anchor { path: th.path.clone(), line: th.line.unwrap_or(0), left: th.left, start: th.start_line.map(|s| (s, th.left)) };
-        let mut body = self.comment_under_cursor(t).map(|c| c.body.clone()).unwrap_or_default();
+        // Claude's comment, wherever in its thread the cursor is: the talk under it is about it,
+        // not what's posted.
+        let mut body = th.comments.first().map(|c| c.body.clone()).unwrap_or_default();
         // On GitHub the severity leads the text, as reviewers write it: "**nit:** …".
-        if !th.severity.is_empty() && !body.starts_with("**") && self.comment_index_under_cursor(t) == 0 {
+        if !th.severity.is_empty() && !body.starts_with("**") {
             body = format!("**{}:** {body}", th.severity);
         }
         match self.check_synced().and_then(|_| self.on_github(anchor)) {

@@ -747,7 +747,7 @@ impl Issues {
             (Some('s'), KeyCode::Char('u')) => {
                 let key = self.deferring.take()?;
                 let what = "defer it until… (e.g. #2258 gets a push, the author pushes, #2258 is merged, 3 days; \"…, or 2 weeks\": whichever first)";
-                if let Some(text) = said(edit(term, what, "", false), &mut self.msg) {
+                if let Some(text) = said(edit(term, what, "", false, true), &mut self.msg) {
                     self.defer_until(key, &text);
                 }
             }
@@ -899,7 +899,7 @@ impl Issues {
             (_, KeyCode::Char('?')) => self.help = true,
             (_, KeyCode::Char('o')) => self.msg = crate::view::open_url(v.url()),
             (_, KeyCode::Char('C')) => {
-                let body = said(edit(term, &format!("a comment on issue #{n} (posted when you save)"), "", false), &mut self.msg)?;
+                let body = said(edit(term, &format!("a comment on issue #{n} (posted when you save)"), "", false, true), &mut self.msg)?;
                 self.msg = match crate::gh::gh(&["issue", "comment", &n.to_string(), "--body", &body]) {
                     Ok(_) => format!("commented on #{n}"),
                     Err(e) => format!("not posted: {e:#}"),
@@ -947,7 +947,7 @@ impl Issues {
                 let closing = v.closing().unwrap_or_default();
                 // As its triage says: completed, not planned, or a duplicate (of what).
                 let (reason, dup) = v.close_reason();
-                let body = said(edit(term, &format!("closing issue #{n} ({reason}): the comment it closes with (empty: none)"), &closing, true), &mut self.msg)?;
+                let body = said(edit(term, &format!("closing issue #{n} ({reason}): the comment it closes with (empty: none)"), &closing, true, true), &mut self.msg)?;
                 let mut args = vec!["issue".to_owned(), "close".into(), n.to_string()];
                 match dup {
                     Some(d) => args.extend(["--duplicate-of".into(), d.to_string()]),
@@ -968,7 +968,7 @@ impl Issues {
             (Some('N'), KeyCode::Char('N')) => {
                 let task = v.fix_task();
                 let what = format!("a PR fixing #{n}, for Claude to draft (what it should do; unpublished until you publish it)");
-                let task = said(edit(term, &what, &task, false), &mut self.msg)?;
+                let task = said(edit(term, &what, &task, false, true), &mut self.msg)?;
                 match start_new_pr(&task, &self.root) {
                     Ok((id, rx)) => {
                         self.drafts.push(rx);
@@ -1000,11 +1000,8 @@ impl Issues {
             (Some(' '), KeyCode::Char('N')) => {
                 let draft = format!("From #{n} ({}):\n\n> {}\n\nWhat a PR should do about it: ", v.title(), v.picked_text().trim().replace('\n', "\n> "));
                 let what = format!("a new PR from #{n}, for Claude to draft (what it should do; unpublished until you publish it)");
-                let task = said(edit(term, &what, &draft, false), &mut self.msg)?;
                 // (Saved as it was: nothing said of what it should do. Not asked.)
-                if task.trim() == draft.trim() {
-                    return (self.msg = "not asked: say what a PR should do about it".into(), None).1;
-                }
+                let task = said(edit(term, &what, &draft, false, false), &mut self.msg)?;
                 match start_new_pr(&task, &self.root) {
                     Ok((id, rx)) => {
                         self.drafts.push(rx);

@@ -458,12 +458,22 @@ fn claude_review() {
     app.build();
     app.goto(row(&app, false), 0);
     let t = app.rows[app.head.row].thread.unwrap();
-    assert!(app.rows.iter().any(|r| r.thread == Some(t) && r.guide > 0 && r.line.text.contains("Why not a guard"))); // (indented)
+    assert!(app.rows.iter().any(|r| r.thread == Some(t) && r.guide && r.line.text.starts_with("Why not a guard"))); // (indented)
     press(&mut app, " r");
     assert!(std::fs::read_to_string(&p).unwrap().contains("\"talk_resolved\": true"));
     let t = app.rows[app.head.row].thread.unwrap();
     assert!(app.threads[t].talk_resolved && !app.threads[t].resolved && app.thread_open(t));
     assert!(app.rows.iter().any(|r| r.thread == Some(t) && r.line.text.contains("1 reply under it, resolved")));
+    // Tab on that line shows the talk to read, without reopening it; Tab again folds it.
+    let fold = app.rows.iter().position(|r| r.talk).unwrap();
+    app.goto(fold, 0);
+    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert!(app.rows.iter().any(|r| r.guide && r.line.text.starts_with("Why not a guard")));
+    assert!(std::fs::read_to_string(&p).unwrap().contains("\"talk_resolved\": true"));
+    let reply = app.rows.iter().position(|r| r.guide).unwrap();
+    app.goto(reply, 0); // (on a reply: on the comment, Tab folds the thread)
+    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert!(app.rows.iter().any(|r| r.talk));
     // Space d dismisses one; Space e explains instead of editing.
     app.goto(row(&app, true), 0);
     press(&mut app, " e");

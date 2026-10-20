@@ -224,7 +224,8 @@ impl List {
                     let f = self.reviews_dir.as_ref().map(|d| d.join(format!("pr-{}.json", p.number)));
                     let review = f.and_then(|f| crate::claude::load(&f).ok().flatten());
                     // A proposal already waiting on you: that first, and the head not noted, so
-                    // what's changed since is checked after.
+                    // what's changed since is checked after. (A first review that proposes one
+                    // holds this run off the same way, till you've dealt with it.)
                     if review.as_ref().is_some_and(|r| r.description.trim().is_empty()) {
                         run.push((p.number, batch::Task::Describe(old)));
                         self.described.insert(p.number, head);

@@ -477,7 +477,7 @@ impl App {
                 DRow::Margin(None, Some(_), _) if self.split => self.right_x(),
                 _ => relw + gw,
             };
-            let x = ((start + self.head.col.saturating_sub(self.hscroll(self.head.row))) as u16).min(area.width.saturating_sub(20));
+            let x = ((start + self.rows[self.head.row].guide_w() + self.head.col.saturating_sub(self.hscroll(self.head.row))) as u16).min(area.width.saturating_sub(20));
             // (Just where it goes: its keys are in the key hints.)
             let text = format!(" ↗ {url} ");
             let w = (text.chars().count() as u16).min(area.width - x);

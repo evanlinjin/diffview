@@ -131,14 +131,23 @@ struct Row {
     /// A line standing for a comment shown elsewhere (Claude's activity): (thread, comment),
     /// where Enter goes.
     goes: Option<(usize, usize)>,
-    /// How many of its first chars are a guide, not its text (a reply under Claude's comment,
-    /// indented): left out of what's copied or quoted.
-    guide: usize,
+    /// A reply under Claude's comment: drawn indented, behind a guide (`GUIDE`, not its text).
+    guide: bool,
+    /// The line standing for a resolved talk under Claude's comment (Tab shows it).
+    talk: bool,
 }
 
+/// What sets a reply under Claude's comment in: drawn after the gutter, not part of its text.
+pub(super) const GUIDE: &str = "  │ ";
+
 impl Row {
+    /// The columns its guide takes before its text.
+    fn guide_w(&self) -> usize {
+        if self.guide { GUIDE.chars().count() } else { 0 }
+    }
+
     fn new(file: usize, line: DLine) -> Row {
-        Row { file, line, thread: None, syn: vec![], links: vec![], info: None, edge: false, nowrap: false, main: None, attached: false, goes: None, guide: 0 }
+        Row { file, line, thread: None, syn: vec![], links: vec![], info: None, edge: false, nowrap: false, main: None, attached: false, goes: None, guide: false, talk: false }
     }
 
     /// A row of plain text (headers, comments, PR info).
@@ -485,6 +494,9 @@ pub struct App {
     wrap_w: usize,
     /// Root comment ids of threads folded/unfolded against the default (resolved = folded).
     toggled: HashSet<u64>,
+    /// Claude's comments (their roots' ids) whose resolved talk is shown anyway (Tab on it):
+    /// to read, not reopened.
+    talk_shown: HashSet<u64>,
     /// Claude's review and its background runs.
     claude: ClaudeState,
     /// The PR is someone else's: Claude suggests changes there rather than making them.

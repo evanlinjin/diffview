@@ -265,19 +265,13 @@ impl App {
         // Claude's comment is what's kept; replies under it are talk about it: indented, behind
         // a dim guide, and once that's resolved, one line.
         let talk = t.claude.is_some();
-        let guide = "  │ ";
-        let indent = |mut r: Row| {
-            r.line.text = format!("{guide}{}", r.line.text);
-            r.syn = [vec![Some(self.ui.stale); guide.chars().count()], r.syn].concat();
-            r.links.iter_mut().for_each(|l| (l.0, l.1) = (l.0 + guide.chars().count(), l.1 + guide.chars().count()));
-            r.guide = guide.chars().count();
-            r
-        };
+        let indent = |r: Row| Row { guide: true, ..r };
         for (k, c) in t.comments.iter().enumerate() {
-            if talk && k == 1 && t.talk_resolved {
+            let shown = self.root_id(ti).is_some_and(|id| self.talk_shown.contains(&id));
+            if talk && k == 1 && t.talk_resolved && !shown {
                 let n = t.comments.len() - 1;
-                let text = format!("  ▸ {n} repl{} under it, resolved (Space r reopens them)", if n == 1 { "y" } else { "ies" });
-                out.push(Row { syn: vec![Some(self.ui.stale); text.chars().count()], ..mk(Kind::Comment, text) });
+                let text = format!("  ▸ {n} repl{} under it, resolved (Tab shows them; Space r reopens them)", if n == 1 { "y" } else { "ies" });
+                out.push(Row { syn: vec![Some(self.ui.stale); text.chars().count()], talk: true, ..mk(Kind::Comment, text) });
                 break;
             }
             let start = out.len();
@@ -334,7 +328,7 @@ impl App {
                 continue;
             }
             // In the margin, comments wrap to its width (less the gutter mark and box sides).
-            let w = self.info_w().saturating_sub(if talk && k > 0 { guide.chars().count() } else { 0 });
+            let w = self.info_w().saturating_sub(if talk && k > 0 { GUIDE.chars().count() } else { 0 });
             let rows = self.md_rows_at(&c.body, w, mk);
             match t.stale() {
                 // Resolved/outdated: rendered the same, but dimmed throughout (links still open).
@@ -383,6 +377,17 @@ impl App {
     /// Stale threads start folded; `Tab` flips a thread from its default.
     pub(super) fn thread_open(&self, ti: usize) -> bool {
         self.threads[ti].stale() == self.root_id(ti).is_some_and(|id| self.toggled.contains(&id))
+    }
+
+    /// Tab on a resolved talk under Claude's comment (its line, or its replies shown): shown, or
+    /// folded again; only seen, not reopened (Space r does that). Whether it was one.
+    pub(super) fn toggle_talk(&mut self) -> bool {
+        let r = &self.rows[self.head.row];
+        let Some(ti) = r.thread.filter(|&t| self.threads[t].talk_resolved && (r.talk || r.guide)) else { return false };
+        let Some(id) = self.root_id(ti) else { return false };
+        flip(&mut self.talk_shown, id);
+        self.rebuild_at(|r| r.thread == Some(ti));
+        true
     }
 
     pub(super) fn toggle_thread(&mut self) {

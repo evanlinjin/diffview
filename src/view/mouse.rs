@@ -178,7 +178,8 @@ impl App {
             }
             DRow::Margin(l, r, note) => (l.or(r).or(note)?, g.relw + g.gw),
         };
-        Some((row, x.saturating_sub(start) + self.hscroll(row), x < start))
+        // (A reply's guide is before its text.)
+        Some((row, x.saturating_sub(start + self.rows[row].guide_w()) + self.hscroll(row), x < start))
     }
 
 }

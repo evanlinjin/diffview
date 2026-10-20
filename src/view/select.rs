@@ -27,9 +27,7 @@ impl App {
                 continue;
             }
             let chars = self.chars(r);
-            // (A reply's guide isn't its text.)
-            let g = self.rows[r].guide.min(chars.len());
-            let from = if r == s.row { s.col.max(g).min(chars.len()) } else { g };
+            let from = if r == s.row { s.col.min(chars.len()) } else { 0 };
             let to = if r == e.row { (e.col + 1).min(chars.len()) } else { chars.len() };
             out.push(chars[from..to.max(from)].iter().collect());
         }

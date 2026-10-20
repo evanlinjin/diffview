@@ -262,7 +262,12 @@ impl App {
         let mark = code_row.then(|| self.comment_mark(r, side)).flatten();
         let tw = if code_row { tw.saturating_sub(1) } else { tw };
         let mut spans = vec![Span::styled(gutter, gstyle)];
-        let g = spans.len(); // the gutter's spans; the text's follow
+        // A reply under Claude's comment: its guide, then its text (narrower by it).
+        if row.guide {
+            spans.push(Span::styled(GUIDE, self.ui.stale));
+        }
+        let tw = tw.saturating_sub(row.guide_w());
+        let g = spans.len(); // the gutter's spans (and a reply's guide); the text's follow
         let mut n = 0;
         // A context line shows on both sides of a split row; the cursor goes on the current side.
         let this_side = side.is_none() || l.kind != Kind::Ctx || side == Some(self.right);

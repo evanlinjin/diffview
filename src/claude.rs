@@ -58,7 +58,8 @@ impl Thread {
 
     /// An open thread of the review file where Claude has answered you: your turn.
     pub fn answered(&self) -> bool {
-        self.claude.is_some() && !self.resolved && !self.waiting() && self.comments.iter().any(|c| c.author == "you")
+        // (Its talk resolved: settled, Claude's comment as it now stands.)
+        self.claude.is_some() && !self.resolved && !self.talk_resolved && !self.waiting() && self.comments.iter().any(|c| c.author == "you")
     }
 }
 

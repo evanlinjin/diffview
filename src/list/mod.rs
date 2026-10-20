@@ -399,7 +399,7 @@ impl List {
     /// Your editor on `prefill` (kept as is if you leave it: `untouched_ok`), as `instructions`
     /// opens it. `None`: cancelled, or it failed (said so).
     fn edit_text(&mut self, term: &mut DefaultTerminal, what: &str, prefill: &str, allow_empty: bool) -> Option<String> {
-        said(edit(term, what, prefill, allow_empty), &mut self.msg)
+        said(edit(term, what, prefill, allow_empty, true), &mut self.msg)
     }
 
     /// Marks on PRs closed or merged go (ones not looked up yet stay).
@@ -902,12 +902,12 @@ pub(super) fn filter_term(t: &str, keyed: impl Fn(&str, &str, &dyn Fn(&str, &str
 
 /// Your editor on `prefill` (kept as is if you leave it), from a list: in zellij a pane beside
 /// it; elsewhere it takes the terminal, given back after. `None`: cancelled (`:cq`).
-pub(super) fn edit(term: &mut DefaultTerminal, what: &str, prefill: &str, allow_empty: bool) -> Result<Option<String>> {
+pub(super) fn edit(term: &mut DefaultTerminal, what: &str, prefill: &str, allow_empty: bool, untouched_ok: bool) -> Result<Option<String>> {
     let in_pane = crate::view::in_zellij();
     if !in_pane {
         crate::view::restore_terminal();
     }
-    let text = crate::view::compose_with(what, allow_empty, prefill, true);
+    let text = crate::view::compose_with(what, allow_empty, prefill, untouched_ok);
     if !in_pane {
         *term = crate::view::init_terminal();
     }
@@ -918,7 +918,7 @@ pub(super) fn edit(term: &mut DefaultTerminal, what: &str, prefill: &str, allow_
 /// (kept, if left as they are).
 pub(super) fn instructions(term: &mut DefaultTerminal, kind: &str, what: &str) -> Result<Option<String>> {
     let last = crate::claude::instructions(kind);
-    let extra = edit(term, what, last.trim(), true)?;
+    let extra = edit(term, what, last.trim(), true, true)?;
     if let Some(e) = &extra {
         _ = crate::claude::save_instructions(kind, e);
     }
