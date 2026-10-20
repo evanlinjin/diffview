@@ -654,7 +654,7 @@ impl Issues {
                     let v = self.view.as_mut().expect("an issue open");
                     let kind = crate::view::sideways(&m);
                     // (Row 0's the title bar: the view's from row 1.)
-                    match v.mouse(kind, m.column as usize, (m.row as usize).saturating_sub(1)) {
+                    match v.mouse(kind, m.column as usize, m.row as isize - 1) {
                         Some(t) if t.trim().is_empty() => self.msg = "nothing to copy".into(),
                         Some(t) => {
                             crate::view::clipboard(&t);

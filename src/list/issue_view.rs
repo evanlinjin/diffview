@@ -816,18 +816,19 @@ impl IssueView {
     /// The mouse, at (column, row) of the issue's area (rows past it: its last): a press begins a
     /// drag, a drag moves its end, and the release gives the text dragged over, to copy (a click:
     /// nothing, and nothing kept).
-    pub fn mouse(&mut self, kind: ratatui::crossterm::event::MouseEventKind, x: usize, y: usize) -> Option<String> {
+    pub fn mouse(&mut self, kind: ratatui::crossterm::event::MouseEventKind, x: usize, y: isize) -> Option<String> {
         use ratatui::crossterm::event::{MouseButton, MouseEventKind};
-        // A drag at the edge (or past it): its side scrolls on, a line each move.
-        if let (MouseEventKind::Drag(_), Some(((_, ax), _))) = (kind, self.sel) {
+        // A drag past the edge (above it, over the title; below it): its side scrolls on, a
+        // line each move.
+        if let (MouseEventKind::Drag(MouseButton::Left), Some(((_, ax), _))) = (kind, self.sel) {
             match y {
-                0 => self.scroll(ax, -1),
-                y if y >= self.shown => self.scroll(ax, 1),
+                ..0 => self.scroll(ax, -1),
+                y if y >= self.shown as isize => self.scroll(ax, 1),
                 _ => {}
             }
         }
         // (A row on the side it's over; a drag's, on the side it began on.)
-        let y = y.min(self.shown.saturating_sub(1));
+        let y = (y.max(0) as usize).min(self.shown.saturating_sub(1));
         let side = self.sel.filter(|_| matches!(kind, MouseEventKind::Drag(_) | MouseEventKind::Up(_))).map_or(self.side_of(x), |((_, ax), _)| self.side_of(ax));
         let at = (self.scroll[side] + y, x);
         match kind {
@@ -955,7 +956,7 @@ fn an_issue_and_its_triage() {
     }));
     // A drag in the pane copies the comment's text, not the description beside it nor the bubble.
     use ratatui::crossterm::event::{MouseButton, MouseEventKind};
-    let row = v.lines(1).iter().position(|l| l.to_string().contains("Same here.")).unwrap();
+    let row = v.lines(1).iter().position(|l| l.to_string().contains("Same here.")).unwrap() as isize;
     let p = v.pane_x.unwrap();
     v.shown = v.lines(0).len().max(v.lines(1).len()); // (all of it on screen: rows are lines)
     v.mouse(MouseEventKind::Down(MouseButton::Left), p, row);
@@ -965,7 +966,7 @@ fn an_issue_and_its_triage() {
     v.mouse(MouseEventKind::Down(MouseButton::Left), p, row - 1);
     assert_eq!(v.mouse(MouseEventKind::Up(MouseButton::Left), 159, row + 1).as_deref(), Some("Same here."));
     // The description, from its margin: its text.
-    let row = v.lines(0).iter().position(|l| l.to_string().contains("It panics.")).unwrap();
+    let row = v.lines(0).iter().position(|l| l.to_string().contains("It panics.")).unwrap() as isize;
     v.mouse(MouseEventKind::Down(MouseButton::Left), 0, row);
     assert_eq!(v.mouse(MouseEventKind::Up(MouseButton::Left), p - 2, row).as_deref(), Some("It panics."));
     // The cursor (Helix's): Enter on the link under it opens it; `x` then `y` copies its line;
@@ -1062,11 +1063,13 @@ fn an_issue_and_its_triage() {
     v.mouse(MouseEventKind::Down(MouseButton::Left), 2, 0);
     assert_eq!(v.mouse(MouseEventKind::Up(MouseButton::Left), 2, 0), None);
     assert!(v.sel.is_none());
-    // A drag past the bottom scrolls its side on; at the top, back.
+    // A drag past the bottom scrolls its side on; above the top, back; on its first line, not.
     v.mouse(MouseEventKind::Down(MouseButton::Left), 2, 1);
     v.mouse(MouseEventKind::Drag(MouseButton::Left), 2, 5);
     assert_eq!(v.scroll, [2, 2]);
     v.mouse(MouseEventKind::Drag(MouseButton::Left), 2, 0);
+    assert_eq!(v.scroll, [2, 2]);
+    v.mouse(MouseEventKind::Drag(MouseButton::Left), 2, -1);
     assert_eq!(v.scroll, [1, 2]);
 }
 
