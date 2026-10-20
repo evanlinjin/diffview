@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.75.0] - 2026-10-20
+
+### Added
+- `Ctrl-w o` maximizes the pane you're in: the code alone, or the comments pane over all of
+  it. Leaving it (`Ctrl-w h` / `l`) or `Ctrl-w o` again lays it out as it was.
+
 ### Changed
 - Pickers and popups float in a rounded border with the title set in it, as zellij's floating
   panes. Pickers list their items by section (the Claude menu: Review, Changes, Description,
