@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.64.0] - 2026-10-20
+
+### Added
+- `Space C`: a commit picker. It shows one commit's diff, or all of them.
+
 ## [0.63.1] - 2026-10-20
 
 ### Fixed
