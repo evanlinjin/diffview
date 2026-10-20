@@ -467,7 +467,9 @@ impl Issues {
     /// Why Claude would close issue `n`: its triage says, or its ranking of the todo did.
     fn close_why(&self, n: u64) -> Option<String> {
         let triage = self.triage.get(&n).map(|t| t.close.clone()).filter(|c| !c.is_empty());
-        triage.or_else(|| self.ranked.as_ref()?.closes.get(&format!("issue-{n}")).cloned())
+        // (Or, as the todo tab has it, the PR that fixes it merged.)
+        let merged = || self.items.iter().find(|i| i.number == n)?.fixed_by.iter().find(|p| p.1 == "MERGED").map(|p| format!("#{}, which fixes it, is merged", p.0));
+        triage.or_else(|| self.ranked.as_ref()?.closes.get(&format!("issue-{n}")).cloned()).or_else(merged)
     }
 
     /// Issues auto would triage: not triaged, not deferred.
@@ -1554,6 +1556,10 @@ fn issues_listed_triaged_filtered() {
     assert_eq!(shown(&l), [7]); // assigned to you
     l.tab = ITab::CanClose;
     assert_eq!(shown(&l), [8]);
+    // The PR fixing #7 merged: closable too, as the todo tab says.
+    l.items[0].fixed_by[0].1 = "MERGED".into();
+    assert_eq!((shown(&l), l.close_why(7).as_deref()), (vec![7, 8], Some("#9, which fixes it, is merged")));
+    l.items[0].fixed_by[0].1 = "OPEN".into();
     l.tab = ITab::Open;
     l.query = "label:bug".into();
     assert_eq!(shown(&l), [7]);
