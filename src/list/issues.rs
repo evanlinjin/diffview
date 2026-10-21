@@ -1074,8 +1074,7 @@ impl Issues {
         };
         match self.todos.until(key.clone(), text, about, &self.root) {
             Reading::Read(c, or) => self.defer_on(&key, c, or),
-            Reading::Asked => self.msg = "Claude is reading when you mean…".into(),
-            Reading::Busy => self.msg = "not deferred: Claude is still reading the last \"until\" (try again in a moment)".into(),
+            Reading::Asked(said) => self.msg = said,
         }
     }
 
@@ -1100,7 +1099,8 @@ impl Issues {
     /// fix PRs' merging or pushes ("the author pushes": its one open fix's), or a time.
     fn defer_on(&mut self, key: &str, c: crate::todo::Until, or: Option<i64>) {
         use crate::todo::Until;
-        let Some(it) = self.todos.items.iter().find(|it| it.key() == key).cloned() else { return };
+        // (Seen to meanwhile, as Claude read when: said so.)
+        let Some(it) = self.todos.items.iter().find(|it| it.key() == key).cloned() else { return self.msg = GONE.into() };
         let open: Vec<(u64, String, String)> = self.fixes(it.number).into_iter().filter(|p| p.1 == "OPEN").collect();
         let c = match c {
             Until::Pushed(_) if open.len() == 1 => Until::PushedTo(open[0].0, open[0].2.clone()),

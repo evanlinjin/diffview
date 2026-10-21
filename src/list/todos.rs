@@ -25,7 +25,7 @@ pub(super) struct Todos {
 }
 
 /// What's said of an item deferred once it's no longer on the list (seen to meanwhile).
-const GONE: &str = "not deferred: it's no longer on the list";
+pub(super) const GONE: &str = "not deferred: it's no longer on the list";
 
 /// What the key after `s` did: deferred it (said so: to save), asked until what (the item's
 /// key), not (said why), or called it off (Esc).
@@ -36,12 +36,11 @@ pub(super) enum After {
     Off,
 }
 
-/// What `Todos::until` made of an "until …": the condition to defer on, Claude reading it, or
-/// not (Claude's reading another still).
+/// What `Todos::until` made of an "until …": the condition to defer on, or Claude reading it
+/// (what's said).
 pub(super) enum Reading {
     Read(Until, Option<i64>),
-    Asked,
-    Busy,
+    Asked(String),
 }
 
 impl Todos {
@@ -177,10 +176,12 @@ impl Todos {
         let (text, or) = todo::or_time(text, now);
         match Until::parse(&text, now) {
             Some(c) => Reading::Read(c, or),
-            None if self.until_rx.is_some() => Reading::Busy,
             None => {
+                // (One read meanwhile: this one instead, said so; a reading that hangs isn't
+                // in the way of the next.)
+                let instead = self.until_rx.as_ref().map_or(String::new(), |r| format!(" (instead of the \"until\" for {})", r.0));
                 self.until_rx = Some((key, or, todo::interpret(text, about(), root.to_path_buf())));
-                Reading::Asked
+                Reading::Asked(format!("Claude is reading when you mean…{instead}"))
             }
         }
     }

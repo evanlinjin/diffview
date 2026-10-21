@@ -484,8 +484,7 @@ impl List {
     pub(super) fn defer_until(&mut self, key: String, text: &str) {
         match self.todos.until(key.clone(), text, || "a pull request".into(), &self.root) {
             Reading::Read(c, or) => self.defer_on(&key, c, or),
-            Reading::Asked => self.msg = "Claude is reading when you mean…".into(),
-            Reading::Busy => self.msg = "not deferred: Claude is still reading the last \"until\" (try again in a moment)".into(),
+            Reading::Asked(said) => self.msg = said,
         }
     }
 
@@ -498,7 +497,8 @@ impl List {
     }
 
     fn defer_on(&mut self, key: &str, c: todo::Until, or: Option<i64>) {
-        let Some(it) = self.todos.items.iter().find(|it| it.key() == key).cloned() else { return };
+        // (Seen to meanwhile, as Claude read when: said so.)
+        let Some(it) = self.todos.items.iter().find(|it| it.key() == key).cloned() else { return self.msg = GONE.into() };
         // A push, a review: from where its PR is now (known once its details are in), so
         // what it had already doesn't count.
         let n = self.pr_of(&it);
