@@ -5,6 +5,18 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.77.4] - 2026-10-21
+
+### Changed
+- dv list and the issues list share what needs you: the todo, Claude's ranking, deferring
+  (`s`, until …) and auto's re-ranking, so they behave alike. `s`'s prompt reads the same in
+  both; the issues list's status bar and `r` say what's changed since the last ranking too.
+
+### Fixed
+- `r r` with everything deferred no longer starts a ranking of nothing (a Claude run).
+- Deferring an item that dropped off the list meanwhile says so (it said it was deferred).
+- A second "until …" while Claude still reads the first is refused (the first was lost).
+
 ## [0.77.3] - 2026-10-21
 
 ### Changed
