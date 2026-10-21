@@ -558,9 +558,10 @@ impl App {
     // (It gives way, cut, to what's said on the left: half the bar at least, as it needs.)
     let width = status.width as usize;
     let cols = |s: &str| Span::raw(s.to_owned()).width();
-    let gap = if self.claude_doing().is_some() { "  " } else { "" };
+    let doing = self.claude_doing();
+    let gap = if doing.is_some() { "  " } else { "" };
     let room = width.saturating_sub(cols(&essential) + cols(gap) + left.width().min(width / 2) + 1);
-    let doing = self.claude_doing().map(|d| format!(" {} ", super::cut(&d, room.saturating_sub(2).max(9)))).unwrap_or_default();
+    let doing = doing.map(|d| format!(" {} ", fit_badge(&d, room.saturating_sub(2)))).unwrap_or_default();
     let essentials = cols(&doing) + cols(gap) + cols(&essential);
     let extras = if left.width() + cols(&extras) + essentials < width { extras } else { String::new() };
     let right = Line::from(vec![Span::raw(extras), Span::styled(doing, badge(&self.ui, self.ui.pending.fg)), Span::raw(format!("{gap}{essential}"))]);
@@ -745,6 +746,36 @@ pub(crate) fn draw_hints(f: &mut Frame, ui: &Ui, above: Rect, title: &str, keys:
     let r = corners.into_iter().min_by_key(|r| (avoid.is_some_and(|a| r.intersects(a)), covered(r))).unwrap_or(corners[0]);
     let inner = popup_frame(ui, f, r, title, "");
     f.render_widget(Paragraph::new(lines), inner);
+}
+
+/// `d` (a badge's text) in `w` columns: its label cut, its last word (how long it's been at
+/// it: "4m") kept, so it doesn't look stuck; with no room, just its mark.
+fn fit_badge(d: &str, w: usize) -> String {
+    let cols = |s: &str| Span::raw(s.to_owned()).width();
+    if cols(d) <= w {
+        return d.to_owned();
+    }
+    let (head, tail) = d.rsplit_once(' ').unwrap_or((d, ""));
+    let mut out = String::new();
+    for c in head.chars() {
+        if cols(&out) + cols(&c.to_string()) + 2 + cols(tail) > w {
+            break;
+        }
+        out.push(c);
+    }
+    match out.trim_end() {
+        o if o.chars().count() > 1 => format!("{o}… {tail}"),
+        _ => d.chars().next().map_or(String::new(), String::from), // (the mark, ◐)
+    }
+}
+
+#[test]
+fn a_badge_cut_keeps_its_time() {
+    let d = "◐ claude: resolving the rebase's conflicts 4m";
+    assert_eq!(fit_badge(d, 80), d);
+    let cut = fit_badge(d, 24);
+    assert!(cut.ends_with("… 4m") && Span::raw(cut.clone()).width() <= 24, "{cut}");
+    assert_eq!(fit_badge(d, 3), "◐");
 }
 
 /// A badge (what Claude's doing, how the checkout stands): bold, in `color`, on the window's.
