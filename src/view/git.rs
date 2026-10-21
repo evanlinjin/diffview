@@ -137,7 +137,10 @@ impl App {
         // Failing for no fault of the PR's (a flaky test, a network blip): once more.
         if self.failing > 0 && self.pr.is_some() {
             let s = if self.failing == 1 { "" } else { "s" };
-            items.push(Item::new(format!("Rerun the failed check{s} ({}: their failed jobs, on GitHub)", self.failing), Target::Run(Job::Rerun)));
+            items.push(Item::new(format!("Rerun the failed check{s} ({}: their failed jobs, on GitHub)", self.failing), Target::Run(Job::Rerun(false))));
+        }
+        if self.pr.is_some() {
+            items.push(Item::new("Rerun every check (all the head's finished runs, on GitHub)", Target::Run(Job::Rerun(true))));
         }
         if self.awaiting > 0 {
             let s = if self.awaiting == 1 { "" } else { "s" };

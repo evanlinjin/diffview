@@ -193,32 +193,37 @@ pub(crate) fn verdict(c: &Value) -> char {
 
 /// Rerun the failed jobs of the workflow runs on commit `head` that failed, four at a time:
 /// what happened, in a few words (an error if none could be).
-pub fn rerun_failed(head: &str) -> Result<String> {
-    let q = ".[] | select(.conclusion == \"failure\" or .conclusion == \"timed_out\" or .conclusion == \"cancelled\") | .databaseId";
-    let out = gh(&["run", "list", "--commit", head, "--limit", "100", "--json", "databaseId,conclusion", "-q", q])?;
+pub fn rerun(head: &str, all: bool) -> Result<String> {
+    // (All: every run that's finished; one still going can't be rerun.)
+    let q = match all {
+        true => ".[] | select(.status == \"completed\") | .databaseId",
+        false => ".[] | select(.conclusion == \"failure\" or .conclusion == \"timed_out\" or .conclusion == \"cancelled\") | .databaseId",
+    };
+    let out = gh(&["run", "list", "--commit", head, "--limit", "100", "--json", "databaseId,status,conclusion", "-q", q])?;
     let ids: Vec<&str> = out.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
     if ids.is_empty() {
-        return Ok("no failed runs to rerun (they may be running already)".into());
+        return Ok(format!("no {}runs to rerun (they may be running already)", if all { "finished " } else { "failed " }));
     }
     // A few at a time (not GitHub's limit on many writes at once); one that can't be (too
     // old, say) doesn't keep the others from it.
     let mut errors = vec![];
     for batch in ids.chunks(4) {
         std::thread::scope(|s| {
-            let runs: Vec<_> = batch.iter().map(|id| (id, s.spawn(move || gh(&["run", "rerun", id, "--failed"]).err().map(|e| format!("run {id}: {e:#}"))))).collect();
+            let runs: Vec<_> = batch.iter().map(|id| (id, s.spawn(move || gh(&["run", "rerun", id, "--failed"][..if all { 3 } else { 4 }]).err().map(|e| format!("run {id}: {e:#}"))))).collect();
             errors.extend(runs.into_iter().filter_map(|(id, r)| r.join().unwrap_or_else(|p| Some(format!("run {id}: {}", crate::batch::panicked(&p))))));
         });
     }
-    rerun_says(ids.len(), &errors)
+    rerun_says(ids.len(), &errors, if all { "" } else { "failed " })
 }
 
-/// What rerunning `total` runs came to, `errors` the ones that couldn't be.
-pub(crate) fn rerun_says(total: usize, errors: &[String]) -> Result<String> {
+/// What rerunning `total` (`what`: "failed ", or "" for all) runs came to, `errors` the ones
+/// that couldn't be.
+pub(crate) fn rerun_says(total: usize, errors: &[String], what: &str) -> Result<String> {
     let rerun = total - errors.len();
     match (rerun, errors.first()) {
-        (0, Some(e)) => anyhow::bail!("no failed run could be rerun: {e}"),
-        (_, Some(e)) => Ok(format!("{rerun} of {total} failed runs rerunning ({} couldn't be: {e})", errors.len())),
-        _ => Ok(format!("{rerun} failed run(s) rerunning")),
+        (0, Some(e)) => anyhow::bail!("no {what}run could be rerun: {e}"),
+        (_, Some(e)) => Ok(format!("{rerun} of {total} {what}runs rerunning ({} couldn't be: {e})", errors.len())),
+        _ => Ok(format!("{rerun} {what}run(s) rerunning")),
     }
 }
 

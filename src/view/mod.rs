@@ -202,7 +202,8 @@ enum Job {
     /// The PR's base changed on GitHub to this one: fetch it, and the diff follows.
     Retarget(String),
     /// Rerun the failed checks' jobs on the PR's head.
-    Rerun,
+    /// Rerun the head's checks: all of them (true), or the failed.
+    Rerun(bool),
     /// Ask GitHub for the PR's labels, assignees and reviewers, and what it could have.
     Labels,
     /// Add (`true`) or remove a label, an assignee or a requested reviewer, by name.
@@ -227,7 +228,7 @@ impl Job {
             Job::Reactions(_) => "asking GitHub for its reactions…".into(),
             Job::Rebase => "rebasing…".into(),
             Job::Retarget(base) => format!("the PR's base is {base} now: fetching it…"),
-            Job::Rerun => "rerunning the failed checks…".into(),
+            Job::Rerun(all) => if *all { "rerunning every check…" } else { "rerunning the failed checks…" }.into(),
             Job::Labels => "asking GitHub for labels, assignees, reviewers…".into(),
             Job::SetField(..) => "editing the PR…".into(),
             Job::Push(force) => if *force { "force-pushing…" } else { "pushing…" }.into(),
@@ -379,7 +380,7 @@ impl Target {
             Target::Run(Job::Push(_)) => ('\u{f403}', Plain, "Branch"),
             Target::GitTakeTheirs(_) | Target::Run(Job::Pull) => ('\u{f409}', Plain, "Branch"),
             Target::Run(Job::Rebase) => ('\u{f418}', Claude, "Branch"),
-            Target::Run(Job::Rerun) => ('\u{f46a}', Plain, "CI"),
+            Target::Run(Job::Rerun(_)) => ('\u{f46a}', Plain, "CI"),
             Target::GitApproveRuns => ('\u{f52e}', Good, "CI"),
             Target::GitReady => ('\u{f407}', Good, "Pull request"),
             Target::GitMerge => ('\u{f419}', Good, "Pull request"),

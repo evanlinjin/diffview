@@ -99,9 +99,10 @@ fn live_info() {
 
 #[test]
 fn rerun_summary() {
-    assert_eq!(rerun_says(3, &[]).unwrap(), "3 failed run(s) rerunning");
-    assert_eq!(rerun_says(3, &["run 7: too old".into()]).unwrap(), "2 of 3 failed runs rerunning (1 couldn't be: run 7: too old)");
-    assert!(rerun_says(1, &["run 7: too old".into()]).is_err());
+    assert_eq!(rerun_says(3, &[], "failed ").unwrap(), "3 failed run(s) rerunning");
+    assert_eq!(rerun_says(3, &["run 7: too old".into()], "failed ").unwrap(), "2 of 3 failed runs rerunning (1 couldn't be: run 7: too old)");
+    assert!(rerun_says(1, &["run 7: too old".into()], "failed ").is_err());
+    assert_eq!(rerun_says(5, &[], "").unwrap(), "5 run(s) rerunning");
 }
 
 #[test]

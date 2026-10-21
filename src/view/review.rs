@@ -55,9 +55,9 @@ impl App {
             }
             // Reruns: GitHub sets them going in a moment, and CI doesn't change the PR's ETag:
             // dv looks again by itself, shortly.
-            Job::Rerun => {
+            Job::Rerun(all) => {
                 let head = self.pr.as_ref().map(|p| p.head_oid.clone()).unwrap_or_default();
-                self.msg = match gh::rerun_failed(&head) {
+                self.msg = match gh::rerun(&head, all) {
                     Ok(said) => {
                         // What a fetch under way brings back is from before (failing still);
                         // the watch fetches again by itself, shortly (through `watch_github`).

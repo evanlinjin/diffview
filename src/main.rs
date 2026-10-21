@@ -466,7 +466,7 @@ fn review_file(cmd: &str, o: &Opts) -> anyhow::Result<()> {
     // the head as GitHub has it now.)
     if cmd == "rerun-failed" {
         let p = gh::pr(o.pr).ok().context("no PR here (dv rerun-failed -p N for PR N)")?;
-        println!("{}", gh::rerun_failed(&p.head_oid)?);
+        println!("{}", gh::rerun(&p.head_oid, false)?);
         return Ok(());
     }
     // The PR dv ran Claude on (`claude::PR_ENV`), while this checkout is still on it, or the one
