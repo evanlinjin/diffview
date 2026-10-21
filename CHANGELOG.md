@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.78.2] - 2026-10-21
+
+### Changed
+- Claude's activity says what Claude did: its review once ("reviewed · N comments", then the
+  start of its summary), and each reply of its, not every comment of the review.
+
 ## [0.78.1] - 2026-10-21
 
 ### Fixed
