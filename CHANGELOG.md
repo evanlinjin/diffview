@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.77.7] - 2026-10-21
+
+### Fixed
+- A replacement or new-PR draft back from deferral is named as dv names it, not by its id.
+- A ranking auto started while GitHub's part was loading doesn't speak up later as if you'd
+  asked; "once GitHub's part is in…" is said once, when you ask, not over every other message.
+- `r r` says how many it sent Claude.
+
 ## [0.77.6] - 2026-10-21
 
 ### Fixed
