@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.77.6] - 2026-10-21
+
+### Fixed
+- Deferring an item while Claude still reads an "until …" for it keeps what you did (its late
+  answer deferred it again, its way).
+- Nothing to rank on an empty todo tab is said plainly; auto doesn't read every review only
+  to find there's nothing to rank, nor says so.
+
 ## [0.77.5] - 2026-10-21
 
 ### Fixed
