@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.81.0] - 2026-10-21
+
+### Added
+- `dv review-check` warns when the repo's notes for Claude outgrow 12 KB, or have points over
+  240 characters, so the run that grew them condenses them. Every run reads all of them; they'd
+  grown to 37 KB on one repo, much of it about single PRs. The skill now says what doesn't
+  belong (a PR's status: its own session keeps that).
+
 ## [0.80.9] - 2026-10-21
 
 ### Changed
