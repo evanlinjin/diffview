@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.80.3] - 2026-10-21
+
+### Fixed
+- The contents list on the left shows with no files yet (a replacement or new PR not drafted):
+  its sections, and "(no files yet)", rather than going away.
+
 ## [0.80.2] - 2026-10-21
 
 ### Fixed
