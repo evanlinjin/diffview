@@ -113,7 +113,17 @@ fn viewed_files() {
     app.goto(h, 0);
     app.key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
     app.key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE));
-    assert!(matches!(app.job, Some(Job::Viewed(ref p, true)) if p == "src/a.rs")); // dismissed → mark again
+    // Dismissed → marked again: at once, folded, and said "saving" till GitHub has it.
+    assert!(app.job.is_none() && app.viewed["src/a.rs"] == "VIEWED" && app.collapsed.contains("src/a.rs"));
+    assert_eq!(app.header_tag(0).unwrap().0, "✓ Viewed · saving… ");
+    app.apply_viewed(viewed("src/a.rs", "DISMISSED")); // a refresh before it's landed: it stands
+    assert_eq!(app.viewed["src/a.rs"], "VIEWED");
+    let t = std::time::Instant::now();
+    while !app.marking.is_empty() && t.elapsed().as_secs() < 5 {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        app.watch_marks();
+    }
+    assert_eq!(app.header_tag(0).unwrap().0, "✓ Viewed ");
 }
 
 #[test]

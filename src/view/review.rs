@@ -1,6 +1,26 @@
 //! GitHub review actions: comments, replies, suggestions, edits, deletes, reviews, resolving,
 //! viewed marks, links, and the pending/threads pickers.
 use super::*;
+use std::time::Instant;
+
+/// Tries after the first for a viewed mark, waiting 1s, 2s, 4s… between them (about 2 minutes).
+const MARK_TRIES: u32 = 7;
+
+/// A viewed mark on its way to GitHub: what it'll be (`on`), what it was (its state and
+/// fold), and when it's tried again, after a miss.
+pub(super) struct Marking {
+    pub(super) on: bool,
+    was: (Option<String>, bool),
+    rx: std::sync::mpsc::Receiver<Mark>,
+    pub(super) retry: Option<Instant>,
+}
+
+enum Mark {
+    Trying,
+    Retry(String, Instant),
+    Done,
+    GaveUp(String),
+}
 
 impl App {
     /// The pending review to add to, starting one on the PR head if there isn't one yet (with
@@ -103,22 +123,6 @@ impl App {
                 let res = self.post(p);
                 self.finish(res);
             }
-            Job::Viewed(path, on) => {
-                let pr_id = self.pr.as_ref().map(|p| p.node_id.clone()).unwrap_or_default();
-                let res = gh::set_viewed(&pr_id, &path, on);
-                if res.is_ok() && !on {
-                    self.collapsed.remove(&path);
-                }
-                self.finish(res.map(|_| if on { "marked as viewed" } else { "unmarked as viewed" }));
-                // To the file's header, or when marked, on to the next file (like on GitHub).
-                if let Some(fi) = self.files.iter().position(|f| f.path == path)
-                    && let Some(own) = self.rows.iter().position(|r| r.file == fi && r.line.kind == Kind::File)
-                {
-                    let later = self.rows[own + 1..].iter().position(|r| r.line.kind == Kind::File).map(|i| own + 1 + i);
-                    self.select = false;
-                    self.goto(if on { later.unwrap_or(own) } else { own }, 0);
-                }
-            }
         }
     }
 
@@ -213,7 +217,14 @@ impl App {
     /// Viewed files fold, like on GitHub: on first load, and when newly marked; not with
     /// comments you haven't seen on them. Files you unfold yourself stay unfolded across
     /// refreshes.
-    pub(super) fn apply_viewed(&mut self, viewed: HashMap<String, String>) {
+    pub(super) fn apply_viewed(&mut self, mut viewed: HashMap<String, String>) {
+        // (Marks on their way stand: GitHub hasn't heard them yet.)
+        for (path, m) in &self.marking {
+            match m.on {
+                true => viewed.insert(path.clone(), "VIEWED".into()),
+                false => viewed.remove(path),
+            };
+        }
         for (path, state) in &viewed {
             if state == "VIEWED" && self.viewed.get(path).is_none_or(|old| old != "VIEWED") && !self.new_on(path) {
                 self.collapsed.insert(path.clone());
@@ -234,7 +245,86 @@ impl App {
             return self.msg = format!("{path} is untracked: not on GitHub, so it can't be marked viewed there");
         }
         let on = self.viewed.get(&path).is_none_or(|s| s != "VIEWED");
-        self.start(Job::Viewed(path, on));
+        // Shown (and folded) at once; GitHub's told in the background.
+        let was = (self.viewed.get(&path).cloned(), self.collapsed.contains(&path));
+        match on {
+            true => _ = (self.viewed.insert(path.clone(), "VIEWED".into()), self.collapsed.insert(path.clone())),
+            false => _ = (self.viewed.remove(&path), self.collapsed.remove(&path)),
+        }
+        let pr = self.pr.as_ref().map(|p| p.node_id.clone()).unwrap_or_default();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let p = path.clone();
+        std::thread::spawn(move || {
+            for n in 0.. {
+                let res = if cfg!(test) { Ok(()) } else { gh::set_viewed(&pr, &p, on) };
+                let wait = Duration::from_secs(1 << n);
+                let next = match res {
+                    Ok(()) => return drop(tx.send(Mark::Done)),
+                    Err(e) if n == MARK_TRIES => return drop(tx.send(Mark::GaveUp(format!("{e:#}")))),
+                    Err(e) => Mark::Retry(format!("{e:#}"), Instant::now() + wait),
+                };
+                // (Not heard: marked again since, or dv closed. Then it's let go.)
+                if tx.send(next).is_err() {
+                    return;
+                }
+                std::thread::sleep(wait);
+                if tx.send(Mark::Trying).is_err() {
+                    return;
+                }
+            }
+        });
+        // ponytail: a mark sent while an older one's in flight may land first; one queue per file if it bites.
+        self.marking.insert(path.clone(), Marking { on, was, rx, retry: None });
+        self.msg = if on { "marked as viewed" } else { "unmarked as viewed" }.into();
+        // To the file's header, or when marked, on to the next file (like on GitHub).
+        let keep = self.cursor_key();
+        self.rebuild(keep);
+        if let Some(fi) = self.files.iter().position(|f| f.path == path)
+            && let Some(own) = self.rows.iter().position(|r| r.file == fi && r.line.kind == Kind::File)
+        {
+            let later = self.rows[own + 1..].iter().position(|r| r.line.kind == Kind::File).map(|i| own + 1 + i);
+            self.goto(if on { later.unwrap_or(own) } else { own }, 0);
+        }
+    }
+
+    /// How the viewed marks on their way are going: one GitHub wouldn't take, after its
+    /// retries, is as it was again.
+    pub(super) fn watch_marks(&mut self) {
+        let mut over = vec![];
+        for (path, m) in &mut self.marking {
+            for got in m.rx.try_iter() {
+                match got {
+                    Mark::Trying => m.retry = None,
+                    Mark::Retry(why, at) => {
+                        m.retry = Some(at);
+                        let secs = at.saturating_duration_since(Instant::now()).as_secs();
+                        self.msg = format!("GitHub didn't take {path}'s viewed mark ({why}); dv tries again in {secs}s");
+                    }
+                    Mark::Done => over.push((path.clone(), None)),
+                    Mark::GaveUp(why) => over.push((path.clone(), Some(why))),
+                }
+            }
+        }
+        let mut undone = false;
+        for (path, failed) in over {
+            let Some(m) = self.marking.remove(&path) else { continue };
+            let Some(why) = failed else { continue };
+            match m.was.0 {
+                Some(s) => self.viewed.insert(path.clone(), s),
+                None => self.viewed.remove(&path),
+            };
+            match m.was.1 {
+                true => self.collapsed.insert(path.clone()),
+                false => self.collapsed.remove(&path),
+            };
+            let what = if m.on { "marked viewed" } else { "unmarked" };
+            self.msg = format!("{path} isn't {what} on GitHub after {} tries ({why}): it's as it was", MARK_TRIES + 1);
+            undone = true;
+        }
+        if undone {
+            let keep = self.cursor_key();
+            self.rebuild(keep);
+        }
     }
 
     pub(super) fn pending_count(&self) -> usize {

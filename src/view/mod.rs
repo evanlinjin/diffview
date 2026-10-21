@@ -189,8 +189,6 @@ enum Job {
     /// Bring the checkout up to date: the PR's head, or `git pull --ff-only` without a PR.
     Pull,
     Resolve(String, bool),
-    /// Mark (true) or unmark a file as viewed.
-    Viewed(String, bool),
     /// React to a comment (its node id) with this reaction, or (`false`) take yours back.
     React(String, &'static str, bool),
     Discard(String),
@@ -222,7 +220,6 @@ impl Job {
             Job::Refresh => "refreshing…".into(),
             Job::Pull => "updating the checkout…".into(),
             Job::Resolve(_, on) => if *on { "resolving…" } else { "unresolving…" }.into(),
-            Job::Viewed(_, on) => if *on { "marking as viewed…" } else { "unmarking…" }.into(),
             Job::React(..) => "reacting…".into(),
             Job::Discard(_) => "discarding…".into(),
             Job::DeleteComment(_) => "deleting…".into(),
@@ -537,6 +534,8 @@ pub struct App {
     review: Option<String>,
     /// Your "Viewed" marks from GitHub: path → VIEWED / DISMISSED.
     viewed: HashMap<String, String>,
+    /// Viewed marks on their way to GitHub (shown already): path → how it's going.
+    marking: HashMap<String, review::Marking>,
     /// Side-by-side view; `right` is which side the cursor prefers on lines shown on both.
     split: bool,
     right: bool,
@@ -848,6 +847,7 @@ impl App {
             self.watch_tree();
             self.watch_claude();
             self.watch_github();
+            self.watch_marks();
             if self.refresh_at.is_some_and(|t| t <= std::time::Instant::now()) {
                 self.refresh_at = None;
                 if let Some(p) = &self.github_poke {

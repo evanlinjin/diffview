@@ -554,7 +554,15 @@ impl App {
                 false => (format!(" {s} "), chip(color)),
             });
         }
-        let (t, st) = match self.viewed.get(&self.files.get(file)?.path)?.as_str() {
+        let path = &self.files.get(file)?.path;
+        if let Some(m) = self.marking.get(path) {
+            let state = if m.on { "✓ Viewed ·" } else { "unmarking ·" };
+            return Some(match m.retry {
+                Some(at) => (format!("{state} retry in {}s ", at.saturating_duration_since(std::time::Instant::now()).as_secs() + 1), self.ui.warning),
+                None => (format!("{state} saving… "), self.ui.stale),
+            });
+        }
+        let (t, st) = match self.viewed.get(path)?.as_str() {
             "VIEWED" => ("✓ Viewed ", self.ui.plus),
             _ => ("↻ changed since viewed ", self.ui.warning),
         };
