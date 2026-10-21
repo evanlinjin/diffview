@@ -5,6 +5,18 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.78.3] - 2026-10-21
+
+### Fixed
+- No cursor on a hunk's rule either while dv isn't focused.
+- Switching to a view without the line the cursor was on (Claude's view, from a file it didn't
+  comment on) starts at the view's top again; only a comment posted from under the cursor
+  leaves it where its file would be.
+- Claude's activity lists its answers to others' comments as their own again, says
+  "reviewed" for a review of only a summary, and Enter on the review goes to its first
+  comment in the diff.
+- The skill tells a placeholder (`// Do this instead`) from code that makes the change.
+
 ## [0.78.2] - 2026-10-21
 
 ### Changed
