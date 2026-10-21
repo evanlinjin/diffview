@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.81.1] - 2026-10-21
+
+### Changed
+- `r` with text selected starts the reply's draft with that text quoted (`> `), on Claude's
+  comments and its summary as `a` does, and on GitHub threads (instead of the whole comment).
+
 ## [0.81.0] - 2026-10-21
 
 ### Added
