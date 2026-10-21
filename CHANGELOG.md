@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.80.4] - 2026-10-21
+
+### Fixed
+- The contents list with no files says so on its heading: "no files yet" on a draft, else
+  "no changes" (an empty commit, a reverted PR), as the code view does; and with nothing in
+  it to go to, it doesn't take the cursor.
+
 ## [0.80.3] - 2026-10-21
 
 ### Fixed
