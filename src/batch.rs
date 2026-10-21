@@ -175,10 +175,11 @@ fn run(n: u64, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sender<
     // rebased): all of it is new.
     let task = &match task {
         Task::Update(old) => {
-            let head = crate::diff::git_in(&dir, &["rev-parse", "HEAD"]).unwrap_or_default();
-            if head.trim().starts_with(old.as_str()) {
+            let head = crate::diff::git_in(&dir, &["rev-parse", "HEAD"])?;
+            // (At it, or behind it: the review came from a checkout further on.)
+            if head.trim().starts_with(old.as_str()) || crate::diff::git_in(&dir, &["merge-base", "--is-ancestor", "HEAD", old]).is_ok() {
                 let why = if note.is_empty() { "it isn't at the PR's head" } else { note };
-                anyhow::bail!("not updating Claude's review: the checkout is still at the commit it reviewed ({why})");
+                anyhow::bail!("not updating Claude's review: the checkout isn't past the commit it reviewed ({why})");
             }
             match crate::diff::git_in(&dir, &["merge-base", "--is-ancestor", old, "HEAD"]) {
                 Ok(_) => task.clone(),

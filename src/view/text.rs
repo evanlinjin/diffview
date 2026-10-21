@@ -171,7 +171,7 @@ impl App {
                     when.push(crate::gh::ago(&self.claude.created));
                 }
                 if moved {
-                    when.push(format!("of {}, before the PR's latest", &old[..old.len().min(7)]));
+                    when.push(format!("of {}, before the PR's latest", old.get(..7).unwrap_or(old)));
                 }
                 let when = if when.is_empty() { String::new() } else { format!(" ({})", when.join(" · ")) };
                 let mut rows = vec![summary(mk(Kind::Thread, format!("claude's review{when}")))];
