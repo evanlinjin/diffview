@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.80.0] - 2026-10-21
+
+### Changed
+- What Claude's doing is a badge on the status bar, always shown (a narrow window keeps it),
+  not on the PR's title: a run, asking you, at work in its pane, redrafting a replacement
+  (that one didn't show anywhere before). What waits on it says so one way: "Claude's at work
+  here (the status bar says on what): … once it's done".
+
 ## [0.79.3] - 2026-10-21
 
 ### Fixed
