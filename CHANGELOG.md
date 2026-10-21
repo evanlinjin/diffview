@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.80.5] - 2026-10-21
+
+### Fixed
+- `Space v` no longer holds the UI till GitHub answers: the file folds (and the cursor moves
+  on) at once, and the mark's sent in the background. Its header says `saving…`, or
+  `retry in Ns` after a miss; dv retries with backoff (1s, 2s, 4s… about 2 minutes), then puts
+  the file back as it was. A mark that hasn't landed when dv closes is dropped.
+
 ## [0.80.4] - 2026-10-21
 
 ### Fixed
