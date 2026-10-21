@@ -347,12 +347,12 @@ pub fn prompt(r: &Record, extra: &str) -> String {
         // What it's to do is the user's request (in `dv replace-info` too); `extra`, if any, is
         // more, for carrying on.
         true => format!(
-            "Use the dv-review skill to draft a new PR doing what the user asks (its section 7: \"Draft a new PR\"). \
+            "Use the dv-review skill to draft a new PR doing what the user asks (its section 6: \"Draft a replacement or a new PR\"). \
              First run `dv replace-info`. (It's {now} now.){notes}\n\nThe user asks:\n{}",
             r.task
         ),
         false => format!(
-            "Use the dv-review skill to draft a replacement for PR {} (its section 6: \"Draft a replacement\"). \
+            "Use the dv-review skill to draft a replacement for PR {} (its section 6: \"Draft a replacement or a new PR\"). \
              First run `dv replace-info`. (It's {now} now.){notes}",
             prs.join(", ")
         ),
