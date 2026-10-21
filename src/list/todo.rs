@@ -354,8 +354,11 @@ impl List {
                     self.scan_unpushed(); // against the PRs' heads, now they're known
                 }
                 Err(e) => {
-                    // (Not ranked on what didn't come: the error stays said.)
-                    self.msg = format!("what needs you: {e:#}");
+                    // (Not ranked on what didn't come: the error stays said. Nothing for you to
+                    // do but wait or try again: what it kept stands meanwhile.)
+                    let why = format!("{e:#}");
+                    let why = why.rsplit(": ").next().unwrap_or(&why);
+                    self.msg = format!("GitHub didn't answer for the todo's details ({why}): it's as it was; dv tries again, R now");
                     self.want_rank = None;
                 }
             }
