@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.78.0] - 2026-10-21
+
+### Added
+- dv's cursor shows only while its window (or zellij pane) has focus: in a PR's view, its
+  pickers, and an issue's view.
+
 ## [0.77.9] - 2026-10-21
 
 ### Fixed
