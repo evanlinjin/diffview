@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.80.9] - 2026-10-21
+
+### Changed
+- The dv-review skill puts regressions first, and a breaking change lower, as a trade against
+  upkeep that the repo's notes weigh: flagged when a non-breaking way is about as simple, or
+  the break would be a real nuisance.
+
 ## [0.80.8] - 2026-10-21
 
 ### Changed
