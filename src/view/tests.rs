@@ -3398,3 +3398,11 @@ fn no_cursor_while_unfocused() {
     app.unfocused = true;
     assert_eq!(app.cursor_style(), Style::new());
 }
+
+#[test]
+fn the_contents_with_no_files_yet() {
+    // A draft not drafted (no files): the contents still shows, saying so.
+    let mut app = App::with("base".into(), diff::parse(""));
+    let s = screen(200, 20, |f| app.draw(f));
+    assert!(s.contains("CONTENTS · 0 files") && s.contains("(no files yet)"), "{s}");
+}

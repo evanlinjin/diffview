@@ -89,7 +89,8 @@ impl App {
 
     /// The list's width (its divider included), or 0 when it's hidden.
     pub(super) fn files_width(&self, full: usize) -> usize {
-        let shown = self.files_pref.unwrap_or(full >= FILES_AUTO) && full >= 100 && !self.files.is_empty();
+        // (No files yet, a draft not drafted: shown all the same, its sections and that.)
+        let shown = self.files_pref.unwrap_or(full >= FILES_AUTO) && full >= 100;
         if !shown {
             return 0;
         }
@@ -230,6 +231,9 @@ impl App {
                 }
             };
             rows.push((line, if e.spot == Spot::Folder { Hit::Nothing } else { Hit::Spot(e.spot) }));
+        }
+        if self.files.is_empty() {
+            rows.push((Line::from(Span::styled(format!(" {:<width$}", "(no files yet)", width = w - 1), dim)), Hit::Nothing));
         }
         if !self.commits.is_empty() {
             rows.push((Line::default(), Hit::Nothing));
