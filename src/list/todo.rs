@@ -273,7 +273,7 @@ impl List {
         // Ranked again once something's new or changed, at most every quarter hour (a run each,
         // tried or not: a failing one isn't run over and over).
         if !self.want_rank && self.todos.auto_rank_due() {
-            self.rank_now();
+            self.rank_now(false);
         }
         if !said.is_empty() {
             self.msg = format!("auto: {}", said.join("; "));
@@ -313,13 +313,18 @@ impl List {
 
     /// Have Claude rank what needs you (`r r`: a Claude run, so only when you ask), once what's
     /// needed is in (GitHub's part).
-    pub(super) fn rank_now(&mut self) {
+    pub(super) fn rank_now(&mut self, asked: bool) {
+        // (Not reading every review for it, if it can't; said only if you asked.)
+        if let Err(why) = self.todos.can_rank() {
+            self.want_rank = false;
+            return if asked { self.msg = why.into() };
+        }
         if self.extra_rx.is_some() || self.checks.is_some() {
             self.msg = "Claude ranks what needs you once GitHub's part is in…".into();
             return self.want_rank = true;
         }
         self.want_rank = false;
-        let lines: Vec<String> = self
+        let items: Vec<(Item, String)> = self
             .todo_shown()
             .into_iter()
             .filter(|(_, it)| it.deferred.is_none()) // not ranked while deferred
@@ -328,10 +333,10 @@ impl List {
                     true => self.rep_of.get(&it.number).map(|r| r.body.clone()).unwrap_or_default(),
                     false => self.reviews_dir.as_ref().and_then(|d| crate::claude::load(&d.join(format!("pr-{}.json", it.number))).ok().flatten()).map(|r| r.summary).unwrap_or_default(),
                 };
-                todo::about(it, card, &summary)
+                (it.clone(), todo::about(it, card, &summary))
             })
             .collect();
-        self.msg = match self.todos.rank(lines, &self.root, todo::Of::Prs) {
+        self.msg = match self.todos.rank(items, &self.root, todo::Of::Prs) {
             Ok(()) => format!("Claude is ranking the {} PR(s) that need you…", self.todos.to_rank()),
             Err(why) => why.into(),
         };
@@ -351,7 +356,7 @@ impl List {
             self.find_todo();
         }
         if self.want_rank {
-            self.rank_now();
+            self.rank_now(true);
         }
         let Some(res) = self.todos.rank_news() else { return };
         match res {

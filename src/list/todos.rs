@@ -219,26 +219,23 @@ impl Todos {
 
     /// Whether Claude can rank them now: not while it is, nor with nothing to rank (why not).
     pub(super) fn can_rank(&self) -> Result<(), &'static str> {
-        match (self.rank_rx.is_some(), self.to_rank()) {
-            (true, _) => Err("Claude is ranking already"),
-            (_, 0) => Err("nothing on the todo tab to rank (what's there is deferred)"),
+        match (self.rank_rx.is_some(), self.to_rank(), self.items.is_empty()) {
+            (true, ..) => Err("Claude is ranking already"),
+            (_, 0, true) => Err("nothing on the todo tab to rank"),
+            (_, 0, false) => Err("nothing on the todo tab to rank (what's there is deferred)"),
             _ => Ok(()),
         }
     }
 
-    /// Claude ranks `lines` (what needs you, but what's deferred: `to_rank`), in the background,
-    /// if it can (`can_rank`).
-    pub(super) fn rank(&mut self, lines: Vec<String>, root: &std::path::Path, of: Of) -> Result<(), &'static str> {
+    /// Claude ranks `items`, each with what it's told of it (what needs you, but what's
+    /// deferred), in the background, if it can (`can_rank`). The ranking is of those, as they
+    /// are (its fingerprint): one left out (deferred, say) is new to it when it's back.
+    pub(super) fn rank(&mut self, items: Vec<(Item, String)>, root: &std::path::Path, of: Of) -> Result<(), &'static str> {
         self.can_rank()?;
-        self.rank_rx = Some(todo::rank_of(lines, self.fingerprint(), root.to_path_buf(), of));
+        let fingerprint = todo::fingerprint(items.iter().map(|i| &i.0));
+        let lines = items.into_iter().map(|i| i.1).collect();
+        self.rank_rx = Some(todo::rank_of(lines, fingerprint, root.to_path_buf(), of));
         Ok(())
-    }
-
-    /// What a ranking is of: the items it ranks (not deferred), as they are. One deferred then
-    /// is new to it when it's back (`since_of`).
-    fn fingerprint(&self) -> String {
-        let ranked: Vec<Item> = self.items.iter().filter(|it| it.deferred.is_none()).cloned().collect();
-        todo::fingerprint(&ranked)
     }
 
     /// A ranking, once it's in (kept: `ranked`): what it cost.
@@ -258,7 +255,7 @@ impl Todos {
     pub(super) fn auto_rank_due(&mut self) -> bool {
         let due = self.auto_ranked.is_none_or(|t| t.elapsed() > std::time::Duration::from_secs(15 * 60));
         let changed = self.ranked.is_none() || self.since.new + self.since.changed > 0;
-        let due = due && changed && self.rank_rx.is_none() && self.to_rank() > 0;
+        let due = due && changed && self.can_rank().is_ok();
         if due {
             self.auto_ranked = Some(std::time::Instant::now());
         }
@@ -305,12 +302,13 @@ fn deferring_an_item() {
     // All deferred: nothing to rank (r says why; no run).
     let all_deferred = Todos { items: vec![deferred.clone()], ..Default::default() };
     assert!(all_deferred.rank_offer("issue(s)").is_err() && all_deferred.can_rank().is_err());
+    assert_eq!(Todos::default().can_rank(), Err("nothing on the todo tab to rank")); // (none deferred: none at all)
     // Never ranked, something not deferred: auto ranks now, then not for a quarter hour.
     assert!(t.auto_rank_due() && !t.auto_rank_due());
     // Ranked with #8 deferred: nothing's new or changed while it is; back, it's new (not ranked).
     let eight = Item { number: 8, ..t.items[0].clone() };
     t.items.push(Item { deferred: Some(todo::Deferral { until: i64::MAX, needs: String::new(), cond: None, at: 0 }), ..eight.clone() });
-    let ranked = Ranked { at: 1, cost: 0.0, fingerprint: t.fingerprint(), items: vec![], waits: Default::default(), closes: Default::default() };
+    let ranked = Ranked { at: 1, cost: 0.0, fingerprint: todo::fingerprint(t.items.iter().filter(|it| it.deferred.is_none())), items: vec![], waits: Default::default(), closes: Default::default() };
     let since = |items: &[Item]| todo::since_of(items, Some(&ranked));
     assert_eq!((since(&t.items).new, since(&t.items).changed), (0, 0));
     assert_eq!(since(&[t.items[0].clone(), eight]).new, 1);

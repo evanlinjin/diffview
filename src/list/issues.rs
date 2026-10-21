@@ -452,7 +452,7 @@ impl Issues {
             }
         }
         if !busy && !started && self.todos.auto_rank_due() {
-            self.rank();
+            self.rank(false);
         }
     }
 
@@ -752,7 +752,7 @@ impl Issues {
                 self.marked.clear();
             }
             (Some('a'), KeyCode::Char('a')) => self.triage_marked(term),
-            (Some('r'), KeyCode::Char('r')) => self.rank(),
+            (Some('r'), KeyCode::Char('r')) => self.rank(true),
             (_, KeyCode::Char('s')) if self.nav.tab == ITab::Todo => self.defer_key(),
             (_, KeyCode::Char('r')) if self.nav.tab == ITab::Todo => match self.todos.rank_offer("issue(s)") {
                 Ok(offer) => (self.pending, self.msg) = (Some('r'), offer),
@@ -1190,15 +1190,19 @@ impl Issues {
     }
 
     /// `r r`: Claude ranks the todo tab (one run, in the background).
-    fn rank(&mut self) {
-        let lines: Vec<String> = self
+    fn rank(&mut self, asked: bool) {
+        // (Said only if you asked.)
+        if let Err(why) = self.todos.can_rank() {
+            return if asked { self.msg = why.into() };
+        }
+        let items: Vec<(crate::todo::Item, String)> = self
             .todos
             .items
             .iter()
             .filter(|it| it.deferred.is_none())
-            .filter_map(|it| Some(about_issue(it, self.items.iter().find(|i| i.number == it.number)?, self.triage.get(&it.number))))
+            .filter_map(|it| Some((it.clone(), about_issue(it, self.items.iter().find(|i| i.number == it.number)?, self.triage.get(&it.number)))))
             .collect();
-        self.msg = match self.todos.rank(lines, &self.root, crate::todo::Of::Issues) {
+        self.msg = match self.todos.rank(items, &self.root, crate::todo::Of::Issues) {
             Ok(()) => "Claude is ranking what needs you…".into(),
             Err(why) => why.into(),
         };

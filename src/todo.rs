@@ -379,9 +379,9 @@ pub struct Ranked {
 }
 
 /// What a ranking was of: each item and its needs. When today's differs, the ranking is stale.
-pub fn fingerprint(items: &[Item]) -> String {
+pub fn fingerprint<'a>(items: impl IntoIterator<Item = &'a Item>) -> String {
     // (By weight, as `order` compares: a need for another of the same weight, no new ranking.)
-    let mut keys: Vec<String> = items.iter().map(|i| format!("{}:{}", i.key(), i.needs_key())).collect();
+    let mut keys: Vec<String> = items.into_iter().map(|i| format!("{}:{}", i.key(), i.needs_key())).collect();
     keys.sort();
     keys.join(";")
 }

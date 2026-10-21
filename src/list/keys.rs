@@ -129,7 +129,7 @@ impl List {
                     Err(why) => return (self.msg = why.into(), None).1,
                 };
                 if self.again(armed, ('r', 0), offer) {
-                    self.rank_now();
+                    self.rank_now(true);
                     return None;
                 }
             }
