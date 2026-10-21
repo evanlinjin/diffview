@@ -54,18 +54,10 @@ impl List {
         let n = self.shown().len();
         self.msg.clear();
         let armed = self.confirm.take();
-        if std::mem::take(&mut self.help) {
+        if std::mem::take(&mut self.nav.help) {
             return None; // any key closes the help
         }
-        if self.filtering {
-            match k.code {
-                KeyCode::Esc => (self.query.clear(), self.filtering = false).1,
-                KeyCode::Enter => self.filtering = false,
-                KeyCode::Backspace => _ = self.query.pop(),
-                KeyCode::Char(c) => self.query.push(c),
-                _ => {}
-            }
-            self.sel = 0;
+        if self.nav.filter_key(k) {
             return None;
         }
         let half = (self.height() / 2).max(1);
@@ -84,25 +76,17 @@ impl List {
             }
             return None;
         }
-        // `l` / `h` (or `gn` / `gp`, as in dv): the next / previous tab (before `p` and such on
-        // a tab).
-        let step = match (g, k.code) {
-            (true, KeyCode::Char('n')) | (false, KeyCode::Char('l')) => Some(true),
-            (true, KeyCode::Char('p')) | (false, KeyCode::Char('h')) => Some(false),
-            _ => None,
-        };
-        if let Some(next) = step {
-            let tab = if next { self.tab.next() } else { self.tab.prev() };
-            (self.tab, self.sel, self.top) = (tab, 0, 0);
+        // Moving about, the tabs (`gp` before `p` on a tab), the filter, the help.
+        if self.nav.key(k, g, n, half) {
             return None;
         }
         match k.code {
             // A filter that's just a number opens that PR, listed or not (older, or closed).
             KeyCode::Enter => {
-                let typed = self.query.trim().trim_start_matches('#').parse().ok();
-                return self.shown().get(self.sel).map(|p| p.number).or(typed).map(Do::Open);
+                let typed = self.nav.query.trim().trim_start_matches('#').parse().ok();
+                return self.shown().get(self.nav.sel).map(|p| p.number).or(typed).map(Do::Open);
             }
-            KeyCode::Esc if !self.query.is_empty() => (self.query.clear(), self.sel = 0).1,
+            KeyCode::Esc if !self.nav.query.is_empty() => (self.nav.query.clear(), self.nav.sel = 0).1,
             // Claude at work here (`busy`): it'd stop with dv. q asks first; Esc only says so (a
             // second Esc calls things off, it doesn't quit).
             KeyCode::Char('q') | KeyCode::Esc if !self.busy() => return Some(Do::Quit),
@@ -113,25 +97,25 @@ impl List {
                 }
             }
             KeyCode::Char('R') => return Some(Do::Refresh),
-            KeyCode::Char('D') if self.tab == Tab::Replacements => {
-                let id = self.shown().get(self.sel).map(|p| p.number)?;
+            KeyCode::Char('D') if self.nav.tab == Tab::Replacements => {
+                let id = self.shown().get(self.nav.sel).map(|p| p.number)?;
                 if self.again(armed, ('D', id), format!("D again removes {} (its worktree and record; its branch stays); any other key keeps it", crate::replace::label(id))) {
                     return Some(Do::RemoveReplacement(id));
                 }
             }
-            KeyCode::Char('m' | 'a' | 'A') if self.tab == Tab::Replacements => {
+            KeyCode::Char('m' | 'a' | 'A') if self.nav.tab == Tab::Replacements => {
                 self.msg = "a draft: Enter opens it in dv, D D removes it (N N drafts a new PR)".into();
             }
-            KeyCode::Char('H') if self.tab == Tab::Stalled => return Some(Do::Nudge(self.shown().get(self.sel)?.number)),
-            KeyCode::Char('D') if self.tab == Tab::Worktrees => {
-                let p = self.shown().get(self.sel).map(|p| p.number)?;
+            KeyCode::Char('H') if self.nav.tab == Tab::Stalled => return Some(Do::Nudge(self.shown().get(self.nav.sel)?.number)),
+            KeyCode::Char('D') if self.nav.tab == Tab::Worktrees => {
+                let p = self.shown().get(self.nav.sel).map(|p| p.number)?;
                 let (dir, _) = self.local.get(&p)?;
                 if self.again(armed, ('D', p), format!("D again removes {} (its branch stays); any other key keeps it", dir.display())) {
                     return Some(Do::Remove(p));
                 }
             }
-            KeyCode::Char('s') if self.tab == Tab::Todo => self.defer_key(),
-            KeyCode::Char('p') if self.tab == Tab::Todo => {
+            KeyCode::Char('s') if self.nav.tab == Tab::Todo => self.defer_key(),
+            KeyCode::Char('p') if self.nav.tab == Tab::Todo => {
                 let it = self.selected_item()?;
                 let rep = it.is_rep();
                 match it.deferred.and_then(|d| d.cond).filter(|_| !rep) {
@@ -139,7 +123,7 @@ impl List {
                     None => self.msg = "p posts what an item is deferred until (s then u) on its PR: this one isn't".into(),
                 }
             }
-            KeyCode::Char('r') if self.tab == Tab::Todo => {
+            KeyCode::Char('r') if self.nav.tab == Tab::Todo => {
                 if self.rank_rx.is_some() {
                     return (self.msg = "Claude is ranking already".into(), None).1;
                 }
@@ -192,7 +176,7 @@ impl List {
                 }
             }
             KeyCode::Char('m') => {
-                let state = self.shown().get(self.sel).map(|p| p.state.clone())?;
+                let state = self.shown().get(self.nav.sel).map(|p| p.state.clone())?;
                 let p = self.selected_pr()?;
                 if !matches!(state.as_str(), "OPEN" | "") && !self.marked.contains(&p) {
                     return (self.msg = format!("#{p} isn't open: nothing to mark it for"), None).1;
@@ -200,7 +184,7 @@ impl List {
                 if !self.marked.remove(&p) {
                     self.marked.insert(p);
                 }
-                self.sel = (self.sel + 1).min(n.saturating_sub(1)); // on to the next, to mark a run
+                self.nav.sel = (self.nav.sel + 1).min(n.saturating_sub(1)); // on to the next, to mark a run
                 self.msg = format!("{} marked: a asks Claude to review them", self.marked.len());
             }
             // Auto on / off: Claude runs, drafts marked ready, rankings, without you.
@@ -234,7 +218,7 @@ impl List {
                 if prs.is_empty() {
                     return None;
                 }
-                let which = match self.tab {
+                let which = match self.nav.tab {
                     Tab::Todo => prs.iter().map(|&n| format!("{} #{n}", self.todo_task(n).doing())).collect::<Vec<_>>().join(", "),
                     _ => format!("reviews {}", prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(" ")),
                 };
@@ -262,16 +246,8 @@ impl List {
                     return Some(Do::Replace(prs));
                 }
             }
-            KeyCode::Char('?') => self.help = true,
-            KeyCode::Char('/') => self.filtering = true, // edits the current filter
             KeyCode::Char('o') => self.sort(self.order.next(), self.rev),
             KeyCode::Char('O') => self.sort(self.order, !self.rev),
-            KeyCode::Char('d') if ctrl => self.sel = (self.sel + half).min(n.saturating_sub(1)),
-            KeyCode::Char('u') if ctrl => self.sel = self.sel.saturating_sub(half),
-            KeyCode::Char('j') | KeyCode::Down => self.sel = (self.sel + 1).min(n.saturating_sub(1)),
-            KeyCode::Char('k') | KeyCode::Up => self.sel = self.sel.saturating_sub(1),
-            KeyCode::Char('g') if g => self.sel = 0,
-            KeyCode::Char('e') if g => self.sel = n.saturating_sub(1),
             KeyCode::Char('g') => self.pending_g = true,
             _ => {}
         }
@@ -284,26 +260,9 @@ impl List {
         use event::{MouseButton, MouseEventKind};
         let n = self.shown().len();
         match m.kind {
-            MouseEventKind::ScrollDown => self.sel = (self.sel + 1).min(n.saturating_sub(1)),
-            MouseEventKind::ScrollUp => self.sel = self.sel.saturating_sub(1),
-            MouseEventKind::Down(MouseButton::Left) if !self.help && m.row == 0 => {
-                if let Some(&(_, tab)) = self.tab_hits.iter().find(|(x, _)| x.contains(&m.column)) {
-                    (self.tab, self.sel, self.top) = (tab, 0, 0);
-                }
-            }
-            MouseEventKind::Down(MouseButton::Left) if !self.help => {
-                let i = self.top + (m.row as usize - 1) / self.card_rows(); // cards start under the header
-                if i >= n {
-                    return false;
-                }
-                let double = self.last_click.is_some_and(|(at, j)| j == i && at.elapsed() < Duration::from_millis(400));
-                self.last_click = Some((std::time::Instant::now(), i));
-                self.sel = i;
-                if double {
-                    self.last_click = None;
-                    return true;
-                }
-            }
+            MouseEventKind::ScrollDown => self.nav.sel = (self.nav.sel + 1).min(n.saturating_sub(1)),
+            MouseEventKind::ScrollUp => self.nav.sel = self.nav.sel.saturating_sub(1),
+            MouseEventKind::Down(MouseButton::Left) if !self.nav.help => return self.nav.click(m.column, m.row, n, self.card_rows(), self.height()),
             _ => {}
         }
         false

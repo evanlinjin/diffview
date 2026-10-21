@@ -16,7 +16,7 @@ impl List {
     /// the todo and can close tabs, one more under the title (what needs you, why to close it).
     pub(super) fn card_rows(&self) -> usize {
         let lines = if self.wide { 3 } else { 4 };
-        let more = match self.tab {
+        let more = match self.nav.tab {
             // A line under its title, or (as many rows) beside the card (`msg_column`).
             Tab::Todo | Tab::CanClose | Tab::Stalled => 1,
             _ => 0,
@@ -30,9 +30,9 @@ impl List {
         let msg_col = msg_column(area.width as usize);
         let rows = self.card_rows();
         let h = area.height.saturating_sub(2) as usize / rows;
-        let sel = self.sel.min(self.shown().len().saturating_sub(1));
         // Keep the selection on screen.
-        (self.sel, self.top) = (sel, self.top.min(sel).max((sel + 1).saturating_sub(h)));
+        self.nav.keep(self.shown().len(), h);
+        let sel = self.nav.sel;
         let (ui, shown) = (&self.ui, self.shown());
         f.render_widget(Paragraph::new("").style(ui.base), area);
 
@@ -46,7 +46,7 @@ impl List {
             (Tab::Worktrees, format!("worktrees {}", self.local.len())),
             (Tab::Replacements, format!("drafts {}", self.reps.len())),
         ];
-        let tabs: Vec<(String, bool)> = names.iter().map(|(t, n)| (n.clone(), self.tab == *t)).collect();
+        let tabs: Vec<(String, bool)> = names.iter().map(|(t, n)| (n.clone(), self.nav.tab == *t)).collect();
         let hits = top_bar(f, ui, "PRs", &tabs, "I I the issues", sel, shown.len());
         let hits: Vec<_> = hits.into_iter().zip(names.iter().map(|n| n.0)).collect();
 
@@ -58,7 +58,7 @@ impl List {
             ui,
             num_w: shown.iter().map(|p| crate::replace::shown(p.number).chars().count()).max().unwrap_or(2),
             // (The todo tab's messages in a column of their own: the cards stop short of it.)
-            width: match msg_col.filter(|_| self.tab == Tab::Todo) {
+            width: match msg_col.filter(|_| self.nav.tab == Tab::Todo) {
                 Some(w) => w,
                 None => area.width as usize,
             },
@@ -68,11 +68,11 @@ impl List {
         let lines: Vec<Line> = shown
             .iter()
             .enumerate()
-            .skip(self.top)
+            .skip(self.nav.top)
             .take(h)
             .flat_map(|(i, p)| {
-                let item = (self.tab == Tab::Todo).then(|| self.todo_shown().into_iter().find(|(c, _)| std::ptr::eq(*c, *p)).map(|x| x.1)).flatten();
-                let rep_card = self.tab == Tab::Replacements || item.is_some_and(|it| it.is_rep());
+                let item = (self.nav.tab == Tab::Todo).then(|| self.todo_shown().into_iter().find(|(c, _)| std::ptr::eq(*c, *p)).map(|x| x.1)).flatten();
+                let rep_card = self.nav.tab == Tab::Replacements || item.is_some_and(|it| it.is_rep());
                 let says = item.map(todo_says);
                 let mark = match rep_card {
                     true => {
@@ -120,11 +120,11 @@ impl List {
                     (None, _) => {}
                 }
                 // What Claude would close it for, under the title.
-                if let Some(why) = self.closable.get(&p.number).filter(|_| self.tab == Tab::CanClose) {
+                if let Some(why) = self.closable.get(&p.number).filter(|_| self.nav.tab == Tab::CanClose) {
                     lines.insert(1, close_line(why, &cx, i == sel));
                 }
                 // How long its author hasn't answered, and whom.
-                if let Some((days, who, _)) = self.stalled(p).filter(|_| self.tab == Tab::Stalled) {
+                if let Some((days, who, _)) = self.stalled(p).filter(|_| self.nav.tab == Tab::Stalled) {
                     let why = format!("@{} hasn't answered @{who} for {days} days (H asks whether they need help)", p.author);
                     lines.insert(1, note_line("⏸", &why, &cx, i == sel));
                 }
@@ -132,8 +132,8 @@ impl List {
                 lines
             })
             .collect();
-        let typed = self.query.trim().trim_start_matches('#').parse::<u64>().ok();
-        let none = match (self.tab, self.query.is_empty(), typed) {
+        let typed = self.nav.query.trim().trim_start_matches('#').parse::<u64>().ok();
+        let none = match (self.nav.tab, self.nav.query.is_empty(), typed) {
             (Tab::CanClose, true, _) => " nothing Claude would close: its reviews say when a PR's premise is wrong, or a competing PR does it better".into(),
             (Tab::Stalled, true, _) => format!(" nothing stalled: no author has left a review or a maintainer's comment unanswered for {} days or more (git config dv.stalledDays)", self.stalled_days),
             (Tab::Worktrees, true, _) => " no PR worktrees here yet: `dv N -w` (or dv list -w, then Enter) makes one".into(),
@@ -146,16 +146,16 @@ impl List {
         }
         f.render_widget(Paragraph::new(lines), Rect { y: area.y + 1, height: (h * rows) as u16, ..area });
 
-        let left = match (self.filtering, self.query.is_empty(), self.msg.is_empty()) {
-            (true, _, _) => format!(" /{}▏  author: label: base: branch: is:draft review: ci:  -x negates", self.query),
+        let left = match (self.nav.filtering, self.nav.query.is_empty(), self.msg.is_empty()) {
+            (true, _, _) => format!(" /{}▏  author: label: base: branch: is:draft review: ci:  -x negates", self.nav.query),
             (_, _, false) => format!(" {}", self.msg),
-            (_, false, _) => format!(" filter: {}  (Esc clears)", self.query),
-            _ if self.tab == Tab::Todo && msg_col.is_some() => " ? keys".into(),
+            (_, false, _) => format!(" filter: {}  (Esc clears)", self.nav.query),
+            _ if self.nav.tab == Tab::Todo && msg_col.is_some() => " ? keys".into(),
             _ => String::new(), // the keys are in the bottom-right popup
         };
         // On the right, how it's ordered (on the todo tab, Claude's ranking: how old, what it
         // cost, what's changed since), and the flags PRs open with.
-        let order = match (self.tab, &self.rank_rx, &self.ranked) {
+        let order = match (self.nav.tab, &self.rank_rx, &self.ranked) {
             (Tab::Todo, Some(_), _) => "Claude is ranking…".to_owned(),
             (Tab::Todo, None, Some(r)) => format!("ranked {} ago, {}{}", ago_secs(crate::claude::now_secs() - r.at), todo::cost_text(r.cost), self.since_text()),
             (Tab::Todo, None, None) => "in the rules' order".to_owned(),
@@ -164,10 +164,10 @@ impl List {
         let flags = if self.flags.is_empty() { String::new() } else { format!("opens with {}", self.flags) };
         status_bar(f, ui, &left, &order, self.auto, &flags);
         // (Not over the todo tab's message column: `?` shows them, the status bar says.)
-        let column = self.tab == Tab::Todo && msg_col.is_some();
-        if !self.help && !self.filtering && !column {
+        let column = self.nav.tab == Tab::Todo && msg_col.is_some();
+        if !self.nav.help && !self.nav.filtering && !column {
             // The keys for this tab, bottom right, as dv's diff view shows them.
-            let enter = match self.tab {
+            let enter = match self.nav.tab {
                 Tab::Todo => "see to it (opens the PR or replacement)".to_owned(),
                 Tab::Worktrees => "review, in its worktree".to_owned(),
                 Tab::CanClose => "review (Space a there drafts a closing comment)".to_owned(),
@@ -176,7 +176,7 @@ impl List {
                 Tab::Open if self.flags.is_empty() => "review".to_owned(),
                 Tab::Open => format!("review (dv N {})", self.flags),
             };
-            let tab = match self.tab {
+            let tab = match self.nav.tab {
                 Tab::Todo => "open PRs",
                 Tab::Open => "what Claude would close",
                 Tab::CanClose => "stalled PRs",
@@ -184,7 +184,7 @@ impl List {
                 Tab::Worktrees => "replacements",
                 Tab::Replacements => "what needs you",
             };
-            let remove = if self.tab == Tab::Replacements { "remove replacement" } else { "remove worktree" };
+            let remove = if self.nav.tab == Tab::Replacements { "remove replacement" } else { "remove worktree" };
             let keys = [
                 ("Enter", enter.as_str()),
                 ("h l", tab),
@@ -195,7 +195,7 @@ impl List {
                 ("s", "defer it (or bring it back)"),
                 ("p", "post what it waits on (a comment)"),
                 ("m", "mark"),
-                ("a a", if self.tab == Tab::Todo { "Claude does its part (marked)" } else { "Claude reviews marked" }),
+                ("a a", if self.nav.tab == Tab::Todo { "Claude does its part (marked)" } else { "Claude reviews marked" }),
                 ("A A", "Claude drafts a replacement"),
                 ("M M", "merge (github-merge.py)"),
                 ("W W", "approve its workflow runs"),
@@ -207,26 +207,26 @@ impl List {
                 ("?", "all keys"),
                 ("q", "quit"),
             ];
-            let reps = self.tab == Tab::Replacements;
+            let reps = self.nav.tab == Tab::Replacements;
             let lines: Vec<(&str, &str)> = keys
                 .iter()
                 .filter(|(k, _)| match *k {
-                    "D D" => !matches!(self.tab, Tab::Open | Tab::Todo),
-                    "o O" => self.tab != Tab::Todo, // in the order of what needs you
-                    "r r" | "s" | "p" => self.tab == Tab::Todo,
+                    "D D" => !matches!(self.nav.tab, Tab::Open | Tab::Todo),
+                    "o O" => self.nav.tab != Tab::Todo, // in the order of what needs you
+                    "r r" | "s" | "p" => self.nav.tab == Tab::Todo,
                     "m" | "a a" | "A A" | "M M" | "b b" | "W W" | "U U" => !reps,
                     _ => true,
                 })
                 .map(|(k, d)| (*k, *d))
                 .collect();
             // (Off the selected card: the list's cursor.)
-            let card = Rect { y: 1 + (self.sel.saturating_sub(self.top) * rows) as u16, height: rows as u16, ..area };
+            let card = Rect { y: 1 + (self.nav.sel.saturating_sub(self.nav.top) * rows) as u16, height: rows as u16, ..area };
             draw_keys(f, ui, &lines, Some(card));
         }
-        if self.help {
+        if self.nav.help {
             draw_help(f, ui, HELP, "dv list keys");
         }
-        self.tab_hits = hits; // where the tabs are, for clicks
+        self.nav.tab_hits = hits; // where the tabs are, for clicks
     }
 }
 

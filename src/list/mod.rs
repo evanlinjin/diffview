@@ -26,7 +26,8 @@ mod draw;
 use draw::{draw_help, draw_keys, status_bar, top_bar};
 mod keys;
 mod marks;
-use {keys::*, marks::*};
+mod nav;
+use {keys::*, marks::*, nav::*};
 pub(crate) use github::{Extra, Listed};
 use crate::gh::ago_secs;
 #[cfg(test)]
@@ -45,21 +46,13 @@ type Extras = anyhow::Result<(String, HashMap<u64, Extra>)>;
 
 #[derive(Default)]
 pub struct List {
-    /// The tabs' columns on the header (for clicks), and the last click on a card (when, which:
-    /// a second soon after on the same one opens it).
-    tab_hits: Vec<(std::ops::Range<u16>, Tab)>,
-    last_click: Option<(std::time::Instant, usize)>,
+    /// The card selected, the filter, the tab (`nav.rs`).
+    nav: Nav<Tab>,
     prs: Vec<Listed>,
     ui: Ui,
     /// Flags each PR opens with, for the status bar (e.g. "-wb").
     flags: String,
-    sel: usize,
-    top: usize,
-    query: String,
-    /// Typing a `/` filter (Enter keeps it, Esc clears it).
-    filtering: bool,
     pending_g: bool,
-    help: bool,
     order: Order,
     /// Oldest / smallest / lowest first instead.
     rev: bool,
@@ -69,8 +62,6 @@ pub struct List {
     fresh: Option<(mpsc::Sender<Fetched>, Receiver<Fetched>)>,
     /// PR worktrees: number → (dir, branch or `None` when detached).
     local: HashMap<u64, (PathBuf, Option<String>)>,
-    /// The tab showing.
-    tab: Tab,
     /// Replacements (`replace.rs`), as cards (`number`: the replacement's), and their records.
     reps: Vec<Listed>,
     rep_of: HashMap<u64, crate::replace::Record>,
@@ -317,7 +308,7 @@ impl List {
                 Some(Do::Quit) => return Ok(None),
                 Some(Do::Open(n)) => {
                     let replacement = self.selected().is_some_and(|(m, rep)| m == n && rep);
-                    let worktree = (self.tab == Tab::Worktrees).then(|| self.local.get(&n).is_some_and(|w| w.1.is_some()));
+                    let worktree = (self.nav.tab == Tab::Worktrees).then(|| self.local.get(&n).is_some_and(|w| w.1.is_some()));
                     // Used once: after the review it may have moved on (a push), so it's looked up again.
                     let pr = self.pr_cache.lock().ok().and_then(|mut c| c.remove(&n)).filter(|(t, _)| t.elapsed().as_secs() < 120).map(|(_, p)| p);
                     return Ok(Some(Pick { number: n, worktree, replacement, merge: false, issues: false, pr }));
@@ -336,7 +327,7 @@ impl List {
                     let what = format!("instructions for Claude's reviews of {which} (optional)");
                     let Some(extra) = self.instructions(term, "review", &what) else { continue };
                     // From the todo tab, what's due on each (answers, an update, a review).
-                    let prs: Vec<(u64, batch::Task)> = prs.into_iter().map(|n| (n, if self.tab == Tab::Todo { self.todo_task(n) } else { batch::Task::Review })).collect();
+                    let prs: Vec<(u64, batch::Task)> = prs.into_iter().map(|n| (n, if self.nav.tab == Tab::Todo { self.todo_task(n) } else { batch::Task::Review })).collect();
                     let with = if extra.is_empty() { "" } else { ", with your instructions" };
                     self.msg = format!("Claude is {}{with}, {} at a time", self.start_batch(prs, extra), batch::AT_ONCE);
                     self.marked.clear();
@@ -370,7 +361,7 @@ impl List {
                 Some(Do::RemoveReplacement(id)) => {
                     self.msg = crate::replace::remove(id, &self.root).unwrap_or_else(|e| format!("{e:#}"));
                     self.load_reps();
-                    self.sel = self.sel.min(self.shown().len().saturating_sub(1));
+                    self.nav.sel = self.nav.sel.min(self.shown().len().saturating_sub(1));
                 }
                 Some(Do::Remove(n)) => {
                     self.msg = match crate::remove_worktree(n, false) {
@@ -378,7 +369,7 @@ impl List {
                             self.local.remove(&n);
                             // Listed only for its worktree (closed, merged): gone with it.
                             self.prs.retain(|p| p.number != n || p.open());
-                            self.sel = self.sel.min(self.shown().len().saturating_sub(1));
+                            self.nav.sel = self.nav.sel.min(self.shown().len().saturating_sub(1));
                             m
                         }
                         Err(e) => format!("{e:#}"),
@@ -433,7 +424,7 @@ impl List {
     fn new_pr(&mut self, term: &mut DefaultTerminal) {
         let what = "a new PR for Claude to draft: what it should do (issues by #N: Claude reads them); unpublished until you publish it";
         // On a todo item whose CI fails through no fault of its own: the fix Claude had in mind.
-        let n = self.shown().get(self.sel).map(|p| p.number).filter(|_| self.tab == Tab::Todo);
+        let n = self.shown().get(self.nav.sel).map(|p| p.number).filter(|_| self.nav.tab == Tab::Todo);
         let head = |n: u64| self.extra.get(&n).map(|e| e.head_oid.clone());
         let note = n.and_then(|n| Some((n, crate::claude::ci_note(n, &head(n)?)?))).filter(|(_, c)| !c.task.is_empty());
         let prefill = note.as_ref().map_or(String::new(), |(n, c)| c.prefill(*n));
@@ -644,7 +635,7 @@ impl List {
 
     /// The selected card's number, and whether it's a replacement's draft.
     fn selected(&self) -> Option<(u64, bool)> {
-        self.card_key(self.sel)
+        self.card_key(self.nav.sel)
     }
 
     /// Card `i`'s (as shown): its number, and whether it's a replacement's draft.
@@ -653,7 +644,7 @@ impl List {
     }
 
     fn key_of(&self, (card, it): &(&Listed, Option<&crate::todo::Item>)) -> (u64, bool) {
-        (card.number, self.tab == Tab::Replacements || it.is_some_and(|it| it.is_rep()))
+        (card.number, self.nav.tab == Tab::Replacements || it.is_some_and(|it| it.is_rep()))
     }
 
     /// `f`, the cursor kept on the card it was on, wherever it is after (as the event loop does
@@ -668,13 +659,13 @@ impl List {
     pub(super) fn select_card(&mut self, k: Option<(u64, bool)>) {
         let Some(k) = k else { return };
         if let Some(i) = self.shown_cards().iter().position(|c| self.key_of(c) == k) {
-            self.sel = i;
+            self.nav.sel = i;
         }
     }
 
     /// The selected todo item (the todo tab's, as shown: filtered).
     pub(super) fn selected_item(&self) -> Option<crate::todo::Item> {
-        self.shown_cards().get(self.sel).and_then(|(_, it)| it.cloned())
+        self.shown_cards().get(self.nav.sel).and_then(|(_, it)| it.cloned())
     }
 
     /// The selected card's PR, for what's done to a PR on GitHub (not a draft replacement's:
@@ -728,19 +719,19 @@ impl List {
     /// The cards shown, each with its todo item on the todo tab (which says whether it's a
     /// replacement's draft, whose number is the PR it replaces': not that PR, for what's done).
     fn shown_cards(&self) -> Vec<(&Listed, Option<&crate::todo::Item>)> {
-        let in_tab = |p: &&Listed| match self.tab {
+        let in_tab = |p: &&Listed| match self.nav.tab {
             Tab::Worktrees => self.local.contains_key(&p.number),
             Tab::CanClose => p.open() && self.closable.contains_key(&p.number),
             Tab::Stalled => p.open() && self.stalled(p).is_some(),
             _ => p.open(),
         };
-        let all: Vec<(&Listed, Option<&crate::todo::Item>)> = match self.tab {
+        let all: Vec<(&Listed, Option<&crate::todo::Item>)> = match self.nav.tab {
             Tab::Replacements => self.reps.iter().map(|r| (r, None)).collect(),
             Tab::Todo => self.todo_shown().into_iter().map(|(card, it)| (card, Some(it))).collect(),
             _ => self.prs.iter().filter(in_tab).map(|p| (p, None)).collect(),
         };
-        let mut prs: Vec<(&Listed, Option<&crate::todo::Item>)> = all.into_iter().filter(|p| self.query.split_whitespace().all(|t| term(p.0, t))).collect();
-        if self.tab == Tab::Todo {
+        let mut prs: Vec<(&Listed, Option<&crate::todo::Item>)> = all.into_iter().filter(|p| self.nav.query.split_whitespace().all(|t| term(p.0, t))).collect();
+        if self.nav.tab == Tab::Todo {
             return prs; // in the order of what needs you most
         }
         prs.sort_by(|(a, _), (b, _)| {
@@ -805,7 +796,7 @@ enum Tab {
     Replacements,
 }
 
-impl Tab {
+impl Tabs for Tab {
     fn next(self) -> Tab {
         match self {
             Tab::Todo => Tab::Open,

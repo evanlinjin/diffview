@@ -21,7 +21,7 @@ fn filter_and_keys() {
     l.prs[2].checks = Some((3, 1, 0));
     let k = |l: &mut List, c| l.key(KeyEvent::new(c, KeyModifiers::NONE));
     let shown = |l: &List| l.shown().iter().map(|p| p.number).collect::<Vec<_>>();
-    let filter = |l: &mut List, q: &str| (l.query = q.into(), shown(l)).1;
+    let filter = |l: &mut List, q: &str| (l.nav.query = q.into(), shown(l)).1;
     assert_eq!(shown(&l), [1, 333, 22]); // newest first
     assert!(matches!(l.order, Order::Created)); // by default
     l.order = Order::Updated; // what the rest goes on from (`o` steps from it)
@@ -33,7 +33,7 @@ fn filter_and_keys() {
     assert_eq!(filter(&mut l, "ci:fail"), [333]);
     assert_eq!(filter(&mut l, "ci:none -author:an"), [22]);
     assert_eq!(filter(&mut l, "docs"), [22]); // labels count as text too
-    l.query.clear();
+    l.nav.query.clear();
     // `/` types a filter; Enter keeps it, Esc (out of filter mode) clears it.
     k(&mut l, KeyCode::Char('/'));
     "fix".chars().for_each(|c| _ = k(&mut l, KeyCode::Char(c)));
@@ -45,7 +45,7 @@ fn filter_and_keys() {
     assert_eq!(shown(&l), [1, 333, 22]);
     assert_eq!(filter(&mut l, "#4567"), [] as [u64; 0]); // not listed (older, or closed): Enter opens it anyway
     assert!(matches!(k(&mut l, KeyCode::Enter), Some(Do::Open(4567))));
-    l.query.clear();
+    l.nav.query.clear();
     // Ordering keeps the selected PR selected.
     k(&mut l, KeyCode::Char('j')); // on 333
     k(&mut l, KeyCode::Char('o')); // created: all equal, so stable
@@ -53,11 +53,11 @@ fn filter_and_keys() {
     assert_eq!(shown(&l), [333, 22, 1]);
     k(&mut l, KeyCode::Char('O'));
     assert_eq!(shown(&l), [1, 22, 333]);
-    assert_eq!(l.shown()[l.sel].number, 333);
+    assert_eq!(l.shown()[l.nav.sel].number, 333);
     // `?` shows the help; the next key only closes it.
     k(&mut l, KeyCode::Char('?'));
-    assert!(l.help);
-    assert!(k(&mut l, KeyCode::Char('q')).is_none() && !l.help);
+    assert!(l.nav.help);
+    assert!(k(&mut l, KeyCode::Char('q')).is_none() && !l.nav.help);
     // Esc after a key waiting for its second calls it off, it doesn't quit.
     k(&mut l, KeyCode::Char('g'));
     assert!(k(&mut l, KeyCode::Esc).is_none());
@@ -143,7 +143,7 @@ fn filter_and_keys() {
     k(&mut l, KeyCode::Char('n'));
     k(&mut l, KeyCode::Char('g'));
     k(&mut l, KeyCode::Char('n'));
-    assert_eq!(l.tab, Tab::Replacements);
+    assert_eq!(l.nav.tab, Tab::Replacements);
     assert_eq!(shown(&l), [1]);
     assert!(k(&mut l, KeyCode::Char('a')).is_none() && l.msg.starts_with("a draft: Enter opens it"));
     assert!(k(&mut l, KeyCode::Char('D')).is_none());
@@ -231,9 +231,9 @@ fn screens() {
     let k = |l: &mut List, c| l.key(KeyEvent::new(c, KeyModifiers::NONE));
     k(&mut l, KeyCode::Char('j'));
     snapshot("list", &screen(100, 12, |f| l.draw(f)));
-    l.query = "fix".into();
+    l.nav.query = "fix".into();
     snapshot("list_filtered", &screen(100, 12, |f| l.draw(f)));
-    l.query.clear();
+    l.nav.query.clear();
     k(&mut l, KeyCode::Char('?'));
     snapshot("list_help", &screen(100, 60, |f| l.draw(f)));
     snapshot("list_help_wide", &screen(200, 30, |f| l.draw(f))); // two columns
@@ -297,7 +297,7 @@ fn todo_tab() {
     // #2: Claude would close it; the "can close" tab (after open) has it, and why.
     std::fs::write(dir.join("reviews/pr-2.json"), r##"{"head": "h", "summary": "no", "close": "#1 does this better"}"##).unwrap();
     l.find_todo();
-    l.tab = Tab::CanClose;
+    l.nav.tab = Tab::CanClose;
     assert_eq!(l.shown().iter().map(|p| p.number).collect::<Vec<_>>(), [2]);
     snapshot("list_can_close", &screen(100, 8, |f| l.draw(f)));
     assert_eq!((Tab::Open.next(), Tab::CanClose.prev()), (Tab::CanClose, Tab::Open));
@@ -308,18 +308,18 @@ fn todo_tab() {
     assert_eq!(l.replaceable.get(&1).map(String::as_str), Some("AI slop, but the fee fix is real"));
     _ = std::fs::remove_file(dir.join("reviews/pr-1.json"));
     l.find_todo();
-    l.tab = Tab::Todo;
+    l.nav.tab = Tab::Todo;
     let shown = |l: &List| l.shown().iter().map(|p| p.number).collect::<Vec<_>>();
     // Answered (75) before requested (70) before no review (30); yours with nothing else isn't on it.
     assert_eq!(shown(&l), [3, 2, 1]);
     // CI still running on one: after the rest, back once it's done (the cursor going with it).
-    l.sel = 1;
+    l.nav.sel = 1;
     let keep = l.selected(); // (as the event loop keeps it, through what comes in)
     l.prs[1].checks = Some((3, 0, 2));
     l.find_todo();
     l.select_card(keep);
     assert_eq!(shown(&l), [3, 1, 2]);
-    assert_eq!(l.shown()[l.sel].number, 2);
+    assert_eq!(l.shown()[l.nav.sel].number, 2);
     // Not with a check failing already: that's to fix now.
     l.prs[1].checks = Some((2, 1, 2));
     l.find_todo();
@@ -354,7 +354,7 @@ fn todo_tab() {
     snapshot("list_todo", &screen(100, 12, |f| l.draw(f)));
     // Wide: Claude's word in a column beside the card, the why wrapped and what to do after `→`,
     // the place in the order under the number, what holds it up on the title line.
-    l.sel = 0;
+    l.nav.sel = 0;
     l.prs[0].checks = Some((1, 2, 0));
     l.ranked.as_mut().unwrap().items[0].1 = "a fee bug — it rounds the wrong way for some wallets, reported twice\nreview it, then ask for a test".into();
     l.find_todo();
@@ -375,7 +375,7 @@ fn defer_from_the_todo_tab() {
     let extra = |requested| super::Extra { requested, mergeable: "MERGEABLE".into(), head_oid: "h".into(), ..Default::default() };
     l.extra = HashMap::from([(1, extra(true)), (2, extra(false))]);
     l.find_todo();
-    l.tab = Tab::Todo;
+    l.nav.tab = Tab::Todo;
     let shown = |l: &List| l.shown().iter().map(|p| p.number).collect::<Vec<_>>();
     assert_eq!((shown(&l), l.todo_now()), (vec![1, 2], 2));
     let k = |l: &mut List, c| l.key(KeyEvent::new(c, KeyModifiers::NONE));
@@ -513,20 +513,20 @@ fn mouse_in_the_list() {
     let pr = |number, title: &str| Listed { number, title: title.into(), author: "a".into(), base: "master".into(), state: "OPEN".into(), files: 1, ..Listed::default() };
     let mut l = List::new("".into());
     l.prs = vec![pr(1, "one"), pr(2, "two"), pr(3, "three")];
-    l.tab = Tab::Open;
+    l.nav.tab = Tab::Open;
     _ = screen(120, 20, |f| l.draw(f));
     let click = |l: &mut List, column: u16, row: u16| l.mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column, row, modifiers: KeyModifiers::NONE });
     // A click selects a card (the second: under the header, a card's rows down); it doesn't open
     // it, even when it's the one selected; a second click soon after does.
     let second = 1 + l.card_rows() as u16;
-    assert!(!click(&mut l, 10, second) && l.sel == 1);
-    l.last_click = None; // (as if a while ago)
+    assert!(!click(&mut l, 10, second) && l.nav.sel == 1);
+    l.nav.last_click = None; // (as if a while ago)
     assert!(!click(&mut l, 10, second), "a single click on the selected card opened it");
     assert!(click(&mut l, 10, second), "a double-click didn't open it");
     // A click on a tab: that tab.
-    let (x, _) = l.tab_hits.iter().find(|(_, t)| *t == Tab::Worktrees).cloned().unwrap();
+    let (x, _) = l.nav.tab_hits.iter().find(|(_, t)| *t == Tab::Worktrees).cloned().unwrap();
     click(&mut l, x.start + 1, 0);
-    assert_eq!(l.tab, Tab::Worktrees);
+    assert_eq!(l.nav.tab, Tab::Worktrees);
 }
 
 #[test]
@@ -563,14 +563,14 @@ fn drafting_a_replacement_on_the_todo_tab() {
     l.running_reps.clear();
     assert_eq!(order(&mut l)[0], (true, first));
     // On it, what's done to a PR on GitHub isn't done to the one it replaces: said so.
-    (l.reps, l.tab, l.sel) = (vec![pr(first, "me")], Tab::Todo, 0);
+    (l.reps, l.nav.tab, l.nav.sel) = (vec![pr(first, "me")], Tab::Todo, 0);
     for k in ['M', 'b', 'W', 'm'] {
         l.msg.clear();
         assert!(l.key(KeyEvent::new(KeyCode::Char(k), KeyModifiers::NONE)).is_none() && l.confirm.is_none());
         assert!(l.msg.contains("draft replacement"), "{k}: {}", l.msg);
     }
     // Filtered, the item the cursor's on is the filtered list's (what s and p act on).
-    (l.query, l.sel) = ("author:cy".into(), 0);
+    (l.nav.query, l.nav.sel) = ("author:cy".into(), 0);
     assert_eq!(l.selected_item().map(|it| it.number), Some(3));
 }
 
@@ -579,13 +579,13 @@ fn active_tab_lit() {
     // The tab shown is drawn lit (the menu's selection colors), the others not.
     let mut l = List::new("".into());
     l.prs = vec![Listed { number: 1, title: "t".into(), state: "OPEN".into(), ..Listed::default() }];
-    l.tab = Tab::Open;
+    l.nav.tab = Tab::Open;
     let backend = ratatui::backend::TestBackend::new(100, 10);
     let mut term = ratatui::Terminal::new(backend).unwrap();
     term.draw(|f| l.draw(f)).unwrap();
     let buf = term.backend().buffer().clone();
-    let (open, _) = l.tab_hits.iter().find(|(_, t)| *t == Tab::Open).cloned().unwrap();
-    let (todo, _) = l.tab_hits.iter().find(|(_, t)| *t == Tab::Todo).cloned().unwrap();
+    let (open, _) = l.nav.tab_hits.iter().find(|(_, t)| *t == Tab::Open).cloned().unwrap();
+    let (todo, _) = l.nav.tab_hits.iter().find(|(_, t)| *t == Tab::Todo).cloned().unwrap();
     // Lit: the selection's background, or (a theme without one, as with none at all) reversed.
     let lit = |x: u16| match l.ui.menu_selected.bg {
         Some(bg) => buf[(x, 0)].bg == bg,

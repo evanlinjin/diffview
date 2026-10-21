@@ -53,7 +53,7 @@ pub enum ITab {
     CanClose,
 }
 
-impl ITab {
+impl Tabs for ITab {
     fn next(self) -> ITab {
         match self {
             ITab::Todo => ITab::Open,
@@ -309,12 +309,8 @@ pub struct Issues {
     me: String,
     /// Whether you may label issues here (triage access and up).
     can_triage: bool,
-    tab: ITab,
-    sel: usize,
-    top: usize,
-    query: String,
-    filtering: bool,
-    help: bool,
+    /// The card selected, the filter, the tab (`nav.rs`).
+    nav: Nav<ITab>,
     /// The first of a two-key command (`g`, `a`, `I`, `U`), waiting for the second.
     pending: Option<char>,
     marked: HashSet<u64>,
@@ -357,10 +353,6 @@ pub struct Issues {
     started: bool,
     auto_done: HashSet<(u64, String)>,
     auto_ranked: Option<std::time::Instant>,
-    /// The tabs' columns on the top bar (for clicks), and the last click on a card (when,
-    /// which: a second soon after on the same one opens it).
-    tab_hits: Vec<(std::ops::Range<u16>, ITab)>,
-    last_click: Option<(std::time::Instant, usize)>,
     root: PathBuf,
     pub msg: String,
 }
@@ -405,7 +397,7 @@ impl Issues {
     fn find_todo(&mut self) {
         use crate::todo::{Item, Kind};
         // (The cursor stays on its issue as they reorder: a ranking, a triage landing.)
-        let keep = self.shown().get(self.sel).map(|i| i.number);
+        let keep = self.shown().get(self.nav.sel).map(|i| i.number);
         let items: Vec<Item> = self
             .items
             .iter()
@@ -435,7 +427,7 @@ impl Issues {
         // Deferred: at the bottom till then, or till what it needs changes (as dv list's).
         self.todo = crate::todo::defer(items, &self.deferred, crate::claude::now_secs(), |_, c, _| self.happened(c));
         if let Some(i) = keep.and_then(|n| self.shown().iter().position(|i| i.number == n)) {
-            self.sel = i;
+            self.nav.sel = i;
         }
     }
 
@@ -525,12 +517,12 @@ impl Issues {
 
     /// The issues on the tab shown, filtered.
     pub fn shown(&self) -> Vec<&Issue> {
-        if self.tab == ITab::Todo {
+        if self.nav.tab == ITab::Todo {
             return self.todo.iter().filter_map(|it| self.items.iter().find(|i| i.number == it.number)).filter(|i| self.matches(i)).collect();
         }
         self.items
             .iter()
-            .filter(|i| match self.tab {
+            .filter(|i| match self.nav.tab {
                 ITab::Todo => true,
                 ITab::Open => true,
                 ITab::Mine => i.author == self.me || i.assignees.contains(&self.me),
@@ -544,7 +536,7 @@ impl Issues {
     /// `-term` excludes; else in its number, title, author or labels).
     fn matches(&self, i: &Issue) -> bool {
         let t = self.triage.get(&i.number);
-        self.query.split_whitespace().all(|term| {
+        self.nav.query.split_whitespace().all(|term| {
             filter_term(
                 term,
                 |k, v, has| {
@@ -574,7 +566,7 @@ impl Issues {
                 self.fetched = None;
                 match res {
                     Ok((me, can_triage, items)) => {
-                        let keep = self.shown().get(self.sel).map(|i| i.number);
+                        let keep = self.shown().get(self.nav.sel).map(|i| i.number);
                         (self.me, self.can_triage, self.items) = (me, can_triage, items);
                         let first = !self.started;
                         // (Not a ranking straight away: once the triages are in, a quarter hour on.)
@@ -588,7 +580,7 @@ impl Issues {
                         if first && self.auto && self.untriaged() > 0 {
                             self.msg = format!("auto is on: Claude triages the {} issue(s) not triaged, two at a time (~$0.30 each; C turns it off)", self.untriaged());
                         }
-                        self.sel = keep.and_then(|n| self.shown().iter().position(|i| i.number == n)).unwrap_or(0);
+                        self.nav.sel = keep.and_then(|n| self.shown().iter().position(|i| i.number == n)).unwrap_or(0);
                         if self.msg.starts_with("fetching") {
                             self.msg.clear();
                         }
@@ -684,7 +676,7 @@ impl Issues {
                 // The wheel moves the cursor (scrolls the issue), as j / k; a click picks a tab or a
                 // card, twice opens it (as dv list's).
                 // In an issue, a drag copies what it's over, and sideways scrolls its code blocks.
-                Event::Mouse(m) if self.view.is_some() && !self.help && self.meta.is_none() && {
+                Event::Mouse(m) if self.view.is_some() && !self.nav.help && self.meta.is_none() && {
                     use event::MouseEventKind::*;
                     matches!(crate::view::sideways(&m), Down(_) | Drag(_) | Up(_) | ScrollLeft | ScrollRight)
                 } =>
@@ -709,7 +701,7 @@ impl Issues {
                     event::MouseEventKind::ScrollUp => KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
                     _ => continue,
                 },
-                Event::Mouse(m) if matches!(m.kind, event::MouseEventKind::ScrollDown | event::MouseEventKind::ScrollUp) && !self.help => {
+                Event::Mouse(m) if matches!(m.kind, event::MouseEventKind::ScrollDown | event::MouseEventKind::ScrollUp) && !self.nav.help => {
                     if let Some(v) = self.view.as_mut() {
                         v.scroll(m.column as usize, if m.kind == event::MouseEventKind::ScrollDown { 3 } else { -3 });
                         continue;
@@ -735,7 +727,7 @@ impl Issues {
         if ctrl && k.code == KeyCode::Char('c') {
             return Some(IssuesDo::Quit);
         }
-        if std::mem::take(&mut self.help) {
+        if std::mem::take(&mut self.nav.help) {
             return None; // any key closes it
         }
         if self.meta.is_some() {
@@ -745,29 +737,19 @@ impl Issues {
         if self.view.is_some() {
             return self.view_key(term, k);
         }
-        if self.filtering {
-            match k.code {
-                KeyCode::Esc => (self.query.clear(), self.filtering = false).1,
-                KeyCode::Enter => self.filtering = false,
-                KeyCode::Backspace => _ = self.query.pop(),
-                KeyCode::Char(c) => self.query.push(c),
-                _ => {}
-            }
-            self.sel = 0;
+        if self.nav.filter_key(k) {
             return None;
         }
         let n = self.shown().len();
         let half = (self.height() / 2).max(1);
         let pending = self.pending.take();
-        let this = self.shown().get(self.sel).map(|i| i.number);
+        let this = self.shown().get(self.nav.sel).map(|i| i.number);
         self.msg.clear();
+        // Moving about, the tabs, the filter, the help (not as a second key of another's).
+        if matches!(pending, None | Some('g')) && self.nav.key(k, pending.is_some(), n, half) {
+            return None;
+        }
         match (pending, k.code) {
-            (_, KeyCode::Char('d')) if ctrl => self.sel = (self.sel + half).min(n.saturating_sub(1)),
-            (_, KeyCode::Char('u')) if ctrl => self.sel = self.sel.saturating_sub(half),
-            (Some('g'), KeyCode::Char('g')) => self.sel = 0,
-            (Some('g'), KeyCode::Char('e')) => self.sel = n.saturating_sub(1),
-            (Some('g'), KeyCode::Char('n')) | (None, KeyCode::Char('l')) => (self.tab, self.sel) = (self.tab.next(), 0),
-            (Some('g'), KeyCode::Char('p')) | (None, KeyCode::Char('h')) => (self.tab, self.sel) = (self.tab.prev(), 0),
             (Some('I'), KeyCode::Char('I')) => return Some(IssuesDo::Prs),
             (Some('U'), KeyCode::Char('U')) => {
                 self.msg = format!("unmarked {}", self.marked.len());
@@ -785,8 +767,8 @@ impl Issues {
                 }
             }
             (Some('s'), _) => self.msg = "not deferred".into(),
-            (_, KeyCode::Char('s')) if self.tab == ITab::Todo => self.defer_key(),
-            (_, KeyCode::Char('r')) if self.tab == ITab::Todo => {
+            (_, KeyCode::Char('s')) if self.nav.tab == ITab::Todo => self.defer_key(),
+            (_, KeyCode::Char('r')) if self.nav.tab == ITab::Todo => {
                 self.pending = Some('r');
                 self.msg = format!("r again: Claude ranks the {} issue(s) that need you (one run; {})", self.todo_now(), match &self.ranked {
                     Some(r) => format!("ranked {} ago, cost ${:.2}", gh::ago_secs(crate::claude::now_secs() - r.at), r.cost),
@@ -805,9 +787,6 @@ impl Issues {
                     _ => String::new(),
                 };
             }
-            (_, KeyCode::Char('j') | KeyCode::Down) => self.sel = (self.sel + 1).min(n.saturating_sub(1)),
-            (_, KeyCode::Char('k') | KeyCode::Up) => self.sel = self.sel.saturating_sub(1),
-            (_, KeyCode::Char('/')) => self.filtering = true,
             // (The same setting as dv list's: one auto for both.)
             (_, KeyCode::Char('C')) => {
                 self.auto = !self.auto;
@@ -821,8 +800,7 @@ impl Issues {
                 };
             }
             (Some(_), KeyCode::Esc) => {} // (a pending key called off, as Helix's)
-            (_, KeyCode::Esc) => (self.query.clear(), self.sel = 0).1,
-            (_, KeyCode::Char('?')) => self.help = true,
+            (_, KeyCode::Esc) => (self.nav.query.clear(), self.nav.sel = 0).1,
             (Some('q'), KeyCode::Char('q')) => return Some(IssuesDo::Quit),
             (_, KeyCode::Char('q')) if self.busy() => {
                 self.pending = Some('q');
@@ -838,7 +816,7 @@ impl Issues {
                     && !self.marked.remove(&n)
                 {
                     self.marked.insert(n);
-                    self.sel = (self.sel + 1).min(self.shown().len().saturating_sub(1));
+                    self.nav.sel = (self.nav.sel + 1).min(self.shown().len().saturating_sub(1));
                 }
             }
             // The issue, in dv.
@@ -855,7 +833,7 @@ impl Issues {
             }
             _ => {}
         }
-        self.sel = self.sel.min(self.shown().len().saturating_sub(1));
+        self.nav.sel = self.nav.sel.min(self.shown().len().saturating_sub(1));
         None
     }
 
@@ -863,24 +841,11 @@ impl Issues {
     /// it). Not in an issue's view, nor over the help.
     fn click(&mut self, m: event::MouseEvent) -> bool {
         use event::{MouseButton, MouseEventKind};
-        if m.kind != MouseEventKind::Down(MouseButton::Left) || self.help || self.view.is_some() {
+        if m.kind != MouseEventKind::Down(MouseButton::Left) || self.nav.help || self.view.is_some() {
             return false;
         }
-        if m.row == 0 {
-            if let Some(&(_, tab)) = self.tab_hits.iter().find(|(x, _)| x.contains(&m.column)) {
-                (self.tab, self.sel, self.top) = (tab, 0, 0);
-            }
-            return false;
-        }
-        // (Cards start under the bar; past the last drawn, nothing.)
-        let k = (m.row as usize - 1) / self.card_rows();
-        let i = self.top + k;
-        if k >= self.height() || i >= self.shown().len() {
-            return false;
-        }
-        let double = self.last_click.is_some_and(|(at, j)| j == i && at.elapsed() < Duration::from_millis(400));
-        (self.last_click, self.sel) = (if double { None } else { Some((std::time::Instant::now(), i)) }, i);
-        double
+        let (n, rows, h) = (self.shown().len(), self.card_rows(), self.height());
+        self.nav.click(m.column, m.row, n, rows, h)
     }
 
     /// A key in the issue's view.
@@ -929,7 +894,7 @@ impl Issues {
             // Esc drops a selection first, as Helix's.
             (_, KeyCode::Esc) if v.selecting() => v.drop_selection(),
             (_, KeyCode::Char('q') | KeyCode::Esc) => self.view = None,
-            (_, KeyCode::Char('?')) => self.help = true,
+            (_, KeyCode::Char('?')) => self.nav.help = true,
             (_, KeyCode::Char('o')) => self.msg = crate::view::open_url(v.url()),
             (_, KeyCode::Char('C')) => {
                 let body = said(edit(term, &format!("a comment on issue #{n} (posted when you save)"), "", false, true), &mut self.msg)?;
@@ -1085,7 +1050,7 @@ impl Issues {
 
     /// `s` on a todo item: defer it (the next key says how long), or bring a deferred one back.
     fn defer_key(&mut self) {
-        let Some(n) = self.shown().get(self.sel).map(|i| i.number) else { return };
+        let Some(n) = self.shown().get(self.nav.sel).map(|i| i.number) else { return };
         let Some(it) = self.todo.iter().find(|it| it.number == n) else { return };
         if it.deferred.is_some() {
             self.deferred.remove(&it.key());
@@ -1278,7 +1243,7 @@ impl Issues {
     /// `a a`: Claude triages the marked issues (or this one), with your instructions if any.
     fn triage_marked(&mut self, term: &mut DefaultTerminal) {
         let ns: Vec<u64> = match self.marked.is_empty() {
-            true => self.shown().get(self.sel).map(|i| i.number).into_iter().collect(),
+            true => self.shown().get(self.nav.sel).map(|i| i.number).into_iter().collect(),
             false => self.items.iter().map(|i| i.number).filter(|n| self.marked.contains(n)).collect(),
         };
         // (Not one Claude's at already.)
@@ -1295,7 +1260,7 @@ impl Issues {
     /// A card's rows, and the blank after it: on the todo tab, one more (Claude's word, beside
     /// it or under its title).
     fn card_rows(&self) -> usize {
-        if self.tab == ITab::Todo { 5 } else { 4 }
+        if self.nav.tab == ITab::Todo { 5 } else { 4 }
     }
 
     fn height(&self) -> usize {
@@ -1312,7 +1277,7 @@ impl Issues {
             let cursor = v.draw(f, ui, Rect { y: area.y + 1, height: area.height.saturating_sub(2), ..area });
             let left = if self.msg.is_empty() { " ? keys · q back to the issues".to_owned() } else { format!(" {}", self.msg) };
             status_bar(f, ui, &left, &format!("#{}", v.number), self.auto, "");
-            if self.help {
+            if self.nav.help {
                 draw_help(f, ui, super::issue_view::VIEW_HELP, "an issue's keys");
             } else if let Some((items, sel, _)) = &self.meta {
                 draw_meta(f, ui, items, *sel, v.number);
@@ -1324,7 +1289,7 @@ impl Issues {
             return;
         }
         let shown_n = self.shown().len();
-        let sel_now = self.sel.min(shown_n.saturating_sub(1));
+        let sel_now = self.nav.sel.min(shown_n.saturating_sub(1));
         let mine = self.items.iter().filter(|i| i.author == self.me || i.assignees.contains(&self.me)).count();
         let close = self.items.iter().filter(|i| self.close_why(i.number).is_some()).count();
         let names = [
@@ -1333,17 +1298,17 @@ impl Issues {
             (ITab::Mine, format!("mine {mine}")),
             (ITab::CanClose, format!("close {close}")),
         ];
-        let tabs: Vec<(String, bool)> = names.iter().map(|(t, n)| (n.clone(), self.tab == *t)).collect();
+        let tabs: Vec<(String, bool)> = names.iter().map(|(t, n)| (n.clone(), self.nav.tab == *t)).collect();
         let hits = top_bar(f, ui, "Issues", &tabs, "I I the PRs", sel_now, shown_n);
-        self.tab_hits = hits.into_iter().zip(names.iter().map(|n| n.0)).collect();
-        let shown = self.shown();
+        self.nav.tab_hits = hits.into_iter().zip(names.iter().map(|n| n.0)).collect();
         let rows = self.card_rows();
+        let h = area.height.saturating_sub(2) as usize / rows;
+        self.nav.keep(shown_n, h);
+        let (sel, top) = (self.nav.sel, self.nav.top);
+        let shown = self.shown();
         // The todo tab: Claude's word beside each card when the window's wide enough, else
         // under its title (as dv list's).
-        let column = (self.tab == ITab::Todo).then(|| msg_column(area.width as usize)).flatten();
-        let h = area.height.saturating_sub(2) as usize / rows;
-        let sel = self.sel.min(shown.len().saturating_sub(1));
-        let top = self.top.min(sel).max((sel + 1).saturating_sub(h));
+        let column = (self.nav.tab == ITab::Todo).then(|| msg_column(area.width as usize)).flatten();
         let num_w = shown.iter().map(|i| format!("#{}", i.number).len()).max().unwrap_or(2);
         let width = area.width as usize;
         let lines: Vec<Line> = shown
@@ -1352,7 +1317,7 @@ impl Issues {
             .skip(top)
             .take(h)
             .flat_map(|(k, i)| {
-                let item = (self.tab == ITab::Todo).then(|| self.todo.iter().find(|it| it.number == i.number)).flatten();
+                let item = (self.nav.tab == ITab::Todo).then(|| self.todo.iter().find(|it| it.number == i.number)).flatten();
                 let card_w = column.unwrap_or(width);
                 let rank = item.filter(|_| column.is_some()).map(|_| k + 1); // (narrow: on the line under the title)
                 let close = self.close_why(i.number).unwrap_or_default();
@@ -1369,7 +1334,7 @@ impl Issues {
             })
             .collect();
         if shown.is_empty() {
-            let none = match (self.fetched.is_some(), self.tab) {
+            let none = match (self.fetched.is_some(), self.nav.tab) {
                 (true, _) => " fetching…",
                 (_, ITab::CanClose) => " nothing Claude would close (its triages say, a a; its ranking too, r r)",
                 (_, ITab::Mine) => " no open issues assigned to you or opened by you",
@@ -1378,14 +1343,14 @@ impl Issues {
             f.render_widget(Paragraph::new(none).style(ui.base.patch(ui.stale)), Rect { y: area.y + 2, height: 1, ..area });
         }
         f.render_widget(Paragraph::new(lines), Rect { y: area.y + 1, height: (h * rows) as u16, ..area });
-        let left = match (self.filtering, self.query.is_empty(), self.msg.is_empty()) {
-            (true, ..) => format!(" /{}▏  label: author: kind: priority: is:triaged  -x negates", self.query),
+        let left = match (self.nav.filtering, self.nav.query.is_empty(), self.msg.is_empty()) {
+            (true, ..) => format!(" /{}▏  label: author: kind: priority: is:triaged  -x negates", self.nav.query),
             (_, _, false) => format!(" {}", self.msg),
-            (_, false, _) => format!(" filter: {}  (Esc clears)", self.query),
+            (_, false, _) => format!(" filter: {}  (Esc clears)", self.nav.query),
             _ if column.is_some() => " ? keys".into(),
             _ => String::new(), // the keys are in the bottom-right popup
         };
-        let order = match (self.tab, &self.rank_rx, &self.ranked) {
+        let order = match (self.nav.tab, &self.rank_rx, &self.ranked) {
             (ITab::Todo, Some(_), _) => "Claude is ranking…".to_owned(),
             (ITab::Todo, None, Some(r)) => format!("ranked {} ago, {}", gh::ago_secs(crate::claude::now_secs() - r.at), super::todo::cost_text(r.cost)),
             (ITab::Todo, None, None) => "in the rules' order".to_owned(),
@@ -1393,9 +1358,9 @@ impl Issues {
         };
         status_bar(f, ui, &left, &order, self.auto, "");
         // The keys for this tab, bottom right (not over the todo tab's message column).
-        if !self.help && !self.filtering && column.is_none() {
+        if !self.nav.help && !self.nav.filtering && column.is_none() {
             let mut keys = vec![("Enter", "open it"), ("h l", "tabs"), ("/", "filter"), ("R", "refresh (from GitHub)")];
-            if self.tab == ITab::Todo {
+            if self.nav.tab == ITab::Todo {
                 keys.extend([("r r", "Claude ranks what needs you (a run)"), ("s", "defer it (or bring it back)")]);
             }
             keys.extend([("m", "mark"), ("a a", "Claude triages (marked)"), ("U U", "unmark all"), ("C", "auto on / off (triage, ranking)"), ("I I", "the PRs"), ("?", "all keys"), ("q", "quit")]);
@@ -1403,10 +1368,9 @@ impl Issues {
             let card = Rect { y: 1 + (sel.saturating_sub(top) * rows) as u16, height: rows as u16, ..area };
             draw_keys(f, ui, &keys, Some(card));
         }
-        if self.help {
+        if self.nav.help {
             draw_help(f, ui, ISSUES_HELP, "dv issues keys");
         }
-        self.top = top;
     }
 }
 
@@ -1593,13 +1557,13 @@ fn issues_listed_triaged_filtered() {
     let mut l = Issues { me: "me".into(), reviews_dir: Some(dir.clone()), ..Default::default() };
     l.items = vec![a, Issue { number: 8, title: "How do I sync?".into(), author: "bo".into(), updated: "2026-01-02T00:00:00Z".into(), ..Default::default() }];
     l.watch_reviews();
-    l.tab = ITab::Open;
+    l.nav.tab = ITab::Open;
     assert_eq!(l.triage.get(&8).map(|t| t.close.as_str()), Some("answered in #3"));
     let shown = |l: &Issues| l.shown().iter().map(|i| i.number).collect::<Vec<_>>();
     assert_eq!(shown(&l), [7, 8]);
-    l.tab = ITab::Mine;
+    l.nav.tab = ITab::Mine;
     assert_eq!(shown(&l), [7]); // assigned to you
-    l.tab = ITab::CanClose;
+    l.nav.tab = ITab::CanClose;
     assert_eq!(shown(&l), [8]);
     // The PR linked as fixing #7 merged: not closable for that alone (it may not fix it all);
     // to check, and triaged again once triaged before it merged, not once Claude's seen it.
@@ -1610,14 +1574,14 @@ fn issues_listed_triaged_filtered() {
     assert!(needs(t(vec![])).contains(&crate::todo::Need::FixMerged(9)));
     assert!(!needs(t(vec![9])).iter().any(|n| matches!(n, crate::todo::Need::FixMerged(_))));
     l.items[0].fixed_by[0].1 = "OPEN".into();
-    l.tab = ITab::Open;
-    l.query = "label:bug".into();
+    l.nav.tab = ITab::Open;
+    l.nav.query = "label:bug".into();
     assert_eq!(shown(&l), [7]);
-    l.query = "-is:triaged".into();
+    l.nav.query = "-is:triaged".into();
     assert_eq!(shown(&l), [7]);
-    l.query = "kind:question".into();
+    l.nav.query = "kind:question".into();
     assert_eq!(shown(&l), [8]);
-    l.query.clear();
+    l.nav.query.clear();
     l.items.iter_mut().for_each(|i| i.updated.clear()); // (no age: the snapshot stays as it is)
     snapshot("issues", &screen(140, 12, |f| l.draw(f)));
     // The todo tab: #7 assigned to you, a PR would fix it; #8 Claude would close.
@@ -1626,18 +1590,18 @@ fn issues_listed_triaged_filtered() {
         (8, vec![crate::todo::Need::WouldClose("answered in #3".into())]),
         (7, vec![crate::todo::Need::Assigned, crate::todo::Need::FixOpen(9), crate::todo::Need::Untriaged]),
     ]);
-    l.tab = ITab::Todo;
+    l.nav.tab = ITab::Todo;
     snapshot("issues_todo", &screen(140, 14, |f| l.draw(f)));
     snapshot("issues_todo_wide", &screen(200, 14, |f| l.draw(f)));
     // The mouse: a tab clicked; a card, twice opens it.
     let click = |l: &mut Issues, column, row| {
         l.click(event::MouseEvent { kind: event::MouseEventKind::Down(event::MouseButton::Left), column, row, modifiers: KeyModifiers::NONE })
     };
-    let (open_tab, _) = l.tab_hits.iter().find(|h| h.1 == ITab::Open).cloned().unwrap();
-    assert!(!click(&mut l, open_tab.start, 0) && l.tab == ITab::Open);
-    assert!(!click(&mut l, 10, 5) && l.sel == 1); // the second card (four rows each, after the bar)
+    let (open_tab, _) = l.nav.tab_hits.iter().find(|h| h.1 == ITab::Open).cloned().unwrap();
+    assert!(!click(&mut l, open_tab.start, 0) && l.nav.tab == ITab::Open);
+    assert!(!click(&mut l, 10, 5) && l.nav.sel == 1); // the second card (four rows each, after the bar)
     assert!(click(&mut l, 10, 5)); // again: open it
-    l.tab = ITab::Todo;
+    l.nav.tab = ITab::Todo;
     // Space l in an issue: without triage access, said; its picker moves with j / k.
     l.can_triage = false;
     l.open_meta(7);
