@@ -498,7 +498,9 @@ impl App {
         self.goto(r, 0);
     }
 
-    /// Row in file `path` at (or just after) the given line, else the file header.
+    /// Row in file `path` at (or just after) the given line, else the file header; the file not
+    /// shown (the Claude view, its last comment there posted): where it'd be, the next file's
+    /// first row (else the last before it).
     pub(super) fn locate(&self, path: &str, old: Option<u32>, new: Option<u32>) -> usize {
         let Some(fi) = self.files.iter().position(|f| f.path == path) else { return 0 };
         let in_file = |r: &&Row| r.file == fi;
@@ -507,7 +509,11 @@ impl App {
             (None, Some(o)) => self.rows.iter().position(|r| in_file(&r) && r.line.old.is_some_and(|x| x >= o)),
             _ => None,
         };
-        hit.or_else(|| self.rows.iter().position(|r| r.file == fi)).unwrap_or(0)
+        let file = |r: &Row| r.file < self.files.len();
+        hit.or_else(|| self.rows.iter().position(|r| r.file == fi))
+            .or_else(|| self.rows.iter().position(|r| file(r) && r.file > fi))
+            .or_else(|| self.rows.iter().rposition(|r| file(r) && r.file < fi))
+            .unwrap_or(0)
     }
 
     /// `+`/`-`: more or less context around the hunk under the cursor (on a header: the next one).

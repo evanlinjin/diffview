@@ -3325,3 +3325,24 @@ fn a_pane_maximized_till_you_leave_it() {
     ctrl_w(&mut app, 'l');
     assert_eq!(app.zoom, Some(true));
 }
+
+#[test]
+fn claudes_comment_posted_in_its_view_leaves_the_cursor_near() {
+    // The Claude view, its last comment in a file posted (`c`): its copy gone with that file's
+    // rows; the cursor where it was, the next file's (not the top).
+    let mut app = fixture();
+    let t = app.threads.iter().position(|t| t.claude.is_some()).unwrap();
+    let mut later = app.threads[t].clone();
+    (later.path, later.line, later.original_line, later.claude) = ("src/a.rs".into(), Some(2), Some(2), Some("c2".into()));
+    later.comments.iter_mut().for_each(|c| c.id += 1000); // (a comment of its own)
+    app.threads.push(later);
+    app.view = View::Claude;
+    app.build();
+    let r = app.rows.iter().position(|r| r.thread == Some(t)).unwrap();
+    app.goto(r, 0);
+    let keep = app.cursor_key();
+    app.threads.remove(t);
+    app.rebuild(keep);
+    let row = &app.rows[app.head.row];
+    assert!(app.head.row > 0 && app.files[row.file].path == "src/a.rs", "{:?}", row.line.text);
+}
