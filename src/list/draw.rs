@@ -9,7 +9,7 @@ impl List {
 
     /// Cards on screen (between the header and the status bar).
     pub(super) fn height(&self) -> usize {
-        ratatui::crossterm::terminal::size().map_or(10, |(_, h)| h.saturating_sub(2) as usize / self.card_rows())
+        cards_fit(self.card_rows())
     }
 
     /// A card's rows: 3 in a wide window (two zones), else 4, and a blank one between cards; on
@@ -146,23 +146,17 @@ impl List {
         }
         f.render_widget(Paragraph::new(lines), Rect { y: area.y + 1, height: (h * rows) as u16, ..area });
 
-        let left = match (self.nav.filtering, self.nav.query.is_empty(), self.msg.is_empty()) {
-            (true, _, _) => format!(" /{}▏  author: label: base: branch: is:draft review: ci:  -x negates", self.nav.query),
-            (_, _, false) => format!(" {}", self.msg),
-            (_, false, _) => format!(" filter: {}  (Esc clears)", self.nav.query),
-            _ if self.nav.tab == Tab::Todo && msg_col.is_some() => " ? keys".into(),
-            _ => String::new(), // the keys are in the bottom-right popup
-        };
+        // (The keys: in their popup, but beside the todo tab's word on each.)
+        let idle = if self.nav.tab == Tab::Todo && msg_col.is_some() { " ? keys" } else { "" };
+        let left = self.nav.status(&self.msg, "author: label: base: branch: is:draft review: ci:", idle);
         // On the right, how it's ordered (on the todo tab, Claude's ranking: how old, what it
         // cost, what's changed since), and the flags PRs open with.
-        let order = match (self.nav.tab, &self.todos.rank_rx, &self.todos.ranked) {
-            (Tab::Todo, Some(_), _) => "Claude is ranking…".to_owned(),
-            (Tab::Todo, None, Some(r)) => format!("ranked {} ago, {}{}", ago_secs(crate::claude::now_secs() - r.at), todo::cost_text(r.cost), self.since_text()),
-            (Tab::Todo, None, None) => "in the rules' order".to_owned(),
+        let order = match self.nav.tab {
+            Tab::Todo => self.todos.order_text(),
             _ => format!("by {} {arrow}", self.order.name()),
         };
         let flags = if self.flags.is_empty() { String::new() } else { format!("opens with {}", self.flags) };
-        status_bar(f, ui, &left, &order, self.auto, &flags);
+        status_bar(f, ui, &left, &order, self.todos.auto, &flags);
         // (Not over the todo tab's message column: `?` shows them, the status bar says.)
         let column = self.nav.tab == Tab::Todo && msg_col.is_some();
         if !self.nav.help && !self.nav.filtering && !column {
@@ -220,8 +214,7 @@ impl List {
                 .map(|(k, d)| (*k, *d))
                 .collect();
             // (Off the selected card: the list's cursor.)
-            let card = Rect { y: 1 + (self.nav.sel.saturating_sub(self.nav.top) * rows) as u16, height: rows as u16, ..area };
-            draw_keys(f, ui, &lines, Some(card));
+            draw_keys(f, ui, &lines, Some(self.nav.card(rows, area)));
         }
         if self.nav.help {
             draw_help(f, ui, HELP, "dv list keys");

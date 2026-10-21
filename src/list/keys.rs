@@ -62,8 +62,7 @@ impl List {
         }
         // Esc after a key waiting for its second (M, D, s, …; g's: `Nav`): called off, as Helix's,
         // not quit.
-        if k.code == KeyCode::Esc && (armed.is_some() || self.todos.deferring.is_some()) {
-            self.todos.deferring = None;
+        if k.code == KeyCode::Esc && armed.is_some() {
             return None;
         }
         // After `s`: how long to defer it for, or until what (any other key: not).
@@ -74,7 +73,8 @@ impl List {
                 return None;
             }
             Some(After::Until(key)) => return Some(Do::DeferUntil(key)),
-            Some(After::Not) => return (self.msg = "not deferred".into(), None).1,
+            Some(After::Not(why)) => return (self.msg = why, None).1,
+            Some(After::Off) => return None,
             None => {}
         }
         // Moving about, the tabs (`gp` before `p` on a tab), the filter, the help.
@@ -127,7 +127,7 @@ impl List {
                 if self.todos.rank_rx.is_some() {
                     return (self.msg = "Claude is ranking already".into(), None).1;
                 }
-                if self.again(armed, ('r', 0), self.rank_offer()) {
+                if self.again(armed, ('r', 0), self.todos.rank_offer("PR(s)")) {
                     self.rank_now();
                     return None;
                 }
@@ -189,9 +189,8 @@ impl List {
             }
             // Auto on / off: Claude runs, drafts marked ready, rankings, without you.
             KeyCode::Char('C') => {
-                self.auto = !self.auto;
-                _ = crate::diff::git(&["config", "dv.auto", if self.auto { "true" } else { "false" }]);
-                self.msg = match self.auto {
+                self.todos.toggle_auto();
+                self.msg = match self.todos.auto {
                     true => "auto on: Claude does its part as things come in (fixes your CI, reviews, answers you, drafts the comment closing a PR it'd close, drafts a replacement of a low-effort PR worth keeping; Claude runs, at your cost), green drafts are marked ready, and it ranks the list again as it changes".into(),
                     false => "auto off: a a has Claude do its part, r r ranks, Space g in a PR marks it ready".into(),
                 };

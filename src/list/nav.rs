@@ -28,7 +28,29 @@ pub(super) struct Nav<T> {
     g: bool,
 }
 
+/// How many cards of `rows` lines fit the terminal (under the top bar, over the status bar).
+pub(super) fn cards_fit(rows: usize) -> usize {
+    ratatui::crossterm::terminal::size().map_or(10, |(_, h)| h.saturating_sub(2) as usize / rows.max(1))
+}
+
 impl<T: Tabs> Nav<T> {
+    /// Where the selected card is drawn in `area` (`rows` lines each, under the top bar): what the
+    /// key hints keep off.
+    pub(super) fn card(&self, rows: usize, area: Rect) -> Rect {
+        Rect { y: area.y + 1 + (self.sel.saturating_sub(self.top) * rows) as u16, height: rows as u16, ..area }
+    }
+
+    /// The status bar's left, as the filter has it: typing it (`fields`: what it takes), what's
+    /// said (`msg`), the filter kept; else `idle`.
+    pub(super) fn status(&self, msg: &str, fields: &str, idle: &str) -> String {
+        match (self.filtering, self.query.is_empty(), msg.is_empty()) {
+            (true, ..) => format!(" /{}▏  {fields}  -x negates", self.query),
+            (_, _, false) => format!(" {msg}"),
+            (_, false, _) => format!(" filter: {}  (Esc clears)", self.query),
+            _ => idle.into(),
+        }
+    }
+
     /// To `tab`, at its first card.
     pub(super) fn go(&mut self, tab: T) {
         (self.tab, self.sel, self.top) = (tab, 0, 0);

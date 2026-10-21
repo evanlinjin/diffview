@@ -354,7 +354,6 @@ pub struct Issues {
     /// Auto (`C`, git config `dv.auto`, as dv list's): Claude triages what isn't triaged, and
     /// what's changed since, and ranks the todo again. Whether it's started (the first fetch
     /// in), what it's done (once each), and when it last ranked.
-    auto: bool,
     started: bool,
     auto_done: HashSet<(u64, String)>,
     root: PathBuf,
@@ -366,7 +365,6 @@ impl Issues {
         Issues {
             ui: Theme::load().ui(),
             todos: Todos::of(crate::todo::Of::Issues),
-            auto: crate::diff::git(&["config", "--get", "dv.auto"]).is_ok_and(|v| v.trim() == "true"),
             reviews_dir: crate::claude::dv_dir().ok().map(|d| d.join("reviews")),
             root: std::env::current_dir().unwrap_or_default(),
             ..Default::default()
@@ -413,22 +411,13 @@ impl Issues {
         let items: Vec<Item> = items.into_iter().filter(|it| !self.draft_fix.contains_key(&it.number)).collect();
         let (items, since) = crate::todo::order(items, self.todos.ranked.as_ref());
         self.todos.since = since;
-        // What deferrals waited for that has happened: they're over (said so, once).
-        let met: Vec<(String, String)> = items
-            .iter()
-            .filter_map(|it| Some((it, self.todos.deferred.get(&it.key())?.cond.as_ref()?)))
-            .filter(|(_, c)| self.happened(c))
-            .map(|(it, c)| (it.key(), format!("#{} is back: {}", it.number, c.says())))
-            .collect();
-        for (key, said) in &met {
-            self.todos.deferred.remove(key);
-            self.msg = said.clone();
+        // What deferrals waited for that has happened: they're over (said so, once); the rest
+        // at the bottom till then.
+        let met = self.todos.met(&items, |_, c, _| self.happened(c));
+        if let Some(said) = self.todos.end(met) {
+            self.msg = said;
         }
-        if !met.is_empty() {
-            _ = self.todos.save();
-        }
-        // Deferred: at the bottom till then, or till what it needs changes (as dv list's).
-        self.todos.items = crate::todo::defer(items, &self.todos.deferred, crate::claude::now_secs(), |_, c, _| self.happened(c));
+        self.todos.items = self.todos.place(items, |_, c, _| self.happened(c));
         if let Some(i) = keep.and_then(|n| self.shown().iter().position(|i| i.number == n)) {
             self.nav.sel = i;
         }
@@ -438,7 +427,7 @@ impl Issues {
     /// triage), `AT_ONCE` at a time, once each; and ranks the todo again once something's new or
     /// changed, at most every quarter hour.
     fn auto_run(&mut self) {
-        if !self.auto || !self.started || self.fetched.is_some() {
+        if !self.todos.auto || !self.started || self.fetched.is_some() {
             return;
         }
         let busy = self.running.values().any(batch::Status::running);
@@ -509,11 +498,6 @@ impl Issues {
         self.running.values().any(batch::Status::running) || !self.drafting.is_empty() || self.closing_rx.is_some() || self.todos.rank_rx.is_some()
     }
 
-    /// Those not deferred: what needs you now.
-    fn todo_now(&self) -> usize {
-        self.todos.items.iter().filter(|it| it.deferred.is_none()).count()
-    }
-
     /// The issues on the tab shown, filtered.
     pub fn shown(&self) -> Vec<&Issue> {
         if self.nav.tab == ITab::Todo {
@@ -570,13 +554,14 @@ impl Issues {
                         let first = !self.started;
                         // (Not a ranking straight away: once the triages are in, a quarter hour on.)
                         if first {
-                            (self.started, self.todos.auto_ranked) = (true, Some(std::time::Instant::now()));
+                            self.started = true;
+                            self.todos.hold_auto_rank();
                         }
                         self.reviews_mtime = None; // read the triages for these
                         self.watch_reviews();
                         // Auto on (from dv list too: one setting): what it's about to cost, said (once
                         // the triages there are read).
-                        if first && self.auto && self.untriaged() > 0 {
+                        if first && self.todos.auto && self.untriaged() > 0 {
                             self.msg = format!("auto is on: Claude triages the {} issue(s) not triaged, two at a time (~$0.30 each; C turns it off)", self.untriaged());
                         }
                         self.nav.sel = keep.and_then(|n| self.shown().iter().position(|i| i.number == n)).unwrap_or(0);
@@ -603,8 +588,8 @@ impl Issues {
             }
             if let Some(res) = self.todos.rank_news() {
                 match res {
-                    Ok(()) => {
-                        self.say(format!("Claude ranked what needs you (${:.2})", self.todos.ranked.as_ref().map_or(0.0, |r| r.cost)));
+                    Ok(cost) => {
+                        self.say(format!("Claude ranked what needs you (${cost:.2})"));
                         self.find_todo();
                     }
                     Err(e) => self.msg = format!("not ranked: {e:#}"),
@@ -753,7 +738,8 @@ impl Issues {
                 }
                 return None;
             }
-            Some(After::Not) => return (self.msg = "not deferred".into(), None).1,
+            Some(After::Not(why)) => return (self.msg = why, None).1,
+            Some(After::Off) => return None,
             None => {}
         }
         if moves(pending, k.code) && self.nav.key(k, n, self.height()) {
@@ -770,10 +756,7 @@ impl Issues {
             (_, KeyCode::Char('s')) if self.nav.tab == ITab::Todo => self.defer_key(),
             (_, KeyCode::Char('r')) if self.nav.tab == ITab::Todo => {
                 self.pending = Some('r');
-                self.msg = format!("r again: Claude ranks the {} issue(s) that need you (one run; {})", self.todo_now(), match &self.todos.ranked {
-                    Some(r) => format!("ranked {} ago, cost ${:.2}", gh::ago_secs(crate::claude::now_secs() - r.at), r.cost),
-                    None => "never ranked before".into(),
-                });
+                self.msg = self.todos.rank_offer("issue(s)");
             }
             (_, KeyCode::Char(c @ ('I' | 'U' | 'a'))) => {
                 self.pending = Some(c);
@@ -789,9 +772,8 @@ impl Issues {
             }
             // (The same setting as dv list's: one auto for both.)
             (_, KeyCode::Char('C')) => {
-                self.auto = !self.auto;
-                _ = crate::diff::git(&["config", "dv.auto", if self.auto { "true" } else { "false" }]);
-                self.msg = match self.auto {
+                self.todos.toggle_auto();
+                self.msg = match self.todos.auto {
                     true => format!(
                         "auto on: Claude triages every issue not triaged ({} now, two at a time, ~$0.30 each, at your cost) and those that change, and ranks the todo again",
                         self.untriaged()
@@ -1093,6 +1075,7 @@ impl Issues {
         match self.todos.until(key.clone(), text, about, &self.root) {
             Reading::Read(c, or) => self.defer_on(&key, c, or),
             Reading::Asked => self.msg = "Claude is reading when you mean…".into(),
+            Reading::Busy => self.msg = "not deferred: Claude is still reading the last \"until\" (try again in a moment)".into(),
         }
     }
 
@@ -1133,9 +1116,7 @@ impl Issues {
             c @ (Until::Merged(_) | Until::Closed(_) | Until::Time(_)) => c,
             c => return self.msg = format!("not deferred: an issue can't wait until {} (a fix PR merging, closing or getting a push, or a time)", c.says()),
         };
-        let (until, cond, says) = crate::todo::until_or(c, or);
-        self.todos.defer(key, until, cond, 0);
-        self.msg = format!("deferred until {says} (s on it brings it back)");
+        self.msg = self.todos.defer_on(key, c, or, 0);
         self.save_defer();
     }
 
@@ -1213,7 +1194,7 @@ impl Issues {
         if self.todos.rank_rx.is_some() {
             return self.msg = "Claude is ranking them already".into();
         }
-        if self.todo_now() == 0 {
+        if self.todos.to_rank() == 0 {
             return self.msg = "nothing on the todo tab to rank".into();
         }
         let lines: Vec<String> = self
@@ -1223,8 +1204,9 @@ impl Issues {
             .filter(|it| it.deferred.is_none())
             .filter_map(|it| Some(about_issue(it, self.items.iter().find(|i| i.number == it.number)?, self.triage.get(&it.number))))
             .collect();
-        self.todos.rank(lines, &self.root, crate::todo::Of::Issues);
-        self.msg = "Claude is ranking what needs you…".into();
+        if self.todos.rank(lines, &self.root, crate::todo::Of::Issues) {
+            self.msg = "Claude is ranking what needs you…".into();
+        }
     }
 
     /// `a a`: Claude triages the marked issues (or this one), with your instructions if any.
@@ -1251,7 +1233,7 @@ impl Issues {
     }
 
     fn height(&self) -> usize {
-        ratatui::crossterm::terminal::size().map_or(10, |(_, h)| h.saturating_sub(2) as usize / self.card_rows())
+        cards_fit(self.card_rows())
     }
 
     fn draw(&mut self, f: &mut Frame) {
@@ -1263,7 +1245,7 @@ impl Issues {
             v.title_bar(f, ui, Rect { height: 1.min(area.height), ..area });
             let cursor = v.draw(f, ui, Rect { y: area.y + 1, height: area.height.saturating_sub(2), ..area });
             let left = if self.msg.is_empty() { " ? keys · q back to the issues".to_owned() } else { format!(" {}", self.msg) };
-            status_bar(f, ui, &left, &format!("#{}", v.number), self.auto, "");
+            status_bar(f, ui, &left, &format!("#{}", v.number), self.todos.auto, "");
             if self.nav.help {
                 draw_help(f, ui, super::issue_view::VIEW_HELP, "an issue's keys");
             } else if let Some((items, sel, _)) = &self.meta {
@@ -1283,7 +1265,7 @@ impl Issues {
         let mine = self.items.iter().filter(|i| i.author == self.me || i.assignees.contains(&self.me)).count();
         let close = self.items.iter().filter(|i| self.close_why(i.number).is_some()).count();
         let names = [
-            (ITab::Todo, format!("todo {}", self.todo_now())),
+            (ITab::Todo, format!("todo {}", self.todos.now())),
             (ITab::Open, format!("open {}", self.items.len())),
             (ITab::Mine, format!("mine {mine}")),
             (ITab::CanClose, format!("close {close}")),
@@ -1329,20 +1311,13 @@ impl Issues {
             f.render_widget(Paragraph::new(none).style(ui.base.patch(ui.stale)), Rect { y: area.y + 2, height: 1, ..area });
         }
         f.render_widget(Paragraph::new(lines), Rect { y: area.y + 1, height: (h * rows) as u16, ..area });
-        let left = match (self.nav.filtering, self.nav.query.is_empty(), self.msg.is_empty()) {
-            (true, ..) => format!(" /{}▏  label: author: kind: priority: is:triaged  -x negates", self.nav.query),
-            (_, _, false) => format!(" {}", self.msg),
-            (_, false, _) => format!(" filter: {}  (Esc clears)", self.nav.query),
-            _ if column.is_some() => " ? keys".into(),
-            _ => String::new(), // the keys are in the bottom-right popup
-        };
-        let order = match (self.nav.tab, &self.todos.rank_rx, &self.todos.ranked) {
-            (ITab::Todo, Some(_), _) => "Claude is ranking…".to_owned(),
-            (ITab::Todo, None, Some(r)) => format!("ranked {} ago, {}", gh::ago_secs(crate::claude::now_secs() - r.at), super::todo::cost_text(r.cost)),
-            (ITab::Todo, None, None) => "in the rules' order".to_owned(),
+        let idle = if column.is_some() { " ? keys" } else { "" };
+        let left = self.nav.status(&self.msg, "label: author: kind: priority: is:triaged", idle);
+        let order = match self.nav.tab {
+            ITab::Todo => self.todos.order_text(),
             _ => "by updated ↓".to_owned(),
         };
-        status_bar(f, ui, &left, &order, self.auto, "");
+        status_bar(f, ui, &left, &order, self.todos.auto, "");
         // The keys for this tab, bottom right (not over the todo tab's message column).
         if !self.nav.help && !self.nav.filtering && column.is_none() {
             let mut keys = vec![("Enter", "open it"), ("h l", "tabs"), ("/", "filter"), ("R", "refresh (from GitHub)")];
@@ -1351,8 +1326,7 @@ impl Issues {
             }
             keys.extend([("m", "mark"), ("a a", "Claude triages (marked)"), ("U U", "unmark all"), ("C", "auto on / off (triage, ranking)"), ("I I", "the PRs"), ("?", "all keys"), ("q", "quit")]);
             // (Off the selected card: the list's cursor.)
-            let card = Rect { y: 1 + (sel.saturating_sub(top) * rows) as u16, height: rows as u16, ..area };
-            draw_keys(f, ui, &keys, Some(card));
+            draw_keys(f, ui, &keys, Some(self.nav.card(rows, area)));
         }
         if self.nav.help {
             draw_help(f, ui, ISSUES_HELP, "dv issues keys");

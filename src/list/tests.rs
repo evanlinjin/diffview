@@ -342,13 +342,13 @@ fn todo_tab() {
     l.todos.ranked = Some(crate::todo::Ranked { at: crate::claude::now_secs() - 3600, cost: 0.38, fingerprint: fp, waits: Default::default(), closes: Default::default(), items: vec![("pr-1".into(), "a fee bug — review it".into()), ("pr-3".into(), "y".into()), ("pr-2".into(), "z".into())] });
     l.find_todo();
     assert_eq!((shown(&l), l.todos.since), (vec![1, 3, 2], crate::todo::Since::default()));
-    assert!(l.since_text().contains("nothing's changed since"));
+    assert!(l.todos.since_text().contains("nothing's changed since"));
     // A new one since: counted, and said on its card.
     l.prs.push(pr(4, "New", "cy"));
     l.extra.insert(4, extra(true));
     l.find_todo();
     assert_eq!(l.todos.since.new, 1);
-    assert!(l.rank_offer().contains("cost $0.38, since: 1 new"), "{}", l.rank_offer());
+    assert!(l.todos.rank_offer("PR(s)").contains("cost $0.38, since: 1 new"), "{}", l.todos.rank_offer("PR(s)"));
     l.prs.pop();
     l.find_todo();
     snapshot("list_todo", &screen(100, 12, |f| l.draw(f)));

@@ -70,22 +70,11 @@ impl List {
         let (items, since) = todo::order(items, self.todos.ranked.as_ref());
         let now = crate::claude::now_secs();
         // What deferrals waited for that has happened: they're over (said so, once).
-        let met: Vec<(String, String)> = items
-            .iter()
-            .filter_map(|it| Some((it, self.todos.deferred.get(&it.key())?)))
-            .filter_map(|(it, d)| Some((it, d.cond.as_ref()?, d.at)))
-            .filter(|(it, c, at)| self.happened(it, c, *at))
-            .map(|(it, c, _)| (it, c))
-            .map(|(it, c)| (it.key(), format!("#{} is back: {}", it.number, c.says())))
-            .collect();
-        for (key, said) in &met {
-            self.todos.deferred.remove(key);
-            self.msg = said.clone();
+        let met = self.todos.met(&items, |it, c, at| self.happened(it, c, at));
+        if let Some(said) = self.todos.end(met) {
+            self.msg = said;
         }
-        if !met.is_empty() {
-            _ = self.todos.save();
-        }
-        let mut items = todo::defer(items, &self.todos.deferred, now, |it, c, at| self.happened(it, c, at));
+        let mut items = self.todos.place(items, |it, c, at| self.happened(it, c, at));
         // What a PR's conversation says it waits on (a trusted comment), not happened yet: to
         // the bottom too, for everyone.
         for it in items.iter_mut().filter(|it| !it.is_rep() && it.deferred.is_none()) {
@@ -139,7 +128,7 @@ impl List {
     /// published replacement, green, closes what it replaces; and what needs you is ranked again
     /// as it changes. Not what you've put aside or wait on, not where Claude's at it already.
     fn auto_run(&mut self) {
-        if !self.auto {
+        if !self.todos.auto {
             return;
         }
         let todo: Vec<Item> = self.todos.items.iter().filter(|it| it.busy.is_none() && it.deferred.is_none() && it.waits.is_none()).cloned().collect();
@@ -325,7 +314,7 @@ impl List {
     /// Have Claude rank what needs you (`r r`: a Claude run, so only when you ask), once what's
     /// needed is in (GitHub's part).
     pub(super) fn rank_now(&mut self) {
-        if self.todos.rank_rx.is_some() || self.todos.items.is_empty() {
+        if self.todos.rank_rx.is_some() || self.todos.to_rank() == 0 {
             return;
         }
         if self.extra_rx.is_some() || self.checks.is_some() {
@@ -345,29 +334,8 @@ impl List {
                 todo::about(it, card, &summary)
             })
             .collect();
-        self.todos.rank(lines, &self.root, todo::Of::Prs);
-        self.msg = format!("Claude is ranking the {} PR(s) that need you…", self.todos.items.len());
-    }
-
-    /// What `r` says before `r` again ranks: what it'd cost, and what's changed since the last
-    /// ranking, to judge whether it's worth it.
-    pub(super) fn rank_offer(&self) -> String {
-        let last = match &self.todos.ranked {
-            Some(r) => format!("the last, {} ago, {}", crate::gh::ago_secs(crate::claude::now_secs() - r.at), cost_text(r.cost)),
-            None => "never ranked before".into(),
-        };
-        let since = self.since_text();
-        format!("r again: Claude ranks the {} PR(s) that need you, one run ({last}{since}); nothing else starts", self.todos.items.len())
-    }
-
-    /// What's changed since the last ranking, for the header and `r`: ", since: 3 new, 1 changed, 2 seen to".
-    pub(super) fn since_text(&self) -> String {
-        let s = self.todos.since;
-        let parts: Vec<String> = [(s.new, "new"), (s.changed, "changed"), (s.gone, "seen to")].iter().filter(|p| p.0 > 0).map(|(n, w)| format!("{n} {w}")).collect();
-        match (self.todos.ranked.is_some(), parts.is_empty()) {
-            (false, _) => String::new(),
-            (true, true) => ", nothing's changed since".into(),
-            (true, false) => format!(", since: {}", parts.join(", ")),
+        if self.todos.rank(lines, &self.root, todo::Of::Prs) {
+            self.msg = format!("Claude is ranking the {} PR(s) that need you…", self.todos.to_rank());
         }
     }
 
@@ -389,7 +357,7 @@ impl List {
         }
         let Some(res) = self.todos.rank_news() else { return };
         match res {
-            Ok(()) => {
+            Ok(_) => {
                 self.find_todo();
                 self.msg = "Claude ranked what needs you: a a on one has it do its part there".into();
             }
@@ -519,6 +487,7 @@ impl List {
         match self.todos.until(key.clone(), text, || "a pull request".into(), &self.root) {
             Reading::Read(c, or) => self.defer_on(&key, c, or),
             Reading::Asked => self.msg = "Claude is reading when you mean…".into(),
+            Reading::Busy => self.msg = "not deferred: Claude is still reading the last \"until\" (try again in a moment)".into(),
         }
     }
 
@@ -555,11 +524,9 @@ impl List {
             }
             c => c,
         };
-        let (until, cond, says) = todo::until_or(c, or);
         // (By GitHub's clock, and what dv had shown you: not one it hadn't, nor your clock's.)
         let at = extra.and_then(|e| e.reviews.iter().map(|r| r.2).max()).unwrap_or(0);
-        self.todos.defer(key, until, cond, at);
-        self.msg = format!("deferred until {says} (s on it brings it back)");
+        self.msg = self.todos.defer_on(key, c, or, at);
         // A PR it waits on that isn't listed: its state, now (and on refresh).
         self.find_others();
         self.save_defer();

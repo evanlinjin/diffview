@@ -30,7 +30,6 @@ mod nav;
 mod todos;
 use {keys::*, marks::*, nav::*, todos::*};
 pub(crate) use github::{Extra, Listed};
-use crate::gh::ago_secs;
 #[cfg(test)]
 mod tests;
 
@@ -114,7 +113,6 @@ pub struct List {
     /// Auto (`C`, kept in git config `dv.auto`): Claude does its part on what needs you, green
     /// drafts are marked ready, and the list is ranked again (`auto_run`). What it's done, once
     /// each: (PR, head, what).
-    auto: bool,
     auto_done: HashSet<(u64, String, &'static str)>,
     /// What's not pushed in each PR worktree (`scan_unpushed`): changed files, commits beyond
     /// the PR's head, and when that head was made.
@@ -185,7 +183,6 @@ impl List {
             ui: Theme::load().ui(),
             flags,
             todos: Todos::of(crate::todo::Of::Prs),
-            auto: crate::diff::git(&["config", "--get", "dv.auto"]).is_ok_and(|v| v.trim() == "true"),
             stalled_days: crate::diff::git(&["config", "--get", "dv.stalledDays"]).ok().and_then(|v| v.trim().parse().ok()).unwrap_or(14),
             wide: true,
             reviews_dir: crate::claude::dv_dir().ok().map(|d| d.join("reviews")),
@@ -441,8 +438,8 @@ impl List {
             return self.msg = format!("not posted: {e:#}");
         }
         self.msg = format!("asked for a rebase of #{n}");
-        if let Some(it) = self.todos.items.iter().find(|it| !it.is_rep() && it.number == n).cloned() {
-            self.todos.deferred.insert(it.key(), crate::todo::Deferral { until: crate::claude::now_secs() + 7 * 86400, needs: it.needs_key(), cond: None, at: 0 });
+        let key = self.todos.items.iter().find(|it| !it.is_rep() && it.number == n).map(crate::todo::Item::key);
+        if key.is_some_and(|k| self.todos.defer(&k, crate::claude::now_secs() + 7 * 86400, None, 0)) {
             self.msg += "; deferred on the todo tab until it changes";
             self.save_defer();
         }
