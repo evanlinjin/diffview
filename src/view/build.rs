@@ -192,7 +192,7 @@ impl App {
             rows.extend(self.file_rows(i, f, &shown));
         }
         if rows.is_empty() {
-            rows.push(Row::text(usize::MAX, Kind::Hunk, "(no changes)".into()));
+            rows.push(Row::text(usize::MAX, Kind::Hunk, format!("({})", self.no_files())));
         }
         self.rows = rows;
         self.gone_at = gone_at;

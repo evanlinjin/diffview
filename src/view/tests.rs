@@ -3402,7 +3402,16 @@ fn no_cursor_while_unfocused() {
 #[test]
 fn the_contents_with_no_files_yet() {
     // A draft not drafted (no files): the contents still shows, saying so.
+    // No files: the list still shows, its heading saying so (none to come here: not a draft);
+    // nothing to go to, it doesn't take the cursor.
     let mut app = App::with("base".into(), diff::parse(""));
     let s = screen(200, 20, |f| app.draw(f));
-    assert!(s.contains("CONTENTS · 0 files") && s.contains("(no files yet)"), "{s}");
+    assert!(s.contains("CONTENTS · no changes"), "{s}");
+    app.focus_list(false);
+    assert!(!app.files_focus && app.msg.contains("nothing to go to"));
+    // Files: counted, not that.
+    let mut app = fixture();
+    app.files_pref = Some(true);
+    let s = screen(200, 20, |f| app.draw(f));
+    assert!(s.contains("CONTENTS · 4 files") && !s.contains("no changes"), "{s}");
 }

@@ -42,7 +42,7 @@ impl App {
             return;
         }
         // The code's left edge: on into the files' list.
-        if !right && self.files_w > 0 && !self.margin_side() && (!self.split || !self.right) {
+        if !right && self.files_w > 0 && self.list_has_spots() && !self.margin_side() && (!self.split || !self.right) {
             (self.files_focus, self.files_sel) = (true, self.current_spot());
             return self.msg = "contents: j / k move, Enter goes there, Ctrl-l back".into();
         }

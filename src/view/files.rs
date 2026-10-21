@@ -89,7 +89,7 @@ impl App {
 
     /// The list's width (its divider included), or 0 when it's hidden.
     pub(super) fn files_width(&self, full: usize) -> usize {
-        // (No files yet, a draft not drafted: shown all the same, its sections and that.)
+        // (However many files: none, its heading says so.)
         let shown = self.files_pref.unwrap_or(full >= FILES_AUTO) && full >= 100;
         if !shown {
             return 0;
@@ -177,7 +177,11 @@ impl App {
         let sel = self.files_sel.filter(|_| self.files_focus && !self.in_commits);
         let (cursor, here) = self.list_tints();
         let bar = Style { bg: ui.bar, ..ui.header };
-        let heading = Line::from(Span::styled(format!("{:<w$}", format!(" CONTENTS · {} files", self.files.len())), bar));
+        let count = match self.files.len() {
+            0 => self.no_files().to_owned(),
+            n => format!("{n} files"),
+        };
+        let heading = Line::from(Span::styled(format!("{:<w$}", format!(" CONTENTS · {count}")), bar));
         let dim = Style { fg: ui.stale.fg, ..Style::new() };
         let mut rows: Vec<(Line<'static>, Hit)> = vec![];
         for e in &entries {
@@ -231,9 +235,6 @@ impl App {
                 }
             };
             rows.push((line, if e.spot == Spot::Folder { Hit::Nothing } else { Hit::Spot(e.spot) }));
-        }
-        if self.files.is_empty() {
-            rows.push((Line::from(Span::styled(format!(" {:<width$}", "(no files yet)", width = w - 1), dim)), Hit::Nothing));
         }
         if !self.commits.is_empty() {
             rows.push((Line::default(), Hit::Nothing));
@@ -555,9 +556,22 @@ impl App {
     }
 
     /// Into the list: its commits (`Ctrl-w j`, at the one shown), or its files (`Ctrl-w k`).
+    /// A diff with no files, said: a draft's are to come; else there are none.
+    pub(super) fn no_files(&self) -> &'static str {
+        if self.unpublished() { "no files yet" } else { "no changes" }
+    }
+
+    /// Whether the list has anything to go to (a section, a file, a commit).
+    pub(super) fn list_has_spots(&self) -> bool {
+        !self.file_entries().is_empty() || !self.commits.is_empty()
+    }
+
     pub(super) fn focus_list(&mut self, commits: bool) {
         if self.files_w == 0 {
             return self.msg = "the files' list is hidden (Ctrl-w e shows it)".into();
+        }
+        if !self.list_has_spots() {
+            return self.msg = format!("the list has nothing to go to ({})", self.no_files());
         }
         (self.files_focus, self.files_sel) = (true, self.current_spot());
         self.in_commits = commits && !self.commits.is_empty();
