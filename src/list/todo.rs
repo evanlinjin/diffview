@@ -354,11 +354,23 @@ impl List {
                     self.scan_unpushed(); // against the PRs' heads, now they're known
                 }
                 Err(e) => {
-                    // (Not ranked on what didn't come: the error stays said. Nothing for you to
-                    // do but wait or try again: what it kept stands meanwhile.)
+                    // (Not ranked on what didn't come: the error stays said.) GitHub out of reach
+                    // (the network): nothing for you to do but wait; dv asks again shortly. Else
+                    // (a login run out, gh missing): the whole of it, for you to see to.
                     let why = format!("{e:#}");
-                    let why = why.rsplit(": ").next().unwrap_or(&why);
-                    self.msg = format!("GitHub didn't answer for the todo's details ({why}): it's as it was; dv tries again, R now");
+                    self.msg = match crate::gh::unreachable(&why) {
+                        true => {
+                            let (tx, rx) = mpsc::channel();
+                            std::thread::spawn(move || {
+                                std::thread::sleep(Duration::from_secs(30));
+                                _ = tx.send(github::list_extra());
+                            });
+                            self.extra_rx = Some(rx);
+                            let kept = if self.extra.is_empty() { "none yet" } else { "it's as it was" };
+                            format!("GitHub didn't answer for the todo's details ({kept}); dv asks again in 30s, R now")
+                        }
+                        false => format!("the todo's details from GitHub: {why}"),
+                    };
                     self.want_rank = None;
                 }
             }

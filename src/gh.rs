@@ -112,6 +112,23 @@ pub(crate) fn login(v: &Value) -> String {
     v["login"].as_str().unwrap_or("ghost").to_owned()
 }
 
+/// Whether `err` (a gh run's, as said) is GitHub out of reach (the network: a timeout, no
+/// connection, no DNS), not something to see to (a login run out, a refusal).
+pub(crate) fn unreachable(err: &str) -> bool {
+    let e = err.to_lowercase();
+    ["timeout", "timed out", "error connecting", "connection refused", "connection reset", "no such host", "name resolution", "network is unreachable", "eof"]
+        .iter()
+        .any(|w| e.contains(w))
+}
+
+#[test]
+fn github_out_of_reach_or_not() {
+    assert!(unreachable("gh api: Post \"https://api.github.com/graphql\": net/http: TLS handshake timeout"));
+    assert!(unreachable("error connecting to api.github.com"));
+    assert!(!unreachable("gh api: HTTP 401: Bad credentials (https://api.github.com/graphql)\nTry authenticating with:  gh auth login"));
+    assert!(!unreachable("running gh: No such file or directory (os error 2)"));
+}
+
 /// `dv repo-file`: a file of GitHub repo `repo` ("owner/name", "owner/name@ref": else its
 /// default branch), as it is (text, up to 1MB); a directory, its entries ("name", "dir/").
 /// Read only (GET), only a repo's contents, and only a public repo's or this one's (text
