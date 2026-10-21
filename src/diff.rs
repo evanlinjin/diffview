@@ -245,7 +245,11 @@ pub fn git(args: &[&str]) -> Result<String> {
         .output()
         .context("running git")?;
     if !out.status.success() {
-        bail!("git {}: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim());
+        // Why first (git's "fatal:" / "error:" lines, before what it was doing: "Preparing
+        // worktree"), as a message shows its first line.
+        let err = String::from_utf8_lossy(&out.stderr);
+        let (why, rest): (Vec<&str>, Vec<&str>) = err.lines().filter(|l| !l.trim().is_empty()).partition(|l| l.starts_with("fatal:") || l.starts_with("error:"));
+        bail!("git {}: {}", args.join(" "), why.into_iter().chain(rest).collect::<Vec<_>>().join("\n"));
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
@@ -533,4 +537,17 @@ fn which_remote() {
     git_in(&dir, &["config", "dv.remote", "fork"]).unwrap();
     assert_eq!(found().as_deref(), Some("fork")); // what you said
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn gits_reason_first() {
+    // A branch taken: "fatal: …" first, not "Preparing worktree …" (a message shows its first line).
+    let dir = scratch_repo("reason-first");
+    git_in(&dir, &["commit", "-q", "--allow-empty", "-m", "first"]).unwrap();
+    git_in(&dir, &["branch", "taken"]).unwrap();
+    let wt = dir.with_extension("wt");
+    let e = format!("{:#}", git_in(&dir, &["worktree", "add", "-b", "taken", &wt.to_string_lossy()]).unwrap_err());
+    let first = e.lines().next().unwrap_or("");
+    assert!(first.contains("fatal: a branch named 'taken' already exists"), "{e}");
+    _ = std::fs::remove_dir_all(&dir);
 }
