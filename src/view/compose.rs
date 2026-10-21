@@ -285,7 +285,7 @@ impl App {
             }
             Action::Publish(close) => {
                 // (It rebases and pushes the branch.)
-                anyhow::ensure!(!self.claude_busy(), "Claude is still at work here: publish once it's done");
+                anyhow::ensure!(!self.claude_busy(), "{}", App::busy_says("publish"));
                 let mut r = self.replacement.clone().context("not a replacement")?;
                 if crate::replace::remote().is_none() {
                     return Ok(self.ask_replace_remote(close));
@@ -374,7 +374,7 @@ impl App {
                 self.post_later(Post::Submit(event, body))
             }
             Action::Commit => {
-                anyhow::ensure!(!self.claude_busy(), "Claude is still at work here: commit once it's done (its changes would be half made)");
+                anyhow::ensure!(!self.claude_busy(), "{}", App::busy_says("commit"));
                 // Claude writes the message (then your editor has it); no review file to keep
                 // it beside: the draft from its replies, as before.
                 match self.claude.path.is_some() {

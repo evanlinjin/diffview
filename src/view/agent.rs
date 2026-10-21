@@ -158,7 +158,7 @@ impl App {
         // (Its pane working is no bar: what you send there waits in its input, as Claude Code
         // has it.)
         if self.claude.job.is_some() || self.replacement.as_ref().is_some_and(|r| r.drafting_now()) {
-            return Some("Claude is still working on the last request".into());
+            return Some(App::busy_says("ask"));
         }
         // A rebase stopped part way: the tree has its conflicts, HEAD is detached.
         if edits && super::rebase::rebasing(&self.root) {
@@ -344,7 +344,7 @@ impl App {
     /// something wrong into its head, or grown long. The review file is what carries over.
     pub(super) fn fresh_claude_session(&mut self) {
         if self.claude.job.is_some() {
-            return self.msg = "Claude is still working on the last request; once it's done".into();
+            return self.msg = App::busy_says("start afresh");
         }
         let pane = self.claude_pane().is_some();
         self.set_session(None);
@@ -786,8 +786,16 @@ impl App {
             Some(j) => Some(format!("◐ claude: {} {}", j.label, ago(j.started))),
             None if self.claude.asking => Some("◐ claude is asking you (Space a)".into()),
             None if self.claude.pane_busy => Some("◐ claude working (its pane)".into()),
+            // (A replacement's redraft, from any dv.)
+            None if self.replacement.as_ref().is_some_and(|r| r.drafting_now()) => Some("◐ claude drafting it".into()),
             None => None,
         }
+    }
+
+    /// Why `what` waits, Claude at work here (`claude_busy`): one wording, the status bar's badge
+    /// saying on what.
+    pub(super) fn busy_says(what: &str) -> String {
+        format!("Claude's at work here (the status bar says on what): {what} once it's done")
     }
 
     /// The PR's Claude pane and its command line.

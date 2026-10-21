@@ -109,7 +109,7 @@ impl App {
     /// them (in the background) and carries the rebase on.
     pub(super) fn start_rebase(&mut self) {
         let r = (|| -> Result<String> {
-            anyhow::ensure!(!self.claude_busy(), "Claude is still at work here: rebase once it's done");
+            anyhow::ensure!(!self.claude_busy(), "{}", App::busy_says("rebase"));
             let onto = self.rebase_onto().context("no base branch to rebase onto")?;
             let (remote, branch) = onto.split_once('/').context("no remote base branch")?;
             // Into that ref whatever the remote's refspec covers (a single-branch clone, say).
@@ -134,7 +134,7 @@ impl App {
 
     /// Claude carries a stopped rebase on: resolves the conflicts, `--continue`s, to the end.
     pub(super) fn rebase_claude(&mut self) -> Result<()> {
-        anyhow::ensure!(!self.claude_busy(), "Claude is still working on the last request");
+        anyhow::ensure!(!self.claude_busy(), "{}", App::busy_says("ask"));
         // Onto what it started onto (the PR's base may have changed meanwhile).
         let onto = noted(&self.root).map(|n| n.1).filter(|o| !o.is_empty()).or_else(|| self.rebase_onto()).unwrap_or_else(|| "its base".into());
         let forked = self.claude_pane().is_some();

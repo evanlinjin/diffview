@@ -426,7 +426,7 @@ impl App {
     /// Whether the PR's counts fit on its pinned title, `w` wide, beside all of it: its text, its
     /// state, Claude's and the checkout's badges (as `render_row` puts them).
     fn title_fits(&self, w: usize) -> bool {
-        let badges = self.claude_doing().map(|d| d.chars().count() + 2).into_iter().chain((!self.sync.is_empty()).then(|| self.sync.chars().count() + 2));
+        let badges = (!self.sync.is_empty()).then(|| self.sync.chars().count() + 2);
         let state = self.header_tag(INFO).map(|t| t.0.chars().count()).into_iter().chain(badges).map(|n| n + 2).sum::<usize>();
         let line = self.rows.first().map_or(0, |r| r.line.text.chars().count());
         line + 2 + self.pr_counts().chars().count() + state <= w
@@ -539,10 +539,6 @@ impl App {
         c if c.is_empty() || self.bar_counts => String::new(), // on the pinned title then
         c => format!("{c}  "),
     };
-    let working = match &self.claude.job {
-        Some(j) => format!("Claude working {}… · ", agent::ago(j.started)),
-        None => String::new(),
-    };
     let view = format!(
         "{}{}{}",
         match self.view {
@@ -556,13 +552,17 @@ impl App {
     // The left side (what you're on, messages, hints) wins: when both don't fit, the right
     // keeps only the essentials, and the left is cut with an ellipsis.
     let essential = format!("{view}{count}{pend}  {}/{} ", self.head.row + 1, self.rows.len());
-    let extras = format!("{ra}{working}{pr}");
+    let extras = format!("{ra}{pr}");
+    // What Claude's doing (a run of this dv's, asking you, at work in its pane): always shown, a
+    // badge in its color.
+    let doing = self.claude_doing().map(|d| format!(" {d} ")).unwrap_or_default();
+    let badge = Style::new().fg(self.ui.base.bg.unwrap_or(Color::Black)).bg(self.ui.pending.fg.unwrap_or(Color::Yellow)).add_modifier(ratatui::style::Modifier::BOLD);
     let width = status.width as usize;
-    let right = match left.width() + extras.chars().count() + essential.chars().count() < width {
-        true => format!("{extras}{essential}"),
-        false => essential,
-    };
-    let left = fit(left, width.saturating_sub(right.chars().count() + 1));
+    let gap = if doing.is_empty() { "" } else { "  " };
+    let essentials = doing.chars().count() + gap.len() + essential.chars().count();
+    let extras = if left.width() + extras.chars().count() + essentials < width { extras } else { String::new() };
+    let right = Line::from(vec![Span::raw(extras), Span::styled(doing, badge), Span::raw(format!("{gap}{essential}"))]);
+    let left = fit(left, width.saturating_sub(right.width() + 1));
     let bar = self.ui.base.patch(self.ui.status);
     f.render_widget(Paragraph::new(left).style(bar), status);
     f.render_widget(Paragraph::new(right).alignment(Alignment::Right).style(bar), status);

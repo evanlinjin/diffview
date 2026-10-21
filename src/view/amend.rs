@@ -467,7 +467,7 @@ impl App {
             return self.msg = "nothing uncommitted to amend (new files stay untracked: commit them)".into();
         }
         if self.claude_busy() {
-            return self.msg = "Claude is still at work here: amend once it's done (its changes would be half made)".into();
+            return self.msg = App::busy_says("amend");
         }
         let subject = |sha: &str| commits.iter().find(|c| c.0 == sha).map_or(String::new(), |c| format!("{} {}", &sha[..7.min(sha.len())], c.1));
         let placed = hunks.iter().filter(|h| h.to.is_some()).count();
@@ -512,7 +512,7 @@ impl App {
     }
 
     fn try_amend(&mut self) -> Result<String> {
-        anyhow::ensure!(!self.claude_busy(), "Claude is still at work here: amend once it's done");
+        anyhow::ensure!(!self.claude_busy(), "{}", App::busy_says("amend"));
         let (hunks, commits) = self.amend_plan()?;
         let (short, backup) = self.backup_name()?;
         // Claude's new messages, for the commits that take changes (what they say then fits).
@@ -544,7 +544,7 @@ impl App {
     /// `f` on a commit in the list: everything uncommitted folded into that one (new lines too).
     pub(super) fn amend_into(&mut self, sha: &str) {
         let r = (|| -> Result<String> {
-            anyhow::ensure!(!self.claude_busy(), "Claude is still at work here: amend once it's done");
+            anyhow::ensure!(!self.claude_busy(), "{}", App::busy_says("amend"));
             let (short, backup) = self.backup_name()?;
             let what = match fold(&self.root, &self.full_base, sha, &[], None, &backup)? {
                 true => format!("dropped {} (its changes all undone)", sha.chars().take(7).collect::<String>()),

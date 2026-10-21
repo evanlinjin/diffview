@@ -391,8 +391,8 @@ impl App {
         }
         let tag = if l.kind == Kind::File && row.main.is_none() { self.header_tag(row.file) } else { None };
         // Pinned, the PR's title has its counts before its state, when they fit beside all of
-        // it (`bar_counts`; else they stay on the status bar); and, always, what Claude's doing
-        // and how the checkout stands against the PR, as badges.
+        // it (`bar_counts`; else they stay on the status bar); and, always, how the checkout
+        // stands against the PR, a badge (what Claude's doing: the status bar's).
         let pinned = r == 0 && self.pin;
         let counts = match pinned && self.bar_counts {
             true => self.pr_counts(),
@@ -403,13 +403,9 @@ impl App {
             segs.push((counts, style.patch(ui.linenr)));
         }
         let badge = |c: Option<Color>| Style::new().fg(ui.base.bg.unwrap_or(Color::Black)).bg(c.unwrap_or(Color::Yellow)).add_modifier(ratatui::style::Modifier::BOLD);
-        if pinned {
-            if let Some(d) = self.claude_doing() {
-                segs.push((format!(" {d} "), badge(ui.pending.fg)));
-            }
-            if !self.sync.is_empty() {
-                segs.push((format!(" {} ", self.sync), badge(ui.warning.fg)));
-            }
+        // (What Claude's doing: the status bar's.)
+        if pinned && !self.sync.is_empty() {
+            segs.push((format!(" {} ", self.sync), badge(ui.warning.fg)));
         }
         if let Some((t, st)) = tag {
             segs.push((t, style.patch(st)));

@@ -220,7 +220,7 @@ impl App {
     /// Drop what isn't committed (in `path`; else all of it, new files too), after a yes
     /// (`sure`): stashed, so `git stash pop` brings it back.
     pub(super) fn drop_uncommitted(&mut self, path: Option<String>, sure: bool) -> Result<String> {
-        anyhow::ensure!(!self.claude_busy(), "Claude is at work here: drop it once it's done");
+        anyhow::ensure!(!self.claude_busy(), "{}", App::busy_says("drop it"));
         let what = path.as_deref().map_or("everything that isn't committed".to_owned(), |p| format!("what isn't committed in {p}"));
         if !sure {
             let items = vec![
@@ -302,7 +302,7 @@ impl App {
     /// the editor; leaving it empty cancels.
     pub(super) fn commit(&mut self, draft: &str) -> Result<String> {
         // (However it got here: an editor pane closing while Claude's at work again, say.)
-        anyhow::ensure!(!self.claude_busy(), "Claude is still at work here: commit once it's done (its changes would be half made)");
+        anyhow::ensure!(!self.claude_busy(), "{}", App::busy_says("commit"));
         if let Some(p) = self.commit_msg_path() {
             _ = std::fs::remove_file(p); // (Claude's message: given to the editor now)
         }

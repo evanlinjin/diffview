@@ -1037,7 +1037,7 @@ fn make_changes_without_comments() {
     let child = std::process::Command::new("sleep").arg("5").spawn().unwrap();
     app.claude.job = Some(agent::ClaudeJob { child, log: std::env::temp_dir().join("dv-test-busy.log"), label: "reviewing", forked: false, started: std::time::Instant::now() });
     app.pick_claude(agent::Ask::Fix);
-    assert!(app.action.is_none() && app.msg.contains("still working"));
+    assert!(app.action.is_none() && app.msg.starts_with("Claude's at work here"));
     if let Some(mut job) = app.claude.job.take() {
         _ = job.child.kill();
     }
@@ -2553,14 +2553,17 @@ fn claude_drafts_a_closing_comment() {
 
 #[test]
 fn claude_working_and_out_of_sync_on_the_title() {
-    // What Claude's doing and how the checkout stands show on the pinned title, as badges, a
-    // long title cut to make room for them.
+    // How the checkout stands shows on the pinned title, a badge, a long title cut to make room;
+    // what Claude's doing on the status bar (always, a badge), not the title.
     let mut app = fixture();
     app.sync = "↑2 unpushed · ✎ uncommitted".into();
     app.claude.pane_busy = true;
     let s = screen(160, 12, |f| app.draw(f));
     let title = s.lines().next().unwrap();
-    assert!(title.contains("◐ claude working (its pane)") && title.contains("↑2 unpushed · ✎ uncommitted"), "{title}");
+    assert!(!title.contains("◐ claude") && title.contains("↑2 unpushed · ✎ uncommitted"), "{title}");
+    assert!(s.lines().last().unwrap().contains("◐ claude working (its pane)"), "{s}");
+    let s = screen(60, 12, |f| app.draw(f));
+    assert!(s.lines().last().unwrap().contains("◐ claude working (its pane)"), "{s}");
     let s = screen(90, 12, |f| app.draw(f));
     assert!(s.lines().next().unwrap().contains("↑2 unpushed"), "{s}");
     // Idle and in step: neither.
