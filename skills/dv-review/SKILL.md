@@ -82,6 +82,22 @@ the file as JSON:
   comment like `// Do this instead` is valid code, and still a placeholder): write the actual
   lines yourself; don't copy a placeholder in, nor ask whether it's one.
 
+**What to look for**, most important first:
+
+- What breaks: a regression, or a change to behaviour or an API that others rely on. Say so
+  before anything else.
+- Special cases that a different data shape would remove. Suggest the shape rather than a
+  patch to the special case.
+- A fix made only where the report pointed, when other callers share the bug: say where the
+  one fix belongs.
+- Comments, docs or commit messages that say something the code doesn't do.
+- Errors that are dropped or swallowed.
+
+If the PR shouldn't go in as it is, say so plainly in the summary, with why. Don't bury it
+under nits. Leave a nit out unless it's cheap to fix. Keep comments short and direct, about
+the code and never the person: the user may post them under their name. Don't quote anyone
+as an authority.
+
 **Other reviewers' comments.** On a PR, `dv review-comments` lists its review comments on GitHub
 (JSON: each thread's `path`, `line`, and its comments' `id`, `author`, `body`). Read them before you
 write yours. Where you have something worth adding to one (it's wrong, and why; it's right, with
