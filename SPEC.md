@@ -236,7 +236,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `Space k` on an issue/PR link | preview it in a popup: state, author, age, comments, labels, body (the link tooltip says so) |
 | `Ctrl-o` | jump back |
 | `c` | comment on the selection, in your pending review |
-| `r` | reply on a thread, in your pending review (on a Claude comment: reply to Claude; on Claude's review summary: reply to it, a thread under the summary, `"conversation": "summary"` in the review file, which Claude answers as it does replies) |
+| `r` | reply on a thread, in your pending review (on a Claude comment: reply to Claude; on Claude's review summary: reply to it, a thread under the summary, `"conversation": "summary"` in the review file, which Claude answers as it does replies). With text selected, the reply's draft starts with it quoted (`> `); else, on a GitHub thread, with the comment under the cursor |
 | `C` | `c` / `r`, but post immediately (not beside a pending review: GitHub refuses that, so dv says so first); in the PR description/conversation: a new conversation comment quoting the comment under the cursor (`c` there: quote it in your review summary) |
 | `s` | suggest a change: `$EDITOR` opens with a ```suggestion block of the selected new-side lines (pending review) |
 | `S` | submit the pending review (comment / approve / request changes) or discard it; under the choices, what's still open (Claude's open comments and how many it answered, unresolved GitHub threads, pending comments on changed code, a checkout that isn't the PR head), also as hint lines when approving |

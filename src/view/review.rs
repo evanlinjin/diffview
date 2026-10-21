@@ -834,33 +834,39 @@ impl App {
     }
 
     pub(super) fn start_reply(&mut self, review: bool) {
-        // On Claude's review summary: go on in the thread replying to it, or start one.
-        if self.rows[self.head.row].info == Some(SUMMARY) && self.rows[self.head.row].thread.is_none() {
-            if self.claude.path.is_none() {
-                return self.msg = "no review file here (not in a git repo?)".into();
-            }
-            return self.action = Some(match self.threads.iter().find(|t| t.conversation == ON_SUMMARY).and_then(|t| t.claude.clone()) {
-                Some(k) => Action::ClaudeReply(k, "", String::new()),
-                None => Action::AskConversation { url: ON_SUMMARY.into(), prefill: String::new(), want: "" },
-            });
-        }
         // Several of Claude's threads selected: one reply to them all.
         if let Some(keys) = self.selected_claude_threads() {
             self.select = false;
             return self.pick_want(Action::ClaudeReplyAll(keys, ""), None);
         }
+        // What's selected, quoted in the reply: what it's about.
+        let sel = self.selected_quote();
+        self.select = false;
+        // On Claude's review summary: go on in the thread replying to it, or start one.
+        if self.rows[self.head.row].info == Some(SUMMARY) && self.rows[self.head.row].thread.is_none() {
+            if self.claude.path.is_none() {
+                return self.msg = "no review file here (not in a git repo?)".into();
+            }
+            let prefill = sel.unwrap_or_default();
+            return self.action = Some(match self.threads.iter().find(|t| t.conversation == ON_SUMMARY).and_then(|t| t.claude.clone()) {
+                Some(k) => Action::ClaudeReply(k, "", prefill),
+                None => Action::AskConversation { url: ON_SUMMARY.into(), prefill, want: "" },
+            });
+        }
         // On lines, say what you want of Claude; under a conversation comment it's a question.
         if let Some((t, k)) = self.claude_at_cursor() {
+            let reply = Action::ClaudeReply(k, "", sel.unwrap_or_default());
             return match self.threads[t].conversation.is_empty() {
-                true => self.pick_want(Action::ClaudeReply(k, "", String::new()), Some(t)),
-                false => self.action = Some(Action::ClaudeReply(k, "", String::new())),
+                true => self.pick_want(reply, Some(t)),
+                false => self.action = Some(reply),
             };
         }
         let t = self.rows[self.head.row].thread;
         match (t, t.and_then(|t| self.root_id(t))) {
             (Some(t), Some(comment)) if self.pr.is_some() => {
                 let thread = self.threads[t].id.clone();
-                let quote = self.comment_under_cursor(t).and_then(|c| self.seen_body(c)).map_or(String::new(), quote);
+                // (Nothing selected: the comment under the cursor, whole.)
+                let quote = sel.or_else(|| self.comment_under_cursor(t).and_then(|c| self.seen_body(c)).map(quote)).unwrap_or_default();
                 self.action = Some(Action::Reply { thread, comment, review, quote });
             }
             _ => self.msg = "move onto a comment thread to reply".into(),

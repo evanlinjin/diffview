@@ -2688,6 +2688,12 @@ fn reply_to_claudes_summary() {
     app.key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
     app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
     assert!(matches!(app.action.take(), Some(Action::ClaudeReply(k, "", q)) if k == "c7" && q.contains("> Because it's minimal.")));
+    // r on it, likewise: the reply's draft starts with what's selected, quoted.
+    app.goto(ans, 0);
+    app.key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+    assert!(matches!(app.action.take(), Some(Action::ClaudeReply(k, "", q)) if k == "c7" && q.starts_with("> Because it's minimal.")));
+    assert!(!app.select);
     // The whole diff (Comments): not there.
     app.bar_to(Bar::Comments);
     assert!(!app.rows.iter().any(|r| r.line.text.contains("why approve?")));
