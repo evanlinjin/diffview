@@ -5,6 +5,18 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.82.0] - 2026-10-21
+
+### Added
+- `dv review-check` warns when Claude's just-written prose runs long (code blocks not counted):
+  a new comment past 900 characters, a reply of the last hour past 1500, the summary past 4000,
+  about the longest tenth of what it wrote before. The warning says what to cut: padding, not
+  the claim, the failure or the fix.
+
+### Changed
+- The dv-review skill says how to write: answer first, what must stay and what's cut, and a
+  shape for comments, replies and the summary.
+
 ## [0.81.1] - 2026-10-21
 
 ### Changed
