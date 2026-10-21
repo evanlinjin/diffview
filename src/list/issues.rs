@@ -231,17 +231,16 @@ fn triage_run(n: u64, updated: &str, fixes: &[(u64, String, String)], root: &std
 }
 
 /// Whether `k` is for moving about, the tabs, the filter, the help (`Nav`) while `pending`
-/// waits for its second key: so it calls that off; Esc only that; not after `s`, which asks how
-/// long.
+/// waits for its second key: so it calls that off; Esc only that.
 fn moves(pending: Option<char>, k: KeyCode) -> bool {
-    pending != Some('s') && !(pending.is_some() && k == KeyCode::Esc)
+    !(pending.is_some() && k == KeyCode::Esc)
 }
 
 #[test]
 fn a_waiting_key_called_off_by_moving() {
     let j = KeyCode::Char('j');
     assert!(moves(None, j) && moves(Some('a'), j) && moves(None, KeyCode::Esc));
-    assert!(!moves(Some('s'), j) && !moves(Some('a'), KeyCode::Esc));
+    assert!(!moves(Some('a'), KeyCode::Esc));
 }
 
 /// An issue to triage, as listed: its `updatedAt` (what it's triaged as of), and the PRs linked
@@ -332,22 +331,14 @@ pub struct Issues {
     triage: HashMap<u64, Triage>,
     /// When each triage was written (seconds): an issue changed since is to triage again.
     triage_at: HashMap<u64, i64>,
-    /// The todo tab: what needs you, in order; Claude's last ranking of it, and the next on its
-    /// way; deferred items (`s`, kept in `deferred-issues.json`), and the one `s` is asking about.
-    todo: Vec<crate::todo::Item>,
-    ranked: Option<crate::todo::Ranked>,
-    rank_rx: Option<Receiver<Result<crate::todo::Ranked>>>,
-    deferred: crate::todo::Deferred,
-    deferring: Option<String>,
-    deferred_file: Option<PathBuf>,
+    /// The todo tab: what needs you, Claude's ranking, what's deferred (`todos.rs`).
+    todos: Todos,
     /// `Space l` in an issue: its labels and assignees to toggle (what, name, on it), and the
     /// one selected.
     meta: Option<(Vec<Meta>, usize, bool)>,
     /// Issues a draft of Claude's (unpublished: `N N`'s) is to fix: its label, whether Claude's
     /// at it now. Not on the todo till it's done: nothing for you there meanwhile.
     draft_fix: HashMap<u64, (String, bool)>,
-    /// Claude reading a deferral's "until …": the item's key, the "or" time, its answer.
-    until_rx: Option<(String, Option<i64>, Receiver<Result<crate::todo::Until>>)>,
     running: HashMap<u64, batch::Status>,
     running_rx: Vec<Receiver<(u64, batch::Status)>>,
     reviews_dir: Option<PathBuf>,
@@ -366,7 +357,6 @@ pub struct Issues {
     auto: bool,
     started: bool,
     auto_done: HashSet<(u64, String)>,
-    auto_ranked: Option<std::time::Instant>,
     root: PathBuf,
     pub msg: String,
 }
@@ -375,10 +365,8 @@ impl Issues {
     pub fn new() -> Issues {
         Issues {
             ui: Theme::load().ui(),
-            ranked: crate::todo::load_of(crate::todo::Of::Issues),
+            todos: Todos::of(crate::todo::Of::Issues),
             auto: crate::diff::git(&["config", "--get", "dv.auto"]).is_ok_and(|v| v.trim() == "true"),
-            deferred: crate::todo::load_deferred(crate::todo::deferred_path_of(crate::todo::Of::Issues).as_deref()),
-            deferred_file: crate::todo::deferred_path_of(crate::todo::Of::Issues),
             reviews_dir: crate::claude::dv_dir().ok().map(|d| d.join("reviews")),
             root: std::env::current_dir().unwrap_or_default(),
             ..Default::default()
@@ -423,23 +411,24 @@ impl Issues {
         // (A draft fixing it, unpublished: its record's task starts "Fix #N", as `N N` has it.)
         self.draft_fix = draft_fix(&records(), &self.drafting);
         let items: Vec<Item> = items.into_iter().filter(|it| !self.draft_fix.contains_key(&it.number)).collect();
-        let (items, _) = crate::todo::order(items, self.ranked.as_ref());
+        let (items, since) = crate::todo::order(items, self.todos.ranked.as_ref());
+        self.todos.since = since;
         // What deferrals waited for that has happened: they're over (said so, once).
         let met: Vec<(String, String)> = items
             .iter()
-            .filter_map(|it| Some((it, self.deferred.get(&it.key())?.cond.as_ref()?)))
+            .filter_map(|it| Some((it, self.todos.deferred.get(&it.key())?.cond.as_ref()?)))
             .filter(|(_, c)| self.happened(c))
             .map(|(it, c)| (it.key(), format!("#{} is back: {}", it.number, c.says())))
             .collect();
         for (key, said) in &met {
-            self.deferred.remove(key);
+            self.todos.deferred.remove(key);
             self.msg = said.clone();
         }
         if !met.is_empty() {
-            _ = crate::todo::save_deferred(self.deferred_file.as_deref(), &self.deferred);
+            _ = self.todos.save();
         }
         // Deferred: at the bottom till then, or till what it needs changes (as dv list's).
-        self.todo = crate::todo::defer(items, &self.deferred, crate::claude::now_secs(), |_, c, _| self.happened(c));
+        self.todos.items = crate::todo::defer(items, &self.todos.deferred, crate::claude::now_secs(), |_, c, _| self.happened(c));
         if let Some(i) = keep.and_then(|n| self.shown().iter().position(|i| i.number == n)) {
             self.nav.sel = i;
         }
@@ -465,7 +454,7 @@ impl Issues {
             let dir = self.reviews_dir.clone();
             let drafted = |n: u64| dir.as_ref().and_then(|d| std::fs::read_to_string(d.join(format!("issue-{n}.json"))).ok()).is_some_and(|t| serde_json::from_str::<Value>(&t).is_ok_and(|v| v["closing"].as_str().is_some_and(|c| !c.trim().is_empty())));
             // (Not what you've put aside.)
-            let deferred: HashSet<u64> = self.todo.iter().filter(|it| it.deferred.is_some()).map(|it| it.number).collect();
+            let deferred: HashSet<u64> = self.todos.items.iter().filter(|it| it.deferred.is_some()).map(|it| it.number).collect();
             let next = self.items.iter().map(|i| (i.number, i.updated.clone())).find(|(n, u)| !deferred.contains(n) && self.close_why(*n).is_some() && !drafted(*n) && !self.auto_done.contains(&(*n, format!("closing@{u}"))));
             if let Some((n, u)) = next {
                 self.auto_done.insert((n, format!("closing@{u}")));
@@ -473,11 +462,7 @@ impl Issues {
                 self.say(format!("auto: Claude is drafting a comment closing #{n}"));
             }
         }
-        let due = self.auto_ranked.is_none_or(|t| t.elapsed() > std::time::Duration::from_secs(15 * 60));
-        let now: Vec<crate::todo::Item> = self.todo.iter().filter(|it| it.deferred.is_none()).cloned().collect();
-        let changed = self.ranked.as_ref().is_none_or(|r| r.fingerprint != crate::todo::fingerprint(&now));
-        if due && changed && !busy && !started && self.rank_rx.is_none() && !now.is_empty() {
-            self.auto_ranked = Some(std::time::Instant::now());
+        if !busy && !started && self.todos.auto_rank_due() {
             self.rank();
         }
     }
@@ -486,7 +471,7 @@ impl Issues {
     /// triaged, and what's changed since its triage, in the todo's order.
     fn auto_picks(&mut self) -> Vec<u64> {
         let mut run = vec![];
-        for it in self.todo.iter().filter(|it| it.deferred.is_none()) {
+        for it in self.todos.items.iter().filter(|it| it.deferred.is_none()) {
             let Some(i) = self.items.iter().find(|i| i.number == it.number) else { continue };
             use crate::todo::Need::*;
             let due = it.needs.iter().any(|n| matches!(n, Retriage | Untriaged | FixMerged(_)));
@@ -511,28 +496,28 @@ impl Issues {
     /// Why Claude would close issue `n`: its triage says, or its ranking of the todo did.
     fn close_why(&self, n: u64) -> Option<String> {
         let triage = self.triage.get(&n).map(|t| t.close.clone()).filter(|c| !c.is_empty());
-        triage.or_else(|| self.ranked.as_ref()?.closes.get(&format!("issue-{n}")).cloned())
+        triage.or_else(|| self.todos.ranked.as_ref()?.closes.get(&format!("issue-{n}")).cloned())
     }
 
     /// Issues auto would triage: not triaged, not deferred.
     fn untriaged(&self) -> usize {
-        self.todo.iter().filter(|it| it.deferred.is_none() && it.needs.contains(&crate::todo::Need::Untriaged)).count()
+        self.todos.items.iter().filter(|it| it.deferred.is_none() && it.needs.contains(&crate::todo::Need::Untriaged)).count()
     }
 
     /// Claude at work from here: triaging, drafting a fix or a closing comment, ranking.
     pub fn busy(&self) -> bool {
-        self.running.values().any(batch::Status::running) || !self.drafting.is_empty() || self.closing_rx.is_some() || self.rank_rx.is_some()
+        self.running.values().any(batch::Status::running) || !self.drafting.is_empty() || self.closing_rx.is_some() || self.todos.rank_rx.is_some()
     }
 
     /// Those not deferred: what needs you now.
     fn todo_now(&self) -> usize {
-        self.todo.iter().filter(|it| it.deferred.is_none()).count()
+        self.todos.items.iter().filter(|it| it.deferred.is_none()).count()
     }
 
     /// The issues on the tab shown, filtered.
     pub fn shown(&self) -> Vec<&Issue> {
         if self.nav.tab == ITab::Todo {
-            return self.todo.iter().filter_map(|it| self.items.iter().find(|i| i.number == it.number)).filter(|i| self.matches(i)).collect();
+            return self.todos.items.iter().filter_map(|it| self.items.iter().find(|i| i.number == it.number)).filter(|i| self.matches(i)).collect();
         }
         self.items
             .iter()
@@ -585,7 +570,7 @@ impl Issues {
                         let first = !self.started;
                         // (Not a ranking straight away: once the triages are in, a quarter hour on.)
                         if first {
-                            (self.started, self.auto_ranked) = (true, Some(std::time::Instant::now()));
+                            (self.started, self.todos.auto_ranked) = (true, Some(std::time::Instant::now()));
                         }
                         self.reviews_mtime = None; // read the triages for these
                         self.watch_reviews();
@@ -605,9 +590,7 @@ impl Issues {
             self.watch_reviews();
             self.auto_run();
             // Claude's reading of a deferral's "until …".
-            if let Some(Ok(res)) = self.until_rx.as_ref().map(|(_, _, rx)| rx.try_recv())
-                && let Some((key, or, _)) = self.until_rx.take()
-            {
+            if let Some((key, res, or)) = self.todos.until_news() {
                 match res {
                     Ok(c) => self.defer_on(&key, c, or),
                     Err(e) => self.msg = format!("not deferred: {e:#}"),
@@ -615,15 +598,13 @@ impl Issues {
             }
             // A deferral whose time's come: back.
             let now = crate::claude::now_secs();
-            if self.todo.iter().any(|it| it.deferred.as_ref().is_some_and(|d| d.until <= now)) {
+            if self.todos.items.iter().any(|it| it.deferred.as_ref().is_some_and(|d| d.until <= now)) {
                 self.find_todo();
             }
-            if let Some(Ok(res)) = self.rank_rx.as_ref().map(Receiver::try_recv) {
-                self.rank_rx = None;
+            if let Some(res) = self.todos.rank_news() {
                 match res {
-                    Ok(r) => {
-                        self.say(format!("Claude ranked what needs you (${:.2})", r.cost));
-                        self.ranked = Some(r);
+                    Ok(()) => {
+                        self.say(format!("Claude ranked what needs you (${:.2})", self.todos.ranked.as_ref().map_or(0.0, |r| r.cost)));
                         self.find_todo();
                     }
                     Err(e) => self.msg = format!("not ranked: {e:#}"),
@@ -758,6 +739,23 @@ impl Issues {
         let pending = self.pending.take();
         let this = self.shown().get(self.nav.sel).map(|i| i.number);
         self.msg.clear();
+        // After `s`: how long to defer it for, or until what (any other key: not).
+        match self.todos.deferring_key(k.code) {
+            Some(After::Deferred(said)) => {
+                self.msg = said;
+                self.save_defer();
+                return None;
+            }
+            Some(After::Until(key)) => {
+                let what = "defer it until… (e.g. #2258 gets a push, the author pushes, #2258 is merged, 3 days; \"…, or 2 weeks\": whichever first)";
+                if let Some(text) = said(edit(term, what, "", false, true), &mut self.msg) {
+                    self.defer_until(key, &text);
+                }
+                return None;
+            }
+            Some(After::Not) => return (self.msg = "not deferred".into(), None).1,
+            None => {}
+        }
         if moves(pending, k.code) && self.nav.key(k, n, self.height()) {
             return None;
         }
@@ -769,20 +767,10 @@ impl Issues {
             }
             (Some('a'), KeyCode::Char('a')) => self.triage_marked(term),
             (Some('r'), KeyCode::Char('r')) => self.rank(),
-            // `s` asked how long: 1 an hour, 4 four hours, d a day, w a week.
-            (Some('s'), KeyCode::Char(c @ ('1' | '4' | 'd' | 'w'))) => self.defer_for(c),
-            (Some('s'), KeyCode::Char('u')) => {
-                let key = self.deferring.take()?;
-                let what = "defer it until… (e.g. #2258 gets a push, the author pushes, #2258 is merged, 3 days; \"…, or 2 weeks\": whichever first)";
-                if let Some(text) = said(edit(term, what, "", false, true), &mut self.msg) {
-                    self.defer_until(key, &text);
-                }
-            }
-            (Some('s'), _) => self.msg = "not deferred".into(),
             (_, KeyCode::Char('s')) if self.nav.tab == ITab::Todo => self.defer_key(),
             (_, KeyCode::Char('r')) if self.nav.tab == ITab::Todo => {
                 self.pending = Some('r');
-                self.msg = format!("r again: Claude ranks the {} issue(s) that need you (one run; {})", self.todo_now(), match &self.ranked {
+                self.msg = format!("r again: Claude ranks the {} issue(s) that need you (one run; {})", self.todo_now(), match &self.todos.ranked {
                     Some(r) => format!("ranked {} ago, cost ${:.2}", gh::ago_secs(crate::claude::now_secs() - r.at), r.cost),
                     None => "never ranked before".into(),
                 });
@@ -1062,14 +1050,12 @@ impl Issues {
     /// `s` on a todo item: defer it (the next key says how long), or bring a deferred one back.
     fn defer_key(&mut self) {
         let Some(n) = self.shown().get(self.nav.sel).map(|i| i.number) else { return };
-        let Some(it) = self.todo.iter().find(|it| it.number == n) else { return };
-        if it.deferred.is_some() {
-            self.deferred.remove(&it.key());
-            self.msg = format!("#{n} is back");
-            return self.save_defer();
+        let Some(it) = self.todos.items.iter().find(|it| it.number == n).cloned() else { return };
+        let (changed, said) = self.todos.defer_key(&it, &format!("#{n}"));
+        self.msg = said;
+        if changed {
+            self.save_defer();
         }
-        self.msg = "defer it for: 1 an hour, 4 four hours, d a day, w a week, u until… (any other key: not); back sooner if what it needs changes".into();
-        (self.pending, self.deferring) = (Some('s'), Some(it.key()));
     }
 
     /// Whether what an issue's deferral waits for has happened: its fix PR merged, closed,
@@ -1095,21 +1081,18 @@ impl Issues {
     /// `s` then `u`: defer the issue until what you write happens ("…, or 2 weeks": whichever
     /// first). dv reads the usual phrasings; the rest, Claude (`until_rx`).
     fn defer_until(&mut self, key: String, text: &str) {
-        let now = crate::claude::now_secs();
-        let (text, or) = crate::todo::or_time(text, now);
-        match crate::todo::Until::parse(&text, now) {
-            Some(c) => self.defer_on(&key, c, or),
-            None => {
-                let n = self.todo.iter().find(|it| it.key() == key).map_or(0, |it| it.number);
-                let fixes: Vec<String> = self.fixes(n).iter().map(|p| format!("#{} ({})", p.0, p.1.to_lowercase())).collect();
-                let about = match fixes.is_empty() {
-                    true => format!("issue #{n} (no PR fixes it yet)"),
-                    false => format!("issue #{n} (the PRs fixing it: {}; \"the author\" is theirs)", fixes.join(", ")),
-                };
-                let about = format!("{about}; for an issue only a fix PR merged, closed or pushed to, or a time, apply");
-                self.msg = "Claude is reading when you mean…".into();
-                self.until_rx = Some((key, or, crate::todo::interpret(text, about, self.root.clone())));
-            }
+        let n = self.todos.items.iter().find(|it| it.key() == key).map_or(0, |it| it.number);
+        let fixes = self.fixes(n);
+        let about = || {
+            let about = match fixes.is_empty() {
+                true => format!("issue #{n} (no PR fixes it yet)"),
+                false => format!("issue #{n} (the PRs fixing it: {}; \"the author\" is theirs)", fixes_text(&fixes)),
+            };
+            format!("{about}; for an issue only a fix PR merged, closed or pushed to, or a time, apply")
+        };
+        match self.todos.until(key.clone(), text, about, &self.root) {
+            Reading::Read(c, or) => self.defer_on(&key, c, or),
+            Reading::Asked => self.msg = "Claude is reading when you mean…".into(),
         }
     }
 
@@ -1134,7 +1117,7 @@ impl Issues {
     /// fix PRs' merging or pushes ("the author pushes": its one open fix's), or a time.
     fn defer_on(&mut self, key: &str, c: crate::todo::Until, or: Option<i64>) {
         use crate::todo::Until;
-        let Some(it) = self.todo.iter().find(|it| it.key() == key).cloned() else { return };
+        let Some(it) = self.todos.items.iter().find(|it| it.key() == key).cloned() else { return };
         let open: Vec<(u64, String, String)> = self.fixes(it.number).into_iter().filter(|p| p.1 == "OPEN").collect();
         let c = match c {
             Until::Pushed(_) if open.len() == 1 => Until::PushedTo(open[0].0, open[0].2.clone()),
@@ -1151,7 +1134,7 @@ impl Issues {
             c => return self.msg = format!("not deferred: an issue can't wait until {} (a fix PR merging, closing or getting a push, or a time)", c.says()),
         };
         let (until, cond, says) = crate::todo::until_or(c, or);
-        self.deferred.insert(key.to_owned(), crate::todo::Deferral { until, needs: it.needs_key(), cond, at: 0 });
+        self.todos.defer(key, until, cond, 0);
         self.msg = format!("deferred until {says} (s on it brings it back)");
         self.save_defer();
     }
@@ -1218,36 +1201,29 @@ impl Issues {
         }
     }
 
-    fn defer_for(&mut self, c: char) {
-        let Some(key) = self.deferring.take() else { return };
-        let Some(it) = self.todo.iter().find(|it| it.key() == key) else { return };
-        let (secs, how) = crate::todo::defer_secs(c);
-        self.deferred.insert(key, crate::todo::Deferral { until: crate::claude::now_secs() + secs, needs: it.needs_key(), cond: None, at: 0 });
-        self.msg = format!("deferred for {how} (s on it brings it back)");
-        self.save_defer();
-    }
-
     fn save_defer(&mut self) {
-        if let Err(e) = crate::todo::save_deferred(self.deferred_file.as_deref(), &self.deferred) {
-            self.msg = format!("couldn't save it: {e:#}");
+        if let Some(e) = self.todos.save() {
+            self.msg = e;
         }
         self.find_todo();
     }
 
     /// `r r`: Claude ranks the todo tab (one run, in the background).
     fn rank(&mut self) {
-        if self.rank_rx.is_some() {
+        if self.todos.rank_rx.is_some() {
             return self.msg = "Claude is ranking them already".into();
         }
         if self.todo_now() == 0 {
             return self.msg = "nothing on the todo tab to rank".into();
         }
-        let now: Vec<crate::todo::Item> = self.todo.iter().filter(|it| it.deferred.is_none()).cloned().collect();
-        let lines: Vec<String> = now
+        let lines: Vec<String> = self
+            .todos
+            .items
             .iter()
+            .filter(|it| it.deferred.is_none())
             .filter_map(|it| Some(about_issue(it, self.items.iter().find(|i| i.number == it.number)?, self.triage.get(&it.number))))
             .collect();
-        self.rank_rx = Some(crate::todo::rank_of(lines, crate::todo::fingerprint(&now), self.root.clone(), crate::todo::Of::Issues));
+        self.todos.rank(lines, &self.root, crate::todo::Of::Issues);
         self.msg = "Claude is ranking what needs you…".into();
     }
 
@@ -1327,7 +1303,7 @@ impl Issues {
             .skip(top)
             .take(h)
             .flat_map(|(k, i)| {
-                let item = (self.nav.tab == ITab::Todo).then(|| self.todo.iter().find(|it| it.number == i.number)).flatten();
+                let item = (self.nav.tab == ITab::Todo).then(|| self.todos.items.iter().find(|it| it.number == i.number)).flatten();
                 let card_w = column.unwrap_or(width);
                 let rank = item.filter(|_| column.is_some()).map(|_| k + 1); // (narrow: on the line under the title)
                 let close = self.close_why(i.number).unwrap_or_default();
@@ -1360,7 +1336,7 @@ impl Issues {
             _ if column.is_some() => " ? keys".into(),
             _ => String::new(), // the keys are in the bottom-right popup
         };
-        let order = match (self.nav.tab, &self.rank_rx, &self.ranked) {
+        let order = match (self.nav.tab, &self.todos.rank_rx, &self.todos.ranked) {
             (ITab::Todo, Some(_), _) => "Claude is ranking…".to_owned(),
             (ITab::Todo, None, Some(r)) => format!("ranked {} ago, {}", gh::ago_secs(crate::claude::now_secs() - r.at), super::todo::cost_text(r.cost)),
             (ITab::Todo, None, None) => "in the rules' order".to_owned(),
@@ -1596,7 +1572,7 @@ fn issues_listed_triaged_filtered() {
     snapshot("issues", &screen(140, 12, |f| l.draw(f)));
     // The todo tab: #7 assigned to you, a PR would fix it; #8 Claude would close.
     l.find_todo();
-    assert_eq!(l.todo.iter().map(|it| (it.number, it.needs.clone())).collect::<Vec<_>>(), [
+    assert_eq!(l.todos.items.iter().map(|it| (it.number, it.needs.clone())).collect::<Vec<_>>(), [
         (8, vec![crate::todo::Need::WouldClose("answered in #3".into())]),
         (7, vec![crate::todo::Need::Assigned, crate::todo::Need::FixOpen(9), crate::todo::Need::Untriaged]),
     ]);
@@ -1627,14 +1603,14 @@ fn issues_listed_triaged_filtered() {
     l.find_todo();
     assert_eq!(l.auto_picks(), [7]);
     // Until its fix PR gets a push, or 2 weeks: from #9's head now; back once it moves on.
-    l.deferred_file = Some(dir.join("deferred-issues.json"));
-    let key = l.todo.iter().find(|it| it.number == 7).unwrap().key();
+    l.todos.deferred_file = Some(dir.join("deferred-issues.json"));
+    let key = l.todos.items.iter().find(|it| it.number == 7).unwrap().key();
     l.defer_until(key.clone(), "the author makes progress, or 2 weeks");
     assert!(l.msg.starts_with("deferred until #9 gets a push (past h9), or in 1"), "{}", l.msg);
-    assert!(l.todo.iter().find(|it| it.number == 7).unwrap().deferred.as_ref().is_some_and(|d| d.until < i64::MAX));
+    assert!(l.todos.items.iter().find(|it| it.number == 7).unwrap().deferred.as_ref().is_some_and(|d| d.until < i64::MAX));
     l.items[0].fixed_by[0].2 = "h10".into();
     l.find_todo();
-    assert!(l.todo.iter().find(|it| it.number == 7).unwrap().deferred.is_none() && l.msg.starts_with("#7 is back"), "{}", l.msg);
+    assert!(l.todos.items.iter().find(|it| it.number == 7).unwrap().deferred.is_none() && l.msg.starts_with("#7 is back"), "{}", l.msg);
     // A PR that doesn't fix it: dv wouldn't see it.
     l.defer_until(key.clone(), "#99 is merged");
     assert!(l.msg.starts_with("not deferred: #99 isn't a PR fixing #7"), "{}", l.msg);
@@ -1685,7 +1661,7 @@ fn auto_triages_each_issue_once_at_a_time() {
     let mut l = Issues { items: (1..=5).map(|n| Issue { number: n, updated: "t1".into(), ..Default::default() }).collect(), ..Default::default() };
     let mut put_aside = it(1, vec![Need::Untriaged]);
     put_aside.deferred = Some(crate::todo::Deferral { until: i64::MAX, needs: String::new(), cond: None, at: 0 });
-    l.todo = vec![put_aside, it(2, vec![Need::Untriaged]), it(3, vec![]), it(4, vec![Need::Retriage]), it(5, vec![Need::Untriaged])];
+    l.todos.items = vec![put_aside, it(2, vec![Need::Untriaged]), it(3, vec![]), it(4, vec![Need::Retriage]), it(5, vec![Need::Untriaged])];
     // Not what's deferred, nor what needs no triage; at most AT_ONCE (the rest next time).
     assert_eq!(batch::AT_ONCE, 2);
     assert_eq!(l.auto_picks(), [2, 4]);
@@ -1696,6 +1672,6 @@ fn auto_triages_each_issue_once_at_a_time() {
     assert_eq!(l.auto_picks(), [2]);
     // Or once a PR linked as fixing it merges (the issue's time stays as it was).
     l.items[1].fixed_by = vec![(9, "MERGED".into(), String::new())];
-    l.todo[1].needs = vec![Need::FixMerged(9)];
+    l.todos.items[1].needs = vec![Need::FixMerged(9)];
     assert_eq!(l.auto_picks(), [2]);
 }

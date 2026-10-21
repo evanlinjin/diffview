@@ -285,7 +285,7 @@ fn todo_tab() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("reviews")).unwrap();
     let mut l = List::new("".into());
-    (l.reviews_dir, l.ranked, l.deferred, l.deferred_file) = (Some(dir.join("reviews")), None, Default::default(), None);
+    (l.reviews_dir, l.todos.ranked, l.todos.deferred, l.todos.deferred_file) = (Some(dir.join("reviews")), None, Default::default(), None);
     l.prs = vec![pr(1, "Fix fees", "amy"), pr(2, "Docs", "bo"), pr(3, "Mine", "me")];
     l.me = "me".into();
     let extra = |requested| super::Extra { requested, mergeable: "MERGEABLE".into(), head_oid: "h".into(), ..Default::default() };
@@ -327,27 +327,27 @@ fn todo_tab() {
     l.prs[1].checks = Some((5, 0, 0));
     l.find_todo();
     assert_eq!(shown(&l), [3, 2, 1]);
-    assert_eq!(l.todo[0].says(), "Claude answered you on 1 thread · Claude's review is new to you");
+    assert_eq!(l.todos.items[0].says(), "Claude answered you on 1 thread · Claude's review is new to you");
     // Claude's part: a review where there's none (#1, #2), nothing on #3 (up to date, nothing waiting).
-    assert!(l.todo.iter().all(|it| (it.number == 3) == it.claude.is_none()));
+    assert!(l.todos.items.iter().all(|it| (it.number == 3) == it.claude.is_none()));
     // Claude's ranking: its order and words, kept while nothing's changed.
-    let fp = crate::todo::fingerprint(&l.todo);
+    let fp = crate::todo::fingerprint(&l.todos.items);
     // Nothing ranks by itself: not opening the tab, not R (only r r, twice).
-    assert!(l.rank_rx.is_none());
+    assert!(l.todos.rank_rx.is_none());
     let k = |l: &mut List, c| l.key(KeyEvent::new(c, KeyModifiers::NONE));
     k(&mut l, KeyCode::Char('r'));
-    assert!(l.rank_rx.is_none() && l.msg.starts_with("r again: Claude ranks the 3 PR(s) that need you, one run (never ranked before)"), "{}", l.msg);
+    assert!(l.todos.rank_rx.is_none() && l.msg.starts_with("r again: Claude ranks the 3 PR(s) that need you, one run (never ranked before)"), "{}", l.msg);
     k(&mut l, KeyCode::Char('j')); // anything else calls it off
     assert!(l.confirm.is_none());
-    l.ranked = Some(crate::todo::Ranked { at: crate::claude::now_secs() - 3600, cost: 0.38, fingerprint: fp, waits: Default::default(), closes: Default::default(), items: vec![("pr-1".into(), "a fee bug — review it".into()), ("pr-3".into(), "y".into()), ("pr-2".into(), "z".into())] });
+    l.todos.ranked = Some(crate::todo::Ranked { at: crate::claude::now_secs() - 3600, cost: 0.38, fingerprint: fp, waits: Default::default(), closes: Default::default(), items: vec![("pr-1".into(), "a fee bug — review it".into()), ("pr-3".into(), "y".into()), ("pr-2".into(), "z".into())] });
     l.find_todo();
-    assert_eq!((shown(&l), l.since), (vec![1, 3, 2], crate::todo::Since::default()));
+    assert_eq!((shown(&l), l.todos.since), (vec![1, 3, 2], crate::todo::Since::default()));
     assert!(l.since_text().contains("nothing's changed since"));
     // A new one since: counted, and said on its card.
     l.prs.push(pr(4, "New", "cy"));
     l.extra.insert(4, extra(true));
     l.find_todo();
-    assert_eq!(l.since.new, 1);
+    assert_eq!(l.todos.since.new, 1);
     assert!(l.rank_offer().contains("cost $0.38, since: 1 new"), "{}", l.rank_offer());
     l.prs.pop();
     l.find_todo();
@@ -356,7 +356,7 @@ fn todo_tab() {
     // the place in the order under the number, what holds it up on the title line.
     l.nav.sel = 0;
     l.prs[0].checks = Some((1, 2, 0));
-    l.ranked.as_mut().unwrap().items[0].1 = "a fee bug — it rounds the wrong way for some wallets, reported twice\nreview it, then ask for a test".into();
+    l.todos.ranked.as_mut().unwrap().items[0].1 = "a fee bug — it rounds the wrong way for some wallets, reported twice\nreview it, then ask for a test".into();
     l.find_todo();
     snapshot("list_todo_wide", &screen(170, 12, |f| l.draw(f)));
     let _ = std::fs::remove_dir_all(&dir);
@@ -369,7 +369,7 @@ fn defer_from_the_todo_tab() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("reviews")).unwrap();
     let mut l = List::new("".into());
-    (l.reviews_dir, l.ranked, l.deferred_file, l.deferred) = (Some(dir.join("reviews")), None, Some(dir.join("deferred.json")), Default::default());
+    (l.reviews_dir, l.todos.ranked, l.todos.deferred_file, l.todos.deferred) = (Some(dir.join("reviews")), None, Some(dir.join("deferred.json")), Default::default());
     l.prs = vec![pr(1, "amy"), pr(2, "bo")];
     l.me = "me".into();
     let extra = |requested| super::Extra { requested, mergeable: "MERGEABLE".into(), head_oid: "h".into(), ..Default::default() };
@@ -387,13 +387,13 @@ fn defer_from_the_todo_tab() {
     k(&mut l, KeyCode::Char('s'));
     k(&mut l, KeyCode::Char('4'));
     assert_eq!((shown(&l), l.todo_now()), (vec![2, 1], 1));
-    assert!(l.todo[1].deferred.as_ref().is_some_and(|d| d.until - crate::claude::now_secs() > 3 * 3600));
+    assert!(l.todos.items[1].deferred.as_ref().is_some_and(|d| d.until - crate::claude::now_secs() > 3 * 3600));
     assert!(crate::todo::load_deferred(Some(&dir.join("deferred.json"))).contains_key("pr-1"));
     // Claude at work on #2 (here or in any dv): to the bottom, out of the count, said so.
     l.running.insert(2, "making the changes".into());
     l.find_todo();
     assert_eq!((shown(&l), l.todo_now()), (vec![1, 2], 0)); // #1 deferred, #2 busy: nothing for you now
-    assert_eq!(l.todo[1].busy.as_deref(), Some("making the changes"));
+    assert_eq!(l.todos.items[1].busy.as_deref(), Some("making the changes"));
     assert_eq!(l.claude_state(2), Some(("claude: making the changes…".into(), true)));
     // Done: back.
     l.running.clear();
@@ -403,10 +403,10 @@ fn defer_from_the_todo_tab() {
     // everyone; back once #9's merged.
     l.extra.get_mut(&2).unwrap().said = vec![("bo".into(), "Blocked on #9.".into(), 0)];
     l.find_todo();
-    assert_eq!(l.todo.last().map(|it| (it.number, it.waits.clone())), Some((2, Some((crate::todo::Until::Merged(9), "bo".into())))));
+    assert_eq!(l.todos.items.last().map(|it| (it.number, it.waits.clone())), Some((2, Some((crate::todo::Until::Merged(9), "bo".into())))));
     l.others.insert(9, "MERGED".into());
     l.find_todo();
-    assert!(l.todo.iter().all(|it| it.waits.is_none()));
+    assert!(l.todos.items.iter().all(|it| it.waits.is_none()));
     l.extra.get_mut(&2).unwrap().said.clear();
     // b b: ask for a rebase (the first b says what it'll do; anything else calls it off).
     k(&mut l, KeyCode::Char('b'));
@@ -533,14 +533,14 @@ fn mouse_in_the_list() {
 fn drafting_a_replacement_on_the_todo_tab() {
     let pr = |number, author: &str| Listed { number, title: "t".into(), author: author.into(), state: "OPEN".into(), updated: format!("2026-0{number}"), files: 1, ..Listed::default() };
     let mut l = List::new("".into());
-    (l.ranked, l.deferred, l.deferred_file) = (None, Default::default(), None);
+    (l.todos.ranked, l.todos.deferred, l.todos.deferred_file) = (None, Default::default(), None);
     l.prs = vec![pr(1, "amy"), pr(2, "bo"), pr(3, "cy")];
     l.me = "me".into();
     let extra = || super::Extra { requested: true, mergeable: "MERGEABLE".into(), head_oid: "h".into(), ..Default::default() };
     l.extra = HashMap::from([(1, extra()), (2, extra()), (3, extra())]);
     let order = |l: &mut List| {
         l.find_todo();
-        l.todo.iter().map(|it| (it.is_rep(), it.number)).collect::<Vec<_>>()
+        l.todos.items.iter().map(|it| (it.is_rep(), it.number)).collect::<Vec<_>>()
     };
     let first = order(&mut l)[0].1;
     // Claude drafting #first's replacement: #first goes to the bottom, saying so.
@@ -549,7 +549,7 @@ fn drafting_a_replacement_on_the_todo_tab() {
     l.drafting.insert(first, crate::batch::Status::Reviewing);
     let o = order(&mut l);
     assert_eq!(o.last(), Some(&(false, first)), "{o:?}");
-    assert_eq!(l.todo.last().unwrap().busy.as_deref(), Some("drafting a replacement"));
+    assert_eq!(l.todos.items.last().unwrap().busy.as_deref(), Some("drafting a replacement"));
     // Drafted: the replacement, ready for you to review, on top.
     l.rep_of.get_mut(&first).unwrap().title = "Do it properly".into();
     l.drafting.insert(first, crate::batch::Status::Done("3 turns".into()));
@@ -559,7 +559,7 @@ fn drafting_a_replacement_on_the_todo_tab() {
     l.running_reps.insert(first, "working (in its pane)".into());
     let o = order(&mut l);
     assert_eq!(o.last(), Some(&(true, first)), "{o:?}");
-    assert_eq!(l.todo.last().unwrap().busy.as_deref(), Some("working (in its pane)"));
+    assert_eq!(l.todos.items.last().unwrap().busy.as_deref(), Some("working (in its pane)"));
     l.running_reps.clear();
     assert_eq!(order(&mut l)[0], (true, first));
     // On it, what's done to a PR on GitHub isn't done to the one it replaces: said so.
@@ -603,11 +603,11 @@ fn a_a_retries_a_ci_fix() {
     let mut l = List::new("-wb".into());
     let item = |needs: Vec<Need>, claude| Item { kind: crate::todo::Kind::Pr, number: 7, needs, claude, updated: String::new(), reason: None, changed: false, deferred: None, busy: None, waits: None };
     let ci = Need::CiNotThisPr("flaky".into(), true);
-    l.todo = vec![item(vec![ci.clone()], Some(batch::Task::Review))];
+    l.todos.items = vec![item(vec![ci.clone()], Some(batch::Task::Review))];
     assert_eq!(l.todo_task(7), batch::Task::FixChecks);
-    l.todo = vec![item(vec![ci.clone()], Some(batch::Task::Answer { theirs: false }))];
+    l.todos.items = vec![item(vec![ci.clone()], Some(batch::Task::Answer { theirs: false }))];
     assert_eq!(l.todo_task(7), batch::Task::Answer { theirs: false });
-    l.todo = vec![item(vec![ci, Need::ClaudeChanged(1, 0)], None)];
+    l.todos.items = vec![item(vec![ci, Need::ClaudeChanged(1, 0)], None)];
     assert_eq!(l.todo_task(7), batch::Task::Review);
 }
 

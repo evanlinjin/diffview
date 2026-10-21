@@ -62,18 +62,20 @@ impl List {
         }
         // Esc after a key waiting for its second (M, D, s, …; g's: `Nav`): called off, as Helix's,
         // not quit.
-        if k.code == KeyCode::Esc && (armed.is_some() || self.deferring.is_some()) {
-            self.deferring = None;
+        if k.code == KeyCode::Esc && (armed.is_some() || self.todos.deferring.is_some()) {
+            self.todos.deferring = None;
             return None;
         }
         // After `s`: how long to defer it for, or until what (any other key: not).
-        if let Some(key) = self.deferring.take() {
-            match k.code {
-                KeyCode::Char(c @ ('1' | '4' | 'd' | 'w')) => self.defer_for(&key, c),
-                KeyCode::Char('u') => return Some(Do::DeferUntil(key)),
-                _ => self.msg = "not deferred".into(),
+        match self.todos.deferring_key(k.code) {
+            Some(After::Deferred(said)) => {
+                self.msg = said;
+                self.save_defer();
+                return None;
             }
-            return None;
+            Some(After::Until(key)) => return Some(Do::DeferUntil(key)),
+            Some(After::Not) => return (self.msg = "not deferred".into(), None).1,
+            None => {}
         }
         // Moving about, the tabs (`gp` before `p` on a tab), the filter, the help.
         if self.nav.key(k, n, self.height()) {
@@ -122,7 +124,7 @@ impl List {
                 }
             }
             KeyCode::Char('r') if self.nav.tab == Tab::Todo => {
-                if self.rank_rx.is_some() {
+                if self.todos.rank_rx.is_some() {
                     return (self.msg = "Claude is ranking already".into(), None).1;
                 }
                 if self.again(armed, ('r', 0), self.rank_offer()) {

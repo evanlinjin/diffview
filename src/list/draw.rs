@@ -155,7 +155,7 @@ impl List {
         };
         // On the right, how it's ordered (on the todo tab, Claude's ranking: how old, what it
         // cost, what's changed since), and the flags PRs open with.
-        let order = match (self.nav.tab, &self.rank_rx, &self.ranked) {
+        let order = match (self.nav.tab, &self.todos.rank_rx, &self.todos.ranked) {
             (Tab::Todo, Some(_), _) => "Claude is ranking…".to_owned(),
             (Tab::Todo, None, Some(r)) => format!("ranked {} ago, {}{}", ago_secs(crate::claude::now_secs() - r.at), todo::cost_text(r.cost), self.since_text()),
             (Tab::Todo, None, None) => "in the rules' order".to_owned(),

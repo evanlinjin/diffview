@@ -27,7 +27,8 @@ use draw::{draw_help, draw_keys, status_bar, top_bar};
 mod keys;
 mod marks;
 mod nav;
-use {keys::*, marks::*, nav::*};
+mod todos;
+use {keys::*, marks::*, nav::*, todos::*};
 pub(crate) use github::{Extra, Listed};
 use crate::gh::ago_secs;
 #[cfg(test)]
@@ -100,10 +101,8 @@ pub struct List {
     gone: HashMap<u64, Listed>,
     gone_rx: Vec<Receiver<Lookups>>,
     gone_pending: HashSet<u64>,
-    todo: Vec<crate::todo::Item>,
-    since: crate::todo::Since,
-    ranked: Option<crate::todo::Ranked>,
-    rank_rx: Option<Receiver<Result<crate::todo::Ranked>>>,
+    /// What needs you: in order, Claude's ranking, what's deferred (`todos.rs`).
+    todos: Todos,
     /// Rank (again) once what's needed is in (`R` on the todo tab).
     want_rank: bool,
     /// What Claude is doing, by PR, in any dv (its markers: `watch_running`), and when they
@@ -117,8 +116,6 @@ pub struct List {
     /// each: (PR, head, what).
     auto: bool,
     auto_done: HashSet<(u64, String, &'static str)>,
-    /// When auto last had Claude rank the list.
-    auto_ranked: Option<std::time::Instant>,
     /// What's not pushed in each PR worktree (`scan_unpushed`): changed files, commits beyond
     /// the PR's head, and when that head was made.
     unpushed: Unpushed,
@@ -126,17 +123,11 @@ pub struct List {
     /// to scan again when it's done (asked for meanwhile).
     unpushed_rx: Option<Receiver<Unpushed>>,
     rescan: bool,
-    /// Todo items deferred (`s`), kept in dv's directory; the one `s` is asking how long for.
-    deferred: crate::todo::Deferred,
-    deferring: Option<String>,
-    /// A deferral's "until …" Claude is reading (the item's key), and the states of PRs that
-    /// deferrals wait on and that aren't listed.
-    until_rx: Option<(String, Option<i64>, Receiver<Result<crate::todo::Until>>)>,
+    /// The states of PRs that deferrals wait on and that aren't listed.
     others: HashMap<u64, String>,
     /// Those being looked up (in the background: a GitHub call each).
     others_rx: Vec<Receiver<Vec<(u64, String)>>>,
     others_pending: HashSet<u64>,
-    deferred_file: Option<PathBuf>,
     /// The window is wide enough for cards in two zones (set by `draw`; cards are 3 lines then).
     wide: bool,
     /// PRs Claude has a review of, and when its reviews directory last changed: a review
@@ -186,18 +177,16 @@ impl List {
     /// Claude at work from here: reviews under way or queued, replacements or new PRs being
     /// drafted, a ranking asked (each lost, or left half done, if dv quits).
     pub fn busy(&self) -> bool {
-        self.batch.values().any(batch::Status::running) || self.drafting.values().any(batch::Status::running) || self.rank_rx.is_some()
+        self.batch.values().any(batch::Status::running) || self.drafting.values().any(batch::Status::running) || self.todos.rank_rx.is_some()
     }
 
     pub fn new(flags: String) -> List {
         List {
             ui: Theme::load().ui(),
             flags,
-            ranked: crate::todo::load_of(crate::todo::Of::Prs),
+            todos: Todos::of(crate::todo::Of::Prs),
             auto: crate::diff::git(&["config", "--get", "dv.auto"]).is_ok_and(|v| v.trim() == "true"),
             stalled_days: crate::diff::git(&["config", "--get", "dv.stalledDays"]).ok().and_then(|v| v.trim().parse().ok()).unwrap_or(14),
-            deferred: crate::todo::load_deferred(crate::todo::deferred_path_of(crate::todo::Of::Prs).as_deref()),
-            deferred_file: crate::todo::deferred_path_of(crate::todo::Of::Prs),
             wide: true,
             reviews_dir: crate::claude::dv_dir().ok().map(|d| d.join("reviews")),
             root: std::env::current_dir().unwrap_or_default(),
@@ -452,8 +441,8 @@ impl List {
             return self.msg = format!("not posted: {e:#}");
         }
         self.msg = format!("asked for a rebase of #{n}");
-        if let Some(it) = self.todo.iter().find(|it| !it.is_rep() && it.number == n).cloned() {
-            self.deferred.insert(it.key(), crate::todo::Deferral { until: crate::claude::now_secs() + 7 * 86400, needs: it.needs_key(), cond: None, at: 0 });
+        if let Some(it) = self.todos.items.iter().find(|it| !it.is_rep() && it.number == n).cloned() {
+            self.todos.deferred.insert(it.key(), crate::todo::Deferral { until: crate::claude::now_secs() + 7 * 86400, needs: it.needs_key(), cond: None, at: 0 });
             self.msg += "; deferred on the todo tab until it changes";
             self.save_defer();
         }
