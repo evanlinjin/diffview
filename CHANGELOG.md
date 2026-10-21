@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.78.4] - 2026-10-21
+
+### Fixed
+- Claude's activity: a review of only a summary says when, stays among the latest, and Enter
+  on it goes to the summary; Enter on a review goes to its first comment shown in the diff.
+- Unfocused, the hunk rule under the cursor keeps its color.
+
 ## [0.78.3] - 2026-10-21
 
 ### Fixed
