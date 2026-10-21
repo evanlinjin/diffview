@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.80.1] - 2026-10-21
+
+### Fixed
+- On a narrow status bar, what's said keeps its room: Claude's badge is cut, not the message.
+- What waits on Claude says what first ("amend … once Claude's done"), with its reason.
+- dv list: GitHub not answering for the todo's details is said as that, with what to do (wait,
+  or R), not as something needing you.
+- "Open Claude in a pane" while Claude's at work says it's a copy of its conversation, which
+  the working one won't hear.
+
 ## [0.80.0] - 2026-10-21
 
 ### Changed
