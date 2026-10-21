@@ -84,14 +84,16 @@ the file as JSON:
 
 **What to look for**, most important first:
 
-- What breaks: a regression, or a change to behaviour or an API that others rely on. Say so
-  before anything else.
+- Regressions: what worked before and doesn't now. Say so before anything else.
 - Special cases that a different data shape would remove. Suggest the shape rather than a
   patch to the special case.
 - A fix made only where the report pointed, when other callers share the bug: say where the
   one fix belongs.
 - Comments, docs or commit messages that say something the code doesn't do.
 - Errors that are dropped or swallowed.
+- A breaking change (an API, or behaviour users rely on) is a trade against what it saves in
+  upkeep; how much the repo minds is in your notes. Flag it when a way that doesn't break is
+  about as simple, or the break would be a real nuisance to users.
 
 If the PR shouldn't go in as it is, say so plainly in the summary, with why. Don't bury it
 under nits. Leave a nit out unless it's cheap to fix. Keep comments short and direct, about
