@@ -6,11 +6,11 @@ use std::time::Instant;
 /// Tries after the first for a viewed mark, waiting 1s, 2s, 4s… between them (about 2 minutes).
 const MARK_TRIES: u32 = 7;
 
-/// A viewed mark on its way to GitHub: what it'll be (`on`), what it was (its state and
-/// fold), and when it's tried again, after a miss.
+/// A viewed mark on its way to GitHub: what it'll be (`on`), what GitHub had before (to put
+/// back if it never lands), and when it's tried again, after a miss.
 pub(super) struct Marking {
     pub(super) on: bool,
-    was: (Option<String>, bool),
+    was: Option<String>,
     rx: std::sync::mpsc::Receiver<Mark>,
     pub(super) retry: Option<Instant>,
 }
@@ -246,7 +246,8 @@ impl App {
         }
         let on = self.viewed.get(&path).is_none_or(|s| s != "VIEWED");
         // Shown (and folded) at once; GitHub's told in the background.
-        let was = (self.viewed.get(&path).cloned(), self.collapsed.contains(&path));
+        // (Marked again before the last landed: what GitHub had is still from before that.)
+        let was = self.marking.remove(&path).map_or_else(|| self.viewed.get(&path).cloned(), |m| m.was);
         match on {
             true => _ = (self.viewed.insert(path.clone(), "VIEWED".into()), self.collapsed.insert(path.clone())),
             false => _ = (self.viewed.remove(&path), self.collapsed.remove(&path)),
@@ -283,12 +284,13 @@ impl App {
             && let Some(own) = self.rows.iter().position(|r| r.file == fi && r.line.kind == Kind::File)
         {
             let later = self.rows[own + 1..].iter().position(|r| r.line.kind == Kind::File).map(|i| own + 1 + i);
+            self.select = false;
             self.goto(if on { later.unwrap_or(own) } else { own }, 0);
         }
     }
 
     /// How the viewed marks on their way are going: one GitHub wouldn't take, after its
-    /// retries, is as it was again.
+    /// retries, is as GitHub has it again.
     pub(super) fn watch_marks(&mut self) {
         let mut over = vec![];
         for (path, m) in &mut self.marking {
@@ -297,7 +299,7 @@ impl App {
                     Mark::Trying => m.retry = None,
                     Mark::Retry(why, at) => {
                         m.retry = Some(at);
-                        let secs = at.saturating_duration_since(Instant::now()).as_secs();
+                        let secs = at.saturating_duration_since(Instant::now()).as_secs() + 1;
                         self.msg = format!("GitHub didn't take {path}'s viewed mark ({why}); dv tries again in {secs}s");
                     }
                     Mark::Done => over.push((path.clone(), None)),
@@ -308,14 +310,13 @@ impl App {
         let mut undone = false;
         for (path, failed) in over {
             let Some(m) = self.marking.remove(&path) else { continue };
+            // A fetch under way is from before: the next one's GitHub's word on it.
+            self.github_changed();
             let Some(why) = failed else { continue };
-            match m.was.0 {
+            // (Its fold stays: you may have opened it since.)
+            match m.was {
                 Some(s) => self.viewed.insert(path.clone(), s),
                 None => self.viewed.remove(&path),
-            };
-            match m.was.1 {
-                true => self.collapsed.insert(path.clone()),
-                false => self.collapsed.remove(&path),
             };
             let what = if m.on { "marked viewed" } else { "unmarked" };
             self.msg = format!("{path} isn't {what} on GitHub after {} tries ({why}): it's as it was", MARK_TRIES + 1);
