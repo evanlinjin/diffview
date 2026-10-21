@@ -424,7 +424,7 @@ impl App {
     }
 
     /// Whether the PR's counts fit on its pinned title, `w` wide, beside all of it: its text, its
-    /// state, Claude's and the checkout's badges (as `render_row` puts them).
+    /// state, the checkout's badge (as `render_row` puts it).
     fn title_fits(&self, w: usize) -> bool {
         let badges = (!self.sync.is_empty()).then(|| self.sync.chars().count() + 2);
         let state = self.header_tag(INFO).map(|t| t.0.chars().count()).into_iter().chain(badges).map(|n| n + 2).sum::<usize>();
@@ -555,13 +555,15 @@ impl App {
     let extras = format!("{ra}{pr}");
     // What Claude's doing (a run of this dv's, asking you, at work in its pane): always shown, a
     // badge in its color.
-    let doing = self.claude_doing().map(|d| format!(" {d} ")).unwrap_or_default();
-    let badge = Style::new().fg(self.ui.base.bg.unwrap_or(Color::Black)).bg(self.ui.pending.fg.unwrap_or(Color::Yellow)).add_modifier(ratatui::style::Modifier::BOLD);
+    // (It gives way, cut, to what's said on the left: half the bar at least, as it needs.)
     let width = status.width as usize;
-    let gap = if doing.is_empty() { "" } else { "  " };
-    let essentials = doing.chars().count() + gap.len() + essential.chars().count();
-    let extras = if left.width() + extras.chars().count() + essentials < width { extras } else { String::new() };
-    let right = Line::from(vec![Span::raw(extras), Span::styled(doing, badge), Span::raw(format!("{gap}{essential}"))]);
+    let cols = |s: &str| Span::raw(s.to_owned()).width();
+    let gap = if self.claude_doing().is_some() { "  " } else { "" };
+    let room = width.saturating_sub(cols(&essential) + cols(gap) + left.width().min(width / 2) + 1);
+    let doing = self.claude_doing().map(|d| format!(" {} ", super::cut(&d, room.saturating_sub(2).max(9)))).unwrap_or_default();
+    let essentials = cols(&doing) + cols(gap) + cols(&essential);
+    let extras = if left.width() + cols(&extras) + essentials < width { extras } else { String::new() };
+    let right = Line::from(vec![Span::raw(extras), Span::styled(doing, badge(&self.ui, self.ui.pending.fg)), Span::raw(format!("{gap}{essential}"))]);
     let left = fit(left, width.saturating_sub(right.width() + 1));
     let bar = self.ui.base.patch(self.ui.status);
     f.render_widget(Paragraph::new(left).style(bar), status);
@@ -743,6 +745,11 @@ pub(crate) fn draw_hints(f: &mut Frame, ui: &Ui, above: Rect, title: &str, keys:
     let r = corners.into_iter().min_by_key(|r| (avoid.is_some_and(|a| r.intersects(a)), covered(r))).unwrap_or(corners[0]);
     let inner = popup_frame(ui, f, r, title, "");
     f.render_widget(Paragraph::new(lines), inner);
+}
+
+/// A badge (what Claude's doing, how the checkout stands): bold, in `color`, on the window's.
+pub(super) fn badge(ui: &Ui, color: Option<Color>) -> Style {
+    Style::new().fg(ui.base.bg.unwrap_or(Color::Black)).bg(color.unwrap_or(Color::Yellow)).add_modifier(ratatui::style::Modifier::BOLD)
 }
 
 /// A popup as zellij floats a pane: the window's background in a rounded border, the

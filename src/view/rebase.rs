@@ -134,7 +134,7 @@ impl App {
 
     /// Claude carries a stopped rebase on: resolves the conflicts, `--continue`s, to the end.
     pub(super) fn rebase_claude(&mut self) -> Result<()> {
-        anyhow::ensure!(!self.claude_busy(), "{}", App::busy_says("ask"));
+        anyhow::ensure!(!self.claude_busy(), "{}", App::busy_says("have it resolve the rebase"));
         // Onto what it started onto (the PR's base may have changed meanwhile).
         let onto = noted(&self.root).map(|n| n.1).filter(|o| !o.is_empty()).or_else(|| self.rebase_onto()).unwrap_or_else(|| "its base".into());
         let forked = self.claude_pane().is_some();

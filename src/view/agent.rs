@@ -79,6 +79,10 @@ pub(super) struct ClaudeState {
     /// of it stays shown meanwhile.
     pub(super) broken: Option<String>,
     pub(super) summary: String,
+    /// The replacement here being redrafted (by any dv), as last looked (`watch_replacement`:
+    /// every few seconds, not each frame: a process looked up), and when.
+    pub(super) drafting: bool,
+    pub(super) drafting_at: Option<std::time::Instant>,
     /// When Claude wrote its review.
     pub(super) created: String,
     /// The commit the review was made against (its `head`).
@@ -157,8 +161,8 @@ impl App {
         let edits = ask.is_none_or(|a| self.edits(a));
         // (Its pane working is no bar: what you send there waits in its input, as Claude Code
         // has it.)
-        if self.claude.job.is_some() || self.replacement.as_ref().is_some_and(|r| r.drafting_now()) {
-            return Some(App::busy_says("ask"));
+        if self.claude.job.is_some() || self.claude.drafting {
+            return Some(App::busy_says(if ask.is_none() { "amend (its changes would be half made)" } else { "ask Claude this" }));
         }
         // A rebase stopped part way: the tree has its conflicts, HEAD is detached.
         if edits && super::rebase::rebasing(&self.root) {
@@ -171,7 +175,7 @@ impl App {
     /// replacement) its redraft, from any dv. Nothing here rewrites the branch or commits under
     /// it meanwhile.
     pub(super) fn claude_busy(&self) -> bool {
-        self.claude.job.is_some() || self.claude.pane_busy || self.replacement.as_ref().is_some_and(|r| r.drafting_now())
+        self.claude.job.is_some() || self.claude.pane_busy || self.claude.drafting
     }
 
     /// Why `ask` can't go to the PR's Claude pane, where it would (one is open): the pane is
@@ -232,7 +236,8 @@ impl App {
             items.insert(0, Item::new("Show Claude's pane (its session on this PR)", Target::ClaudePane));
         } else if in_zellij() {
             let what = match self.claude_busy() {
-                true => "a copy of its session: it's at work on this one",
+                // (Its own session's at work: a copy of it, for you; what's said there stays there.)
+                true => "a copy of its conversation to talk in: the original's at work, and won't hear it",
                 false => "its session on this PR, to talk to it",
             };
             items.push(Item::new(format!("Open Claude in a pane ({what})"), Target::ClaudeOpen));
@@ -275,7 +280,7 @@ impl App {
                 format!("Draft a replacement for #{} (Claude writes it properly, unpublished, in the background)", p.number),
                 Target::Do(Action::Replace(vec![p.number], None)),
             )),
-            (None, Some(r)) if r.drafting_now() => items.push(Item::new("Claude is at work on this replacement (dv shows it as it goes)", Target::Note(""))),
+            (None, Some(_)) if self.claude.drafting => items.push(Item::new("Claude is at work on this replacement (dv shows it as it goes)", Target::Note(""))),
             (None, Some(r)) => items.push(Item::new(
                 "Redraft this (Claude carries on, with your instructions)",
                 Target::Do(Action::Replace(r.ids(), None)),
@@ -344,7 +349,7 @@ impl App {
     /// something wrong into its head, or grown long. The review file is what carries over.
     pub(super) fn fresh_claude_session(&mut self) {
         if self.claude.job.is_some() {
-            return self.msg = App::busy_says("start afresh");
+            return self.msg = App::busy_says("start a fresh session");
         }
         let pane = self.claude_pane().is_some();
         self.set_session(None);
@@ -779,7 +784,7 @@ impl App {
         }
     }
 
-    /// What Claude is doing here, for the pinned title: a run in the background, or its pane
+    /// What Claude is doing here, for the status bar's badge: a run in the background, or its pane
     /// busy (or waiting on you). `None` when it's idle.
     pub(super) fn claude_doing(&self) -> Option<String> {
         match &self.claude.job {
@@ -787,15 +792,15 @@ impl App {
             None if self.claude.asking => Some("◐ claude is asking you (Space a)".into()),
             None if self.claude.pane_busy => Some("◐ claude working (its pane)".into()),
             // (A replacement's redraft, from any dv.)
-            None if self.replacement.as_ref().is_some_and(|r| r.drafting_now()) => Some("◐ claude drafting it".into()),
+            None if self.claude.drafting => Some("◐ claude drafting it".into()),
             None => None,
         }
     }
 
-    /// Why `what` waits, Claude at work here (`claude_busy`): one wording, the status bar's badge
-    /// saying on what.
+    /// Why `what` waits, Claude at work here (`claude_busy`): one wording, what you did first (a
+    /// message cut short keeps that), the status bar's badge saying on what Claude is.
     pub(super) fn busy_says(what: &str) -> String {
-        format!("Claude's at work here (the status bar says on what): {what} once it's done")
+        format!("{what} once Claude's done (it's at work here: the status bar says on what)")
     }
 
     /// The PR's Claude pane and its command line.

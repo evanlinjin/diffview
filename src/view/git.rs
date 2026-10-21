@@ -302,7 +302,7 @@ impl App {
     /// the editor; leaving it empty cancels.
     pub(super) fn commit(&mut self, draft: &str) -> Result<String> {
         // (However it got here: an editor pane closing while Claude's at work again, say.)
-        anyhow::ensure!(!self.claude_busy(), "{}", App::busy_says("commit"));
+        anyhow::ensure!(!self.claude_busy(), "{}", App::busy_says("commit (its changes would be half made)"));
         if let Some(p) = self.commit_msg_path() {
             _ = std::fs::remove_file(p); // (Claude's message: given to the editor now)
         }

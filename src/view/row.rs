@@ -402,10 +402,9 @@ impl App {
         if !counts.is_empty() {
             segs.push((counts, style.patch(ui.linenr)));
         }
-        let badge = |c: Option<Color>| Style::new().fg(ui.base.bg.unwrap_or(Color::Black)).bg(c.unwrap_or(Color::Yellow)).add_modifier(ratatui::style::Modifier::BOLD);
         // (What Claude's doing: the status bar's.)
         if pinned && !self.sync.is_empty() {
-            segs.push((format!(" {} ", self.sync), badge(ui.warning.fg)));
+            segs.push((format!(" {} ", self.sync), super::render::badge(ui, ui.warning.fg)));
         }
         if let Some((t, st)) = tag {
             segs.push((t, style.patch(st)));

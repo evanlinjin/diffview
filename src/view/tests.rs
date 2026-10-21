@@ -1037,7 +1037,7 @@ fn make_changes_without_comments() {
     let child = std::process::Command::new("sleep").arg("5").spawn().unwrap();
     app.claude.job = Some(agent::ClaudeJob { child, log: std::env::temp_dir().join("dv-test-busy.log"), label: "reviewing", forked: false, started: std::time::Instant::now() });
     app.pick_claude(agent::Ask::Fix);
-    assert!(app.action.is_none() && app.msg.starts_with("Claude's at work here"));
+    assert!(app.action.is_none() && app.msg.contains("once Claude's done"));
     if let Some(mut job) = app.claude.job.take() {
         _ = job.child.kill();
     }
@@ -2552,7 +2552,23 @@ fn claude_drafts_a_closing_comment() {
 }
 
 #[test]
-fn claude_working_and_out_of_sync_on_the_title() {
+fn claudes_badge_gives_way_to_what_s_said() {
+    // A long run's badge on a narrow bar: what's said keeps its room, the badge is cut.
+    let mut app = fixture();
+    let child = std::process::Command::new("sleep").arg("5").spawn().unwrap();
+    app.claude.job = Some(agent::ClaudeJob { child, log: std::env::temp_dir().join("dv-test-badge.log"), label: "resolving the rebase's conflicts", forked: false, started: std::time::Instant::now() });
+    app.msg = App::busy_says("amend (its changes would be half made)");
+    let s = screen(80, 12, |f| app.draw(f));
+    let bar = s.lines().last().unwrap();
+    assert!(bar.contains("amend") && bar.contains("◐ claude") && bar.contains("1/"), "{bar}");
+    if let Some(mut job) = app.claude.job.take() {
+        _ = job.child.kill();
+        _ = job.child.wait();
+    }
+}
+
+#[test]
+fn claude_working_on_the_status_bar_out_of_sync_on_the_title() {
     // How the checkout stands shows on the pinned title, a badge, a long title cut to make room;
     // what Claude's doing on the status bar (always, a badge), not the title.
     let mut app = fixture();

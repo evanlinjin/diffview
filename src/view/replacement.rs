@@ -63,6 +63,10 @@ impl App {
     /// The replacement here, shown again when its record changes (Claude redrafting it).
     pub(super) fn watch_replacement(&mut self) {
         let Some(id) = self.replacement.as_ref().map(|r| r.id) else { return };
+        if self.claude.drafting_at.is_none_or(|t| t.elapsed() > std::time::Duration::from_secs(3)) {
+            self.claude.drafting_at = Some(std::time::Instant::now());
+            self.claude.drafting = self.replacement.as_ref().is_some_and(|r| r.drafting_now());
+        }
         let mtime = crate::replace::path(id).ok().and_then(|p| std::fs::metadata(p).ok()?.modified().ok());
         if mtime == self.replacement_mtime {
             return;
@@ -71,6 +75,7 @@ impl App {
         self.replacement_mtime = mtime;
         if let (false, Ok(r)) = (first, crate::replace::load(id)) {
             let keep = self.cursor_key();
+            self.claude.drafting = r.drafting_now();
             self.show_replacement(r);
             self.rebuild(keep);
         }
