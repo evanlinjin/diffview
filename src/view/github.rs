@@ -115,9 +115,26 @@ impl App {
         let cache = cache_path(n);
         std::thread::spawn(move || {
             let mut etag = gh::pr_etag(n, "").ok().flatten().unwrap_or_default();
+            // CI's checks change on the head commit, not the PR: their ETag, watched too. The
+            // head's as last fetched (the cache's, at first); its ETag as of that fetch (none
+            // yet: what's shown is the cache's, so the first look fetches).
+            let checks_of = |head: &str, tag: &str| gh::etag_of(&format!("repos/{{owner}}/{{repo}}/commits/{head}/check-runs"), tag);
+            let cached = cache.as_deref().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|t| serde_json::from_str::<Value>(&t).ok());
+            let mut head = cached.and_then(|v| v["info"]["headRefOid"].as_str().map(str::to_owned)).unwrap_or_default();
+            let mut checks = String::new();
+            let fetched = |head: &mut String, checks: &mut String, f: &Fetched| {
+                if let Ok(i) = &f.1 {
+                    head.clone_from(&i.head);
+                }
+                *checks = checks_of(head, "").ok().flatten().unwrap_or_default();
+            };
             let at = loads.load(std::sync::atomic::Ordering::SeqCst);
-            if fetch_now && tx.send((at, fetch_github(n, cache.as_deref()))).is_err() {
-                return;
+            if fetch_now {
+                let f = fetch_github(n, cache.as_deref());
+                fetched(&mut head, &mut checks, &f);
+                if tx.send((at, f)).is_err() {
+                    return;
+                }
             }
             loop {
                 // Every so often, or at once when poked (CI rerun: its checks change, not the
@@ -129,14 +146,21 @@ impl App {
                             etag = e;
                         }
                     }
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                        let Ok(Some(e)) = gh::pr_etag(n, &etag) else { continue };
-                        etag = e;
-                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => match gh::pr_etag(n, &etag) {
+                        Ok(Some(e)) => etag = e,
+                        // (The PR as it was: its checks may not be.)
+                        _ if head.is_empty() => continue,
+                        _ => {
+                            let Ok(Some(e)) = checks_of(&head, &checks) else { continue };
+                            checks = e;
+                        }
+                    },
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return, // dv is done
                 }
                 let at = loads.load(std::sync::atomic::Ordering::SeqCst);
-                if tx.send((at, fetch_github(n, cache.as_deref()))).is_err() {
+                let f = fetch_github(n, cache.as_deref());
+                fetched(&mut head, &mut checks, &f);
+                if tx.send((at, f)).is_err() {
                     return; // dv is done
                 }
             }
