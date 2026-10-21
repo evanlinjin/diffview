@@ -3348,6 +3348,15 @@ fn claudes_comment_posted_in_its_view_leaves_the_cursor_near() {
     app.rebuild(keep);
     let row = &app.rows[app.head.row];
     assert!(app.head.row > 0 && app.files[row.file].path == "src/a.rs", "{:?}", row.line.text);
+    // Only so for a comment gone: from a line of a file not in the view (into Claude's view, say),
+    // its top (its summary).
+    let mut app = fixture();
+    let r = app.rows.iter().position(|r| app.files.get(r.file).is_some_and(|f| f.path == "src/a.rs") && r.line.new == Some(2)).unwrap();
+    app.goto(r, 0);
+    let keep = app.cursor_key();
+    app.view = View::Claude;
+    app.rebuild(keep);
+    assert_eq!(app.head.row, 0);
 }
 
 #[test]

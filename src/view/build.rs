@@ -147,7 +147,11 @@ impl App {
                 let first = self.rows.iter().position(|r| r.main == Some(m))?;
                 Some((first..=first + off).take_while(|&r| self.rows.get(r).is_some_and(|r| r.main == Some(m))).last().unwrap_or(first))
             })
-            .or_else(|| key.line.map(|(p, old, new)| self.locate(&p, old, new)))
+            .or_else(|| key.line.as_ref().and_then(|(p, old, new)| self.locate(p, *old, *new)))
+            // The comment the cursor was on gone, with its file from the view (Claude's last
+            // there posted): where the file would be. (Not so for a line: a view without it
+            // starts at its top.)
+            .or_else(|| key.thread.and(key.line.as_ref()).and_then(|(p, ..)| self.near_file(p)))
             .or_else(|| {
                 let (info, off, k) = key.info?;
                 let pr: Vec<usize> = (0..self.rows.len()).filter(|&r| self.rows[r].file == INFO && self.rows[r].main.is_none()).collect();
@@ -499,21 +503,23 @@ impl App {
     }
 
     /// Row in file `path` at (or just after) the given line, else the file header; the file not
-    /// shown (the Claude view, its last comment there posted): where it'd be, the next file's
-    /// first row (else the last before it).
-    pub(super) fn locate(&self, path: &str, old: Option<u32>, new: Option<u32>) -> usize {
-        let Some(fi) = self.files.iter().position(|f| f.path == path) else { return 0 };
+    /// shown, none.
+    pub(super) fn locate(&self, path: &str, old: Option<u32>, new: Option<u32>) -> Option<usize> {
+        let fi = self.files.iter().position(|f| f.path == path)?;
         let in_file = |r: &&Row| r.file == fi;
         let hit = match (new, old) {
             (Some(n), _) => self.rows.iter().position(|r| in_file(&r) && r.line.new.is_some_and(|x| x >= n)),
             (None, Some(o)) => self.rows.iter().position(|r| in_file(&r) && r.line.old.is_some_and(|x| x >= o)),
             _ => None,
         };
-        let file = |r: &Row| r.file < self.files.len();
         hit.or_else(|| self.rows.iter().position(|r| r.file == fi))
-            .or_else(|| self.rows.iter().position(|r| file(r) && r.file > fi))
-            .or_else(|| self.rows.iter().rposition(|r| file(r) && r.file < fi))
-            .unwrap_or(0)
+    }
+
+    /// Where file `path` would be, it not shown: the next file's first row, else the last before.
+    fn near_file(&self, path: &str) -> Option<usize> {
+        let fi = self.files.iter().position(|f| f.path == path)?;
+        let file = |r: &Row| r.file < self.files.len();
+        self.rows.iter().position(|r| file(r) && r.file > fi).or_else(|| self.rows.iter().rposition(|r| file(r) && r.file < fi))
     }
 
     /// `+`/`-`: more or less context around the hunk under the cursor (on a header: the next one).
