@@ -98,6 +98,7 @@ impl Todos {
     /// asked how long for.
     pub(super) fn defer_key(&mut self, it: &Item, what: &str) -> (bool, String) {
         if it.deferred.is_some() {
+            self.forget_reading(&it.key());
             self.deferred.remove(&it.key());
             return (true, format!("{what} is back"));
         }
@@ -127,8 +128,26 @@ impl Todos {
     /// `false`: it's no longer listed (`GONE`).
     pub(super) fn defer(&mut self, key: &str, until: i64, cond: Option<Until>, at: i64) -> bool {
         let Some(needs) = self.items.iter().find(|it| it.key() == key).map(Item::needs_key) else { return false };
+        self.forget_reading(key);
         self.deferred.insert(key.to_owned(), todo::Deferral { until, needs, cond, at });
         true
+    }
+
+    /// Claude's reading of an "until …" for `key`, if one's under way: dropped (what you've done
+    /// since stands; its answer would undo it).
+    fn forget_reading(&mut self, key: &str) {
+        if self.until_rx.as_ref().is_some_and(|r| r.0 == key) {
+            self.until_rx = None;
+        }
+    }
+
+    /// Item `key` as you know it: "#12", or a replacement's label.
+    fn label(&self, key: &str) -> String {
+        match self.items.iter().find(|it| it.key() == key) {
+            Some(it) if it.is_rep() => crate::replace::label(it.number),
+            Some(it) => format!("#{}", it.number),
+            None => key.to_owned(),
+        }
     }
 
     /// Item `key` deferred until `c` (or the time `or`, whichever first; `at`: since when, by
@@ -179,7 +198,7 @@ impl Todos {
             None => {
                 // (One read meanwhile: this one instead, said so; a reading that hangs isn't
                 // in the way of the next.)
-                let instead = self.until_rx.as_ref().map_or(String::new(), |r| format!(" (instead of the \"until\" for {})", r.0));
+                let instead = self.until_rx.as_ref().map_or(String::new(), |r| format!(" (instead of the \"until\" for {})", self.label(&r.0)));
                 self.until_rx = Some((key, or, todo::interpret(text, about(), root.to_path_buf())));
                 Reading::Asked(format!("Claude is reading when you mean…{instead}"))
             }
@@ -274,6 +293,10 @@ fn deferring_an_item() {
     assert!(matches!(t.deferring_key(KeyCode::Char('d')), Some(After::Not(s)) if s == GONE));
     t.deferring = Some("issue-7".into());
     assert!(matches!(t.deferring_key(KeyCode::Char('u')), Some(After::Until(k)) if k == "issue-7"));
+    // A reading under way for it, then a deferral of yours: the reading's dropped.
+    let (_tx, rx) = std::sync::mpsc::channel();
+    t.until_rx = Some(("issue-7".into(), None, rx));
+    assert!(t.defer("issue-7", 1, None, 0) && t.until_rx.is_none());
     // "until 3 days" read here, no Claude.
     assert!(matches!(t.until("issue-7".into(), "3 days", String::new, &file), Reading::Read(Until::Time(_), None)));
     // s on one deferred: back.
