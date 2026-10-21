@@ -166,7 +166,27 @@ fn run(n: u64, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sender<
         let err = String::from_utf8_lossy(&out.stderr);
         anyhow::bail!("{}", err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("preparing the worktree failed").trim());
     }
-    let dir = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
+    let out = String::from_utf8_lossy(&out.stdout);
+    let mut said = out.lines();
+    let dir = PathBuf::from(said.next().unwrap_or("").trim());
+    let note = said.next().unwrap_or("").trim();
+    // An update reviews what's new over the commit reviewed, as checked out here. The checkout
+    // still there (kept back for work in it): nothing to review. Rewritten (force-pushed,
+    // rebased): all of it is new.
+    let task = &match task {
+        Task::Update(old) => {
+            let head = crate::diff::git_in(&dir, &["rev-parse", "HEAD"]).unwrap_or_default();
+            if head.trim().starts_with(old.as_str()) {
+                let why = if note.is_empty() { "it isn't at the PR's head" } else { note };
+                anyhow::bail!("not updating Claude's review: the checkout is still at the commit it reviewed ({why})");
+            }
+            match crate::diff::git_in(&dir, &["merge-base", "--is-ancestor", old, "HEAD"]) {
+                Ok(_) => task.clone(),
+                Err(_) => Task::Review,
+            }
+        }
+        _ => task.clone(),
+    };
     // The PR's session in that checkout, as dv there would resume it (a new one, if it has
     // none, or one from another version of the skill).
     let review = crate::claude::path(Some(n))?;

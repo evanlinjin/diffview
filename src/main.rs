@@ -229,8 +229,9 @@ fn run() -> anyhow::Result<()> {
         Some("prepare-worktree") => {
             let n = o.pr.context("prepare-worktree needs a PR number")?;
             let known = gh::pr(Some(n)).ok();
-            let (dir, _) = enter_worktree(n, o.branch, false, known.as_ref())?; // -b: it's on the PR's branch; keep it so
-            println!("{}", dir.display());
+            let (dir, note) = enter_worktree(n, o.branch, false, known.as_ref())?; // -b: it's on the PR's branch; keep it so
+            // (Its note, why it's not at the PR's head, if it isn't, on the next line.)
+            println!("{}\n{}", dir.display(), note.unwrap_or_default());
             return Ok(());
         }
         Some("replace-info") => return replace::info(),
