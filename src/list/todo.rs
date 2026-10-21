@@ -68,10 +68,8 @@ impl List {
             }
         }
         let now = crate::claude::now_secs();
-        // (Lent out: whether what a deferral waits for has happened is read from the rest.)
-        let mut todos = std::mem::take(&mut self.todos);
-        let (mut items, said) = todos.settle(items, |it, c, at| self.happened(it, c, at));
-        self.todos = todos;
+        let met = self.todos.met(&items, |it, c, at| self.happened(it, c, at));
+        let (mut items, said) = self.todos.settle(items, met);
         if let Some(said) = said {
             self.msg = said;
         }
@@ -539,17 +537,14 @@ impl List {
     /// Whether it deferred the item under the cursor (your own move: the cursor stays put, on
     /// what's next, rather than following it).
     pub(super) fn until_news(&mut self) -> bool {
-        let Some((key, res, or)) = self.todos.until_news() else { return false };
-        match res {
-            Ok(c) => {
+        match self.todos.until_news() {
+            Some(Ok((key, c, or))) => {
                 let on_it = self.selected_item().is_some_and(|it| it.key() == key);
                 self.defer_on(&key, c, or);
                 on_it
             }
-            Err(e) => {
-                self.msg = format!("not deferred: {e:#}");
-                false
-            }
+            Some(Err(said)) => (self.msg = said, false).1,
+            None => false,
         }
     }
 

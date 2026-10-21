@@ -397,19 +397,12 @@ pub struct Since {
 
 /// `items` in Claude's order (with its word on each) where it ranked them as they are; the
 /// others (new, or changed since: `Item::changed`) in the rules' order, each placed before the
-/// first ranked one that needs you less. Also what's changed since the ranking.
-pub fn order(mut items: Vec<Item>, ranked: Option<&Ranked>) -> (Vec<Item>, Since) {
+/// first ranked one that needs you less. (What's changed since, counted: `since_of`.)
+pub fn order(mut items: Vec<Item>, ranked: Option<&Ranked>) -> Vec<Item> {
     // The ranking's items and their needs then, from its fingerprint.
-    let fp = ranked.map_or("", |r| r.fingerprint.as_str());
-    let then: std::collections::HashMap<&str, &str> = fp.split(';').filter_map(|e| e.split_once(':')).collect();
-    let now = |it: &Item| it.needs_key();
-    let mut since = Since { gone: then.keys().filter(|k| !items.iter().any(|it| it.key() == **k)).count(), ..Since::default() };
+    let then = ranked_then(ranked);
     for it in items.iter_mut().filter(|_| ranked.is_some()) {
-        match then.get(it.key().as_str()) {
-            None => (it.changed, since.new) = (true, since.new + 1),
-            Some(n) if *n != now(it) => (it.changed, since.changed) = (true, since.changed + 1),
-            Some(_) => {}
-        }
+        it.changed = then.get(it.key().as_str()).is_none_or(|n| *n != it.needs_key());
     }
     let mut out = vec![];
     for (key, word) in ranked.map_or(&[][..], |r| r.items.as_slice()) {
@@ -424,15 +417,22 @@ pub fn order(mut items: Vec<Item>, ranked: Option<&Ranked>) -> (Vec<Item>, Since
         let at = out.iter().position(|o: &Item| o.top() < it.top()).unwrap_or(out.len());
         out.insert(at, it);
     }
-    (out, since)
+    out
+}
+
+/// What `ranked` ranked, by key: the needs each had then (its fingerprint).
+fn ranked_then(ranked: Option<&Ranked>) -> std::collections::HashMap<&str, &str> {
+    ranked.map_or("", |r| r.fingerprint.as_str()).split(';').filter_map(|e| e.split_once(':')).collect()
 }
 
 /// What's changed since the ranking (`ranked`'s fingerprint: what it ranked, as it was) of
 /// `items` as placed: of those not deferred, the new ones (not ranked) and those whose needs
 /// changed; and the ranked ones gone from the list.
 pub fn since_of(items: &[Item], ranked: Option<&Ranked>) -> Since {
-    let Some(r) = ranked else { return Since::default() };
-    let then: std::collections::HashMap<&str, &str> = r.fingerprint.split(';').filter_map(|e| e.split_once(':')).collect();
+    if ranked.is_none() {
+        return Since::default();
+    }
+    let then = ranked_then(ranked);
     let mut since = Since { gone: then.keys().filter(|k| !items.iter().any(|it| it.key() == **k)).count(), ..Since::default() };
     for it in items.iter().filter(|it| it.deferred.is_none()) {
         match then.get(it.key().as_str()) {
@@ -1110,22 +1110,22 @@ mod tests {
         let it = |n, needs: Vec<Need>, updated: &str| Item { kind: crate::todo::Kind::Pr, number: n, needs, claude: None, updated: updated.into(), reason: None, changed: false, deferred: None, busy: None, waits: None };
         let items = vec![it(1, vec![Need::NoReview], "b"), it(2, vec![Need::ReviewRequested], "c"), it(3, vec![Need::NoReview], "a")];
         // Rules: the most pressing first, then the longest waiting.
-        let (o, since) = order(items.clone(), None);
-        assert_eq!(since, Since::default());
+        let o = order(items.clone(), None);
+        assert_eq!(since_of(&o, None), Since::default());
         assert!(o.iter().all(|i| !i.changed)); // nothing to have changed since
         assert_eq!(o.iter().map(|i| i.number).collect::<Vec<_>>(), [2, 3, 1]);
         // Claude's order, with its word; a new one goes before the first that needs you less.
         let ranked = Ranked { at: 1, cost: 0.1, fingerprint: fingerprint(&items), waits: Default::default(), closes: Default::default(), items: vec![("pr-1".into(), "small fix — merge".into()), ("pr-3".into(), "x".into())] };
-        let (o, since) = order(items.clone(), Some(&ranked));
-        assert_eq!(since, Since::default()); // it's of the same three (pr-2 left out of Claude's answer goes by the rules)
+        let o = order(items.clone(), Some(&ranked));
+        assert_eq!(since_of(&o, Some(&ranked)), Since::default()); // it's of the same three (pr-2 left out of Claude's answer goes by the rules)
         assert_eq!(o.iter().map(|i| i.number).collect::<Vec<_>>(), [2, 1, 3]);
         assert_eq!(o[1].reason.as_deref(), Some("small fix — merge"));
         assert_eq!(o[0].says(), "your review is requested");
         // Since: one new, one whose needs changed, one gone; those two marked.
         let mut now = vec![it(1, vec![Need::ReviewRequested], "b"), it(3, vec![Need::NoReview], "a"), it(9, vec![Need::NoReview], "d")];
         now[0].needs.push(Need::NoReview);
-        let (o, since) = order(now, Some(&ranked));
-        assert_eq!(since, Since { new: 1, changed: 1, gone: 1 });
+        let o = order(now, Some(&ranked));
+        assert_eq!(since_of(&o, Some(&ranked)), Since { new: 1, changed: 1, gone: 1 });
         assert_eq!(o.iter().filter(|i| i.changed).map(|i| i.number).collect::<Vec<_>>().len(), 2);
         // Claude's answer, words around it.
         let (p, waits, closes) = parse("Here: [{\"key\": \"pr-2\", \"reason\": \"bug fix\", \"next\": \"review it\"}, {\"key\": \"rep-12\", \"reason\": \"ready\", \"waits_on\": {\"merged\": 2380}}, {\"key\": \"issue-5\", \"reason\": \"dup\", \"close\": \"duplicate of #4\"}]").unwrap();

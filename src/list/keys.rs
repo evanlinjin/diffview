@@ -78,7 +78,7 @@ impl List {
             None => {}
         }
         // Moving about, the tabs (`gp` before `p` on a tab), the filter, the help.
-        if self.nav.key(k, n, self.height()) {
+        if self.nav.key(k, n) {
             return None;
         }
         match k.code {
@@ -260,7 +260,7 @@ impl List {
         let n = self.shown().len();
         match m.kind {
             MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => self.nav.step(m.kind == MouseEventKind::ScrollDown, n),
-            MouseEventKind::Down(MouseButton::Left) if !self.nav.help => return self.nav.click(m.column, m.row, n, self.card_rows(), self.height()),
+            MouseEventKind::Down(MouseButton::Left) if !self.nav.help => return self.nav.click(m.column, m.row, n, self.card_rows()),
             _ => {}
         }
         false

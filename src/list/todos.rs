@@ -36,6 +36,9 @@ pub(super) enum After {
     Off,
 }
 
+/// Claude's reading of an item's "until …": its key, the condition, the "or" time.
+pub(super) type Read = (String, Until, Option<i64>);
+
 /// What `Todos::until` made of an "until …": the condition to defer on, or Claude reading it
 /// (what's said).
 pub(super) enum Reading {
@@ -160,26 +163,31 @@ impl Todos {
         }
     }
 
-    /// What needs you, `items`, settled (`happened`: whether what an item waits for has, since
-    /// when): in Claude's order where it ranked them; deferrals whose condition has happened
-    /// over (kept so; what to say of the last), the rest at the bottom till then; and what's
-    /// changed since the ranking (`since`).
-    pub(super) fn settle(&mut self, items: Vec<Item>, happened: impl Fn(&Item, &Until, i64) -> bool) -> (Vec<Item>, Option<String>) {
-        let (items, _) = todo::order(items, self.ranked.as_ref());
-        let met: Vec<(String, String)> = items
+    /// What needs you, `items`, settled: in Claude's order where it ranked them; deferrals whose
+    /// condition has happened (`met`) over (kept so; what to say of the last), the rest at the
+    /// bottom till then; and what's changed since the ranking (`since`).
+    pub(super) fn settle(&mut self, items: Vec<Item>, met: Vec<(String, String)>) -> (Vec<Item>, Option<String>) {
+        let items = todo::order(items, self.ranked.as_ref());
+        met.iter().for_each(|(key, _)| _ = self.deferred.remove(key));
+        if !met.is_empty() {
+            _ = self.save();
+        }
+        // (What's met is over: what's deferred still waits.)
+        let items = todo::defer(items, &self.deferred, crate::claude::now_secs(), |_, _, _| false);
+        self.since = todo::since_of(&items, self.ranked.as_ref());
+        (items, met.into_iter().last().map(|m| m.1))
+    }
+
+    /// The deferrals of `items` whose condition has happened (`happened`: for an item, what it
+    /// waits for, since when), for `settle`: their keys, and what to say ("#12 is back: …").
+    pub(super) fn met(&self, items: &[Item], happened: impl Fn(&Item, &Until, i64) -> bool) -> Vec<(String, String)> {
+        items
             .iter()
             .filter_map(|it| Some((it, self.deferred.get(&it.key())?)))
             .filter_map(|(it, d)| Some((it, d.cond.as_ref()?, d.at)))
             .filter(|(it, c, at)| happened(it, c, *at))
             .map(|(it, c, _)| (it.key(), format!("#{} is back: {}", it.number, c.says())))
-            .collect();
-        met.iter().for_each(|(key, _)| _ = self.deferred.remove(key));
-        if !met.is_empty() {
-            _ = self.save();
-        }
-        let items = todo::defer(items, &self.deferred, crate::claude::now_secs(), happened);
-        self.since = todo::since_of(&items, self.ranked.as_ref());
-        (items, met.into_iter().last().map(|m| m.1))
+            .collect()
     }
 
     /// The deferrals, kept (an error: what's said).
@@ -205,11 +213,12 @@ impl Todos {
         }
     }
 
-    /// Claude's reading of an "until …", once it's in: (the item's key, it, the "or" time).
-    pub(super) fn until_news(&mut self) -> Option<(String, Result<Until>, Option<i64>)> {
+    /// Claude's reading of an "until …", once it's in: (the item's key, it, the "or" time), or
+    /// what's said of why not.
+    pub(super) fn until_news(&mut self) -> Option<std::result::Result<Read, String>> {
         let res = self.until_rx.as_ref()?.2.try_recv().ok()?;
         let (key, or, _) = self.until_rx.take()?;
-        Some((key, res, or))
+        Some(res.map(|c| (key, c, or)).map_err(|e| format!("not deferred: {e:#}")))
     }
 
     /// What there is to rank: what needs you, but what's deferred.

@@ -410,10 +410,8 @@ impl Issues {
         self.draft_fix = draft_fix(&records(), &self.drafting);
         let items: Vec<Item> = items.into_iter().filter(|it| !self.draft_fix.contains_key(&it.number)).collect();
 
-        // (Lent out: whether what a deferral waits for has happened is read from the rest.)
-        let mut todos = std::mem::take(&mut self.todos);
-        let (items, said) = todos.settle(items, |_, c, _| self.happened(c));
-        self.todos = todos;
+        let met = self.todos.met(&items, |_, c, _| self.happened(c));
+        let (items, said) = self.todos.settle(items, met);
         self.todos.items = items;
         if let Some(said) = said {
             self.msg = said;
@@ -575,11 +573,10 @@ impl Issues {
             self.watch_reviews();
             self.auto_run();
             // Claude's reading of a deferral's "until …".
-            if let Some((key, res, or)) = self.todos.until_news() {
-                match res {
-                    Ok(c) => self.defer_on(&key, c, or),
-                    Err(e) => self.msg = format!("not deferred: {e:#}"),
-                }
+            match self.todos.until_news() {
+                Some(Ok((key, c, or))) => self.defer_on(&key, c, or),
+                Some(Err(said)) => self.msg = said,
+                None => {}
             }
             // A deferral whose time's come: back.
             let now = crate::claude::now_secs();
@@ -742,7 +739,7 @@ impl Issues {
             Some(After::Off) => return None,
             None => {}
         }
-        if moves(pending, k.code) && self.nav.key(k, n, self.height()) {
+        if moves(pending, k.code) && self.nav.key(k, n) {
             return None;
         }
         match (pending, k.code) {
@@ -825,8 +822,8 @@ impl Issues {
         if m.kind != MouseEventKind::Down(MouseButton::Left) || self.nav.help || self.view.is_some() {
             return false;
         }
-        let (n, rows, h) = (self.shown().len(), self.card_rows(), self.height());
-        self.nav.click(m.column, m.row, n, rows, h)
+        let (n, rows) = (self.shown().len(), self.card_rows());
+        self.nav.click(m.column, m.row, n, rows)
     }
 
     /// A key in the issue's view.
@@ -1231,10 +1228,6 @@ impl Issues {
         if self.nav.tab == ITab::Todo { 5 } else { 4 }
     }
 
-    fn height(&self) -> usize {
-        cards_fit(self.card_rows(), None)
-    }
-
     fn draw(&mut self, f: &mut Frame) {
         let area = f.area();
         let ui = &self.ui;
@@ -1258,7 +1251,7 @@ impl Issues {
         }
         let shown_n = self.shown().len();
         let rows = self.card_rows();
-        let h = cards_fit(rows, Some(area.height));
+        let h = cards_fit(rows, area.height);
         self.nav.keep(shown_n, h);
         let (sel, top) = (self.nav.sel, self.nav.top);
         let mine = self.items.iter().filter(|i| i.author == self.me || i.assignees.contains(&self.me)).count();

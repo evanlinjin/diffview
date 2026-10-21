@@ -8,10 +8,6 @@ impl List {
     }
 
     /// Cards on screen (between the header and the status bar).
-    pub(super) fn height(&self) -> usize {
-        cards_fit(self.card_rows(), None)
-    }
-
     /// A card's rows: 3 in a wide window (two zones), else 4, and a blank one between cards; on
     /// the todo and can close tabs, one more under the title (what needs you, why to close it).
     pub(super) fn card_rows(&self) -> usize {
@@ -29,7 +25,7 @@ impl List {
         self.wide = area.width as usize >= TWO_ZONES;
         let msg_col = msg_column(area.width as usize);
         let rows = self.card_rows();
-        let h = cards_fit(rows, Some(area.height));
+        let h = cards_fit(rows, area.height);
         // Keep the selection on screen.
         self.nav.keep(self.shown().len(), h);
         let sel = self.nav.sel;
