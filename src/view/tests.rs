@@ -1349,10 +1349,14 @@ fn claude_view() {
     app.rebuild(keep);
     let v = texts(&app);
     assert!(v.iter().any(|t| t.starts_with("◆ ") && t.ends_with("big.rs:20")) && v.iter().any(|t| t == "◆ reviewed"), "{v:?}");
+    // Enter on it: its summary.
+    app.goto(app.rows.iter().position(|r| r.line.text == "◆ reviewed").unwrap(), 0);
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(app.rows[app.head.row].info, Some(SUMMARY));
     app.threads[0].about = None;
-    let keep = app.cursor_key();
-    app.rebuild(keep);
-    // Enter there: to that comment (wherever the cursor was on the line).
+    app.build();
+    // Enter on the review: to its comment (wherever the cursor was on the line).
+    app.goto(app.rows.iter().position(|r| r.line.text.starts_with("◆ ") && r.line.text.ends_with("reviewed · 1 comment")).unwrap(), 0);
     app.head.col = 3;
     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(app.rows[app.head.row].thread, Some(0));

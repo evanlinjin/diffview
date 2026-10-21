@@ -196,10 +196,11 @@ impl App {
         let review = |t: &Thread| t.by_claude() && t.about.is_none() && t.conversation.is_empty();
         let file_of = |t: &Thread| self.files.iter().position(|f| f.path == t.path);
         let mut roots: Vec<(usize, &Thread)> = self.threads.iter().enumerate().filter(|(_, t)| review(t)).collect();
-        roots.sort_by_key(|(_, t)| (file_of(t), t.line.or(t.original_line)));
+        // (A file not in the diff: last. ponytail: an old-side line is compared as a new one.)
+        roots.sort_by_cached_key(|(_, t)| (file_of(t).unwrap_or(usize::MAX), t.line.or(t.original_line)));
         let mut said: Vec<Did> = vec![];
         if !roots.is_empty() || !self.claude.summary.trim().is_empty() {
-            let created = roots.iter().filter_map(|r| r.1.comments.first()).map(|c| c.created.as_str()).max().unwrap_or("");
+            let created = roots.iter().filter_map(|r| r.1.comments.first()).map(|c| c.created.as_str()).max().unwrap_or(&self.claude.created);
             let n = match roots.len() {
                 0 => String::new(),
                 1 => " · 1 comment".into(),

@@ -394,6 +394,7 @@ impl App {
         self.threads.retain(|t| t.claude.is_none());
         self.claude.summary.clear();
         self.claude.head.clear();
+        self.claude.created.clear();
         self.claude.description.clear();
         self.claude.closing.clear();
         if let Some(Ok(Some(mut r))) = loaded {
@@ -412,6 +413,7 @@ impl App {
                 crate::claude::reanchor(&mut r.threads, &self.files);
             }
             (self.claude.summary, self.claude.head, self.claude.description, self.claude.closing) = (r.summary, r.head, r.description, r.closing);
+            self.claude.created = r.created;
             self.threads.extend(r.threads);
             // (Tab's shown talks: while resolved only, so one resolved again, by you or Claude,
             // folds.)

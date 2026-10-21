@@ -74,6 +74,8 @@ const USER: &str = "user";
 
 pub struct Review {
     pub head: String,
+    /// When Claude wrote it (its file's `"created"`).
+    pub created: String,
     pub summary: String,
     /// A new description Claude proposes for the PR (empty: none), for the user to approve.
     pub description: String,
@@ -600,7 +602,7 @@ fn parse(text: &str) -> Result<Review> {
             })
         })
         .collect::<Result<_>>()?;
-    Ok(Review { head: s(&v["head"]), summary: s(&v["summary"]), description: s(&v["description"]), closing: s(&v["closing"]), close: s(&v["close"]), replace: s(&v["replace"]), threads })
+    Ok(Review { head: s(&v["head"]), created: created.clone(), summary: s(&v["summary"]), description: s(&v["description"]), closing: s(&v["closing"]), close: s(&v["close"]), replace: s(&v["replace"]), threads })
 }
 
 /// A GitHub review comment's id, from a review file's `"about"`: the id, or its link

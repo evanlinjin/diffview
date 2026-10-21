@@ -79,6 +79,8 @@ pub(super) struct ClaudeState {
     /// of it stays shown meanwhile.
     pub(super) broken: Option<String>,
     pub(super) summary: String,
+    /// When Claude wrote its review.
+    pub(super) created: String,
     /// The commit the review was made against (its `head`).
     pub(super) head: String,
     /// A new description for the PR that Claude proposes (empty: none).

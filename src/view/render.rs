@@ -653,7 +653,7 @@ impl App {
         let pos = if m.is_empty() { "0 / 0".into() } else { format!("{} / {}", sel + 1, m.len()) };
         let inner = self.popup_frame(f, r, p.title, &pos);
         let prompt = if icons { "\u{f422} " } else { "> " };
-        let query = Line::from(vec![Span::styled(prompt, self.ui.key), Span::raw(p.query.clone()), Span::styled(" ", if self.unfocused { Style::new() } else { self.ui.cursor })]);
+        let query = Line::from(vec![Span::styled(prompt, self.ui.key), Span::raw(p.query.clone()), Span::styled(" ", self.cursor_style())]);
         let rule = Line::from(Span::styled("─".repeat(inner.width as usize), self.ui.linenr));
         let shown: Vec<Line> = [query, rule].into_iter().chain(lines.iter().skip(off).take(vis).map(|l| l.0.clone())).collect();
         f.render_widget(Paragraph::new(shown), inner);

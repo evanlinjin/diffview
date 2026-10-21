@@ -55,6 +55,12 @@ impl App {
         if let Some((t, c)) = row.goes {
             return self.goto_comment(t, c);
         }
+        // (Its review, no comment of it left: its summary.)
+        if row.info == Some(CLAUDE_ACTIVITY) && row.line.kind == Kind::Comment && !row.line.text.is_empty()
+            && let Some(r) = self.rows.iter().position(|r| r.info == Some(SUMMARY))
+        {
+            return self.goto(r, 0);
+        }
         // (Not other headings there: Claude's review, your pending one: nothing on GitHub.)
         let has_link = row.thread.is_some_and(|t| self.threads[t].claude.is_none())
             || row.file == INFO && row.info.and_then(|i| self.info.get(i.checked_sub(1)?)).is_some_and(|h| h.heading && !h.url.is_empty());

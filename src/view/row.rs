@@ -109,7 +109,7 @@ impl App {
         let mut chars = text.chars();
         if self.head.row == r {
             let c = chars.next().unwrap_or(' ');
-            spans.push(Span::styled(c.to_string(), self.cursor_style()));
+            spans.push(Span::styled(c.to_string(), self.ui.hunk.patch(self.cursor_style())));
         }
         spans.push(Span::styled(chars.collect::<String>(), self.ui.hunk));
         Some(spans)
