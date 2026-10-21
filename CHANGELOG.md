@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.77.3] - 2026-10-21
+
+### Changed
+- dv list and the issues list share one piece for moving about them (the selection, the
+  filter, the help, tabs, clicks, the wheel), so they behave alike. A click below the last card
+  shown in dv list does nothing now (it picked a card off screen).
+
 ## [0.77.2] - 2026-10-20
 
 ### Fixed
