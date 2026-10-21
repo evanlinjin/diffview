@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.77.9] - 2026-10-21
+
+### Fixed
+- In Claude's view, `c` on Claude's last comment in a file (copied to your review, so gone
+  from that view with its file) leaves the cursor at the next file shown, not the top.
+
 ## [0.77.8] - 2026-10-21
 
 ### Fixed
