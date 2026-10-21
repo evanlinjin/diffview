@@ -5,6 +5,20 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.85.0] - 2026-10-21
+
+### Changed
+- A file's comments are in the pane, folded or not: a folded file's by their headings, beside
+  its header, and Tab on one unfolds the file there. Its header no longer says `· N comments`
+  while the pane shows them (it still does inline, with the pane hidden).
+
+### Fixed
+- Checks finishing during a fetch, or past the first 30 runs, no longer go unnoticed; and
+  opening a PR no longer costs an extra fetch a few seconds in.
+- A background review update leaves alone a checkout behind the reviewed commit (the review
+  came from further on), and the Claude view's "no comments" line doesn't show while Claude
+  has comments elsewhere (on files gone from the diff).
+
 ## [0.84.0] - 2026-10-21
 
 ### Added
