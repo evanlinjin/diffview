@@ -435,6 +435,18 @@ fn claude_review() {
     app.build();
     let texts: Vec<&str> = app.rows.iter().map(|r| r.line.text.as_str()).collect();
     assert_eq!(&texts[..3], ["Claude's review", "claude's review", "Looks fine."]); // summary up top, no PR needed
+    // When it was written, on its heading; and of what, once the PR has moved on.
+    app.claude.created = "2020-01-01T00:00:00Z".into();
+    app.build();
+    assert!(app.rows.iter().any(|r| r.line.text.starts_with("claude's review (") && r.line.text.ends_with("y ago)")));
+    app.claude.head = "42995cfc0e".into();
+    app.pr = Some(gh::Pr { head_oid: "5e1c0189b1".into(), ..Default::default() });
+    app.view = View::Claude; // (with a PR, the summary's there)
+    app.build();
+    let s = screen(220, 40, |f| app.draw(f));
+    assert!(s.contains("y ago · of 42995cf, before the PR's latest)"), "{s}");
+    (app.pr, app.claude.created, app.claude.head, app.view) = (None, String::new(), String::new(), View::All);
+    app.build();
     // Its file unreadable a moment (Claude mid-edit): what was read stays, and dv says why.
     let good = std::fs::read_to_string(&p).unwrap();
     std::fs::write(&p, &good[..good.len() / 2]).unwrap();
@@ -3430,4 +3442,17 @@ fn the_contents_with_no_files_yet() {
     app.files_pref = Some(true);
     let s = screen(200, 20, |f| app.draw(f));
     assert!(s.contains("CONTENTS · 4 files") && !s.contains("no changes"), "{s}");
+}
+
+#[test]
+fn the_claude_view_without_comments_says_so() {
+    // Its one comment went to GitHub (dismissed here): its summary, and why there's no code.
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    app.claude.summary = "Looks fine.".into();
+    app.view = View::Claude;
+    app.build();
+    assert!(app.rows.iter().any(|r| r.line.text == "(no comments from Claude on the code: gn / gp, the whole diff)"));
+    app.view = View::All;
+    app.build();
+    assert!(!app.rows.iter().any(|r| r.line.text.starts_with("(no comments from Claude")));
 }

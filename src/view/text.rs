@@ -163,7 +163,18 @@ impl App {
             false => vec![mk(Kind::Thread, "questions for Claude".into())],
             true => {
                 let summary = |r: Row| Row { info: Some(SUMMARY), ..r };
-                let mut rows = vec![summary(mk(Kind::Thread, "claude's review".into()))];
+                // (When it was written, and of what if the PR has moved on since: how current it is.)
+                let old = self.claude.head.as_str();
+                let moved = self.pr.as_ref().is_some_and(|p| !old.is_empty() && !p.head_oid.is_empty() && !p.head_oid.starts_with(old));
+                let mut when: Vec<String> = vec![];
+                if !self.claude.created.is_empty() {
+                    when.push(crate::gh::ago(&self.claude.created));
+                }
+                if moved {
+                    when.push(format!("of {}, before the PR's latest", &old[..old.len().min(7)]));
+                }
+                let when = if when.is_empty() { String::new() } else { format!(" ({})", when.join(" · ")) };
+                let mut rows = vec![summary(mk(Kind::Thread, format!("claude's review{when}")))];
                 rows.extend(self.md_rows_at(&self.claude.summary, self.info_w(), mk).into_iter().map(summary));
                 rows.push(Row { edge: true, ..summary(mk(Kind::Comment, String::new())) });
                 rows

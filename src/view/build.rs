@@ -193,6 +193,9 @@ impl App {
         }
         if rows.is_empty() {
             rows.push(Row::text(usize::MAX, Kind::Hunk, format!("({})", self.no_files())));
+        } else if self.view == View::Claude && !self.files.is_empty() && !rows.iter().any(|r| r.file < self.files.len()) {
+            // (Its code is the files Claude commented on: none, it says so, not an empty page.)
+            rows.push(Row::text(usize::MAX, Kind::Hunk, "(no comments from Claude on the code: gn / gp, the whole diff)".into()));
         }
         self.rows = rows;
         self.gone_at = gone_at;
