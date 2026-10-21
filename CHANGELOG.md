@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.80.2] - 2026-10-21
+
+### Fixed
+- dv list: only GitHub out of reach is said as "didn't answer", and it's asked again in 30s;
+  anything else (a login run out) is said in full, for you to see to.
+- Claude's badge, cut on a narrow bar, keeps how long it's been at it ("… 4m").
+- Whether a run or a redraft is still at it is read from /proc on Linux (no `ps` each frame).
+
 ## [0.80.1] - 2026-10-21
 
 ### Fixed
