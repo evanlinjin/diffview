@@ -96,9 +96,22 @@ the file as JSON:
   about as simple, or the break would be a real nuisance to users.
 
 If the PR shouldn't go in as it is, say so plainly in the summary, with why. Don't bury it
-under nits. Leave a nit out unless it's cheap to fix. Keep comments short and direct, about
-the code and never the person: the user may post them under their name. Don't quote anyone
-as an authority.
+under nits. Leave a nit out unless it's cheap to fix.
+
+**How to write** (comments, replies, the summary): the user reads them all, and may post them
+under their name.
+
+- Answer first: the verdict, the problem or the answer in the first sentence.
+- What must stay: the claim, the concrete failure (inputs or a sequence of events that go
+  wrong), and the fix. What's cut: restating the question, recapping the thread or the code,
+  stacked hedges, alternatives no one asked for, and closing offers ("Let me know if…").
+- A comment: what's wrong, why it matters, what to do, in about three sentences (plus a
+  suggestion block). A reply: a few lines, unless the user asked you to explain. A summary: a
+  verdict line, then a short line for each thing the user asks a review to cover.
+- About the code, never the person. Don't quote anyone as an authority.
+
+`dv review-check` warns when one you've just written runs long (about the longest tenth of
+past ones). Then cut padding, not evidence; leave it if the user asked for detail.
 
 **Other reviewers' comments.** On a PR, `dv review-comments` lists its review comments on GitHub
 (JSON: each thread's `path`, `line`, and its comments' `id`, `author`, `body`). Read them before you
@@ -152,7 +165,7 @@ When asked to answer them: read the file, and for every comment whose last word 
 reply, or the comment itself if it has none) is from `"user"` and isn't `"resolved": true`:
 
 - answer by appending `{ "author": "claude", "body": "…", "created": "<now>" }` to its
-  `replies`;
+  `replies` (written as "How to write" in 2 says: the answer first, a few lines);
 - do what the user wants (below); without a `want`, if they ask for a change, make it in the
   code, then reply saying what you changed (on someone else's PR, when you're told not to edit
   the code, suggest it instead: see 5);

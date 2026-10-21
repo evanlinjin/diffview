@@ -900,12 +900,57 @@ pub struct Report {
     pub comments: usize,
 }
 
+/// How long Claude's prose may run (characters, code blocks not counted) before
+/// `review-check` asks for it shorter: about the longest tenth of what it wrote before. A
+/// review comment; a reply; the summary.
+const LONG: (usize, usize, usize) = (900, 1500, 4000);
+
+/// `text`'s prose: its length without fenced code (a suggestion's lines aren't padding).
+fn prose_len(text: &str) -> usize {
+    let mut fenced = false;
+    text.lines()
+        .filter(|l| {
+            let fence = l.trim_start().starts_with("```");
+            fenced ^= fence;
+            !fence && !fenced
+        })
+        .map(|l| l.chars().count() + 1)
+        .sum()
+}
+
+/// Warnings for what Claude has just written that runs long: its summary, its comments new
+/// to this check (no `code` yet), and its replies of the last hour. (Not older text: that
+/// would have each run trim what's long done with.)
+fn long_texts(v: &Value, rep: &mut Report) {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
+    let fresh = |r: &Value| r["created"].as_str().and_then(crate::gh::epoch_secs).is_some_and(|t| now - t < 3600);
+    let mut long = |what: String, text: &str, max: usize| {
+        let n = prose_len(text);
+        if n > max {
+            rep.warnings.push(format!(
+                "{what}: {n} characters of prose, past {max}: cut what pads it (restating, recaps, hedges, offers), not the claim, the failure or the fix; fine if the user asked for detail"
+            ));
+        }
+    };
+    long("the summary".into(), v["summary"].as_str().unwrap_or(""), LONG.2);
+    for (i, c) in v["comments"].as_array().into_iter().flatten().enumerate() {
+        let at = format!("comment {} ({}:{})", i + 1, c["path"].as_str().unwrap_or(""), c["line"].as_u64().unwrap_or(0));
+        if c["author"] != "user" && c.get("code").is_none() {
+            long(at.clone(), c["body"].as_str().unwrap_or(""), LONG.0);
+        }
+        for r in c["replies"].as_array().into_iter().flatten().filter(|r| r["author"] == "claude" && fresh(r)) {
+            long(format!("{at}, your reply"), r["body"].as_str().unwrap_or(""), LONG.1);
+        }
+    }
+}
+
 /// Check the review at `path` against the diff, and keep it anchored: record each comment's
 /// code (if it isn't yet), and move comments whose code moved. Writes the file if it changed.
 pub fn check(path: &std::path::Path, files: &[FileDiff]) -> Result<Report> {
     let r = load(path)?.with_context(|| format!("no review at {}", path.display()))?;
     let mut v: Value = serde_json::from_str(&std::fs::read_to_string(path)?)?;
     let mut rep = Report { errors: vec![], warnings: vec![], notes: vec![], comments: r.threads.len() };
+    long_texts(&v, &mut rep);
     let mut changed = v["comments"].as_array_mut().is_some_and(|c| assign_ids(c));
     for (i, t) in r.threads.iter().enumerate() {
         let c = &mut v["comments"][i];
@@ -1163,4 +1208,24 @@ fn notes_keep_to_their_budget() {
     assert!(notes_over(&long).is_some_and(|w| w.contains("1 point(s) longer") && !w.contains("KB")));
     let big = "- a short point\n".repeat(NOTES_BUDGET / 10);
     assert!(notes_over(&big).is_some_and(|w| w.contains("KB, over their 12 KB budget") && !w.contains("longer")));
+}
+
+#[test]
+fn long_prose_is_flagged_when_new() {
+    assert_eq!(prose_len("ab\n```suggestion\nlet x = 1;\n```\ncd"), 6); // the code's not counted
+    let long = "x".repeat(LONG.0 + 1);
+    let v = serde_json::json!({ "summary": "ok", "comments": [
+        { "path": "a.rs", "line": 1, "body": long },                    // new: flagged
+        { "path": "a.rs", "line": 2, "body": long, "code": "x" },       // checked before: not
+        { "path": "a.rs", "line": 3, "body": long, "author": "user" },  // the user's: not
+        { "path": "a.rs", "line": 4, "body": "short", "code": "x", "replies": [
+            { "author": "claude", "body": "y".repeat(LONG.1 + 1), "created": now() },                    // just now: flagged
+            { "author": "claude", "body": "y".repeat(LONG.1 + 1), "created": "2020-01-01T00:00:00Z" }, // long ago: not
+        ] },
+    ] });
+    let mut rep = Report { errors: vec![], warnings: vec![], notes: vec![], comments: 0 };
+    long_texts(&v, &mut rep);
+    assert_eq!(rep.warnings.len(), 2, "{:?}", rep.warnings);
+    assert!(rep.warnings[0].starts_with("comment 1 (a.rs:1): 902 characters"), "{}", rep.warnings[0]);
+    assert!(rep.warnings[1].starts_with("comment 4 (a.rs:4), your reply: "));
 }
