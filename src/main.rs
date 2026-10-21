@@ -609,6 +609,13 @@ fn checkout_record(n: u64) -> Option<PathBuf> {
 /// to collect it (a zombie, `kill -0` all the same: a Claude run of a view since closed, under
 /// `dv list`).
 pub(crate) fn alive(pid: u32) -> bool {
+    // Linux: its state in /proc, read (no process started: callers ask often); else `ps`.
+    if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+        return stat.rsplit_once(") ").is_some_and(|(_, rest)| !rest.starts_with('Z'));
+    }
+    if std::path::Path::new("/proc/self/stat").exists() {
+        return false; // (Linux, and it isn't there)
+    }
     let out = std::process::Command::new("ps").args(["-o", "stat=", "-p", &pid.to_string()]).stderr(std::process::Stdio::null()).output();
     out.is_ok_and(|o| o.status.success() && o.stdout.first().is_some_and(|&s| s != b'Z'))
 }

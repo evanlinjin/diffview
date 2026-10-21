@@ -374,7 +374,7 @@ impl App {
                 self.post_later(Post::Submit(event, body))
             }
             Action::Commit => {
-                anyhow::ensure!(!self.claude_busy(), "{}", App::busy_says("commit (its changes would be half made)"));
+                anyhow::ensure!(!self.claude_busy(), "{}", App::busy_edit("commit"));
                 // Claude writes the message (then your editor has it); no review file to keep
                 // it beside: the draft from its replies, as before.
                 match self.claude.path.is_some() {
