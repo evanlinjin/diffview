@@ -5,6 +5,19 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.79.2] - 2026-10-21
+
+### Changed
+- `dv repo-file <owner/repo[@ref]> <path>`: the ref goes on the repo (an unquoted path with a
+  space is refused, not read as a ref); `.` lists the top.
+
+### Fixed
+- `dv repo-file` reads only public repos, or the one you're in (text in a PR could ask Claude
+  for a private one's file); one request a file, up to 1MB; `| head` doesn't make it panic; a
+  directory's listing cut at GitHub's 1000 says so.
+- What follows `dv amend`, `dv cargo`, `dv scratch` and `dv repo-file` is passed on as given
+  (`-abc` isn't split into dv's short flags).
+
 ## [0.79.1] - 2026-10-21
 
 ### Fixed
