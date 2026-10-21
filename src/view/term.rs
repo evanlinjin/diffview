@@ -175,8 +175,7 @@ impl Writing {
             Err(_) if self.looked.elapsed() > std::time::Duration::from_secs(3) => {
                 self.looked = std::time::Instant::now();
                 let pid = std::fs::read_to_string(&self.pid).unwrap_or_default();
-                let alive = |p: &str| std::process::Command::new("kill").args(["-0", p.trim()]).stderr(std::process::Stdio::null()).status().is_ok_and(|s| s.success());
-                if pid.trim().is_empty() || alive(&pid) {
+                if pid.trim().is_empty() || pid.trim().parse().is_ok_and(crate::alive) {
                     return None;
                 }
                 std::fs::read_to_string(&self.done).unwrap_or_default()

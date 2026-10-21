@@ -605,6 +605,26 @@ fn checkout_record(n: u64) -> Option<PathBuf> {
 /// This dv's binary, to run another of: as it is now. Replaced while dv runs (an install),
 /// Linux gives the old one's path with " (deleted)" on it, which isn't there to run: the new
 /// one at its path then (else `dv` on PATH).
+/// Whether process `pid` is running: there, and not one that's exited and waits for its parent
+/// to collect it (a zombie, `kill -0` all the same: a Claude run of a view since closed, under
+/// `dv list`).
+pub(crate) fn alive(pid: u32) -> bool {
+    let out = std::process::Command::new("ps").args(["-o", "stat=", "-p", &pid.to_string()]).stderr(std::process::Stdio::null()).output();
+    out.is_ok_and(|o| o.status.success() && o.stdout.first().is_some_and(|&s| s != b'Z'))
+}
+
+#[test]
+fn a_zombie_isnt_alive() {
+    assert!(alive(std::process::id()));
+    // Exited, not waited for yet: a zombie.
+    let mut child = std::process::Command::new("true").spawn().unwrap();
+    let pid = child.id();
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    assert!(!alive(pid));
+    _ = child.wait();
+    assert!(!alive(pid));
+}
+
 pub(crate) fn self_exe() -> PathBuf {
     std::env::current_exe().map_or_else(|_| PathBuf::from("dv"), runnable)
 }

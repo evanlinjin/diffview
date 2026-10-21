@@ -85,10 +85,7 @@ impl Record {
 
     /// Claude is drafting it now (from any dv): its process is still running.
     pub fn drafting_now(&self) -> bool {
-        self.drafting.is_some_and(|pid| {
-            let alive = std::process::Command::new("kill").args(["-0", &pid.to_string()]).stderr(std::process::Stdio::null()).status();
-            alive.is_ok_and(|s| s.success())
-        })
+        self.drafting.is_some_and(crate::alive)
     }
 }
 
@@ -299,7 +296,12 @@ fn prepare(prs: &[u64], root: &Path) -> Result<PathBuf> {
 pub fn create_new(task: &str, root: &Path) -> Result<u64> {
     let git = |args: &[&str]| crate::diff::git(&[&["-C", &root.to_string_lossy()], args].concat());
     let base = crate::diff::default_branch();
-    let id = new_id();
+    // (Not one whose branch or worktree is still there: an earlier new PR's, its record gone.)
+    let taken = |id: u64| {
+        let dir = crate::worktree_dir_named(root, &name(id)).is_ok_and(|d| d.exists());
+        dir || git(&["rev-parse", "--verify", "-q", &format!("refs/heads/{}", branch(id))]).is_ok()
+    };
+    let id = (new_id()..).find(|&id| !taken(id)).context("no new PR id free")?;
     let r = Record { id, base: base.clone(), task: task.trim().to_owned(), ..Record::default() }; // its session: `draft`
     let dir = crate::worktree_dir_named(root, &name(id))?;
     _ = git(&["fetch", "-q", &crate::diff::remote(), &base]);

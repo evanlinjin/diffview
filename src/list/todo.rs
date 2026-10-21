@@ -638,7 +638,7 @@ impl List {
         // A run in a pane is at it while Claude Code works there (or asks you something), not
         // just while its pane is open: done, it waits there idle.
         let alive = |pid: Option<u32>, session: Option<&str>| match (pid, session) {
-            (Some(pid), _) => std::process::Command::new("kill").args(["-0", &pid.to_string()]).stderr(std::process::Stdio::null()).status().is_ok_and(|s| s.success()),
+            (Some(pid), _) => crate::alive(pid),
             (None, Some(id)) => panes.get_or_init(open_panes).iter().find(|p: &&Pane| p.1.contains(id)).is_some_and(|p| {
                 let screen = crate::pane::screen(p.0);
                 crate::pane::working(&screen) || crate::pane::asking(&screen)

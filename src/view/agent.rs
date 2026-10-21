@@ -303,6 +303,23 @@ impl App {
         }
     }
 
+    /// The view closing with a Claude run of its own under way (dv list's, say, goes on): its
+    /// end waited for elsewhere, its marks off then (else they'd stand, its process a zombie).
+    pub(super) fn hand_off_claude(&mut self) {
+        let Some(mut j) = self.claude.job.take() else { return };
+        let pr = self.pr.as_ref().filter(|_| !j.forked).map(|p| p.number);
+        let rep = self.replacement.as_ref().map(|r| r.id);
+        std::thread::spawn(move || {
+            _ = j.child.wait();
+            if let Some(n) = pr {
+                crate::claude::clear_running(n);
+            }
+            if let Some(id) = rep {
+                crate::replace::mark_at_work(id, None, j.child.id());
+            }
+        });
+    }
+
     /// `Space a` → stop: end the background run (its log stays). The session is kept, so the
     /// next run resumes where it left off.
     pub(super) fn stop_claude(&mut self) {
