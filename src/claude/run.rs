@@ -140,7 +140,7 @@ pub(crate) fn claude_dirs() -> Vec<std::ffi::OsString> {
 
 /// What a reading-only run may use beyond its own reading tools (Read, Grep, Glob): looking,
 /// never changing.
-const READ_ONLY: &[&str] = &["Bash(git diff:*)", "Bash(git show:*)", "Bash(git log:*)", "Bash(git rev-parse:*)", "Bash(gh pr view:*)", "Bash(dv repo-file:*)"];
+const READ_ONLY: &[&str] = &["Bash(git diff:*)", "Bash(git show:*)", "Bash(git log:*)", "Bash(git rev-parse:*)", "Bash(gh pr view:*)"];
 
 /// What Claude is run for: each can have its own model (`model_args`).
 #[derive(Clone, Copy, Debug, PartialEq)]

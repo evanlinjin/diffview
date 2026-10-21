@@ -112,27 +112,40 @@ pub(crate) fn login(v: &Value) -> String {
     v["login"].as_str().unwrap_or("ghost").to_owned()
 }
 
-/// `gh args`, its output as JSON.
 /// `dv repo-file`: a file of GitHub repo `repo` ("owner/name") at `rf` (empty: its default
-/// branch), as it is; a directory, its entries ("name", "dir/"). Read only (GET), for Claude to
-/// read other repos as it can't `gh api`.
+/// branch), as it is (text only); a directory, its entries ("name", "dir/"). Read only (GET),
+/// and only a repo's contents, for Claude to read other repos as it can't `gh api`.
 pub(crate) fn repo_file(repo: &str, path: &str, rf: &str) -> Result<String> {
-    anyhow::ensure!(repo.split('/').count() == 2 && !repo.starts_with('-'), "a repo is owner/name, not {repo:?}");
-    let path = path.trim_matches('/');
-    let at = if rf.is_empty() { String::new() } else { format!("?ref={rf}") };
-    let url = format!("repos/{repo}/contents/{path}{at}");
-    let v = gh_json(&["api", "-X", "GET", &url])?;
-    match v.as_array() {
-        Some(entries) => Ok(entries
-            .iter()
-            .map(|e| format!("{}{}", e["name"].as_str().unwrap_or(""), if e["type"] == "dir" { "/" } else { "" }))
-            .collect::<Vec<_>>()
-            .join("\n")),
-        None if v["type"] == "file" => gh(&["api", "-X", "GET", "-H", "Accept: application/vnd.github.raw", &url]),
-        None => anyhow::bail!("{path} in {repo} is a {}, not a file or a directory", v["type"].as_str().unwrap_or("?")),
+    // (Nothing that could reach past the repo's contents: no `..`, each part encoded.)
+    let part = |p: &str| !p.is_empty() && p != "." && p != "..";
+    let ok = repo.split_once('/').is_some_and(|(o, r)| part(o) && part(r) && !r.contains('/'));
+    anyhow::ensure!(ok, "a repo is owner/name, not {repo:?}");
+    let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+    anyhow::ensure!(parts.iter().all(|p| part(p)), "a path within the repo, not {path:?}");
+    let enc = |s: &str| s.split('/').map(percent).collect::<Vec<_>>().join("/");
+    let at = if rf.is_empty() { String::new() } else { format!("?ref={}", percent(rf)) };
+    let v = gh_json(&["api", "-X", "GET", &format!("repos/{}/contents/{}{at}", enc(repo), parts.iter().map(|p| percent(p)).collect::<Vec<_>>().join("/"))])?;
+    if let Some(entries) = v.as_array() {
+        let names: Vec<String> = entries.iter().map(|e| format!("{}{}", e["name"].as_str().unwrap_or(""), if e["type"] == "dir" { "/" } else { "" })).collect();
+        return Ok(names.join("\n") + "\n");
+    }
+    anyhow::ensure!(v["type"] == "file", "{path} in {repo} is a {}, not a file or a directory", v["type"].as_str().unwrap_or("?"));
+    // (The very blob just looked at, as it is: not a later commit's.)
+    let sha = v["sha"].as_str().filter(|s| s.bytes().all(|b| b.is_ascii_hexdigit())).context("no blob for it")?;
+    let out = Command::new("gh").args(["api", "-X", "GET", "-H", "Accept: application/vnd.github.raw", &format!("repos/{}/git/blobs/{sha}", enc(repo))]).output()?;
+    anyhow::ensure!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr).trim());
+    String::from_utf8(out.stdout).map_err(|e| anyhow::anyhow!("{path} isn't text ({} bytes)", e.as_bytes().len()))
+}
+
+#[test]
+fn repo_file_stays_in_a_repos_contents() {
+    // (Refused before GitHub's asked: nothing reaches past the contents.)
+    for (repo, path) in [("a/..", "x"), ("/x", "y"), ("a/", "y"), ("a/b/c", "y"), ("a", "y"), ("o/r", "../../user"), ("o/r", "a/../../b"), ("o/r", "./x")] {
+        assert!(repo_file(repo, path, "").is_err(), "{repo} {path}");
     }
 }
 
+/// `gh args`, its output as JSON.
 pub(crate) fn gh_json(args: &[&str]) -> Result<Value> {
     Ok(serde_json::from_str(&gh(args)?)?)
 }

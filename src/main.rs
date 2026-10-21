@@ -166,6 +166,16 @@ fn run() -> anyhow::Result<()> {
     if o.cmd == Some("cargo") {
         std::process::exit(checked_cargo(&o.rest)?);
     }
+    // Another repo's file, as it is (no newline added): needing no repo here, nor dv's skill.
+    if o.cmd == Some("repo-file") {
+        let (repo, path, rf) = match o.rest.as_slice() {
+            [repo, path] => (repo, path, ""),
+            [repo, path, rf] => (repo, path, rf.as_str()),
+            _ => anyhow::bail!("dv repo-file <owner/repo> <path> [<ref>] (a path with spaces: quote it)"),
+        };
+        print!("{}", gh::repo_file(repo, path, rf)?);
+        return Ok(());
+    }
     if (o.list || o.cmd.is_some()) && o.rm {
         anyhow::bail!("--rm goes with a PR number, e.g. `dv 123 --rm`\n{USAGE}");
     }
@@ -214,11 +224,6 @@ fn run() -> anyhow::Result<()> {
         }
         Some("replace-info") => return replace::info(),
         Some("scratch") => return scratch(&o.rest).map(|m| println!("{m}")),
-        Some("repo-file") => {
-            let [repo, path, rest @ ..] = o.rest.as_slice() else { anyhow::bail!("dv repo-file <owner/repo> <path> [<ref>]") };
-            let rf = rest.first().map_or("", String::as_str);
-            return gh::repo_file(repo, path, rf).map(|t| println!("{t}"));
-        }
         Some("amend") => {
             // The branch's own commits are those over the base dv diffs against (`review-info`'s).
             let base = diff_base(&o, gh::pr(None).ok().as_ref())?;
