@@ -78,7 +78,8 @@ the file as JSON:
   A suggestion block is the commented lines as they should be, the real code (valid in that
   file: TOML in a `Cargo.toml`), that GitHub swaps in. When the user's reply shows one as the
   shape they want ("have a suggestion like ```suggestion // Do this instead```"), what's in theirs
-  is a placeholder for the change, unless it's real code for those lines: write the actual
+  is a placeholder for the change, unless it already makes the change they asked for (a
+  comment like `// Do this instead` is valid code, and still a placeholder): write the actual
   lines yourself; don't copy a placeholder in, nor ask whether it's one.
 
 **Other reviewers' comments.** On a PR, `dv review-comments` lists its review comments on GitHub
