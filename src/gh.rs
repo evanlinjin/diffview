@@ -112,36 +112,75 @@ pub(crate) fn login(v: &Value) -> String {
     v["login"].as_str().unwrap_or("ghost").to_owned()
 }
 
-/// `dv repo-file`: a file of GitHub repo `repo` ("owner/name") at `rf` (empty: its default
-/// branch), as it is (text only); a directory, its entries ("name", "dir/"). Read only (GET),
-/// and only a repo's contents, for Claude to read other repos as it can't `gh api`.
-pub(crate) fn repo_file(repo: &str, path: &str, rf: &str) -> Result<String> {
+/// `dv repo-file`: a file of GitHub repo `repo` ("owner/name", "owner/name@ref": else its
+/// default branch), as it is (text, up to 1MB); a directory, its entries ("name", "dir/").
+/// Read only (GET), only a repo's contents, and only a public repo's or this one's (text
+/// Claude reads, a PR's, could ask it for a private one's), for Claude to read other repos as it
+/// can't `gh api`.
+pub(crate) fn repo_file(repo: &str, path: &str) -> Result<String> {
+    let (repo, rf) = repo.split_once('@').unwrap_or((repo, ""));
     // (Nothing that could reach past the repo's contents: no `..`, each part encoded.)
     let part = |p: &str| !p.is_empty() && p != "." && p != "..";
     let ok = repo.split_once('/').is_some_and(|(o, r)| part(o) && part(r) && !r.contains('/'));
-    anyhow::ensure!(ok, "a repo is owner/name, not {repo:?}");
-    let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+    anyhow::ensure!(ok, "a repo is owner/name (or owner/name@ref), not {repo:?}");
+    let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty() && *p != ".").collect();
     anyhow::ensure!(parts.iter().all(|p| part(p)), "a path within the repo, not {path:?}");
     let enc = |s: &str| s.split('/').map(percent).collect::<Vec<_>>().join("/");
+    let meta = gh_json(&["api", "-X", "GET", &format!("repos/{}", enc(repo))])?;
+    if meta["private"] != false {
+        let here = gh_json(&["repo", "view", "--json", "nameWithOwner"]).ok().and_then(|v| v["nameWithOwner"].as_str().map(str::to_lowercase));
+        anyhow::ensure!(here.as_deref() == Some(repo.to_lowercase().as_str()), "{repo} isn't public (only a public repo's files, or this repo's)");
+    }
     let at = if rf.is_empty() { String::new() } else { format!("?ref={}", percent(rf)) };
-    let v = gh_json(&["api", "-X", "GET", &format!("repos/{}/contents/{}{at}", enc(repo), parts.iter().map(|p| percent(p)).collect::<Vec<_>>().join("/"))])?;
+    let v = gh_json(&["api", "-X", "GET", &format!("repos/{}/contents/{}{at}", enc(repo), enc(&parts.join("/")))])?;
     if let Some(entries) = v.as_array() {
-        let names: Vec<String> = entries.iter().map(|e| format!("{}{}", e["name"].as_str().unwrap_or(""), if e["type"] == "dir" { "/" } else { "" })).collect();
+        let mut names: Vec<String> = entries.iter().map(|e| format!("{}{}", e["name"].as_str().unwrap_or(""), if e["type"] == "dir" { "/" } else { "" })).collect();
+        // (GitHub lists a directory's first 1000 only.)
+        if entries.len() >= 1000 {
+            names.push("… (GitHub lists only the first 1000)".into());
+        }
         return Ok(names.join("\n") + "\n");
     }
     anyhow::ensure!(v["type"] == "file", "{path} in {repo} is a {}, not a file or a directory", v["type"].as_str().unwrap_or("?"));
-    // (The very blob just looked at, as it is: not a later commit's.)
-    let sha = v["sha"].as_str().filter(|s| s.bytes().all(|b| b.is_ascii_hexdigit())).context("no blob for it")?;
-    let out = Command::new("gh").args(["api", "-X", "GET", "-H", "Accept: application/vnd.github.raw", &format!("repos/{}/git/blobs/{sha}", enc(repo))]).output()?;
-    anyhow::ensure!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr).trim());
-    String::from_utf8(out.stdout).map_err(|e| anyhow::anyhow!("{path} isn't text ({} bytes)", e.as_bytes().len()))
+    // Up to 1MB, the file is in the answer (that very blob); more, not read.
+    let size = v["size"].as_u64().unwrap_or(0);
+    anyhow::ensure!(v["encoding"] == "base64", "{path} is {size} bytes: too big to read here (1MB at most)");
+    let bytes = base64(v["content"].as_str().unwrap_or("")).context("its content didn't decode")?;
+    String::from_utf8(bytes).map_err(|_| anyhow::anyhow!("{path} isn't text ({size} bytes)"))
+}
+
+/// Standard base64 (`=` padded; whitespace, as GitHub wraps it, skipped), decoded.
+fn base64(s: &str) -> Option<Vec<u8>> {
+    let val = |c: u8| match c {
+        b'A'..=b'Z' => Some(c - b'A'),
+        b'a'..=b'z' => Some(c - b'a' + 26),
+        b'0'..=b'9' => Some(c - b'0' + 52),
+        b'+' => Some(62),
+        b'/' => Some(63),
+        _ => None,
+    };
+    let digits: Vec<u8> = s.bytes().filter(|c| !c.is_ascii_whitespace() && *c != b'=').map(val).collect::<Option<_>>()?;
+    let mut out = Vec::with_capacity(digits.len() * 3 / 4);
+    for chunk in digits.chunks(4) {
+        let n = chunk.iter().enumerate().fold(0u32, |n, (i, &d)| n | (d as u32) << (18 - 6 * i));
+        out.extend(&n.to_be_bytes()[1..chunk.len()]);
+    }
+    Some(out)
+}
+
+#[test]
+fn base64_as_github_gives_it() {
+    assert_eq!(base64("aGk=\n").as_deref(), Some(&b"hi"[..]));
+    assert_eq!(base64("W3Rvb2xj\naGFpbl0K").as_deref(), Some(&b"[toolchain]\n"[..]));
+    assert_eq!(base64("YQ==").as_deref(), Some(&b"a"[..]));
+    assert!(base64("a!b").is_none());
 }
 
 #[test]
 fn repo_file_stays_in_a_repos_contents() {
     // (Refused before GitHub's asked: nothing reaches past the contents.)
     for (repo, path) in [("a/..", "x"), ("/x", "y"), ("a/", "y"), ("a/b/c", "y"), ("a", "y"), ("o/r", "../../user"), ("o/r", "a/../../b"), ("o/r", "./x")] {
-        assert!(repo_file(repo, path, "").is_err(), "{repo} {path}");
+        assert!(repo_file(repo, path).is_err(), "{repo} {path}");
     }
 }
 

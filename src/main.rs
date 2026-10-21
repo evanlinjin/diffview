@@ -32,8 +32,8 @@ const USAGE: &str = "usage: dv [base | PR | list] [-p N] [-f] [-w [-b]]
   dv cargo [+T] …  for Claude: cargo check/build/test/clippy/doc/fmt --check on any toolchain T
   dv scratch R     for Claude: a checkout of commit R of its own (detached) to try things in;
                    `dv scratch --rm <dir>` removes one (else they go after a day)
-  dv repo-file O/R P [REF]  for Claude: file P of GitHub repo O/R (at REF), or a directory's
-                   entries, read only
+  dv repo-file O/R[@REF] P  for Claude: file P of public GitHub repo O/R (at REF), or a
+                   directory's entries (`.`: the top), read only
   dv amend C [F…] [-F M]  fold what isn't committed (in files F) into the branch's commit C, and/or
                    give it the message in file M (a backup branch first)
   dv replace 123 [124 …]   Claude drafts a replacement for those PRs, unpublished, on
@@ -97,7 +97,14 @@ impl Opts {
 /// PR (base branches are never all digits).
 fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Opts> {
     let mut expanded = vec![];
+    // (After a command taking what follows as its own, `dv repo-file o/r -x.txt`: as given.)
+    let mut theirs = false;
     for a in args {
+        if theirs {
+            expanded.push(a);
+            continue;
+        }
+        theirs = matches!(a.as_str(), "amend" | "cargo" | "scratch" | "repo-file");
         match a.split_once('=') {
             Some((flag, v)) if a.starts_with("--") => expanded.extend([flag.to_owned(), v.to_owned()]),
             _ if a.starts_with('-') && !a.starts_with("--") && a.len() > 2 => {
@@ -168,12 +175,16 @@ fn run() -> anyhow::Result<()> {
     }
     // Another repo's file, as it is (no newline added): needing no repo here, nor dv's skill.
     if o.cmd == Some("repo-file") {
-        let (repo, path, rf) = match o.rest.as_slice() {
-            [repo, path] => (repo, path, ""),
-            [repo, path, rf] => (repo, path, rf.as_str()),
-            _ => anyhow::bail!("dv repo-file <owner/repo> <path> [<ref>] (a path with spaces: quote it)"),
+        let [repo, path] = o.rest.as_slice() else {
+            anyhow::bail!("dv repo-file <owner/repo[@ref]> <path> (a path with spaces: quote it; `.`: the top)")
         };
-        print!("{}", gh::repo_file(repo, path, rf)?);
+        let text = gh::repo_file(repo, path)?;
+        // (Read in part, `| head`: done, not a panic.)
+        if let Err(e) = std::io::Write::write_all(&mut std::io::stdout(), text.as_bytes())
+            && e.kind() != std::io::ErrorKind::BrokenPipe
+        {
+            return Err(e.into());
+        }
         return Ok(());
     }
     if (o.list || o.cmd.is_some()) && o.rm {

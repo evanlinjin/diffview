@@ -187,7 +187,7 @@ without the fix: …") instead of asking the user or the author to check. Never 
 user's own checkout for this.
 
 To see how another GitHub repo does something (a sibling repo's CI workflows, say, as an
-example to follow): `dv repo-file <owner/repo> <path> [<ref>]` prints a file, or a directory's
+example to follow): `dv repo-file <owner/repo[@ref]> <path>` prints a public repo's file, or a directory's
 entries (`gh api` isn't allowed). Look before writing one from scratch.
 
 Your comment on the code is what's kept (and what the user may post): the replies under it are
