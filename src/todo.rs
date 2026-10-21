@@ -189,6 +189,19 @@ pub struct Item {
 
 impl Item {
     /// How it's kept (deferrals, rankings): `pr-12`, `rep-12`, `issue-12`.
+    /// As you know it: "#12", or a replacement's (or a new PR draft's) label.
+    pub fn label(&self) -> String {
+        match self.is_rep() {
+            true => crate::replace::label(self.number),
+            false => format!("#{}", self.number),
+        }
+    }
+
+    /// What a ranking's fingerprint has of it: its key, and its needs then.
+    pub fn entry(&self) -> String {
+        format!("{}:{}", self.key(), self.needs_key())
+    }
+
     pub fn key(&self) -> String {
         let kind = match self.kind {
             Kind::Pr => "pr",
@@ -379,9 +392,15 @@ pub struct Ranked {
 }
 
 /// What a ranking was of: each item and its needs. When today's differs, the ranking is stale.
+#[cfg(test)]
 pub fn fingerprint<'a>(items: impl IntoIterator<Item = &'a Item>) -> String {
+    fingerprint_of(items.into_iter().map(Item::entry))
+}
+
+/// A ranking's fingerprint of its items' `entry`s.
+pub fn fingerprint_of(entries: impl IntoIterator<Item = String>) -> String {
     // (By weight, as `order` compares: a need for another of the same weight, no new ranking.)
-    let mut keys: Vec<String> = items.into_iter().map(|i| format!("{}:{}", i.key(), i.needs_key())).collect();
+    let mut keys: Vec<String> = entries.into_iter().collect();
     keys.sort();
     keys.join(";")
 }
@@ -765,12 +784,10 @@ pub fn defer_secs(c: char) -> (i64, &'static str) {
     }
 }
 
-/// `items` with what's deferred (and still needs what it did then, and isn't `met`) moved to the
-/// end, marked.
-pub fn defer(items: Vec<Item>, deferred: &Deferred, now: i64, met: impl Fn(&Item, &Until, i64) -> bool) -> Vec<Item> {
-    let waiting = |it: &Item| {
-        deferred.get(&it.key()).filter(|d| d.until > now && d.needs == it.needs_key() && !d.cond.as_ref().is_some_and(|c| met(it, c, d.at)))
-    };
+/// `items` with what's deferred (and still needs what it did then) moved to the end, marked.
+/// (What a deferral waits for having happened: ended before, `Todos::settle`.)
+pub fn defer(items: Vec<Item>, deferred: &Deferred, now: i64) -> Vec<Item> {
+    let waiting = |it: &Item| deferred.get(&it.key()).filter(|d| d.until > now && d.needs == it.needs_key());
     let (mut later, mut out): (Vec<Item>, Vec<Item>) = items.into_iter().partition(|it| waiting(it).is_some());
     later.iter_mut().for_each(|it| it.deferred = deferred.get(&it.key()).cloned());
     out.append(&mut later);
@@ -1244,19 +1261,17 @@ mod tests {
         let items = vec![it(1, vec![Need::ReadyToMerge]), it(2, vec![Need::NoReview])];
         let d: Deferred = [("pr-1".to_owned(), Deferral { until: 200, needs: items[0].needs_key(), cond: None, at: 0 })].into();
         // Deferred: to the end, marked, until then.
-        let never = |_: &Item, _: &Until, _: i64| false;
-        let o = defer(items.clone(), &d, 100, never);
+        let o = defer(items.clone(), &d, 100);
         assert_eq!((o[0].number, o[1].number, o[1].deferred.as_ref().map(|d| d.until)), (2, 1, Some(200)));
         // Past it: back in place.
-        assert_eq!(defer(items.clone(), &d, 300, never)[0].number, 1);
+        assert_eq!(defer(items.clone(), &d, 300)[0].number, 1);
         // Its needs changed: back before then.
         let mut changed = items;
         changed[0].needs.push(Need::NewActivity);
-        assert_eq!(defer(changed, &d, 100, never)[0].deferred, None);
+        assert_eq!(defer(changed, &d, 100)[0].deferred, None);
         // Until something happens: deferred till it has.
         let d: Deferred = [("pr-1".to_owned(), Deferral { until: i64::MAX, needs: items_needs(), cond: Some(Until::Merged(2380)), at: 0 })].into();
         let items = vec![it(1, vec![Need::ReadyToMerge]), it(2, vec![Need::NoReview])];
-        assert_eq!(defer(items.clone(), &d, 100, never)[1].number, 1);
-        assert_eq!(defer(items, &d, 100, |_, c, _| *c == Until::Merged(2380))[0].number, 1);
+        assert_eq!(defer(items, &d, 100)[1].number, 1); // (once it has: `Todos::met` ends it)
     }
 }

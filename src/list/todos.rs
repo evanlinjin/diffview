@@ -144,13 +144,9 @@ impl Todos {
         }
     }
 
-    /// Item `key` as you know it: "#12", or a replacement's label.
+    /// Item `key` as you know it (`Item::label`).
     fn label(&self, key: &str) -> String {
-        match self.items.iter().find(|it| it.key() == key) {
-            Some(it) if it.is_rep() => crate::replace::label(it.number),
-            Some(it) => format!("#{}", it.number),
-            None => key.to_owned(),
-        }
+        self.items.iter().find(|it| it.key() == key).map_or_else(|| key.to_owned(), Item::label)
     }
 
     /// Item `key` deferred until `c` (or the time `or`, whichever first; `at`: since when, by
@@ -173,9 +169,11 @@ impl Todos {
             _ = self.save();
         }
         // (What's met is over: what's deferred still waits.)
-        let items = todo::defer(items, &self.deferred, crate::claude::now_secs(), |_, _, _| false);
+        let items = todo::defer(items, &self.deferred, crate::claude::now_secs());
         self.since = todo::since_of(&items, self.ranked.as_ref());
-        (items, met.into_iter().last().map(|m| m.1))
+        // (Of several back at once, the last in order said.)
+        let said = items.iter().rev().find_map(|it| met.iter().find(|m| m.0 == it.key())).map(|m| m.1.clone());
+        (items, said)
     }
 
     /// The deferrals of `items` whose condition has happened (`happened`: for an item, what it
@@ -186,7 +184,7 @@ impl Todos {
             .filter_map(|it| Some((it, self.deferred.get(&it.key())?)))
             .filter_map(|(it, d)| Some((it, d.cond.as_ref()?, d.at)))
             .filter(|(it, c, at)| happened(it, c, *at))
-            .map(|(it, c, _)| (it.key(), format!("#{} is back: {}", it.number, c.says())))
+            .map(|(it, c, _)| (it.key(), format!("{} is back: {}", it.label(), c.says())))
             .collect()
     }
 
@@ -239,10 +237,11 @@ impl Todos {
     /// Claude ranks `items`, each with what it's told of it (what needs you, but what's
     /// deferred), in the background, if it can (`can_rank`). The ranking is of those, as they
     /// are (its fingerprint): one left out (deferred, say) is new to it when it's back.
-    pub(super) fn rank(&mut self, items: Vec<(Item, String)>, root: &std::path::Path, of: Of) -> Result<(), &'static str> {
+    /// (Each as its `Item::entry` and the line Claude's told.)
+    pub(super) fn rank(&mut self, items: Vec<(String, String)>, root: &std::path::Path, of: Of) -> Result<(), &'static str> {
         self.can_rank()?;
-        let fingerprint = todo::fingerprint(items.iter().map(|i| &i.0));
-        let lines = items.into_iter().map(|i| i.1).collect();
+        let (entries, lines): (Vec<String>, Vec<String>) = items.into_iter().unzip();
+        let fingerprint = todo::fingerprint_of(entries);
         self.rank_rx = Some(todo::rank_of(lines, fingerprint, root.to_path_buf(), of));
         Ok(())
     }
@@ -299,6 +298,11 @@ fn deferring_an_item() {
     assert!(matches!(t.deferring_key(KeyCode::Char('d')), Some(After::Not(s)) if s == GONE));
     t.deferring = Some("issue-7".into());
     assert!(matches!(t.deferring_key(KeyCode::Char('u')), Some(After::Until(k)) if k == "issue-7"));
+    // Until #2380 merges: met once it has, named as you know it.
+    t.deferred.insert("issue-7".into(), todo::Deferral { until: i64::MAX, needs: it.needs_key(), cond: Some(Until::Merged(2380)), at: 0 });
+    assert!(t.met(&t.items, |_, _, _| false).is_empty());
+    assert_eq!(t.met(&t.items, |_, c, _| *c == Until::Merged(2380)), [("issue-7".to_owned(), "#7 is back: #2380 is merged".to_owned())]);
+    t.deferred.remove("issue-7");
     // A reading under way for it, then a deferral of yours: the reading's dropped.
     let (_tx, rx) = std::sync::mpsc::channel();
     t.until_rx = Some(("issue-7".into(), None, rx));

@@ -7,7 +7,6 @@ impl List {
         self.extra.get(&n).is_some_and(|e| e.mergeable == "CONFLICTING")
     }
 
-    /// Cards on screen (between the header and the status bar).
     /// A card's rows: 3 in a wide window (two zones), else 4, and a blank one between cards; on
     /// the todo and can close tabs, one more under the title (what needs you, why to close it).
     pub(super) fn card_rows(&self) -> usize {

@@ -103,7 +103,8 @@ pub struct List {
     /// What needs you: in order, Claude's ranking, what's deferred (`todos.rs`).
     todos: Todos,
     /// Rank (again) once what's needed is in (`R` on the todo tab).
-    want_rank: bool,
+    /// (`Some`: and whether you asked, or auto did: said only if you asked.)
+    want_rank: Option<bool>,
     /// What Claude is doing, by PR, in any dv (its markers: `watch_running`), and when they
     /// were last looked at.
     running: HashMap<u64, String>,

@@ -27,7 +27,7 @@ pub(super) struct Nav<T> {
     /// `g` pressed, for the key after (`gg`, `ge`, `gn`, `gp`).
     g: bool,
     /// How many cards the last draw had room for (`keep`): a page, for the keys and clicks.
-    pub(super) shown: usize,
+    pub(super) page: usize,
 }
 
 /// How many cards of `rows` lines fit a window `height` high (under the top bar, over the
@@ -74,7 +74,7 @@ impl<T: Tabs> Nav<T> {
     /// as it was).
     pub(super) fn keep(&mut self, n: usize, h: usize) {
         self.clamp(n);
-        self.shown = h;
+        self.page = h;
         self.top = self.top.min(self.sel).max((self.sel + 1).saturating_sub(h));
     }
 
@@ -99,7 +99,7 @@ impl<T: Tabs> Nav<T> {
     /// after it; Esc calls it off.
     pub(super) fn key(&mut self, k: KeyEvent, n: usize) -> bool {
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
-        let (last, half) = (n.saturating_sub(1), (self.shown / 2).max(1));
+        let (last, half) = (n.saturating_sub(1), (self.page / 2).max(1));
         let g = std::mem::take(&mut self.g);
         match (g, k.code) {
             (_, KeyCode::Char('d')) if ctrl => self.sel = (self.sel + half).min(last),
@@ -133,7 +133,7 @@ impl<T: Tabs> Nav<T> {
         }
         let k = (y as usize - 1) / rows.max(1);
         let i = self.top + k;
-        if k >= self.shown || i >= n {
+        if k >= self.page || i >= n {
             return false;
         }
         let double = self.last_click.is_some_and(|(at, j)| j == i && at.elapsed() < Duration::from_millis(400));
@@ -157,7 +157,7 @@ impl Tabs for u8 {
 #[test]
 fn moving_about_a_list() {
     let key = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
-    let mut nav = Nav::<u8> { shown: 2, ..Default::default() };
+    let mut nav = Nav::<u8> { page: 2, ..Default::default() };
     // j past the end stays on the last; gg, ge; l / h round the tabs, at their first card.
     (0..5).for_each(|_| _ = nav.key(key('j'), 3));
     assert_eq!(nav.sel, 2);
@@ -174,7 +174,7 @@ fn moving_about_a_list() {
     // Esc, the filter kept: cleared.
     assert!(nav.key(esc, 3) && nav.query.is_empty());
     // A click selects a card (3 rows each, under the bar); a second on it soon opens it.
-    nav.shown = 4;
+    nav.page = 4;
     assert!(!nav.click(0, 4, 5, 3) && nav.sel == 1);
     assert!(nav.click(0, 5, 5, 3));
     // Kept on screen: 10 cards, 4 shown, the last selected.

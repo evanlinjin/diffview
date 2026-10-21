@@ -1192,12 +1192,12 @@ impl Issues {
         if let Err(why) = self.todos.can_rank() {
             return if asked { self.msg = why.into() };
         }
-        let items: Vec<(crate::todo::Item, String)> = self
+        let items: Vec<(String, String)> = self
             .todos
             .items
             .iter()
             .filter(|it| it.deferred.is_none())
-            .filter_map(|it| Some((it.clone(), about_issue(it, self.items.iter().find(|i| i.number == it.number)?, self.triage.get(&it.number)))))
+            .filter_map(|it| Some((it.entry(), about_issue(it, self.items.iter().find(|i| i.number == it.number)?, self.triage.get(&it.number)))))
             .collect();
         self.msg = match self.todos.rank(items, &self.root, crate::todo::Of::Issues) {
             Ok(()) => "Claude is ranking what needs you…".into(),
