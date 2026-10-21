@@ -80,14 +80,14 @@ impl Todos {
     }
 
     /// What `r` says before `r` again ranks `what` ("PR(s)"): what it'd cost, and what's changed
-    /// since the last ranking, to judge whether it's worth it.
-    pub(super) fn rank_offer(&self, what: &str) -> String {
+    /// since the last ranking, to judge whether it's worth it; if it can't, why not.
+    pub(super) fn rank_offer(&self, what: &str) -> Result<String, &'static str> {
+        self.can_rank()?;
         let last = match &self.ranked {
             Some(r) => format!("the last, {} ago, {}", crate::gh::ago_secs(crate::claude::now_secs() - r.at), cost_text(r.cost)),
             None => "never ranked before".into(),
         };
-        let n = self.items.iter().filter(|it| it.deferred.is_none()).count();
-        format!("r again: Claude ranks the {n} {what} that need you, one run ({last}{}); nothing else starts", self.since_text())
+        Ok(format!("r again: Claude ranks the {} {what} that need you, one run ({last}{}); nothing else starts", self.to_rank(), self.since_text()))
     }
 
     /// What needs you now: not deferred, Claude not at it, not waiting on something.
@@ -197,15 +197,21 @@ impl Todos {
         self.items.iter().filter(|it| it.deferred.is_none()).count()
     }
 
-    /// Claude ranks `lines` (what needs you, but what's deferred: `to_rank`), in the background;
-    /// nothing to rank, or ranking already: not (`false`). Of all the items as they are (deferred
-    /// ones too: `todo::order` tells what's new or changed since by all of them).
-    pub(super) fn rank(&mut self, lines: Vec<String>, root: &std::path::Path, of: Of) -> bool {
-        if self.rank_rx.is_some() || self.to_rank() == 0 {
-            return false;
+    /// Whether Claude can rank them now: not while it is, nor with nothing to rank (why not).
+    pub(super) fn can_rank(&self) -> Result<(), &'static str> {
+        match (self.rank_rx.is_some(), self.to_rank()) {
+            (true, _) => Err("Claude is ranking already"),
+            (_, 0) => Err("nothing on the todo tab to rank (what's there is deferred)"),
+            _ => Ok(()),
         }
+    }
+
+    /// Claude ranks `lines` (what needs you, but what's deferred: `to_rank`), in the background,
+    /// if it can (`can_rank`).
+    pub(super) fn rank(&mut self, lines: Vec<String>, root: &std::path::Path, of: Of) -> Result<(), &'static str> {
+        self.can_rank()?;
         self.rank_rx = Some(todo::rank_of(lines, self.fingerprint(), root.to_path_buf(), of));
-        true
+        Ok(())
     }
 
     /// What a ranking is of: the items it ranks (not deferred), as they are. One deferred then
@@ -272,6 +278,9 @@ fn deferring_an_item() {
     // s on one deferred: back.
     let deferred = Item { deferred: t.deferred.get("issue-7").cloned(), ..it };
     assert!(t.defer_key(&deferred, "#7") == (true, "#7 is back".into()) && t.deferred.is_empty());
+    // All deferred: nothing to rank (r says why; no run).
+    let all_deferred = Todos { items: vec![deferred.clone()], ..Default::default() };
+    assert!(all_deferred.rank_offer("issue(s)").is_err() && all_deferred.can_rank().is_err());
     // Never ranked, something not deferred: auto ranks now, then not for a quarter hour.
     assert!(t.auto_rank_due() && !t.auto_rank_due());
     // Ranked with #8 deferred: nothing's new or changed while it is; back, it's new (not ranked).

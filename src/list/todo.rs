@@ -314,9 +314,6 @@ impl List {
     /// Have Claude rank what needs you (`r r`: a Claude run, so only when you ask), once what's
     /// needed is in (GitHub's part).
     pub(super) fn rank_now(&mut self) {
-        if self.todos.rank_rx.is_some() || self.todos.to_rank() == 0 {
-            return;
-        }
         if self.extra_rx.is_some() || self.checks.is_some() {
             self.msg = "Claude ranks what needs you once GitHub's part is in…".into();
             return self.want_rank = true;
@@ -334,9 +331,10 @@ impl List {
                 todo::about(it, card, &summary)
             })
             .collect();
-        if self.todos.rank(lines, &self.root, todo::Of::Prs) {
-            self.msg = format!("Claude is ranking the {} PR(s) that need you…", self.todos.to_rank());
-        }
+        self.msg = match self.todos.rank(lines, &self.root, todo::Of::Prs) {
+            Ok(()) => format!("Claude is ranking the {} PR(s) that need you…", self.todos.to_rank()),
+            Err(why) => why.into(),
+        };
     }
 
     /// News from the background: GitHub's part (then what needs you again), and a ranking.

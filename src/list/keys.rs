@@ -124,10 +124,11 @@ impl List {
                 }
             }
             KeyCode::Char('r') if self.nav.tab == Tab::Todo => {
-                if self.todos.rank_rx.is_some() {
-                    return (self.msg = "Claude is ranking already".into(), None).1;
-                }
-                if self.again(armed, ('r', 0), self.todos.rank_offer("PR(s)")) {
+                let offer = match self.todos.rank_offer("PR(s)") {
+                    Ok(o) => o,
+                    Err(why) => return (self.msg = why.into(), None).1,
+                };
+                if self.again(armed, ('r', 0), offer) {
                     self.rank_now();
                     return None;
                 }

@@ -754,10 +754,10 @@ impl Issues {
             (Some('a'), KeyCode::Char('a')) => self.triage_marked(term),
             (Some('r'), KeyCode::Char('r')) => self.rank(),
             (_, KeyCode::Char('s')) if self.nav.tab == ITab::Todo => self.defer_key(),
-            (_, KeyCode::Char('r')) if self.nav.tab == ITab::Todo => {
-                self.pending = Some('r');
-                self.msg = self.todos.rank_offer("issue(s)");
-            }
+            (_, KeyCode::Char('r')) if self.nav.tab == ITab::Todo => match self.todos.rank_offer("issue(s)") {
+                Ok(offer) => (self.pending, self.msg) = (Some('r'), offer),
+                Err(why) => self.msg = why.into(),
+            },
             (_, KeyCode::Char(c @ ('I' | 'U' | 'a'))) => {
                 self.pending = Some(c);
                 self.msg = match c {
@@ -1191,12 +1191,6 @@ impl Issues {
 
     /// `r r`: Claude ranks the todo tab (one run, in the background).
     fn rank(&mut self) {
-        if self.todos.rank_rx.is_some() {
-            return self.msg = "Claude is ranking them already".into();
-        }
-        if self.todos.to_rank() == 0 {
-            return self.msg = "nothing on the todo tab to rank".into();
-        }
         let lines: Vec<String> = self
             .todos
             .items
@@ -1204,9 +1198,10 @@ impl Issues {
             .filter(|it| it.deferred.is_none())
             .filter_map(|it| Some(about_issue(it, self.items.iter().find(|i| i.number == it.number)?, self.triage.get(&it.number))))
             .collect();
-        if self.todos.rank(lines, &self.root, crate::todo::Of::Issues) {
-            self.msg = "Claude is ranking what needs you…".into();
-        }
+        self.msg = match self.todos.rank(lines, &self.root, crate::todo::Of::Issues) {
+            Ok(()) => "Claude is ranking what needs you…".into(),
+            Err(why) => why.into(),
+        };
     }
 
     /// `a a`: Claude triages the marked issues (or this one), with your instructions if any.
