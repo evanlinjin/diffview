@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.80.8] - 2026-10-21
+
+### Changed
+- The dv-review skill is shorter, saying the same: drafting a replacement and a new PR are one
+  section (they shared most of it), the kinds of comment the user leaves you are a list, and
+  `dv amend` is explained once.
+
 ## [0.80.7] - 2026-10-21
 
 ### Changed
