@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.79.3] - 2026-10-21
+
+### Fixed
+- "Claude is still working" when it wasn't: a Claude run that has exited, waiting for its
+  parent to collect it (a view closed under dv list mid-run), no longer counts as at work.
+  A view closing mid-run leaves the run to finish, and its marks come off when it does.
+- A new PR's number skips one whose branch or worktree is still there (an earlier new PR's,
+  its record gone): `N N` no longer fails on `dv/new-1` existing.
+- git's errors say why first (its `fatal:` line), not what it was doing ("Preparing worktree").
+
 ## [0.79.2] - 2026-10-21
 
 ### Changed
