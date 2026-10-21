@@ -210,6 +210,30 @@ pub fn notes_path() -> Result<PathBuf> {
     Ok(dv_dir()?.join("notes.md"))
 }
 
+/// How big the notes may grow: every run reads them all, so past this they're skimmed (about
+/// 3k tokens). And a point's longest.
+const NOTES_BUDGET: usize = 12_000;
+const NOTE_POINT: usize = 240;
+
+/// What `dv review-check` says when the notes have outgrown their budget, or have points
+/// that run long: the run that grew them condenses them.
+pub fn notes_over(notes: &str) -> Option<String> {
+    let long = notes.lines().filter(|l| l.chars().count() > NOTE_POINT).count();
+    let mut over = vec![];
+    if notes.len() > NOTES_BUDGET {
+        over.push(format!("{} KB, over their {} KB budget", notes.len().div_ceil(1000), NOTES_BUDGET / 1000));
+    }
+    if long > 0 {
+        over.push(format!("{long} point(s) longer than {NOTE_POINT} characters"));
+    }
+    (!over.is_empty()).then(|| {
+        format!(
+            "your notes on the repo have {}: condense them before you finish (merge overlapping points, drop what's stale or about one PR)",
+            over.join(" and ")
+        )
+    })
+}
+
 /// When you last left PR `n` in dv (seconds since the epoch), for `dv list`'s `[new]`:
 /// `seen/pr-N.looked` in dv's directory.
 pub fn looked(n: u64) -> Option<i64> {
@@ -1130,4 +1154,13 @@ fn a_branch_review_moves_to_its_pr() {
     move_review(&from, &to).unwrap();
     assert_eq!(std::fs::read_to_string(&to).unwrap(), "{}");
     _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn notes_keep_to_their_budget() {
+    assert_eq!(notes_over("- a point\n"), None);
+    let long = format!("- {}\n", "x".repeat(NOTE_POINT));
+    assert!(notes_over(&long).is_some_and(|w| w.contains("1 point(s) longer") && !w.contains("KB")));
+    let big = "- a short point\n".repeat(NOTES_BUDGET / 10);
+    assert!(notes_over(&big).is_some_and(|w| w.contains("KB, over their 12 KB budget") && !w.contains("longer")));
 }

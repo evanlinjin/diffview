@@ -509,7 +509,12 @@ fn review_file(cmd: &str, o: &Opts) -> anyhow::Result<()> {
     if !r.errors.is_empty() {
         anyhow::bail!("{} of {} comment(s) can't be placed", r.errors.len(), r.comments);
     }
-    println!("ok: {} comment(s), {} warning(s)", r.comments, r.warnings.len());
+    let notes = claude::notes_path().ok().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
+    let over = claude::notes_over(&notes);
+    if let Some(w) = &over {
+        println!("warning: {w}");
+    }
+    println!("ok: {} comment(s), {} warning(s)", r.comments, r.warnings.len() + over.is_some() as usize);
     Ok(())
 }
 

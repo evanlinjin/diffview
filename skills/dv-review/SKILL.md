@@ -391,9 +391,12 @@ to the next PR, so you don't start from nothing each time. The user can edit it 
   its conventions (error handling, naming, test layout, MSRV, feature flags), the parts of the
   code that are subtle, recurring issues, and the user's review preferences (what they
   dismissed as noise, what they always want flagged, how they reacted to your comments).
-- **Keep it short and current**: a few headed lists of one-line points, under ~60 lines.
-  Rewrite or drop points that turn out wrong; don't log what happened in a particular PR.
-  Create it if it doesn't exist yet (its directory may need creating too).
+- **Keep it short and current**: headed lists of points of a line or two (under 240
+  characters), all under 12 KB: every run reads all of it. Rewrite or drop points that turn out
+  wrong. What's about one PR (its status, a rebase, "if #N merges") doesn't belong: the PR's
+  own session keeps that. `dv review-check` warns when the notes outgrow this; then condense
+  them before you finish (merge overlapping points, drop what's stale). Create the file if it
+  doesn't exist yet (its directory may need creating too).
 
 dv also keeps one Claude Code session per PR and resumes it on every run, so within a PR you
 keep the conversation; the notes are for what should carry across PRs.
