@@ -37,6 +37,8 @@ pub(crate) const ALLOWED: &[&str] = &[
     "Bash(dv cargo:*)",
     // A checkout of its own to try things in (`dv scratch`), rather than ask.
     "Bash(dv scratch:*)",
+    // Another repo's files, as an example to follow (not `gh api`: it can write).
+    "Bash(dv repo-file:*)",
 ];
 
 /// What a background run may do beyond `ALLOWED`: when fixing PR `n`'s CI, rerun its failed
@@ -138,7 +140,7 @@ pub(crate) fn claude_dirs() -> Vec<std::ffi::OsString> {
 
 /// What a reading-only run may use beyond its own reading tools (Read, Grep, Glob): looking,
 /// never changing.
-const READ_ONLY: &[&str] = &["Bash(git diff:*)", "Bash(git show:*)", "Bash(git log:*)", "Bash(git rev-parse:*)", "Bash(gh pr view:*)"];
+const READ_ONLY: &[&str] = &["Bash(git diff:*)", "Bash(git show:*)", "Bash(git log:*)", "Bash(git rev-parse:*)", "Bash(gh pr view:*)", "Bash(dv repo-file:*)"];
 
 /// What Claude is run for: each can have its own model (`model_args`).
 #[derive(Clone, Copy, Debug, PartialEq)]

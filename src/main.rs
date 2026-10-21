@@ -32,6 +32,8 @@ const USAGE: &str = "usage: dv [base | PR | list] [-p N] [-f] [-w [-b]]
   dv cargo [+T] …  for Claude: cargo check/build/test/clippy/doc/fmt --check on any toolchain T
   dv scratch R     for Claude: a checkout of commit R of its own (detached) to try things in;
                    `dv scratch --rm <dir>` removes one (else they go after a day)
+  dv repo-file O/R P [REF]  for Claude: file P of GitHub repo O/R (at REF), or a directory's
+                   entries, read only
   dv amend C [F…] [-F M]  fold what isn't committed (in files F) into the branch's commit C, and/or
                    give it the message in file M (a backup branch first)
   dv replace 123 [124 …]   Claude drafts a replacement for those PRs, unpublished, on
@@ -126,6 +128,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Opts> {
             "amend" => (o.cmd, o.rest) = (Some("amend"), args.by_ref().collect()),
             "cargo" => (o.cmd, o.rest) = (Some("cargo"), args.by_ref().collect()),
             "scratch" => (o.cmd, o.rest) = (Some("scratch"), args.by_ref().collect()),
+            "repo-file" => (o.cmd, o.rest) = (Some("repo-file"), args.by_ref().collect()),
             "install-skill" => o.cmd = Some("install-skill"),
             "replace" => o.cmd = Some("replace"),
             "replace-info" => o.cmd = Some("replace-info"),
@@ -211,6 +214,11 @@ fn run() -> anyhow::Result<()> {
         }
         Some("replace-info") => return replace::info(),
         Some("scratch") => return scratch(&o.rest).map(|m| println!("{m}")),
+        Some("repo-file") => {
+            let [repo, path, rest @ ..] = o.rest.as_slice() else { anyhow::bail!("dv repo-file <owner/repo> <path> [<ref>]") };
+            let rf = rest.first().map_or("", String::as_str);
+            return gh::repo_file(repo, path, rf).map(|t| println!("{t}"));
+        }
         Some("amend") => {
             // The branch's own commits are those over the base dv diffs against (`review-info`'s).
             let base = diff_base(&o, gh::pr(None).ok().as_ref())?;

@@ -113,6 +113,26 @@ pub(crate) fn login(v: &Value) -> String {
 }
 
 /// `gh args`, its output as JSON.
+/// `dv repo-file`: a file of GitHub repo `repo` ("owner/name") at `rf` (empty: its default
+/// branch), as it is; a directory, its entries ("name", "dir/"). Read only (GET), for Claude to
+/// read other repos as it can't `gh api`.
+pub(crate) fn repo_file(repo: &str, path: &str, rf: &str) -> Result<String> {
+    anyhow::ensure!(repo.split('/').count() == 2 && !repo.starts_with('-'), "a repo is owner/name, not {repo:?}");
+    let path = path.trim_matches('/');
+    let at = if rf.is_empty() { String::new() } else { format!("?ref={rf}") };
+    let url = format!("repos/{repo}/contents/{path}{at}");
+    let v = gh_json(&["api", "-X", "GET", &url])?;
+    match v.as_array() {
+        Some(entries) => Ok(entries
+            .iter()
+            .map(|e| format!("{}{}", e["name"].as_str().unwrap_or(""), if e["type"] == "dir" { "/" } else { "" }))
+            .collect::<Vec<_>>()
+            .join("\n")),
+        None if v["type"] == "file" => gh(&["api", "-X", "GET", "-H", "Accept: application/vnd.github.raw", &url]),
+        None => anyhow::bail!("{path} in {repo} is a {}, not a file or a directory", v["type"].as_str().unwrap_or("?")),
+    }
+}
+
 pub(crate) fn gh_json(args: &[&str]) -> Result<Value> {
     Ok(serde_json::from_str(&gh(args)?)?)
 }
