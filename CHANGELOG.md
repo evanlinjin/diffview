@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.80.7] - 2026-10-21
+
+### Changed
+- The dv-review skill says what to look for in a review: breaks first, special cases a
+  better data shape would remove, fixes that miss the other callers, comments that don't
+  match the code, swallowed errors; and to say plainly when a PR shouldn't go in.
+
 ## [0.80.6] - 2026-10-21
 
 ### Fixed
