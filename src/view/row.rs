@@ -300,7 +300,7 @@ impl App {
             if s <= p && p <= e && this_side {
                 st = st.patch(ui.selection);
             }
-            if p == self.head && cursor_here {
+            if p == self.head && cursor_here && !self.unfocused {
                 st = st.patch(if self.select { ui.cursor_select } else { ui.cursor });
             }
             if let Some(&lc) = overlay.get(&p) {
@@ -311,7 +311,7 @@ impl App {
             spans.push(Span::styled(if c == '\t' { "    ".into() } else { c.to_string() }, st));
             n = i + 1;
         }
-        if cursor_here && self.head.col >= n.max(skip) {
+        if cursor_here && !self.unfocused && self.head.col >= n.max(skip) {
             spans.push(Span::styled(" ", if self.select { ui.cursor_select } else { ui.cursor }));
         }
         // A line cut, a diff's by the window or code by its box: `‹` / `›` where there's more,

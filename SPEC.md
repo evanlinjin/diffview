@@ -77,7 +77,8 @@ disk: rust-analyzer can index it and `hx` can open it.
    Comments (open review threads, the description, conversation comments, Claude's summary) sit
    in boxes with a subtle border in the line-number color (no fill): `╭─ author ─╮`, a `├─` divider per reply, `╰──╯`
    (an empty row of its own); a folded thread stays one `▸` line.
-   File headers: dir dimmed, +/− colored. Split view hatches the empty side. Pickers and popups float
+   The cursor shows only while dv's window (or zellij pane) has focus (the terminal's focus
+   reports). File headers: dir dimmed, +/− colored. Split view hatches the empty side. Pickers and popups float
    in a rounded border, as zellij's floating panes, the title set in it; a picker lists its
    items by section (a heading each, when there are two or more: the Claude menu's Review,
    Changes, Description, Closing, Claude, Replacement; git's Working tree, Branch, CI, Pull

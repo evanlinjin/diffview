@@ -592,6 +592,8 @@ pub struct App {
     /// Helix `cursorline` / relative `line-number`.
     settings: Settings,
     quit: bool,
+    /// The window (or zellij pane) isn't focused: no cursor drawn.
+    unfocused: bool,
     /// `Space g` → merge: the review ends, then dv merges the PR (`merge.rs`).
     pub merge: bool,
     pr: Option<Pr>,
@@ -836,6 +838,8 @@ impl App {
                 match event::read()? {
                     Event::Key(k) if k.kind == KeyEventKind::Press => self.press(k),
                     Event::Mouse(m) => self.mouse(m),
+                    Event::FocusLost => self.unfocused = true,
+                    Event::FocusGained => self.unfocused = false,
                     _ => {}
                 }
             }

@@ -357,6 +357,8 @@ pub struct Issues {
     started: bool,
     auto_done: HashSet<(u64, String)>,
     root: PathBuf,
+    /// The window (or zellij pane) isn't focused: an issue's cursor isn't drawn.
+    unfocused: bool,
     pub msg: String,
 }
 
@@ -650,6 +652,14 @@ impl Issues {
             }
             let k = match event::read()? {
                 Event::Key(k) if k.kind == KeyEventKind::Press => k,
+                Event::FocusLost => {
+                    self.unfocused = true;
+                    continue;
+                }
+                Event::FocusGained => {
+                    self.unfocused = false;
+                    continue;
+                }
                 // The wheel moves the cursor (scrolls the issue), as j / k; a click picks a tab or a
                 // card, twice opens it (as dv list's).
                 // In an issue, a drag copies what it's over, and sideways scrolls its code blocks.
@@ -1234,6 +1244,7 @@ impl Issues {
         f.render_widget(Paragraph::new("").style(ui.base), area);
         // An issue open: its own title bar (no tabs: they're the list's), it, and the status bar.
         if let Some(v) = self.view.as_mut() {
+            v.unfocused = self.unfocused;
             v.title_bar(f, ui, Rect { height: 1.min(area.height), ..area });
             let cursor = v.draw(f, ui, Rect { y: area.y + 1, height: area.height.saturating_sub(2), ..area });
             let left = if self.msg.is_empty() { " ? keys · q back to the issues".to_owned() } else { format!(" {}", self.msg) };

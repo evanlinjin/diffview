@@ -137,6 +137,8 @@ pub struct IssueView {
     /// The cursor (line, column), as Helix's: `v` selects from where it was (`sel` then
     /// follows it), `x` the line.
     cur: (usize, usize),
+    /// Its window (or zellij pane) isn't focused: no cursor drawn.
+    pub unfocused: bool,
     select: bool,
     /// The selection is `x`'s, whole lines: `x` again takes the next.
     lines_sel: bool,
@@ -205,6 +207,7 @@ impl IssueView {
             pane_x: None,
             shown: 0,
             cur: (0, 2),
+            unfocused: false,
             select: false,
             lines_sel: false,
             desc_rows: 0,
@@ -568,7 +571,7 @@ impl IssueView {
         let (row, col) = self.cur;
         let top = self.scroll[self.side_of(col)];
         let at = ((top..top + h).contains(&row) && col < area.width as usize).then(|| Rect { x: area.x + col as u16, y: area.y + (row - top) as u16, width: 1, height: 1 });
-        if let Some(at) = at {
+        if let Some(at) = at.filter(|_| !self.unfocused) {
             f.buffer_mut()[at.as_position()].set_style(if self.select { ui.cursor_select } else { ui.cursor });
         }
         at
@@ -931,7 +934,7 @@ fn an_issue_and_its_triage() {
     let mut v = IssueView {
         number: 7, title: "panic".into(), author: "amy".into(), url: "https://github.com/o/r/issues/7".into(),
         body: "It **panics**.".into(), labels: vec![("bug".into(), "d73a4a".into())],
-        activity: vec![Act::Comment("bo".into(), String::new(), "Same here.".into())], triage, scroll: [0; 2], sides: vec![], width: 0, pane_x: None, shown: 0, cur: (0, 2), select: false, lines_sel: false, desc_rows: 0, code_left: [0; 2], code_over: [0; 2], can_triage: true, drafts: vec!["new PR 3: Claude is drafting it".into()], sel: None,
+        activity: vec![Act::Comment("bo".into(), String::new(), "Same here.".into())], triage, scroll: [0; 2], sides: vec![], width: 0, pane_x: None, shown: 0, cur: (0, 2), unfocused: false, select: false, lines_sel: false, desc_rows: 0, code_left: [0; 2], code_over: [0; 2], can_triage: true, drafts: vec!["new PR 3: Claude is drafting it".into()], sel: None,
         hl: crate::highlight::Highlighter::default(),
     };
     assert_eq!(v.new_labels(), ["chain"]); // bug it has
