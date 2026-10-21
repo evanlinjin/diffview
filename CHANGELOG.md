@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.79.1] - 2026-10-21
+
+### Fixed
+- `dv repo-file` reads only a repo's contents (a path with `..` is refused, every part
+  encoded), the very file it looked at, text only and byte for byte; it runs outside a repo
+  and doesn't touch dv's skill; extra arguments are refused. Only the runs that change or
+  review code may use it.
+
 ## [0.79.0] - 2026-10-21
 
 ### Added
