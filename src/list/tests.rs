@@ -331,7 +331,7 @@ fn todo_tab() {
     // Claude's part: a review where there's none (#1, #2), nothing on #3 (up to date, nothing waiting).
     assert!(l.todos.items.iter().all(|it| (it.number == 3) == it.claude.is_none()));
     // Claude's ranking: its order and words, kept while nothing's changed.
-    let fp = crate::todo::fingerprint(&l.todos.items);
+    let fp = crate::todo::fingerprint_of(l.todos.items.iter().map(crate::todo::Item::entry));
     // Nothing ranks by itself: not opening the tab, not R (only r r, twice).
     assert!(l.todos.rank_rx.is_none());
     let k = |l: &mut List, c| l.key(KeyEvent::new(c, KeyModifiers::NONE));

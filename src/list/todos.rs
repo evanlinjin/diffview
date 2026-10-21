@@ -171,9 +171,7 @@ impl Todos {
         // (What's met is over: what's deferred still waits.)
         let items = todo::defer(items, &self.deferred, crate::claude::now_secs());
         self.since = todo::since_of(&items, self.ranked.as_ref());
-        // (Of several back at once, the last in order said.)
-        let said = items.iter().rev().find_map(|it| met.iter().find(|m| m.0 == it.key())).map(|m| m.1.clone());
-        (items, said)
+        (items, met.into_iter().last().map(|m| m.1))
     }
 
     /// The deferrals of `items` whose condition has happened (`happened`: for an item, what it
@@ -238,9 +236,13 @@ impl Todos {
     /// deferred), in the background, if it can (`can_rank`). The ranking is of those, as they
     /// are (its fingerprint): one left out (deferred, say) is new to it when it's back.
     /// (Each as its `Item::entry` and the line Claude's told.)
-    pub(super) fn rank(&mut self, items: Vec<(String, String)>, root: &std::path::Path, of: Of) -> Result<(), &'static str> {
+    pub(super) fn rank(&mut self, items: Vec<(todo::Entry, String)>, root: &std::path::Path, of: Of) -> Result<(), &'static str> {
         self.can_rank()?;
-        let (entries, lines): (Vec<String>, Vec<String>) = items.into_iter().unzip();
+        // (Each item told of: one gone from the cards meanwhile isn't.)
+        if items.is_empty() {
+            return Err("nothing on the todo tab to rank");
+        }
+        let (entries, lines): (Vec<todo::Entry>, Vec<String>) = items.into_iter().unzip();
         let fingerprint = todo::fingerprint_of(entries);
         self.rank_rx = Some(todo::rank_of(lines, fingerprint, root.to_path_buf(), of));
         Ok(())
@@ -321,7 +323,7 @@ fn deferring_an_item() {
     // Ranked with #8 deferred: nothing's new or changed while it is; back, it's new (not ranked).
     let eight = Item { number: 8, ..t.items[0].clone() };
     t.items.push(Item { deferred: Some(todo::Deferral { until: i64::MAX, needs: String::new(), cond: None, at: 0 }), ..eight.clone() });
-    let ranked = Ranked { at: 1, cost: 0.0, fingerprint: todo::fingerprint(t.items.iter().filter(|it| it.deferred.is_none())), items: vec![], waits: Default::default(), closes: Default::default() };
+    let ranked = Ranked { at: 1, cost: 0.0, fingerprint: todo::fingerprint_of(t.items.iter().filter(|it| it.deferred.is_none()).map(Item::entry)), items: vec![], waits: Default::default(), closes: Default::default() };
     let since = |items: &[Item]| todo::since_of(items, Some(&ranked));
     assert_eq!((since(&t.items).new, since(&t.items).changed), (0, 0));
     assert_eq!(since(&[t.items[0].clone(), eight]).new, 1);

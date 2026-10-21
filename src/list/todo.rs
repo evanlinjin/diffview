@@ -319,13 +319,13 @@ impl List {
         }
         if self.extra_rx.is_some() || self.checks.is_some() {
             // (Said once, when you ask.)
-            if asked && self.want_rank.is_none() {
+            if asked && self.want_rank != Some(true) {
                 self.msg = "Claude ranks what needs you once GitHub's part is in…".into();
             }
             return self.want_rank = Some(asked);
         }
         self.want_rank = None;
-        let items: Vec<(String, String)> = self
+        let items: Vec<(todo::Entry, String)> = self
             .todo_shown()
             .into_iter()
             .filter(|(_, it)| it.deferred.is_none()) // not ranked while deferred
@@ -353,7 +353,11 @@ impl List {
                     (self.me, self.extra) = (me, extra);
                     self.scan_unpushed(); // against the PRs' heads, now they're known
                 }
-                Err(e) => self.msg = format!("what needs you: {e:#}"),
+                Err(e) => {
+                    // (Not ranked on what didn't come: the error stays said.)
+                    self.msg = format!("what needs you: {e:#}");
+                    self.want_rank = None;
+                }
             }
             self.find_todo();
         }

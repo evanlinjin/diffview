@@ -188,7 +188,6 @@ pub struct Item {
 }
 
 impl Item {
-    /// How it's kept (deferrals, rankings): `pr-12`, `rep-12`, `issue-12`.
     /// As you know it: "#12", or a replacement's (or a new PR draft's) label.
     pub fn label(&self) -> String {
         match self.is_rep() {
@@ -198,10 +197,11 @@ impl Item {
     }
 
     /// What a ranking's fingerprint has of it: its key, and its needs then.
-    pub fn entry(&self) -> String {
-        format!("{}:{}", self.key(), self.needs_key())
+    pub fn entry(&self) -> Entry {
+        Entry(format!("{}:{}", self.key(), self.needs_key()))
     }
 
+    /// How it's kept (deferrals, rankings): `pr-12`, `rep-12`, `issue-12`.
     pub fn key(&self) -> String {
         let kind = match self.kind {
             Kind::Pr => "pr",
@@ -391,16 +391,14 @@ pub struct Ranked {
     pub closes: std::collections::HashMap<String, String>,
 }
 
-/// What a ranking was of: each item and its needs. When today's differs, the ranking is stale.
-#[cfg(test)]
-pub fn fingerprint<'a>(items: impl IntoIterator<Item = &'a Item>) -> String {
-    fingerprint_of(items.into_iter().map(Item::entry))
-}
+/// An item as a ranking's fingerprint has it (`Item::entry`).
+pub struct Entry(String);
 
-/// A ranking's fingerprint of its items' `entry`s.
-pub fn fingerprint_of(entries: impl IntoIterator<Item = String>) -> String {
+/// What a ranking was of: each item and its needs (`entries`). When today's differs, the
+/// ranking is stale.
+pub fn fingerprint_of(entries: impl IntoIterator<Item = Entry>) -> String {
     // (By weight, as `order` compares: a need for another of the same weight, no new ranking.)
-    let mut keys: Vec<String> = entries.into_iter().collect();
+    let mut keys: Vec<String> = entries.into_iter().map(|e| e.0).collect();
     keys.sort();
     keys.join(";")
 }
@@ -1132,7 +1130,7 @@ mod tests {
         assert!(o.iter().all(|i| !i.changed)); // nothing to have changed since
         assert_eq!(o.iter().map(|i| i.number).collect::<Vec<_>>(), [2, 3, 1]);
         // Claude's order, with its word; a new one goes before the first that needs you less.
-        let ranked = Ranked { at: 1, cost: 0.1, fingerprint: fingerprint(&items), waits: Default::default(), closes: Default::default(), items: vec![("pr-1".into(), "small fix — merge".into()), ("pr-3".into(), "x".into())] };
+        let ranked = Ranked { at: 1, cost: 0.1, fingerprint: fingerprint_of(items.iter().map(Item::entry)), waits: Default::default(), closes: Default::default(), items: vec![("pr-1".into(), "small fix — merge".into()), ("pr-3".into(), "x".into())] };
         let o = order(items.clone(), Some(&ranked));
         assert_eq!(since_of(&o, Some(&ranked)), Since::default()); // it's of the same three (pr-2 left out of Claude's answer goes by the rules)
         assert_eq!(o.iter().map(|i| i.number).collect::<Vec<_>>(), [2, 1, 3]);

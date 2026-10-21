@@ -1192,7 +1192,7 @@ impl Issues {
         if let Err(why) = self.todos.can_rank() {
             return if asked { self.msg = why.into() };
         }
-        let items: Vec<(String, String)> = self
+        let items: Vec<(crate::todo::Entry, String)> = self
             .todos
             .items
             .iter()
