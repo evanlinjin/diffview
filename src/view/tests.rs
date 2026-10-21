@@ -1343,6 +1343,15 @@ fn claude_view() {
     app.threads[0].comments.pop();
     let keep = app.cursor_key();
     app.rebuild(keep);
+    // Its answer to another's comment: its own entry; the review, only its summary then.
+    app.threads[0].about = Some(5);
+    let keep = app.cursor_key();
+    app.rebuild(keep);
+    let v = texts(&app);
+    assert!(v.iter().any(|t| t.starts_with("◆ ") && t.ends_with("big.rs:20")) && v.iter().any(|t| t == "◆ reviewed"), "{v:?}");
+    app.threads[0].about = None;
+    let keep = app.cursor_key();
+    app.rebuild(keep);
     // Enter there: to that comment (wherever the cursor was on the line).
     app.head.col = 3;
     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
