@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.78.1] - 2026-10-21
+
+### Fixed
+- Asked to put a suggestion in its comment ("have a suggestion like ```suggestion // Do this
+  instead```"), Claude writes the actual lines, valid in that file, instead of copying the
+  placeholder in.
+
 ## [0.78.0] - 2026-10-21
 
 ### Added
