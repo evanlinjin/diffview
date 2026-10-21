@@ -3349,3 +3349,11 @@ fn claudes_comment_posted_in_its_view_leaves_the_cursor_near() {
     let row = &app.rows[app.head.row];
     assert!(app.head.row > 0 && app.files[row.file].path == "src/a.rs", "{:?}", row.line.text);
 }
+
+#[test]
+fn no_cursor_while_unfocused() {
+    let mut app = fixture();
+    assert_eq!(app.cursor_style(), app.ui.cursor);
+    app.unfocused = true;
+    assert_eq!(app.cursor_style(), Style::new());
+}

@@ -58,7 +58,8 @@ fn hook_panics() {
     }));
 }
 
-/// Give the terminal back (mouse capture off first, so an editor or the shell gets it clean).
+/// Give the terminal back (focus reports and mouse capture off first, so an editor or the
+/// shell gets it clean).
 pub fn restore_terminal() {
     _ = ratatui::crossterm::execute!(std::io::stdout(), ratatui::crossterm::event::DisableFocusChange);
     if MOUSE.load(std::sync::atomic::Ordering::Relaxed) {

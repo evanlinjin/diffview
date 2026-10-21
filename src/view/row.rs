@@ -1,6 +1,18 @@
 //! One row of the diff on screen: its gutter, its text (code, a comment box, a section), its marks.
 use super::*;
 
+impl App {
+    /// How the cursor's drawn: selecting or not; nothing while dv isn't focused (every place
+    /// that draws it, by this).
+    pub(super) fn cursor_style(&self) -> Style {
+        match (self.unfocused, self.select) {
+            (true, _) => Style::new(),
+            (_, true) => self.ui.cursor_select,
+            _ => self.ui.cursor,
+        }
+    }
+}
+
 /// `line` cut to `w` columns, ending in `…` if it was longer.
 pub(super) fn fit(line: Line<'static>, w: usize) -> Line<'static> {
     if line.width() <= w {
@@ -97,7 +109,7 @@ impl App {
         let mut chars = text.chars();
         if self.head.row == r {
             let c = chars.next().unwrap_or(' ');
-            spans.push(Span::styled(c.to_string(), if self.select { self.ui.cursor_select } else { self.ui.cursor }));
+            spans.push(Span::styled(c.to_string(), self.cursor_style()));
         }
         spans.push(Span::styled(chars.collect::<String>(), self.ui.hunk));
         Some(spans)
@@ -300,8 +312,8 @@ impl App {
             if s <= p && p <= e && this_side {
                 st = st.patch(ui.selection);
             }
-            if p == self.head && cursor_here && !self.unfocused {
-                st = st.patch(if self.select { ui.cursor_select } else { ui.cursor });
+            if p == self.head && cursor_here {
+                st = st.patch(self.cursor_style());
             }
             if let Some(&lc) = overlay.get(&p) {
                 spans.push(Span::styled(lc.to_string(), ui.jump_label));
@@ -311,8 +323,8 @@ impl App {
             spans.push(Span::styled(if c == '\t' { "    ".into() } else { c.to_string() }, st));
             n = i + 1;
         }
-        if cursor_here && !self.unfocused && self.head.col >= n.max(skip) {
-            spans.push(Span::styled(" ", if self.select { ui.cursor_select } else { ui.cursor }));
+        if cursor_here && self.head.col >= n.max(skip) {
+            spans.push(Span::styled(" ", self.cursor_style()));
         }
         // A line cut, a diff's by the window or code by its box: `‹` / `›` where there's more,
         // to scroll to (not over the cursor).

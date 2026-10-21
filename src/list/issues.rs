@@ -1244,9 +1244,8 @@ impl Issues {
         f.render_widget(Paragraph::new("").style(ui.base), area);
         // An issue open: its own title bar (no tabs: they're the list's), it, and the status bar.
         if let Some(v) = self.view.as_mut() {
-            v.unfocused = self.unfocused;
             v.title_bar(f, ui, Rect { height: 1.min(area.height), ..area });
-            let cursor = v.draw(f, ui, Rect { y: area.y + 1, height: area.height.saturating_sub(2), ..area });
+            let cursor = v.draw(f, ui, Rect { y: area.y + 1, height: area.height.saturating_sub(2), ..area }, self.unfocused);
             let left = if self.msg.is_empty() { " ? keys · q back to the issues".to_owned() } else { format!(" {}", self.msg) };
             status_bar(f, ui, &left, &format!("#{}", v.number), self.todos.auto, "");
             if self.nav.help {
