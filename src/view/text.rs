@@ -171,32 +171,41 @@ impl App {
         next
     }
 
-    /// The Claude tab's activity, as the Comments tab has the PR's: what Claude wrote last (a
-    /// comment, a reply: an answer, a change it made), newest first, a line each: when, where,
-    /// its first line.
+    /// The Claude tab's activity, as the Comments tab has the PR's: what Claude did, newest
+    /// first, a line each (when, what) and its gist: its review (once: "reviewed", how many
+    /// comments, the start of its summary), then each reply (an answer, a change it made, a
+    /// suggestion), where.
     pub(super) fn claude_activity(&self) -> Vec<Row> {
-        let mut said: Vec<(&str, String, &str, (usize, usize))> = self
-            .threads
-            .iter()
-            .enumerate()
-            .filter(|(_, t)| t.claude.is_some())
-            .flat_map(|(ti, t)| {
-                // (Outdated: where it was.)
-                let at = match (t.path.as_str(), t.line.or(t.original_line), t.conversation.as_str()) {
-                    ("", _, ON_SUMMARY) => "on its review".to_owned(),
-                    ("", _, c) if commit_of(c).is_some() => format!("on commit {}", self.commit_short(commit_of(c).unwrap_or(""))),
-                    ("", ..) => "on the conversation".to_owned(),
-                    // (The file's name: its path is in the comment it goes to.)
-                    (p, Some(l), _) => format!("{}:{l}", p.rsplit('/').next().unwrap_or(p)),
-                    (p, None, _) => p.rsplit('/').next().unwrap_or(p).to_owned(),
-                };
-                t.comments.iter().enumerate().filter(|(_, c)| c.author == crate::claude::AUTHOR).map(move |(ci, c)| (c.created.as_str(), at.clone(), c.body.as_str(), (ti, ci)))
-            })
-            .collect();
+        let claude = |c: &gh::Comment| c.author == crate::claude::AUTHOR;
+        // (Outdated: where it was.)
+        let at = |t: &Thread| match (t.path.as_str(), t.line.or(t.original_line), t.conversation.as_str()) {
+            ("", _, ON_SUMMARY) => "on its review".to_owned(),
+            ("", _, c) if commit_of(c).is_some() => format!("on commit {}", self.commit_short(commit_of(c).unwrap_or(""))),
+            ("", ..) => "on the conversation".to_owned(),
+            // (The file's name: its path is in the comment it goes to.)
+            (p, Some(l), _) => format!("{}:{l}", p.rsplit('/').next().unwrap_or(p)),
+            (p, None, _) => p.rsplit('/').next().unwrap_or(p).to_owned(),
+        };
+        let ours: Vec<(usize, &Thread)> = self.threads.iter().enumerate().filter(|(_, t)| t.claude.is_some()).collect();
+        // Its review: the comments it opened with (the latest's time), one entry; its summary's
+        // start says what it found (Enter: its first comment).
+        let roots: Vec<(usize, &gh::Comment)> = ours.iter().filter_map(|&(ti, t)| t.comments.first().filter(|c| claude(c)).map(|c| (ti, c))).collect();
+        let mut said: Vec<(String, String, String, (usize, usize))> = vec![];
+        if let Some(&(first, _)) = roots.first() {
+            let created = roots.iter().map(|r| r.1.created.as_str()).max().unwrap_or("").to_owned();
+            let n = roots.len();
+            said.push((created, format!("reviewed · {n} comment{}", if n == 1 { "" } else { "s" }), self.claude.summary.clone(), (first, 0)));
+        }
+        // Then each reply of its: what it answered, changed, suggested, where.
+        for &(ti, t) in &ours {
+            for (ci, c) in t.comments.iter().enumerate().skip(1).filter(|(_, c)| claude(c)) {
+                said.push((c.created.clone(), at(t), c.body.clone(), (ti, ci)));
+            }
+        }
         if said.is_empty() {
             return vec![];
         }
-        said.sort_by(|a, b| b.0.cmp(a.0)); // ISO times sort as text
+        said.sort_by(|a, b| b.0.cmp(&a.0)); // ISO times sort as text
         let mk = |kind, text| Row { info: Some(CLAUDE_ACTIVITY), ..Row::text(INFO, kind, text) };
         let mut rows = vec![mk(Kind::Thread, "claude's activity".into())];
         let w = self.info_w();
@@ -204,7 +213,7 @@ impl App {
         // at most (Enter: all of it).
         let dim = Some(self.ui.linenr);
         for (created, at, body, goes) in said.into_iter().take(CLAUDE_LATEST) {
-            let when = if created.is_empty() { String::new() } else { format!("{} · ", crate::gh::ago(created)) };
+            let when = if created.is_empty() { String::new() } else { format!("{} · ", crate::gh::ago(&created)) };
             let head = super::cut(&format!("◆ {when}{at}"), w.saturating_sub(1));
             rows.push(Row { goes: Some(goes), syn: vec![dim; head.chars().count()], ..mk(Kind::Comment, head) });
             let lines: Vec<&str> = body.lines().map(str::trim).skip_while(|l| l.is_empty()).collect();

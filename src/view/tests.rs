@@ -1321,10 +1321,11 @@ fn claude_view() {
     // title) nor its conversation.
     assert!(!v.contains(&"OPEN @bo · main ← x".to_owned()) && v.contains(&"Looks fine.".to_owned()), "{v:?}");
     assert!(v.iter().any(|t| t == "Long story") && !v.iter().any(|t| t.starts_with("review:")));
-    // Claude's activity: what it wrote last, a line each (when, where, its first line).
-    // (When and where, a line; what it said under it.)
-    let at = v.iter().position(|t| t.starts_with("◆ ") && t.ends_with("big.rs:20")).expect("its line");
-    assert!(v.iter().any(|t| t == "claude's activity") && v[at + 1] == "  hm", "{v:?}");
+    // Claude's activity: what it did, newest first: its review once (how many comments, its
+    // summary's start), not each comment of it.
+    let at = v.iter().position(|t| t.starts_with("◆ ") && t.ends_with("reviewed · 1 comment")).expect("its review");
+    assert!(v.iter().any(|t| t == "claude's activity") && v[at + 1] == "  Looks fine.", "{v:?}");
+    assert!(!v.iter().any(|t| t.starts_with("◆ ") && t.ends_with("big.rs:20")), "{v:?}");
     // Its keys there: going to it, not the PR text's (nothing of it to quote or react to).
     app.goto(app.rows.iter().position(|r| r.line.text.starts_with("◆ ")).unwrap(), 0);
     assert_eq!(app.context_keys().map(|k| k.0), Some("Claude's activity"));
@@ -1336,6 +1337,8 @@ fn claude_view() {
     app.threads[0].comments.push(newer);
     let keep = app.cursor_key();
     app.rebuild(keep);
+    // (A reply: its own entry, where it is.)
+    assert!(app.rows.iter().any(|r| r.line.text.starts_with("◆ ") && r.line.text.ends_with("big.rs:20")));
     assert!(app.rows[app.head.row].goes == was && app.rows.iter().position(|r| r.line.text == "  Later.").unwrap() < app.head.row);
     app.threads[0].comments.pop();
     let keep = app.cursor_key();
