@@ -60,10 +60,9 @@ impl List {
         if self.nav.filter_key(k) {
             return None;
         }
-        let half = (self.height() / 2).max(1);
-        let g = std::mem::take(&mut self.pending_g);
-        // Esc after a key waiting for its second (g, M, D, s, …): called off, as Helix's, not quit.
-        if k.code == KeyCode::Esc && (g || armed.is_some() || self.deferring.is_some()) {
+        // Esc after a key waiting for its second (M, D, s, …; g's: `Nav`): called off, as Helix's,
+        // not quit.
+        if k.code == KeyCode::Esc && (armed.is_some() || self.deferring.is_some()) {
             self.deferring = None;
             return None;
         }
@@ -77,7 +76,7 @@ impl List {
             return None;
         }
         // Moving about, the tabs (`gp` before `p` on a tab), the filter, the help.
-        if self.nav.key(k, g, n, half) {
+        if self.nav.key(k, n, self.height()) {
             return None;
         }
         match k.code {
@@ -86,7 +85,6 @@ impl List {
                 let typed = self.nav.query.trim().trim_start_matches('#').parse().ok();
                 return self.shown().get(self.nav.sel).map(|p| p.number).or(typed).map(Do::Open);
             }
-            KeyCode::Esc if !self.nav.query.is_empty() => (self.nav.query.clear(), self.nav.sel = 0).1,
             // Claude at work here (`busy`): it'd stop with dv. q asks first; Esc only says so (a
             // second Esc calls things off, it doesn't quit).
             KeyCode::Char('q') | KeyCode::Esc if !self.busy() => return Some(Do::Quit),
@@ -184,7 +182,7 @@ impl List {
                 if !self.marked.remove(&p) {
                     self.marked.insert(p);
                 }
-                self.nav.sel = (self.nav.sel + 1).min(n.saturating_sub(1)); // on to the next, to mark a run
+                self.nav.step(true, n); // on to the next, to mark a run
                 self.msg = format!("{} marked: a asks Claude to review them", self.marked.len());
             }
             // Auto on / off: Claude runs, drafts marked ready, rankings, without you.
@@ -248,7 +246,6 @@ impl List {
             }
             KeyCode::Char('o') => self.sort(self.order.next(), self.rev),
             KeyCode::Char('O') => self.sort(self.order, !self.rev),
-            KeyCode::Char('g') => self.pending_g = true,
             _ => {}
         }
         None
@@ -260,8 +257,7 @@ impl List {
         use event::{MouseButton, MouseEventKind};
         let n = self.shown().len();
         match m.kind {
-            MouseEventKind::ScrollDown => self.nav.sel = (self.nav.sel + 1).min(n.saturating_sub(1)),
-            MouseEventKind::ScrollUp => self.nav.sel = self.nav.sel.saturating_sub(1),
+            MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => self.nav.step(m.kind == MouseEventKind::ScrollDown, n),
             MouseEventKind::Down(MouseButton::Left) if !self.nav.help => return self.nav.click(m.column, m.row, n, self.card_rows(), self.height()),
             _ => {}
         }

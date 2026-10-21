@@ -52,7 +52,6 @@ pub struct List {
     ui: Ui,
     /// Flags each PR opens with, for the status bar (e.g. "-wb").
     flags: String,
-    pending_g: bool,
     order: Order,
     /// Oldest / smallest / lowest first instead.
     rev: bool,
@@ -361,7 +360,7 @@ impl List {
                 Some(Do::RemoveReplacement(id)) => {
                     self.msg = crate::replace::remove(id, &self.root).unwrap_or_else(|e| format!("{e:#}"));
                     self.load_reps();
-                    self.nav.sel = self.nav.sel.min(self.shown().len().saturating_sub(1));
+                    self.nav.clamp(self.shown().len());
                 }
                 Some(Do::Remove(n)) => {
                     self.msg = match crate::remove_worktree(n, false) {
@@ -369,7 +368,7 @@ impl List {
                             self.local.remove(&n);
                             // Listed only for its worktree (closed, merged): gone with it.
                             self.prs.retain(|p| p.number != n || p.open());
-                            self.nav.sel = self.nav.sel.min(self.shown().len().saturating_sub(1));
+                            self.nav.clamp(self.shown().len());
                             m
                         }
                         Err(e) => format!("{e:#}"),

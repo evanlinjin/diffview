@@ -230,6 +230,20 @@ fn triage_run(n: u64, updated: &str, fixes: &[(u64, String, String)], root: &std
     Ok(batch::Status::Done(format!("{} turns, ${:.2}", v["num_turns"].as_u64().unwrap_or(0), v["total_cost_usd"].as_f64().unwrap_or(0.0))))
 }
 
+/// Whether `k` is for moving about, the tabs, the filter, the help (`Nav`) while `pending`
+/// waits for its second key: so it calls that off; Esc only that; not after `s`, which asks how
+/// long.
+fn moves(pending: Option<char>, k: KeyCode) -> bool {
+    pending != Some('s') && !(pending.is_some() && k == KeyCode::Esc)
+}
+
+#[test]
+fn a_waiting_key_called_off_by_moving() {
+    let j = KeyCode::Char('j');
+    assert!(moves(None, j) && moves(Some('a'), j) && moves(None, KeyCode::Esc));
+    assert!(!moves(Some('s'), j) && !moves(Some('a'), KeyCode::Esc));
+}
+
 /// An issue to triage, as listed: its `updatedAt` (what it's triaged as of), and the PRs linked
 /// as fixing it.
 struct Ask {
@@ -741,12 +755,10 @@ impl Issues {
             return None;
         }
         let n = self.shown().len();
-        let half = (self.height() / 2).max(1);
         let pending = self.pending.take();
         let this = self.shown().get(self.nav.sel).map(|i| i.number);
         self.msg.clear();
-        // Moving about, the tabs, the filter, the help (not as a second key of another's).
-        if matches!(pending, None | Some('g')) && self.nav.key(k, pending.is_some(), n, half) {
+        if moves(pending, k.code) && self.nav.key(k, n, self.height()) {
             return None;
         }
         match (pending, k.code) {
@@ -775,7 +787,7 @@ impl Issues {
                     None => "never ranked before".into(),
                 });
             }
-            (_, KeyCode::Char(c @ ('g' | 'I' | 'U' | 'a'))) => {
+            (_, KeyCode::Char(c @ ('I' | 'U' | 'a'))) => {
                 self.pending = Some(c);
                 self.msg = match c {
                     'I' => "I again: back to the PRs".into(),
@@ -800,7 +812,6 @@ impl Issues {
                 };
             }
             (Some(_), KeyCode::Esc) => {} // (a pending key called off, as Helix's)
-            (_, KeyCode::Esc) => (self.nav.query.clear(), self.nav.sel = 0).1,
             (Some('q'), KeyCode::Char('q')) => return Some(IssuesDo::Quit),
             (_, KeyCode::Char('q')) if self.busy() => {
                 self.pending = Some('q');
@@ -816,7 +827,7 @@ impl Issues {
                     && !self.marked.remove(&n)
                 {
                     self.marked.insert(n);
-                    self.nav.sel = (self.nav.sel + 1).min(self.shown().len().saturating_sub(1));
+                    self.nav.step(true, self.shown().len());
                 }
             }
             // The issue, in dv.
@@ -833,7 +844,7 @@ impl Issues {
             }
             _ => {}
         }
-        self.nav.sel = self.nav.sel.min(self.shown().len().saturating_sub(1));
+        self.nav.clamp(self.shown().len());
         None
     }
 
@@ -1289,7 +1300,10 @@ impl Issues {
             return;
         }
         let shown_n = self.shown().len();
-        let sel_now = self.nav.sel.min(shown_n.saturating_sub(1));
+        let rows = self.card_rows();
+        let h = area.height.saturating_sub(2) as usize / rows;
+        self.nav.keep(shown_n, h);
+        let (sel, top) = (self.nav.sel, self.nav.top);
         let mine = self.items.iter().filter(|i| i.author == self.me || i.assignees.contains(&self.me)).count();
         let close = self.items.iter().filter(|i| self.close_why(i.number).is_some()).count();
         let names = [
@@ -1299,12 +1313,8 @@ impl Issues {
             (ITab::CanClose, format!("close {close}")),
         ];
         let tabs: Vec<(String, bool)> = names.iter().map(|(t, n)| (n.clone(), self.nav.tab == *t)).collect();
-        let hits = top_bar(f, ui, "Issues", &tabs, "I I the PRs", sel_now, shown_n);
+        let hits = top_bar(f, ui, "Issues", &tabs, "I I the PRs", sel, shown_n);
         self.nav.tab_hits = hits.into_iter().zip(names.iter().map(|n| n.0)).collect();
-        let rows = self.card_rows();
-        let h = area.height.saturating_sub(2) as usize / rows;
-        self.nav.keep(shown_n, h);
-        let (sel, top) = (self.nav.sel, self.nav.top);
         let shown = self.shown();
         // The todo tab: Claude's word beside each card when the window's wide enough, else
         // under its title (as dv list's).

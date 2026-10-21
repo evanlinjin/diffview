@@ -24,6 +24,8 @@ pub(super) struct Nav<T> {
     /// a second soon after on the same one opens it).
     pub(super) tab_hits: Vec<(std::ops::Range<u16>, T)>,
     pub(super) last_click: Option<(std::time::Instant, usize)>,
+    /// `g` pressed, for the key after (`gg`, `ge`, `gn`, `gp`).
+    g: bool,
 }
 
 impl<T: Tabs> Nav<T> {
@@ -32,10 +34,21 @@ impl<T: Tabs> Nav<T> {
         (self.tab, self.sel, self.top) = (tab, 0, 0);
     }
 
+    /// The selection on one of `n` cards.
+    pub(super) fn clamp(&mut self, n: usize) {
+        self.sel = self.sel.min(n.saturating_sub(1));
+    }
+
+    /// The next card of `n` (`down`), else the one before (`j` / `k`, the wheel).
+    pub(super) fn step(&mut self, down: bool, n: usize) {
+        self.sel = if down { self.sel + 1 } else { self.sel.saturating_sub(1) };
+        self.clamp(n);
+    }
+
     /// The selection on one of `n` cards, `h` of them shown: on screen (its first shown, as near
     /// as it was).
     pub(super) fn keep(&mut self, n: usize, h: usize) {
-        self.sel = self.sel.min(n.saturating_sub(1));
+        self.clamp(n);
         self.top = self.top.min(self.sel).max((self.sel + 1).saturating_sub(h));
     }
 
@@ -55,16 +68,20 @@ impl<T: Tabs> Nav<T> {
         true
     }
 
-    /// `k` (after a `g`: `g`) on `n` cards, `half` a page: moving about them and the tabs, the
-    /// filter, the help (`true`: it was one of those).
-    pub(super) fn key(&mut self, k: KeyEvent, g: bool, n: usize, half: usize) -> bool {
+    /// `k` on `n` cards, `h` shown: moving about them and the tabs, the filter (Esc clears it),
+    /// the help (`true`: it was one of those). `g` waits for the key after it; Esc calls it off.
+    pub(super) fn key(&mut self, k: KeyEvent, n: usize, h: usize) -> bool {
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
-        let last = n.saturating_sub(1);
+        let (last, half) = (n.saturating_sub(1), (h / 2).max(1));
+        let g = std::mem::take(&mut self.g);
         match (g, k.code) {
             (_, KeyCode::Char('d')) if ctrl => self.sel = (self.sel + half).min(last),
             (_, KeyCode::Char('u')) if ctrl => self.sel = self.sel.saturating_sub(half),
-            (_, KeyCode::Char('j') | KeyCode::Down) => self.sel = (self.sel + 1).min(last),
-            (_, KeyCode::Char('k') | KeyCode::Up) => self.sel = self.sel.saturating_sub(1),
+            (_, KeyCode::Char('j') | KeyCode::Down) => self.step(true, n),
+            (_, KeyCode::Char('k') | KeyCode::Up) => self.step(false, n),
+            (false, KeyCode::Char('g')) => self.g = true,
+            (true, KeyCode::Esc) => {}
+            (false, KeyCode::Esc) if !self.query.is_empty() => (self.query.clear(), self.sel = 0).1,
             (true, KeyCode::Char('g')) => self.sel = 0,
             (true, KeyCode::Char('e')) => self.sel = last,
             // The next / previous tab: `l` / `h`, or as in dv, `gn` / `gp`.
@@ -115,15 +132,20 @@ fn moving_about_a_list() {
     let key = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
     let mut nav = Nav::<u8>::default();
     // j past the end stays on the last; gg, ge; l / h round the tabs, at their first card.
-    (0..5).for_each(|_| _ = nav.key(key('j'), false, 3, 1));
+    (0..5).for_each(|_| _ = nav.key(key('j'), 3, 2));
     assert_eq!(nav.sel, 2);
-    assert!(nav.key(key('g'), true, 3, 1) && nav.sel == 0);
-    assert!(nav.key(key('e'), true, 3, 1) && nav.sel == 2);
-    assert!(nav.key(key('h'), false, 3, 1) && (nav.tab, nav.sel) == (2, 0));
-    assert!(!nav.key(key('x'), false, 3, 1));
+    assert!(nav.key(key('g'), 3, 2) && nav.key(key('g'), 3, 2) && nav.sel == 0);
+    assert!(nav.key(key('g'), 3, 2) && nav.key(key('e'), 3, 2) && nav.sel == 2);
+    assert!(nav.key(key('h'), 3, 2) && (nav.tab, nav.sel) == (2, 0));
+    // g, then Esc: called off (the next h is a tab again, not after a g).
+    let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+    assert!(nav.key(key('g'), 3, 2) && nav.key(esc, 3, 2) && nav.key(key('l'), 3, 2) && nav.tab == 0);
+    assert!(!nav.key(key('x'), 3, 2) && !nav.key(esc, 3, 2));
     // The filter takes what's typed till Enter.
-    assert!(nav.key(key('/'), false, 3, 1) && nav.filter_key(key('a')) && nav.query == "a");
+    assert!(nav.key(key('/'), 3, 2) && nav.filter_key(key('a')) && nav.query == "a");
     assert!(nav.filter_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)) && !nav.filter_key(key('b')));
+    // Esc, the filter kept: cleared.
+    assert!(nav.key(esc, 3, 2) && nav.query.is_empty());
     // A click selects a card (3 rows each, under the bar); a second on it soon opens it.
     assert!(!nav.click(0, 4, 5, 3, 4) && nav.sel == 1);
     assert!(nav.click(0, 5, 5, 3, 4));
