@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.77.5] - 2026-10-21
+
+### Fixed
+- An item back from being deferred is ranked again (it counted as already ranked, so the todo
+  said nothing had changed since).
+- `r` with nothing to rank says so in dv list too (it offered to rank "0 PR(s)"), and an `r r`
+  waiting for GitHub's part with nothing to rank no longer starts a ranking later.
+- A second "until …" while Claude still reads the first replaces it, and says so (one that hung
+  no longer blocks the rest); one for an item seen to meanwhile says it wasn't deferred.
+
 ## [0.77.4] - 2026-10-21
 
 ### Changed
