@@ -67,14 +67,14 @@ impl List {
                 items.push(Item { kind: crate::todo::Kind::Rep, number: r.id, needs, claude: None, updated, reason: None, changed: false, deferred: None, busy: None, waits: None });
             }
         }
-        let (items, since) = todo::order(items, self.todos.ranked.as_ref());
         let now = crate::claude::now_secs();
-        // What deferrals waited for that has happened: they're over (said so, once).
-        let met = self.todos.met(&items, |it, c, at| self.happened(it, c, at));
-        if let Some(said) = self.todos.end(met) {
+        // (Lent out: whether what a deferral waits for has happened is read from the rest.)
+        let mut todos = std::mem::take(&mut self.todos);
+        let (mut items, said) = todos.settle(items, |it, c, at| self.happened(it, c, at));
+        self.todos = todos;
+        if let Some(said) = said {
             self.msg = said;
         }
-        let mut items = self.todos.place(items, |it, c, at| self.happened(it, c, at));
         // What a PR's conversation says it waits on (a trusted comment), not happened yet: to
         // the bottom too, for everyone.
         for it in items.iter_mut().filter(|it| !it.is_rep() && it.deferred.is_none()) {
@@ -118,7 +118,7 @@ impl List {
         ready.append(&mut ci);
         ready.append(&mut later);
         ready.append(&mut busy);
-        (self.todos.items, self.todos.since) = (ready, since);
+        self.todos.items = ready;
         self.auto_run();
     }
 
@@ -715,11 +715,6 @@ impl List {
         }
         it.and_then(|it| it.claude.clone()).unwrap_or(batch::Task::Review)
     }
-}
-
-/// A ranking's cost: "cost $0.38" (one from before dv kept it: not recorded).
-pub(super) fn cost_text(c: f64) -> String {
-    if c > 0.0 { format!("cost ${c:.2}") } else { "cost not recorded".into() }
 }
 
 /// A zellij pane: its id, command and working directory.

@@ -427,6 +427,23 @@ pub fn order(mut items: Vec<Item>, ranked: Option<&Ranked>) -> (Vec<Item>, Since
     (out, since)
 }
 
+/// What's changed since the ranking (`ranked`'s fingerprint: what it ranked, as it was) of
+/// `items` as placed: of those not deferred, the new ones (not ranked) and those whose needs
+/// changed; and the ranked ones gone from the list.
+pub fn since_of(items: &[Item], ranked: Option<&Ranked>) -> Since {
+    let Some(r) = ranked else { return Since::default() };
+    let then: std::collections::HashMap<&str, &str> = r.fingerprint.split(';').filter_map(|e| e.split_once(':')).collect();
+    let mut since = Since { gone: then.keys().filter(|k| !items.iter().any(|it| it.key() == **k)).count(), ..Since::default() };
+    for it in items.iter().filter(|it| it.deferred.is_none()) {
+        match then.get(it.key().as_str()) {
+            None => since.new += 1,
+            Some(n) if *n != it.needs_key() => since.changed += 1,
+            Some(_) => {}
+        }
+    }
+    since
+}
+
 /// Which todo list: dv list's PRs (and replacements), or dv issues' issues. Each has its own
 /// ranking.
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -409,15 +409,15 @@ impl Issues {
         // (A draft fixing it, unpublished: its record's task starts "Fix #N", as `N N` has it.)
         self.draft_fix = draft_fix(&records(), &self.drafting);
         let items: Vec<Item> = items.into_iter().filter(|it| !self.draft_fix.contains_key(&it.number)).collect();
-        let (items, since) = crate::todo::order(items, self.todos.ranked.as_ref());
-        self.todos.since = since;
-        // What deferrals waited for that has happened: they're over (said so, once); the rest
-        // at the bottom till then.
-        let met = self.todos.met(&items, |_, c, _| self.happened(c));
-        if let Some(said) = self.todos.end(met) {
+
+        // (Lent out: whether what a deferral waits for has happened is read from the rest.)
+        let mut todos = std::mem::take(&mut self.todos);
+        let (items, said) = todos.settle(items, |_, c, _| self.happened(c));
+        self.todos = todos;
+        self.todos.items = items;
+        if let Some(said) = said {
             self.msg = said;
         }
-        self.todos.items = self.todos.place(items, |_, c, _| self.happened(c));
         if let Some(i) = keep.and_then(|n| self.shown().iter().position(|i| i.number == n)) {
             self.nav.sel = i;
         }

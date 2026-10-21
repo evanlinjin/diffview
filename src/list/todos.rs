@@ -74,7 +74,7 @@ impl Todos {
     pub(super) fn order_text(&self) -> String {
         match (&self.rank_rx, &self.ranked) {
             (Some(_), _) => "Claude is ranking…".into(),
-            (None, Some(r)) => format!("ranked {} ago, {}{}", crate::gh::ago_secs(crate::claude::now_secs() - r.at), super::todo::cost_text(r.cost), self.since_text()),
+            (None, Some(r)) => format!("ranked {} ago, {}{}", crate::gh::ago_secs(crate::claude::now_secs() - r.at), cost_text(r.cost), self.since_text()),
             (None, None) => "in the rules' order".into(),
         }
     }
@@ -83,7 +83,7 @@ impl Todos {
     /// since the last ranking, to judge whether it's worth it.
     pub(super) fn rank_offer(&self, what: &str) -> String {
         let last = match &self.ranked {
-            Some(r) => format!("the last, {} ago, {}", crate::gh::ago_secs(crate::claude::now_secs() - r.at), super::todo::cost_text(r.cost)),
+            Some(r) => format!("the last, {} ago, {}", crate::gh::ago_secs(crate::claude::now_secs() - r.at), cost_text(r.cost)),
             None => "never ranked before".into(),
         };
         let n = self.items.iter().filter(|it| it.deferred.is_none()).count();
@@ -142,31 +142,26 @@ impl Todos {
         }
     }
 
-    /// The deferrals of `items` whose condition has happened (`happened`: for an item, what it
-    /// waits for, since when): their keys, and what to say ("#12 is back: …").
-    pub(super) fn met(&self, items: &[Item], happened: impl Fn(&Item, &Until, i64) -> bool) -> Vec<(String, String)> {
-        items
+    /// What needs you, `items`, settled (`happened`: whether what an item waits for has, since
+    /// when): in Claude's order where it ranked them; deferrals whose condition has happened
+    /// over (kept so; what to say of the last), the rest at the bottom till then; and what's
+    /// changed since the ranking (`since`).
+    pub(super) fn settle(&mut self, items: Vec<Item>, happened: impl Fn(&Item, &Until, i64) -> bool) -> (Vec<Item>, Option<String>) {
+        let (items, _) = todo::order(items, self.ranked.as_ref());
+        let met: Vec<(String, String)> = items
             .iter()
             .filter_map(|it| Some((it, self.deferred.get(&it.key())?)))
             .filter_map(|(it, d)| Some((it, d.cond.as_ref()?, d.at)))
             .filter(|(it, c, at)| happened(it, c, *at))
             .map(|(it, c, _)| (it.key(), format!("#{} is back: {}", it.number, c.says())))
-            .collect()
-    }
-
-    /// Those deferrals over (`met`), kept so; what to say of the last.
-    pub(super) fn end(&mut self, met: Vec<(String, String)>) -> Option<String> {
+            .collect();
         met.iter().for_each(|(key, _)| _ = self.deferred.remove(key));
         if !met.is_empty() {
             _ = self.save();
         }
-        met.into_iter().last().map(|m| m.1)
-    }
-
-    /// `items` as deferred: at the bottom till then, or till what it waits for happens, or what
-    /// it needs changes.
-    pub(super) fn place(&self, items: Vec<Item>, happened: impl Fn(&Item, &Until, i64) -> bool) -> Vec<Item> {
-        todo::defer(items, &self.deferred, crate::claude::now_secs(), happened)
+        let items = todo::defer(items, &self.deferred, crate::claude::now_secs(), happened);
+        self.since = todo::since_of(&items, self.ranked.as_ref());
+        (items, met.into_iter().last().map(|m| m.1))
     }
 
     /// The deferrals, kept (an error: what's said).
@@ -213,10 +208,11 @@ impl Todos {
         true
     }
 
-    /// What a ranking is of: every item as it is, deferred ones too (`todo::order` tells what's
-    /// new or changed since by all of them; one left out would be "new" ever after).
+    /// What a ranking is of: the items it ranks (not deferred), as they are. One deferred then
+    /// is new to it when it's back (`since_of`).
     fn fingerprint(&self) -> String {
-        todo::fingerprint(&self.items)
+        let ranked: Vec<Item> = self.items.iter().filter(|it| it.deferred.is_none()).cloned().collect();
+        todo::fingerprint(&ranked)
     }
 
     /// A ranking, once it's in (kept: `ranked`): what it cost.
@@ -242,6 +238,11 @@ impl Todos {
         }
         due
     }
+}
+
+/// A ranking's cost: "cost $0.38" (one from before dv kept it: not recorded).
+pub(super) fn cost_text(c: f64) -> String {
+    if c > 0.0 { format!("cost ${c:.2}") } else { "cost not recorded".into() }
 }
 
 #[test]
@@ -273,10 +274,12 @@ fn deferring_an_item() {
     assert!(t.defer_key(&deferred, "#7") == (true, "#7 is back".into()) && t.deferred.is_empty());
     // Never ranked, something not deferred: auto ranks now, then not for a quarter hour.
     assert!(t.auto_rank_due() && !t.auto_rank_due());
-    // Ranked with one deferred: nothing's new or changed since, then (it was ranked as it is).
-    t.items.push(Item { number: 8, deferred: Some(todo::Deferral { until: i64::MAX, needs: String::new(), cond: None, at: 0 }), ..t.items[0].clone() });
+    // Ranked with #8 deferred: nothing's new or changed while it is; back, it's new (not ranked).
+    let eight = Item { number: 8, ..t.items[0].clone() };
+    t.items.push(Item { deferred: Some(todo::Deferral { until: i64::MAX, needs: String::new(), cond: None, at: 0 }), ..eight.clone() });
     let ranked = Ranked { at: 1, cost: 0.0, fingerprint: t.fingerprint(), items: vec![], waits: Default::default(), closes: Default::default() };
-    let (_, since) = todo::order(t.items.clone(), Some(&ranked));
-    assert_eq!((since.new, since.changed), (0, 0));
+    let since = |items: &[Item]| todo::since_of(items, Some(&ranked));
+    assert_eq!((since(&t.items).new, since(&t.items).changed), (0, 0));
+    assert_eq!(since(&[t.items[0].clone(), eight]).new, 1);
     _ = std::fs::remove_file(file);
 }
