@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.79.0] - 2026-10-21
+
+### Added
+- `dv repo-file <owner/repo> <path> [<ref>]`: a file of any GitHub repo, or a directory's
+  entries, read only. Claude may run it (it was refused `gh api` when asked to follow a
+  sibling repo's CI workflow, and wrote one from scratch instead).
+
 ## [0.78.4] - 2026-10-21
 
 ### Fixed
