@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.77.8] - 2026-10-21
+
+### Fixed
+- `r r` while auto's own ranking waits for GitHub's part says your ask was taken.
+- A ranking waiting for GitHub's part isn't run when that fails, and the error stays said.
+- No ranking starts when none of the todo's items can be told of (gone from the cards).
+
 ## [0.77.7] - 2026-10-21
 
 ### Fixed
