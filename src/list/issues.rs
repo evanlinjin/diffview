@@ -1228,7 +1228,7 @@ impl Issues {
     }
 
     fn height(&self) -> usize {
-        cards_fit(self.card_rows())
+        cards_fit(self.card_rows(), None)
     }
 
     fn draw(&mut self, f: &mut Frame) {
@@ -1254,7 +1254,7 @@ impl Issues {
         }
         let shown_n = self.shown().len();
         let rows = self.card_rows();
-        let h = area.height.saturating_sub(2) as usize / rows;
+        let h = cards_fit(rows, Some(area.height));
         self.nav.keep(shown_n, h);
         let (sel, top) = (self.nav.sel, self.nav.top);
         let mine = self.items.iter().filter(|i| i.author == self.me || i.assignees.contains(&self.me)).count();

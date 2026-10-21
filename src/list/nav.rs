@@ -28,9 +28,11 @@ pub(super) struct Nav<T> {
     g: bool,
 }
 
-/// How many cards of `rows` lines fit the terminal (under the top bar, over the status bar).
-pub(super) fn cards_fit(rows: usize) -> usize {
-    ratatui::crossterm::terminal::size().map_or(10, |(_, h)| h.saturating_sub(2) as usize / rows.max(1))
+/// How many cards of `rows` lines fit a window `height` high (under the top bar, over the
+/// status bar); `None`: the terminal's.
+pub(super) fn cards_fit(rows: usize, height: Option<u16>) -> usize {
+    let height = height.or_else(|| ratatui::crossterm::terminal::size().ok().map(|s| s.1));
+    height.map_or(10, |h| h.saturating_sub(2) as usize / rows.max(1))
 }
 
 impl<T: Tabs> Nav<T> {

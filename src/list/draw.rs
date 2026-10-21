@@ -9,7 +9,7 @@ impl List {
 
     /// Cards on screen (between the header and the status bar).
     pub(super) fn height(&self) -> usize {
-        cards_fit(self.card_rows())
+        cards_fit(self.card_rows(), None)
     }
 
     /// A card's rows: 3 in a wide window (two zones), else 4, and a blank one between cards; on
@@ -29,7 +29,7 @@ impl List {
         self.wide = area.width as usize >= TWO_ZONES;
         let msg_col = msg_column(area.width as usize);
         let rows = self.card_rows();
-        let h = area.height.saturating_sub(2) as usize / rows;
+        let h = cards_fit(rows, Some(area.height));
         // Keep the selection on screen.
         self.nav.keep(self.shown().len(), h);
         let sel = self.nav.sel;
