@@ -5,6 +5,22 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.84.0] - 2026-10-21
+
+### Added
+- Claude's review heading in the pane says how long ago it was written, and which commit it
+  reviewed once the PR has moved on (`of 42995cf, before the PR's latest`).
+
+### Fixed
+- Checks finishing on GitHub now show in an open PR without a refresh: dv watches the head
+  commit's check runs' ETag as well as the PR's (free while nothing changes). CI never changes
+  the PR's ETag, so finished checks stayed "pending" until something else did.
+- The Claude view with no comments from Claude on the code (its one posted to GitHub, say) says
+  so, instead of an empty page.
+- A background update of Claude's review after a force-push reviews the PR afresh (the old
+  commit isn't under the new one), and when the checkout couldn't be moved to the PR's head
+  (work in it), it says so instead of asking Claude to review an empty diff.
+
 ## [0.83.0] - 2026-10-21
 
 ### Added
