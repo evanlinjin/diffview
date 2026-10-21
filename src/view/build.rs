@@ -193,7 +193,7 @@ impl App {
         }
         if rows.is_empty() {
             rows.push(Row::text(usize::MAX, Kind::Hunk, format!("({})", self.no_files())));
-        } else if self.view == View::Claude && !self.files.is_empty() && !rows.iter().any(|r| r.file < self.files.len()) {
+        } else if self.view == View::Claude && !self.files.is_empty() && !rows.iter().any(|r| r.file < self.files.len() || r.thread.is_some_and(|t| self.threads[t].claude.is_some())) {
             // (Its code is the files Claude commented on: none, it says so, not an empty page.)
             rows.push(Row::text(usize::MAX, Kind::Hunk, "(no comments from Claude on the code: gn / gp, the whole diff)".into()));
         }
@@ -394,12 +394,17 @@ impl App {
             false => &f.lines,
         };
         let mut rows = vec![self.file_header(i, f, shown)];
+        let theirs = (0..self.threads.len()).filter(|&t| self.threads[t].path == f.path && self.in_view(&self.threads[t]));
         if self.collapsed.contains(&f.path) {
+            // Folded, its comments are in the pane all the same, by their headings, beside the
+            // file's (Tab on one unfolds the file there).
+            if self.comments_in_pane() {
+                rows.extend(theirs.flat_map(|t| self.thread_rows_as(t, i, false)));
+            }
             return rows;
         }
         // (thread, index into its lines it sits under); unplaceable ones under the header.
-        let placed: Vec<(usize, Option<usize>)> =
-            (0..self.threads.len()).filter(|&t| self.threads[t].path == f.path && self.in_view(&self.threads[t])).map(|t| (t, anchor_line(&self.threads[t], lines))).collect();
+        let placed: Vec<(usize, Option<usize>)> = theirs.map(|t| (t, anchor_line(&self.threads[t], lines))).collect();
         for &(t, _) in placed.iter().filter(|p| p.1.is_none()) {
             rows.extend(self.thread_rows(t, i));
         }
@@ -413,14 +418,15 @@ impl App {
     }
 
     /// A file's header: "dir/" dimmed, its name in the header color, "(new)" and such dimmed,
-    /// +/- colored, and its open comments (said folded too, so none go unseen).
+    /// +/- colored, and its open comments when they're inline (said folded too, so none go
+    /// unseen; in the pane, they're there, folded or not).
     fn file_header(&self, i: usize, f: &FileDiff, shown: &[&Thread]) -> Row {
         let count = |k| f.lines.iter().filter(|l| l.kind == k).count();
         let (dir, name) = f.path.rsplit_once('/').map_or(("", f.path.as_str()), |(d, n)| (d, n));
         let dir = if dir.is_empty() { String::new() } else { format!("{dir}/") };
         let meta = if f.meta.is_empty() { String::new() } else { format!(" ({})", f.meta) };
         let dim = Some(self.ui.stale);
-        let comments = match shown.iter().filter(|t| t.path == f.path && !t.stale()).count() {
+        let comments = match shown.iter().filter(|t| t.path == f.path && !t.stale() && !self.comments_in_pane()).count() {
             0 => String::new(),
             1 => "  · 1 comment".into(),
             n => format!("  · {n} comments"),
@@ -603,7 +609,17 @@ impl App {
         }
         let Some(p) = self.files.get(fi).map(|f| f.path.clone()) else { return };
         flip(&mut self.collapsed, p);
-        self.rebuild_at(|r| r.file == fi);
+        // (From a comment of a folded file's, in the pane: on it, unfolded.)
+        match self.rows[self.head.row].thread {
+            Some(t) => self.rebuild_at(|r| r.thread == Some(t)),
+            None => self.rebuild_at(|r| r.file == fi),
+        }
+    }
+
+    /// On a comment of a folded file's (its heading, in the pane beside the file's).
+    pub(super) fn on_folded_file_comment(&self) -> bool {
+        let r = &self.rows[self.head.row];
+        r.thread.is_some() && self.files.get(r.file).is_some_and(|f| self.collapsed.contains(&f.path))
     }
 
     /// Fold every file if any is unfolded, else unfold them all. The cursor goes to its file's header.

@@ -190,8 +190,12 @@ impl App {
         heads.saturating_sub(1)
     }
     pub(super) fn thread_rows(&self, ti: usize, file: usize) -> Vec<Row> {
+        self.thread_rows_as(ti, file, self.thread_open(ti))
+    }
+
+    /// A thread's rows, `open` or folded to its heading.
+    pub(super) fn thread_rows_as(&self, ti: usize, file: usize, open: bool) -> Vec<Row> {
         let t = &self.threads[ti];
-        let open = self.thread_open(ti);
         let range = match (t.start_line, t.line.or(t.original_line)) {
             (Some(s), Some(e)) if s != e => format!(" · L{s}-{e}"),
             (_, Some(e)) if t.outdated => format!(" · was L{e}"),

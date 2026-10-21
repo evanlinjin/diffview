@@ -3456,3 +3456,22 @@ fn the_claude_view_without_comments_says_so() {
     app.build();
     assert!(!app.rows.iter().any(|r| r.line.text.starts_with("(no comments from Claude")));
 }
+
+#[test]
+fn a_folded_files_comments_stay_in_the_pane() {
+    let mut app = fixture();
+    _ = screen(220, 40, |f| app.draw(f)); // the pane shown
+    app.collapsed.insert("src/big.rs".into());
+    app.build();
+    let s = screen(220, 40, |f| app.draw(f));
+    // Folded: its comments by their headings, beside its header; not a count on the header.
+    assert!(s.contains("─ amy · L20 · 2 comments ─") && s.contains("─ ◆ claude · L12 · 1 comment ─"), "{s}");
+    assert!(!s.contains("src/big.rs  +1 −1  · "), "{s}");
+    // Tab on one unfolds the file, there.
+    let h = app.rows.iter().position(|r| r.line.text.contains("claude · L12")).unwrap();
+    app.goto(h, 0);
+    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert!(!app.collapsed.contains("src/big.rs"));
+    let t = app.rows[app.head.row].thread.unwrap();
+    assert!(app.threads[t].claude.is_some(), "on Claude's comment");
+}

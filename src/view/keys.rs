@@ -230,6 +230,7 @@ impl App {
             // On a comment hidden on GitHub: it shown (or hidden again).
             KeyCode::Tab if self.toggle_hidden() => return,
             KeyCode::Tab if self.toggle_talk() => return,
+            KeyCode::Tab if self.on_folded_file_comment() => return self.toggle_collapse(),
             KeyCode::Tab if self.rows[self.head.row].thread.is_some() => return self.toggle_thread(),
             KeyCode::Tab => return self.toggle_collapse(),
             KeyCode::BackTab => return self.toggle_collapse_all(),
