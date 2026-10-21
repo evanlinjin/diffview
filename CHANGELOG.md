@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.83.0] - 2026-10-21
+
+### Added
+- `Space g` → "Rerun every check": reruns all the PR head's finished workflow runs, not only
+  the failed ones.
+
 ## [0.82.0] - 2026-10-21
 
 ### Added
