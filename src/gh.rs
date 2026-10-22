@@ -1192,13 +1192,24 @@ pub(crate) fn epoch_secs(iso: &str) -> Option<i64> {
     let n = |r: std::ops::Range<usize>| iso.get(r)?.parse::<i64>().ok();
     let (y, m, d) = (n(0..4)?, n(5..7)?, n(8..10)?);
     let (h, mi, s) = (n(11..13).unwrap_or(0), n(14..16).unwrap_or(0), n(17..19).unwrap_or(0));
+    // A zone (`+08:00`, git's `%cI`) to UTC; GitHub's are `Z`.
+    let zone = iso.get(19..).map(|z| z.trim_start_matches(|c: char| c == '.' || c.is_ascii_digit())).filter(|z| z.len() == 6);
+    let off = zone.and_then(|z| Some(if z.starts_with('-') { -1 } else { 1 } * (z.get(1..3)?.parse::<i64>().ok()? * 3600 + z.get(4..6)?.parse::<i64>().ok()? * 60))).unwrap_or(0);
     // Days from civil date (Howard Hinnant's algorithm).
     let y = if m <= 2 { y - 1 } else { y };
     let era = y.div_euclid(400);
     let yoe = y - era * 400;
     let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + d - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    Some((era * 146097 + doe - 719468) * 86400 + h * 3600 + mi * 60 + s)
+    Some((era * 146097 + doe - 719468) * 86400 + h * 3600 + mi * 60 + s - off)
+}
+
+#[test]
+fn epoch_secs_in_any_zone() {
+    let utc = epoch_secs("2026-10-22T02:00:00Z");
+    assert_eq!(epoch_secs("2026-10-22T10:00:00+08:00"), utc);
+    assert_eq!(epoch_secs("2026-10-21T21:00:00-05:00"), utc);
+    assert_eq!(epoch_secs("2026-10-22T02:00:00"), utc);
 }
 
 #[cfg(test)]
