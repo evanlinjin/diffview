@@ -4603,3 +4603,38 @@ fn a_rebuild_ends_jump_labels() {
     app.rebuild(keep);
     assert!(app.labels.is_empty(), "labels kept over rows that moved");
 }
+
+#[test]
+fn nothing_changes_the_rows_under_half_typed_jump_labels() {
+    let mut app = margin_app();
+    for t in &mut app.threads {
+        for c in &mut t.comments {
+            c.node_id = format!("n{}", c.id);
+        }
+    }
+    app.build();
+    app.seen.path = Some(std::env::temp_dir().join(format!("dv-seen-labels-{}.json", std::process::id())));
+    let r = app.rows.iter().position(|r| r.line.text.contains("first")).unwrap();
+    app.goto(r, 0);
+    let _ = screen(120, 30, |f| app.draw(f));
+    app.watch();
+    press(&mut app, "gw");
+    app.seen.since = app.seen.since.map(|t| t - std::time::Duration::from_secs(5));
+    app.watch(); // the comment seen by now: not till the labels are done
+    assert!(!app.labels.is_empty(), "labels ended by a background rebuild");
+    let _ = std::fs::remove_file(app.seen.path.as_ref().unwrap());
+}
+
+#[test]
+fn a_file_unfolded_from_the_list_keeps_the_anchor() {
+    let s = "diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1,4 +1,4 @@\n one\n two\n three\n-four\n+four!\ndiff --git a/b.rs b/b.rs\nindex 1..2 100644\n--- a/b.rs\n+++ b/b.rs\n@@ -1,2 +1,2 @@\n alpha\n-beta\n+gamma\n";
+    let mut app = App::with("base".into(), diff::parse(s));
+    app.collapsed.insert("a.rs".into());
+    app.build();
+    let at = |app: &App, t: &str| app.rows.iter().position(|r| r.line.text == t).unwrap();
+    app.goto(at(&app, "alpha"), 0);
+    app.select = true;
+    app.goto(at(&app, "gamma"), 0);
+    app.goto_spot(super::files::Spot::File(0)); // a click on a.rs in the files' list
+    assert_eq!(app.rows[app.anchor.row].line.text, "alpha", "anchor now on another line");
+}

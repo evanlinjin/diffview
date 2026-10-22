@@ -562,7 +562,7 @@ impl App {
     }
 
     /// To a line of the list: a file, or a section's header (at the top).
-    fn goto_spot(&mut self, s: Spot) {
+    pub(super) fn goto_spot(&mut self, s: Spot) {
         match s {
             Spot::File(i) => self.goto_file(i),
             Spot::Section(id) => {
@@ -579,7 +579,8 @@ impl App {
     fn goto_file(&mut self, i: usize) {
         let path = self.files[i].path.clone();
         if self.collapsed.remove(&path) {
-            self.build();
+            let keep = self.cursor_key();
+            self.rebuild(keep);
         }
         if let Some(r) = self.rows.iter().position(|r| r.file == i && r.line.kind == Kind::File) {
             self.goto(r, 0);
