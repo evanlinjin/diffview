@@ -1,10 +1,10 @@
  PRs   todo 0   open 3   close 0   stalled 0   worktrees 0   drafts 0     I I the issues      2 / 3
-     #1  Fix CI                                                                             2026-03
+      #1  Fix CI                                                                            2026-03
           @ann   +1 −0 in 1 file
           claude reviewed
           b
 
-▌   #22  Add docs   DRAFT   [new]                                                           2026-01
+▌    #22  Add docs   DRAFT   [new]                                                          2026-01
 ▌         @bo   +22 −0 in 1 file    docs
 ╭ dv list keys ─────────────────────────────────────────────────────────────────── any key closes ╮
 │  MOVE                                                                                           │

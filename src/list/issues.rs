@@ -228,7 +228,7 @@ pub(crate) fn save_triage(n: u64, updated: &str, fixes: &[(u64, String, String)]
 fn triage_run(n: u64, updated: &str, fixes: &[(u64, String, String)], root: &std::path::Path, extra: &str) -> Result<batch::Status> {
     let mut claim = match crate::claude::claim(&crate::claude::pr_key(n), "triaging", None) {
         Ok(c) => c,
-        Err(w) => return Ok(batch::Status::Busy(w)),
+        Err(w) => return Ok(batch::Status::Busy(format!("Claude is {w} on it"))),
     };
     let mut cmd = triage_command(n, fixes, root, extra);
     let child = cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().context("is Claude Code (`claude`) installed?")?;
@@ -665,7 +665,7 @@ impl Issues {
                     batch::Status::Failed(e, _) => (self.msg, self.claude_rx) = (format!("#{n}: no closing comment: {}", e.lines().next().unwrap_or("")), None),
                     // Claude at it elsewhere: drafted on a later look.
                     batch::Status::Busy(w) => {
-                        (self.claude_rx, self.msg) = (None, format!("#{n}: no closing comment drafted now: Claude is {w} on it (on a later look)"));
+                        (self.claude_rx, self.msg) = (None, format!("#{n}: no closing comment drafted now: {w} (on a later look)"));
                         self.auto_done.retain(|d| d.0 != n || !d.1.starts_with("closing@"));
                     }
                     _ => {}
@@ -677,7 +677,7 @@ impl Issues {
                         // Claude at it elsewhere: not triaged now, and not done for auto either
                         // (asked again on a later look).
                         batch::Status::Busy(w) => {
-                            self.msg = format!("#{n}: not triaged now: Claude is {w} on it");
+                            self.msg = format!("#{n}: not triaged now: {w}");
                             self.running.remove(&n);
                             self.auto_done.retain(|d| d.0 != n || d.1.starts_with("closing@"));
                             continue;
@@ -1023,7 +1023,7 @@ impl Issues {
                 let close = self.close_why(i.number).unwrap_or_default();
                 let mut l = issue_card(i, ui, k == sel, self.marked.contains(&i.number), num_w, card_w, self.triage.get(&i.number), self.running.get(&i.number), rank, &close, self.draft_fix.get(&i.number));
                 if let Some(it) = item {
-                    let cx = Cards { ui, num_w: num_w.max(3), width: card_w, checks_loading: false, usual: "" };
+                    let cx = Cards { ui, num_w: num_w.max(3) - 1, width: card_w, checks_loading: false, usual: "" };
                     match column {
                         Some(w) => l = with_message(l, &todo_says(it).1, &cx, w, width, k == sel),
                         None => l.insert(1, todo_line(k + 1, it, &cx, k == sel)),

@@ -132,7 +132,7 @@ pub(super) fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathB
     let lead = vec![
         // A column of its own for the mark (`m`): marked cards line up down the list.
         sp(if mark.marked { " ● ".into() } else { "   ".into() }, tint(ui.key).add_modifier(ratatui::style::Modifier::BOLD)),
-        sp(format!("{:>w$}  ", crate::replace::shown(p.number), w = num_w - 1), tint(ui.key)),
+        sp(format!("{:>w$}  ", crate::replace::shown(p.number), w = num_w), tint(ui.key)),
     ];
     let lead_w: usize = lead.iter().map(Span::width).sum();
     // The title is what's cut for its badges and tags, never the mark or number (the tags cut,
@@ -159,7 +159,7 @@ pub(super) fn card(p: &Listed, cx: &Cards, selected: bool, local: Option<&(PathB
     let who = mark.replaces.clone().unwrap_or_else(|| format!("@{}", p.author));
     // (Its place in the order, when it's said here: under the number.)
     let first = match mark.rank {
-        Some(r) => sp(format!("{}{:>w$}  ", " ".repeat(MARK_W), format!("{r}."), w = num_w - 1), tint(ui.key)),
+        Some(r) => sp(format!("{}{:>w$}  ", " ".repeat(MARK_W), format!("{r}."), w = num_w), tint(ui.key)),
         None => indent(),
     };
     let mut people = vec![first, sp(who, dim), gap()];
@@ -305,7 +305,7 @@ pub(super) fn close_line(why: &str, cx: &Cards, selected: bool) -> Line<'static>
 pub(super) fn note_line(mark: &str, why: &str, cx: &Cards, selected: bool) -> Line<'static> {
     let row = card_row(cx.ui, selected);
     let bar = Span::styled(if selected { "▌" } else { " " }, row.patch(Style { bg: None, ..cx.ui.key }));
-    let lead = format!("{}{:w$}  {mark} ", " ".repeat(MARK_W), "", w = cx.num_w - 1);
+    let lead = format!("{}{:w$}  {mark} ", " ".repeat(MARK_W), "", w = cx.num_w);
     let text: String = why.lines().next().unwrap_or("").chars().take(cx.width.saturating_sub(lead.chars().count() + 2)).collect();
     Line::from(vec![bar, Span::styled(lead, row), Span::styled(text, row.patch(Style { bg: None, ..cx.ui.warning }))])
 }
@@ -363,7 +363,7 @@ pub(super) fn todo_line(rank: usize, it: &crate::todo::Item, cx: &Cards, selecte
     let st = row.patch(Style { bg: None, ..ui.key });
     let bar = Span::styled(if selected { "▌" } else { " " }, st);
     // Its place in the number's column, the arrow under the title.
-    let lead = format!("{}{:>w$}  → ", " ".repeat(MARK_W), format!("{rank}."), w = cx.num_w - 1);
+    let lead = format!("{}{:>w$}  → ", " ".repeat(MARK_W), format!("{rank}."), w = cx.num_w);
     let (tags, says) = todo_says(it);
     let says = says.replace('\n', " — ");
     let says = match tags.is_empty() {

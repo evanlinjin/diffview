@@ -1,6 +1,6 @@
  PRs   todo 3   open 3   close 1   stalled 0   worktrees 0   drafts 0     I I the issues      1 / 1
 ▌   #2  Docs                              ╭ keys ──────────────────────────────────────────────────╮
-▌      ✕ #1 does this better              │ Enter  review (Space a there drafts a closing comment) │
+▌       ✕ #1 does this better             │ Enter  review (Space a there drafts a closing comment) │
 ▌       @bo   +0 −0 in 1 file             │ h l    stalled PRs                                     │
 ▌                                         │ /      filter                                          │
 ▌       b                                 │ o O    sort / reverse                                  │
