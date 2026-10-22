@@ -178,13 +178,54 @@ fn copy_dir(from: &std::path::Path, to: &std::path::Path) -> Result<()> {
 /// Where the review for PR `pr` (or, without one, the current branch) lives.
 pub fn path(pr: Option<u64>) -> Result<PathBuf> {
     let name = match pr {
-        Some(n) => format!("pr-{n}"),
+        Some(n) => return Subject::Pr(n).path(),
         None => match diff::git(&["branch", "--show-current"])?.trim() {
             "" => "detached".into(),
             b => format!("branch-{}", b.replace('/', "-")),
         },
     };
     Ok(dv_dir()?.join("reviews").join(format!("{name}.json")))
+}
+
+/// What a review file is of, on GitHub: a PR, or an issue (Claude's triage of it, and the
+/// talk about it).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Subject {
+    Pr(u64),
+    Issue(u64),
+}
+
+impl Subject {
+    pub fn n(self) -> u64 {
+        match self {
+            Subject::Pr(n) | Subject::Issue(n) => n,
+        }
+    }
+
+    /// "PR #7", "issue #7".
+    pub fn what(self) -> String {
+        match self {
+            Subject::Pr(n) => format!("PR #{n}"),
+            Subject::Issue(n) => format!("issue #{n}"),
+        }
+    }
+
+    /// Its review file.
+    pub fn path(self) -> Result<PathBuf> {
+        let name = match self {
+            Subject::Pr(n) => format!("pr-{n}"),
+            Subject::Issue(n) => format!("issue-{n}"),
+        };
+        Ok(dv_dir()?.join("reviews").join(format!("{name}.json")))
+    }
+
+    /// In the environment of a Claude dv runs on it (`PR_ENV`, `ISSUE_ENV`).
+    pub fn env(self) -> (&'static str, String) {
+        match self {
+            Subject::Pr(n) => (PR_ENV, n.to_string()),
+            Subject::Issue(n) => (ISSUE_ENV, n.to_string()),
+        }
+    }
 }
 
 /// Claude's word that PR `n`'s failing CI isn't the PR's doing (a flaky test, CI itself, the

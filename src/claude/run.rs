@@ -11,8 +11,9 @@ pub(crate) const ALLOWED: &[&str] = &[
     "Bash(git show:*)",
     "Bash(git log:*)",
     "Bash(git rev-parse:*)",
-    // The PR's description and conversation, to propose a new description from.
+    // The PR's (or the issue's) description and conversation, to propose a new description from.
     "Bash(gh pr view:*)",
+    "Bash(gh issue view:*)",
     // Why CI fails, to fix it.
     "Bash(gh pr checks:*)",
     "Bash(gh run view:*)",
@@ -262,6 +263,8 @@ pub(crate) fn path_for_claude() -> std::ffi::OsString {
 /// The PR a Claude dv runs is on, in its environment: `dv review-*` read what dv has of it
 /// lately, not GitHub again for each check.
 pub(crate) const PR_ENV: &str = "DV_PR";
+/// The issue one is on (no PR, no code: `dv review-info` says its file).
+pub(crate) const ISSUE_ENV: &str = "DV_ISSUE";
 
 /// `XDG_DATA_HOME=…` as dv has it (set, or its default): where its review files are, whatever
 /// the pane's environment says.

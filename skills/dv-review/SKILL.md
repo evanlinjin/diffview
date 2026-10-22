@@ -21,6 +21,10 @@ current checkout). It prints:
 - `exists:` whether there's already a review (if so, read it first);
 - `notes:` your notes on this repo (see below). Read them before you start, if they exist.
 
+On an issue dv has open, it prints `issue:` instead of `base:`/`head:`: the file is the issue's
+(your triage of it, and your talk about it), and there's no code of its own, so the comments
+in it are on no lines (`"conversation"`; see section 3).
+
 ## 2. Write a review
 
 Read the diff (`git diff <base>`, plus the surrounding code where you need it), then write
@@ -289,7 +293,9 @@ When asked to propose a new description for the PR: write the whole new text (Gi
 into the review file's top-level `"description"` field, keeping everything else in the file as
 it is. Start from the proposal already there if there is one (the user is asking for more
 changes to it), else from the PR's current description (`gh pr view <n> --json body`). Do what
-the user asks, and keep what they didn't ask to change. Don't edit the PR on GitHub: dv shows
+the user asks, and keep what they didn't ask to change. For an issue, it's the issue's text
+(`gh issue view <n> --json title,body`); a new title, when asked for one, goes in `"title"`.
+Don't edit the PR on GitHub: dv shows
 your proposal against the current text, and the user approves it there (dv posts it then), or
 asks for more.
 
@@ -301,8 +307,9 @@ already there if there is one (the user is asking for changes to it). Read what 
 the PR, its conversation (`gh pr view <n> --comments`), your review, and what the user says about
 why. Say plainly why it's being closed, crediting what was good in it; point to what replaces it
 (an issue, another PR) if there is something; if the author could take it further, say how. Keep
-it short and kind: it's someone's work. Don't close the PR or comment on GitHub: the user edits
-your draft and closes the PR with it in dv.
+it short and kind: it's someone's work. For an issue, also `"close"` (why, a few words) and
+`"reason"`, as in "Triage an issue" below. Don't close it or comment on GitHub: the user edits
+your draft and closes it with it in dv.
 
 ## 6. Draft a replacement or a new PR
 
@@ -369,8 +376,8 @@ its order, the others, the other fields of each.
 
 ## Triage an issue
 
-Asked to triage issue #N, reply with its triage, only a JSON object (dv keeps it as
-`issue-N.json` beside the reviews):
+Asked to triage issue #N, reply with its triage, only a JSON object (dv keeps it in the issue's
+file, `issue-N.json` beside the reviews, with your talk about it):
 
 ```json
 {"issue": 2312, "kind": "bug", "priority": "high", "title": "",

@@ -518,6 +518,20 @@ fn review_file(cmd: &str, o: &Opts) -> anyhow::Result<()> {
         println!("{}", gh::rerun(&p.head_oid, false)?);
         return Ok(());
     }
+    // An issue dv ran Claude on (`claude::ISSUE_ENV`): its file, no code (its comments are on
+    // no lines: checked as they are).
+    if let Some(n) = std::env::var(claude::ISSUE_ENV).ok().and_then(|n| n.parse().ok()).filter(|_| o.pr.is_none() && cmd != "review-comments") {
+        let path = claude::Subject::Issue(n).path()?;
+        if cmd == "review-info" {
+            println!("file: {}    (the issue's: your triage of it, and your talk with the user about it)", path.display());
+            println!("issue: #{n}    (`gh issue view {n} --comments`; it has no code of its own: no base, no head, no diff)");
+            println!("exists: {}", path.exists());
+            let notes = claude::notes_path()?;
+            println!("notes: {}    (your notes on this repo, kept across reviews; exists: {})", notes.display(), notes.exists());
+            return Ok(());
+        }
+        return check_review(&path, &[]);
+    }
     // The PR dv ran Claude on (`claude::PR_ENV`), while this checkout is still on it, or the one
     // named: as dv last fetched it and its threads, if lately (not GitHub again for each of a
     // review's many checks), else from GitHub.
@@ -550,8 +564,12 @@ fn review_file(cmd: &str, o: &Opts) -> anyhow::Result<()> {
         }
         return Ok(());
     }
-    let files = diff::load(&base, None, 3)?;
-    let r = claude::check(&path, &files)?;
+    check_review(&path, &diff::load(&base, None, 3)?)
+}
+
+/// `dv review-check`: the review at `path` placed on `files` (none: an issue's), said.
+fn check_review(path: &std::path::Path, files: &[diff::FileDiff]) -> anyhow::Result<()> {
+    let r = claude::check(path, files)?;
     for (kind, msgs) in [("fixed", &r.notes), ("warning", &r.warnings), ("error", &r.errors)] {
         msgs.iter().for_each(|m| println!("{kind}: {m}"));
     }
