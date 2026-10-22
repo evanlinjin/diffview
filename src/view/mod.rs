@@ -935,10 +935,16 @@ impl App {
         }
     }
 
-    /// What changed elsewhere (the tree, Claude, GitHub, …) shown. Not while a key sequence
-    /// is half typed (a prefix, jump labels): the rows stay as it began on till it's done.
+    /// Something half done whose places are rows (a prefix, jump labels, a picker's items, a
+    /// prompt): what changed elsewhere waits till it's done.
+    pub(super) fn mid_sequence(&self) -> bool {
+        self.pending.is_some() || !self.labels.is_empty() || self.picker.is_some() || self.prompt.is_some()
+    }
+
+    /// What changed elsewhere (the tree, Claude, GitHub, …) shown; not mid-sequence (the rows
+    /// stay as it began on till it's done).
     pub(super) fn watch(&mut self) {
-        if self.pending.is_some() || !self.labels.is_empty() {
+        if self.mid_sequence() {
             return;
         }
         self.watch_seen();

@@ -424,6 +424,7 @@ impl App {
         // (once nothing else is to be done first).
         let (mut given, mut kept) = (None, None); // (set below, once the pane's done)
         if self.action.is_none()
+            && !self.mid_sequence()
             && let Some(text) = self.writing.as_mut().and_then(|w| w.1.done())
         {
             let (a, w) = self.writing.take().unwrap();

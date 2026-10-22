@@ -186,10 +186,9 @@ impl App {
         self.github_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
 
-    /// Shows what the background look at GitHub fetched, once nothing is in the middle of
-    /// something (a picker's rows would move under it).
+    /// Shows what the background look at GitHub fetched, once nothing's to be done first.
     pub(super) fn watch_github(&mut self) {
-        let busy = self.action.is_some() || self.job.is_some() || self.picker.is_some() || self.prompt.is_some();
+        let busy = self.action.is_some() || self.job.is_some();
         if busy {
             return;
         }
