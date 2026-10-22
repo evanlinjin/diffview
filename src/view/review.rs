@@ -701,7 +701,7 @@ impl App {
         // (A removed line's the old side; so is any on a split view's left half.)
         let side = |r: usize| {
             let l = &self.rows[r].line;
-            if l.kind == Kind::Del || (self.split && !self.row_right(r)) { (l.old, true) } else { (l.new, false) }
+            if l.kind == Kind::Del || (self.split && !self.head_right()) { (l.old, true) } else { (l.new, false) }
         };
         let ((Some(line), left), (Some(sl), sleft)) = (side(b), side(a)) else { bail!("no line number") };
         Ok(Anchor {

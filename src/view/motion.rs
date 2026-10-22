@@ -208,6 +208,8 @@ impl App {
     }
 
     pub(super) fn word(&mut self, m: char) {
+        // (Along the head's half in split view: it's yours, as the rows it goes on are.)
+        self.right = self.head_right();
         let big = m.is_ascii_uppercase();
         let class = |c: char| class(c, big);
         let Pos { row, col: i } = self.head;
@@ -345,6 +347,7 @@ impl App {
     }
 
     pub(super) fn line_select(&mut self) {
+        self.right = self.head_right(); // (as `word`)
         let (s, e) = self.ordered();
         let end = self.len(e.row).saturating_sub(1);
         // Whole lines already (x's, or by its shape): the next one too.
