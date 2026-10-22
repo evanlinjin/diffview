@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.92.16] - 2026-10-22
+
+### Fixed
+- A file header whose path fills the row keeps its "✓ Viewed" (the path is cut instead).
+- Shift-wheel over the pane's tabs no longer moves the cursor onto the PR title, and on a title
+  or code block that fits, it no longer scrolls it into blank space.
+
 ## [0.92.15] - 2026-10-22
 
 ### Fixed
