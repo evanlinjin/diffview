@@ -205,7 +205,7 @@ impl List {
             KeyCode::Char('a') => {
                 let mut prs: Vec<u64> = match self.marked.is_empty() {
                     true => self.selected_pr().into_iter().collect(),
-                    false => self.marked.iter().copied().filter(|&n| self.acts_on(n)).collect(),
+                    false => self.marked_open(),
                 };
                 prs.retain(|n| !self.batch.get(n).is_some_and(batch::Status::running));
                 prs.sort();
@@ -221,9 +221,15 @@ impl List {
                 }
             }
             KeyCode::Char('A') => {
+                if self.group_rx.is_some() {
+                    return (self.msg = "Claude is still grouping the marked PRs: once it's done".into(), None).1;
+                }
                 let mut prs: Vec<u64> = match self.marked.is_empty() {
-                    true => self.selected().map(|s| vec![s.0]).unwrap_or_default(), // (on a draft: its PR's, drafted again)
-                    false => self.marked.iter().copied().filter(|&n| self.acts_on(n)).collect(),
+                    true => match self.selected() {
+                        Some((id, true)) => vec![id], // a draft: drafted again
+                        _ => self.selected_pr().into_iter().collect(),
+                    },
+                    false => self.marked_open(),
                 };
                 prs.sort();
                 // (What's busy or published is said per draft, once grouped: `draft_groups`,

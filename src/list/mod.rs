@@ -175,7 +175,7 @@ impl List {
     /// drafted, a ranking asked (each lost, or left half done, if dv quits).
     pub fn busy(&self) -> bool {
         // (A view's run left at work counts too: `claude::claims_held`.)
-        self.batch.values().any(batch::Status::running) || self.drafting.values().any(batch::Status::running) || self.todos.rank_rx.is_some() || crate::claude::claims_held() > 0
+        self.batch.values().any(batch::Status::running) || self.drafting.values().any(batch::Status::running) || self.todos.rank_rx.is_some() || self.group_rx.is_some() || crate::claude::claims_held() > 0
     }
 
     pub fn new(flags: String) -> List {
@@ -315,8 +315,9 @@ impl List {
                     // From the todo tab, what's due on each (answers, an update, a review).
                     let prs: Vec<(u64, batch::Task)> = prs.into_iter().map(|n| (n, if self.nav.tab == Tab::Todo { self.todo_task(n) } else { batch::Task::Review })).collect();
                     let with = if extra.is_empty() { "" } else { ", with your instructions" };
+                    let done: Vec<u64> = prs.iter().map(|p| p.0).collect();
                     self.msg = format!("Claude is {}{with}, {} at a time", self.start_batch(prs, extra), batch::AT_ONCE);
-                    self.marked.clear();
+                    self.marked.retain(|n| !done.contains(n)); // (what wasn't acted on stays marked)
                 }
                 // One draft's (one PR, or PRs one draft replaces): it. Several: Claude suggests
                 // how to group them first.
@@ -508,7 +509,7 @@ impl List {
         if !not.is_empty() {
             self.msg += &format!(" (not: {})", not.join("; "));
         }
-        self.marked.clear();
+        self.marked.retain(|n| !groups.iter().any(|g| g.contains(n)));
         for g in groups {
             // (A first draft with nothing given takes your saved instructions: `replace::draft`.)
             let extra = if crate::replace::redrafts(g[0]) { extra.clone() } else { String::new() };
@@ -706,6 +707,16 @@ impl List {
             return (self.msg = format!("#{p} isn't open (or not looked up yet)"), None).1;
         }
         Some(p)
+    }
+
+    /// The marked PRs that are acted on (`acts_on`); those that aren't, said, and kept marked.
+    pub(super) fn marked_open(&mut self) -> Vec<u64> {
+        let (open, not): (Vec<u64>, Vec<u64>) = self.marked.iter().copied().partition(|&n| self.acts_on(n));
+        if !not.is_empty() {
+            let not: Vec<String> = not.iter().map(|n| format!("#{n}")).collect();
+            self.msg = format!("{} not open (or not looked up yet): kept marked", not.join(", "));
+        }
+        open
     }
 
     /// Whether what's done to a PR (`a a`, `b b`, `M M`, marks…) is for PR `n`: listed, and
@@ -930,10 +941,11 @@ pub(super) fn filter_term(t: &str, keyed: impl Fn(&str, &str, &dyn Fn(&str, &str
     // (Smart case by the value: a key's own case doesn't count.)
     let has = |field: &str, v: &str| if v.chars().any(char::is_uppercase) { field.contains(v) } else { field.to_lowercase().contains(v) };
     // (A key in any case: `Label:bug`.)
-    // (`#12` is that number, a word of its own, not #120's start.)
-    let number = t.strip_prefix('#').is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()));
+    // (`#12` or `12` is that number, not #120's start, as Enter opens it.)
+    let digits = t.trim_start_matches('#');
+    let number = !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit());
     let hit = match number {
-        true => hay().split_whitespace().any(|w| w == t),
+        true => hay().split_whitespace().any(|w| w.strip_prefix('#') == Some(digits)),
         false => t.split_once(':').and_then(|(k, v)| keyed(&k.to_lowercase(), v, &has)).unwrap_or_else(|| has(&hay(), t)),
     };
     hit != neg
