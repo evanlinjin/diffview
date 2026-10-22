@@ -580,7 +580,7 @@ fn review_file(cmd: &str, o: &Opts) -> anyhow::Result<()> {
         None => (gh::pr(o.pr).ok(), None),
     };
     if cmd == "review-comments" {
-        return review_comments(pr.as_ref(), threads);
+        return review_comments(pr.as_ref(), threads, o.pr.is_none());
     }
     let path = claude::path(pr.as_ref().map(|p| p.number))?;
     let base = diff_base(o, pr.as_ref())?;
@@ -624,12 +624,13 @@ fn check_review(path: &std::path::Path, files: &[diff::FileDiff]) -> anyhow::Res
 
 /// `dv review-comments`: the PR's review threads on GitHub as JSON, for Claude to read (and
 /// answer, with `"about": <id>` on a comment of its own). Read only.
-fn review_comments(pr: Option<&gh::Pr>, threads: Option<serde_json::Value>) -> anyhow::Result<()> {
+fn review_comments(pr: Option<&gh::Pr>, threads: Option<serde_json::Value>, here: bool) -> anyhow::Result<()> {
     let p = pr.context("no PR here (dv review-comments -p N for PR N)")?;
     let review = gh::parse_threads(&threads.map_or_else(|| gh::threads_json(p.number), Ok)?);
-    // Its lines as in this checkout (the PR's, its head in it: local edits, unpushed commits
-    // move them), as `dv review-check` places Claude's answers; another PR's, as GitHub has them.
-    let here = diff::git(&["merge-base", "--is-ancestor", &p.head_oid, "HEAD"]).is_ok();
+    // Its lines as in this checkout (`here`: the PR's own, not one named with -p; local edits,
+    // unpushed or diverged commits move them), as the view shows them and `dv review-check`
+    // places Claude's answers; a named one's, as GitHub has them. (Its head not fetched: as
+    // GitHub has them too.)
     let moves = here.then(|| diff::tracked_diff(&p.head_oid, None, 0, &[]).ok()).flatten().map(|f| diff::hunks_by_file(&f)).unwrap_or_default();
     let threads: Vec<serde_json::Value> = review
         .threads
