@@ -233,7 +233,7 @@ fn run() -> anyhow::Result<()> {
             let known = gh::pr(Some(n)).ok();
             // (A run's checkout is a worktree dv made, never one of yours on its branch, the main one,
         // say: where you work, and where dv list doesn't look for what's left to push.)
-        if let Some((other, _)) = known.as_ref().filter(|_| o.branch).and_then(worktree_on_branch) {
+        if let Some(other) = known.as_ref().filter(|_| o.branch).and_then(worktree_on_branch) {
             let (main, _) = worktree_dir(n)?;
             anyhow::ensure!(dv_worktree(&main, &other), "#{n}'s branch is checked out in {}: Claude works in a worktree of its own (switch that checkout off it, or ask Claude there yourself)", other.display());
         }
@@ -859,17 +859,13 @@ fn at_head(p: &gh::Pr, detach: bool) -> bool {
 /// `gh pr checkout` sets it up, so pushing updates the PR). Refuses a dir that isn't a worktree
 /// of this repo; git refuses to update one with local changes.
 fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> anyhow::Result<(PathBuf, Option<String>)> {
-    let (_, dir) = worktree_dir(n)?;
+    let (_, own) = worktree_dir(n)?;
     // On its branch (-b), when that branch is checked out in another worktree already (a
-    // replacement's own, say): there, as it is (git won't check one branch out twice).
-    if let Some(p) = known.filter(|_| branch)
-        && let Some((other, one_line)) = worktree_on_branch(p).filter(|d| d.0 != dir)
-    {
-        std::env::set_current_dir(&other)?;
-        let apart = if one_line { "" } else { " (not at the PR's head: Space g says how)" };
-        let note = format!("#{n}'s branch {} is checked out in {}: opened there{apart}", p.head_branch, other.display());
-        return Ok((other, Some(note)));
-    }
+    // replacement's own, say): there (git won't check one branch out twice), brought up to the
+    // PR as its own would be.
+    let other = known.filter(|_| branch).and_then(worktree_on_branch).filter(|d| *d != own);
+    let there = other.as_ref().zip(known).map(|(o, p)| format!("#{n}'s branch {} is checked out in {}: opened there", p.head_branch, o.display()));
+    let dir = other.unwrap_or(own);
     let existed = dir.exists();
     if existed {
         ensure_ours(&dir)?;
@@ -889,7 +885,7 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
     }
     if known.is_some_and(|p| at_head(p, !branch)) {
         record_checkout(n);
-        return Ok((dir, None));
+        return Ok((dir, there));
     }
     // Work done here since (yours, Claude's) stays: not updated to the PR over it.
     if existed && let Some(note) = local_work(n, Path::new(".")) {
@@ -906,7 +902,7 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
         };
         e.context(format!("checking out PR #{n} in {}{hint}", dir.display()))
     })?;
-    Ok((dir, note))
+    Ok((dir, note.or(there)))
 }
 
 /// The main checkout's root (found from inside a worktree too) and PR `n`'s worktree next to it.
@@ -1052,8 +1048,7 @@ fn checked_cargo(args: &[String]) -> anyhow::Result<i32> {
 /// The worktree of this repo that has PR `p`'s branch checked out, if one does and it's the
 /// PR's (not just a branch of the same name, a fork's `master`, say): it pushes to the PR's
 /// branch (behind it, diverged: a rebase there, an amend), or its history holds the PR's head.
-/// And whether it holds it.
-fn worktree_on_branch(p: &gh::Pr) -> Option<(PathBuf, bool)> {
+fn worktree_on_branch(p: &gh::Pr) -> Option<PathBuf> {
     let (branch, oid) = (p.head_branch.as_str(), p.head_oid.as_str());
     let list = diff::git(&["worktree", "list", "--porcelain"]).ok()?;
     let dir = checked_out_at(&list, branch)?;
@@ -1064,7 +1059,7 @@ fn worktree_on_branch(p: &gh::Pr) -> Option<(PathBuf, bool)> {
     // (Its history containing the PR's head: one behind it on that name is only a namesake, a
     // fork's `master` and yours.)
     let one_line = !oid.is_empty() && git(&["merge-base", "--is-ancestor", oid, "HEAD"]).is_some();
-    (pushes_there || one_line).then_some((dir, one_line))
+    (pushes_there || one_line).then_some(dir)
 }
 
 /// From `git worktree list --porcelain`: the worktree with `branch` checked out.
