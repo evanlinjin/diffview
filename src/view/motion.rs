@@ -41,22 +41,25 @@ impl App {
             self.files_focus = !right;
             return;
         }
+        let hd = self.hd();
+        let at_edge = self.at_edge(hd, right);
         // The code's left edge: on into the files' list.
-        if !right && self.files_w > 0 && self.list_has_spots() && !self.margin_side() && (!self.split || !self.head_right()) {
+        if !right && self.files_w > 0 && self.list_has_spots() && !self.margin_side() && at_edge {
             (self.files_focus, self.files_sel) = (true, self.current_spot());
             return self.msg = "contents: j / k move, Enter goes there, Ctrl-l back".into();
         }
-        let hd = self.hd();
-        // Into the pane from the code's right edge: the right half, or a line with nothing to
-        // its right (a removed line beside a hatch).
-        let at_edge = !self.split || self.head_right() || self.side_row(hd, true).is_none();
+        // The right edge: on into the pane.
         let into_margin = self.margin_active && right && at_edge && !self.margin_side();
-        // Out of it (however you got in), onto the right half: the code beside it.
+        // Out of it (however you got in), onto the code beside it; your side the one it lands
+        // on (a comment's line: the side it's about).
         let leaving = self.margin_side() && !right;
         // By what a comment is about, not where its box happens to sit (boxes stack down the
         // pane): from a comment to its line, and from a line to the comment about it.
-        if leaving && let Some(&line) = self.rows[self.head.row].thread.and_then(|t| self.margin_anchor.get(&t)) {
-            self.right = true;
+        if leaving
+            && let Some(t) = self.rows[self.head.row].thread
+            && let Some(&line) = self.margin_anchor.get(&t)
+        {
+            self.right = !self.threads[t].left;
             return self.goto(line, 0);
         }
         if into_margin
@@ -77,7 +80,7 @@ impl App {
             return match near {
                 Some(r) => {
                     if leaving {
-                        self.right = true;
+                        self.right = self.rows[r].line.kind != Kind::Del;
                     }
                     self.goto(r, 0)
                 }
@@ -123,6 +126,14 @@ impl App {
     pub(super) fn set_head(&mut self, p: Pos) {
         self.head = p;
         self.want_x = None;
+    }
+
+    /// Whether the cursor's at the code's edge toward `right` (the pane's side, else the files'
+    /// list's): not in split view, or on a full-width row (a header); on that half already; or
+    /// with nothing on it (a hatch) to go to.
+    fn at_edge(&self, d: usize, right: bool) -> bool {
+        let paired = matches!(self.drows.get(d), Some(&(DRow::Pair(l, r) | DRow::Margin(l, r, _))) if self.paired(l, r));
+        !self.split || !paired || self.head_right() == right || self.side_row(d, right).is_none()
     }
 
     /// Which half the cursor's drawn on in split view: a removed line's the left, an added

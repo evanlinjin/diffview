@@ -3800,3 +3800,25 @@ fn a_hatch_click_and_the_way_out_of_the_pane() {
     app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
     assert!(app.margin_side(), "into the pane: {}", app.msg);
 }
+
+#[test]
+fn the_codes_edges_are_one_rule() {
+    // Split: an added line with nothing to its left is at the left edge (Ctrl-h: the files'
+    // list); a header across the width is at both (Ctrl-l: straight into the pane).
+    let text = "diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1,3 +1,4 @@\n a\n-b1\n+c1\n+c2\n d\n";
+    let mut app = App::with("base".into(), diff::parse(text));
+    (app.files_pref, app.margin_pref, app.split) = (Some(true), Some(true), true);
+    app.threads = vec![gh::Thread { path: "a.rs".into(), line: Some(4), comments: vec![gh::Comment { author: "amy".into(), body: "hm".into(), ..Default::default() }], ..Default::default() }];
+    app.build();
+    _ = screen(220, 20, |f| app.draw(f));
+    let c2 = app.rows.iter().position(|r| r.line.text == "c2").unwrap();
+    app.goto(c2, 0);
+    app.key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL));
+    assert!(app.files_focus, "into the files' list: {}", app.msg);
+    app.files_focus = false;
+    let hunk = app.rows.iter().position(|r| r.line.kind == Kind::Hunk).unwrap();
+    app.goto(hunk, 0);
+    app.right = false;
+    app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
+    assert!(app.margin_side(), "into the pane at once: {}", app.msg);
+}
