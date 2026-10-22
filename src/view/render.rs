@@ -395,7 +395,7 @@ impl App {
                                         (self.pane_gw(), mw - pad)
                                     }
                                 };
-                                spans.extend(raise(clip(head_tint(r, self.render_row(r, s, e, (lw, gutter, ptw), None, tint && pane_cur, &overlay, 0)), w)));
+                                spans.extend(raise(clip(head_tint(r, self.render_row(r, s, e, (lw, gutter, ptw), None, d == hd && pane_cur && !self.files_focus, &overlay, 0)), w)));
                                 } else {
                                     spans.push(Span::raw(" ".repeat(mw)));
                                 }

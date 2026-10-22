@@ -277,7 +277,8 @@ impl App {
         // A code line keeps its last column for comment marks (`╎` over a comment's lines, a dot
         // at its last), at the edge beside the pane.
         let code_row = l.kind.is_code();
-        let mark = code_row.then(|| self.comment_mark(r, side)).flatten();
+        // (A wrapped line's: once, on its first part.)
+        let mark = (code_row && seg == 0).then(|| self.comment_mark(r, side)).flatten();
         let tw = if code_row { tw.saturating_sub(1) } else { tw };
         let mut spans = vec![Span::styled(gutter, gstyle)];
         // A reply under Claude's comment: its guide, then its text (narrower by it).

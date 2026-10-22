@@ -307,19 +307,20 @@ impl App {
                         let rows: Vec<usize> = l.into_iter().chain(r).collect();
                         push(DRow::Pair(l, r), &rows, &mut units);
                     }
-                    // Its comments go with the line before them.
+                    // Its comments go with the line before them (shown beside it), and are about
+                    // the code before them (as anywhere: `last_code`).
                     for j in i..=end {
                         if margin(j) {
                             let before = (i..j).rev().find(|&b| !margin(b));
                             let first = self.rows[j - 1].thread != self.rows[j].thread;
-                            if let (true, Some(t), Some(b)) = (first, self.rows[j].thread, before) {
-                                anchors.insert(t, b);
+                            if let (true, Some(t), Some(c)) = (first, self.rows[j].thread, last_code) {
+                                anchors.insert(t, c);
                             }
                             match before {
                                 Some(b) => units[unit_of[b]].1.push(j),
                                 None => units.last_mut().expect("a unit before").1.push(j),
                             }
-                        } else {
+                        } else if code(j) {
                             last_code = Some(j);
                         }
                     }
@@ -585,9 +586,11 @@ impl App {
     /// The file header pinned over the top of the screen (its own scrolled off above), if one is.
     pub(super) fn sticky(&self) -> Option<usize> {
         let d = self.top.min(self.drows.len().checked_sub(1)?);
+        // (A spacer: the comment beside it, of the same file.)
         let r = match self.drows[d] {
             DRow::Full(r) => r,
-            DRow::Pair(l, r) | DRow::Margin(l, r, _) => l.or(r)?,
+            DRow::Pair(l, r) => l.or(r)?,
+            DRow::Margin(l, r, c) => l.or(r).or(c)?,
         };
         let file = self.rows[r].file;
         (file < self.files.len()).then_some(())?;

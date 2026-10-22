@@ -3833,3 +3833,29 @@ fn a_comment_on_no_line_is_about_no_other_files_line() {
     _ = screen(220, 20, |f| app.draw(f));
     assert!(!app.margin_anchor.contains_key(&0), "about no line (not a.rs's last)");
 }
+
+#[test]
+fn split_anchors_and_a_folded_files_comment() {
+    // Split: a comment on a file gone from the diff is about no line (not the description
+    // proposal's, which reads as a diff too).
+    let mut app = fixture();
+    app.claude.description = "Fixes the thing better.".into();
+    app.split = true;
+    app.threads.push(gh::Thread { path: "gone.rs".into(), line: Some(1), comments: vec![gh::Comment { author: "amy".into(), body: "hm".into(), ..Default::default() }], ..Default::default() });
+    app.build();
+    _ = screen(220, 40, |f| app.draw(f));
+    let gone = app.threads.len() - 1;
+    assert!(app.margin_anchor.get(&gone).is_none_or(|&r| app.rows[r].file != INFO), "{:?}", app.margin_anchor.get(&gone));
+    // A folded file's comment: Ctrl-h goes to its own header, not the last file's code.
+    let text = "diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1,2 +1,2 @@\n a\n-b\n+c\ndiff --git a/z.rs b/z.rs\nindex 1..2 100644\n--- a/z.rs\n+++ b/z.rs\n@@ -1 +1 @@\n-y\n+z\n";
+    let mut app = App::with("base".into(), diff::parse(text));
+    (app.files_pref, app.margin_pref) = (Some(false), Some(true));
+    app.threads = vec![gh::Thread { path: "z.rs".into(), line: Some(1), comments: vec![gh::Comment { author: "amy".into(), body: "hm".into(), ..Default::default() }], ..Default::default() }];
+    app.collapsed.insert("z.rs".into());
+    app.build();
+    _ = screen(220, 20, |f| app.draw(f));
+    let c = app.rows.iter().position(|r| r.thread.is_some()).unwrap();
+    app.goto(c, 0);
+    app.key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL));
+    assert_eq!(app.rows[app.head.row].file, 1, "its own file's header: {:?}", app.rows[app.head.row].line.text);
+}

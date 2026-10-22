@@ -71,14 +71,18 @@ impl App {
         if into_margin || leaving {
             // (Into the pane: a comment; out of it: the code on that screen row, the side with
             // a part of it there, the right first.)
-            let at = |d: usize| match self.drows[d] {
-                DRow::Margin(_, _, c) if right => c.map(|c| Pos { row: c, col: 0 }),
-                DRow::Margin(..) => self.span(d, true).or_else(|| self.span(d, false)).map(|s| Pos { row: s.row, col: s.chars.start }),
-                _ => None,
+            // (Into the pane: a comment, here or below, else above; out of it: the code on that
+            // screen row, a header too, the side with a part of it there, the right first, here
+            // or above.)
+            let at = |d: usize| match right {
+                true => self.note_at(d).map(|c| Pos { row: c, col: 0 }),
+                false => self.span(d, true).or_else(|| self.span(d, false)).map(|s| Pos { row: s.row, col: s.chars.start }),
             };
-            let near = at(hd)
-                .or_else(|| (hd..self.drows.len()).find_map(|d| right.then(|| at(d)).flatten()))
-                .or_else(|| (0..hd).rev().find_map(at));
+            let n = self.drows.len();
+            let near = match right {
+                true => Self::nearest(hd, 1, 0..n).find_map(at),
+                false => Self::nearest(hd, -1, 0..hd + 1).find_map(at),
+            };
             return match near {
                 Some(p) => {
                     if leaving {
