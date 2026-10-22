@@ -151,11 +151,9 @@ pub struct List {
     pub msg: String,
 }
 
-/// What was picked: the PR, and for one from the worktrees tab, whether its worktree is on
-/// its branch (it opens there, as `dv N -w` / `-wb`).
+/// What was picked: the PR (one with a worktree opens there, as it was made: `review`).
 pub struct Pick {
     pub number: u64,
-    pub worktree: Option<bool>,
     /// It's a replacement (`number` is its own): it opens in its worktree.
     pub replacement: bool,
     /// Merge it (`M M`) instead.
@@ -293,16 +291,14 @@ impl List {
                 Some(Do::Quit) => return Ok(None),
                 Some(Do::Open(n)) => {
                     let replacement = self.selected().is_some_and(|(m, rep)| m == n && rep);
-                    // (One with a worktree, from any tab: there, as it was made; one with none, as any.)
-                    let worktree = self.local.get(&n).map(|w| w.1.is_some());
                     // Used once: after the review it may have moved on (a push), so it's looked up again.
                     let pr = self.pr_cache.lock().ok().and_then(|mut c| c.remove(&n)).filter(|(t, _)| t.elapsed().as_secs() < 120).map(|(_, p)| p);
-                    return Ok(Some(Pick { number: n, worktree, replacement, merge: false, issues: false, pr }));
+                    return Ok(Some(Pick { number: n, replacement, merge: false, issues: false, pr }));
                 }
                 Some(Do::Merge(n)) => {
-                    return Ok(Some(Pick { number: n, worktree: None, replacement: false, merge: true, issues: false, pr: None }));
+                    return Ok(Some(Pick { number: n, replacement: false, merge: true, issues: false, pr: None }));
                 }
-                Some(Do::Issues) => return Ok(Some(Pick { number: 0, worktree: None, replacement: false, merge: false, issues: true, pr: None })),
+                Some(Do::Issues) => return Ok(Some(Pick { number: 0, replacement: false, merge: false, issues: true, pr: None })),
                 Some(Do::Refresh) => {
                     self.refresh(term)?;
                 }

@@ -340,16 +340,7 @@ fn pick_and_review(o: &Opts, root: &Path) -> anyhow::Result<()> {
             }
             continue;
         }
-        // A PR from the worktrees tab opens in its worktree, as it was made (on its branch or not).
-        let wt;
-        let opts = match pick.worktree {
-            Some(branch) => {
-                wt = Opts { worktree: true, branch, force: false, base: o.base.clone(), ..Opts::default() };
-                &wt
-            }
-            None => o,
-        };
-        if let Some(m) = review_back(opts, n, pick.pr, root)? {
+        if let Some(m) = review_back(o, n, pick.pr, root)? {
             list.msg = m;
         }
     }
@@ -488,8 +479,9 @@ fn replacement_view(id: u64, root: &Path, term: &mut ratatui::DefaultTerminal) -
 /// `known`: PR `pr_num` as GitHub has it, if that's just been looked up (`dv list`).
 fn review(o: &Opts, pr_num: Option<u64>, known: Option<gh::Pr>) -> anyhow::Result<(Option<PathBuf>, anyhow::Result<Option<u64>>)> {
     // A PR with a worktree already (`<repo>-N`) opens there, as it was made: its branch can't
-    // be checked out here too, and that's where you were reviewing it.
-    let found = pr_num.filter(|_| !o.worktree).and_then(|n| pr_worktrees().into_iter().find(|w| w.0 == n));
+    // be checked out here too, and that's where you were reviewing it. (Not when you ask for
+    // one, `dv N -w`: made your way. A list's flags are for one it makes.)
+    let found = pr_num.filter(|_| !o.worktree || o.pr.is_none()).and_then(|n| pr_worktrees().into_iter().find(|w| w.0 == n));
     let adjusted;
     let o = match found {
         Some((_, dir, branch)) => {
