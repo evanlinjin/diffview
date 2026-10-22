@@ -113,14 +113,8 @@ pub fn start(prs: Vec<(u64, bool, Task)>, root: PathBuf, extra: String) -> Recei
 
 /// Claude does `task` on issue `n` (its closing comment, say), in the checkout at `root`: as
 /// on a PR, its review file the issue's.
-/// (Marked at it meanwhile, for the issue's view, and any dv, to see.)
 pub fn start_issue(n: u64, task: Task, root: PathBuf) -> Receiver<(u64, Status)> {
-    pool(vec![n], move |n, tx| {
-        crate::claude::mark_running(*n, task.doing(), Some(std::process::id()), None);
-        let st = run(Subject::Issue(*n), false, &task, &root, "", tx).unwrap_or_else(|e| Status::Failed(format!("{e:#}")));
-        crate::claude::clear_running(*n);
-        (*n, st)
-    })
+    pool(vec![n], move |n, tx| (*n, run(Subject::Issue(*n), false, &task, &root, "", tx).unwrap_or_else(|e| Status::Failed(format!("{e:#}")))))
 }
 
 /// Something to do (a PR to review, an issue to triage): its number first.
@@ -168,6 +162,9 @@ pub fn pool<T: Numbered + Send + 'static>(items: Vec<T>, work: impl Fn(&T, &Send
 fn run(s: Subject, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sender<(u64, Status)>) -> anyhow::Result<Status> {
     use anyhow::Context;
     let n = s.n();
+    // Its hold on it: one run on it at a time, from any dv (an issue's view, a PR's); let go as
+    // this ends, however.
+    let _claim = crate::claude::claim(n, task.doing()).map_err(|w| anyhow::anyhow!("Claude is {w} on {} already", s.what()))?;
     _ = tx.send((n, Status::Preparing));
     // The worktree, checked out at the PR (by a dv of its own: that changes directory); an
     // issue's, here (no code of its own).

@@ -51,6 +51,29 @@ pub(super) struct ClaudeJob {
     /// session id isn't the one to keep.
     pub(super) forked: bool,
     pub(super) started: std::time::Instant,
+    /// Its hold on the PR (or issue): one run on it at a time, from any dv; let go with it.
+    pub(super) _claim: Option<crate::claude::Claimed>,
+    /// A triage's: the issue (as of when, with the PRs linked as fixing it); its answer kept in
+    /// the issue's file when it ends (`kept`), however the view goes.
+    pub(super) triage: Option<IssueRec>,
+}
+
+impl ClaudeJob {
+    pub(super) fn new(child: std::process::Child, log: PathBuf, label: &'static str, forked: bool) -> ClaudeJob {
+        ClaudeJob { child, log, label, forked, started: std::time::Instant::now(), _claim: None, triage: None }
+    }
+
+    /// Ended: what it said (`claude -p`'s JSON), and, a triage's, its answer kept in the issue's
+    /// file (as dv issues' are).
+    pub(super) fn kept(&self) -> (Option<serde_json::Value>, Option<Result<String>>) {
+        let out: Option<serde_json::Value> = std::fs::read_to_string(&self.log).ok().and_then(|t| serde_json::from_str(&t).ok());
+        let ok = out.as_ref().is_some_and(|v| v["is_error"] == false);
+        let saved = match (&self.triage, &out) {
+            (Some(i), Some(v)) if ok => Some(crate::list::issues::save_triage(i.number, &i.updated, &i.fixes, v)),
+            _ => None,
+        };
+        (out, saved)
+    }
 }
 
 /// On a thread waiting for Claude: what you want of it (`[change]` …), when you said.
@@ -116,6 +139,20 @@ pub(super) struct ClaudeState {
 /// A triage run's label (`poll_claude` keeps its answer).
 pub(super) const TRIAGE_LABEL: &str = "triaging it";
 
+/// A view gone with a Claude run of its own still under way, not handed off (a nested issue's,
+/// its view dropped as a PR's link was followed): its end waited for elsewhere, a triage's
+/// answer kept, its hold let go, as `hand_off_claude` does.
+impl Drop for ClaudeState {
+    fn drop(&mut self) {
+        if let Some(mut j) = self.job.take() {
+            std::thread::spawn(move || {
+                _ = j.child.wait();
+                _ = j.kept();
+            });
+        }
+    }
+}
+
 /// How "make the changes" can land them: the key (`ClaudeState::land`), the picker's item.
 /// How changes on someone else's PR may land too: as suggestions for you to post (`Ask::Fix`).
 pub(super) const SUGGEST: &str = "suggest";
@@ -133,7 +170,7 @@ impl App {
     pub(super) fn edits(&self, ask: Ask) -> bool {
         match ask {
             _ if !self.has_code() => false,
-            Ask::Describe | Ask::Close | Ask::Triage => false,
+            Ask::Describe | Ask::Close => false,
             Ask::Answer => self.threads.iter().any(|t| t.waiting() && super::ask::edits_code(&t.want)),
             _ => true,
         }
@@ -342,15 +379,13 @@ impl App {
 
     /// The view closing with a Claude run of its own under way (dv list's, say, goes on): its
     /// end waited for elsewhere, its marks off then (else they'd stand, its process a zombie).
+    /// (A triage's answer kept, as `poll_claude` would; its hold let go with it.)
     pub(super) fn hand_off_claude(&mut self) {
         let Some(mut j) = self.claude.job.take() else { return };
-        let pr = self.pr.as_ref().filter(|_| !j.forked).map(|p| p.number);
         let rep = self.replacement.as_ref().map(|r| r.id);
         std::thread::spawn(move || {
             _ = j.child.wait();
-            if let Some(n) = pr {
-                crate::claude::clear_running(n);
-            }
+            _ = j.kept();
             if let Some(id) = rep {
                 crate::replace::mark_at_work(id, None, j.child.id());
             }
@@ -361,9 +396,6 @@ impl App {
     /// next run resumes where it left off.
     pub(super) fn stop_claude(&mut self) {
         let Some(mut j) = self.claude.job.take() else { return self.msg = "Claude isn't working on anything".into() };
-        if let Some(p) = self.pr.as_ref().filter(|_| !j.forked) {
-            crate::claude::clear_running(p.number);
-        }
         if let Some(r) = &self.replacement {
             crate::replace::mark_at_work(r.id, None, j.child.id());
         }
@@ -530,8 +562,7 @@ impl App {
                  already there, if there is one, else from its current description. Don't change it on GitHub: the user \
                  approves it in dv."
             ),
-            // (Its own run, `triage_command`: in a pane, asked as dv issues asks.)
-            Ask::Triage => format!("Use the dv-review skill to triage {what} (see \"Triage an issue\")."),
+            Ask::Triage => unreachable!("an issue's triage is its own run (`run_claude`)"),
             Ask::Fix if self.theirs && self.change_requests() == 0 => format!(
                 "Use the dv-review skill to suggest the change the user asks for below, in the dv review of {what}: \
                  it's someone else's PR, so don't edit the code; add a comment of yours there with a suggestion block."
@@ -587,7 +618,9 @@ impl App {
     /// taking it is checked first, so what you write isn't lost.
     pub(super) fn pick_claude(&mut self, ask: Ask) {
         // (Before the editor: nothing you write is lost to it.)
-        if let Some(why) = self.claude_blocked(Some(ask)).or_else(|| self.pane_cant(ask)) {
+        // (A triage is never the pane's.)
+        let pane = Some(ask).filter(|a| !matches!(a, Ask::Triage)).and_then(|a| self.pane_cant(a));
+        if let Some(why) = self.claude_blocked(Some(ask)).or(pane) {
             return self.msg = why;
         }
         match ask {
@@ -645,22 +678,6 @@ impl App {
             self.msg = why;
             return false;
         }
-        // An issue's triage: dv issues' own run (reading only, its answer merged into the file).
-        if let (Ask::Triage, Some(i)) = (ask, &self.issue) {
-            let cmd = crate::list::issues::triage_command(i.number, &i.fixes, &self.root, extra);
-            let n = i.number;
-            self.msg = match self.spawn_job(cmd, TRIAGE_LABEL, false) {
-                Ok(job) => (self.claude.job = Some(job), format!("Claude is triaging #{n}…")).1,
-                Err(e) => format!("starting claude failed: {e:#}"),
-            };
-            return self.claude.job.is_some();
-        }
-        // Fixing CI afresh: Claude's last word that it isn't the PR's doing goes (it says so
-        // again, if it still finds that).
-        if let (Ask::FixChecks, Some(p)) = (ask, &self.pr) {
-            crate::claude::ci_note_path(p.number).map(std::fs::remove_file).ok();
-        }
-        let prompt = self.claude_prompt(ask, extra);
         let label = match ask {
             Ask::Review => "reviewing",
             Ask::Answer => "answering your replies",
@@ -670,8 +687,28 @@ impl App {
             Ask::Close => "drafting a closing comment",
             Ask::Fix => "making the changes",
             Ask::FixChecks => "fixing CI",
-            Ask::Triage => TRIAGE_LABEL,
+            // An issue's triage: dv issues' own run, in the background (not a pane's: reading
+            // only, its answer merged into the file as it ends, `ClaudeJob::kept`).
+            Ask::Triage => {
+                let Some(i) = self.issue.clone() else { return false };
+                let cmd = crate::list::issues::triage_command(i.number, &i.fixes, &self.root, extra);
+                self.msg = match self.spawn_job(cmd, TRIAGE_LABEL, false) {
+                    Ok(job) => {
+                        let n = i.number;
+                        self.claude.job = Some(ClaudeJob { triage: Some(i), ..job });
+                        format!("Claude is triaging #{n}…")
+                    }
+                    Err(e) => format!("{e:#}"),
+                };
+                return self.claude.job.is_some();
+            }
         };
+        // Fixing CI afresh: Claude's last word that it isn't the PR's doing goes (it says so
+        // again, if it still finds that).
+        if let (Ask::FixChecks, Some(p)) = (ask, &self.pr) {
+            crate::claude::ci_note_path(p.number).map(std::fs::remove_file).ok();
+        }
+        let prompt = self.claude_prompt(ask, extra);
         // Claude already open on this PR in a pane: put the request there, rather than open
         // another. Pasted, not sent: what the pane is showing (a permission prompt, your own
         // half-typed text) isn't dv's to answer, so you press Enter there.
@@ -700,8 +737,8 @@ impl App {
                 Ok(()) => {
                     // For dv list: at it while its pane is open (a session: when it's done
                     // working there, only the pane knows).
-                    if let (Some(p), Some(id)) = (&self.pr, &self.claude.session) {
-                        crate::claude::mark_running(p.number, &format!("{label} (in its pane)"), None, Some(id));
+                    if let (Some(s), Some(id)) = (self.subject(), &self.claude.session) {
+                        crate::claude::mark_running(s.n(), &format!("{label} (in its pane)"), None, Some(id));
                     }
                     (format!("Claude is {label} in a hidden pane (Space a shows it; it closes when Claude's done); its comments show up here as it writes them"), true)
                 }
@@ -829,7 +866,7 @@ impl App {
         self.claude.pane_busy = screen.as_deref().is_some_and(crate::pane::working);
         // Done there: its pane closes (`close_if_done`); the session stays, for the next ask.
         // (The PR's marker may be another checkout's run: only this one's session counts.)
-        let (Some(pr), Some(pane)) = (self.pr.as_ref().map(|p| p.number), pane) else { return };
+        let (Some(pr), Some(pane)) = (self.subject().map(|s| s.n()), pane) else { return };
         let Some((session, since)) = crate::claude::pane_run(pr).filter(|r| Some(&r.0) == self.claude.session.as_ref()) else { return };
         if crate::pane::close_if_done(pane, &session, since) {
             crate::claude::clear_running(pr);
@@ -911,6 +948,11 @@ impl App {
     /// as `spawn_claude`'s): its log, and its marks for dv list (and any dv) to see.
     pub(super) fn spawn_job(&mut self, mut cmd: std::process::Command, label: &'static str, forked: bool) -> Result<ClaudeJob> {
         use std::os::unix::process::CommandExt;
+        // Its hold on it (a fork's, its pane open: that pane's run holds it).
+        let claim = match self.subject().filter(|_| !forked) {
+            Some(s) => Some(crate::claude::claim(s.n(), label).map_err(|w| anyhow!("Claude is {w} on {} already (elsewhere): ask again once it's done", s.what()))?),
+            None => None,
+        };
         // One log per run, so a follow-up run doesn't wipe the one a message points to.
         self.claude.runs += 1;
         let log = std::env::temp_dir().join(format!("dv-claude-{}-{}.log", std::process::id(), self.claude.runs));
@@ -924,17 +966,12 @@ impl App {
             .spawn()
             .context("is Claude Code (`claude`) installed?")?;
         self.claude.log = Some(log.clone());
-        // For dv list, dv issues (a fork, its pane open: that pane's marker stays, for closing
-        // it later).
-        if let Some(s) = self.subject().filter(|_| !forked) {
-            crate::claude::mark_running(s.n(), label, Some(child.id()), None);
-        }
         // A replacement's checkout: marked in its record, as a redraft is (dv list, a redraft
         // from elsewhere, then wait for it).
         if let Some(r) = self.replacement.as_ref().filter(|_| self.unpublished()) {
             crate::replace::mark_at_work(r.id, Some(child.id()), 0);
         }
-        Ok(ClaudeJob { child, log, label, forked, started: std::time::Instant::now() })
+        Ok(ClaudeJob { _claim: claim, ..ClaudeJob::new(child, log, label, forked) })
     }
 
     /// When a background run ends: keep its session for the next one, say how it went (its
@@ -942,20 +979,14 @@ impl App {
     pub(super) fn poll_claude(&mut self) {
         let Some(job) = &mut self.claude.job else { return };
         let Ok(Some(st)) = job.child.try_wait() else { return };
-        let Some(ClaudeJob { child, log, label, forked, .. }) = self.claude.job.take() else { return };
-        if let Some(s) = self.subject().filter(|_| !forked) {
-            crate::claude::clear_running(s.n());
-        }
+        let Some(job) = self.claude.job.take() else { return };
+        // (What it said, a triage's kept, before the file's read again; its hold let go.)
+        let (out, triaged) = job.kept();
+        let ClaudeJob { child, log, label, forked, .. } = job;
         if let Some(r) = &self.replacement {
             crate::replace::mark_at_work(r.id, None, child.id());
         }
-        let out: Option<serde_json::Value> = std::fs::read_to_string(&log).ok().and_then(|t| serde_json::from_str(&t).ok());
         let failed = !st.success() || out.as_ref().is_none_or(|v| v["is_error"] == true);
-        // A triage's answer, into the issue's file (as dv issues' are), before it's read again.
-        let triaged = match (label, &self.issue, &out) {
-            (TRIAGE_LABEL, Some(i), Some(v)) if !failed => Some(crate::list::issues::save_triage(i.number, &i.updated, &i.fixes, v)),
-            _ => None,
-        };
         self.reload_tree(); // it may have changed code (making changes, or answering a request)
         // A fork's id isn't the PR's session (that one's open in a pane): keep the PR's; a
         // triage's run is a reading one, of no session.

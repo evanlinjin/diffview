@@ -223,12 +223,12 @@ pub(crate) fn save_triage(n: u64, updated: &str, fixes: &[(u64, String, String)]
     Ok(format!("{} turns, ${:.2}", v["num_turns"].as_u64().unwrap_or(0), v["total_cost_usd"].as_f64().unwrap_or(0.0)))
 }
 
-/// Claude triages issue `n` here (dv list's): marked at it meanwhile, for the issue's view (and
-/// any dv) to see.
+/// Claude triages issue `n` here (dv issues'): its hold on it meanwhile (`claude::claim`), for
+/// the issue's view (and any dv) to see.
 fn triage_run(n: u64, updated: &str, fixes: &[(u64, String, String)], root: &std::path::Path, extra: &str) -> Result<batch::Status> {
-    crate::claude::mark_running(n, "triaging", Some(std::process::id()), None);
+    let claim = crate::claude::claim(n, "triaging").map_err(|w| anyhow::anyhow!("Claude is {w} on #{n} already"))?;
     let out = triage_command(n, fixes, root, extra).output();
-    crate::claude::clear_running(n);
+    drop(claim);
     let out = out.context("is Claude Code (`claude`) installed?")?;
     let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
     let answer = v["result"].as_str().unwrap_or("");

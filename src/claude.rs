@@ -348,9 +348,68 @@ pub fn mark_running(n: u64, what: &str, pid: Option<u32>, session: Option<&str>)
 /// What Claude is doing on PR (or issue) `n` right now, by its marker (a run whose process is
 /// still there), from any dv.
 pub fn at_work(n: u64) -> Option<String> {
-    let v: Value = serde_json::from_str(&std::fs::read_to_string(dv_dir().ok()?.join("running").join(format!("pr-{n}.json"))).ok()?).ok()?;
+    at_work_at(&running_marker(n).ok()?)
+}
+
+fn at_work_at(marker: &std::path::Path) -> Option<String> {
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(marker).ok()?).ok()?;
     let pid = v["pid"].as_u64()? as u32;
     crate::alive(pid).then(|| v["what"].as_str().unwrap_or("working").to_owned())
+}
+
+fn running_marker(n: u64) -> Result<PathBuf> {
+    let dir = dv_dir()?.join("running");
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir.join(format!("pr-{n}.json")))
+}
+
+/// A run's hold on PR (or issue) `n`: its marker, this dv's (its process: alive while the run
+/// can be), for dv list and any dv to see; let go when dropped (only if it's still this one's).
+pub struct Claimed {
+    path: PathBuf,
+}
+
+impl Drop for Claimed {
+    fn drop(&mut self) {
+        let mine = std::fs::read_to_string(&self.path).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).is_some_and(|v| v["pid"] == std::process::id());
+        if mine {
+            _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
+
+/// Claude, doing `what` on PR (or issue) `n`: its claim, one run at a time on it from any dv;
+/// else what holds it now. (A pane's marker, or a gone run's, gives way.)
+pub fn claim(n: u64, what: &str) -> std::result::Result<Claimed, String> {
+    claim_at(running_marker(n).map_err(|e| format!("{e:#}"))?, what)
+}
+
+fn claim_at(path: PathBuf, what: &str) -> std::result::Result<Claimed, String> {
+    if let Some(holder) = at_work_at(&path) {
+        return Err(holder);
+    }
+    _ = std::fs::remove_file(&path);
+    let v = serde_json::json!({ "what": what, "pid": std::process::id(), "started": now_secs() });
+    // (Two at once: one makes it, the other's told who.)
+    let made = std::fs::File::options().write(true).create_new(true).open(&path).and_then(|mut f| std::io::Write::write_all(&mut f, v.to_string().as_bytes()));
+    match made {
+        Ok(()) => Ok(Claimed { path }),
+        Err(_) => Err(at_work_at(&path).unwrap_or_else(|| "at work".into())),
+    }
+}
+
+#[test]
+fn one_claim_at_a_time() {
+    let p = std::env::temp_dir().join(format!("dv-claim-{}.json", std::process::id()));
+    let c = claim_at(p.clone(), "triaging").unwrap();
+    assert_eq!(claim_at(p.clone(), "reviewing").err().as_deref(), Some("triaging"));
+    assert_eq!(at_work_at(&p).as_deref(), Some("triaging"));
+    drop(c);
+    assert!(at_work_at(&p).is_none() && !p.exists());
+    // A pane's marker (no process to tell by) gives way.
+    std::fs::write(&p, r#"{ "what": "in its pane", "pid": null, "session": "s" }"#).unwrap();
+    drop(claim_at(p.clone(), "reviewing").unwrap());
+    assert!(!p.exists());
 }
 
 /// Claude's done with PR `n` (or stopped).
