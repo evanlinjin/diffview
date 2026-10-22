@@ -334,6 +334,8 @@ pub fn worktree(r: &Record, root: &Path) -> Result<PathBuf> {
         crate::ensure_worktree_of(&dir, root)?;
         return Ok(dir);
     }
+    // (One whose directory was deleted, not removed: still registered, in the way.)
+    _ = git(&["worktree", "prune"]);
     _ = git(&["fetch", "-q", &crate::diff::remote(), &r.base]);
     let (b, d) = (branch(r.id), dir.to_string_lossy().into_owned());
     match git(&["rev-parse", "--verify", "-q", &format!("refs/heads/{b}")]) {
