@@ -30,7 +30,8 @@ const USAGE: &str = "usage: dv [base | PR | list] [-p N] [-f] [-w [-b]]
   dv review-comments  for Claude: the PR's review comments on GitHub, as JSON (ids, lines,
                    who, what), to answer them in its review (read only)
   dv rerun-failed  for Claude fixing CI: rerun the failed jobs on the PR's head (only those)
-  dv cargo [+T] …  for Claude: cargo check/build/test/clippy/doc/fmt --check on any toolchain T
+  dv cargo [+T] …  for Claude: cargo check/build/test/clippy/doc/bench/fmt --check on any
+                   toolchain T; a bench with the machine to itself (builds wait for it)
   dv scratch R     for Claude: a checkout of commit R of its own (detached) to try things in;
                    `dv scratch --rm <dir>` removes one (else they go after a day)
   dv repo-file O/R[@REF] P  for Claude: file P of public GitHub repo O/R (at REF), or a
@@ -866,7 +867,7 @@ fn scratch(rest: &[String]) -> anyhow::Result<String> {
     diff::git(&["worktree", "add", "--detach", "--quiet", &dir.to_string_lossy(), &sha])?;
     Ok(format!(
         "{d}\n(a checkout of {rev} at {sha}, detached and yours: edit its files, then build and test it with \
-         `cargo test --manifest-path {d}/Cargo.toml` (or any cargo command allowed, with --manifest-path; it \
+         `dv cargo test --manifest-path {d}/Cargo.toml` (or any `dv cargo` command, its subcommand first, with --manifest-path; it \
          builds from nothing, and takes the toolchain and cargo config of where you are, not its own); removed \
          after a day, or now with `dv scratch --rm {d}`)"
     ))
@@ -877,9 +878,10 @@ fn is_scratch(root: &std::path::Path, d: &std::path::Path) -> bool {
     d.parent() == Some(root)
 }
 
-/// `dv cargo [+toolchain] <check|build|test|clippy|doc|fmt --check> …`: for Claude, cargo on any
-/// toolchain (as CI pins one), as a permission rule can't name every version; only what checks
-/// the code, nothing that changes or publishes it. Its exit code.
+/// `dv cargo [+toolchain] <check|build|test|clippy|doc|bench|fmt --check> …`: for Claude, cargo
+/// on any toolchain (as CI pins one), as a permission rule can't name every version; only what
+/// checks or measures the code, nothing that changes or publishes it; out of benchmarks' way,
+/// or a benchmark with the machine to itself (`bench`). Its exit code.
 fn checked_cargo(args: &[String]) -> anyhow::Result<i32> {
     let sub = args.iter().find(|a| !a.starts_with(['+', '-'])).map(String::as_str).unwrap_or(""); // (past `-q` and the like)
     let fmt_check = sub == "fmt" && args.iter().any(|a| a == "--check");
@@ -888,12 +890,16 @@ fn checked_cargo(args: &[String]) -> anyhow::Result<i32> {
         "dv cargo runs check, build, test, clippy, doc, bench or fmt --check (on any +toolchain), not `{sub}`"
     );
     // A benchmark with the machine to itself (others' builds waited for, held off); a build
-    // once none has it (`bench`).
-    let _held = match sub {
+    // once none has it (`bench`). Cargo holds the lock (its stdin): as long as it runs.
+    let held = match sub {
         "bench" => bench::bench(&format!("cargo {}", args.join(" ")))?,
         _ => bench::build()?,
     };
-    Ok(std::process::Command::new("cargo").args(args).status()?.code().unwrap_or(1))
+    let mut cargo = std::process::Command::new("cargo");
+    if let Some(h) = &held {
+        cargo.stdin(h.stdin());
+    }
+    Ok(cargo.args(args).status()?.code().unwrap_or(1))
 }
 
 /// Only ever touch a dir that's a worktree of this repo.

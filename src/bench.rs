@@ -5,19 +5,29 @@
 //!
 //! Two lock files: builds hold `run` shared; a benchmark holds it exclusive. It takes `gate`
 //! first, and holds it while it waits, so builds starting meanwhile (they pass `gate` on their
-//! way in) wait behind it rather than keep it waiting for good.
-use anyhow::{Context, Result};
-use std::fs::File;
+//! way in) wait behind it rather than keep it waiting for good. A lock is cargo's to hold
+//! (its stdin): it lasts as long as cargo runs, dv killed or not. Who's benchmarking, or
+//! waiting to, is written beside them (`<lock>.who`), for the others' messages.
+use anyhow::Result;
+use std::fs::{File, TryLockError};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-/// How long either waits before giving up, saying why: under Claude's commands' 2 minutes.
+/// How long, all told, either waits before giving up, saying why: under Claude's commands' 2
+/// minutes.
 const WAIT: Duration = Duration::from_secs(100);
 
-/// Held while it runs (dropped: let go).
+/// A lock held, for cargo to hold on (`stdin`); what it wrote of itself, taken away after.
 pub struct Held {
-    _run: File,
+    run: File,
     who: Option<PathBuf>,
+}
+
+impl Held {
+    /// For cargo's stdin: the lock with it (the same open file), for as long as it runs.
+    pub fn stdin(&self) -> std::process::Stdio {
+        self.run.try_clone().map_or_else(|_| std::process::Stdio::null(), std::process::Stdio::from)
+    }
 }
 
 impl Drop for Held {
@@ -35,79 +45,140 @@ fn dir() -> Result<PathBuf> {
     Ok(d)
 }
 
-fn open(d: &Path, name: &str) -> Result<File> {
-    let p = d.join(name);
-    File::options().create(true).truncate(false).write(true).open(&p).with_context(|| format!("opening {}", p.display()))
+fn open(d: &Path, name: &str) -> std::io::Result<File> {
+    File::options().create(true).truncate(false).write(true).open(d.join(name))
 }
 
-/// Who's benchmarking (for a build waiting on it to say), as they wrote it.
-fn who(d: &Path) -> String {
-    std::fs::read_to_string(d.join("bench.who")).map_or_else(|_| "a benchmark".into(), |w| w.trim().to_owned())
+/// What a benchmark wrote of itself beside `lock` (`<lock>.who`), while it's alive.
+fn who(d: &Path, lock: &str) -> Option<String> {
+    let text = std::fs::read_to_string(d.join(format!("{lock}.who"))).ok()?;
+    let (pid, what) = text.split_once('\n')?;
+    crate::alive(pid.trim().parse().ok()?).then(|| what.trim().to_owned())
 }
 
-/// `lock` tried till it takes, or `WAIT` is up: then `why`. Says once that it's waiting.
-fn wait(mut lock: impl FnMut() -> bool, waiting: impl Fn() -> String, why: impl Fn() -> String) -> Result<()> {
-    let start = Instant::now();
+/// Writes what this benchmark is beside `lock`, for the others to say.
+fn write_who(d: &Path, lock: &str, what: &str) -> PathBuf {
+    let p = d.join(format!("{lock}.who"));
+    let cwd = std::env::current_dir().unwrap_or_default();
+    _ = std::fs::write(&p, format!("{}\n`{what}` in {}", std::process::id(), cwd.display()));
+    p
+}
+
+/// What waiting came to: taken; given up (why); or the lock can't be had at all (this
+/// filesystem's, say: why).
+enum Waited {
+    Got,
+    GaveUp,
+    Broken(std::io::Error),
+}
+
+/// `lock` tried till it takes or `deadline` passes, saying once (`waiting`) that it waits.
+fn wait(deadline: Instant, mut lock: impl FnMut() -> Result<(), TryLockError>, waiting: impl Fn() -> String) -> Waited {
     let mut said = false;
-    while !lock() {
+    loop {
+        match lock() {
+            Ok(()) => return Waited::Got,
+            Err(TryLockError::Error(e)) => return Waited::Broken(e),
+            Err(TryLockError::WouldBlock) if Instant::now() >= deadline => return Waited::GaveUp,
+            Err(TryLockError::WouldBlock) => {}
+        }
         if !said {
             eprintln!("dv: {}", waiting());
             said = true;
         }
-        anyhow::ensure!(start.elapsed() < WAIT, "{}", why());
         std::thread::sleep(Duration::from_millis(250));
     }
-    Ok(())
 }
 
-/// For a build or test: once no benchmark has the machine (or is waiting for it).
-pub fn build() -> Result<Held> {
-    build_in(&dir()?)
+/// What a build waits for, said: the benchmark running, else the one waiting to.
+fn holder(d: &Path) -> String {
+    match (who(d, "bench.run"), who(d, "bench.gate")) {
+        (Some(w), _) => format!("a benchmark ({w})"),
+        (None, Some(w)) => format!("a benchmark about to start ({w}, waiting for builds to finish)"),
+        (None, None) => "a benchmark".into(),
+    }
 }
 
-fn build_in(d: &Path) -> Result<Held> {
-    let (gate, run) = (open(d, "bench.gate")?, open(d, "bench.run")?);
-    let busy = || format!("{} has the machine: this waits for it to finish", who(d));
-    let gave_up = || format!("{} still has the machine: run this again once it's done (a benchmark needs it quiet)", who(d));
-    wait(|| gate.try_lock_shared().is_ok(), busy, gave_up)?;
-    wait(|| run.try_lock_shared().is_ok(), busy, gave_up)?;
+/// The lock for a build or test, once no benchmark has the machine (or is waiting for it).
+/// Without a lock to be had (no data directory, a filesystem without locks): `None`, said,
+/// and it runs all the same.
+pub fn build() -> Result<Option<Held>> {
+    let Ok(d) = dir() else { return Ok(unlocked("dv's data directory isn't there")) };
+    build_in(&d)
+}
+
+fn unlocked(why: &str) -> Option<Held> {
+    eprintln!("dv: not keeping out of benchmarks' way ({why})");
+    None
+}
+
+fn build_in(d: &Path) -> Result<Option<Held>> {
+    let (Ok(gate), Ok(run)) = (open(d, "bench.gate"), open(d, "bench.run")) else { return Ok(unlocked("its lock files can't be opened")) };
+    let deadline = Instant::now() + WAIT;
+    let busy = || format!("{} has the machine: this waits for it", holder(d));
+    for lock in [&gate, &run] {
+        match wait(deadline, || lock.try_lock_shared(), busy) {
+            Waited::Got => {}
+            Waited::Broken(e) => return Ok(unlocked(&e.to_string())),
+            Waited::GaveUp => anyhow::bail!("{} still has the machine: run this again once it's done (a benchmark needs it quiet)", holder(d)),
+        }
+    }
     drop(gate);
-    Ok(Held { _run: run, who: None })
+    Ok(Some(Held { run, who: None }))
 }
 
-/// For a benchmark: once the builds and tests under way are done, and none starts till it is.
-pub fn bench(what: &str) -> Result<Held> {
-    bench_in(&dir()?, what)
+/// The lock for a benchmark, once the builds and tests under way are done; none starts till
+/// it is. (`None`, said: as `build`'s.)
+pub fn bench(what: &str) -> Result<Option<Held>> {
+    let Ok(d) = dir() else { return Ok(unlocked("dv's data directory isn't there")) };
+    bench_in(&d, what)
 }
 
-fn bench_in(d: &Path, what: &str) -> Result<Held> {
-    let (gate, run) = (open(d, "bench.gate")?, open(d, "bench.run")?);
-    let waiting = || "waiting for the builds and tests running elsewhere (other dv's Claude) to finish; new ones wait for this".to_owned();
-    wait(|| gate.try_lock().is_ok(), || format!("waiting for {} first", who(d)), || format!("{} has the machine: run this again once it's done", who(d)))?;
-    wait(|| run.try_lock().is_ok(), waiting, || "builds and tests elsewhere are still running: run this again shortly".into())?;
-    let who = d.join("bench.who");
-    let cwd = std::env::current_dir().unwrap_or_default();
-    _ = std::fs::write(&who, format!("`{what}` in {} (pid {})", cwd.display(), std::process::id()));
+fn bench_in(d: &Path, what: &str) -> Result<Option<Held>> {
+    let (Ok(gate), Ok(run)) = (open(d, "bench.gate"), open(d, "bench.run")) else { return Ok(unlocked("its lock files can't be opened")) };
+    let deadline = Instant::now() + WAIT;
+    match wait(deadline, || gate.try_lock(), || format!("waiting for {} first", holder(d))) {
+        Waited::Got => {}
+        Waited::Broken(e) => return Ok(unlocked(&e.to_string())),
+        Waited::GaveUp => anyhow::bail!("{} still has the machine: run this again once it's done", holder(d)),
+    }
+    let waiting_who = write_who(d, "bench.gate", what);
+    let on_run = || match who(d, "bench.run") {
+        Some(w) => format!("another benchmark ({w})"),
+        None => "the builds and tests running elsewhere (other dv's Claude)".into(),
+    };
+    let got = wait(deadline, || run.try_lock(), || format!("waiting for {} to finish; new ones wait for this", on_run()));
+    _ = std::fs::remove_file(&waiting_who);
+    match got {
+        Waited::Got => {}
+        Waited::Broken(e) => return Ok(unlocked(&e.to_string())),
+        Waited::GaveUp => anyhow::bail!("{} still running: run this again shortly", on_run()),
+    }
+    let who = write_who(d, "bench.run", what);
     drop(gate); // (`run` held exclusive keeps builds out; others' benchmarks wait on it too)
-    Ok(Held { _run: run, who: Some(who) })
+    Ok(Some(Held { run, who: Some(who) }))
 }
 
 #[test]
 fn a_benchmark_waits_for_builds_and_holds_them_off() {
     let d = std::env::temp_dir().join(format!("dv-bench-{}", std::process::id()));
     std::fs::create_dir_all(&d).unwrap();
-    let b = build_in(&d).unwrap();
-    let b2 = build_in(&d).unwrap(); // builds run alongside each other
+    let b = build_in(&d).unwrap().unwrap();
+    let b2 = build_in(&d).unwrap().unwrap(); // builds run alongside each other
     // A benchmark can't start while they run…
     let run = open(&d, "bench.run").unwrap();
     assert!(run.try_lock().is_err());
     drop((b, b2));
-    let held = bench_in(&d, "cargo bench").unwrap();
-    assert!(who(&d).starts_with("`cargo bench` in "));
-    // …and while it runs, a build can't start.
+    let held = bench_in(&d, "cargo bench").unwrap().unwrap();
+    assert!(holder(&d).starts_with("a benchmark (`cargo bench` in "), "{}", holder(&d));
+    // …and while it runs, a build can't start; nor while cargo, holding it, outlives dv.
     let run2 = open(&d, "bench.run").unwrap();
     assert!(run2.try_lock_shared().is_err());
+    let cargo = held.stdin();
     drop(held);
+    assert!(run2.try_lock_shared().is_err(), "held while cargo has it");
+    drop(cargo);
     assert!(run2.try_lock_shared().is_ok());
+    assert_eq!(holder(&d), "a benchmark"); // (what it wrote of itself, gone)
     _ = std::fs::remove_dir_all(&d);
 }
