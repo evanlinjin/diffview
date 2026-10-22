@@ -273,7 +273,7 @@ impl App {
             let half = |row: Option<usize>, right: bool, w: usize| match row {
                 Some(row) => self.render_row(row, s, e, (lw, ghw, w), Some(right), cur, &overlay, seg),
                 // Like delta: a quiet hatch where the other side has no line.
-                None => vec![Span::styled("╱".repeat(ghw + w), self.ui.linenr)],
+                None => vec![Span::styled(HATCH.repeat(ghw + w), self.ui.linenr)],
             };
             let mut spans = half(l, false, htw_l);
             spans.push(divider.clone());
@@ -729,10 +729,14 @@ impl App {
     }
 }
 
+/// What split view draws where a side has no line (a quiet hatch, as delta's): not content, for
+/// the key hints to cover.
+pub(super) const HATCH: &str = "╱";
+
 /// Which keys do what (`title`, `keys`), as Helix shows them, in a corner of `above` (bottom
 /// right first, then bottom left, top right, top left): never over the cursor (`avoid`; unless
-/// it's under all of them), and of the rest, where they cover the least of what's drawn. (dv
-/// list's too.)
+/// it's under all of them), and of the rest, where they cover the least of what's drawn (a
+/// hatch isn't). (dv list's too.)
 pub(crate) fn draw_hints(f: &mut Frame, ui: &Ui, above: Rect, title: &str, keys: &[(&str, &str)], avoid: Option<Rect>) {
     let kw = keys.iter().map(|k| k.0.chars().count()).max().unwrap_or(1);
     let lines: Vec<Line> = keys.iter().map(|(k, d)| Line::from(vec![Span::styled(format!("{k:<kw$}  "), ui.key), Span::raw(d.to_string())])).collect();
@@ -741,7 +745,7 @@ pub(crate) fn draw_hints(f: &mut Frame, ui: &Ui, above: Rect, title: &str, keys:
     let (right, bottom) = (above.x + above.width - w, above.y + above.height - h);
     let corners = [(right, bottom), (above.x, bottom), (right, above.y), (above.x, above.y)].map(|(x, y)| Rect { x, y, width: w, height: h });
     let buf = f.buffer_mut();
-    let covered = |r: &Rect| r.positions().filter(|&p| buf.cell(p).is_some_and(|c| !c.symbol().trim().is_empty())).count();
+    let covered = |r: &Rect| r.positions().filter(|&p| buf.cell(p).is_some_and(|c| !c.symbol().trim().is_empty() && c.symbol() != HATCH)).count();
     let r = corners.into_iter().min_by_key(|r| (avoid.is_some_and(|a| r.intersects(a)), covered(r))).unwrap_or(corners[0]);
     let inner = popup_frame(ui, f, r, title, "");
     f.render_widget(Paragraph::new(lines), inner);
@@ -949,4 +953,23 @@ impl App {
         // ("HEAD", the uncommitted view's base, moves with a commit or an amend too.)
         self.hl_cache.retain(|k, _| !k.0.is_empty() && k.0 != "HEAD");
     }
+}
+
+#[test]
+fn key_hints_go_over_a_hatch_not_code() {
+    // Code bottom right, a split view's hatch bottom left: the hints take the hatch's corner.
+    let ui = crate::theme::Theme::load().ui();
+    let mut t = ratatui::Terminal::new(ratatui::backend::TestBackend::new(40, 10)).unwrap();
+    let buf = t
+        .draw(|f| {
+            let a = f.area();
+            for y in 0..a.height {
+                f.render_widget(Paragraph::new(format!("{}{}", HATCH.repeat(20), "x".repeat(20))), Rect { y, height: 1, ..a });
+            }
+            draw_hints(f, &ui, a, "code", &[("a", "a comment")], None);
+        })
+        .unwrap()
+        .buffer
+        .clone();
+    assert_eq!(buf[(0, 9)].symbol(), "╰", "the hints' box at the bottom left");
 }
