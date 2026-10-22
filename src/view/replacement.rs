@@ -120,7 +120,9 @@ impl App {
         }
         let mut status = vec![];
         if let Some(n) = r.published {
-            let url = r.replaces.first().and_then(|o| Some(format!("{}/{n}", o.url.rsplit_once('/')?.0))).unwrap_or_default();
+            // (In the repo of what it replaces; a new PR's: this one's.)
+            let repo = r.replaces.first().and_then(|o| Some(o.url.rsplit_once("/pull/")?.0.to_owned())).or_else(crate::diff::github_url);
+            let url = repo.map(|u| format!("{u}/pull/{n}")).unwrap_or_default();
             let mut l = line(false, false, &format!("published as PR #{n}"));
             l.marks.push((l.text.chars().count() - format!("#{n}").len(), l.text.chars().count(), Mark::Link(url)));
             status.push(l);

@@ -403,7 +403,7 @@ impl App {
         }
         let open = |r: &&crate::replace::Record| r.replaces.iter().any(|o| !r.closed.contains(&o.number));
         if let Some(r) = self.replacement.as_ref().filter(|_| self.pr.is_some()).filter(open) {
-            return self.section(CLOSING_NOTE, "closing note, for the PRs it replaces (S closes them with it)".into(), &r.closing_note, None);
+            return self.section(CLOSING_NOTE, "closing note, for the PRs it replaces (S closes them with it)".into(), &crate::replace::note(r), None);
         }
         let Some(h) = self.heading(Self::is_closing_note) else { return vec![] };
         let text = match self.info_body(h) {
