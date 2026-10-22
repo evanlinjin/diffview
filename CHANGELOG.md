@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.91.6] - 2026-10-22
+
+### Fixed
+- Split view: every move of the cursor (word motions across lines, label jumps, search,
+  `x`, a drag) takes its side with it, as `goto` did, so it's drawn (and kept clear of a
+  floating comment) on the side it's on, and `j`/`k` go on from there.
+- A pinned title the pane covers entirely takes no cursor; the wheel's search no longer runs
+  the same scan twice.
+
 ## [0.91.5] - 2026-10-22
 
 ### Fixed
