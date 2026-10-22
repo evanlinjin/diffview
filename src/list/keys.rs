@@ -223,7 +223,7 @@ impl List {
                     Tab::Todo => prs.iter().map(|&n| format!("{} #{n}", self.todo_task(n).doing())).collect::<Vec<_>>().join(", "),
                     _ => format!("reviews {}", prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(" ")),
                 };
-                if self.again(armed, ('a', self.about(&prs)), format!("a again: Claude {which} in the background, each in its worktree (<repo>-N); your editor opens first, for any instructions{skipped}")) {
+                if self.again(armed, ('a', 0), format!("a again: Claude {which} in the background, each in its worktree (<repo>-N); your editor opens first, for any instructions{skipped}")) {
                     return Some(Do::Review(prs));
                 }
             }
@@ -252,7 +252,7 @@ impl List {
                     true => format!("A again: Claude drafts {}{again}, unpublished; your editor opens first, for instructions", crate::replace::label(id)),
                     false => format!("A again: Claude suggests how to group {which} into replacements (you decide, in your editor), then drafts them, unpublished"),
                 };
-                if self.again(armed, ('A', self.about(&prs)), ask + &skipped) {
+                if self.again(armed, ('A', 0), ask + &skipped) {
                     return Some(Do::Replace(prs));
                 }
             }
@@ -267,9 +267,9 @@ impl List {
     /// switches to it; the wheel moves the selection.
     pub(super) fn mouse(&mut self, m: event::MouseEvent) -> bool {
         use event::{MouseButton, MouseEventKind};
-        // (A scroll or click calls off what was to be asked again, as a key does.)
-        if matches!(m.kind, MouseEventKind::ScrollDown | MouseEventKind::ScrollUp | MouseEventKind::Down(_)) {
-            self.confirm = None;
+        // (A scroll or click calls off what was to be asked again, and its ask, as a key does.)
+        if matches!(m.kind, MouseEventKind::ScrollDown | MouseEventKind::ScrollUp | MouseEventKind::Down(_)) && self.confirm.take().is_some() {
+            self.msg.clear();
         }
         let n = self.shown().len();
         match m.kind {

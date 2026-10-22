@@ -653,20 +653,17 @@ impl List {
 
     /// A key that asks to be pressed again (what it'd do, `ask`, said): whether it was (`armed`
     /// is what the last key armed), else it's armed now.
-    /// A confirmation's key for acting on `prs` (on this tab): asked again for those, not
-    /// others the cursor or marks came to meanwhile.
-    pub(super) fn about(&self, prs: &[u64]) -> u64 {
-        use std::hash::{Hash, Hasher};
-        let mut h = std::hash::DefaultHasher::new();
-        (prs, self.nav.tab as u8).hash(&mut h);
-        h.finish()
-    }
-
     fn again(&mut self, armed: Option<(char, u64)>, key: (char, u64), ask: impl Into<String>) -> bool {
+        // (Keyed on what it asked, too: asked again only for what was said.)
+        use std::hash::{Hash, Hasher};
+        let ask = ask.into();
+        let mut h = std::hash::DefaultHasher::new();
+        (key, &ask).hash(&mut h);
+        let key = (key.0, h.finish());
         if armed == Some(key) {
             return true;
         }
-        (self.msg, self.confirm) = (ask.into(), Some(key));
+        (self.msg, self.confirm) = (ask, Some(key));
         false
     }
 
@@ -954,7 +951,7 @@ pub(super) fn filter_term(t: &str, keyed: impl Fn(&str, &str, &dyn Fn(&str, &str
     let digits = t.trim_start_matches('#');
     let number = !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit());
     let hit = match number {
-        true => hay().split_whitespace().any(|w| w.strip_prefix('#') == Some(digits)),
+        true => hay().split_whitespace().next().and_then(|w| w.strip_prefix('#')) == Some(digits), // (its own: hay's first)
         false => t.split_once(':').and_then(|(k, v)| keyed(&k.to_lowercase(), v, &has)).unwrap_or_else(|| has(&hay(), t)),
     };
     hit != neg
