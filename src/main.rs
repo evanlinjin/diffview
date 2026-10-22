@@ -260,9 +260,13 @@ fn run() -> anyhow::Result<()> {
     if o.branch && !o.worktree {
         anyhow::bail!("--branch goes with --worktree (plain --pr already checks out a branch)\n{USAGE}");
     }
-    // The list's home: the main checkout, never a PR's worktree (a merge from it removes that).
+    // The list's home: where it's started, but never one of dv's own worktrees (`<repo>-…`,
+    // a PR's, a replacement's: removed from the list, by a merge, say): the main checkout then.
     if o.list {
-        let root = main_checkout(&root)?;
+        let main = main_checkout(&root)?;
+        let name = main.file_name().map(|n| format!("{}-", n.to_string_lossy()));
+        let dvs = root.parent() == main.parent() && name.is_some_and(|n| root.file_name().is_some_and(|f| f.to_string_lossy().starts_with(&n)));
+        let root = if dvs { main } else { root };
         std::env::set_current_dir(&root)?;
         return pick_and_review(&o, &root);
     }
