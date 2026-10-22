@@ -3697,7 +3697,7 @@ fn the_kept_column_survives_scrolling_clicks_and_the_pane() {
     _ = screen(80, 20, |f| app.draw(f));
     let r = app.rows.iter().position(|x| x.line.text == line).unwrap();
     let d = app.d_of[r];
-    let g = app.geom.clone();
+    let g = app.geom;
     let y = d - app.top + app.pin as usize;
     let (row, col, _) = app.at_screen(g.relw + g.gw + w, y).unwrap();
     assert_eq!((row, app.part_at(row, col)), (r, 0), "on the part clicked");
