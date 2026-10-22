@@ -4135,4 +4135,11 @@ fn the_wheel_over_a_short_line_leaves_the_scroll() {
     // Over the short line above, scrolled past its end: nothing either way (not back to it).
     wheel(&mut app, MouseEventKind::ScrollLeft, long_r - 1);
     assert_eq!(app.left, left);
+    // Scrolled to the long line's end (its last char showing): back left over it.
+    for _ in 0..60 {
+        wheel(&mut app, MouseEventKind::ScrollRight, long_r);
+    }
+    let left = app.left;
+    wheel(&mut app, MouseEventKind::ScrollLeft, long_r);
+    assert!(app.left < left, "{} → {}", left, app.left);
 }
