@@ -66,9 +66,13 @@ impl App {
         let guide = self.rows.get(r).map_or(0, Row::guide_w);
         match self.box_part(r) {
             Some(_) => self.box_w(r, tw).saturating_sub(1 + guide),
-            // The PR's title: up to its chips (state, counts, badge), which always show.
-            None if self.rows[r].file == INFO => tw.saturating_sub(guide + super::row::chips_w(&self.chips(r, self.bar_counts, Style::new()))),
-            None => tw.saturating_sub(guide),
+            // The PR's title: up to its chips (state, counts, badge), where they fit (as
+            // `render_row` draws them: else not at all, the title whole).
+            None => {
+                let w = tw.saturating_sub(guide);
+                let chips = if self.rows[r].file == INFO { super::row::chips_w(&self.chips(r, self.bar_counts, Style::new())) } else { 0 };
+                if chips <= w { w - chips } else { w }
+            }
         }
     }
 

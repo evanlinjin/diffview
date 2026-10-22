@@ -4067,3 +4067,14 @@ fn a_long_title_keeps_its_chips() {
     let title = s.lines().next().unwrap();
     assert!(title.contains("OPEN") && title.contains("unpushed"), "{title}");
 }
+
+#[test]
+fn chips_too_wide_leave_the_title() {
+    let mut app = fixture();
+    app.pr_state = Some(("OPEN", "238636"));
+    app.conflicts = true;
+    app.sync = "⇅ diverged: force-push · ✎ uncommitted".into();
+    app.build();
+    let s = screen(60, 12, |f| app.draw(f));
+    assert!(s.lines().next().unwrap().contains("Fix the thing"), "{s}");
+}
