@@ -231,7 +231,13 @@ fn run() -> anyhow::Result<()> {
         Some("prepare-worktree") => {
             let n = o.pr.context("prepare-worktree needs a PR number")?;
             let known = gh::pr(Some(n)).ok();
-            let (dir, note) = enter_worktree(n, o.branch, false, known.as_ref())?; // -b: it's on the PR's branch; keep it so
+            // (A run's checkout is a worktree dv made, never one of yours on its branch, the main one,
+        // say: where you work, and where dv list doesn't look for what's left to push.)
+        if let Some((other, _)) = known.as_ref().filter(|_| o.branch).and_then(worktree_on_branch) {
+            let (main, _) = worktree_dir(n)?;
+            anyhow::ensure!(dv_worktree(&main, &other), "#{n}'s branch is checked out in {}: Claude works in a worktree of its own (switch that checkout off it, or ask Claude there yourself)", other.display());
+        }
+        let (dir, note) = enter_worktree(n, o.branch, false, known.as_ref())?; // -b: it's on the PR's branch; keep it so
             // (Its note, why it's not at the PR's head, if it isn't, on the next line.)
             println!("{}\n{}", dir.display(), note.unwrap_or_default());
             return Ok(());

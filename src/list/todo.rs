@@ -400,18 +400,7 @@ impl List {
             self.rescan = true; // after the one under way
             return;
         }
-        let mut local: Vec<(u64, String)> = self.local.iter().map(|(&n, (dir, _))| (n, dir.to_string_lossy().into_owned())).collect();
-        // And a checkout on an open PR's branch that isn't its <repo>-N (the main one, say: where
-        // a run with -b works when its branch is there).
-        let list = crate::diff::git(&["worktree", "list", "--porcelain"]).unwrap_or_default();
-        for block in list.split("\n\n") {
-            let field = |k: &str| block.lines().find_map(|l| l.strip_prefix(k));
-            let (Some(path), Some(b)) = (field("worktree "), field("branch refs/heads/")) else { continue };
-            let pr = self.prs.iter().filter(|p| p.open() && !p.branch.is_empty()).find(|p| b == p.branch || b.ends_with(&format!("-{}", p.branch)));
-            if let Some(p) = pr.filter(|p| !local.iter().any(|(n, d)| *n == p.number || d == path)) {
-                local.push((p.number, path.to_owned()));
-            }
-        }
+        let local: Vec<(u64, String)> = self.local.iter().map(|(&n, (dir, _))| (n, dir.to_string_lossy().into_owned())).collect();
         let heads: HashMap<u64, String> = self.extra.iter().map(|(&n, e)| (n, e.head_oid.clone())).collect();
         let bases: HashMap<u64, String> = self.prs.iter().map(|p| (p.number, p.base.clone())).collect();
         let (tx, rx) = mpsc::channel();
