@@ -37,9 +37,10 @@ pub(crate) fn sideways(m: &MouseEvent) -> MouseEventKind {
 impl App {
     pub(super) fn mouse(&mut self, m: MouseEvent) {
         let (x, y) = (m.column as usize, m.row as usize);
-        // A click or drag: a prefix or count waiting gone, as any key that isn't theirs.
+        // A click or drag: a prefix, count or jump labels waiting gone, as any key that isn't theirs.
         if matches!(m.kind, MouseEventKind::Down(_) | MouseEventKind::Drag(_)) {
             (self.pending, self.count) = (None, 0);
+            self.labels.clear();
         }
         // The files' list on the left: a click goes to a file, the wheel scrolls it; the rest is
         // laid out beside it.

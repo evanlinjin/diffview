@@ -114,10 +114,15 @@ GENERAL
 
 impl App {
     pub(super) fn label_key(&mut self, k: KeyEvent) {
+        // (Not a label's letter, a Ctrl or Alt key's included: they go.)
         let KeyCode::Char(c) = k.code else {
             self.labels.clear();
             return;
         };
+        if k.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) {
+            self.labels.clear();
+            return;
+        }
         match self.label_first {
             None if self.labels.iter().any(|l| l.2[0] == c) => self.label_first = Some(c),
             Some(f) => {
