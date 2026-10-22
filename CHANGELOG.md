@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.91.5] - 2026-10-22
+
+### Fixed
+- The pinned PR title, with the pane floating over the code, takes the cursor only as far as
+  it's drawn (the pane's tabs share its row); a click beside a floating comment lands on the
+  code shown, not under the box; a drag or the sideways wheel on the top row is about the code
+  there again (only a click goes to the pinned file header); `gw` gives a word on both sides of
+  a split line one label.
+
 ## [0.91.4] - 2026-10-22
 
 ### Fixed
