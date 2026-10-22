@@ -244,7 +244,7 @@ pub fn set_text(n: u64, title: Option<&str>, body: &str) -> Result<()> {
 
 /// Run gh, optionally feeding `input` on stdin (for `--input -` JSON bodies).
 fn gh_input(args: &[&str], input: Option<&str>) -> Result<String> {
-    let mut child = Command::new("gh")
+    let mut child = crate::diff::no_prompt(&mut Command::new("gh"))
         .args(args)
         .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
@@ -435,7 +435,7 @@ pub(crate) fn etag_of(path: &str, etag: &str) -> Result<Option<String>> {
     if !etag.is_empty() {
         args.extend(["-H", &header]);
     }
-    let out = Command::new("gh").args(&args).stdin(Stdio::null()).output().context("running gh")?;
+    let out = crate::diff::no_prompt(&mut Command::new("gh")).args(&args).stdin(Stdio::null()).output().context("running gh")?;
     let text = String::from_utf8_lossy(&out.stdout);
     // gh exits 1 on a 304, so the status line decides.
     if text.lines().next().is_some_and(|l| l.contains(" 304")) {

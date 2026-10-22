@@ -14,6 +14,7 @@ pub static MOUSE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool:
 
 /// Take over the terminal (ratatui), with mouse capture unless `--no-mouse`.
 pub fn init_terminal() -> DefaultTerminal {
+    crate::diff::hold_terminal(true);
     // As `ratatui::init`, but for its panic hook, which would give the terminal back on any
     // thread's panic (and stack up, one each time dv takes the terminal again): dv's, once.
     static HOOKED: std::sync::Once = std::sync::Once::new();
@@ -61,6 +62,7 @@ fn hook_panics() {
 /// Give the terminal back (focus reports and mouse capture off first, so an editor or the
 /// shell gets it clean).
 pub fn restore_terminal() {
+    crate::diff::hold_terminal(false);
     _ = ratatui::crossterm::execute!(std::io::stdout(), ratatui::crossterm::event::DisableFocusChange);
     if MOUSE.load(std::sync::atomic::Ordering::Relaxed) {
         _ = ratatui::crossterm::execute!(std::io::stdout(), ratatui::crossterm::event::DisableMouseCapture);

@@ -710,7 +710,10 @@ pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool) -> anyhow::Res
 /// still updates, while work done here since stays until you push it or drop it yourself.
 fn local_work(n: u64) -> Option<String> {
     let head = diff::git(&["rev-parse", "HEAD"]).ok()?.trim().to_owned();
-    diff::git(&["fetch", "-q", &crate::diff::remote(), &format!("refs/pull/{n}/head")]).ok()?;
+    // (Can't tell, GitHub out of reach: kept as it is, not updated over what may be work.)
+    if let Err(e) = diff::git(&["fetch", "-q", &crate::diff::remote(), &format!("refs/pull/{n}/head")]) {
+        return Some(format!("couldn't fetch #{n} to see what's only here ({e:#}): kept as it is"));
+    }
     let pr = diff::git(&["rev-parse", "FETCH_HEAD"]).ok()?.trim().to_owned();
     let behind = head == pr || diff::git(&["merge-base", "--is-ancestor", &head, &pr]).is_ok();
     if behind || last_checkout(n).as_deref() == Some(head.as_str()) {
