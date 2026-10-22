@@ -3237,7 +3237,7 @@ fn tabs_and_wide_chars_scroll_by_their_columns() {
         let s = screen(120, 20, |f| app.draw(f));
         let (y, line) = s.lines().enumerate().find(|(_, l)| l.contains("xE")).expect(&s);
         let x = line.find("xE").map(|b| line[..b].chars().count()).unwrap();
-        assert_eq!(app.at_screen(x, y).map(|(r2, c, _)| (r2, c)), Some((r, n)));
+        assert_eq!(app.at_screen(x, y).map(|(r2, c, ..)| (r2, c)), Some((r, n)));
     }
 }
 
@@ -3699,7 +3699,7 @@ fn the_kept_column_survives_scrolling_clicks_and_the_pane() {
     let d = app.d_of[r];
     let g = app.geom;
     let y = d - app.top + app.pin as usize;
-    let (row, col, _) = app.at_screen(g.relw + g.gw + w, y).unwrap();
+    let (row, col, ..) = app.at_screen(g.relw + g.gw + w, y).unwrap();
     assert_eq!((row, app.part_at(row, col)), (r, 0), "on the part clicked");
 }
 
@@ -3776,4 +3776,27 @@ fn every_cursor_move_takes_its_side() {
         app.key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
     }
     assert_eq!(app.rows[app.head.row].line.text, "c1", "back on the right");
+}
+
+#[test]
+fn a_hatch_click_and_the_way_out_of_the_pane() {
+    // Split: a click on the hatch beside b2 lands on b2; your side stays the left.
+    let text = "diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1,5 +1,4 @@\n a\n-b1\n-b2\n+c1\n d\n e\n";
+    let mut app = App::with("base".into(), diff::parse(text));
+    (app.files_pref, app.margin_pref, app.split) = (Some(false), Some(false), true);
+    _ = screen(80, 20, |f| app.draw(f));
+    let b2 = app.rows.iter().position(|r| r.line.text == "b2").unwrap();
+    app.right = false;
+    let y = app.d_of[b2] - app.top + app.pin as usize;
+    let (row, _, _, side) = app.clicked_at(app.right_x() + 2, y).unwrap();
+    assert_eq!((row, side), (b2, Some(false)), "the line it lands on, its side");
+    // With the pane: from b2 (nothing to its right), Ctrl-l goes on into the pane.
+    let mut app = App::with("base".into(), diff::parse(text));
+    (app.files_pref, app.margin_pref, app.split) = (Some(false), Some(true), true);
+    app.threads = vec![gh::Thread { path: "a.rs".into(), line: Some(4), comments: vec![gh::Comment { author: "amy".into(), body: "hm".into(), ..Default::default() }], ..Default::default() }];
+    app.build();
+    _ = screen(220, 20, |f| app.draw(f));
+    app.goto(b2, 0);
+    app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
+    assert!(app.margin_side(), "into the pane: {}", app.msg);
 }

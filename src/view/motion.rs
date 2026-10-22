@@ -47,16 +47,16 @@ impl App {
             return self.msg = "contents: j / k move, Enter goes there, Ctrl-l back".into();
         }
         let hd = self.hd();
-        let into_margin = self.margin_active && right && (!self.split || self.head_right()) && !self.margin_side();
-        // (Into the pane from the right half: the side you're on, back from it.)
-        if into_margin {
-            self.right = true;
-        }
+        // Into the pane from the code's right edge: the right half, or a line with nothing to
+        // its right (a removed line beside a hatch).
+        let at_edge = !self.split || self.head_right() || self.side_row(hd, true).is_none();
+        let into_margin = self.margin_active && right && at_edge && !self.margin_side();
+        // Out of it (however you got in), onto the right half: the code beside it.
+        let leaving = self.margin_side() && !right;
         // By what a comment is about, not where its box happens to sit (boxes stack down the
         // pane): from a comment to its line, and from a line to the comment about it.
-        if self.margin_side() && !right
-            && let Some(&line) = self.rows[self.head.row].thread.and_then(|t| self.margin_anchor.get(&t))
-        {
+        if leaving && let Some(&line) = self.rows[self.head.row].thread.and_then(|t| self.margin_anchor.get(&t)) {
+            self.right = true;
             return self.goto(line, 0);
         }
         if into_margin
@@ -65,17 +65,22 @@ impl App {
         {
             return self.goto(r, 0);
         }
-        if into_margin || self.margin_side() && !right {
+        if into_margin || leaving {
             let at = |d: usize| match self.drows[d] {
                 DRow::Margin(_, _, c) if right => c,
-                DRow::Margin(l, r, _) => if self.right { r.or(l) } else { l.or(r) },
+                DRow::Margin(l, r, _) => r.or(l),
                 _ => None,
             };
             let near = at(hd)
                 .or_else(|| (hd..self.drows.len()).find_map(|d| right.then(|| at(d)).flatten()))
                 .or_else(|| (0..hd).rev().find_map(at));
             return match near {
-                Some(r) => self.goto(r, 0),
+                Some(r) => {
+                    if leaving {
+                        self.right = true;
+                    }
+                    self.goto(r, 0)
+                }
                 None => self.msg = if right { "no comments here" } else { "no code here" }.into(),
             };
         }

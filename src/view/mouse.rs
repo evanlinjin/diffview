@@ -58,12 +58,12 @@ impl App {
             // pinned title: the cursor stays), nor a line too short to show where it's scrolled
             // to (the cursor there would take it back).
             MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight if code => {
-                let Some((row, col, _)) = self.at_screen(x, y) else { return };
+                let Some((row, col, _, side)) = self.at_screen(x, y) else { return };
                 if self.scroller(row).is_none() || kind == MouseEventKind::ScrollRight && self.col_of(row, self.len(row)) <= self.hscroll(row) + 1 && self.hscroll(row) > 0 {
                     return;
                 }
                 self.select = false;
-                self.choose_side_at(x);
+                self.choose(side);
                 self.goto(row, col);
                 self.hnudge = if kind == MouseEventKind::ScrollRight { 8 } else { -8 };
             }
@@ -102,8 +102,8 @@ impl App {
                     }
                     return;
                 }
-                let Some((row, col, gutter)) = self.clicked_at(x, y) else { return };
-                self.choose_side_at(x);
+                let Some((row, col, gutter, side)) = self.clicked_at(x, y) else { return };
+                self.choose(side);
                 // On a fold arrow (a file's or a thread's first row, in the gutter): fold / unfold.
                 let first_of_thread = self.rows[row].thread.is_some_and(|t| row == 0 || self.rows[row - 1].thread != Some(t));
                 self.select = false;
@@ -116,8 +116,8 @@ impl App {
             }
             // Dragging selects, from where the button went down (the anchor stays there).
             MouseEventKind::Drag(MouseButton::Left) if self.picker.is_none() && self.popup.is_none() => {
-                if let Some((row, col, _)) = self.at_screen(x, y) {
-                    self.choose_side_at(x);
+                if let Some((row, col, _, side)) = self.at_screen(x, y) {
+                    self.choose(side);
                     self.set_head(Pos { row, col: col.min(self.len(row).saturating_sub(1)) });
                 }
             }
@@ -148,10 +148,10 @@ impl App {
         g.relw + g.gw + g.ctw + 1 + self.pane_pad() + self.pane_gw()
     }
 
-    /// Split view: the half at screen column `x` is the side you chose (a click, a drag).
-    fn choose_side_at(&mut self, x: usize) {
-        if self.split {
-            self.right = x >= self.geom.relw + self.geom.half;
+    /// The side the cursor went to on a split pair (a click, a drag: `at_screen`'s), as yours.
+    fn choose(&mut self, side: Option<bool>) {
+        if let Some(s) = side {
+            self.right = s;
         }
     }
 
@@ -164,19 +164,20 @@ impl App {
     /// What a click at screen cell (`x`, `y`) goes to: as `at_screen`, but on the file header
     /// pinned over the top, the header (not what it covers: a drag or the wheel there is still
     /// about the code under it).
-    pub(super) fn clicked_at(&self, x: usize, y: usize) -> Option<(usize, usize, bool)> {
+    pub(super) fn clicked_at(&self, x: usize, y: usize) -> Option<(usize, usize, bool, Option<bool>)> {
         let g = self.geom;
         let pinned = (y == self.pin as usize && x < g.relw + g.gw + g.ctw).then(|| self.sticky()).flatten();
-        pinned.map(|h| (h, 0, x < g.relw + g.gw)).or_else(|| self.at_screen(x, y))
+        pinned.map(|h| (h, 0, x < g.relw + g.gw, None)).or_else(|| self.at_screen(x, y))
     }
 
-    /// The row and column under screen cell (`x`, `y`), and whether it's in the gutter (line
-    /// numbers, fold arrows), as the last frame drew it.
-    pub(super) fn at_screen(&self, x: usize, y: usize) -> Option<(usize, usize, bool)> {
+    /// The row and column under screen cell (`x`, `y`), whether it's in the gutter (line
+    /// numbers, fold arrows), as the last frame drew it; and on a split pair, the side it's on
+    /// (a hatch, no line on the half clicked: the other's, where it lands).
+    pub(super) fn at_screen(&self, x: usize, y: usize) -> Option<(usize, usize, bool, Option<bool>)> {
         let g = self.geom;
         if self.pin && y == 0 {
             let start = g.relw + g.gw; // the pinned title (and the pane's tabs, `click_tab`)
-            return Some((0, x.saturating_sub(start), x < start));
+            return Some((0, x.saturating_sub(start), x < start, None));
         }
         let y = y - self.pin as usize;
         if y >= self.height {
@@ -187,7 +188,7 @@ impl App {
         if let Some(note) = self.note_at(d).filter(|_| x > g.relw + g.gw + g.ctw) {
             let s = self.span_of(note, 0);
             let at = x.saturating_sub(self.pane_x() + self.rows[note].guide_w());
-            return Some((note, self.clicked(note, s.as_ref(), at), x < self.pane_x()));
+            return Some((note, self.clicked(note, s.as_ref(), at), x < self.pane_x(), None));
         }
         // The code: the side clicked (split view; a hatch, no line there: the other's), what
         // that screen row shows of it (`span`), the click kept within it. A spacer: the comment
@@ -197,11 +198,11 @@ impl App {
         let side = if self.side_row(d, side).is_some() { side } else { !side };
         let Some(row) = self.side_row(d, side) else {
             let note = self.note_at(d)?;
-            return Some((note, 0, false));
+            return Some((note, 0, false, None));
         };
         let start = self.code_x(d, side) + self.rows[row].guide_w();
         let s = self.span(d, side);
-        Some((row, self.clicked(row, s.as_ref(), x.saturating_sub(start)), x < self.code_x(d, side)))
+        Some((row, self.clicked(row, s.as_ref(), x.saturating_sub(start)), x < self.code_x(d, side), paired.then_some(side)))
     }
 
 }
