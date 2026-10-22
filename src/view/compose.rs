@@ -216,6 +216,9 @@ impl App {
                     _ => "ask Claude about this conversation comment (it answers under it; nothing goes to GitHub)".to_owned(),
                 };
                 let Some(body) = compose_with(&what, false, &prefill, false)? else { return Ok("question cancelled".into()) };
+                // (A question about the PR or a conversation comment: an ask, not a change
+                // request left open once answered; a commit's, its picked want.)
+                let want = if want.is_empty() && commit_of(&url).is_none() { "ask" } else { want };
                 keep_on_error(crate::claude::add_conversation(&p, &url, &body, want).map(drop), &body)?;
                 Ok(self.answer_now())
             }
