@@ -5,6 +5,18 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.95.14] - 2026-10-22
+
+### Fixed
+- Claude: a reply on a resolved comment of its reopens it, so it's answered; a question about
+  the PR or a conversation comment isn't left as an open change request; a reply asking for
+  any code change waits while its pane is at work here.
+- A replacement's or new PR's draft: Claude's runs and panes there are claimed as a PR's are
+  (`rep-<id>`): its own pane isn't "busy", the pane closes when done (after publishing too),
+  a redraft waits for what's at work and says what, removing it waits too; dv list and the
+  issues list word what Claude's doing on it from those claims, and the issues list keeps up
+  (its finished panes closed, its auto picks cheap).
+
 ## [0.95.13] - 2026-10-22
 
 ### Fixed
