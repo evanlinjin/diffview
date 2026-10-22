@@ -336,6 +336,8 @@ impl App {
 
     /// The PR's commits as checked out (first parents: the branch's own line), oldest first.
     pub(super) fn load_commits(&mut self) {
+        // (What isn't committed first, whatever the log: the title and the menus go by it.)
+        self.dirty = Dirty::of(&diff::git(&["status", "--porcelain"]).unwrap_or_default());
         let range = format!("{}..HEAD", self.full_base);
         let Ok(out) = diff::git(&["log", "--reverse", "--first-parent", "--format=%H%x09%h%x09%at%x09%s", &range]) else { return };
         let was: Vec<String> = self.commits.iter().map(|c| c.sha.clone()).collect();
@@ -347,8 +349,6 @@ impl App {
                 Some(Commit { sha: sha.into(), short: short.into(), at: at.into(), subject: p.next().unwrap_or("").into() })
             })
             .collect();
-        // (Each new file, whatever the config: as the diff lists them, `ls-files --others`.)
-        self.dirty = Dirty::of(&diff::git(&["status", "--porcelain", "--untracked-files=all"]).unwrap_or_default());
         let n = self.commits.len();
         // What's kept by a commit (the commits shown, the list's cursor and range's start) follows
         // it by what it was (`now_as`: amended, rebased, other SHAs), not where it sat (one dropped

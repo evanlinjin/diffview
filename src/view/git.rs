@@ -334,7 +334,8 @@ impl App {
                 Push::Nothing | Push::Unknown => {}
             }
         }
-        if !diff::git(&["status", "--porcelain", "--untracked-files=no"]).unwrap_or_default().trim().is_empty() {
+        // (New files too, as the diff and the commits list have them.)
+        if self.dirty.has() {
             parts.push("✎ uncommitted".into());
         }
         self.sync = parts.join(" · ");

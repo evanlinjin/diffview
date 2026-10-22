@@ -273,9 +273,12 @@ pub fn git_in(dir: &std::path::Path, args: &[&str]) -> Result<String> {
 
 pub fn git(args: &[&str]) -> Result<String> {
     // Never an editor (a rebase's, a commit's): dv holds the terminal. These beat git's config.
-    // And no signature lines in `git log`'s output (`log.showSignature`): dv parses it.
+    // And no signature lines in `git log`'s output (`log.showSignature`): dv parses it. What
+    // isn't committed (`git status`): each new file, as the diff lists them (`ls-files
+    // --others`), whatever the config; a check of tracked files only says
+    // `--untracked-files=no`.
     let out = Command::new("git")
-        .args(["-c", "log.showSignature=false"])
+        .args(["-c", "log.showSignature=false", "-c", "status.showUntrackedFiles=all"])
         .args(args)
         .env("GIT_EDITOR", "true")
         .env("GIT_SEQUENCE_EDITOR", "true")
@@ -681,4 +684,21 @@ pub fn hunks_by_file(files: &[FileDiff]) -> Moves {
         Some((os, ol, ns, nl))
     };
     files.iter().map(|f| (f.path.clone(), f.lines.iter().filter(|l| l.kind == Kind::Hunk).filter_map(|l| hunk(&l.text)).collect())).collect()
+}
+
+#[test]
+fn status_lists_each_new_file_whatever_the_config() {
+    let d = std::env::temp_dir().join(format!("dv-status-{}", std::process::id()));
+    _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(d.join("newmod")).unwrap();
+    let ds = d.to_string_lossy().into_owned();
+    git(&["-C", &ds, "init", "-q"]).unwrap();
+    git(&["-C", &ds, "config", "status.showUntrackedFiles", "no"]).unwrap();
+    std::fs::write(d.join("newmod/a.rs"), "a").unwrap();
+    std::fs::write(d.join("newmod/b.rs"), "b").unwrap();
+    let s = git(&["-C", &ds, "status", "--porcelain"]).unwrap();
+    assert_eq!(s.lines().collect::<Vec<_>>(), ["?? newmod/a.rs", "?? newmod/b.rs"]);
+    // A check of tracked files only still says so.
+    assert_eq!(git(&["-C", &ds, "status", "--porcelain", "--untracked-files=no"]).unwrap(), "");
+    std::fs::remove_dir_all(&d).unwrap();
 }
