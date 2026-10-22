@@ -805,9 +805,11 @@ impl App {
         // Its marker first, every pane on the session (not a fork: a session of its own), for dv
         // list and any dv (`claude::claim` waits while it's open). While a run holds it: a pane
         // to talk in forks (that run's at the session), a request's refused.
+        // (Its session settled first: what it runs on, its marker names.)
+        let session = self.session_args();
         let mut fork = fork;
-        let marked = match (fork, self.subject(), self.claude.session.clone()) {
-            (false, Some(s), Some(id)) => {
+        let marked = match (fork, self.subject(), session[1].clone()) {
+            (false, Some(s), id) => {
                 let what = match prompt {
                     Some(_) => format!("{} (in its pane)", name.trim_start_matches("claude: ")),
                     None => "talking with you (in its pane)".into(),
@@ -834,7 +836,7 @@ impl App {
             .arg("claude")
             .args(prompt)
             .args(crate::claude::model_args(work, &self.root)) // (none: `dv.model`, it's for anything)
-            .args(self.session_args())
+            .args(&session)
             .args(fork.then_some("--fork-session"))
             .args(claude_dirs())
             // (A checkout of its own to try things in, as the skill has it: not asked each time.)
