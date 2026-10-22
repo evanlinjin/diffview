@@ -249,7 +249,7 @@ impl App {
             return Some(("Claude's activity", &[("Enter", "go to it")]));
         }
         // (A line of the PR's (or issue's) own text: not one of dv's boxes.)
-        let text = row.file == INFO && row.info.is_some_and(|i| i < self.info.len()) && self.subject().is_some();
+        let text = self.quotable().is_some() && self.subject().is_some();
         text.then(|| match self.has_code() {
             true => ("PR text", &[("c", "quote in your review summary"), ("C", "quote in a new conversation comment"), ("Space =", "react"), ("Space c", "copy link")][..]),
             false => ("issue text", &[("C", "quote in a new comment"), ("Space =", "react"), ("Space c", "copy link")][..]),

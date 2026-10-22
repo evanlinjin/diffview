@@ -545,12 +545,12 @@ impl App {
     }
 
     /// The `info` heading that `is` (the description's, a closing note's), if there's one.
-    fn heading(&self, is: fn(&Self, usize) -> bool) -> Option<usize> {
+    pub(super) fn heading(&self, is: fn(&Self, usize) -> bool) -> Option<usize> {
         (0..self.info.len()).find(|&i| is(self, i))
     }
 
     /// The text under `info` heading `h` (its markdown line), or "".
-    fn info_body(&self, h: usize) -> &str {
+    pub(super) fn info_body(&self, h: usize) -> &str {
         self.info.get(h + 1).filter(|l| l.md).map_or("", |l| l.text.as_str())
     }
 

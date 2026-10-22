@@ -107,6 +107,8 @@ impl App {
             return self.replacement = Some(r);
         }
         let line = |heading, md, text: &str| InfoLine { heading, md, text: text.into(), ..Default::default() };
+        // (Keyed as GitHub's lines are, so the description's found the same way.)
+        let keyed = |k: &str, l: InfoLine| InfoLine { key: k.into(), ..l };
         let mut replaces = line(false, false, "replaces ");
         for (i, o) in r.replaces.iter().enumerate() {
             let sep = if i == 0 { "" } else { ", " };
@@ -127,9 +129,6 @@ impl App {
             let closed: Vec<String> = r.closed.iter().map(|n| format!("#{n}")).collect();
             status.push(line(false, false, &format!("closed {}, with the note", closed.join(", "))));
         }
-        if r.drafting_now() {
-            status.push(line(false, false, "Claude is at work on it…"));
-        }
         // A new PR: what you asked for, in place of what it replaces (and no closing note).
         let new = r.replaces.is_empty();
         if new {
@@ -137,9 +136,9 @@ impl App {
         }
         self.info = vec![replaces];
         self.info.extend(status);
-        self.info.extend([line(true, false, "description (Claude's draft)"), line(false, true, &r.body)]);
+        self.info.extend([keyed("description", line(true, false, "description (Claude's draft)")), keyed("description/text", line(false, true, &r.body))]);
         if !new {
-            self.info.extend([line(true, false, "closing note, for the PRs it replaces (Claude's draft)"), line(false, true, &r.closing_note)]);
+            self.info.extend([keyed("closing note", line(true, false, "closing note, for the PRs it replaces (Claude's draft)")), keyed("closing note/text", line(false, true, &r.closing_note))]);
         }
         self.pr_state = Some(if r.published.is_some() { ("PUBLISHED", "238636") } else { ("UNPUBLISHED", "6e7681") });
         self.replacement = Some(r);

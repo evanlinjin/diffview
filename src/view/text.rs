@@ -28,7 +28,7 @@ impl App {
     pub(super) fn pr_facts(&self) -> Vec<Row> {
         let mk = |kind, text| Row::text(INFO, kind, text);
         let facts = self.info.iter().take_while(|l| !l.heading && !l.md).count();
-        if facts == 0 || self.unpublished() {
+        if facts == 0 {
             return vec![];
         }
         let url = self.pr.as_ref().map(|p| p.url.clone()).filter(|u| !u.is_empty());
@@ -406,6 +406,17 @@ impl App {
 
     /// The same for the PR's text: `info` line `i`, unless it's a conversation comment's,
     /// hidden on GitHub and not shown here.
+    /// The PR text under the cursor that `c`, `C`, `Space =` and their hints act on: a comment's
+    /// or the description's text (on its heading, the text under it), as seen (`Some(None)`:
+    /// hidden on GitHub, unseen); an event's line or a fact, none.
+    pub(super) fn quotable(&self) -> Option<Option<&InfoLine>> {
+        let row = &self.rows[self.head.row];
+        let i = row.info.filter(|&i| row.file == INFO && row.thread.is_none() && i < self.info.len())?;
+        let i = if self.info[i].heading { i + 1 } else { i };
+        self.info.get(i).filter(|l| l.md)?;
+        Some(self.seen_info(i))
+    }
+
     pub(super) fn seen_info(&self, i: usize) -> Option<&InfoLine> {
         let head = i.checked_sub(1).and_then(|h| self.info.get(h)).filter(|h| h.heading);
         self.info.get(i).filter(|_| !head.is_some_and(|h| self.unseen(&h.hidden, &h.node)))
@@ -478,13 +489,12 @@ impl App {
 
     /// `info[i]` is the description's heading.
     pub(super) fn is_description(&self, i: usize) -> bool {
-        // A replacement's: "description (Claude's draft)".
-        self.info.get(i).is_some_and(|l| l.heading && (l.text == "description" || self.replacement.is_some() && l.text.starts_with("description")))
+        self.info.get(i).is_some_and(|l| l.heading && l.key == "description")
     }
 
     /// `info[i]` is a replacement's closing note's heading.
     pub(super) fn is_closing_note(&self, i: usize) -> bool {
-        self.replacement.is_some() && self.info.get(i).is_some_and(|l| l.heading && l.text.starts_with("closing note"))
+        self.info.get(i).is_some_and(|l| l.heading && l.key == "closing note")
     }
 
     /// `Space o` (or Enter on the line saying there's more): the PR's whole conversation beside

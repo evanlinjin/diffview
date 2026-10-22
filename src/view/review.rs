@@ -136,8 +136,8 @@ impl App {
                     list.iter_mut().filter(|x| x.0 == name).for_each(|x| x.1 = on);
                     self.github_changed();
                 }
-                if let Some((query, sel)) = self.fields_at.take() {
-                    self.fields_menu(query, sel);
+                if let Some((query, field, name)) = self.fields_at.take() {
+                    self.fields_menu(query, Some((field, name)));
                 }
             }
             Job::React(node, what, add) => self.finish(gh::react(&node, what, add).map(|_| if add { "reacted" } else { "reaction taken back" })),
@@ -659,12 +659,13 @@ impl App {
             Ok(x) => self.fields = Some(x),
             Err(e) => return self.msg = format!("{e:#}"),
         };
-        self.fields_menu(String::new(), 0);
+        self.fields_menu(String::new(), None);
     }
 
     /// The labels picker, of what GitHub said (`fields`, kept up as you change it): what was
     /// typed, and where you were, as given. It stays as you pick (one after another).
-    pub(super) fn fields_menu(&mut self, query: String, sel: usize) {
+    /// (`on`: the one to be on, as picked: its place moves as what's on sorts first.)
+    pub(super) fn fields_menu(&mut self, query: String, on: Option<(gh::Field, String)>) {
         let Some((labels, people, reviewers)) = &self.fields else { return };
         // (Under their sections: Reviewers, Labels, Assignees.)
         // (The labels Claude's triage suggests, not on it yet: marked, first.)
@@ -690,7 +691,12 @@ impl App {
             return self.msg = "no labels in this repo, nor anyone to assign or ask".into();
         }
         let p = Picker::new(" reviewers, labels, assignees (✓ on it, ◆ Claude suggests it: Enter adds or takes it off) ", items);
-        self.picker = Some(Picker { query, sel, ..p });
+        self.picker = Some(Picker { query, ..p });
+        let picked = |t: &Target| matches!((t, &on), (Target::Run(Job::SetField(f, n, _)), Some((g, m))) if f == g && n == m);
+        let sel = self.matches().into_iter().position(|i| self.picker.as_ref().is_some_and(|p| picked(&p.items[i].target))).unwrap_or(0);
+        if let Some(p) = &mut self.picker {
+            p.sel = sel;
+        }
     }
 
     pub(super) fn react_menu(&mut self, node: &str) {
@@ -882,10 +888,8 @@ impl App {
         if self.subject().is_none() {
             return self.msg = "no PR for this branch".into();
         }
-        let row = &self.rows[self.head.row];
-        let i = row.info.filter(|&i| i < self.info.len());
-        // (Hidden on GitHub, unseen: not quoted, and the editor says why.)
-        let quote = match i.map(|i| self.seen_info(i)) {
+        // (Hidden on GitHub, unseen: not quoted, and the editor says why; an event's line, none.)
+        let quote = match self.quotable() {
             Some(None) => format!("{HINT} not quoted: it's hidden on GitHub (Tab on it shows it) -->\n"),
             i => i.flatten().map_or(String::new(), |l| quote(&l.text)),
         };
@@ -898,10 +902,9 @@ impl App {
         if !self.has_code() {
             return self.msg = NO_REVIEW.into();
         }
-        let i = self.rows[self.head.row].info.filter(|&i| i < self.info.len());
-        match i.map(|i| self.seen_info(i)) {
+        match self.quotable() {
             Some(None) => self.msg = HIDDEN_FIRST.into(),
-            Some(Some(l)) if l.md && !l.text.trim().is_empty() && self.pr.is_some() => {
+            Some(Some(l)) if !l.text.trim().is_empty() && self.pr.is_some() => {
                 let q = quote(&l.text);
                 self.add_to_summary(q.trim_end());
             }

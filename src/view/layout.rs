@@ -199,7 +199,7 @@ impl App {
     /// The description Claude proposes: its text, or (only a new title proposed) the one there.
     pub(super) fn proposed_text(&self) -> String {
         match self.claude.description.is_empty() {
-            true => (0..self.info.len()).find(|&i| self.is_description(i)).and_then(|h| self.info.get(h + 1)).filter(|l| l.md).map_or(String::new(), |l| l.text.clone()),
+            true => self.heading(Self::is_description).map_or(String::new(), |h| self.info_body(h).to_owned()),
             false => self.claude.description.clone(),
         }
     }

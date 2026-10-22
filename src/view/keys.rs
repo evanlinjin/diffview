@@ -644,13 +644,13 @@ impl App {
             KeyCode::Enter => {
                 let mut p = self.picker.take().unwrap();
                 if let Some(&i) = m.get(p.sel) {
-                    let at = (p.query.clone(), p.sel);
                     match p.items.swap_remove(i).target {
                         Target::Do(a) => self.action = Some(a),
-                        // (The labels picker comes back after, as it was: one after another.)
-                        Target::Run(job @ Job::SetField(..)) => {
-                            self.fields_at = Some(at);
-                            self.start(job);
+                        // (The labels picker comes back after, as it was, on the one picked:
+                        // one after another.)
+                        Target::Run(Job::SetField(field, name, on)) => {
+                            self.fields_at = Some((p.query.clone(), field, name.clone()));
+                            self.start(Job::SetField(field, name, on));
                         }
                         Target::Run(job) => self.start(job),
                         Target::Spot(s) => self.goto_spot(s),

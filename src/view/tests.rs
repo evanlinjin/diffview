@@ -413,7 +413,7 @@ fn quote_into_conversation() {
     app.rebuild(keep);
     assert_eq!(app.head.row, body);
     // An empty description shows GitHub's placeholder, which isn't quoted.
-    app.info = vec![line(true, false, "description"), line(false, true, "")];
+    app.info = vec![InfoLine { key: "description".into(), ..line(true, false, "description") }, line(false, true, "")];
     app.build();
     let ph = app.rows.iter().position(|r| r.line.text == "(no description)").unwrap();
     assert_eq!(quoted(&mut app, ph), "");
@@ -1329,7 +1329,7 @@ fn claude_view() {
     let plain = |text: &str| InfoLine { heading: false, md: false, text: text.into(), ..Default::default() };
     let heading = |text: &str| InfoLine { heading: true, md: false, text: text.into(), ..Default::default() };
     let md = |text: &str| InfoLine { heading: false, md: true, text: text.into(), ..Default::default() };
-    app.info = vec![plain("OPEN @bo · main ← x"), plain("review: waiting on @cy"), heading("description"), md("Long story")];
+    app.info = vec![plain("OPEN @bo · main ← x"), plain("review: waiting on @cy"), InfoLine { key: "description".into(), ..heading("description") }, md("Long story")];
     app.claude.summary = "Looks fine.".into();
     let c = |author: &str| gh::Comment { id: 1, node_id: String::new(), can_edit: false, can_delete: false, author: author.into(), body: "hm".into(), created: String::new(), pending: false, reactions: vec![], hidden: String::new() };
     let t = |path: &str, line, claude: Option<&str>, author| gh::Thread {
@@ -1729,7 +1729,7 @@ fn fixture() -> App {
     app.files_pref = Some(false); // the files' list has its own test; the rest as laid out without it
     app.pr = Some(gh::Pr { number: 7, node_id: "PR".into(), title: "Fix the thing".into(), base: "main".into(), head_oid: "abc".into(), url: String::new(), author: "bo".into(), head_branch: "fix".into(), head_owner: "amy".into(), cross_repo: true, ..Default::default() });
     let line = |heading, md, text: &str| InfoLine { heading, md, text: text.into(), ..Default::default() };
-    app.info = vec![line(false, false, "OPEN @bo · main ← fix · +2 −2 in 3 files"), line(false, false, "review: waiting on @cy"), line(true, false, "description"), line(false, true, "Fixes **the thing**, see `new_call`.")];
+    app.info = vec![line(false, false, "OPEN @bo · main ← fix · +2 −2 in 3 files"), line(false, false, "review: waiting on @cy"), InfoLine { key: "description".into(), ..line(true, false, "description") }, line(false, true, "Fixes **the thing**, see `new_call`.")];
     app.claude.summary = "Looks right; one nit.".into();
     app.summary_draft = "Nearly there.".into();
     // Each comment its own id, as on GitHub and in Claude's review (dv keys threads by them).
@@ -3135,12 +3135,17 @@ fn labels_picker_comes_back_as_left() {
     let mut app = fixture();
     let on = |xs: &[(&str, bool)]| xs.iter().map(|(x, o)| (x.to_string(), *o)).collect::<Vec<_>>();
     app.fields = Some((on(&[("bug", true), ("docs", false)]), on(&[("amy", false)]), on(&[("bo", false)])));
-    app.fields_menu("o".into(), 1);
+    app.fields_menu("o".into(), Some((gh::Field::Label, "docs".into())));
     let p = app.picker.as_ref().unwrap();
-    assert_eq!((p.query.as_str(), p.sel), ("o", 1));
-    // Enter on one: its job, and where you were kept for the picker to come back to.
+    let on = |app: &App| app.picker.as_ref().map(|p| p.items[app.matches()[p.sel]].label.clone());
+    assert_eq!((p.query.as_str(), on(&app).as_deref()), ("o", Some("  docs")));
+    // Enter on one: its job, and which it was kept for the picker to come back on.
     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    assert!(matches!(app.job, Some(Job::SetField(..))) && app.fields_at == Some(("o".into(), 1)));
+    assert!(matches!(app.job, Some(Job::SetField(..))) && app.fields_at == Some(("o".into(), gh::Field::Label, "docs".into())));
+    // Back, docs now on (sorted first): the cursor on it still, not on what's in its old place.
+    app.fields.as_mut().unwrap().0[1].1 = true;
+    app.fields_menu("o".into(), Some((gh::Field::Label, "docs".into())));
+    assert_eq!(on(&app).as_deref(), Some("✓ docs"));
 }
 
 #[test]
@@ -5450,4 +5455,31 @@ fn a_moved_threads_labels_name_its_line_here() {
     assert!(app.rows.iter().any(|r| r.thread == Some(0) && r.line.text.contains("L18")), "its header names the head's L3");
     app.threads_picker(THREADS_ALL);
     assert!(app.picker.as_ref().unwrap().items.iter().any(|i| i.label.contains("a.rs:18")));
+}
+
+#[test]
+fn an_events_line_isnt_quoted_nor_hinted_as_text() {
+    let mut app = fixture();
+    let now = crate::claude::now();
+    let v = serde_json::json!({
+        "id": "PR_1", "number": 7, "title": "Fix", "url": "https://github.com/o/r/pull/7", "headRefOid": "abc", "author": { "login": "bo" },
+        "state": "OPEN", "isDraft": false, "baseRefName": "main", "headRefName": "fix", "body": "Fixes it.",
+        "dvActivity": { "reactions": [], "items": [
+            { "__typename": "IssueComment", "id": "c1", "url": "https://github.com/o/r/pull/7#issuecomment-1", "createdAt": now, "author": { "login": "amy" }, "body": "One." },
+            { "__typename": "LabeledEvent", "id": "L1", "createdAt": now, "actor": { "login": "amy" }, "label": { "name": "bug", "color": "d73a4a" } },
+        ] },
+    });
+    let me = gh::parse_threads(&serde_json::json!({ "viewer": { "login": "me" }, "repository": { "pullRequest": { "viewerDidAuthor": false } } }));
+    app.apply_github((Ok(me), Ok(info::parse_info(&v))), true);
+    app.build();
+    let r = app.rows.iter().position(|r| r.line.text.starts_with("● @amy added")).unwrap();
+    app.goto(r, 3);
+    assert!(app.quotable().is_none());
+    assert!(app.context_keys().is_none_or(|(t, _)| t != "PR text"), "{:?}", app.context_keys());
+    app.start_conversation_comment();
+    assert!(matches!(&app.action, Some(Action::Converse { quote, .. }) if quote.is_empty()));
+    // The rerun of failed checks: offered, whether or not a required one failed.
+    app.failing = 0;
+    app.git_menu();
+    assert!(app.picker.as_ref().unwrap().items.iter().any(|i| i.label.starts_with("Rerun the failed checks")));
 }

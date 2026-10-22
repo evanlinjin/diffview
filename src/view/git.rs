@@ -138,9 +138,9 @@ impl App {
             items.push(Item::new(label, Target::Run(Job::Pull)));
         }
         // Failing for no fault of the PR's (a flaky test, a network blip): once more.
-        if self.failing > 0 && self.pr.is_some() {
-            let s = if self.failing == 1 { "" } else { "s" };
-            items.push(Item::new(format!("Rerun the failed check{s} ({}: their failed jobs, on GitHub)", self.failing), Target::Run(Job::Rerun(false))));
+        // (Optional ones too, not only those the base requires: GitHub says if none failed.)
+        if self.pr.is_some() {
+            items.push(Item::new("Rerun the failed checks (their failed jobs, on GitHub)", Target::Run(Job::Rerun(false))));
         }
         if self.pr.is_some() {
             items.push(Item::new("Rerun every check (all the head's finished runs, on GitHub)", Target::Run(Job::Rerun(true))));

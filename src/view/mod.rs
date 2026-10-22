@@ -789,7 +789,7 @@ pub struct App {
     /// The PR's labels, assignees and reviewers, and what it could have (`Space l`), as GitHub
     /// said and as you've changed them since; and where you were in their picker, to come back.
     fields: Option<(gh::Choices, gh::Choices, gh::Choices)>,
-    fields_at: Option<(String, usize)>,
+    fields_at: Option<(String, gh::Field, String)>,
     /// Claude is placing every change for an amend (`AmendAll`): dv amends once it has.
     amend_then: bool,
     /// Shown, then hidden again with Tab on their thread's first line: the next Tab there folds
