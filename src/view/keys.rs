@@ -296,7 +296,7 @@ impl App {
             return self.pending_key(p, c);
         }
         if let Some(d) = c.to_digit(10).filter(|&d| d > 0 || self.count > 0) {
-            self.count = self.count * 10 + d as usize;
+            self.count = (self.count * 10 + d as usize).min(10_000); // (a motion repeated: not forever)
             return;
         }
         let n = std::mem::take(&mut self.count).max(1);
