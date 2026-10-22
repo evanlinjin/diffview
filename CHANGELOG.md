@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.87.0] - 2026-10-22
+
+### Added
+- A PR's view knows its replacement: while Claude drafts it, the status bar says so
+  (`◐ claude drafting its replacement`), and `Space a` → "Open its replacement" shows it in its
+  own view, drafting or drafted; `q` there comes back to the PR as you left it.
+
 ## [0.86.0] - 2026-10-22
 
 ### Added
