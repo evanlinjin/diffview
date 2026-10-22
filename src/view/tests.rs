@@ -4319,3 +4319,15 @@ fn an_issues_key_hints_are_an_issues() {
     let keys: Vec<&str> = app.context_keys().unwrap().1.iter().map(|e| e.0).collect();
     assert_eq!(keys, ["C", "Space =", "Space c"]);
 }
+
+#[test]
+fn a_selection_onto_a_hunks_rule_hints_the_selection() {
+    // `v` then `k` onto the hunk's rule: the keys still act on the lines selected.
+    let mut app = fixture();
+    let first = (1..app.rows.len()).find(|&r| app.rows[r].line.kind.is_code() && app.rows[r - 1].line.kind == Kind::Hunk).unwrap();
+    app.goto(first, 0);
+    app.key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
+    assert_eq!(app.rows[app.head.row].line.kind, Kind::Hunk);
+    assert_eq!(app.context_keys().map(|k| k.0), Some("selection"));
+}

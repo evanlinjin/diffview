@@ -360,16 +360,11 @@ fn modifier(m: &str) -> Modifier {
     }
 }
 
-/// `bg` a shade apart by `t`: darker, or (too dark to show darker) lighter; none where that
-/// can't be told from `bg` (or it isn't RGB).
+/// `bg` a shade apart by `t`: darker, or (too dark to show darker) lighter; none if it isn't
+/// RGB.
 fn shade(bg: Color, t: f32) -> Option<Color> {
-    let Color::Rgb(r, g, b) = bg else { return None };
     let (to, t) = if luma(bg) < 48.0 { (Color::Rgb(255, 255, 255), t / 3.0) } else { (Color::Rgb(0, 0, 0), t) };
-    let s = blend(to, bg, t)?;
-    let Color::Rgb(sr, sg, sb) = s else { return None };
-    // (A step or two: not seen.)
-    let apart = [(sr, r), (sg, g), (sb, b)].iter().map(|&(x, y)| (x as i32 - y as i32).abs()).max().unwrap_or(0);
-    (apart >= 6).then_some(s)
+    blend(to, bg, t)
 }
 
 #[test]
@@ -408,7 +403,7 @@ fn resolves_inherits_and_palette() {
 
 /// How light a color is (0–255), for picking the darker of two; unknown (named) ones count as
 /// mid-gray, so a theme's own RGB colors win.
-fn luma(c: Color) -> f32 {
+pub(crate) fn luma(c: Color) -> f32 {
     match c {
         Color::Rgb(r, g, b) => 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32,
         _ => 128.0,

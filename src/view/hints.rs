@@ -220,7 +220,9 @@ impl App {
         }
         // A line of code: Enter opens it in your editor, there.
         let code = row.file != INFO && matches!(row.line.kind, Kind::Add | Kind::Del | Kind::Ctx);
-        if code && (self.select || self.anchor.row != self.head.row) {
+        // A selection in a diff's file (a hunk's or the file's header too: threads returned
+        // above): what the keys act on, as they do there.
+        if row.file != INFO && (self.select || self.anchor.row != self.head.row) {
             return Some(match self.unpublished() {
                 true => ("selection", &[("a", "a comment for Claude"), ("y", "copy"), ("Space c", "copy file:line ref")][..]),
                 false => ("selection", &[("c", "comment (review)"), ("C", "comment now"), ("s", "suggest a change"), ("a", "a comment for Claude"), ("y", "copy"), ("Space c", "copy file:line ref")][..]),
