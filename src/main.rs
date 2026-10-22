@@ -577,9 +577,10 @@ fn review_comments(pr: Option<&gh::Pr>, threads: Option<serde_json::Value>) -> a
         .iter()
         .map(|t| {
             serde_json::json!({
-                "path": t.path, "line": t.line, "start_line": t.start_line, "side": if t.left { "old" } else { "new" },
-                // (A range can start on the other side: GitHub's, old to new.)
-                "start_side": t.start_line.map(|_| if t.start_left.unwrap_or(t.left) { "old" } else { "new" }),
+                "path": t.path, "line": t.line, "side": if t.left { "old" } else { "new" },
+                // A range's start (only a range's), and its side: GitHub's can start on the old.
+                "start_line": t.range_start().map(|s| s.0),
+                "start_side": t.range_start().map(|s| if s.1 { "old" } else { "new" }),
                 "resolved": t.resolved, "outdated": t.outdated,
                 "comments": t.comments.iter().map(|c| serde_json::json!({ "id": c.id, "author": c.author, "body": c.body })).collect::<Vec<_>>(),
             })

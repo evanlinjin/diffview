@@ -843,14 +843,16 @@ fn your_comments_for_claude_stay_private() {
     assert!(app.action.is_none() && app.msg.contains("private"));
     assert!(!app.threads[0].by_claude());
     assert_eq!(app.change_requests(), 1); // but it's a request "make the changes" acts on
-    // `a` across removed and added lines is refused: line numbers are per side.
+    // `a` across removed and added lines: on the added side's lines (line numbers are per
+    // side), from the first there.
     let del = app.rows.iter().position(|r| r.line.kind == Kind::Del).unwrap();
     let add = app.rows.iter().position(|r| r.line.kind == Kind::Add).unwrap();
     app.goto(del, 0);
     app.select = true;
     app.goto(add, 0);
     app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
-    assert!(app.action.is_none() && app.msg.contains("one side"));
+    let Some(Action::AskClaude { anchor, .. }) = &app.wanting else { panic!("{}", app.msg) };
+    assert!(!anchor.left && anchor.start.is_none_or(|(_, left)| !left), "{:?}", anchor.start);
 }
 
 #[test]

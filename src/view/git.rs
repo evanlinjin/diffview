@@ -245,8 +245,7 @@ impl App {
 
     /// The diff against `base` from now on (the whole diff's, or `HEAD`'s: what isn't committed).
     fn diff_against(&mut self, base: String) {
-        self.set_base(base);
-        self.whole_diff_again();
+        self.show_whole(base);
     }
 
     /// Between the whole diff and only what isn't committed.
@@ -592,11 +591,7 @@ impl App {
         if now == self.full_base || git(&["merge-base", "--is-ancestor", &self.full_base, &now]).is_err() {
             return;
         }
-        if !self.uncommitted() {
-            self.set_base(now.clone()); // the whole diff (a commit shown, or a range, goes)
-        }
-        self.full_base = now;
-        self.whole_diff_again();
+        self.move_full_base(now); // the whole diff (a commit shown, or a range, goes)
     }
 }
 

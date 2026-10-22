@@ -338,6 +338,7 @@ impl App {
     pub(super) fn load_commits(&mut self) {
         let range = format!("{}..HEAD", self.full_base);
         let Ok(out) = diff::git(&["log", "--reverse", "--first-parent", "--format=%H%x09%h%x09%at%x09%s", &range]) else { return };
+        let was: Vec<String> = self.commits.iter().map(|c| c.sha.clone()).collect();
         self.commits = out
             .lines()
             .filter_map(|l| {
@@ -349,21 +350,28 @@ impl App {
             .collect();
         self.dirty = Dirty::of(&diff::git(&["status", "--porcelain"]).unwrap_or_default());
         let n = self.commits.len();
-        self.commit_cur = self.commit_cur.min(n + usize::from(self.dirty.has()));
-        // The commits shown, as they are now: followed by what they were (`now_as`: amended,
-        // rebased, other SHAs), not by where they sat in the list (one dropped before them moves
-        // the rest); gone (dropped), the whole diff again.
+        // What's kept by a commit (the commits shown, the list's cursor and range's start) follows
+        // it by what it was (`now_as`: amended, rebased, other SHAs), not where it sat (one dropped
+        // before it moves the rest); gone (dropped), the whole diff again.
+        let at = |sha: &str| self.now_as(sha).and_then(|s| self.commits.iter().position(|c| c.sha == s));
+        // (The list's spots: 0 the whole diff, then each commit, then what isn't committed.)
+        let spot = |k: usize| match k {
+            0 => Some(0),
+            k if k <= was.len() => at(&was[k - 1]).map(|i| i + 1),
+            _ => Some(n + 1),
+        };
+        let (cur, anchor) = (spot(self.commit_cur).unwrap_or(self.commit_cur), self.commit_anchor.and_then(spot));
+        let shown = |sha: &Option<String>| sha.as_deref().and_then(at);
+        let (first, last) = (shown(&self.shown_first), shown(&self.to));
+        self.commit_cur = cur.min(n + usize::from(self.dirty.has()));
+        self.commit_anchor = anchor;
         if self.commit_shown.is_some() {
-            let at = |sha: Option<String>| sha.and_then(|s| self.now_as(&s)).and_then(|s| self.commits.iter().position(|c| c.sha == s));
-            match (at(self.shown_first.clone()), at(self.to.clone())) {
+            match (first, last) {
                 (Some(a), Some(b)) if a <= b => {
                     self.commit_shown = Some((a, b));
                     self.commits_as_now((a, b));
                 }
-                _ => {
-                    self.whole_diff_again();
-                    self.set_base(self.full_base.clone());
-                }
+                _ => self.show_whole(self.full_base.clone()),
             }
         }
     }
@@ -457,11 +465,12 @@ impl App {
     fn commits_as_now(&mut self, (a, b): (usize, usize)) {
         let first = Some(self.commits[a].sha.clone());
         let to = Some(self.commits[b].sha.clone());
-        if (&first, &to) == (&self.shown_first, &self.to) && !self.commit_msgs.is_empty() {
-            return; // (the same commits: as they were)
+        let base = if a == 0 { self.full_base.clone() } else { self.commits[a - 1].sha.clone() };
+        if (&first, &to, &base) == (&self.shown_first, &self.to, &self.base) {
+            return; // (the same commits: as they were, their messages too)
         }
-        self.set_base(if a == 0 { self.full_base.clone() } else { self.commits[a - 1].sha.clone() });
-        (self.shown_first, self.to) = (first, to);
+        self.set_diff(base, to);
+        self.shown_first = first;
         let mut args = vec!["log", "--no-walk=unsorted", "--format=%B%x00"];
         args.extend(self.commits[a..=b].iter().map(|c| c.sha.as_str()));
         let out = diff::git(&args).unwrap_or_default();
@@ -471,16 +480,13 @@ impl App {
     /// Show commits `first..=last` (`None`: all of them, the whole diff).
     pub(super) fn show_commits(&mut self, sel: Option<(usize, usize)>) {
         let sel = sel.filter(|&(a, b)| a <= b && b < self.commits.len());
-        self.commit_shown = sel;
-        self.commit_msgs.clear(); // (read afresh)
         match sel {
-            Some(sel) => self.commits_as_now(sel),
-            None => {
-                self.set_base(self.full_base.clone());
-                (self.to, self.shown_first) = (None, None);
+            Some(sel) => {
+                self.commit_shown = Some(sel);
+                self.commits_as_now(sel);
             }
+            None => self.show_whole(self.full_base.clone()),
         }
-        self.hunks_afresh();
         self.msg = match (self.reload(false), self.commits_label()) {
             (Err(e), _) => format!("{e:#}"),
             (Ok(()), None) => "all commits: the whole diff".into(),

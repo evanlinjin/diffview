@@ -199,12 +199,16 @@ impl App {
         // Its lines: a range (from the other side, each with its side: `−` the old, `+` the
         // new); outdated, where it was.
         let side = |left: bool| if left { '−' } else { '+' };
-        let range = match (t.range_start(), t.line, t.start_line, t.original_line) {
-            (Some((s, from)), Some(e), ..) if from != t.left => format!(" · L{}{s}–{}{e}", side(from), side(t.left)),
-            (Some((s, _)), Some(e), ..) => format!(" · L{s}-{e}"),
-            (None, Some(e), ..) => format!(" · L{e}"),
-            (_, None, Some(s), Some(e)) if s < e => format!(" · was L{s}-{e}"),
-            (_, None, _, Some(e)) => format!(" · was L{e}"),
+        let range = match (t.outdated, t.range_start(), t.line, t.original_line) {
+            // (Outdated: where it was, as GitHub has it; Claude's range is its own, one side.)
+            (true, ..) => match (t.start_line.filter(|_| t.claude.is_some()), t.original_line.or(t.line)) {
+                (Some(s), Some(e)) if s < e => format!(" · was L{s}-{e}"),
+                (_, Some(e)) => format!(" · was L{e}"),
+                _ => String::new(),
+            },
+            (_, Some((s, from)), Some(e), _) if from != t.left => format!(" · L{}{s}–{}{e}", side(from), side(t.left)),
+            (_, Some((s, _)), Some(e), _) => format!(" · L{s}-{e}"),
+            (_, None, Some(e), _) => format!(" · L{e}"),
             _ => String::new(),
         };
         // Tags lead the header so stale threads are easy to spot when scanning.

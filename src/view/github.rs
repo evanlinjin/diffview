@@ -289,11 +289,8 @@ impl App {
                 return self.base_note(&said);
             };
             let mb = mb.trim().to_owned();
-            if !self.uncommitted() {
-                self.set_base(mb.clone());
-            }
-            (self.full_base, self.follow_base) = (mb, Some(onto));
-            self.whole_diff_again();
+            self.move_full_base(mb);
+            self.follow_base = Some(onto);
         }
         if let Some(pr) = &mut self.pr {
             pr.base = base.clone();

@@ -113,10 +113,7 @@ impl App {
             Ok(a) => a,
             Err(_) => return self.msg = "a on code lines leaves Claude a comment there".into(),
         };
-        // Line numbers are per side; a range across removed and added lines has no one side.
-        if anchor.start.is_some_and(|(_, left)| left != anchor.left) {
-            return self.msg = "select lines on one side (removed, or added/unchanged) to leave Claude a comment".into();
-        }
+        let anchor = self.one_sided(anchor);
         // Their text, so the comment follows its code (as review-check records for Claude's).
         let first = anchor.start.map_or(anchor.line, |s| s.0);
         let code = self.files.iter().find(|f| f.path == anchor.path).and_then(|f| crate::claude::code_at(f, anchor.left, first, anchor.line));
@@ -206,6 +203,15 @@ impl App {
         self.pick_want(Action::AskConversation { url, prefill, want: "" }, t);
     }
 
+    /// Anchor `a` on its end's side's lines, what Claude's review file and the code quoted read: a
+    /// range from the other side (removed to added, GitHub's too) from the first line of this
+    /// side there.
+    fn one_sided(&self, mut a: Anchor) -> Anchor {
+        let file = self.files.iter().find(|f| f.path == a.path);
+        a.start = a.start.and_then(|s| start_on_side(file?, s, a.left)).filter(|&s| s < a.line).map(|s| (s, a.left));
+        a
+    }
+
     /// `a` on a GitHub review thread: a comment for Claude on its lines, asking about the comment
     /// under the cursor (quoted unless it's hidden on GitHub, with its link, else its id, so
     /// Claude reads it and the thread).
@@ -213,10 +219,7 @@ impl App {
         let th = &self.threads[t];
         let Some(line) = th.line else { return self.msg = "this thread is outdated: its lines aren't in the diff to ask about".into() };
         let Some(c) = self.comment_under_cursor(t) else { return self.msg = "move onto a comment to ask about it".into() };
-        // (A range from the other side: its start as a line on this one, as Claude reads it.)
-        let file = self.files.iter().find(|f| f.path == th.path);
-        let start = th.range_start().and_then(|s| start_on_side(file?, s, th.left)).filter(|&s| s < line).map(|s| (s, th.left));
-        let anchor = Anchor { path: th.path.clone(), line, left: th.left, start };
+        let anchor = self.one_sided(Anchor { path: th.path.clone(), line, left: th.left, start: th.range_start() });
         let first_line = anchor.start.map_or(line, |s| s.0);
         let Some(code) = self.files.iter().find(|f| f.path == anchor.path).and_then(|f| crate::claude::code_at(f, anchor.left, first_line, line)) else {
             return self.msg = "those lines aren't in this diff".into();

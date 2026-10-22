@@ -426,10 +426,6 @@ impl App {
             .filter_map(|t| Some((t.conversation.clone(), super::commit_of(&t.conversation)?.to_owned())))
             .filter(|(_, sha)| !self.commits.iter().any(|c| &c.sha == sha))
             .collect();
-        // (One an amend dropped is gone, its questions with it: not moved onto another. Read
-        // only: one back here isn't lost, so its record doesn't matter.)
-        let dropped = dropped_in(&self.root);
-        lost.retain(|(_, sha)| !dropped.contains(sha));
         lost.sort();
         lost.dedup();
         if lost.is_empty() {
@@ -446,12 +442,16 @@ impl App {
         }
     }
 
-    /// The commit `sha` of the list is now: itself, still here; else (amended, rebased: by dv or
-    /// not) the one with its subject and author date (both kept by a rebase or an amend), or,
-    /// reworded, its date and author: the only one.
+    /// The commit `sha` of the list is now: itself, still here; dropped by an amend, none; else
+    /// (amended, rebased: by dv or not) the one with its subject and author date (both kept by a
+    /// rebase or an amend), or, reworded, its date and author: the only one.
     pub(super) fn now_as(&self, sha: &str) -> Option<String> {
         if self.commits.iter().any(|c| c.sha == sha) {
             return Some(sha.to_owned());
+        }
+        // (One an amend dropped is gone: not another of the same date and author.)
+        if dropped_in(&self.root).iter().any(|d| d == sha) {
+            return None;
         }
         let was = git_in(&self.root, &["log", "-1", "--format=%at%x09%ae%x09%s", sha]).ok()?;
         let mut f = was.trim_end_matches('\n').splitn(3, '\t');

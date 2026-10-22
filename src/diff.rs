@@ -178,15 +178,11 @@ pub fn hunks(full: &[Line], ctx: usize) -> Vec<(usize, usize)> {
     out
 }
 
-/// Hunks ± (ctx + their extra) as windows, keyed by their first index (what `hunk_windows`
-/// does, by its own keys).
-#[cfg(test)]
-fn windows(full: &[Line], ctx: usize, extra: impl Fn(usize) -> i64, whole: bool) -> Vec<(usize, usize, Vec<usize>)> {
-    let spans = hunks(full, ctx).into_iter().map(|(a, b)| {
-        let x = (ctx as i64 + extra(a)).max(0) as usize;
-        (a.saturating_sub(x), b + x, a)
-    });
-    merge_windows(spans.collect(), full.len(), whole)
+/// Lines `lo..=hi` with `ctx` lines of context around, plus `extra` (fewer, negative), as a
+/// span for `merge_windows`, for `key`.
+pub fn widen<K>(lo: usize, hi: usize, ctx: usize, extra: i64, key: K) -> (usize, usize, K) {
+    let x = (ctx as i64 + extra).max(0) as usize;
+    (lo.saturating_sub(x), hi + x, key)
 }
 
 /// Spans of a file's whole diff (`len` lines: first, last, and what each's for), as the windows
@@ -246,19 +242,23 @@ pub fn remote_is(dir: &std::path::Path, remote: &str, repo: &str) -> bool {
 /// The remote branch `here` in the checkout at `dir` pushes to: its push remote, else the
 /// default one, else its remote (a name, or a URL).
 pub fn push_remote(dir: &std::path::Path, here: &str) -> Option<String> {
-    let config = |k: &str| git_in(dir, &["config", "--get", k]).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
+    let config = |k: &str| git_config(dir, k);
     config(&format!("branch.{here}.pushRemote")).or_else(|| config("remote.pushDefault")).or_else(|| config(&format!("branch.{here}.remote")))
+}
+
+/// Git config `key` in the checkout at `dir`, set and not empty.
+fn git_config(dir: &std::path::Path, key: &str) -> Option<String> {
+    git_in(dir, &["config", "--get", key]).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
 }
 
 /// Where branch `here` in the checkout at `dir` pushes to: its push remote (or its remote), and
 /// the branch there: the PR's (`pr`: its branch and repo) when it tracks that, in that repo,
 /// whatever it's called here; else its own name.
 pub fn push_target(dir: &std::path::Path, here: &str, pr: Option<(&str, &str)>) -> Option<(String, String)> {
-    let config = |k: &str| git_in(dir, &["config", "--get", k]).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
     let remote = push_remote(dir, here)?;
     // (Not the branch it tracks, unless that's the PR's: one started from `origin/main` tracks
     // `main`, but isn't it, whatever it's named.)
-    let merge = config(&format!("branch.{here}.merge")).map(|m| m.trim_start_matches("refs/heads/").to_owned());
+    let merge = git_config(dir, &format!("branch.{here}.merge")).map(|m| m.trim_start_matches("refs/heads/").to_owned());
     let theirs = |m: &String| pr.is_some_and(|(b, repo)| m == b && remote_is(dir, &remote, repo));
     let branch = merge.filter(theirs).unwrap_or_else(|| here.to_owned());
     Some((remote, branch))
@@ -575,10 +575,11 @@ fn hunk_windows() {
         })
         .collect();
     assert_eq!(hunks(&full, 3), [(10, 10), (25, 25)]);
-    assert_eq!(windows(&full, 3, |_| 0, false), [(7, 13, vec![10]), (22, 28, vec![25])]);
+    let windows = |extra: fn(usize) -> i64| merge_windows(hunks(&full, 3).into_iter().map(|(a, b)| widen(a, b, 3, extra(a), a)).collect(), full.len(), false);
+    assert_eq!(windows(|_| 0), [(7, 13, vec![10]), (22, 28, vec![25])]);
     // Expanding the first hunk by 10 reaches the second: they merge.
-    assert_eq!(windows(&full, 3, |a| if a == 10 { 10 } else { 0 }, false), [(0, 28, vec![10, 25])]);
-    let lines = shown(&full, &windows(&full, 3, |_| 0, false), &[(8, " fn x".into())]);
+    assert_eq!(windows(|a| if a == 10 { 10 } else { 0 }), [(0, 28, vec![10, 25])]);
+    let lines = shown(&full, &windows(|_| 0), &[(8, " fn x".into())]);
     assert_eq!(lines[0].text, "@@ -8,6 +8,7 @@ fn x");
     assert_eq!(lines.len(), 2 + 7 + 7);
 }

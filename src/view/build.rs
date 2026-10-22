@@ -16,8 +16,7 @@ pub(super) fn view_windows(threads: &[&Thread], f: &FileDiff, extra: impl Fn(&Wi
         // (A range: from its first line, wherever that is in the diff; removed lines between
         // don't count toward it.)
         let first = t.range_start().and_then(|(s, left)| line_on(left, &f.full, s)).filter(|&s| s <= at).unwrap_or(at);
-        let x = (DEFAULT_CONTEXT as i64 + extra(&k)).max(0) as usize;
-        Some((first.saturating_sub(x), at + x, k))
+        Some(diff::widen(first, at, DEFAULT_CONTEXT as usize, extra(&k), k))
     });
     diff::merge_windows(spans.collect(), f.full.len(), whole)
 }
@@ -49,8 +48,7 @@ fn hunk_windows(f: &FileDiff, extra: &HashMap<Wide, i64>, whole: bool) -> Vec<(u
     let ctx = DEFAULT_CONTEXT as usize;
     let spans = diff::hunks(&f.full, ctx).into_iter().map(|(a, b)| {
         let k = hunk_wide(f, a);
-        let x = (ctx as i64 + *extra.get(&k).unwrap_or(&0)).max(0) as usize;
-        (a.saturating_sub(x), b + x, k)
+        diff::widen(a, b, ctx, *extra.get(&k).unwrap_or(&0), k)
     });
     diff::merge_windows(spans.collect(), f.full.len(), whole)
 }
@@ -640,23 +638,33 @@ impl App {
 
     /// The whole diff again, from its base as now (another base, a commit or range let go):
     /// its hunks other ones, their context afresh. Every such change goes through here.
-    pub(super) fn whole_diff_again(&mut self) {
-        (self.to, self.commit_shown, self.commit_anchor, self.shown_first) = (None, None, None, None);
-        self.hunks_afresh();
-    }
-
-    /// The diff from `base` now: another one, its hunks are other ones (their widened context
-    /// let go). Every change of the base goes through here.
-    pub(super) fn set_base(&mut self, base: String) {
-        if base != self.base {
-            self.base = base;
+    /// The diff shown: from `base` to `to` (a commit's; else the working tree). Every change of it
+    /// goes through here: another one, its hunks are other ones, their widened context let go.
+    pub(super) fn set_diff(&mut self, base: String, to: Option<String>) {
+        if (&base, &to) != (&self.base, &self.to) {
+            (self.base, self.to) = (base, to);
             self.hunks_afresh();
         }
     }
 
-    /// The diff's hunks are other ones (another base, a commit's or a range's): their widened
-    /// context, the whole diff's and the views', let go.
-    pub(super) fn hunks_afresh(&mut self) {
+    /// The whole diff, from `base`: no commit or range shown.
+    pub(super) fn show_whole(&mut self, base: String) {
+        (self.commit_shown, self.commit_anchor, self.shown_first) = (None, None, None);
+        self.commit_msgs.clear();
+        self.set_diff(base, None);
+    }
+
+    /// The PR's base moved to `now` (followed on, retargeted): the whole diff from there (only
+    /// what isn't committed, shown, stays so).
+    pub(super) fn move_full_base(&mut self, now: String) {
+        let base = if self.uncommitted() { self.base.clone() } else { now.clone() };
+        self.full_base = now;
+        self.show_whole(base);
+    }
+
+    /// The diff's hunks are other ones: their widened context, the whole diff's and the views',
+    /// let go (`set_diff`).
+    fn hunks_afresh(&mut self) {
         self.extra.clear();
     }
 
