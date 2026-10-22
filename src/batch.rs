@@ -301,13 +301,35 @@ fn suggest_groups(prs: &[(u64, String, String, String)], root: &Path) -> anyhow:
     let out = crate::claude::claude_reader(crate::claude::Work::Group, &prompt, root, &tools).stdin(std::process::Stdio::null()).output()?;
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
     anyhow::ensure!(v["is_error"] == false, "Claude couldn't group them ({})", out.status);
-    let groups = parse_groups(v["result"].as_str().unwrap_or(""))?;
-    // Each PR asked of once, no other: else it's yours to group (none left out unsaid).
-    let (mut got, mut asked): (Vec<u64>, Vec<u64>) = (groups.iter().flat_map(|g| g.0.iter().copied()).collect(), prs.iter().map(|p| p.0).collect());
-    got.sort();
-    asked.sort();
-    anyhow::ensure!(got == asked, "Claude's groups didn't have each PR once");
-    Ok(groups)
+    Ok(complete(parse_groups(v["result"].as_str().unwrap_or(""))?, prs.iter().map(|p| p.0)))
+}
+
+/// Claude's `groups` of the PRs `asked`, each once and no other: one it named again or didn't
+/// ask about dropped, one it left out alone (said so), for you to see in your editor.
+fn complete(groups: Groups, asked: impl Iterator<Item = u64>) -> Groups {
+    let asked: Vec<u64> = asked.collect();
+    let mut seen: Vec<u64> = vec![];
+    let mut out: Groups = vec![];
+    for (g, why) in groups {
+        let mut kept = vec![];
+        for n in g {
+            if asked.contains(&n) && !seen.contains(&n) {
+                seen.push(n);
+                kept.push(n);
+            }
+        }
+        if !kept.is_empty() {
+            out.push((kept, why));
+        }
+    }
+    out.extend(asked.into_iter().filter(|n| !seen.contains(n)).map(|n| (vec![n], "left out by Claude".to_owned())));
+    out
+}
+
+#[test]
+fn groups_completed() {
+    let g = |v: &[u64]| (v.to_vec(), String::new());
+    assert_eq!(complete(vec![g(&[12, 15]), g(&[15, 99])], [12, 15, 20].into_iter()), vec![g(&[12, 15]), (vec![20], "left out by Claude".into())]);
 }
 
 /// The groups in Claude's answer (a JSON array, maybe with words around it).
