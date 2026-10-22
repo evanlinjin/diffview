@@ -375,6 +375,9 @@ fn issue_back(o: &Opts, n: u64, root: &Path) -> anyhow::Result<Option<String>> {
         let res = run_view(&mut app, &mut term);
         view::restore_terminal();
         res?;
+        if let Some(m) = app.merge {
+            return Ok(Some(merge_from(m, root)));
+        }
         let Some(view::HandOff::Pr(p)) = app.hand_off.take() else { return Ok(None) };
         if let Some(m) = review_back(o, p, None, root)? {
             app.notice(m);
@@ -402,7 +405,8 @@ fn merge_from(n: u64, root: &Path) -> String {
 /// `app` on `term`, and what it hands over meanwhile (an issue a link goes to, in a view of its
 /// own; the PR's replacement, in its own): shown, then back to it, as it was. What goes wrong
 /// in what it hands over is said there, not an end to it (the terminal's the caller's to
-/// restore). A PR to review (`HandOff::Pr`) is left handed off, for the caller.
+/// restore). A PR to review (`HandOff::Pr`) is left handed off, and a PR to merge (`merge`,
+/// asked in what it handed over too) left asked, for the caller.
 fn run_view(app: &mut view::App, term: &mut ratatui::DefaultTerminal) -> anyhow::Result<()> {
     loop {
         // (What was drawn over it meanwhile, and loading lines: all drawn anew.)
@@ -424,25 +428,26 @@ fn run_view(app: &mut view::App, term: &mut ratatui::DefaultTerminal) -> anyhow:
                         app.hand_off = Some(pr);
                         return shown;
                     }
+                    if a.merge.is_some() {
+                        app.merge = a.merge;
+                        return shown;
+                    }
                     shown.with_context(|| format!("#{n}")).map(|_| None)
                 }
                 Err(e) => Err(e).with_context(|| format!("#{n}")),
             },
             view::HandOff::Replacement(id) => {
                 let here = std::env::current_dir()?;
-                // A merge asked for there: with the terminal let go, as every merge is (its
-                // prompts, git's, are yours), then retaken.
-                let shown = main_checkout(&here).and_then(|root| {
-                    Ok(replacement_view(id, &root, term)?.map(|n| {
-                        view::restore_terminal();
-                        let said = merge_from(n, &root);
-                        *term = view::init_terminal();
-                        said
-                    }))
-                });
+                let shown = main_checkout(&here).and_then(|root| replacement_view(id, &root, term));
                 // (Back where this view is, or not on: it'd work in another's checkout.)
                 std::env::set_current_dir(&here).with_context(|| format!("back to {}", here.display()))?;
-                shown.with_context(|| replace::label(id))
+                // A merge asked for there: this view ends too, for its caller to merge, as every
+                // merge is, after the view (never under one: the merge switches its checkout).
+                if let Ok(Some(n)) = shown {
+                    app.merge = Some(n);
+                    return Ok(());
+                }
+                shown.with_context(|| replace::label(id)).map(|_| None)
             }
         };
         match shown {
