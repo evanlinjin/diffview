@@ -5,6 +5,24 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.92.0] - 2026-10-22
+
+### Fixed
+- `Space g` on a branch started from another (`git checkout -b feat origin/main`) offers to
+  push to its own name, not the branch it tracks (it offered to push, even force-push, to
+  `main`). A branch `gh pr checkout` made for a fork's PR still pushes to the PR's.
+- Word emphasis pairs removed and added lines as split view does, past comments between them.
+- A range comment's window (the Claude and pending views) starts at its first line, removed
+  lines inside it or not.
+- `+`/`-` on a comment widen its own hunk (not the next); widened context stays with its
+  hunk across reloads (it moved to whichever hunk took its place), and the views' own goes
+  with the diff's base.
+- An outdated comment lands on the same line however much context shows.
+- A reload runs git once per untracked file (it was twice).
+
+### Changed
+- One LCS for word and line diffs, one window merge for hunks and comments.
+
 ## [0.91.16] - 2026-10-22
 
 ### Fixed
