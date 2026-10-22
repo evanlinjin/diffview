@@ -97,7 +97,8 @@ pub(crate) fn fix_checks_prompt(n: u64) -> String {
          network error, a timeout, a runner problem, a test known to be flaky), also rerun the failed jobs once \
          (`dv rerun-failed -p {n}`: the failed jobs only, of every failed run on its head) and set \"rerun\": true; but not if {note} \
          already has \"rerun\": true for this head (CI was rerun once already: it isn't transient), and then \
-         keep \"rerun\": true in the note you write. First run \
+         keep \"rerun\": true in the note you write. If you fixed the cause here, write {note} too, with \"why\" \
+         and \"task\" empty (and \"rerun\" as it was for this head): the note's old word goes. First run \
          `dv review-info`: if the notes it lists exist, read them and follow them."
     )
 }

@@ -715,11 +715,6 @@ impl App {
             // closes it once Claude's done there (`close_if_done`).
             true => match self.claude_pane_run(&format!("claude: {label}"), Some(&prompt), Some(ask.work()), false, false) {
                 Ok(()) => {
-                    // For dv list: at it while its pane is open (a session: when it's done
-                    // working there, only the pane knows).
-                    if let (Some(s), Some(id)) = (self.subject(), &self.claude.session) {
-                        crate::claude::mark_pane(s.n(), &format!("{label} (in its pane)"), id);
-                    }
                     (format!("Claude is {label} in a hidden pane (Space a shows it; it closes when Claude's done); its comments show up here as it writes them"), true)
                 }
                 Err(e) => (format!("{e:#}"), false),
@@ -727,9 +722,6 @@ impl App {
             false => match self.spawn_claude(&prompt, label, ask.work(), false, &more.iter().map(String::as_str).collect::<Vec<_>>()) {
                 Ok(job) => {
                     self.claude.job = Some(job);
-                    if let (Ask::FixChecks, Some(p)) = (ask, &self.pr) {
-                        crate::claude::fixing_ci_afresh(p.number);
-                    }
                     (format!("Claude is {label} in the background…"), true)
                 }
                 Err(e) => (format!("starting claude: {e:#}"), false),
@@ -807,6 +799,16 @@ impl App {
         let s = cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
             .status().context("running zellij")?;
         anyhow::ensure!(s.success(), "zellij run failed ({s})");
+        // Its marker, every pane on the session (not a fork: a session of its own), for dv list
+        // and any dv: a request's at it while Claude works there; one opened to talk in (no
+        // request), while it's open (`claude::claim` waits for it).
+        if let (false, Some(s), Some(id)) = (fork, self.subject(), &self.claude.session) {
+            let what = match prompt {
+                Some(_) => format!("{} (in its pane)", name.trim_start_matches("claude: ")),
+                None => "talking with you (in its pane)".into(),
+            };
+            crate::claude::mark_pane(s.n(), &what, id, prompt.is_none());
+        }
         Ok(())
     }
 
@@ -886,11 +888,7 @@ impl App {
     /// The PR's Claude pane and its command line.
     fn claude_pane_cmd(&self) -> Option<(u64, String)> {
         let id = self.claude.session.as_ref().filter(|_| in_zellij())?;
-        crate::pane::list(&["-c"]).unwrap_or_default().iter().find_map(|p| {
-            // (Not a fork of it, "Open Claude in a pane" while it was at work: a session of its own.)
-            let cmd = p["pane_command"].as_str().filter(|c| p["exited"] != true && c.contains(id.as_str()) && !c.contains("--fork-session"))?;
-            Some((p["id"].as_u64()?, cmd.to_owned()))
-        })
+        crate::pane::of_session(&crate::pane::open(), id).map(|p| (p.0, p.1.clone()))
     }
 
     /// The PR's Claude Code session in this checkout: resume it if Claude Code has it, else

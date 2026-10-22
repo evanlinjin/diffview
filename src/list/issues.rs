@@ -226,7 +226,10 @@ pub(crate) fn save_triage(n: u64, updated: &str, fixes: &[(u64, String, String)]
 /// Claude triages issue `n` here (dv issues'): its hold on it meanwhile (`claude::claim`), for
 /// the issue's view (and any dv) to see.
 fn triage_run(n: u64, updated: &str, fixes: &[(u64, String, String)], root: &std::path::Path, extra: &str) -> Result<batch::Status> {
-    let mut claim = crate::claude::claim(n, "triaging", None).map_err(|w| anyhow::anyhow!("Claude is {w} on #{n} already"))?;
+    let mut claim = match crate::claude::claim(n, "triaging", None) {
+        Ok(c) => c,
+        Err(w) => return Ok(batch::Status::Busy(w)),
+    };
     let mut cmd = triage_command(n, fixes, root, extra);
     let child = cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().context("is Claude Code (`claude`) installed?")?;
     claim.set_pid(child.id());
@@ -489,7 +492,9 @@ impl Issues {
             // Once each as it'd be triaged: its updatedAt, and the fixes merged (a merge doesn't
             // move the issue's time).
             let merged: Vec<u64> = i.fixed_by.iter().filter(|p| p.1 == "MERGED").map(|p| p.0).collect();
-            if due && run.len() < batch::AT_ONCE && self.auto_done.insert((i.number, format!("{}{merged:?}", i.updated))) {
+            // (Not one Claude's at elsewhere just now: on a later look, once it's done.)
+            let free = || crate::claude::at_work(i.number, None).is_none();
+            if due && run.len() < batch::AT_ONCE && free() && self.auto_done.insert((i.number, format!("{}{merged:?}", i.updated))) {
                 run.push(i.number);
             }
         }
@@ -637,12 +642,25 @@ impl Issues {
                         (self.msg, self.claude_rx, self.reviews_mtime) = (format!("Claude drafted a comment closing #{n} ({took}): Enter opens it, Space a closes it with it"), None, None);
                     }
                     batch::Status::Failed(e) => (self.msg, self.claude_rx) = (format!("#{n}: no closing comment: {}", e.lines().next().unwrap_or("")), None),
+                    // Claude at it elsewhere: drafted on a later look.
+                    batch::Status::Busy(_) => {
+                        self.claude_rx = None;
+                        self.auto_done.retain(|d| d.0 != n || !d.1.starts_with("closing@"));
+                    }
                     _ => {}
                 }
             }
             for (n, st) in self.running_rx.iter().flat_map(|rx| rx.try_iter()).collect::<Vec<_>>() {
                 {
                     match &st {
+                        // Claude at it elsewhere: not triaged now, and not done for auto either
+                        // (asked again on a later look).
+                        batch::Status::Busy(w) => {
+                            self.msg = format!("#{n}: not triaged now: Claude is {w} on it");
+                            self.running.remove(&n);
+                            self.auto_done.retain(|d| d.0 != n || d.1.starts_with("closing@"));
+                            continue;
+                        }
                         batch::Status::Failed(e) => self.msg = format!("#{n}: {}", e.lines().next().unwrap_or("")),
                         batch::Status::Done(took) => {
                             self.say(format!("triaged #{n} ({took})"));

@@ -216,15 +216,23 @@ pub(crate) fn open() -> Vec<Pane> {
         .collect()
 }
 
+/// The pane of Claude Code's session `id` among `panes`: its own, not a fork of it
+/// (`--fork-session`: a session of its own, "a copy" to talk in).
+pub(crate) fn of_session<'a>(panes: &'a [Pane], id: &str) -> Option<&'a Pane> {
+    panes.iter().find(|p| p.1.contains(id) && !p.1.contains("--fork-session"))
+}
+
 /// Whether a Claude run is at it: its process (`pid`) still there, or Claude Code in its pane
 /// (by its `session`, among `panes`, looked up once) working or asking you something (done, it
-/// waits there idle).
-pub(crate) fn run_live(pid: Option<u32>, session: Option<&str>, panes: &std::cell::OnceCell<Vec<Pane>>) -> bool {
+/// waits there idle); a pane opened to talk in (`talk`), while it's open.
+pub(crate) fn run_live(pid: Option<u32>, session: Option<&str>, talk: bool, panes: &std::cell::OnceCell<Vec<Pane>>) -> bool {
     match (pid, session) {
         (Some(pid), _) => crate::alive(pid),
-        (None, Some(id)) => panes.get_or_init(open).iter().find(|p| p.1.contains(id)).is_some_and(|p| {
-            let s = screen(p.0);
-            working(&s) || asking(&s)
+        (None, Some(id)) => of_session(panes.get_or_init(open), id).is_some_and(|p| {
+            talk || {
+                let s = screen(p.0);
+                working(&s) || asking(&s)
+            }
         }),
         _ => false,
     }

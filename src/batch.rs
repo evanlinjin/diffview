@@ -18,6 +18,9 @@ pub enum Status {
     /// What it took ("5 turns, $0.22").
     Done(String),
     Failed(String),
+    /// Not run: Claude was at it already, from another run (`claude::claim`'s holder): to ask
+    /// again, not a failure.
+    Busy(String),
 }
 
 /// What Claude does on a PR: review it (or update the review it has: the prompt says to), update
@@ -164,10 +167,10 @@ fn run(s: Subject, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sen
     let n = s.n();
     // Its hold on it: one run on it at a time, from any dv (an issue's view, a PR's); let go as
     // this ends, however.
-    let mut claim = crate::claude::claim(n, task.doing(), None).map_err(|w| anyhow::anyhow!("Claude is {w} on {} already", s.what()))?;
-    if *task == Task::FixChecks {
-        crate::claude::fixing_ci_afresh(n);
-    }
+    let mut claim = match crate::claude::claim(n, task.doing(), None) {
+        Ok(c) => c,
+        Err(w) => return Ok(Status::Busy(w)),
+    };
     _ = tx.send((n, Status::Preparing));
     // The worktree, checked out at the PR (by a dv of its own: that changes directory); an
     // issue's, here (no code of its own).

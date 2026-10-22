@@ -563,6 +563,12 @@ impl List {
         for (n, s) in news {
             let doing = self.batch_task.get(&n).map_or("reviewing", batch::Task::doing);
             match &s {
+                // Claude at it elsewhere (a PR's view, say): not asked now, as if never asked.
+                batch::Status::Busy(w) => {
+                    self.msg = format!("#{n}: not {doing} now: Claude is {w} on it (a a asks again once it's done)");
+                    self.batch.remove(&n);
+                    continue;
+                }
                 batch::Status::Done(took) => {
                     self.reviewed.insert(n);
                     self.new.insert(n);
