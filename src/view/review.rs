@@ -773,11 +773,14 @@ impl App {
         let row = &self.rows[self.head.row];
         let pr_text = row.file == INFO && row.thread.is_none();
         if self.review.is_some() && !pr_text && row.info != Some(SUMMARY) {
-            // (On lines, its own head moved past: c can't add them either; that said.)
-            if row.thread.is_none() {
-                self.pending_on(self.pr.as_ref().map(|p| p.head_oid.as_str()))?;
+            // What queues here says so: a GitHub thread, r (a reply); lines (Claude's comment's
+            // too), c, unless the review's on a head moved past (c can't add them then: said).
+            let n = self.pending_count();
+            if row.thread.is_some_and(|t| self.threads[t].claude.is_none()) {
+                bail!("you have a pending review ({n}): r adds a reply to it, S submits it, then C posts");
             }
-            bail!("you have a pending review ({}): c adds to it, S submits it, then C posts", self.pending_count());
+            self.pending_on(self.pr.as_ref().map(|p| p.head_oid.as_str()))?;
+            bail!("you have a pending review ({n}): c adds to it, S submits it, then C posts");
         }
         Ok(())
     }

@@ -5317,3 +5317,50 @@ fn c_on_lines_is_refused_up_front_with_a_review_on_another_head() {
     app.review = None;
     assert!(app.on_head().is_ok());
 }
+
+#[test]
+fn a_folded_threads_reply_isnt_seen_by_passing() {
+    let mut app = fixture();
+    app.seen.path = Some(std::env::temp_dir().join(format!("dv-probe-seen-{}", std::process::id())));
+    app.threads[3].comments.push(gh::Comment { id: 99, node_id: "N99".into(), author: "bo".into(), body: "actually not fixed".into(), ..Default::default() });
+    for (i, t) in app.threads.iter_mut().enumerate() { for (j, c) in t.comments.iter_mut().enumerate() { if c.node_id.is_empty() { c.node_id = format!("n{i}{j}"); } } }
+    app.build();
+    assert!(app.is_new(&app.threads[3]) && !app.thread_open(3));
+    let r = app.rows.iter().position(|r| r.thread == Some(3)).unwrap();
+    app.goto(r - 1, 0);
+    app.watch_seen();
+    app.goto(r, 0); // j onto its folded heading
+    app.watch_seen();
+    app.goto(r + 1, 0); // j past it
+    app.watch_seen();
+    _ = std::fs::remove_file(app.seen.path.as_ref().unwrap());
+    assert!(!app.thread_open(3));
+    assert!(app.is_new(&app.threads[3]), "the folded reply, never shown, counted as seen");
+}
+
+#[test]
+fn a_github_thread_follows_its_line_through_local_edits() {
+    // PR head: line 2 is `    new_call(x);`; the working tree adds two lines above it.
+    let text = "diff --git a/src/a.rs b/src/a.rs\nindex 1..2 100644\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1,3 +1,5 @@\n fn main() {\n+    // local 1\n+    // local 2\n-    old();\n+    new_call(x);\n }\n";
+    let mut app = App::with("base".into(), diff::parse(text));
+    let c = gh::Comment { id: 1, node_id: "n".into(), author: "amy".into(), body: "hm".into(), ..Default::default() };
+    app.threads = vec![gh::Thread { id: "T".into(), path: "src/a.rs".into(), line: Some(2), original_line: Some(2), hunk: vec![" fn main() {".into(), "-    old();".into(), "+    new_call(x);".into()], comments: vec![c], ..Default::default() }];
+    app.build();
+    let r = app.rows.iter().position(|r| r.thread == Some(0)).unwrap();
+    let above = app.rows[..r].iter().rev().find(|r| r.line.kind.is_code()).unwrap();
+    eprintln!("thread under: {:?}", above.line.text);
+    assert_eq!(above.line.text, "    new_call(x);", "the thread sits under the line it's about");
+}
+
+#[test]
+fn c_on_claudes_comment_or_a_thread_names_what_queues_there() {
+    let mut app = fixture();
+    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), head_oid: "new".into(), ..Default::default() });
+    (app.review, app.review_on) = (Some("R".into()), "old".into());
+    let claude = (0..app.threads.len()).find(|&t| app.threads[t].claude.is_some()).unwrap();
+    app.goto(app.rows.iter().position(|r| r.thread == Some(claude)).unwrap(), 0);
+    assert!(app.posts_now().err().is_some_and(|e| e.to_string().contains("pending review is on old")));
+    let theirs = (0..app.threads.len()).find(|&t| app.threads[t].claude.is_none()).unwrap();
+    app.goto(app.rows.iter().position(|r| r.thread == Some(theirs)).unwrap(), 0);
+    assert!(app.posts_now().err().is_some_and(|e| e.to_string().contains("r adds a reply")));
+}
