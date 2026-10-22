@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.92.11] - 2026-10-22
+
+### Fixed
+- Text scrolled past a wide (CJK) character no longer loses the character after it.
+- A hunk's rule with wide characters in its function keeps its `L12–18` label; the cursor on a
+  hunk's rule no longer scrolls the diff sideways out of sight.
+- Help and hover popups wrap their text to the popup's real width (no orphaned last words).
+- A click or motion on a long PR title can't land under its state, counts or badge.
+
 ## [0.92.10] - 2026-10-22
 
 ### Added
