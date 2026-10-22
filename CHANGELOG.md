@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.95.3] - 2026-10-22
+
+### Fixed
+- Split view's blank side (and code blocks' shade) shows on black and near-black themes:
+  lighter there, rather than nothing at all.
+- Key hints with a selection: the selection's keys only on code; on a comment, the PR's (or
+  issue's) text or a thread, what the keys do there. An issue's hidden comments say "issue".
+- The wheel over the status bar isn't the pane's.
+
 ## [0.95.2] - 2026-10-22
 
 ### Changed
