@@ -5,6 +5,21 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.92.4] - 2026-10-22
+
+### Fixed
+- A commit shown that an amend dropped goes back to the whole diff (it could follow another of
+  the same date and author); the commit list's cursor and a range's start follow their commits
+  too, as the commits shown do.
+- `a` across removed and added lines leaves Claude a comment on the added side's lines (it was
+  refused), as a GitHub range across sides is asked about.
+- A thread's label says `was` for an outdated one again; `dv review-comments` gives a start
+  line only for a range.
+
+### Changed
+- One way the diff's base and end change (`set_diff`): its widened context goes with it then,
+  and only then.
+
 ## [0.92.3] - 2026-10-22
 
 ### Fixed
