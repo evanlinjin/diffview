@@ -638,8 +638,6 @@ impl List {
         })
     }
 
-    /// What Claude is doing on PR `n` now, if anything: a run from here (`a a`), or any dv's
-    /// (its marker in dv's directory, `running`).
     /// The heads PRs' descriptions were checked at, kept (`described.json`): the one place
     /// they're written.
     pub(super) fn save_described(&self) {
@@ -648,6 +646,8 @@ impl List {
         }
     }
 
+    /// What Claude is doing on PR `n` now, if anything: a run from here (`a a`), or any dv's
+    /// (its marker in dv's directory, `running`).
     pub(super) fn claude_doing(&self, n: u64) -> Option<String> {
         match self.batch.get(&n) {
             Some(s) if s.running() => Some(self.batch_task.get(&n).map_or("reviewing", batch::Task::doing).to_owned()),

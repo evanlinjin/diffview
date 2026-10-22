@@ -1061,7 +1061,9 @@ fn worktree_on_branch(p: &gh::Pr) -> Option<(PathBuf, bool)> {
     let git = |args: &[&str]| diff::git(&[&["-C", d.as_str()], args].concat()).ok().map(|s| s.trim().to_owned());
     // Where Space g there pushes (as it decides it): to the PR's repo.
     let pushes_there = diff::push_remote(&dir, branch).is_some_and(|remote| diff::remote_is(&dir, &remote, &p.head_repo));
-    let one_line = !oid.is_empty() && (git(&["merge-base", "--is-ancestor", oid, "HEAD"]).is_some() || git(&["merge-base", "--is-ancestor", "HEAD", oid]).is_some());
+    // (Its history containing the PR's head: one behind it on that name is only a namesake, a
+    // fork's `master` and yours.)
+    let one_line = !oid.is_empty() && git(&["merge-base", "--is-ancestor", oid, "HEAD"]).is_some();
     (pushes_there || one_line).then_some((dir, one_line))
 }
 
