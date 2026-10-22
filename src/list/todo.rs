@@ -174,6 +174,8 @@ impl List {
             .iter()
             .filter(|it| it.busy.is_some() || it.deferred.is_some() || it.waits.is_some())
             .map(|it| it.number)
+            // (Claude at it anywhere, a PR with no item even: from the markers, `claude_doing`'s.)
+            .chain(self.running.keys().copied())
             .chain(run.iter().map(|r| r.0))
             .chain(closing.iter().copied())
             .chain(self.prs.iter().filter(|p| p.author == self.me).map(|p| p.number))
@@ -187,7 +189,7 @@ impl List {
             let Some(head) = self.extra.get(&n).map(|e| e.head_oid.clone()).filter(|h| !h.is_empty()) else { continue };
             let file = self.reviews_dir.as_ref().map(|d| d.join(format!("pr-{n}.json")));
             let drafted = file.and_then(|f| crate::claude::load(&f).ok().flatten()).is_some_and(|r| !r.closing.trim().is_empty());
-            if !drafted && self.auto_done.insert((n, head, "close-draft")) {
+            if !drafted && self.auto_done.insert((n, head, batch::Task::Close.doing())) {
                 run.push((n, batch::Task::Close));
             }
         }
@@ -199,7 +201,7 @@ impl List {
             self.described = file.as_ref().and_then(|f| serde_json::from_str(&std::fs::read_to_string(f).ok()?).ok()).unwrap_or_default();
         }
         let mut noted = false;
-        let busy = |n: u64| self.todos.items.iter().any(|it| it.number == n && (it.busy.is_some() || it.deferred.is_some()));
+        let busy = |n: u64| self.running.contains_key(&n) || self.todos.items.iter().any(|it| it.number == n && (it.busy.is_some() || it.deferred.is_some()));
         for p in self.prs.iter().filter(|p| p.open() && p.author == self.me) {
             let Some(head) = self.extra.get(&p.number).map(|e| e.head_oid.clone()).filter(|h| !h.is_empty()) else { continue };
             match self.described.get(&p.number).cloned() {

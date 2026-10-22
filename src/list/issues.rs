@@ -233,6 +233,7 @@ fn triage_run(n: u64, updated: &str, fixes: &[(u64, String, String)], root: &std
     let mut cmd = triage_command(n, fixes, root, extra);
     let child = cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().context("is Claude Code (`claude`) installed?")?;
     claim.set_pid(child.id());
+    claim.set_dir(root);
     let out = child.wait_with_output()?;
     drop(claim);
     let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
@@ -468,7 +469,7 @@ impl Issues {
             // (Not what you've put aside.)
             let deferred: HashSet<u64> = self.todos.items.iter().filter(|it| it.deferred.is_some()).map(|it| it.number).collect();
             let next = self.items.iter().map(|i| (i.number, i.updated.clone())).find(|(n, u)| {
-                !deferred.contains(n) && self.close_why(*n).is_some() && !drafted(*n) && !self.auto_done.contains(&(*n, format!("closing@{u}"))) && crate::claude::at_work(*n, None).is_none()
+                !deferred.contains(n) && self.close_why(*n).is_some() && !drafted(*n) && !self.auto_done.contains(&(*n, format!("closing@{u}"))) && crate::claude::at_work(*n, None, None).is_none()
             });
             if let Some((n, u)) = next {
                 self.auto_done.insert((n, format!("closing@{u}")));
@@ -493,7 +494,7 @@ impl Issues {
             // move the issue's time).
             let merged: Vec<u64> = i.fixed_by.iter().filter(|p| p.1 == "MERGED").map(|p| p.0).collect();
             // (Not one Claude's at elsewhere just now: on a later look, once it's done.)
-            let free = || crate::claude::at_work(i.number, None).is_none();
+            let free = || crate::claude::at_work(i.number, None, None).is_none();
             if due && run.len() < batch::AT_ONCE && free() && self.auto_done.insert((i.number, format!("{}{merged:?}", i.updated))) {
                 run.push(i.number);
             }

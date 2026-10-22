@@ -961,6 +961,7 @@ impl App {
             self.watch_replaced_by();
             self.poll_claude();
             self.watch_claude_pane();
+            self.watch_elsewhere();
             self.act(term);
         }
         self.seen.current.push(String::new()); // what the cursor is on now counts as seen too

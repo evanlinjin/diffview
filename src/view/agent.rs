@@ -129,6 +129,10 @@ pub(super) struct ClaudeState {
     pub(super) log: Option<PathBuf>,
     /// What background runs have cost so far (as Claude Code reports it, in USD).
     pub(super) spent: f64,
+    /// Another dv's Claude at work in this checkout on it (`watch_elsewhere`), and when that
+    /// was last looked at.
+    pub(super) elsewhere: Option<String>,
+    pub(super) elsewhere_check: Option<std::time::Instant>,
     /// When Claude's pane was last looked at, and whether it was asking you something then.
     pub(super) pane_check: Option<std::time::Instant>,
     pub(super) asking: bool,
@@ -210,7 +214,7 @@ impl App {
             return Some(if ask.is_none() { App::busy_edit("amend") } else { App::busy_says("ask Claude this") });
         }
         // At it from elsewhere (dv list's, dv issues' runs): one at a time on it, as here.
-        if let Some(what) = self.subject().and_then(|s| crate::claude::at_work(s.n(), self.claude.session.as_deref())) {
+        if let Some(what) = self.subject().and_then(|s| crate::claude::at_work(s.n(), self.claude.session.as_deref(), None)) {
             return Some(format!("Claude is {what} on {} already (elsewhere): ask again once it's done", self.what()));
         }
         // A rebase stopped part way: the tree has its conflicts, HEAD is detached.
@@ -223,10 +227,21 @@ impl App {
     /// Claude is at work in this checkout: a run of this dv's, its pane working, or (a
     /// replacement) its redraft, from any dv. Nothing here rewrites the branch or commits under
     /// it meanwhile.
-    /// (Another dv's run on it too, dv list's say: in this worktree, perhaps.)
+    /// (Another dv's run in this checkout too, dv list's say: `elsewhere`.)
     pub(super) fn claude_busy(&self) -> bool {
-        let elsewhere = || self.subject().and_then(|s| crate::claude::at_work(s.n(), self.claude.session.as_deref())).is_some();
-        self.claude.job.is_some() || self.claude.pane_busy || self.replacement.as_ref().is_some_and(|r| r.drafting_now()) || elsewhere()
+        self.claude.job.is_some() || self.claude.pane_busy || self.replacement.as_ref().is_some_and(|r| r.drafting_now()) || self.claude.elsewhere.is_some()
+    }
+
+    /// Another dv's Claude at work in this checkout on it (dv list's run, a pane of another
+    /// session), every few seconds: what `claude_busy` and the status bar's badge go by.
+    pub(super) fn watch_elsewhere(&mut self) {
+        if self.claude.elsewhere_check.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(3)) {
+            return;
+        }
+        self.claude.elsewhere_check = Some(std::time::Instant::now());
+        // (Not a run of this view's own: its job's claim.)
+        let mine = self.claude.job.is_some();
+        self.claude.elsewhere = self.subject().filter(|_| !mine).and_then(|s| crate::claude::at_work(s.n(), self.claude.session.as_deref(), Some(&self.root)));
     }
 
     /// Why `ask` can't go to the PR's Claude pane, where it would (one is open): the pane is
@@ -807,7 +822,7 @@ impl App {
                     Some(_) => format!("{} (in its pane)", name.trim_start_matches("claude: ")),
                     None => "talking with you (in its pane)".into(),
                 };
-                crate::claude::mark_pane(s.n(), &what, &id, prompt.is_none()).map_err(|w| anyhow!("Claude is {w} on {} already (elsewhere): ask again once it's done", s.what()))?;
+                crate::claude::mark_pane(s.n(), &what, &id, prompt.is_none(), &self.root).map_err(|w| anyhow!("Claude is {w} on {} already (elsewhere): ask again once it's done", s.what()))?;
                 Some((s.n(), id))
             }
             _ => None,
@@ -879,7 +894,7 @@ impl App {
             // (A replacement's redraft, from any dv.)
             None if self.replacement.as_ref().is_some_and(|r| r.drafting_now()) => Some("◐ claude drafting it".into()),
             None if self.replaced_by.as_ref().is_some_and(|r| r.drafting_now()) => Some("◐ claude drafting its replacement (Space a: open it)".into()),
-            None => None,
+            None => self.claude.elsewhere.as_ref().map(|w| format!("◐ claude {w} (another dv's)")),
         }
     }
 
@@ -964,6 +979,7 @@ impl App {
         }
         if let Some(c) = &mut claim {
             c.set_pid(child.id());
+            c.set_dir(&self.root);
         }
         Ok(ClaudeJob { _claim: claim, ..ClaudeJob::new(child, log, label, forked) })
     }

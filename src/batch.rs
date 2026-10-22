@@ -193,6 +193,7 @@ fn run(s: Subject, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sen
         }
     };
     let note = note.as_str();
+    claim.set_dir(&dir);
     // An update reviews what's new over the commit reviewed, as checked out here. The checkout
     // still there (kept back for work in it): nothing to review. Rewritten (force-pushed,
     // rebased): all of it is new.

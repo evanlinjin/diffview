@@ -4268,12 +4268,12 @@ fn a_runs_claim_goes_with_it() {
     let mut child = std::process::Command::new("sleep").arg("0.2").spawn().unwrap();
     let mut claim = crate::claude::claim(n, "answering", None).unwrap();
     claim.set_pid(child.id());
-    assert_eq!(crate::claude::at_work(n, None).as_deref(), Some("answering"));
+    assert_eq!(crate::claude::at_work(n, None, None).as_deref(), Some("answering"));
     assert!(app.claude_blocked(Some(agent::Ask::Answer)).is_some_and(|w| w.contains("already")));
     _ = child.wait();
     let child = std::process::Command::new("true").spawn().unwrap();
     app.claude.job = Some(agent::ClaudeJob { _claim: Some(claim), ..agent::ClaudeJob::new(child, std::env::temp_dir().join("dv-test-claim.log"), "answering", false) });
     std::thread::sleep(std::time::Duration::from_millis(100));
     app.poll_claude();
-    assert!(app.claude.job.is_none() && crate::claude::at_work(n, None).is_none());
+    assert!(app.claude.job.is_none() && crate::claude::at_work(n, None, None).is_none());
 }

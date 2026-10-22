@@ -343,14 +343,15 @@ pub fn looked(n: u64) -> Option<i64> {
 /// session (the pane's command line has it: at it while it's open, `pane::run_live`), whether
 /// it's to talk in (`talk`: never closed for being done), and when it started. Made under the
 /// claims' lock, refused (what holds it) while a run has PR `n`: before the pane starts.
-pub fn mark_pane(n: u64, what: &str, session: &str, talk: bool) -> std::result::Result<(), String> {
+/// (`dir`: the checkout it's in.)
+pub fn mark_pane(n: u64, what: &str, session: &str, talk: bool, dir_in: &std::path::Path) -> std::result::Result<(), String> {
     let dir = running_dir().map_err(|e| format!("{e:#}"))?;
     let claim = dir.join(format!("pr-{n}.json"));
     locked(&claim, || {
-        if let Some(holder) = live_marker(&claim, &std::cell::OnceCell::new(), None) {
+        if let Some(holder) = live_marker(&claim, &std::cell::OnceCell::new(), None, None) {
             return Err(holder);
         }
-        let v = serde_json::json!({ "what": what, "session": session, "talk": talk, "started": now_secs() });
+        let v = serde_json::json!({ "what": what, "session": session, "talk": talk, "dir": dir_in, "started": now_secs() });
         std::fs::write(dir.join(format!("pane-{n}-{session}.json")), v.to_string()).map_err(|e| e.to_string())
     })?
 }
@@ -386,19 +387,25 @@ fn running_dir() -> Result<PathBuf> {
 }
 
 /// What Claude is doing on PR (or issue) `n` right now, from any dv: a run's claim
-/// (`running/pr-N.json`, its process still there) or its pane (working, or asking you). `own`:
-/// the asker's own session, whose pane isn't another's at work (what's sent there waits in it).
-pub fn at_work(n: u64, own: Option<&str>) -> Option<String> {
+/// (`running/pr-N.json`, its process still there) or its pane (open). `own`: the asker's own
+/// session, whose pane isn't another's at work (what's sent there waits in it); `here`: only
+/// what's in this checkout (one not known to be elsewhere counts).
+pub fn at_work(n: u64, own: Option<&str>, here: Option<&std::path::Path>) -> Option<String> {
     let panes = std::cell::OnceCell::new();
-    markers(&running_dir().ok()?).into_iter().filter(|m| m.0 == n).find_map(|m| live_marker(&m.2, &panes, own))
+    markers(&running_dir().ok()?).into_iter().filter(|m| m.0 == n).find_map(|m| live_marker(&m.2, &panes, own, here))
 }
 
 /// What the marker at `path` says Claude's doing, if it's still at it (and not in the pane of
-/// session `own`).
-fn live_marker(path: &std::path::Path, panes: &std::cell::OnceCell<Vec<crate::pane::Pane>>, own: Option<&str>) -> Option<String> {
+/// session `own`; in checkout `here`, if given).
+fn live_marker(path: &std::path::Path, panes: &std::cell::OnceCell<Vec<crate::pane::Pane>>, own: Option<&str>, here: Option<&std::path::Path>) -> Option<String> {
     let v: Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
     let (pid, session) = (v["pid"].as_u64().map(|p| p as u32), v["session"].as_str());
     if session.is_some() && session == own {
+        return None;
+    }
+    if let (Some(h), Some(d)) = (here, v["dir"].as_str())
+        && std::path::Path::new(d) != h
+    {
         return None;
     }
     crate::pane::run_live(pid, session, panes).then(|| v["what"].as_str().unwrap_or("working").to_owned())
@@ -444,6 +451,17 @@ impl Claimed {
             }
         });
     }
+
+    /// The checkout it's in, once known: what's at work there, as that checkout's view asks
+    /// (`at_work`'s `here`).
+    pub fn set_dir(&self, dir: &std::path::Path) {
+        _ = locked(&self.path, || {
+            if let Some(mut v) = held_by(&self.path, self.pid) {
+                v["dir"] = dir.to_string_lossy().into_owned().into();
+                _ = std::fs::write(&self.path, v.to_string());
+            }
+        });
+    }
 }
 
 impl Drop for Claimed {
@@ -461,17 +479,17 @@ impl Drop for Claimed {
 /// (a pane's working on it too, but `own`'s: the asker's session's); else what holds it now.
 pub fn claim(n: u64, what: &str, own: Option<&str>) -> std::result::Result<Claimed, String> {
     let dir = running_dir().map_err(|e| format!("{e:#}"))?;
-    let panes = std::cell::OnceCell::new();
-    if let Some(pane) = markers(&dir).into_iter().filter(|m| m.0 == n && m.1).find_map(|m| live_marker(&m.2, &panes, own)) {
-        return Err(pane);
-    }
-    claim_at(dir.join(format!("pr-{n}.json")), what)
+    claim_at(dir.join(format!("pr-{n}.json")), what, |panes| {
+        markers(&dir).into_iter().filter(|m| m.0 == n && m.1).find_map(|m| live_marker(&m.2, panes, own, None))
+    })
 }
 
-/// The claim at `path`, taken under its lock: two claimants at once, one gets it.
-fn claim_at(path: PathBuf, what: &str) -> std::result::Result<Claimed, String> {
+/// The claim at `path`, taken under its lock (a pane on it, `pane` says, checked under it too,
+/// as `mark_pane` writes them): two claimants at once, one gets it.
+fn claim_at(path: PathBuf, what: &str, pane: impl FnOnce(&std::cell::OnceCell<Vec<crate::pane::Pane>>) -> Option<String>) -> std::result::Result<Claimed, String> {
     locked(&path, || {
-        if let Some(holder) = live_marker(&path, &std::cell::OnceCell::new(), None) {
+        let panes = std::cell::OnceCell::new();
+        if let Some(holder) = live_marker(&path, &panes, None, None).or_else(|| pane(&panes)) {
             return Err(holder);
         }
         let pid = std::process::id();
@@ -485,17 +503,17 @@ fn claim_at(path: PathBuf, what: &str) -> std::result::Result<Claimed, String> {
 #[test]
 fn one_claim_at_a_time() {
     let p = std::env::temp_dir().join(format!("dv-claim-{}.json", std::process::id()));
-    let mut c = claim_at(p.clone(), "triaging").unwrap();
-    assert_eq!(claim_at(p.clone(), "reviewing").err().as_deref(), Some("triaging"));
-    assert_eq!(live_marker(&p, &Default::default(), None).as_deref(), Some("triaging"));
+    let mut c = claim_at(p.clone(), "triaging", |_| None).unwrap();
+    assert_eq!(claim_at(p.clone(), "reviewing", |_| None).err().as_deref(), Some("triaging"));
+    assert_eq!(live_marker(&p, &Default::default(), None, None).as_deref(), Some("triaging"));
     // Its run's process, once it's started: gone, so is the claim (dv's still here).
     let mut child = std::process::Command::new("true").spawn().unwrap();
     c.set_pid(child.id());
     _ = child.wait();
-    assert!(live_marker(&p, &Default::default(), None).is_none());
-    let taken = claim_at(p.clone(), "reviewing").unwrap();
+    assert!(live_marker(&p, &Default::default(), None, None).is_none());
+    let taken = claim_at(p.clone(), "reviewing", |_| None).unwrap();
     drop(c); // (not its claim now: left alone)
-    assert_eq!(live_marker(&p, &Default::default(), None).as_deref(), Some("reviewing"));
+    assert_eq!(live_marker(&p, &Default::default(), None, None).as_deref(), Some("reviewing"));
     drop(taken);
     assert!(!p.exists());
     _ = std::fs::remove_file(p.with_extension("lock"));
@@ -504,7 +522,7 @@ fn one_claim_at_a_time() {
 /// What Claude is doing, by PR (or issue), from the markers in `dir` (`running/`): a run's, or
 /// a pane's (among `panes`), still at it, as `at_work` has them.
 pub fn running(dir: &std::path::Path, panes: &std::cell::OnceCell<Vec<crate::pane::Pane>>) -> std::collections::HashMap<u64, String> {
-    markers(dir).into_iter().filter_map(|(n, _, p)| Some((n, live_marker(&p, panes, None)?))).collect()
+    markers(dir).into_iter().filter_map(|(n, _, p)| Some((n, live_marker(&p, panes, None, None)?))).collect()
 }
 
 /// Seconds since the epoch, now.
@@ -1444,7 +1462,7 @@ fn running_markers() {
     assert_eq!(r.len(), 1);
     assert_eq!(r[&7].as_str(), "making the changes");
     // A pane of one's own session isn't another's at work.
-    assert!(live_marker(&dir.join("pr-7.json"), &Default::default(), Some("abc")).is_some());
+    assert!(live_marker(&dir.join("pr-7.json"), &Default::default(), Some("abc"), None).is_some());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
