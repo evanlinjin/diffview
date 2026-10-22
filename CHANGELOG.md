@@ -5,6 +5,20 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.95.11] - 2026-10-22
+
+### Fixed
+- The files list: a folder is listed once, its files together (git's order puts `src/foo.rs`
+  before `src/foo/`, and new files last); the root's files under `./` among folders.
+- Wide names and subjects (CJK, emoji, gitmoji) are cut to the list's edge with `…`, their
+  comment counts kept, measured as drawn; a viewed file's row lines up with the others.
+- `Ctrl-w e` shows the list down to the width it fits (and says when it doesn't), and while
+  maximized shows it rather than hiding it for good.
+- The commits list knows when uncommitted changes are shown (its cursor there, Enter keeps
+  them); `Space C` lists the same rows, uncommitted first; `k` from "all commits" goes to the
+  entry above; `a` on uncommitted says what it does; new files are counted as the diff lists
+  them.
+
 ## [0.95.10] - 2026-10-22
 
 ### Fixed
