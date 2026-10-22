@@ -25,7 +25,7 @@ pub(super) struct Nav<T> {
     pub(super) tab_hits: Vec<(std::ops::Range<u16>, T)>,
     pub(super) last_click: Option<(std::time::Instant, usize)>,
     /// `g` pressed, for the key after (`gg`, `ge`, `gn`, `gp`).
-    g: bool,
+    pub(super) g: bool,
     /// How many cards the last draw had room for (`keep`): a page, for the keys and clicks.
     pub(super) page: usize,
 }

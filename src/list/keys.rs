@@ -92,14 +92,14 @@ impl List {
             KeyCode::Char('q') | KeyCode::Esc if !self.busy() => return Some(Do::Quit),
             KeyCode::Esc => self.msg = "Claude is still at work here: q, then q again, quits".into(),
             KeyCode::Char('q') => {
-                if self.again(armed, ('q', 0), "Claude is still at work here (reviewing, drafting, ranking): q again quits (what's under way is lost; queued reviews don't start)") {
+                if self.again(armed, 'q', (), "Claude is still at work here (reviewing, drafting, ranking): q again quits (what's under way is lost; queued reviews don't start)") {
                     return Some(Do::Quit);
                 }
             }
             KeyCode::Char('R') => return Some(Do::Refresh),
             KeyCode::Char('D') if self.nav.tab == Tab::Replacements => {
                 let id = self.shown().get(self.nav.sel).map(|p| p.number)?;
-                if self.again(armed, ('D', id), format!("D again removes {} (its worktree and record; its branch stays); any other key keeps it", crate::replace::label(id))) {
+                if self.again(armed, 'D', id, format!("D again removes {} (its worktree and record; its branch stays); any other key keeps it", crate::replace::label(id))) {
                     return Some(Do::RemoveReplacement(id));
                 }
             }
@@ -107,7 +107,7 @@ impl List {
             KeyCode::Char('D') if self.nav.tab == Tab::Worktrees => {
                 let p = self.shown().get(self.nav.sel).map(|p| p.number)?;
                 let (dir, _) = self.local.get(&p)?;
-                if self.again(armed, ('D', p), format!("D again removes {} (its branch stays); any other key keeps it", dir.display())) {
+                if self.again(armed, 'D', p, format!("D again removes {} (its branch stays); any other key keeps it", dir.display())) {
                     return Some(Do::Remove(p));
                 }
             }
@@ -125,24 +125,24 @@ impl List {
                     Ok(o) => o,
                     Err(why) => return (self.msg = why.into(), None).1,
                 };
-                if self.again(armed, ('r', 0), offer) {
+                if self.again(armed, 'r', (), offer) {
                     self.rank_now(true);
                     return None;
                 }
             }
             KeyCode::Char('b') => {
                 let p = self.selected_pr()?;
-                if self.again(armed, ('b', p), format!("b again: ask #{p}'s author for a rebase (a comment; your editor opens first); any other key doesn't")) {
+                if self.again(armed, 'b', p, format!("b again: ask #{p}'s author for a rebase (a comment; your editor opens first); any other key doesn't")) {
                     return Some(Do::AskRebase(p));
                 }
             }
             KeyCode::Char('N') => {
-                if self.again(armed, ('N', 0), "N again: Claude drafts a new PR, unpublished (your editor opens first: what it should do; issues by #N); any other key doesn't") {
+                if self.again(armed, 'N', (), "N again: Claude drafts a new PR, unpublished (your editor opens first: what it should do; issues by #N); any other key doesn't") {
                     return Some(Do::NewPr);
                 }
             }
             KeyCode::Char('I') => {
-                if self.again(armed, ('I', 0), "I again: the issues (I I there comes back)") {
+                if self.again(armed, 'I', (), "I again: the issues (I I there comes back)") {
                     return Some(Do::Issues);
                 }
             }
@@ -152,7 +152,7 @@ impl List {
                     self.msg = format!("#{p} has no workflow runs waiting for approval");
                     return None;
                 };
-                if self.again(armed, ('W', p), format!("W again: approve the workflow runs waiting on #{p} (they run then); any other key doesn't")) {
+                if self.again(armed, 'W', p, format!("W again: approve the workflow runs waiting on #{p} (they run then); any other key doesn't")) {
                     self.msg = match crate::gh::approve_runs(&head) {
                         Ok(k) => {
                             if let Some(e) = self.extra.get_mut(&p) {
@@ -169,7 +169,7 @@ impl List {
             KeyCode::Char('M') => {
                 let p = self.selected_pr()?;
                 let wt = if self.local.contains_key(&p) { " (its worktree goes first, if nothing in it is unpushed)" } else { "" };
-                if self.again(armed, ('M', p), format!("M again: merge #{p} with github-merge.py{wt}; any other key doesn't")) {
+                if self.again(armed, 'M', p, format!("M again: merge #{p} with github-merge.py{wt}; any other key doesn't")) {
                     return Some(Do::Merge(p));
                 }
             }
@@ -196,7 +196,7 @@ impl List {
                 if self.marked.is_empty() {
                     return (self.msg = "nothing marked".into(), None).1;
                 }
-                if self.again(armed, ('U', 0), format!("U again unmarks all {} marked PRs; any other key doesn't", self.marked.len())) {
+                if self.again(armed, 'U', (), format!("U again unmarks all {} marked PRs; any other key doesn't", self.marked.len())) {
                     self.msg = format!("unmarked {}", self.marked.len());
                     self.marked.clear();
                     return None;
@@ -223,7 +223,7 @@ impl List {
                     Tab::Todo => prs.iter().map(|&n| format!("{} #{n}", self.todo_task(n).doing())).collect::<Vec<_>>().join(", "),
                     _ => format!("reviews {}", prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(" ")),
                 };
-                if self.again(armed, ('a', 0), format!("a again: Claude {which} in the background, each in its worktree (<repo>-N); your editor opens first, for any instructions{skipped}")) {
+                if self.again(armed, 'a', (&prs, &which), format!("a again: Claude {which} in the background, each in its worktree (<repo>-N); your editor opens first, for any instructions{skipped}")) {
                     return Some(Do::Review(prs));
                 }
             }
@@ -252,7 +252,7 @@ impl List {
                     true => format!("A again: Claude drafts {}{again}, unpublished; your editor opens first, for instructions", crate::replace::label(id)),
                     false => format!("A again: Claude suggests how to group {which} into replacements (you decide, in your editor), then drafts them, unpublished"),
                 };
-                if self.again(armed, ('A', 0), ask + &skipped) {
+                if self.again(armed, 'A', &prs, ask + &skipped) {
                     return Some(Do::Replace(prs));
                 }
             }
@@ -267,9 +267,13 @@ impl List {
     /// switches to it; the wheel moves the selection.
     pub(super) fn mouse(&mut self, m: event::MouseEvent) -> bool {
         use event::{MouseButton, MouseEventKind};
-        // (A scroll or click calls off what was to be asked again, and its ask, as a key does.)
-        if matches!(m.kind, MouseEventKind::ScrollDown | MouseEventKind::ScrollUp | MouseEventKind::Down(_)) && self.confirm.take().is_some() {
-            self.msg.clear();
+        // (A scroll or click calls off what waits for a key, as a key does: what was to be asked
+        // again, and its ask; `s`'s how long; `g`'s second key.)
+        if matches!(m.kind, MouseEventKind::ScrollDown | MouseEventKind::ScrollUp | MouseEventKind::Down(_)) {
+            if self.confirm.take().is_some() || self.todos.deferring.take().is_some() {
+                self.msg.clear();
+            }
+            self.nav.g = false;
         }
         let n = self.shown().len();
         match m.kind {

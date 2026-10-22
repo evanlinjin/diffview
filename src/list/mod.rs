@@ -653,17 +653,17 @@ impl List {
 
     /// A key that asks to be pressed again (what it'd do, `ask`, said): whether it was (`armed`
     /// is what the last key armed), else it's armed now.
-    fn again(&mut self, armed: Option<(char, u64)>, key: (char, u64), ask: impl Into<String>) -> bool {
-        // (Keyed on what it asked, too: asked again only for what was said.)
-        use std::hash::{Hash, Hasher};
-        let ask = ask.into();
+    /// `key`, asked again for `what` (what it acts on: the PRs, and what's done to them), not
+    /// whatever the cursor or marks or the list came to meanwhile; any other key calls it off.
+    fn again(&mut self, armed: Option<(char, u64)>, key: char, what: impl std::hash::Hash, ask: impl Into<String>) -> bool {
+        use std::hash::Hasher;
         let mut h = std::hash::DefaultHasher::new();
-        (key, &ask).hash(&mut h);
-        let key = (key.0, h.finish());
+        what.hash(&mut h);
+        let key = (key, h.finish());
         if armed == Some(key) {
             return true;
         }
-        (self.msg, self.confirm) = (ask, Some(key));
+        (self.msg, self.confirm) = (ask.into(), Some(key));
         false
     }
 
