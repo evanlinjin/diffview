@@ -4,11 +4,10 @@ use super::*;
 impl App {
     pub(super) fn selection_text(&self, patch: bool) -> String {
         let (s, e) = self.ordered();
-        // What's on the side it starts on: the code, or the comments (they're interleaved in
-        // `rows`, not on screen); in split view, the cursor's half (a patch: both).
+        // What's selected (`in_selection`); a patch, both halves of a split view.
         let side = self.side_of(s.row);
         let mut out = vec![];
-        for r in (s.row..=e.row).filter(|&r| self.side_of(r) == side && (patch || self.same_half(self.head.row, r))) {
+        for r in (s.row..=e.row).filter(|&r| if patch { self.side_of(r) == side } else { self.in_selection(r) }) {
             let l = &self.rows[r].line;
             let marker = match l.kind {
                 Kind::File => continue,

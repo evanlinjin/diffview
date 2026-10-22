@@ -116,6 +116,13 @@ impl App {
         rs.find(|&r| self.side_of(r).is_some() && self.side_of(r) == here && self.same_half(row, r))
     }
 
+    /// Row `r` among what's selected (between its ends): on the side it starts on (the code, or
+    /// the comments, interleaved in `rows`), and in split view on the cursor's half. What's
+    /// drawn selected, copied and suggested.
+    pub(super) fn in_selection(&self, r: usize) -> bool {
+        self.side_of(r) == self.side_of(self.ordered().0.row) && self.same_half(self.head.row, r)
+    }
+
     /// In split view, row `r` drawn on the half `from` is on (a removed line's the left, an
     /// added one's the right; an unchanged one, both). Not split: every row.
     pub(super) fn same_half(&self, from: usize, r: usize) -> bool {

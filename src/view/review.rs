@@ -820,8 +820,7 @@ impl App {
 
     pub(super) fn suggestion(&self) -> Result<(Anchor, String)> {
         let (s, e) = self.ordered();
-        let rows: Vec<&Row> =
-            self.rows[s.row..=e.row].iter().filter(|r| r.line.kind.is_code()).collect();
+        let rows: Vec<&Row> = (s.row..=e.row).filter(|&r| self.in_selection(r)).map(|r| &self.rows[r]).filter(|r| r.line.kind.is_code()).collect();
         let (Some(first), Some(last)) = (rows.first(), rows.last()) else { bail!("select the lines to suggest a change for") };
         if rows.iter().any(|r| r.line.kind == Kind::Del) {
             bail!("suggestions replace lines in the new version; leave removed lines out of the selection");
