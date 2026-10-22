@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.93.3] - 2026-10-22
+
+### Fixed
+- A line ending in a wide character or a tab: a sideways wheel at its end no longer moves the
+  cursor while scrolling nothing.
+
 ## [0.93.2] - 2026-10-22
 
 ### Fixed
