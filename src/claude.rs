@@ -386,6 +386,12 @@ fn running_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
+/// What a run (not a pane) holding PR (or issue) `n` is doing, from any dv: what a pane on it
+/// waits for (`mark_pane`).
+pub fn run_held(n: u64) -> Option<String> {
+    live_marker(&running_dir().ok()?.join(format!("pr-{n}.json")), &std::cell::OnceCell::new(), None, None)
+}
+
 /// What Claude is doing on PR (or issue) `n` right now, from any dv: a run's claim
 /// (`running/pr-N.json`, its process still there) or its pane (open). `own`: the asker's own
 /// session, whose pane isn't another's at work (what's sent there waits in it); `here`: only

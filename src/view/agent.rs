@@ -312,7 +312,8 @@ impl App {
         if self.claude_pane().is_some() {
             items.insert(0, Item::new(format!("Show Claude's pane (its session on {})", self.what()), Target::ClaudePane));
         } else if in_zellij() {
-            let what = match self.claude_busy() || self.held().is_some() {
+            let held = self.subject().and_then(|s| crate::claude::run_held(s.n()));
+            let what = match self.claude_busy() || held.is_some() {
                 // (Its own session's at work: a copy of it, for you; what's said there stays there.)
                 true => "a copy of its conversation to talk in: the original's at work, and won't hear it",
                 false => &format!("its session on {}, to talk to it", self.what()),
@@ -801,6 +802,24 @@ impl App {
     /// (`Space a` → show it, or zellij's own toggle); dv says when it's asking you something,
     /// and closes it once Claude's done there (`close_if_done`).
     fn claude_pane_run(&mut self, name: &str, prompt: Option<&str>, work: Option<crate::claude::Work>, focus: bool, fork: bool) -> Result<()> {
+        // Its marker first, every pane on the session (not a fork: a session of its own), for dv
+        // list and any dv (`claude::claim` waits while it's open). While a run holds it: a pane
+        // to talk in forks (that run's at the session), a request's refused.
+        let mut fork = fork;
+        let marked = match (fork, self.subject(), self.claude.session.clone()) {
+            (false, Some(s), Some(id)) => {
+                let what = match prompt {
+                    Some(_) => format!("{} (in its pane)", name.trim_start_matches("claude: ")),
+                    None => "talking with you (in its pane)".into(),
+                };
+                match crate::claude::mark_pane(s.n(), &what, &id, prompt.is_none(), &self.root) {
+                    Ok(()) => Some((s.n(), id)),
+                    Err(_) if prompt.is_none() => (fork = true, None).1,
+                    Err(w) => anyhow::bail!("Claude is {w} on {} already (elsewhere): ask again once it's done", s.what()),
+                }
+            }
+            _ => None,
+        };
         let mut path_env = std::ffi::OsString::from("PATH=");
         path_env.push(path_for_claude());
         let mut cmd = std::process::Command::new("zellij");
@@ -820,20 +839,6 @@ impl App {
             .args(claude_dirs())
             // (A checkout of its own to try things in, as the skill has it: not asked each time.)
             .args(["--allowedTools", "Bash(dv scratch:*)"]);
-        // Its marker first, every pane on the session (not a fork: a session of its own), for dv
-        // list and any dv (`claude::claim` waits while it's open): refused, no pane, while a run
-        // has it; the pane not started, none.
-        let marked = match (fork, self.subject(), self.claude.session.clone()) {
-            (false, Some(s), Some(id)) => {
-                let what = match prompt {
-                    Some(_) => format!("{} (in its pane)", name.trim_start_matches("claude: ")),
-                    None => "talking with you (in its pane)".into(),
-                };
-                crate::claude::mark_pane(s.n(), &what, &id, prompt.is_none(), &self.root).map_err(|w| anyhow!("Claude is {w} on {} already (elsewhere): ask again once it's done", s.what()))?;
-                Some((s.n(), id))
-            }
-            _ => None,
-        };
         let s = cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
         if let (false, Some((n, id))) = (s.as_ref().is_ok_and(|s| s.success()), &marked) {
             crate::claude::clear_pane(*n, id);
@@ -846,7 +851,7 @@ impl App {
     /// `Space a` → open Claude in a pane, to talk to it: the PR's session, or while a run is at
     /// work on it, a fork of it (two at once on one session would trip each other up).
     pub(super) fn open_claude_pane(&mut self) {
-        let busy = self.claude_busy() || self.held().is_some();
+        let busy = self.claude_busy();
         if let Err(e) = self.claude_pane_run(if busy { "claude (a copy)" } else { "claude" }, None, None, true, busy) {
             self.msg = format!("{e:#}");
         }
