@@ -4331,3 +4331,13 @@ fn a_selection_onto_a_hunks_rule_hints_the_selection() {
     assert_eq!(app.rows[app.head.row].line.kind, Kind::Hunk);
     assert_eq!(app.context_keys().map(|k| k.0), Some("selection"));
 }
+
+#[test]
+fn a_selection_of_no_code_hints_nothing_of_it() {
+    // `v` on a file's header: no code selected, so not the comment keys (they'd refuse).
+    let mut app = fixture();
+    let header = app.rows.iter().position(|r| r.file != INFO && r.line.kind == Kind::File).unwrap();
+    app.goto(header, 0);
+    app.key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE));
+    assert_ne!(app.context_keys().map(|k| k.0), Some("selection"));
+}
