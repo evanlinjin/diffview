@@ -5503,3 +5503,11 @@ fn a_closed_issues_chip_is_coloured_by_why() {
     assert_eq!(st(serde_json::json!({ "__typename": "Issue", "state": "CLOSED", "stateReason": "NOT_PLANNED" })), ("CLOSED", "6e7681"));
     assert_eq!(st(serde_json::json!({ "state": "CLOSED" })), ("CLOSED", "da3633"), "a PR's");
 }
+
+#[test]
+fn space_c_on_an_issues_text_copies_its_link() {
+    let mut app = issue_app(issue_fixture());
+    let r = app.rows.iter().position(|r| r.line.text.starts_with("labels")).expect("a facts line");
+    app.goto(r, 0);
+    assert!(app.cursor_ref().is_some_and(|u| u.contains("/issues/")), "{:?}", app.cursor_ref());
+}

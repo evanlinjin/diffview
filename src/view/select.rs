@@ -43,7 +43,7 @@ impl App {
     pub(super) fn draft_from_selection(&mut self) {
         let t = self.selection_text(false);
         let t = if t.trim().chars().count() > 1 { t } else { self.rows[self.head.row].line.text.clone() };
-        let at = [self.file_ref(), self.pr.as_ref().map(|p| format!("PR #{}", p.number))].into_iter().flatten().collect::<Vec<_>>().join(", ");
+        let at = [self.file_ref(), self.subject().map(|s| s.what())].into_iter().flatten().collect::<Vec<_>>().join(", ");
         let from = if at.is_empty() { String::new() } else { format!(" ({at})") };
         // (A fence of four: one of three in the text doesn't end it.)
         self.action = Some(Action::NewPr { prefill: format!("From this{from}:\n\n````\n{}\n````\n\nWhat a PR should do about it: ", t.trim_end()), as_is: false });
@@ -79,7 +79,7 @@ impl App {
         })
     }
 
-    /// What to paste to Claude for the thing under the cursor: a GitHub comment's (or the PR's)
+    /// What to paste to Claude for the thing under the cursor: a GitHub comment's (or the subject's)
     /// link, a Claude comment's lines, else the selected lines' `path:line`.
     pub(super) fn cursor_ref(&self) -> Option<String> {
         let row = &self.rows[self.head.row];
@@ -102,7 +102,7 @@ impl App {
         if row.file == INFO {
             // A comment's rows carry its body's index; the link is on the heading just before.
             let url = row.info.and_then(|i| self.info.get(i.checked_sub(1)?)).map(|h| h.url.clone()).filter(|u| !u.is_empty());
-            return url.or_else(|| self.pr.as_ref().map(|p| p.url.clone()).filter(|u| !u.is_empty()));
+            return url.or_else(|| self.subject_url().filter(|u| !u.is_empty()));
         }
         self.file_ref()
     }
