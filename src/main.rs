@@ -580,7 +580,9 @@ fn review_file(cmd: &str, o: &Opts) -> anyhow::Result<()> {
         None => (gh::pr(o.pr).ok(), None),
     };
     if cmd == "review-comments" {
-        return review_comments(pr.as_ref(), threads, pr.as_ref().is_some_and(on_pr));
+        // (This checkout's PR, found from it, or one named that it's on.)
+        let ours = o.pr.is_none() || pr.as_ref().is_some_and(on_pr);
+        return review_comments(pr.as_ref(), threads, ours);
     }
     let path = claude::path(pr.as_ref().map(|p| p.number))?;
     let base = diff_base(o, pr.as_ref())?;
@@ -670,10 +672,18 @@ fn on_branch(branch: &str, p: &gh::Pr) -> bool {
     !p.head_branch.is_empty() && (branch == p.head_branch || branch == format!("{}-{}", p.head_owner, p.head_branch))
 }
 
-/// This checkout is on PR `p` (its branch; detached, taken as on it: a worktree dv made).
+/// This checkout is on PR `p`: its branch, or (detached) the PR's own worktree dv made, not
+/// any detached checkout (another PR's, a scratch one, mid-rebase).
 fn on_pr(p: &gh::Pr) -> bool {
     let branch = diff::git(&["branch", "--show-current"]).unwrap_or_default();
-    branch.trim().is_empty() || on_branch(branch.trim(), p)
+    match branch.trim() {
+        "" => {
+            let real = |d: &str| std::fs::canonicalize(d).ok();
+            let top = diff::git(&["rev-parse", "--show-toplevel"]).ok().and_then(|t| real(t.trim()));
+            worktree_dir(p.number).is_ok_and(|(_, d)| top.is_some() && top == real(&d.to_string_lossy()))
+        }
+        b => on_branch(b, p),
+    }
 }
 
 pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool) -> anyhow::Result<Option<String>> {
