@@ -204,10 +204,13 @@ pub(crate) fn asking(screen: &str) -> bool {
 /// What's live on a Claude Code screen: past its transcript's last entry (`●` at a line's
 /// start) and that entry's own text (blank or indented lines after it): its spinner, tasks, a
 /// menu, the input box. Not what it said or showed (a reply reading "… (3 passed)", a file's
-/// text). No entry: all of it.
+/// text).
 fn live(screen: &str) -> &str {
-    let Some(i) = screen.rfind("\n●").map(|i| i + 1).or_else(|| screen.starts_with('●').then_some(0)) else { return screen };
-    let mut rest = screen[i..].split_once('\n').map_or("", |r| r.1);
+    // (No entry on screen: its start scrolled off, its tail at the top, skipped as one's.)
+    let mut rest = match screen.rfind("\n●").map(|i| i + 1).or_else(|| screen.starts_with('●').then_some(0)) {
+        Some(i) => screen[i..].split_once('\n').map_or("", |r| r.1),
+        None => screen,
+    };
     while let Some((l, more)) = rest.split_once('\n') {
         if !(l.trim().is_empty() || l.starts_with("  ")) {
             break;
@@ -283,6 +286,8 @@ fn what_claude_is_doing_now() {
     assert_eq!(doing(&format!("● Reading\n· Moseying… (59s · ↓ 1.3k tokens)\n{tasks}{foot}")), Some("working (in its pane)"));
     // Asking: its menu.
     assert_eq!(doing("● Bash(rm x)\n Do you want to proceed?\n ❯ 1. Yes\n   2. No"), Some("asking you (in its pane)"));
+    // Not: a long reply whose start scrolled off.
+    assert_eq!(doing(&format!("  and more of it\n  Ran the suite again… (342 passed, 0 failed).\n\n✻ Worked for 9s\n{foot}")), None);
     // Not: a numbered message of yours, its reply's own text, what a tool showed.
     assert_eq!(doing(&format!("❯ 1. yes\n● Ran the suite again… (342 passed, 0 failed).\n  ⎿ \"trust this folder\"\n✻ Worked for 9s\n{foot}")), None);
 }
