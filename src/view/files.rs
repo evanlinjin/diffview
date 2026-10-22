@@ -220,7 +220,7 @@ impl App {
                         n => format!(" ·{n}"),
                     };
                     let mark = if viewed { "✓ " } else { "  " };
-                    let room = w.saturating_sub(1 + mark.len() + right.chars().count());
+                    let room = w.saturating_sub(1 + mark.chars().count() + right.chars().count());
                     let name = cut(&e.text, room);
                     let pad = room.saturating_sub(name.chars().count());
                     Line::from(vec![

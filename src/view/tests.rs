@@ -5168,3 +5168,14 @@ fn a_on_uncommitted_says_what_a_does() {
     press(&mut app, "a");
     assert!(app.msg.starts_with("a on a commit"), "{:?}", app.msg);
 }
+
+#[test]
+fn a_viewed_files_row_is_as_wide_as_the_others() {
+    let mut app = fixture();
+    app.files_pref = Some(true);
+    app.viewed.insert("src/a.rs".into(), "VIEWED".into());
+    let s = screen(220, 30, |f| app.draw(f));
+    // Each file's row: its comment count ends at the list's edge, viewed (✓) or not.
+    let ends: Vec<usize> = s.lines().map(|l| l.split('│').next().unwrap()).filter(|l| l.contains('·') && (l.contains("a.rs") || l.contains("big.rs"))).map(|l| l.trim_end().chars().count()).collect();
+    assert!(ends.len() >= 2 && ends.windows(2).all(|w| w[0] == w[1]), "{ends:?}\n{s}");
+}
