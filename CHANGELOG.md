@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.89.0] - 2026-10-22
+
+### Added
+- `Ctrl-w r` wraps long code lines at the code's width (each side's in split view) instead of
+  scrolling them sideways; the parts after the first are marked `↪`. Kept for next time.
+
 ## [0.88.2] - 2026-10-22
 
 ### Fixed
