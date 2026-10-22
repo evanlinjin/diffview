@@ -237,7 +237,10 @@ impl List {
                 if self.rep_busy(id) {
                     return (self.msg = format!("Claude is already at work on {}", crate::replace::label(id)), None).1;
                 }
-                let which = prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(" ");
+                if let Some(why) = crate::replace::refused(id) {
+                    return (self.msg = why, None).1;
+                }
+                let which = prs.iter().map(|&n| crate::replace::shown(n)).collect::<Vec<_>>().join(" ");
                 let again = if self.rep_of.contains_key(&id) { " (again: it has one, which Claude carries on from)" } else { "" };
                 let ask = match prs.len() {
                     1 => format!("A again: Claude drafts a replacement for {which}{again}, unpublished; your editor opens first, for instructions"),

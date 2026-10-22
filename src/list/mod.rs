@@ -468,12 +468,21 @@ impl List {
                 Err(e) => return self.msg = format!("{e:#}"),
             }
         }
-        let mut groups: Vec<Vec<u64>> = groups.iter().filter(|g| !g.is_empty()).map(|g| crate::replace::target(g)).collect();
-        groups.retain(|g| !self.rep_busy(g[0]));
+        // Each as the draft it drafts, one per draft (two groups a draft replaces from: one);
+        // not one Claude's at, nor one published.
+        let mut merged: Vec<Vec<u64>> = vec![];
+        for g in groups.iter().filter(|g| !g.is_empty()).map(|g| crate::replace::target(g)) {
+            match merged.iter_mut().find(|m| m[0] == g[0]) {
+                Some(m) => m.extend(g.into_iter().filter(|n| !m.contains(n)).collect::<Vec<_>>()),
+                None => merged.push(g),
+            }
+        }
+        let mut groups = merged;
+        groups.retain(|g| !self.rep_busy(g[0]) && crate::replace::refused(g[0]).is_none());
         if groups.is_empty() {
             return self.msg = "nothing to draft".into();
         }
-        let which: Vec<String> = groups.iter().map(|g| g.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join("+")).collect();
+        let which: Vec<String> = groups.iter().map(|g| g.iter().map(|&n| crate::replace::shown(n)).collect::<Vec<_>>().join("+")).collect();
         let what = format!("instructions for Claude's replacement of {} (optional)", which.join(", "));
         // Drafted already: what else you want of it (asked of its drafts), not your instructions
         // for first drafts (nor saved as them); any first drafts among them get those.

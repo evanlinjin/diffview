@@ -149,17 +149,20 @@ pub fn of(n: u64) -> Option<Record> {
     all.iter().find(|r| r.id == n).or(all.first()).cloned()
 }
 
-/// What a draft asked for `prs` drafts (its id first): a PR another's replacement replaces
-/// too redrafts that one. Asked where the id's chosen (what's said, what's busy, its news).
+/// What a draft asked for `prs` drafts (its id first): one any of them is replaced by
+/// already is redrafted (with them all). Asked where the id's chosen (what's said, what's
+/// busy, its news).
 pub fn target(prs: &[u64]) -> Vec<u64> {
-    match prs.first().and_then(|&n| of(n)) {
-        Some(r) if r.id != prs[0] => {
-            let mut out = vec![r.id];
-            out.extend(prs.iter().filter(|&&n| n != r.id));
-            out
-        }
-        _ => prs.to_vec(),
+    match prs.iter().find_map(|&n| of(n)) {
+        Some(r) => std::iter::once(r.id).chain(prs.iter().copied().filter(|&n| n != r.id)).collect(),
+        None => prs.to_vec(),
     }
+}
+
+/// Why draft `id` isn't drafted again: published, it's a PR like any (Claude asked there).
+pub fn refused(id: u64) -> Option<String> {
+    let n = load(id).ok()?.published?;
+    Some(format!("{} is published as #{n}: ask Claude on that PR", label(id)))
 }
 
 /// Published as PR `n`: Claude's review of the draft (and its session) moved to the PR's, for
@@ -493,8 +496,8 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
     // Its claim, held while it drafts (this process's: let go as it ends, however).
     let _claim = crate::claude::claim(&crate::claude::rep_key(id), "drafting", None).map_err(|w| anyhow::anyhow!("Claude is {w} on {} already", label(id)))?;
     // Published, it's a PR like any (its PR's view, Claude there): not redrafted under it.
-    if let Some(n) = load(id).ok().and_then(|r| r.published) {
-        anyhow::bail!("{} is published as #{n}: ask Claude on that PR", label(id));
+    if let Some(why) = refused(id) {
+        anyhow::bail!(why);
     }
     let (first, _) = update(id, |r| {
         if r.drafted() && !extra.trim().is_empty() {

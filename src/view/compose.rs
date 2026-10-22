@@ -259,8 +259,8 @@ impl App {
                 let prs = crate::replace::target(&prs);
                 // Claude at work on it, or its pane open here (`redraft_waits`).
                 let waits = || self.redraft_waits(prs[0]);
-                if let Some(n) = crate::replace::load(prs[0]).ok().and_then(|r| r.published) {
-                    return Ok(format!("{} is published as #{n}: ask Claude on that PR", crate::replace::label(prs[0])));
+                if let Some(why) = crate::replace::refused(prs[0]) {
+                    return Ok(why);
                 }
                 // (What it is, said: a new PR's id is no PR number.)
                 let it = match crate::replace::is_new(prs[0]) {
