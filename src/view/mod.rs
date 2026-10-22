@@ -629,6 +629,9 @@ pub struct App {
     /// alike); and, for this layout, where each row's parts after its first start (`wrap_rows`).
     soft_wrap: bool,
     wrap_cols: (usize, usize),
+    /// The text widths rows are drawn at, as last drawn: a full-width row's (beside the pane,
+    /// as wide as the code), and the pane's.
+    frame_w: (usize, usize),
     wrap: Vec<Vec<usize>>,
     /// Changed-word spans (char ranges) for paired removed/added rows.
     emph: HashMap<usize, Vec<(usize, usize)>>,

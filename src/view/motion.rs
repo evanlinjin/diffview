@@ -78,15 +78,13 @@ impl App {
         if self.margin_side() {
             return; // already as far right as it goes
         }
-        // To the other side's line on this screen row (its part, wrapped), as far into it.
+        // To the other side's line on this screen row (its part, wrapped), as far into it; a
+        // short one already ended above: its end. (A hatch, no line there: staying.)
+        let Some(r) = self.side_row(hd, right) else { return };
         let x = self.cursor_x();
+        let p = self.stop_on(hd, right, x).unwrap_or(Pos { row: r, col: self.len(r).saturating_sub(1) });
         self.right = right;
-        if let Some(r) = self.side_row(hd, right)
-            && let Some(s) = self.span_of(r, self.dseg[hd])
-        {
-            let col = self.char_at(r, self.col_of(r, s.chars.start) + x).min(s.chars.end.saturating_sub(1)).max(s.chars.start);
-            self.goto(r, col);
-        }
+        self.goto(p.row, p.col);
     }
 
     /// The next (`fwd`) or previous row after `row` on the same side as it: the code or the
@@ -130,10 +128,14 @@ impl App {
         // can't stop on (`stop_at`), keeping its column.
         // (Overshooting into rows it can't stop on, as far as it can.)
         let x = self.cursor_x();
-        let last = self.drows.len() as isize - 1;
-        let hd = self.hd();
-        let t = (hd as isize + d).clamp(0, last) as usize;
-        let Some(p) = self.stop_near(t, if d < 0 { -1 } else { 1 }, hd, x) else { return };
+        let (hd, last) = (self.hd(), self.drows.len().saturating_sub(1));
+        let t = (hd as isize + d).clamp(0, last as isize) as usize;
+        // (Not back past where it is.)
+        let within = if d < 0 { 0..=hd.saturating_sub(1) } else { (hd + 1).min(last)..=last };
+        if d == 0 || (d < 0 && hd == 0) || (d > 0 && hd >= last) {
+            return;
+        }
+        let Some(p) = self.stop_near(t, if d < 0 { -1 } else { 1 }, within, x) else { return };
         self.goto(p.row, p.col);
         self.want_x = Some(x);
     }
@@ -363,16 +365,15 @@ impl App {
         let into = |hd: usize| hd.clamp(lo, hi.max(lo)).min(last as usize);
         let hd = self.hd();
         if hd < lo || hd > hi {
-            // Onto the screen: the nearest row it can stop on, toward the screen's middle; with
-            // no code on screen (the pane's boxes running on past it), a comment there.
+            // Onto the screen: the nearest row it can stop on, toward the screen's middle, on
+            // the screen only; with no code there (the pane's boxes running on past it), a comment.
             let x = self.cursor_x();
             let step: isize = if hd < lo { 1 } else { -1 };
-            let on_screen = |p: &Pos| (lo..=hi.max(lo)).contains(&self.d_at(*p));
-            let comment = || (lo..=hi.max(lo)).find_map(|d| match self.drows.get(d) {
-                Some(&DRow::Margin(_, _, Some(c))) => Some(Pos { row: c, col: 0 }),
-                _ => None,
-            });
-            if let Some(p) = self.stop_near(into(hd), step, hd, x).filter(on_screen).or_else(comment) {
+            let screen = lo.min(last as usize)..=hi.max(lo).min(last as usize);
+            // (None on its side, a tall pair's short side ended above: the other side's line.)
+            let other = || screen.clone().find_map(|d| self.stop_on(d, !self.right, x));
+            let comment = || screen.clone().find_map(|d| self.note_at(d)).map(|c| Pos { row: c, col: 0 });
+            if let Some(p) = self.stop_near(into(hd), step, screen.clone(), x).or_else(other).or_else(comment) {
                 self.goto(p.row, p.col);
                 self.want_x = Some(x);
             }
@@ -387,21 +388,19 @@ impl App {
         // comment beside it.
         let mut shown: Vec<Shown> = vec![];
         for d in self.top..(self.top + self.height).min(self.drows.len()) {
-            let note = match self.drows[d] {
-                DRow::Margin(_, _, Some(c)) => self.span_of(c, 0),
-                _ => None,
-            };
+            let note = self.note_at(d).and_then(|c| self.span_of(c, 0));
             for s in [self.span(d, false), self.span(d, true), note].into_iter().flatten() {
                 if !shown.contains(&s) {
                     shown.push(s);
                 }
             }
         }
+        let mut texts: HashMap<usize, Vec<char>> = HashMap::new(); // (a row's chars, once)
         for Shown { row, chars: on, .. } in shown {
             if matches!(self.rows[row].line.kind, Kind::File | Kind::Hunk) {
                 continue;
             }
-            let chars = self.chars(row);
+            let chars = texts.entry(row).or_insert_with(|| self.chars(row));
             let class = |c: char| if c.is_whitespace() { 0 } else if c.is_alphanumeric() || c == '_' { 1 } else { 2 };
             let mut i = on.start;
             while i < on.end.min(chars.len()) {

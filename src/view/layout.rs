@@ -462,10 +462,36 @@ impl App {
         }
         let left = self.hscroll(r);
         // (The width not known yet, nothing drawn: all of it.)
-        let w = if self.split && self.rows[r].line.kind.is_code() { self.wrap_cols.1 } else { self.wrap_cols.0 };
+        let w = self.row_w(r);
         let (from, len) = (self.char_from(r, left), self.len(r));
         let to = if w == 0 { len } else { self.char_at(r, left + w).min(len) };
         Some(Shown { row: r, chars: from..to.max(from), left })
+    }
+
+    /// The text width row `r` is drawn at: code's (the one column's, or a split half's), a
+    /// comment's in the pane (its box's), the rest the full width's (a box's, inline). 0 before
+    /// anything's drawn.
+    pub(super) fn row_w(&self, r: usize) -> usize {
+        let (full, pane) = self.frame_w;
+        match (self.in_pane(r), self.rows[r].line.kind.is_code()) {
+            (true, _) if pane > 0 => self.text_w(r, pane),
+            (false, true) => if self.split { self.wrap_cols.1 } else { self.wrap_cols.0 },
+            _ if full > 0 => self.text_w(r, full),
+            _ => 0,
+        }
+    }
+
+    /// The char `x` columns into what `s` shows (from where its text starts on screen), within it.
+    pub(super) fn place(&self, s: &Shown, x: usize) -> usize {
+        self.char_at(s.row, s.left + x).min(s.chars.end.saturating_sub(1)).max(s.chars.start)
+    }
+
+    /// The comment beside screen row `d`, in the pane.
+    pub(super) fn note_at(&self, d: usize) -> Option<usize> {
+        match self.drows.get(d)? {
+            &DRow::Margin(_, _, c) => c,
+            _ => None,
+        }
     }
 
     /// Whether a screen row's lines are a split pair (code, in split view: a side each).
@@ -633,11 +659,7 @@ impl App {
     pub(super) fn relayout_keeping_top(&mut self) {
         // (Its code's part; on a spacer, the comment beside it.)
         let code = self.span(self.top, self.right).or_else(|| self.span(self.top, !self.right)).map(|s| Pos { row: s.row, col: s.chars.start });
-        let note = || match self.drows.get(self.top) {
-            Some(&DRow::Margin(_, _, Some(c))) => Some(Pos { row: c, col: 0 }),
-            _ => None,
-        };
-        let top = code.or_else(note);
+        let top = code.or_else(|| self.note_at(self.top).map(|c| Pos { row: c, col: 0 }));
         self.layout();
         if let Some(p) = top {
             self.top = self.d_at(p);
@@ -661,54 +683,42 @@ impl App {
     }
 
     /// Where the cursor stops on screen row `d`, `x` columns into what's there (`want_x`): on
-    /// the code side, code with text on that row (its side's, else the other's, past a pair's
-    /// hatch); in the pane, a comment. None where it can't stop: a spacer, a short side's
-    /// empty row, a row with nothing in the pane.
-    pub(super) fn stop_at(&self, d: usize, x: usize) -> Option<Pos> {
+    /// the code side, code with text on that row on its side (`right`; a hatch, no line there:
+    /// the other's); in the pane, a comment. None where it can't stop: a spacer, a short
+    /// side's empty row, a row with nothing in the pane.
+    pub(super) fn stop_on(&self, d: usize, right: bool, x: usize) -> Option<Pos> {
         if self.margin_side() {
-            let DRow::Margin(_, _, Some(c)) = *self.drows.get(d)? else { return None };
-            return Some(Pos { row: c, col: self.char_at(c, x) });
+            let c = self.note_at(d)?;
+            return Some(Pos { row: c, col: self.place(&self.span_of(c, 0)?, x) });
         }
-        // (The other side only for a hatch: this side has no line there. A short line's own
-        // rows past its end aren't stops.)
-        let s = match self.side_row(d, self.right) {
+        let s = match self.side_row(d, right) {
             Some(r) => self.span_of(r, self.dseg[d])?,
-            None => self.span(d, !self.right)?,
+            None => self.span(d, !right)?,
         };
-        let start = self.col_of(s.row, s.chars.start);
-        let col = self.char_at(s.row, start + x).min(s.chars.end.saturating_sub(1)).max(s.chars.start);
-        Some(Pos { row: s.row, col })
+        Some(Pos { row: s.row, col: self.place(&s, x) })
     }
 
-    /// The nearest screen row from `from` the cursor can stop on (`stop_at`), stepping `step`,
-    /// and its place there; none that way, the nearest back toward `back` (not past it).
-    pub(super) fn stop_near(&self, from: usize, step: isize, back: usize, x: usize) -> Option<Pos> {
-        let last = self.drows.len() as isize - 1;
-        let mut t = from as isize;
-        while (0..=last).contains(&t) {
-            if let Some(p) = self.stop_at(t as usize, x) {
-                return Some(p);
-            }
-            t += step;
-        }
-        let mut t = from as isize - step;
-        while (0..=last).contains(&t) && (t - back as isize).signum() == step.signum() {
-            if let Some(p) = self.stop_at(t as usize, x) {
-                return Some(p);
-            }
-            t -= step;
-        }
-        None
+    /// `stop_on` the cursor's side.
+    pub(super) fn stop_at(&self, d: usize, x: usize) -> Option<Pos> {
+        self.stop_on(d, self.right, x)
+    }
+
+    /// The nearest screen row in `within` from `from` the cursor can stop on, stepping `step`;
+    /// none that way, the nearest back the other way. And its place there.
+    pub(super) fn stop_near(&self, from: usize, step: isize, within: std::ops::RangeInclusive<usize>, x: usize) -> Option<Pos> {
+        let rows = |start: isize, step: isize| {
+            let within = within.clone();
+            (0..).map(move |i| start + i * step).take_while(move |&t| t >= 0 && within.contains(&(t as usize))).map(|t| t as usize)
+        };
+        rows(from as isize, step).chain(rows(from as isize - step, -step)).find_map(|t| self.stop_at(t, x))
     }
 
     /// The cursor's column into what's on its screen row (its part, wrapped), as vertical
     /// moves keep it: as last kept, else where it is.
     pub(super) fn cursor_x(&self) -> usize {
         let (r, col) = (self.head.row, self.head.col);
-        self.want_x.unwrap_or_else(|| {
-            let start = self.part(r, self.part_at(r, col)).map_or(0, |p| p.start);
-            self.col_of(r, col) - self.col_of(r, start)
-        })
+        // (From where its row's text starts on screen: what `place` counts from.)
+        self.want_x.unwrap_or_else(|| self.span_of(r, self.part_at(r, col)).map_or(0, |s| self.col_of(r, col).saturating_sub(s.left)))
     }
     /// The width comments and PR text wrap to: the pane's, when it's shown (they're there).
     pub(super) fn info_w(&self) -> usize {

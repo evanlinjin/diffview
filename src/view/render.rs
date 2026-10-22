@@ -166,6 +166,8 @@ impl App {
         let cols = (if margin && !float { ctw } else { tw }.saturating_sub(1).max(1), htw_l.saturating_sub(1).max(1));
         let rewrap = cols != self.wrap_cols && self.soft_wrap;
         self.wrap_cols = cols;
+        // (The pane's text width as it's drawn: `ptw` below.)
+        self.frame_w = (if margin && !float { ctw } else { tw }, mw.saturating_sub(self.pane_gw() + self.pane_pad()));
         if ww != self.wrap_w || margin != self.margin_active || (margin && mw != self.margin_w) || float != self.margin_float {
             (self.wrap_w, self.margin_active, self.margin_w, self.margin_float) = (ww, margin, mw, float);
             let keep = self.cursor_key();
@@ -238,7 +240,13 @@ impl App {
         let nudge = std::mem::take(&mut self.hnudge);
         let len = self.len(self.head.row);
         let w = self.text_w(self.head.row, cur_w).max(1);
-        let Some(scroller) = scroller else { return };
+        // (Wrapped, nothing's off to the side: the code scrolled back as it comes onto it.)
+        let Some(scroller) = scroller else {
+            if self.wraps(self.head.row) {
+                self.left = 0;
+            }
+            return;
+        };
         // (In columns, as `render_row` draws it: a tab's 4, a wide character's 2.)
         let (row, mut left) = (self.head.row, self.hscroll(self.head.row));
         if nudge != 0 {

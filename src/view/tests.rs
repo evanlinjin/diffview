@@ -3639,3 +3639,36 @@ fn a_short_sides_empty_rows_stay_in_their_half() {
     let starts: HashSet<_> = app.labels.iter().map(|l| l.0).collect();
     assert_eq!(starts.len(), app.labels.len());
 }
+
+#[test]
+fn moves_keep_the_column_as_seen_scrolled_split_and_tall() {
+    // Unwrapped, scrolled sideways: j keeps the column it's on, not that plus the scroll.
+    let long = "z".repeat(200);
+    let text = format!("diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -0,0 +1,2 @@\n+{long}\n+{long}\n");
+    let mut app = App::with("base".into(), diff::parse(&text));
+    (app.files_pref, app.margin_pref) = (Some(false), Some(false));
+    let first = app.rows.iter().position(|r| r.line.text == long).unwrap();
+    _ = screen(80, 20, |f| app.draw(f));
+    app.goto(first, 150);
+    _ = screen(80, 20, |f| app.draw(f)); // (scrolled to it)
+    app.goto(first, 120);
+    _ = screen(80, 20, |f| app.draw(f));
+    app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    assert_eq!((app.head.row, app.head.col), (first + 1, 120));
+    // Split, wrapped: Ctrl-h from a long line's later part goes to the short line beside it.
+    let text = format!("diff --git a/b.rs b/b.rs\nindex 1..2 100644\n--- a/b.rs\n+++ b/b.rs\n@@ -1 +1 @@\n-old\n+{}\n end\n", "y".repeat(3000));
+    let mut app = App::with("base".into(), diff::parse(&text));
+    (app.files_pref, app.margin_pref, app.soft_wrap, app.split) = (Some(false), Some(false), true, true);
+    _ = screen(80, 20, |f| app.draw(f));
+    let (del, add) = (app.rows.iter().position(|r| r.line.text == "old").unwrap(), app.rows.iter().position(|r| r.line.kind == Kind::Add).unwrap());
+    app.goto(add, 100);
+    app.key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL));
+    assert_eq!((app.head.row, app.right), (del, false), "onto the short line");
+    // The wheel over the tall pair, from its short side: it scrolls (not held back).
+    app.goto(del, 0);
+    for _ in 0..10 {
+        app.scroll_code(3);
+        _ = screen(80, 20, |f| app.draw(f));
+    }
+    assert!(app.top >= 20, "scrolled: top {}", app.top);
+}
