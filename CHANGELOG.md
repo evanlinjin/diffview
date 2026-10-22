@@ -5,6 +5,24 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.95.12] - 2026-10-22
+
+### Fixed
+- GitHub's comments follow their code here: their line numbers (the PR head's) are mapped
+  through how its lines moved in what's shown (local edits, unpushed or diverged commits), for
+  where a thread is drawn, its range, its labels, `a` asking Claude about it, and
+  `dv review-comments` (the checkout's own PR).
+- A comment, a review and an approval go on the head their lines (or ACK) were read on; a
+  pending review started on an earlier head refuses lines and an approval read on the new one,
+  up front, saying to submit or discard it.
+- A new comment unfolds its viewed file however GitHub's answer comes; a folded thread's
+  replies aren't marked seen by passing over it; a review starts with the text being posted.
+- Tab keeps a thread open or folded as you left it through resolving; `]c` goes in drawn order
+  (comments on files gone from the diff too); `C` with a pending review names the key that
+  queues there (r on a thread, c on lines).
+- A change dv makes on GitHub asks it again, so a background fetch it dropped can't hide a new
+  comment.
+
 ## [0.95.11] - 2026-10-22
 
 ### Fixed
