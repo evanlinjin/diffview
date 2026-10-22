@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.92.12] - 2026-10-22
+
+### Fixed
+- A long PR title shows its state and the checkout's badge again (0.92.11 dropped them).
+- Right after `Ctrl-w f`, the pane's rows are measured at their new width.
+
 ## [0.92.11] - 2026-10-22
 
 ### Fixed
