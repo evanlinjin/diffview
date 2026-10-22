@@ -5,6 +5,17 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.91.1] - 2026-10-22
+
+### Fixed
+- Split view, wrapped: a short side's rows past its end stay in their half (the divider
+  stayed put only while it fit), and the cursor on an empty short line shows once.
+- `gw` labels each word on screen once (not again per row a wrapped pair takes, nor in parts
+  scrolled off); a count overshooting into rows it can't stop on goes as far as it can; the
+  wheel past the code's end goes on into the pane's comments; resizing, or toggling split
+  view, keeps what's at the top there (a spacer: its comment); a long header still scrolls
+  sideways (and says so) while lines wrap.
+
 ## [0.91.0] - 2026-10-22
 
 ### Changed
