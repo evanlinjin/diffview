@@ -600,18 +600,9 @@ impl List {
         for (n, s) in news {
             let doing = self.batch_task.get(&n).map_or("reviewing", batch::Task::doing);
             match &s {
-                // Claude at it elsewhere (a PR's view, say): not asked now, as if never asked.
                 // Claude at it elsewhere: kept as said (auto not starting it again and again),
-                // asked again once Claude starts or ends somewhere (`watch_running`), or a a.
-                batch::Status::Busy(w, _) => {
-                    self.msg = format!("#{n}: not {doing} now: {w}");
-                    // (A description's check: its head as it was, saved, to check again once
-                    // that's over: not lost if dv quits meanwhile.)
-                    if let Some(batch::Task::Describe(old)) = self.batch_task.get(&n) {
-                        self.described.insert(n, old.clone());
-                        self.save_described();
-                    }
-                }
+                // asked again once what held it is over (`batch::held`), or a a.
+                batch::Status::Busy(w, _) => self.msg = format!("#{n}: not {doing} now: {w}"),
                 // Merged or closed meanwhile: so in the list now (not asked again, by auto
                 // either), till GitHub's list says.
                 batch::Status::Gone(state) => {
@@ -625,6 +616,11 @@ impl List {
                 batch::Status::Done(took) => {
                     // (Reviewed or not: its review file says, as `watch_reviews` sees it come.)
                     self.new.insert(n);
+                    // A description checked: at that head (not again till it moves).
+                    if let Some(batch::Task::Describe(_, head)) = self.batch_task.get(&n).cloned() {
+                        self.described.insert(n, head);
+                        self.save_described();
+                    }
                     self.msg = match doing {
                         "reviewing" => format!("Claude reviewed #{n} ({took}): Enter opens it, in its worktree from the worktrees tab"),
                         d => format!("Claude is done {d} on #{n} ({took})"),

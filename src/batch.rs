@@ -50,9 +50,10 @@ pub enum Task {
     FixChecks,
     /// Claude's review would close it: draft the comment it closes with (you close it, in dv).
     Close,
-    /// Your PR changed since this commit: propose a new description if it no longer fits
-    /// (you approve it, in dv).
-    Describe(String),
+    /// Your PR changed since this commit (the first) to its head now (the second, noted as
+    /// checked once it's done): propose a new description if it no longer fits (you approve
+    /// it, in dv).
+    Describe(String, String),
 }
 
 impl Task {
@@ -64,7 +65,7 @@ impl Task {
             Task::Answer { .. } => Work::Answer,
             Task::FixChecks => Work::FixCi,
             Task::Close => Work::Close,
-            Task::Describe(_) => Work::Describe,
+            Task::Describe(..) => Work::Describe,
         }
     }
 
@@ -76,7 +77,7 @@ impl Task {
             Task::Answer { .. } => "answering",
             Task::FixChecks => "fixing CI",
             Task::Close => "drafting a closing comment",
-            Task::Describe(_) => "checking its description",
+            Task::Describe(..) => "checking its description",
         }
     }
 
@@ -88,7 +89,7 @@ impl Task {
             Task::Answer { .. } => "could answer you",
             Task::FixChecks => "could fix CI",
             Task::Close => "could draft a closing comment",
-            Task::Describe(_) => "could check its description",
+            Task::Describe(..) => "could check its description",
         }
     }
 
@@ -104,7 +105,7 @@ impl Task {
                  field (see \"Draft a closing comment\"): your review (or triage) says it should be closed. Don't close it \
                  or comment on GitHub: the user closes it in dv."
             ),
-            Task::Describe(old) => format!(
+            Task::Describe(old, _) => format!(
                 "{what} has changed since {old} (`git diff {old} HEAD`; that commit gone, a force-push: the whole PR, \
                  `gh pr diff {n}`). Read its description (`gh pr view {n} --json body`). \
                  If it no longer describes the PR (what it changes now, why, how it's tested, anything in it now wrong \
