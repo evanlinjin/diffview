@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.91.7] - 2026-10-22
+
+### Fixed
+- Split view keeps the side you chose (Ctrl-h / Ctrl-l, a click or drag on a half) apart from
+  the half the cursor's drawn on (its line's: removed left, added right): `j` through a
+  removed line beside nothing and back `k` comes back on your side; a click on the left half
+  of an unchanged line puts the cursor there.
+
 ## [0.91.6] - 2026-10-22
 
 ### Fixed
