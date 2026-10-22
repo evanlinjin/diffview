@@ -466,6 +466,10 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
     let last = std::fs::metadata(path(id)?).and_then(|m| m.modified()).ok();
     // Its claim, held while it drafts (this process's: let go as it ends, however).
     let _claim = crate::claude::claim(&crate::claude::rep_key(id), "drafting", None).map_err(|w| anyhow::anyhow!("Claude is {w} on {} already", label(id)))?;
+    // Published, it's a PR like any (its PR's view, Claude there): not redrafted under it.
+    if let Some(n) = load(id).ok().and_then(|r| r.published) {
+        anyhow::bail!("{} is published as #{n}: ask Claude on that PR", label(id));
+    }
     let (first, _) = update(id, |r| {
         if r.drafted() && !extra.trim().is_empty() {
             r.asks.push(Request { text: extra.trim().to_owned(), ..Request::default() });
