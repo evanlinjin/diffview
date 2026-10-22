@@ -5054,3 +5054,24 @@ fn select_mode_j_passes_a_removed_line_across_a_hatch() {
     press(&mut app, "vjjj");
     assert_eq!(app.selection_text(false), "one\ntwo\nthree!\nf");
 }
+
+#[test]
+fn the_wheel_in_select_mode_keeps_a_split_selection_on_its_half() {
+    let body: String = (0..60).map(|i| format!(" ctx{i}\n")).collect();
+    let sample = format!("diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1,63 +1,63 @@\n one\n-three\n+three!\n two\n{body}");
+    let mut app = App::with("base".into(), diff::parse(&sample));
+    (app.files_pref, app.margin_pref) = (Some(false), Some(false));
+    (app.split, app.right) = (true, true);
+    app.build();
+    _ = screen(120, 14, |f| app.draw(f));
+    let one = app.rows.iter().position(|r| r.line.text == "one").unwrap();
+    app.goto(one, 0);
+    press(&mut app, "v/thre");
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)); // onto the removed line, the left
+    _ = screen(120, 14, |f| app.draw(f));
+    for _ in 0..3 {
+        app.mouse(ratatui::crossterm::event::MouseEvent { kind: ratatui::crossterm::event::MouseEventKind::ScrollDown, column: 60, row: 5, modifiers: KeyModifiers::NONE });
+        _ = screen(120, 14, |f| app.draw(f));
+    }
+    assert!(app.selection_text(false).starts_with("one\nthree\n"), "{:?}", app.selection_text(false));
+}

@@ -37,6 +37,7 @@ pub(crate) fn sideways(m: &MouseEvent) -> MouseEventKind {
 impl App {
     pub(super) fn mouse(&mut self, m: MouseEvent) {
         let (x, y) = (m.column as usize, m.row as usize);
+        self.pin_half();
         // A click or drag: a prefix, count or jump labels waiting gone, as any key that isn't theirs.
         if matches!(m.kind, MouseEventKind::Down(_) | MouseEventKind::Drag(_)) {
             (self.pending, self.count) = (None, 0);

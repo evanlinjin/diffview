@@ -848,7 +848,7 @@ impl App {
     /// In select mode, a vertical move (keys, the wheel) stops only on the selection's half of
     /// a split view (not a removed line across a hatch, the half then flipping for good).
     pub(super) fn on_selections_half(&self, p: Pos) -> bool {
-        !self.select || self.same_half(self.head.row, p.row)
+        !self.select || self.on_cursors_half(p.row)
     }
 
     /// Screen rows `within`, nearest `from` first: on from it stepping `step`, then back the

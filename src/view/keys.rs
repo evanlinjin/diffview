@@ -150,11 +150,7 @@ impl App {
 
     pub(super) fn key(&mut self, k: KeyEvent) {
         self.msg.clear();
-        // A selection up, in split view: the half its head's drawn on is yours (what it extends
-        // along, copies and comments on), not the one chosen before it got there.
-        if self.selecting() {
-            self.right = self.head_right();
-        }
+        self.pin_half();
         // What's typed into (help's search, a picker, the prompt): Ctrl-c closes it as Esc does,
         // and a Ctrl or Alt key's char isn't typed (`typed`).
         let typed = typed(&k);

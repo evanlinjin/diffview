@@ -113,20 +113,29 @@ impl App {
     pub(super) fn next_row_here(&self, row: usize, fwd: bool) -> Option<usize> {
         let here = self.side_of(row);
         let mut rs: Box<dyn Iterator<Item = usize>> = if fwd { Box::new(row + 1..self.rows.len()) } else { Box::new((0..row).rev()) };
-        rs.find(|&r| self.side_of(r).is_some() && self.side_of(r) == here && self.same_half(row, r))
+        rs.find(|&r| self.side_of(r).is_some() && self.side_of(r) == here && self.on_cursors_half(r))
     }
 
     /// Row `r` among what's selected (between its ends): on the side it starts on (the code, or
     /// the comments, interleaved in `rows`), and in split view on the cursor's half. What's
     /// drawn selected, copied and suggested.
     pub(super) fn in_selection(&self, r: usize) -> bool {
-        self.side_of(r) == self.side_of(self.ordered().0.row) && self.same_half(self.head.row, r)
+        self.side_of(r) == self.side_of(self.ordered().0.row) && self.on_cursors_half(r)
     }
 
-    /// In split view, row `r` drawn on the half `from` is on (a removed line's the left, an
-    /// added one's the right; an unchanged one, both). Not split: every row.
-    pub(super) fn same_half(&self, from: usize, r: usize) -> bool {
-        !self.split || !matches!(self.rows[r].line.kind, Kind::Add | Kind::Del) || self.row_right(r) == self.row_right(from)
+    /// Row `r` drawn on the cursor's half of a split view (an unchanged line: both). Not
+    /// split: every row.
+    pub(super) fn on_cursors_half(&self, r: usize) -> bool {
+        !self.split || !matches!(self.rows[r].line.kind, Kind::Add | Kind::Del) || self.row_right(r) == self.head_right()
+    }
+
+    /// While a selection's up, the half its head's drawn on is yours (what it extends along,
+    /// copies and comments on), not one chosen before it got there: before each key or mouse
+    /// event.
+    pub(super) fn pin_half(&mut self) {
+        if self.selecting() {
+            self.right = self.head_right();
+        }
     }
 
     /// The side row `r` is on: the comments pane (`true`) or the code; none, a file's comment
