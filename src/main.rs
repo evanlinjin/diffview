@@ -260,7 +260,10 @@ fn run() -> anyhow::Result<()> {
     if o.branch && !o.worktree {
         anyhow::bail!("--branch goes with --worktree (plain --pr already checks out a branch)\n{USAGE}");
     }
+    // The list's home: the main checkout, never a PR's worktree (a merge from it removes that).
     if o.list {
+        let root = main_checkout(&root)?;
+        std::env::set_current_dir(&root)?;
         return pick_and_review(&o, &root);
     }
     if o.worktree && o.pr.is_none() {
