@@ -268,7 +268,6 @@ impl List {
         let keep = self.selected();
         self.local = crate::pr_worktrees().into_iter().map(|(n, dir, b)| (n, (dir, b))).collect();
         self.scan_unpushed();
-        self.find_others();
         self.reviewed = crate::batch::reviewed();
         self.load_reps();
         match res {
@@ -314,6 +313,7 @@ impl List {
                     self.gone_rx.push(rx);
                 }
                 self.prs = prs;
+                self.find_others(); // (against the list as it is now: one gone from it, looked up)
                 self.prune_marks();
                 self.find_new();
                 self.find_todo();
