@@ -1130,7 +1130,7 @@ fn draft_fix(records: &[crate::replace::Record], here: &HashSet<u64>) -> HashMap
         .filter(|r| r.published.is_none())
         .filter_map(|r| {
             let n = crate::replace::fixes(&r.task)?;
-            let at_it = here.contains(&r.id) || r.drafting_now();
+            let at_it = here.contains(&r.id) || r.at_work().is_some();
             (at_it || !r.title.is_empty()).then(|| (n, (crate::replace::label(r.id), at_it)))
         })
         .collect()

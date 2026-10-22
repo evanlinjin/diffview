@@ -3507,7 +3507,7 @@ fn a_prs_replacement_being_drafted_shows_and_opens() {
     app.replaced_by = Some(crate::replace::Record { id: 87, ..Default::default() });
     let claim = crate::claude::claim(&crate::claude::rep_key(87), "drafting", None).unwrap();
     app.watch_elsewhere();
-    assert_eq!(app.claude_doing().as_deref(), Some("◐ claude drafting its replacement (Space a: open it)"));
+    assert_eq!(app.claude_doing().as_deref(), Some("◐ claude drafting on its replacement (Space a: open it)"));
     drop(claim);
     // Space a: open it, which hands the view over (and comes back after).
     app.claude.path = Some(std::env::temp_dir().join("dv-replaced-by-unused.json"));
@@ -5539,7 +5539,7 @@ fn a_drafts_view_claims_its_runs_too() {
     app.replacement = Some(crate::replace::Record { id, ..Default::default() });
     assert_eq!(app.run_key(), Some(crate::claude::rep_key(id)));
     let claim = crate::claude::claim(&app.run_key().unwrap(), "answering", None).unwrap();
-    assert!(crate::replace::Record { id, ..Default::default() }.drafting_now());
+    assert!(crate::replace::Record { id, ..Default::default() }.at_work().is_some());
     drop(claim);
-    assert!(!crate::replace::Record { id, ..Default::default() }.drafting_now());
+    assert!(crate::replace::Record { id, ..Default::default() }.at_work().is_none());
 }

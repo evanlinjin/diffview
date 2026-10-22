@@ -133,7 +133,7 @@ pub(super) struct ClaudeState {
     /// was last looked at.
     pub(super) elsewhere: Option<String>,
     /// This PR's replacement is being drafted (`watch_elsewhere`'s look).
-    pub(super) replacing: bool,
+    pub(super) replacing: Option<String>,
     pub(super) elsewhere_check: Option<std::time::Instant>,
     /// When Claude's pane was last looked at, and whether it was asking you something then.
     pub(super) pane_check: Option<std::time::Instant>,
@@ -235,13 +235,11 @@ impl App {
         self.claude.job.is_some() || self.claude.pane_busy || here()
     }
 
-    /// Why a redraft of draft `id` waits: Claude at work on it (from any dv), or its pane open
-    /// here (a redraft resumes the draft's session, the pane's: not two Claudes on it).
+    /// Why a redraft of draft `id` waits: Claude at work on it, from any dv (its draft, a run, a
+    /// pane open on it: the redraft's claim waits for each).
     pub(super) fn redraft_waits(&self, id: u64) -> Option<String> {
-        if self.replacement.as_ref().is_some_and(|r| r.id == id) && self.claude_pane().is_some() {
-            return Some("Claude's pane is open on it: close it, then redraft (a redraft carries on in its session)".into());
-        }
-        crate::replace::load(id).is_ok_and(|r| r.drafting_now()).then(|| format!("Claude is already drafting {}", crate::replace::label(id)))
+        let w = crate::replace::load(id).ok()?.at_work()?;
+        Some(format!("Claude is {w} on {}: redraft once it's done (a pane: closed)", crate::replace::label(id)))
     }
 
     /// Claude at work on it (a run of this view's, or another's from any dv: a redraft, a pane
@@ -267,7 +265,7 @@ impl App {
         let mine = self.claude.job.is_some();
         self.claude.elsewhere = self.run_key().filter(|_| !mine).and_then(|k| crate::claude::at_work(&k, self.claude.session.as_deref(), Some(&self.root)));
         // (Its replacement's draft, for the badge: not looked up every frame.)
-        self.claude.replacing = self.replaced_by.as_ref().is_some_and(|r| r.drafting_now());
+        self.claude.replacing = self.replaced_by.as_ref().and_then(|r| r.at_work());
     }
 
     /// Why `ask` can't go to the PR's Claude pane, where it would (one is open): the pane is
@@ -373,7 +371,7 @@ impl App {
         }
         // A replacement: Claude writes the change itself, unpublished, for you to review here.
         if let Some(r) = &self.replaced_by {
-            let how = if r.drafting_now() { "Claude's drafting it: dv shows it as it goes" } else { "to review" };
+            let how = r.at_work().map_or("to review".into(), |w| format!("Claude is {w} on it: dv shows it as it goes"));
             items.push(Item::new(format!("Open its replacement, {} ({how}; q comes back here)", crate::replace::label(r.id)), Target::OpenReplacement(r.id)));
         }
         match (&self.pr, &self.replacement) {
@@ -391,7 +389,7 @@ impl App {
                 if let Some(i) = &self.issue {
                     // (Those drafted already, to review: a PR fixing it, unpublished.)
                     for r in crate::replace::all().into_iter().filter(|r| r.published.is_none() && crate::replace::fixes(&r.task) == Some(i.number)) {
-                        let how = if r.drafting_now() { "Claude's drafting it: dv shows it as it goes" } else { "to review" };
+                        let how = r.at_work().map_or("to review".into(), |w| format!("Claude is {w} on it: dv shows it as it goes"));
                         items.push(Item::new(format!("Open its draft fix, {} ({how}; q comes back here)", crate::replace::label(r.id)), Target::OpenReplacement(r.id)));
                     }
                     let task = format!("Fix #{}: {}", i.number, i.title);
@@ -924,7 +922,7 @@ impl App {
             Some(j) => Some(format!("◐ claude: {} {}", j.label, ago(j.started))),
             None if self.claude.asking => Some("◐ claude is asking you (Space a)".into()),
             None if self.claude.pane_busy => Some("◐ claude working (its pane)".into()),
-            None if self.claude.replacing => Some("◐ claude drafting its replacement (Space a: open it)".into()),
+            None if let Some(w) = &self.claude.replacing => Some(format!("◐ claude {w} on its replacement (Space a: open it)")),
             None => self.claude.elsewhere.as_ref().map(|w| format!("◐ claude {w} (another dv's)")),
         }
     }

@@ -443,7 +443,7 @@ fn replacement_view(id: u64, root: &Path, term: &mut ratatui::DefaultTerminal) -
     let r = replace::load(id)?;
     let dir = worktree_dir_named(root, &replace::name(id))?;
     // (Its drafting marked before its checkout's made: a moment.)
-    anyhow::ensure!(dir.exists() || !r.drafting_now(), "Claude is still setting up its checkout: again in a moment");
+    anyhow::ensure!(dir.exists() || r.at_work().is_none(), "Claude is still setting up its checkout: again in a moment");
     anyhow::ensure!(dir.exists(), "its worktree {} is gone (A A on the PR drafts it again)", dir.display());
     ensure_worktree_of(&dir, root)?;
     std::env::set_current_dir(&dir)?;

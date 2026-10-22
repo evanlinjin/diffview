@@ -81,10 +81,10 @@ impl Record {
         !self.title.is_empty() || !self.body.is_empty()
     }
 
-    /// Claude at work on it, from any dv: its draft (`draft`), a run or pane on it from its
-    /// view; its claim (`claude::rep_key`), the one rule.
-    pub fn drafting_now(&self) -> bool {
-        crate::claude::at_work(&crate::claude::rep_key(self.id), None, None).is_some()
+    /// What Claude's doing on it, from any dv: its draft (`draft`: "drafting"), a run or a pane
+    /// on it from its view; its claims (`claude::rep_key`), the one rule.
+    pub fn at_work(&self) -> Option<String> {
+        crate::claude::at_work(&crate::claude::rep_key(self.id), None, None)
     }
 }
 

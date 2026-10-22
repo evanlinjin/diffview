@@ -275,7 +275,7 @@ impl App {
                     if let Some(why) = waits() {
                         return Ok(match ask.trim() {
                             "" => why,
-                            _ => format!("kept with the drafts, for Claude's redraft ({why})"),
+                            _ => format!("kept with the drafts, for the next redraft ({why}: then Space a → Redraft)"),
                         });
                     }
                 } else {
