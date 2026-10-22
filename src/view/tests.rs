@@ -4031,3 +4031,27 @@ fn a_draft_has_no_github_comments() {
         assert!(app.action.is_none() && app.msg.starts_with("it's a draft"), "{c}: {}", app.msg);
     }
 }
+
+#[test]
+fn popups_fit_a_tiny_terminal() {
+    // (A box floored taller than the screen: cut to it, its scrollbar too, not drawn past it.)
+    for (w, h) in [(10, 3), (7, 5), (1, 1)] {
+        let mut app = fixture();
+        app.key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
+        screen(w, h, |f| app.draw(f));
+    }
+}
+
+#[test]
+fn a_wide_title_is_measured_in_columns() {
+    let mut app = fixture();
+    app.pr.as_mut().unwrap().title = "修复".repeat(10);
+    app.build();
+    screen(160, 20, |f| app.draw(f));
+    // A click into the pinned title lands on the char drawn there (each 2 columns wide).
+    let start = app.geom.relw + app.geom.gw;
+    let text = app.rows[0].line.text.clone();
+    let x = text.chars().take_while(|&c| c != '修').map(super::row::char_w).sum::<usize>() + 20;
+    let (r, ch, ..) = app.at_screen(start + x, 0).unwrap();
+    assert_eq!((r, text.chars().nth(ch)), (0, Some('修')), "{ch}");
+}

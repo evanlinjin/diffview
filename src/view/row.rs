@@ -18,20 +18,15 @@ pub(super) fn fit(line: Line<'static>, w: usize) -> Line<'static> {
     if line.width() <= w {
         return line;
     }
-    let mut left = w.saturating_sub(1);
-    let mut spans = vec![];
-    for sp in line.spans {
-        let n = sp.content.chars().count();
-        if n <= left {
-            left -= n;
-            spans.push(sp);
-        } else {
-            spans.push(Span::styled(sp.content.chars().take(left).collect::<String>(), sp.style));
-            break;
-        }
-    }
+    let mut spans = clip(line.spans, w.saturating_sub(1));
+    spans.pop(); // (its padding: none, cut)
     spans.push(Span::raw("…"));
     Line::from(spans)
+}
+
+/// The columns `s` takes on screen (as `char_w`'s).
+pub(super) fn cols(s: &str) -> usize {
+    s.chars().map(char_w).sum()
 }
 
 /// The columns `c` takes on screen (a tab, 4: as `render_row` draws it).
@@ -52,7 +47,7 @@ pub(super) fn clip(spans: Vec<Span<'static>>, w: usize) -> Vec<Span<'static>> {
         }
         let mut text = String::new();
         for c in sp.content.chars() {
-            let cw = Span::raw(c.to_string()).width();
+            let cw = char_w(c);
             if used + cw > w {
                 break;
             }
@@ -76,7 +71,7 @@ pub(crate) fn skip_cols(spans: Vec<Span<'static>>, n: usize) -> Vec<Span<'static
         }
         let mut text = String::new();
         for c in sp.content.chars() {
-            let cw = Span::raw(c.to_string()).width();
+            let cw = char_w(c);
             if left >= cw && left > 0 {
                 left -= cw;
             } else {
@@ -449,7 +444,7 @@ impl App {
         if let Some((t, st)) = tag {
             segs.push((t, style.patch(st)));
         }
-        let width = |segs: &[(String, Style)]| segs.iter().map(|(t, _)| t.chars().count()).sum::<usize>() + 2 * segs.len().saturating_sub(1);
+        let width = |segs: &[(String, Style)]| segs.iter().map(|(t, _)| cols(t)).sum::<usize>() + 2 * segs.len().saturating_sub(1);
         // These always show: a long title is cut to make room (the counts go first).
         let mut used = used;
         if !segs.is_empty() && row.file == INFO {

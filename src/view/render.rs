@@ -198,7 +198,7 @@ impl App {
     /// The code scrolled to the cursor, up and down, and sideways: in a comment's code block by
     /// that block only, in the diff by `left`.
     fn scroll_to_cursor(&mut self, c: &Cols) {
-        let Cols { pin, h, tw, mtw, ctw, htw_l, htw_r, hd, float, .. } = *c;
+        let Cols { pin, h, hd, float, .. } = *c;
         let so = scrolloff(h);
         // Scroll the code to the cursor.
         if hd < self.top + so {
@@ -208,17 +208,9 @@ impl App {
             self.top = hd + so + 1 - h;
         }
         self.top = self.top.max(pin); // the title is above, not in, what scrolls
-        let code_line = self.rows[self.head.row].line.kind.is_code();
-        let cur_w = match self.drows[hd] {
-            DRow::Pair(..) => htw_l.min(htw_r),
-            DRow::Margin(..) if self.margin_side() => mtw - self.pane_pad(),
-            // Split view beside the pane: a line is one half, paired or not.
-            DRow::Margin(..) if self.split && code_line => htw_l.min(htw_r),
-            DRow::Margin(..) => ctw,
-            DRow::Full(_) => tw,
-        };
-        // Floating, a comment beside it covers the code from `mx` on (`draw_body`), a split
-        // half's too.
+        // What the cursor's row shows of its text (`row_w`, as drawn); floating, a comment
+        // beside it covers the code from `mx` on (`draw_body`), a split half's too.
+        let cur_w = self.row_w(self.head.row);
         let cur_w = match self.drows[hd] {
             // (Over all of it: nowhere to keep the cursor; as without it, not pinned to it.)
             DRow::Margin(_, _, Some(_)) if float && !self.margin_side() => match self.float_cut(self.text_x(c)).unwrap_or(0) {
@@ -227,8 +219,6 @@ impl App {
             },
             _ => cur_w,
         };
-        // A code line's last column is for comment marks.
-        let cur_w = if code_line && !self.margin_side() { cur_w.saturating_sub(1) } else { cur_w };
         // The cursor kept in view: in a comment's code block by scrolling only that block (to
         // its box's edge, as `render_row` cuts it); elsewhere in a comment there's nothing to
         // scroll; in the diff by `left`.
@@ -242,7 +232,7 @@ impl App {
         // otherwise what scrolls follows the cursor.
         let nudge = std::mem::take(&mut self.hnudge);
         let len = self.len(self.head.row);
-        let w = self.text_w(self.head.row, cur_w).max(1);
+        let w = cur_w.max(1);
         // (Wrapped, nothing's off to the side: the code scrolled back as it comes onto it.)
         let Some(scroller) = scroller else {
             if self.wraps(self.head.row) {
@@ -443,10 +433,11 @@ impl App {
     /// Whether the PR's counts fit on its pinned title, `w` wide, beside all of it: its text, its
     /// state, the checkout's badge (as `render_row` puts it).
     fn title_fits(&self, w: usize) -> bool {
-        let badges = (!self.sync.is_empty()).then(|| self.sync.chars().count() + 2);
-        let state = self.header_tag(INFO).map(|t| t.0.chars().count()).into_iter().chain(badges).map(|n| n + 2).sum::<usize>();
-        let line = self.rows.first().map_or(0, |r| r.line.text.chars().count());
-        line + 2 + self.pr_counts().chars().count() + state <= w
+        use super::row::cols;
+        let badges = (!self.sync.is_empty()).then(|| cols(&self.sync) + 2);
+        let state = self.header_tag(INFO).map(|t| cols(&t.0)).into_iter().chain(badges).map(|n| n + 2).sum::<usize>();
+        let line = self.rows.first().map_or(0, |r| cols(&r.line.text));
+        line + 2 + cols(&self.pr_counts()) + state <= w
     }
 
     /// Where the pane meets the code: as a column, a dim line; floating, the pane's color.
@@ -860,7 +851,7 @@ fn aside(label: &str) -> usize {
 
 /// A popup's place: centered in `full`, near its top, `w` × `h` (as much as fits).
 fn centered(full: Rect, w: u16, h: u16) -> Rect {
-    Rect { x: full.x + (full.width - w) / 2, y: 2.min(full.height), width: w, height: h.min(full.height) }
+    Rect { x: full.x + (full.width - w) / 2, y: full.y + 2.min(full.height), width: w, height: h }.intersection(full)
 }
 
 /// How many rows the cursor keeps from the top and bottom of `h` rows (Helix's scrolloff).

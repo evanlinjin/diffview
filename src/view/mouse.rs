@@ -177,7 +177,7 @@ impl App {
         let g = self.geom;
         if self.pin && y == 0 {
             let start = g.relw + g.gw; // the pinned title (and the pane's tabs, `click_tab`)
-            return Some((0, x.saturating_sub(start), x < start, None));
+            return Some((0, self.clicked(0, self.span_of(0, 0).as_ref(), x.saturating_sub(start)), x < start, None));
         }
         let y = y - self.pin as usize;
         if y >= self.height {
