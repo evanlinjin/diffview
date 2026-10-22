@@ -264,9 +264,7 @@ fn run() -> anyhow::Result<()> {
     // a PR's, a replacement's: removed from the list, by a merge, say): the main checkout then.
     if o.list {
         let main = main_checkout(&root)?;
-        let name = main.file_name().map(|n| format!("{}-", n.to_string_lossy()));
-        let dvs = root.parent() == main.parent() && name.is_some_and(|n| root.file_name().is_some_and(|f| f.to_string_lossy().starts_with(&n)));
-        let root = if dvs { main } else { root };
+        let root = if dv_worktree(&main, &root) { main } else { root };
         std::env::set_current_dir(&root)?;
         return pick_and_review(&o, &root);
     }
@@ -936,6 +934,23 @@ pub(crate) fn pr_worktrees() -> Vec<(u64, PathBuf, Option<String>)> {
         }
     }
     out
+}
+
+/// Whether `dir` is one of dv's own worktrees of the repo checked out at `main`, as it names
+/// them next to it: a PR's (`<repo>-<n>`), a replacement's or new PR's (`replace::name`).
+fn dv_worktree(main: &Path, dir: &Path) -> bool {
+    let (Some(name), Some(f)) = (main.file_name(), dir.file_name()) else { return false };
+    let Some(suffix) = f.to_string_lossy().strip_prefix(&format!("{}-", name.to_string_lossy())).map(str::to_owned) else { return false };
+    let id = suffix.strip_prefix("replace-").or_else(|| suffix.strip_prefix("new-")).unwrap_or(&suffix);
+    dir.parent() == main.parent() && id.parse::<u64>().is_ok()
+}
+
+#[test]
+fn dv_worktrees_by_name() {
+    let main = Path::new("/r/diffview");
+    for (d, dvs) in [("/r/diffview-12", true), ("/r/diffview-replace-3", true), ("/r/diffview-new-1", true), ("/r/diffview-feature", false), ("/s/diffview-12", false), ("/r/diffview", false)] {
+        assert_eq!(dv_worktree(main, Path::new(d)), dvs, "{d}");
+    }
 }
 
 fn common_dir(d: &Path) -> anyhow::Result<String> {
