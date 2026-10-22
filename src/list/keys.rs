@@ -19,7 +19,7 @@ FIND
                        author: label: base: branch:  (part of that field)
                        is:draft  review:approved|changes|required|none
                        ci:pass|fail|pending|none  (-term excludes)
-  Esc                  clear the filter
+  Esc                  clear the filter (none: quit)
   o O                  next sort order (created, number, size, updated) / reverse
   R                    refresh from GitHub (no Claude)
 

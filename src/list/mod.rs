@@ -293,7 +293,8 @@ impl List {
                 Some(Do::Quit) => return Ok(None),
                 Some(Do::Open(n)) => {
                     let replacement = self.selected().is_some_and(|(m, rep)| m == n && rep);
-                    let worktree = (self.nav.tab == Tab::Worktrees).then(|| self.local.get(&n).is_some_and(|w| w.1.is_some()));
+                    // (From the worktrees tab, its worktree, as made; one with none, as any.)
+                    let worktree = self.local.get(&n).filter(|_| self.nav.tab == Tab::Worktrees).map(|w| w.1.is_some());
                     // Used once: after the review it may have moved on (a push), so it's looked up again.
                     let pr = self.pr_cache.lock().ok().and_then(|mut c| c.remove(&n)).filter(|(t, _)| t.elapsed().as_secs() < 120).map(|(_, p)| p);
                     return Ok(Some(Pick { number: n, worktree, replacement, merge: false, issues: false, pr }));
@@ -607,7 +608,7 @@ impl List {
                     continue;
                 }
                 batch::Status::Done(took) => {
-                    self.reviewed.insert(n);
+                    // (Reviewed or not: its review file says, as `watch_reviews` sees it come.)
                     self.new.insert(n);
                     self.msg = match doing {
                         "reviewing" => format!("Claude reviewed #{n} ({took}): Enter opens it, in its worktree from the worktrees tab"),

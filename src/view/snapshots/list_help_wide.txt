@@ -19,7 +19,7 @@
     │                        author: label: base: branch:  (part of that field)                                                                                                                    │
     │                        is:draft  review:approved|changes|required|none                               PR                                                                                      │
     │                        ci:pass|fail|pending|none  (-term excludes)                                    b b                  ask the author to rebase (a comment; todo waits for their push)   │
-    │   Esc                  clear the filter                                                               W W                  approve its workflow runs (GitHub holds a first-timer's)          │
+    │   Esc                  clear the filter (none: quit)                                                  W W                  approve its workflow runs (GitHub holds a first-timer's)          │
     │   o O                  next sort order (created, number, size, updated) / reverse                     M M                  merge with github-merge.py (dv.mergescript: your own copy)        │
     │   R                    refresh from GitHub (no Claude)                                                I I                  the issues (dv issues opens there)                                │
     │                                                                                                       D D                  remove its worktree, or the replacement (not with local changes)  │
