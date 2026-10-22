@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.91.3] - 2026-10-22
+
+### Fixed
+- `j`/`k` keep the column through a short line between long ones, scrolled sideways or
+  not (the column is the line's, not the screen's); a click in the gap at a wrapped part's
+  end stays on that part; the wheel with the cursor on a comment in the pane scrolls on
+  (onto the code); `gw` labels nothing under a floating comment's box, nor under the file
+  header pinned over the top.
+
 ## [0.91.2] - 2026-10-22
 
 ### Fixed
