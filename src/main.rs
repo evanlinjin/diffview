@@ -883,16 +883,15 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
     if !existed {
         record_checkout(n); // what dv put here: nothing here is work done since
     }
-    if known.is_some_and(|p| at_head(p, !branch)) {
+    let note = if known.is_some_and(|p| at_head(p, !branch)) {
         record_checkout(n);
-        return Ok((dir, there));
-    }
-    // Work done here since (yours, Claude's) stays: not updated to the PR over it.
-    if existed && let Some(note) = local_work(n, Path::new(".")) {
-        return Ok((dir, Some(there.map_or(note.clone(), |t| format!("{t}; {note}")))));
-    }
-    progress(Some(&format!("checking out PR #{n} in {}", dir.display())));
-    let note = checkout_or_keep(n, force, !branch, None).map_err(|e| {
+        None
+    } else if existed && let Some(note) = local_work(n, Path::new(".")) {
+        // Work done here since (yours, Claude's) stays: not updated to the PR over it.
+        Some(note)
+    } else {
+        progress(Some(&format!("checking out PR #{n} in {}", dir.display())));
+        checkout_or_keep(n, force, !branch, None).map_err(|e| {
         // git words this a few ways depending on the step that hits it.
         let msg = format!("{e:#}");
         let in_use = ["already checked out", "already used by worktree", "checked out at"].iter().any(|p| msg.contains(p));
@@ -900,9 +899,11 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
             true => "\nthat branch is checked out in another worktree: drop -b, or switch that checkout to another branch",
             false => "",
         };
-        e.context(format!("checking out PR #{n} in {}{hint}", dir.display()))
-    })?;
-    Ok((dir, note.or(there)))
+            e.context(format!("checking out PR #{n} in {}{hint}", dir.display()))
+        })?
+    };
+    // (Where it opened, if not its own, with whatever else there is to say.)
+    Ok((dir, [there, note].into_iter().flatten().reduce(|a, b| format!("{a}; {b}"))))
 }
 
 /// The main checkout's root (found from inside a worktree too) and PR `n`'s worktree next to it.

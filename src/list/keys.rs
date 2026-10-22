@@ -181,6 +181,10 @@ impl List {
             }
             KeyCode::Char('M') => {
                 let p = self.selected_pr()?;
+                // (Claude on it, from here, queued too, or any dv: merged once it's done.)
+                if let Some(w) = self.claude_doing(p) {
+                    return (self.msg = format!("Claude is {w} on #{p}: merge it once it's done"), None).1;
+                }
                 let wt = if self.local.contains_key(&p) { " (its worktree goes first, if nothing in it is unpushed)" } else { "" };
                 if self.again(armed, 'M', p, format!("M again: merge #{p} with github-merge.py{wt}; any other key doesn't")) {
                     return Some(Do::Merge(p));

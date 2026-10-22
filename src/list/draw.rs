@@ -87,7 +87,7 @@ impl List {
                     }
                     false => {
                         // On the todo tab, what Claude could do there (`a a`), when it isn't at it.
-                        let could = item.and_then(|it| it.claude.as_ref()).filter(|_| !self.batch.get(&p.number).is_some_and(batch::Status::running)).map(batch::Task::could);
+                        let could = item.and_then(|it| it.claude.as_ref()).filter(|_| self.claude_doing(p.number).is_none()).map(batch::Task::could);
                         let claude = match (self.claude_state(p.number), could) {
                             (Some((s, ok)), Some(c)) => Some((format!("{s} · {c}"), ok)),
                             (None, Some(c)) => Some((format!("claude {c}"), true)),
