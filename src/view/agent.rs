@@ -1049,14 +1049,14 @@ impl App {
             self.rebase_ended();
         }
         // Placing changes for an amend: its answers, in the picker.
-        // (Not over what you're at: a picker, a prompt, an action on its way.)
+        // (Not over an action on its way; a picker or prompt, watch() waits out.)
         // (Asked to place it all: amended, now.) Its answers are the file it filled in: a
         // command it was refused on the way (a `jq` to read it, say) doesn't stop that.
         let then = std::mem::take(&mut self.amend_then);
         if label == super::amend::AMEND_LABEL && !failed && then {
             self.amend_now();
         } else if label == super::amend::AMEND_LABEL && !failed {
-            match self.picker.is_none() && self.prompt.is_none() && self.action.is_none() {
+            match self.action.is_none() {
                 true => self.amend_menu(),
                 false => self.msg += " (Space g → amend shows where it put them)",
             }
@@ -1066,7 +1066,7 @@ impl App {
         if label == super::git::COMMIT_LABEL {
             let wrote = self.commit_msg_path().and_then(|p| std::fs::read_to_string(&p).ok()).map(|m| m.trim().to_owned()).filter(|m| !m.is_empty() && !failed);
             // (Not over what you're at: kept, for Space g → commit to open with.)
-            match self.picker.is_none() && self.prompt.is_none() && self.action.is_none() {
+            match self.action.is_none() {
                 true => self.action = Some(Action::CommitWith(wrote.unwrap_or_else(|| self.commit_draft()))),
                 false => self.msg += " (Space g → commit opens with its message)",
             }

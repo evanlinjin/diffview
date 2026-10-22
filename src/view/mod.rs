@@ -947,6 +947,7 @@ impl App {
         if self.mid_sequence() {
             return;
         }
+        self.lsp_poll();
         self.watch_seen();
         self.watch_tree();
         self.watch_claude();
@@ -985,7 +986,6 @@ impl App {
                 }
             }
             self.hold_quit();
-            self.lsp_poll();
             self.watch();
             self.act(term);
         }
