@@ -61,6 +61,16 @@ impl List {
         if ctrl && k.code == KeyCode::Char('c') {
             return self.quit(armed);
         }
+        // Ctrl keys: only Ctrl-d and Ctrl-u (half a page); no Ctrl+letter is the letter. (It
+        // calls off what waits for a key, as any other.)
+        if ctrl {
+            self.todos.deferring = None;
+            self.nav.g = false;
+            if matches!(k.code, KeyCode::Char('d' | 'u')) {
+                self.nav.key(k, n);
+            }
+            return None;
+        }
         if std::mem::take(&mut self.nav.help) {
             return None; // any key closes the help
         }
@@ -86,10 +96,6 @@ impl List {
         }
         // Moving about, the tabs (`gp` before `p` on a tab), the filter, the help.
         if self.nav.key(k, n) {
-            return None;
-        }
-        // (A Ctrl key past those is no letter's: Ctrl-a isn't a.)
-        if ctrl {
             return None;
         }
         match k.code {

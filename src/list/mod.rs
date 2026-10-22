@@ -243,10 +243,24 @@ impl List {
             self.prefetch();
             self.others_news();
             if self.watch_running() {
-                // Runs that found Claude at it: asked again, auto's too, now that's changed.
-                let busy: Vec<u64> = self.batch.iter().filter(|(_, s)| matches!(s, batch::Status::Busy(_))).map(|(&n, _)| n).collect();
-                self.batch.retain(|n, _| !busy.contains(n));
-                self.auto_done.retain(|d| !busy.contains(&d.0));
+                // Runs that found Claude at it: once it isn't (on the PR, nor in its worktree),
+                // asked again, by auto too (that task).
+                let free = |n: u64| crate::claude::at_work(&crate::claude::pr_key(n), None, None).is_none() && crate::worktree_dir(n).is_ok_and(|(_, d)| crate::claude::at_work_in(&d, None).is_none());
+                let done: Vec<u64> = self.batch.iter().filter(|(n, s)| matches!(s, batch::Status::Busy(_)) && free(**n)).map(|(&n, _)| n).collect();
+                for n in done {
+                    self.batch.remove(&n);
+                    match self.batch_task.get(&n).cloned() {
+                        // (A description's check: its head as it was, to check again.)
+                        Some(batch::Task::Describe(old)) => {
+                            self.described.insert(n, old);
+                            self.save_described();
+                        }
+                        t => {
+                            let doing = t.as_ref().map_or("reviewing", batch::Task::doing);
+                            self.auto_done.retain(|d| d.0 != n || d.2 != doing);
+                        }
+                    }
+                }
                 self.worktrees_changed(); // what it finished with may be waiting to be pushed (another dv's: a worktree made)
                 self.find_todo(); // Claude started or finished somewhere: its item moves
             }
@@ -599,13 +613,7 @@ impl List {
                 // Claude at it elsewhere (a PR's view, say): not asked now, as if never asked.
                 // Claude at it elsewhere: kept as said (auto not starting it again and again),
                 // asked again once Claude starts or ends somewhere (`watch_running`), or a a.
-                batch::Status::Busy(w) => {
-                    self.msg = format!("#{n}: not {doing} now: {w}");
-                    if let Some(batch::Task::Describe(old)) = self.batch_task.get(&n) {
-                        self.described.insert(n, old.clone());
-                        self.save_described();
-                    }
-                }
+                batch::Status::Busy(w) => self.msg = format!("#{n}: not {doing} now: {w}"),
                 // Merged or closed meanwhile: so in the list now (not asked again, by auto
                 // either), till GitHub's list says.
                 batch::Status::Gone(state) => {
