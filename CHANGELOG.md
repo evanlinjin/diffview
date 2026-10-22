@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.95.6] - 2026-10-22
+
+### Fixed
+- Key hints offer `c`, `C` and `s` only where GitHub takes the comment (a PR, at its head, on
+  a file it has), and `C` nowhere while a review is pending (threads and Claude's comments
+  too).
+
 ## [0.95.5] - 2026-10-22
 
 ### Fixed
