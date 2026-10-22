@@ -711,7 +711,7 @@ pub struct App {
     /// Width comment/info text is wrapped to; follows the terminal.
     wrap_w: usize,
     /// Root comment ids of threads folded/unfolded against the default (resolved = folded).
-    toggled: HashSet<u64>,
+    toggled: HashMap<u64, bool>,
     /// Claude's comments (their roots' ids) whose resolved talk is shown anyway (Tab on it):
     /// to read, not reopened.
     talk_shown: HashSet<u64>,

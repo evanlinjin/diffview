@@ -830,7 +830,7 @@ fn your_comments_for_claude_stay_private() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
     let dir = std::env::temp_dir().join(format!("dv-private-{}", std::process::id()));
     let p = dir.join("pr-1.json");
-    let a = gh::Anchor { path: "src/a.rs".into(), line: 2, left: false, start: None };
+    let a = gh::Anchor { path: "src/a.rs".into(), line: 2, left: false, start: None, ..Default::default() };
     crate::claude::add_comment(&p, &a, vec!["    new_call(x);".into()], "is this right?", None, "").unwrap();
     app.claude.path = Some(p);
     app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new(), ..Default::default() });
@@ -1229,7 +1229,7 @@ fn untracked_files_stay_off_github() {
     files[0].meta = "untracked".into();
     let mut app = App::with("base".into(), files);
     app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new(), ..Default::default() });
-    let a = Anchor { path: "src/a.rs".into(), line: 2, left: false, start: None };
+    let a = Anchor { path: "src/a.rs".into(), line: 2, left: false, start: None, ..Default::default() };
     assert!(app.on_github(a).is_err_and(|e| format!("{e:#}").contains("untracked")));
     let line = app.rows.iter().position(|r| r.line.kind == Kind::Add).unwrap();
     app.goto(line, 0);
@@ -4677,7 +4677,7 @@ fn ctrl_o_survives_rebuilds() {
     // A folded thread unfolded to get there: Ctrl-o back to the line, not its old row.
     let mut app = margin_app();
     let id = app.root_id(1).unwrap();
-    app.toggled.insert(id);
+    app.toggled.insert(id, false);
     app.build();
     app.goto(four(&app), 0);
     press(&mut app, "[c");
@@ -5246,4 +5246,37 @@ fn a_new_comment_unfolds_its_viewed_file_however_it_arrives() {
     app.apply_github((Ok(review(1)), Err(anyhow!("x"))), true);
     app.load_claude();
     assert!(!app.collapsed.contains("src/a.rs"), "a viewed file with a new comment stayed folded");
+}
+
+#[test]
+fn c_goes_through_gone_files_threads_as_drawn() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let c = |id: u64, body: &str| gh::Comment { id, node_id: format!("C{id}"), author: "amy".into(), body: body.into(), ..Default::default() };
+    let t = |id: &str, line: u32, cm| gh::Thread { id: id.into(), path: "src/reverted.rs".into(), line: Some(line), original_line: Some(line), comments: vec![cm], ..Default::default() };
+    app.threads = vec![t("T1", 30, c(1, "thirty")), t("T2", 10, c(2, "ten")), gh::Thread { path: "src/a.rs".into(), line: Some(2), comments: vec![c(3, "here")], ..Default::default() }];
+    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: String::new(), ..Default::default() });
+    app.build();
+    let r0 = app.rows.iter().position(|r| r.thread == Some(0)).unwrap();
+    let r1 = app.rows.iter().position(|r| r.thread == Some(1)).unwrap();
+    assert!(r0 < r1, "drawn in thread order");
+    app.goto(r0, 0);
+    app.key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+    assert_eq!(app.rows[app.head.row].thread, Some(1), "]c from the first gone thread drawn goes to the one under it");
+}
+
+#[test]
+fn a_thread_opened_with_tab_stays_open_unresolved() {
+    let mut app = fixture();
+    // amy's resolved thread on src/a.rs:1 (index 3): folded; Tab opens it to read.
+    let head = app.rows.iter().position(|r| r.thread == Some(3)).unwrap();
+    app.goto(head, 0);
+    assert!(!app.thread_open(3));
+    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert!(app.thread_open(3), "Tab opens it");
+    // Space r unresolves it; GitHub's answer (the post-job reload) says so.
+    app.threads[3].resolved = false;
+    let keep = app.cursor_key();
+    app.rebuild(keep);
+    assert!(app.thread_open(3), "unresolved, the thread you opened stays open");
 }

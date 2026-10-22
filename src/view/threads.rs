@@ -123,14 +123,14 @@ impl App {
         let file = |path: &str| self.files.iter().position(|f| f.path == path).map_or(Some(0), |i| Some(i + 1));
         // (file, place, thread, comment): the place as drawn, under its file's header (0) or
         // under its line (1 on: `place_in`); a code line counts as thread -1, before the threads
-        // under it. (A file gone: by its line.)
+        // under it. (A file gone: where it's drawn among those above the files, by its row.)
         // (Each file's shown lines, once: a view's are worked out from its threads.)
         let shown: Vec<_> = self.files.iter().map(|f| self.lines_shown(f)).collect();
         let key = |t: usize, c: usize| -> Option<(usize, usize, i64, usize)> {
             let th = &self.threads[t];
             let place = match self.files.iter().position(|f| f.path == th.path) {
                 Some(i) => self.place_in(t, &self.files[i], &shown[i]).map_or(0, |i| i + 1),
-                None => th.line.or(th.original_line).unwrap_or(0) as usize,
+                None => self.rows.iter().position(|r| r.thread == Some(t)).unwrap_or(usize::MAX),
             };
             Some((file(&th.path)?, place, t as i64, c))
         };
@@ -172,10 +172,8 @@ impl App {
         }
         let t = &self.threads[ti];
         self.collapsed.remove(&t.path.clone());
-        if !self.thread_open(ti)
-            && let Some(id) = self.root_id(ti)
-        {
-            flip(&mut self.toggled, id);
+        if let Some(id) = self.root_id(ti) {
+            self.toggled.insert(id, true);
         }
         self.rebuild(keep);
         // Each comment starts with an author row; outdated threads' code rows aren't author rows.
@@ -399,9 +397,10 @@ impl App {
         })
     }
 
-    /// Stale threads start folded; `Tab` flips a thread from its default.
+    /// Stale threads start folded; `Tab` opens or folds a thread for good (as you left it, not
+    /// a flip of its default: resolving it, or unresolving, doesn't undo that).
     pub(super) fn thread_open(&self, ti: usize) -> bool {
-        self.threads[ti].stale() == self.root_id(ti).is_some_and(|id| self.toggled.contains(&id))
+        self.root_id(ti).and_then(|id| self.toggled.get(&id).copied()).unwrap_or(!self.threads[ti].stale())
     }
 
     /// Tab on a resolved talk under Claude's comment (its line, or its replies shown): shown, or
@@ -418,7 +417,7 @@ impl App {
     pub(super) fn toggle_thread(&mut self) {
         let Some(ti) = self.rows[self.head.row].thread else { return };
         let Some(id) = self.root_id(ti) else { return };
-        flip(&mut self.toggled, id);
+        self.toggled.insert(id, !self.thread_open(ti));
         self.rebuild_at(|r| r.thread == Some(ti));
     }
 
