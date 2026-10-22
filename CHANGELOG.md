@@ -5,6 +5,24 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.95.16] - 2026-10-22
+
+### Fixed
+- dv's git and gh never prompt over a screen dv owns: off its own thread, while its view is
+  up, or with no terminal (a `dv replace` it runs, the watcher, dv list's workers), ssh runs in
+  batch mode (your `GIT_SSH_COMMAND` or `core.sshCommand` kept) and a refused fetch says why
+  (`ssh-add`, or a terminal). Before and after the view, git asks as usual.
+- Merging: always after the view's let go of the terminal, of the PR the view had (a plain
+  `dv`, a replacement published in its view, one asked in a view inside another); refused
+  before the review ends while Claude's at work in the main checkout or it has changes; with
+  nowhere to push, Merge still says what it would leave out. `dv N` fails closed when it
+  can't fetch the PR: what's here is kept.
+- Leaving while you write beside dv: asking again leaves (and merges, if that was asked,
+  named in the warning); a key's repeat or the editor closing drops nothing it shouldn't.
+  A PR a link goes to is reviewed, then back to the view that asked, as it was.
+- Claude's commit message isn't lost when its run ends while you write, nor reused after
+  you cancel it; dv list started in a worktree of yours stays there.
+
 ## [0.95.15] - 2026-10-22
 
 ### Fixed
