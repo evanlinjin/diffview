@@ -44,7 +44,7 @@ pub struct FileDiff {
 
 impl FileDiff {
     /// Split parsed output into `full` lines and `headers`.
-    pub fn prepare(&mut self) {
+    fn prepare(&mut self) {
         self.headers = self.lines.iter().filter(|l| l.kind == Kind::Hunk).filter_map(|l| header(&l.text)).collect();
         self.full = self.lines.iter().filter(|l| l.kind != Kind::Hunk).cloned().collect();
     }
@@ -60,8 +60,6 @@ pub fn hunk_label(h: &str) -> Option<(u32, u32, String)> {
 /// Char ranges within a line.
 pub type Spans = Vec<(usize, usize)>;
 
-/// Changed spans between a removed line and the added line it pairs with, as char ranges in
-/// each. `None` when they're too different for word-level highlighting to help.
 /// Which items of `a` and of `b` are in their longest common subsequence (`same`), in order:
 /// the kept ones pair up. O(n·m): callers cap their input.
 pub fn lcs<T>(a: &[T], b: &[T], same: impl Fn(&T, &T) -> bool) -> (Vec<bool>, Vec<bool>) {
@@ -87,6 +85,8 @@ pub fn lcs<T>(a: &[T], b: &[T], same: impl Fn(&T, &T) -> bool) -> (Vec<bool>, Ve
     (ka, kb)
 }
 
+/// Changed spans between a removed line and the added line it pairs with, as char ranges in
+/// each. `None` when they're too different for word-level highlighting to help.
 pub fn word_diff(a: &str, b: &str) -> Option<(Spans, Spans)> {
     let (ac, bc): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
     let (at, bt) = (tokens(&ac), tokens(&bc));
@@ -194,10 +194,17 @@ pub fn merge_windows(mut spans: Vec<(usize, usize, usize)>, len: usize, whole: b
     if len == 0 {
         return vec![];
     }
-    if whole {
-        return vec![(0, len - 1, spans.into_iter().map(|s| s.2).collect())];
-    }
     spans.sort();
+    // (Each once, in order: two comments on one line are one window's line, widened once.)
+    let keys = |ats: Vec<usize>| {
+        let mut ats = ats;
+        ats.sort();
+        ats.dedup();
+        ats
+    };
+    if whole {
+        return vec![(0, len - 1, keys(spans.into_iter().map(|s| s.2).collect()))];
+    }
     let mut out: Vec<(usize, usize, Vec<usize>)> = vec![];
     for (lo, hi, at) in spans {
         let hi = hi.min(len - 1);
@@ -209,7 +216,7 @@ pub fn merge_windows(mut spans: Vec<(usize, usize, usize)>, len: usize, whole: b
             _ => out.push((lo, hi, vec![at])),
         }
     }
-    out
+    out.into_iter().map(|(lo, hi, ats)| (lo, hi, keys(ats))).collect()
 }
 
 /// The lines to show for `windows`, each range under a `@@` header (with git's function context).
@@ -229,18 +236,17 @@ pub fn shown(full: &[Line], windows: &[(usize, usize, Vec<usize>)], headers: &[(
 }
 
 /// Where branch `here` in the checkout at `dir` pushes to: its push remote (or its remote; a
-/// remote's name, or a URL as `gh pr checkout` sets one for a fork), and the branch it tracks
-/// there (a PR's own name, even when the local one is `<owner>-<branch>`).
-pub fn push_target(dir: &std::path::Path, here: &str) -> Option<(String, String)> {
+/// remote's name, or a URL as `gh pr checkout` sets one for a fork), and the branch there: the
+/// PR's (`pr_branch`) when it tracks that, whatever it's called here; else its own name.
+pub fn push_target(dir: &std::path::Path, here: &str, pr_branch: Option<&str>) -> Option<(String, String)> {
     let config = |k: &str| git_in(dir, &["config", "--get", k]).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
     let remote = config(&format!("branch.{here}.pushRemote"))
         .or_else(|| config("remote.pushDefault"))
         .or_else(|| config(&format!("branch.{here}.remote")))?;
-    // The branch it tracks there, when that's its own (by name, or `<owner>-<branch>` as `gh pr
-    // checkout` names a fork's): else its own name, as git's `push.default=simple` would (one
-    // started from `origin/main` tracks `main`, but isn't it).
+    // (Not the branch it tracks, unless that's the PR's: one started from `origin/main` tracks
+    // `main`, but isn't it, whatever it's named.)
     let merge = config(&format!("branch.{here}.merge")).map(|m| m.trim_start_matches("refs/heads/").to_owned());
-    let branch = merge.filter(|m| m == here || here.ends_with(&format!("-{m}"))).unwrap_or_else(|| here.to_owned());
+    let branch = merge.filter(|m| Some(m.as_str()) == pr_branch).unwrap_or_else(|| here.to_owned());
     Some((remote, branch))
 }
 
@@ -397,11 +403,15 @@ pub fn merge_base(base: Option<&str>) -> Result<String> {
         .to_owned())
 }
 
-/// Diff `base` against commit `to` (else the working tree), optionally limited to `paths`.
+/// `paths` as git pathspecs taken literally.
+fn literal(paths: &[&str]) -> Vec<String> {
+    paths.iter().map(|p| format!(":(literal){p}")).collect()
+}
+
 /// Git's diff of what's tracked (`paths`: those only), parsed.
 fn tracked_diff(base: &str, to: Option<&str>, context: u32, paths: &[&str]) -> Result<Vec<FileDiff>> {
     let u = format!("-U{context}");
-    let specs: Vec<String> = paths.iter().map(|p| format!(":(literal){p}")).collect();
+    let specs = literal(paths);
     let mut args = vec![
         "-c", "core.quotepath=off", "diff", "--no-color", "--no-ext-diff", "-M",
         "--src-prefix=a/", "--dst-prefix=b/", &u, base,
@@ -412,9 +422,11 @@ fn tracked_diff(base: &str, to: Option<&str>, context: u32, paths: &[&str]) -> R
     Ok(parse(&git(&args)?))
 }
 
+/// Diff `base` against commit `to` (else the working tree, its untracked files too), optionally
+/// limited to `paths`.
 pub fn diff(base: &str, to: Option<&str>, context: u32, paths: &[&str]) -> Result<Vec<FileDiff>> {
     let u = format!("-U{context}");
-    let specs: Vec<String> = paths.iter().map(|p| format!(":(literal){p}")).collect();
+    let specs = literal(paths);
     let mut files = tracked_diff(base, to, context, paths)?;
     if to.is_some() {
         return Ok(files); // commits only: untracked files aren't in them
@@ -602,8 +614,8 @@ fn gits_reason_first() {
 
 #[test]
 fn a_branch_pushes_to_its_own_name() {
-    // Started from origin/main, it tracks `main`, but pushes as itself; a PR checked out by gh
-    // (`<owner>-<branch>`, tracking `<branch>`) pushes to the PR's.
+    // Started from origin/main, it tracks `main`, but pushes as itself; one tracking the PR's
+    // branch (gh's checkout of a fork's, named apart) pushes to the PR's.
     let d = std::env::temp_dir().join(format!("dv-push-target-{}", std::process::id()));
     _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).unwrap();
@@ -611,7 +623,8 @@ fn a_branch_pushes_to_its_own_name() {
     for (k, v) in [("branch.feat.remote", "origin"), ("branch.feat.merge", "refs/heads/main"), ("branch.amy-fix.remote", "origin"), ("branch.amy-fix.merge", "refs/heads/fix")] {
         git_in(&d, &["config", k, v]).unwrap();
     }
-    assert_eq!(push_target(&d, "feat"), Some(("origin".into(), "feat".into())));
-    assert_eq!(push_target(&d, "amy-fix"), Some(("origin".into(), "fix".into())));
+    assert_eq!(push_target(&d, "feat", None), Some(("origin".into(), "feat".into())));
+    assert_eq!(push_target(&d, "feat", Some("other")), Some(("origin".into(), "feat".into())));
+    assert_eq!(push_target(&d, "amy-fix", Some("fix")), Some(("origin".into(), "fix".into())));
     _ = std::fs::remove_dir_all(&d);
 }

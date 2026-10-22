@@ -14,21 +14,22 @@ pub(super) fn view_windows(threads: &[&Thread], f: &FileDiff, extra: impl Fn(usi
         let at = anchor_line(t, &f.full)?;
         // (A range: from its first line, wherever that is in the diff; removed lines between
         // don't count toward it.)
-        let first = t.start_line.and_then(|s| line_of(t, &f.full, s)).filter(|&s| s <= at).unwrap_or(at);
+        let first = t.range_start().and_then(|s| line_of(t, &f.full, s)).filter(|&s| s <= at).unwrap_or(at);
         let x = (DEFAULT_CONTEXT as i64 + extra(at)).max(0) as usize;
         Some((first.saturating_sub(x), at + x, at))
     });
     diff::merge_windows(spans.collect(), f.full.len(), whole)
 }
 
-/// What per-hunk context (`extra`, `view_extra`) is kept by: its file, and its first line's
-/// numbers (each side's): the same hunk across reloads, not whatever's at its index then.
-pub(super) type HunkKey = (String, Option<u32>, Option<u32>);
+/// What per-hunk context (`extra`, `view_extra`) is kept by: its file, and where it is in the
+/// base (its first line's old number, or for an added line, the one before it): the same hunk
+/// across reloads (the base doesn't move as the working tree does), not whatever's at its index.
+pub(super) type HunkKey = (String, u32);
 
 /// The key for the hunk (or comment's window) of `f` at index `a` of its whole diff.
 pub(super) fn hunk_key(f: &FileDiff, a: usize) -> HunkKey {
-    let l = &f.full[a];
-    (f.path.clone(), l.old, l.new)
+    let old = f.full[..=a].iter().rev().find_map(|l| l.old).or_else(|| f.full[a..].iter().find_map(|l| l.old));
+    (f.path.clone(), old.unwrap_or(0))
 }
 
 /// The diff line of thread `t`'s line `n` on its side.
@@ -403,11 +404,10 @@ impl App {
         // Found in the whole diff (as the views' windows are), not just what's shown: an
         // outdated comment's line is then the same however much context shows. Under it if it's
         // shown; else (hidden context) under the header.
-        let shown_at: HashMap<(Option<u32>, Option<u32>), usize> =
-            lines.iter().enumerate().filter(|(_, l)| l.kind != Kind::Hunk).map(|(i, l)| ((l.old, l.new), i)).collect();
+        // (Per comment, only in a file with some.)
         let at = |t: usize| {
             let k = anchor_line(&self.threads[t], &f.full)?;
-            shown_at.get(&(f.full[k].old, f.full[k].new)).copied()
+            lines.iter().position(|l| l.kind != Kind::Hunk && (l.old, l.new) == (f.full[k].old, f.full[k].new))
         };
         let placed: Vec<(usize, Option<usize>)> = theirs.map(|t| (t, at(t))).collect();
         for &(t, _) in placed.iter().filter(|p| p.1.is_none()) {
@@ -465,7 +465,7 @@ impl App {
     /// find the changed words in each pair.
     pub(super) fn word_spans(&self) -> HashMap<usize, Vec<(usize, usize)>> {
         // (Over the code alone, comments between its lines aside: as split view pairs them.)
-        let code: Vec<usize> = (0..self.rows.len()).filter(|&i| self.rows[i].thread.is_none()).collect();
+        let code: Vec<usize> = (0..self.rows.len()).filter(|&i| !self.in_margin(i)).collect();
         let kind = |k: usize| self.rows[code[k]].line.kind;
         let (n, mut out, mut i) = (code.len(), HashMap::new(), 0);
         while i < n {
@@ -540,19 +540,23 @@ impl App {
     /// `+`/`-`: more or less context around the hunk under the cursor (on a header: the next one).
     pub(super) fn expand(&mut self, d: i64) {
         let row = &self.rows[self.head.row];
-        let Some(f) = self.files.get(row.file) else { return };
+        let fi = row.file;
+        let Some(f) = self.files.get(fi) else { return };
         let path = f.path.clone();
         if d < 0 && self.whole.remove(&path) {
             return self.reshape();
         }
-        // The hunk the cursor's in: its line's; on a comment, the line it's under (as `key_at`).
-        let code = match row.thread {
-            Some(_) => self.rows[..=self.head.row].iter().rev().take_while(|r| r.file == row.file).find(|r| r.line.kind.is_code()),
-            None => self.rows[self.head.row..].iter().take_while(|r| r.file == row.file).find(|r| r.line.kind.is_code()),
+        // The line the cursor's at in the whole diff: a comment's, its own (shown or not);
+        // else the next code line's.
+        let idx = match row.thread {
+            Some(t) => anchor_line(&self.threads[t], &f.full),
+            None => self.rows[self.head.row..]
+                .iter()
+                .take_while(|r| r.file == fi)
+                .find(|r| r.line.kind.is_code())
+                .and_then(|c| f.full.iter().position(|x| x.old == c.line.old && x.new == c.line.new)),
         };
-        let Some(idx) = code.and_then(|c| f.full.iter().position(|x| x.old == c.line.old && x.new == c.line.new)) else {
-            return;
-        };
+        let Some(idx) = idx else { return };
         // The Claude / pending view keeps its own, per comment.
         let view = self.view != View::All;
         let extra = if view { &self.view_extra } else { &self.extra };
@@ -561,7 +565,14 @@ impl App {
             true => view_windows(&self.threads.iter().filter(|t| self.in_view(t)).collect::<Vec<_>>(), f, e, self.whole.contains(&f.path)),
             false => diff::windows(&f.full, DEFAULT_CONTEXT as usize, e, self.whole.contains(&path)),
         };
-        let Some((_, _, hunks)) = ws.into_iter().find(|w| w.0 <= idx && idx <= w.1) else { return };
+        let Some((_, _, hunks)) = ws.into_iter().find(|w| w.0 <= idx && idx <= w.1) else {
+            // Its line in hidden context (a comment under the header): the hunk nearest it, on
+            // to it.
+            if d > 0 && !view {
+                self.grow_to(fi, None, idx);
+            }
+            return;
+        };
         let keys: Vec<HunkKey> = hunks.into_iter().map(|a| hunk_key(f, a)).collect();
         let extra = if view { &mut self.view_extra } else { &mut self.extra };
         for k in keys {
@@ -571,8 +582,37 @@ impl App {
         self.reshape();
     }
 
-    /// The diff's hunks are other ones now (another base, a commit's): their context afresh.
-    pub(super) fn new_hunks(&mut self) {
+    /// Widen file `fi`'s hunk at index `from` of its whole diff (none: the one nearest `to`)
+    /// until it shows index `to`. Whether one did.
+    pub(super) fn grow_to(&mut self, fi: usize, from: Option<usize>, to: usize) -> bool {
+        let f = &self.files[fi];
+        let e = |a| *self.extra.get(&hunk_key(f, a)).unwrap_or(&0);
+        let ws = diff::windows(&f.full, DEFAULT_CONTEXT as usize, e, self.whole.contains(&f.path));
+        let gap = |w: &(usize, usize, Vec<usize>)| if to > w.1 { to - w.1 } else { w.0.saturating_sub(to) };
+        let w = match from {
+            Some(i) => ws.into_iter().find(|w| w.0 <= i && i <= w.1),
+            None => ws.into_iter().min_by_key(gap),
+        };
+        let Some(w) = w else { return false };
+        let grow = gap(&w) as i64;
+        let keys: Vec<HunkKey> = w.2.iter().map(|&a| hunk_key(f, a)).collect();
+        for k in keys {
+            *self.extra.entry(k).or_insert(0) += grow;
+        }
+        self.reshape();
+        true
+    }
+
+    /// The whole diff again, from its base as now (another base, a commit or range let go):
+    /// its hunks other ones, their context afresh. Every such change goes through here.
+    pub(super) fn whole_diff_again(&mut self) {
+        (self.to, self.commit_shown, self.commit_anchor) = (None, None, None);
+        self.hunks_afresh();
+    }
+
+    /// The diff's hunks are other ones (another base, a commit's or a range's): their widened
+    /// context, the whole diff's and the views', let go.
+    pub(super) fn hunks_afresh(&mut self) {
         self.extra.clear();
         self.view_extra.clear();
     }

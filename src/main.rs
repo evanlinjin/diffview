@@ -914,7 +914,7 @@ fn worktree_on_branch(p: &gh::Pr) -> Option<(PathBuf, bool)> {
     let d = dir.to_string_lossy().into_owned();
     let git = |args: &[&str]| diff::git(&[&["-C", d.as_str()], args].concat()).ok().map(|s| s.trim().to_owned());
     // Where Space g there pushes (as it decides it): a remote's URL, or the URL itself.
-    let pushes_there = diff::push_target(&dir, branch).is_some_and(|(remote, to)| {
+    let pushes_there = diff::push_target(&dir, branch, Some(branch)).is_some_and(|(remote, to)| {
         let url = git(&["remote", "get-url", "--push", &remote]).unwrap_or(remote);
         let repo = url.trim_end_matches('/').trim_end_matches(".git").to_lowercase();
         let want = p.head_repo.to_lowercase();

@@ -776,6 +776,12 @@ impl Thread {
     pub fn stale(&self) -> bool {
         self.resolved || self.outdated
     }
+
+    /// Where its range starts, a range comment's (`start_line`, before its line): none when
+    /// it's on one line, or its line's gone (outdated: its start is of code since changed).
+    pub fn range_start(&self) -> Option<u32> {
+        self.start_line.filter(|&s| self.line.is_some_and(|l| s < l))
+    }
 }
 
 fn parse_thread(t: &Value) -> Thread {

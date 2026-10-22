@@ -3906,3 +3906,27 @@ fn words_pair_past_comments_and_a_range_window_starts_at_its_first_line() {
     let w = view_windows(&[&t], f, |_| -(DEFAULT_CONTEXT as i64), false);
     assert_eq!(w[0].0, 0, "from `one`: {w:?}");
 }
+
+#[test]
+fn windows_and_widening_go_by_one_rule() {
+    // Two comments on one line: one window, its line once (one `+`, widened once).
+    let w = diff::merge_windows(vec![(3, 9, 6), (3, 9, 6)], 20, false);
+    assert_eq!(w, [(3, 9, vec![6])]);
+    // An outdated comment's old range start doesn't stretch its window.
+    let body: String = (1..=60).map(|i| format!(" l{i}\n")).collect();
+    let text = format!("diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1,60 +1,60 @@\n{body}");
+    let f = &diff::parse(&text)[0];
+    let t = gh::Thread { path: "a.rs".into(), start_line: Some(2), line: None, outdated: true, original_line: Some(50), ..Default::default() };
+    let w = view_windows(&[&t], f, |_| 0, false);
+    assert!(w[0].0 > 40, "{w:?}");
+    // `+` on a comment under the header (its line in hidden context): the hunk nearest grows to it.
+    let body: String = (1..=40).map(|i| if i == 30 { "-old\n+new\n".to_owned() } else { format!(" l{i}\n") }).collect();
+    let text = format!("diff --git a/b.rs b/b.rs\nindex 1..2 100644\n--- a/b.rs\n+++ b/b.rs\n@@ -1,40 +1,40 @@\n{body}");
+    let mut app = App::with("base".into(), diff::parse(&text));
+    app.threads = vec![gh::Thread { path: "b.rs".into(), line: Some(5), comments: vec![gh::Comment { author: "amy".into(), body: "hm".into(), ..Default::default() }], ..Default::default() }];
+    app.build();
+    let c = app.rows.iter().position(|r| r.thread.is_some()).unwrap();
+    app.goto(c, 0);
+    app.expand(10);
+    assert!(app.rows.iter().any(|r| r.line.text == "l5"), "line 5 shown");
+}

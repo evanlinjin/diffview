@@ -293,7 +293,7 @@ impl App {
                 self.base = mb.clone();
             }
             (self.full_base, self.follow_base) = (mb, Some(onto));
-            (self.to, self.commit_shown, self.commit_anchor) = (None, None, None);
+            self.whole_diff_again();
         }
         if let Some(pr) = &mut self.pr {
             pr.base = base.clone();

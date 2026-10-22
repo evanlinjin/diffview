@@ -1130,8 +1130,7 @@ fn session_ids() {
 
 #[test]
 fn anchoring() {
-    let mut f = diff::parse(diff::SAMPLE).remove(0);
-    f.prepare();
+    let f = diff::parse(diff::SAMPLE).remove(0);
     // New side: 1 `fn main() {`, 2 `    new_call(x);`, 3 `}`. Old side: 2 `    old();`.
     let p = std::env::temp_dir().join(format!("dv-claude-anchor-{}.json", std::process::id()));
     std::fs::write(&p, r#"{ "comments": [

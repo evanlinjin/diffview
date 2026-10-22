@@ -246,8 +246,7 @@ impl App {
     /// The diff against `base` from now on (the whole diff's, or `HEAD`'s: what isn't committed).
     fn diff_against(&mut self, base: String) {
         self.base = base;
-        (self.to, self.commit_shown, self.commit_anchor) = (None, None, None);
-        self.new_hunks();
+        self.whole_diff_again();
     }
 
     /// Between the whole diff and only what isn't committed.
@@ -366,7 +365,8 @@ impl App {
     fn push_target(&self) -> Result<(String, String, String)> {
         let here = diff::git(&["branch", "--show-current"])?.trim().to_owned();
         if !here.is_empty() {
-            let (remote, branch) = diff::push_target(Path::new("."), &here).with_context(|| format!("{here} has no remote to push to"))?;
+            let pr_branch = self.pr.as_ref().map(|p| p.head_branch.as_str());
+            let (remote, branch) = diff::push_target(Path::new("."), &here, pr_branch).with_context(|| format!("{here} has no remote to push to"))?;
             let name = format!("{branch} on {remote}");
             return Ok((remote, branch, name));
         }
@@ -596,7 +596,7 @@ impl App {
             self.base = now.clone(); // the whole diff (a commit shown, or a range, goes)
         }
         self.full_base = now;
-        (self.to, self.commit_shown, self.commit_anchor) = (None, None, None);
+        self.whole_diff_again();
     }
 }
 

@@ -291,24 +291,13 @@ impl App {
             }
         }
         let Some((j, i)) = found else { return self.msg = "no matching bracket".into() };
-        let (path, target) = (f.path.clone(), (f.full[j].old, f.full[j].new));
+        let target = (f.full[j].old, f.full[j].new);
         let find = |app: &App| {
             app.rows.iter().position(|r| r.file == fi && r.thread.is_none() && (r.line.old, r.line.new) == target)
         };
-        if find(self).is_none() {
-            // Hidden in a gap: grow the cursor's hunk until it reaches the match.
-            let f = &self.files[fi];
-            let e = |a| *self.extra.get(&hunk_key(f, a)).unwrap_or(&0);
-            let ws = diff::windows(&f.full, DEFAULT_CONTEXT as usize, e, self.whole.contains(&path));
-            if let Some((lo, hi, hunks)) = ws.into_iter().find(|w| w.0 <= start && start <= w.1) {
-                let grow = if j > hi { j - hi } else { lo.saturating_sub(j) } as i64;
-                let keys: Vec<HunkKey> = hunks.into_iter().map(|a| hunk_key(f, a)).collect();
-                for k in keys {
-                    *self.extra.entry(k).or_insert(0) += grow;
-                }
-                self.reshape();
-                self.msg = "expanded the hunk to reach the match".into();
-            }
+        // Hidden in a gap: the cursor's hunk grown until it reaches the match.
+        if find(self).is_none() && self.grow_to(fi, Some(start), j) {
+            self.msg = "expanded the hunk to reach the match".into();
         }
         if let Some(r) = find(self) {
             self.goto(r, i);
