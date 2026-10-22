@@ -375,19 +375,11 @@ fn issue_back(o: &Opts, n: u64, root: &Path) -> anyhow::Result<Option<String>> {
         Err(e) => return Ok(Some(format!("#{n}: {e:#}"))),
     };
     app.hands_prs = true;
-    loop {
-        let mut term = view::init_terminal();
-        let res = run_view(&mut app, &mut term);
-        view::restore_terminal();
-        res?;
-        if let Some(m) = app.merge {
-            return Ok(Some(merge_from(m, root)));
-        }
-        let Some(view::HandOff::Pr(p)) = app.hand_off.take() else { return Ok(None) };
-        if let Some(m) = review_back(o, p, None, root)? {
-            app.notice(m);
-        }
-    }
+    let mut term = view::init_terminal();
+    let res = run_view(&mut app, &mut term, &mut |p| review_back(o, p, None, root).unwrap_or_else(|e| Some(format!("PR #{p}: {e:#}"))));
+    view::restore_terminal();
+    res?;
+    Ok(app.merge.map(|m| merge_from(m, root)))
 }
 
 /// Review replacement `id` in dv, in its worktree: its diff against its base, and in the top
@@ -410,29 +402,29 @@ fn merge_from(n: u64, root: &Path) -> String {
 /// `app` on `term`, and what it hands over meanwhile (an issue a link goes to, in a view of its
 /// own; the PR's replacement, in its own): shown, then back to it, as it was. What goes wrong
 /// in what it hands over is said there, not an end to it (the terminal's the caller's to
-/// restore). A PR to review (`HandOff::Pr`) is left handed off, and a PR to merge (`merge`,
-/// asked in what it handed over too) left asked, for the caller.
-fn run_view(app: &mut view::App, term: &mut ratatui::DefaultTerminal) -> anyhow::Result<()> {
+/// restore). A PR a link goes to (`HandOff::Pr`, where views hand them: `hands_prs`) is
+/// reviewed with `review` (what to say back), the terminal let go meanwhile, then back to the
+/// view that asked, as it was (never dropped: what you write beside it is still sent). A PR to
+/// merge (`merge`, asked in what it handed over too) is left asked, for the caller.
+fn run_view(app: &mut view::App, term: &mut ratatui::DefaultTerminal, review: &mut dyn FnMut(u64) -> Option<String>) -> anyhow::Result<()> {
     loop {
         // (What was drawn over it meanwhile, and loading lines: all drawn anew.)
         _ = term.clear();
         app.run(term)?;
         let Some(to) = app.hand_off.take() else { return Ok(()) };
         let shown = match to {
-            view::HandOff::Pr(_) => {
-                app.hand_off = Some(to);
-                return Ok(());
+            view::HandOff::Pr(p) => {
+                view::restore_terminal();
+                let said = review(p);
+                *term = view::init_terminal();
+                Ok(said)
             }
             // An issue: in the PR view too, its own, as it was when it comes back; a PR its link
-            // goes to, handed on as this view hands them (`hands_prs`).
+            // goes to, reviewed as this view's are (`hands_prs`).
             view::HandOff::Issue(n) => match view::App::open_issue(n) {
                 Ok(mut a) => {
                     a.hands_prs = app.hands_prs;
-                    let shown = run_view(&mut a, term);
-                    if let Some(pr @ view::HandOff::Pr(_)) = a.hand_off.take() {
-                        app.hand_off = Some(pr);
-                        return shown;
-                    }
+                    let shown = run_view(&mut a, term, review);
                     if let Some(n) = a.merge {
                         app.merge_asked(n);
                         continue;
@@ -481,7 +473,7 @@ fn replacement_view(id: u64, root: &Path, term: &mut ratatui::DefaultTerminal) -
     // Its base followed as a PR's is: a rebase (a redraft's, publishing's) moves the diff's base.
     app.follow_base = Some(crate::diff::remote_branch(&r.base));
     progress(None);
-    run_view(&mut app, term)?;
+    run_view(&mut app, term, &mut |_| None)?; // (a PR view hands no PRs)
     Ok(app.merge)
 }
 
@@ -543,7 +535,7 @@ fn review(o: &Opts, pr_num: Option<u64>, known: Option<gh::Pr>) -> anyhow::Resul
         app.notice(n);
     }
     let mut term = view::init_terminal();
-    let res = run_view(&mut app, &mut term);
+    let res = run_view(&mut app, &mut term, &mut |_| None); // (a PR view hands no PRs)
     view::restore_terminal();
     Ok((wt, res.map(|_| app.merge)))
 }

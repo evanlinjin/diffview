@@ -936,18 +936,12 @@ impl App {
         (self.merge, self.quit) = (Some(n), true);
     }
 
-    /// Whether the view's to end: quit (`q`, Ctrl-c, merging), or a PR handed off (another
-    /// review: an issue's view isn't come back to). (An issue or replacement handed off comes
-    /// back to it, as it was.)
-    fn leaving(&self) -> bool {
-        self.quit || matches!(self.hand_off, Some(HandOff::Pr(_)))
-    }
-
     /// Leaving dv while you write beside it (what's written would be lost), whatever asked to
-    /// (`leaving`): said first, and left only when asked again a moment later (not a held
-    /// key's repeat, nor long after, the warning gone).
+    /// (`q`, Ctrl-c, merging; what it hands over comes back to it): said first, and left only
+    /// when asked again a moment later (not a held key's repeat, nor long after, the warning
+    /// gone).
     pub(super) fn hold_quit(&mut self) {
-        if !self.leaving() || self.writing.is_none() {
+        if !self.quit || self.writing.is_none() {
             return;
         }
         // Asked again: what's held goes (a merge asked now is that same one, or none). A held
@@ -957,7 +951,6 @@ impl App {
             armed => {
                 let held = self.merge.take().or(armed.and_then(|a| a.1));
                 (self.quit, self.quit_armed) = (false, Some((std::time::Instant::now(), held)));
-                self.hand_off = self.hand_off.take().filter(|h| !matches!(h, HandOff::Pr(_)));
                 let leaves = held.map_or("leaves anyway".to_owned(), |n| format!("leaves anyway, merging #{n}"));
                 self.msg = format!("you're writing in the editor's pane: save or :cq it first (again: {leaves})");
             }
@@ -968,7 +961,7 @@ impl App {
     pub(super) fn press(&mut self, k: KeyEvent) {
         self.key(k);
         // (Not while a sequence is under way: `Space g` asking again is one.)
-        if !self.leaving() && !self.mid_sequence() {
+        if !self.quit && !self.mid_sequence() {
             self.quit_armed = None;
         }
     }
