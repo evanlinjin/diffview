@@ -366,6 +366,9 @@ impl App {
                 };
                 let head = diff::git(&["rev-parse", "HEAD"]).unwrap_or_default();
                 let on = self.pr.as_ref().map(|p| p.head_oid.clone()).unwrap_or_default();
+                if event == "APPROVE" {
+                    self.pending_on(Some(&on))?; // (before the editor: its ACK names this head)
+                }
                 let mut prefill = ack(event, self.pr.as_ref(), head.trim());
                 if !self.summary_draft.is_empty() {
                     prefill = format!("{}\n\n{prefill}", self.summary_draft.trim_end());

@@ -5301,3 +5301,18 @@ fn a_jump_to_a_thread_doesnt_pin_it_open() {
     app.rebuild(keep);
     assert!(!app.thread_open(t), "resolved after a jump onto it, it stays open");
 }
+
+#[test]
+fn c_on_lines_is_refused_up_front_with_a_review_on_another_head() {
+    let mut app = fixture();
+    app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), head_oid: "new".into(), ..Default::default() });
+    (app.review, app.review_on) = (Some("R".into()), "old".into());
+    let code = app.rows.iter().position(|r| r.line.kind == Kind::Add).unwrap();
+    app.goto(code, 0);
+    let keys = app.context_keys().map(|(_, k)| k.iter().map(|e| e.0).collect::<Vec<_>>()).unwrap_or_default();
+    assert!(!keys.contains(&"c") && !keys.contains(&"s"), "{keys:?}");
+    assert!(app.on_head().err().is_some_and(|e| e.to_string().contains("pending review is on old")));
+    // Submitted (or discarded): its old commit no longer counts.
+    app.review = None;
+    assert!(app.on_head().is_ok());
+}

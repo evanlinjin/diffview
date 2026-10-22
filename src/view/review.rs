@@ -41,10 +41,13 @@ impl App {
         Ok(id)
     }
 
-    /// The pending review is on `commit` (none: any), or it's said what to do.
-    fn pending_on(&self, commit: Option<&str>) -> Result<()> {
-        match commit.filter(|c| !self.review_on.is_empty() && *c != self.review_on) {
-            Some(_) => bail!("your pending review is on {} (before the head moved): S submits it, or Space p, Ctrl-d discards it", &self.review_on[..self.review_on.len().min(8)]),
+    /// A pending review (if there is one) is on `commit` (none: any), or it's said what to do.
+    pub(super) fn pending_on(&self, commit: Option<&str>) -> Result<()> {
+        match commit.filter(|c| self.review.is_some() && !self.review_on.is_empty() && *c != self.review_on) {
+            Some(_) => bail!(
+                "your pending review is on {}, before the head moved: S → Comment submits it, or S → Discard pending review drops it",
+                &self.review_on[..self.review_on.len().min(8)]
+            ),
             None => Ok(()),
         }
     }
@@ -785,6 +788,9 @@ impl App {
         if self.before_head() {
             bail!("comments go on the PR's head: show commits up to the last one (or all) to comment");
         }
+        // (Lines read on this head can't go in a pending review on another: refused before
+        // the editor, and hinted so.)
+        self.pending_on(Some(&pr.head_oid))?;
         Ok(pr)
     }
 
