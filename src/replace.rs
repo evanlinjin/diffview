@@ -465,6 +465,12 @@ pub fn prompt(r: &Record, extra: &str, reviews: Reviews) -> String {
 }
 
 /// Whether replacement `id` has drafts (`Record::drafted`).
+/// Whether what you write for draft `id` is asked of it (as its drafts' asks, or a new PR's
+/// instructions with its task), not your instructions for replacements' first drafts.
+pub fn redrafts(id: u64) -> bool {
+    is_new(id) || drafted(id)
+}
+
 pub fn drafted(id: u64) -> bool {
     load(id).is_ok_and(|r| r.drafted())
 }

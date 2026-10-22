@@ -269,7 +269,7 @@ impl App {
                 };
                 // Drafted already: what you want is asked of its drafts (kept with them, shown
                 // there), for the redraft to take in.
-                if crate::replace::drafted(prs[0]) || crate::replace::is_new(prs[0]) {
+                if crate::replace::redrafts(prs[0]) {
                     let (what, (on, prefill, want)) = match about {
                         Some(q @ (_, _, "ask")) => (format!("ask Claude about {it}, under the quote (it answers; it changes nothing)"), q),
                         Some(q) => (format!("ask Claude to redraft {it}: what to change, under the quote"), q),

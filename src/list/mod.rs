@@ -498,7 +498,7 @@ impl List {
         let what = format!("instructions for Claude's replacement of {} (optional)", which.join(", "));
         // Drafted already: what else you want of it (asked of its drafts), not your instructions
         // for first drafts (nor saved as them); any first drafts among them get those.
-        let extra = match groups.iter().any(|g| crate::replace::drafted(g[0])) {
+        let extra = match groups.iter().any(|g| crate::replace::redrafts(g[0])) {
             true => self.edit_text(term, &format!("what else Claude should do in its redraft of {} (optional; first drafts get your instructions for replacements)", which.join(", ")), "", true),
             false => self.instructions(term, "replace", &what),
         };
@@ -510,7 +510,7 @@ impl List {
         self.marked.clear();
         for g in groups {
             // (A first draft with nothing given takes your saved instructions: `replace::draft`.)
-            let extra = if crate::replace::drafted(g[0]) { extra.clone() } else { String::new() };
+            let extra = if crate::replace::redrafts(g[0]) { extra.clone() } else { String::new() };
             let id = g[0];
             self.draft_under_way(id, batch::replace(g, self.root.clone(), extra));
         }
