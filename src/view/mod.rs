@@ -183,6 +183,8 @@ struct CursorKey {
     /// A line standing for a comment (`Row::goes`: Claude's activity): that comment's id (not
     /// its place in its thread, which a deleted one before it moves), how far into its lines.
     goes: Option<((u64, u64), usize)>,
+    /// On a hunk's header (no line of its own): the header above `line`, its first.
+    hunk: bool,
 }
 
 /// Where the cursor and a selection's anchor (and its column) are, taken before what a rebuild

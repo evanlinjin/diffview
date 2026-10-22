@@ -127,14 +127,15 @@ impl App {
     }
 
     pub(super) fn key_at(&self, row: usize) -> CursorKey {
-        let Some(r) = self.rows.get(row) else { return CursorKey { line: None, thread: None, info: None, section: None, goes: None } };
+        let Some(r) = self.rows.get(row) else { return CursorKey { line: None, thread: None, info: None, section: None, goes: None, hunk: false } };
         CursorKey {
             // (The code line it's on, or under: a comment's, should its thread go, as one posted
             // or deleted does, outdated or not; under none shown, its own line.)
             line: self.files.get(r.file).map(|f| {
-                let at = match r.thread {
-                    Some(_) => self.rows[..=row].iter().rev().take_while(|x| x.file == r.file).find(|x| x.line.kind.is_code()),
-                    None => Some(r),
+                let at = match (r.thread, r.line.kind) {
+                    (Some(_), _) => self.rows[..=row].iter().rev().take_while(|x| x.file == r.file).find(|x| x.line.kind.is_code()),
+                    (None, Kind::Hunk) => self.rows[row..].iter().take_while(|x| x.file == r.file).find(|x| x.line.kind.is_code()),
+                    (None, _) => Some(r),
                 };
                 let own = || r.thread.and_then(|t| self.threads[t].line.map(|l| if self.threads[t].left { (Some(l), None) } else { (None, Some(l)) }));
                 let (old, new) = at.map(|x| (x.line.old, x.line.new)).or_else(own).unwrap_or_default();
@@ -152,6 +153,7 @@ impl App {
             }),
             section: r.main.and_then(|m| Some((m, row - self.rows.iter().position(|x| x.main == Some(m))?))),
             goes: r.goes.and_then(|(t, c)| Some(((self.root_id(t)?, self.threads[t].comments.get(c)?.id), row - self.rows.iter().position(|x| x.goes == r.goes)?))),
+            hunk: r.thread.is_none() && r.line.kind == Kind::Hunk,
         }
     }
 
@@ -187,7 +189,10 @@ impl App {
                 let first = self.rows.iter().position(|r| r.main == Some(m))?;
                 Some((first..=first + off).take_while(|&r| self.rows.get(r).is_some_and(|r| r.main == Some(m))).last().unwrap_or(first))
             })
-            .or_else(|| key.line.as_ref().and_then(|(p, old, new)| self.locate(p, *old, *new)))
+            .or_else(|| {
+                let r = key.line.as_ref().and_then(|(p, old, new)| self.locate(p, *old, *new))?;
+                Some(if key.hunk && r > 0 && self.rows[r - 1].line.kind == Kind::Hunk { r - 1 } else { r })
+            })
             // The comment the cursor was on gone, with its file from the view (Claude's last
             // there posted): where the file would be. (Not so for a line: a view without it
             // starts at its top.)

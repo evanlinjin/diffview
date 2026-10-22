@@ -4691,3 +4691,18 @@ fn a_picker_open_holds_back_what_changed() {
     let _ = std::fs::remove_file(&p);
     assert_eq!(app.rows[app.head.row].line.text, want);
 }
+
+#[test]
+fn a_hunk_header_is_kept_across_rebuilds_and_ctrl_o() {
+    let sample = "diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1,2 +1,2 @@ fn a\n one\n-two\n+two!\n@@ -20,2 +20,2 @@ fn b\n x\n-y\n+y!\n";
+    let mut app = App::with("base".into(), diff::parse(sample));
+    let h = app.rows.iter().rposition(|r| r.line.kind == Kind::Hunk).unwrap();
+    app.goto(h, 0);
+    let keep = app.cursor_key();
+    app.rebuild(keep);
+    assert_eq!(app.head.row, h, "a rebuild moved off the hunk's header");
+    press(&mut app, " f");
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    ctrl(&mut app, 'o');
+    assert_eq!(app.head.row, h, "Ctrl-o not back on the hunk's header");
+}
