@@ -12,7 +12,7 @@ impl App {
         let to = crate::replace::remote().map_or("your remote: dv asks which".to_owned(), |r| format!("to {r}"));
         let mut items = match r.published {
             _ if self.at_it() => vec![item("Claude is at work on it: wait for it to finish".into(), Target::Note(""))],
-            None if r.title.is_empty() => vec![item("Claude hasn't drafted it yet (Space a → Redraft)".into(), Target::Note(""))],
+            None if !r.drafted() => vec![item("Claude hasn't drafted it yet (Space a → Redraft)".into(), Target::Note(""))],
             // Only commits are published: what isn't committed would be left out.
             None if dirty => {
                 let mut v = vec![item("Commit the uncommitted changes first (they'd be left out)…".into(), Target::Do(Action::Commit))];

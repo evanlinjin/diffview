@@ -537,6 +537,13 @@ impl List {
     /// The replacements, as cards: what they replace, and their size against their base.
     fn load_reps(&mut self) {
         let records = crate::replace::all();
+        // A draft's that went through since (from anywhere: its view, `dv replace`): what this
+        // list last heard of it (failed) is over.
+        for r in &records {
+            if self.rep_of.get(&r.id).is_some_and(|old| old.drafted_at != r.drafted_at) && self.drafting.get(&r.id).is_some_and(|s| !s.running()) {
+                self.drafting.remove(&r.id);
+            }
+        }
         self.reps = records.iter().map(|r| rep_card(r, &self.root)).collect();
         self.rep_of = records.into_iter().map(|r| (r.id, r)).collect();
     }
@@ -570,7 +577,7 @@ impl List {
             Some(s) if s.running() => ("drafting…".into(), true),
             _ => match self.rep_of.get(&id)? {
                 r if r.published.is_some() => return Some((format!("{of}: published as #{}", r.published.unwrap_or(0)), true)),
-                r if r.title.is_empty() => ("no draft yet".into(), false),
+                r if !r.drafted() => ("no draft yet".into(), false),
                 _ => ("drafted".into(), true),
             },
         };

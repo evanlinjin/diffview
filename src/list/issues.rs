@@ -1151,7 +1151,7 @@ fn draft_fix(records: &[crate::replace::Record], here: &HashSet<u64>, at_work: &
         .filter_map(|r| {
             let n = crate::replace::fixes(&r.task)?;
             let at_it = if here.contains(&r.id) { Some("drafting".to_owned()) } else { at_work.get(&crate::claude::rep_key(r.id)).cloned() };
-            (at_it.is_some() || !r.title.is_empty()).then(|| (n, (crate::replace::label(r.id), at_it)))
+            (at_it.is_some() || r.drafted()).then(|| (n, (crate::replace::label(r.id), at_it)))
         })
         .collect()
 }
