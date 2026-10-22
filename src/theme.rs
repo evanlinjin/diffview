@@ -54,6 +54,9 @@ pub struct Ui {
     pub add_bg_rel: Color,
     pub del_bg_rel: Color,
     pub linenr_selected: Style,
+    /// Where split view's side has no line: the background a shade darker (none: the theme
+    /// has no RGB background to shade; a sparse dot pattern then).
+    pub blank: Option<Color>,
     /// Keys in the help overlay.
     pub key: Style,
     pub md: crate::md::Styles,
@@ -248,6 +251,7 @@ impl Theme {
                     .or(self.find("ui.popup").and_then(|s| s.bg)),
             },
             linenr_selected: self.find("ui.linenr.selected").unwrap_or(self.get("ui.linenr").add_modifier(Modifier::BOLD)),
+            blank: bg.and_then(|b| blend(Color::Rgb(0, 0, 0), b, 0.15)),
         }
     }
 }

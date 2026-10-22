@@ -272,8 +272,12 @@ impl App {
         let pair = |l: Option<usize>, rr: Option<usize>, cur: bool, seg: usize| {
             let half = |row: Option<usize>, right: bool, w: usize| match row {
                 Some(row) => self.render_row(row, s, e, (lw, ghw, w), Some(right), cur, &overlay, seg),
-                // Like delta: a quiet hatch where the other side has no line.
-                None => vec![Span::styled(HATCH.repeat(ghw + w), self.ui.linenr)],
+                // A quiet blank where this side has no line: the background a shade darker, or
+                // (no such shade) a sparse dot every other column.
+                None => match self.ui.blank {
+                    Some(c) => vec![Span::styled(" ".repeat(ghw + w), Style::new().bg(c))],
+                    None => vec![Span::styled((0..ghw + w).map(|i| if i % 2 == 1 { HATCH } else { " " }).collect::<String>(), self.ui.linenr)],
+                },
             };
             let mut spans = half(l, false, htw_l);
             spans.push(divider.clone());
@@ -729,9 +733,9 @@ impl App {
     }
 }
 
-/// What split view draws where a side has no line (a quiet hatch, as delta's): not content, for
-/// the key hints to cover.
-pub(super) const HATCH: &str = "╱";
+/// What split view draws where a side has no line, when the theme has no shade for it: not
+/// content, for the key hints to cover.
+pub(super) const HATCH: &str = "·";
 
 /// Which keys do what (`title`, `keys`), as Helix shows them, in a corner of `above` (bottom
 /// right first, then bottom left, top right, top left): never over the cursor (`avoid`; unless
