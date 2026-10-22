@@ -268,6 +268,8 @@ enum Target {
     /// Keep replacement branches on this remote (`dv.replaceRemote`), then publish (as `Publish`).
     ReplaceRemote(String, bool),
     ClaudeFresh,
+    /// The PR's replacement (its id), in its own view; back here after.
+    OpenReplacement(u64),
     ClaudePane,
     ClaudeOpen,
     ClaudeCheck,
@@ -307,6 +309,15 @@ enum Target {
     Note(&'static str),
     /// Not to pick: what to see to before going on (`Tone::Warn`).
     Warn,
+}
+
+/// What a view hands over to show instead, and comes back to after.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum HandOff {
+    /// An issue of the PR's repo, in dv's issue view.
+    Issue(u64),
+    /// The PR's replacement (its id), in its own view.
+    Replacement(u64),
 }
 
 /// What the diff shows: all of it, or only the threads of Claude's review / your pending one.
@@ -375,6 +386,7 @@ impl Target {
             Target::ClaudePane | Target::ClaudeOpen => ('\u{f489}', Plain, "Claude"),
             Target::ClaudeCheck => ('\u{f46a}', Plain, "Claude"),
             Target::ClaudeFresh => ('\u{f44d}', Plain, "Claude"),
+            Target::OpenReplacement(_) => ('\u{f407}', Claude, "Claude"),
             Target::Do(Action::Replace(..)) => ('\u{f402}', Claude, "Replacement"),
             Target::GitView => ('\u{f440}', Plain, "Working tree"),
             Target::Do(Action::Commit) | Target::AmendMenu | Target::Amend => ('\u{f417}', Plain, "Working tree"),
@@ -536,9 +548,13 @@ pub struct App {
     job: Option<Job>,
     /// The viewer's pending review on the PR, if any.
     review: Option<String>,
-    /// An issue of this repo's to show in dv's issue view (a link's): the view hands it over,
-    /// and goes on as it was after.
-    pub open_issue: Option<u64>,
+    /// What to show instead for a while (an issue a link goes to, this PR's replacement): the
+    /// view hands it over, and goes on as it was after.
+    pub hand_off: Option<HandOff>,
+    /// This PR's replacement (one replacing it, among others or not), as last read, and when
+    /// that was looked for (every few seconds, as the records change).
+    replaced_by: Option<crate::replace::Record>,
+    replaced_at: Option<(std::time::Instant, Option<std::time::SystemTime>)>,
     /// Your "Viewed" marks from GitHub: path → VIEWED / DISMISSED.
     viewed: HashMap<String, String>,
     /// Viewed marks on their way to GitHub (shown already): path → how it's going.
@@ -832,7 +848,7 @@ impl App {
 
     pub fn run(&mut self, term: &mut DefaultTerminal) -> Result<()> {
         // (Till you quit, or an issue's to be shown: then back here, as it was.)
-        while !self.quit && self.open_issue.is_none() {
+        while !self.quit && self.hand_off.is_none() {
             self.log_msg();
             self.watch_seen();
             term.draw(|f| self.draw(f))?;
@@ -863,6 +879,7 @@ impl App {
                 }
             }
             self.watch_replacement();
+            self.watch_replaced_by();
             self.poll_claude();
             self.watch_claude_pane();
             self.act(term);

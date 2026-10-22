@@ -610,6 +610,7 @@ impl App {
                             Err(e) => self.msg = format!("{e:#}"),
                         },
                         Target::ClaudeFresh => self.fresh_claude_session(),
+                        Target::OpenReplacement(id) => self.hand_off = Some(HandOff::Replacement(id)),
                         Target::ClaudePane => self.show_claude_pane(),
                         Target::ClaudeOpen => self.open_claude_pane(),
                         Target::ClaudeCheck => self.check_claude(),

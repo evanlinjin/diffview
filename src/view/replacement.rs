@@ -61,6 +61,21 @@ impl App {
     }
 
     /// The replacement here, shown again when its record changes (Claude redrafting it).
+    /// A PR's replacement, looked for again when the records change (every few seconds at
+    /// most): Claude drafting it shows on the status bar, and Space a goes to it.
+    pub(super) fn watch_replaced_by(&mut self) {
+        let Some(n) = self.pr.as_ref().map(|p| p.number).filter(|_| self.replacement.is_none()) else { return };
+        if self.replaced_at.is_some_and(|(t, _)| t.elapsed() < std::time::Duration::from_secs(3)) {
+            return;
+        }
+        let changed = crate::replace::changed();
+        let seen = self.replaced_at.is_some_and(|(_, c)| c == changed);
+        self.replaced_at = Some((std::time::Instant::now(), changed));
+        if !seen {
+            self.replaced_by = crate::replace::all().into_iter().find(|r| r.ids().contains(&n));
+        }
+    }
+
     pub(super) fn watch_replacement(&mut self) {
         let Some(id) = self.replacement.as_ref().map(|r| r.id) else { return };
         let mtime = crate::replace::path(id).ok().and_then(|p| std::fs::metadata(p).ok()?.modified().ok());

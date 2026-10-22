@@ -281,7 +281,7 @@ impl App {
                     }
                 }
                 crate::replace::spawn(&prs)?;
-                Ok(format!("Claude is drafting a replacement for {which} in the background: dv list's replacements tab shows it"))
+                Ok(format!("Claude is drafting a replacement for {which} in the background: Space a opens it (the status bar says while it's at it)"))
             }
             Action::Publish(close) => {
                 // (It rebases and pushes the branch.)

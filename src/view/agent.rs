@@ -192,7 +192,7 @@ impl App {
         }
         let has_review = self.threads.iter().any(Thread::by_claude) || !self.claude.summary.is_empty();
         let review = match (has_review, self.reviewed_before()) {
-            (true, Some(old)) => format!("Update Claude's review: what changed since it reviewed {}", &old[..old.len().min(8)]),
+            (true, Some(old)) => format!("Update Claude's review: what changed since it reviewed {}", old.get(..8).unwrap_or(old)),
             (true, None) => "Update Claude's review (keeps comments that still apply, and your replies)".into(),
             (false, _) => "Review this".into(),
         };
@@ -271,6 +271,10 @@ impl App {
             items.push(Item::new("Start a fresh Claude session for this PR (the review stays)", Target::ClaudeFresh));
         }
         // A replacement: Claude writes the change itself, unpublished, for you to review here.
+        if let Some(r) = &self.replaced_by {
+            let how = if r.drafting_now() { "Claude's drafting it: dv shows it as it goes" } else { "to review" };
+            items.push(Item::new(format!("Open its replacement, {} ({how}; q comes back here)", crate::replace::label(r.id)), Target::OpenReplacement(r.id)));
+        }
         match (&self.pr, &self.replacement) {
             (Some(p), _) => items.push(Item::new(
                 format!("Draft a replacement for #{} (Claude writes it properly, unpublished, in the background)", p.number),
@@ -789,6 +793,7 @@ impl App {
             None if self.claude.pane_busy => Some("◐ claude working (its pane)".into()),
             // (A replacement's redraft, from any dv.)
             None if self.replacement.as_ref().is_some_and(|r| r.drafting_now()) => Some("◐ claude drafting it".into()),
+            None if self.replaced_by.as_ref().is_some_and(|r| r.drafting_now()) => Some("◐ claude drafting its replacement (Space a: open it)".into()),
             None => None,
         }
     }

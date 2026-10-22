@@ -3486,3 +3486,20 @@ fn this_repos_issue_links_open_in_dv() {
     assert_eq!(app.issue_here("https://github.com/o/other/issues/82"), None); // another repo's: the browser
     assert_eq!(app.issue_here("https://github.com/o/r/pull/82"), None); // a PR: the browser
 }
+
+#[test]
+fn a_prs_replacement_being_drafted_shows_and_opens() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    app.pr = Some(gh::Pr { number: 87, ..Default::default() });
+    // Claude at it (this process stands in for its run): on the status bar.
+    app.replaced_by = Some(crate::replace::Record { id: 87, drafting: Some(std::process::id()), ..Default::default() });
+    assert_eq!(app.claude_doing().as_deref(), Some("◐ claude drafting its replacement (Space a: open it)"));
+    // Space a: open it, which hands the view over (and comes back after).
+    app.claude.path = Some(std::env::temp_dir().join("dv-replaced-by-unused.json"));
+    app.claude_menu();
+    let p = app.picker.as_ref().unwrap();
+    let i = p.items.iter().position(|it| matches!(it.target, Target::OpenReplacement(87))).expect("an item opening it");
+    app.picker.as_mut().unwrap().sel = i;
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(app.hand_off, Some(HandOff::Replacement(87)));
+}

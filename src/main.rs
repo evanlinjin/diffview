@@ -362,6 +362,14 @@ fn review_back(o: &Opts, n: u64, known: Option<gh::Pr>, root: &Path) -> anyhow::
 /// Review replacement `id` in dv, in its worktree: its diff against its base, and in the top
 /// section, what it replaces and Claude's drafts.
 fn review_replacement(id: u64, root: &Path) -> anyhow::Result<()> {
+    let mut term = view::init_terminal();
+    let res = replacement_view(id, root, &mut term);
+    view::restore_terminal();
+    res
+}
+
+/// A replacement's view, in its worktree (left there), on `term`.
+fn replacement_view(id: u64, root: &Path, term: &mut ratatui::DefaultTerminal) -> anyhow::Result<()> {
     let r = replace::load(id)?;
     let dir = worktree_dir_named(root, &replace::name(id))?;
     anyhow::ensure!(dir.exists(), "its worktree {} is gone (A A on the PR drafts it again)", dir.display());
@@ -374,10 +382,7 @@ fn review_replacement(id: u64, root: &Path) -> anyhow::Result<()> {
     // Its base followed as a PR's is: a rebase (a redraft's, publishing's) moves the diff's base.
     app.follow_base = Some(crate::diff::remote_branch(&r.base));
     progress(None);
-    let mut term = view::init_terminal();
-    let res = app.run(&mut term);
-    view::restore_terminal();
-    res
+    app.run(term)
 }
 
 /// Check PR `n` out as `o` says and review it. The outer error is setup (checkout, diff); the
@@ -438,14 +443,23 @@ fn review(o: &Opts, pr_num: Option<u64>, known: Option<gh::Pr>) -> anyhow::Resul
         app.notice(n);
     }
     let mut term = view::init_terminal();
-    // An issue a link there goes to: in dv's issue view, then back to the PR, as it was.
+    // An issue a link there goes to (in dv's issue view), the PR's replacement (in its own):
+    // shown, then back to the PR, as it was.
     let mut issues = None;
     let res = loop {
         let res = app.run(&mut term);
-        let Some(n) = app.open_issue.take().filter(|_| res.is_ok()) else { break res };
-        let is = issues.get_or_insert_with(list::issues::Issues::new);
-        if let Err(e) = is.run_one(&mut term, n) {
-            app.notice(format!("#{n}: {e:#}"));
+        let Some(to) = app.hand_off.take().filter(|_| res.is_ok()) else { break res };
+        let shown = match to {
+            view::HandOff::Issue(n) => issues.get_or_insert_with(list::issues::Issues::new).run_one(&mut term, n).with_context(|| format!("#{n}")),
+            view::HandOff::Replacement(id) => {
+                let here = std::env::current_dir()?;
+                let shown = main_checkout(&here).and_then(|root| replacement_view(id, &root, &mut term));
+                std::env::set_current_dir(&here)?;
+                shown.with_context(|| replace::label(id))
+            }
+        };
+        if let Err(e) = shown {
+            app.notice(format!("{e:#}"));
         }
     };
     view::restore_terminal();

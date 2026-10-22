@@ -79,7 +79,7 @@ impl App {
             // (GitHub's links say /issues/ for PRs too: it's asked which.)
             Job::OpenIssue(n, url) => match gh::gh(&["pr", "view", &n.to_string(), "--json", "number"]) {
                 Ok(_) => self.open_url(&url),
-                Err(_) => (self.open_issue, self.msg) = (Some(n), String::new()),
+                Err(_) => (self.hand_off, self.msg) = (Some(HandOff::Issue(n)), String::new()),
             },
             Job::Refresh => self.finish(Ok("refreshed")),
             Job::Resolve(t, on) => self.finish(gh::set_resolved(&t, on).map(|_| if on { "thread resolved" } else { "thread unresolved" })),
