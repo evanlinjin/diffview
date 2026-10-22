@@ -5,6 +5,19 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.93.0] - 2026-10-22
+
+### Added
+- In an issue's view, `a q` asks Claude about it (your editor first): Claude reads the issue,
+  its conversation, its triage and the code, and its answer shows in the pane under your
+  question.
+- `a e` has Claude edit the issue's title or text as you ask (your editor first). The pane
+  shows the change as a diff; `E E` applies it, only if the issue hasn't changed since.
+
+### Fixed
+- One notch of the wheel over a line too short to show where the diff is scrolled to no
+  longer jumps the view back to that line's end.
+
 ## [0.92.16] - 2026-10-22
 
 ### Fixed
