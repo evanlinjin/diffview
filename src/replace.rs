@@ -709,6 +709,12 @@ pub fn note(r: &Record) -> String {
 /// Close the originals not closed yet, each with `note`: what was closed (an error stops at
 /// the PR it's about, keeping those before).
 pub fn close_originals(r: &mut Record, note: &str) -> Result<String> {
+    // (Its PR closed, not merged: it replaces nothing now, "superseded by" it would be false.)
+    if let Some(n) = r.published
+        && crate::gh::pr_state(n).ok().flatten().as_deref() == Some("CLOSED")
+    {
+        anyhow::bail!("#{n} (it was published as) is closed: what it replaces isn't superseded");
+    }
     let (mut done, mut already) = (vec![], vec![]);
     let list = |ns: &[u64]| ns.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(", ");
     for n in r.replaces.iter().map(|o| o.number).filter(|n| !r.closed.contains(n)).collect::<Vec<_>>() {
