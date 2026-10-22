@@ -100,6 +100,8 @@ pub struct Info {
     pub failing: usize,
     /// Its base branch, and whether it conflicts with it.
     pub base: String,
+    /// Its base branch's head on GitHub now (what the PR's diff starts from).
+    pub base_oid: String,
     pub conflicts: bool,
     /// An issue's: when it last changed, and the PRs linked as fixing it (number, state, head).
     pub updated: String,
@@ -126,6 +128,7 @@ pub fn parse_info(v: &Value) -> Info {
         awaiting,
         failing,
         base: s("baseRefName"),
+        base_oid: s("baseRefOid"),
         conflicts: s("mergeable") == "CONFLICTING",
         updated: s("updatedAt"),
         fixes,

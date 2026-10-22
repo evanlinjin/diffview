@@ -238,7 +238,7 @@ impl App {
             Err(e) => self.msg = format!("loading comments: {e:#}"),
         }
         match info {
-            Ok(Info { lines, title, head, url, state, unsigned, awaiting, failing, base, conflicts, updated, fixes }) => {
+            Ok(Info { lines, title, head, url, state, unsigned, awaiting, failing, base, base_oid, conflicts, updated, fixes }) => {
                 (self.awaiting, self.failing, self.conflicts) = (awaiting, failing, conflicts);
                 (self.info, self.pr_state) = (lines, Some(state));
                 // GitHub's word on its commits' signatures, for the contents' commits (none this
@@ -248,6 +248,9 @@ impl App {
                 }
                 if let Some(pr) = &mut self.pr {
                     (pr.title, pr.head_oid, pr.url) = (title, head, url);
+                    if !base_oid.is_empty() {
+                        pr.base_oid = base_oid;
+                    }
                     if fresh && !base.is_empty() {
                         self.github_base = Some(base);
                     }

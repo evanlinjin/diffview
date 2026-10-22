@@ -109,7 +109,6 @@ impl App {
     /// them (in the background) and carries the rebase on.
     pub(super) fn start_rebase(&mut self) {
         let r = (|| -> Result<String> {
-            anyhow::ensure!(!self.claude_busy(), "{}", App::busy_says("rebase"));
             let onto = self.rebase_onto().context("no base branch to rebase onto")?;
             let (remote, branch) = onto.split_once('/').context("no remote base branch")?;
             // Into that ref whatever the remote's refspec covers (a single-branch clone, say).

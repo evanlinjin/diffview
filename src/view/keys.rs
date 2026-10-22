@@ -645,6 +645,7 @@ impl App {
                 let mut p = self.picker.take().unwrap();
                 if let Some(&i) = m.get(p.sel) {
                     match p.items.swap_remove(i).target {
+                        t if t.touches_checkout() && self.claude_busy() => self.msg = App::busy_says("change the checkout"),
                         Target::Do(a) => self.action = Some(a),
                         // (The labels picker comes back after, as it was, on the one picked:
                         // one after another.)

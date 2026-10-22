@@ -98,17 +98,23 @@ impl App {
         }
         // A draft no one has seen: published (S), not pushed.
         let push = if self.unpublished() { Err(anyhow!("it's a draft: S publishes it")) } else { self.push_target() };
+        // What merging would leave out (it merges GitHub's head): said, not merged without.
+        let mut left_out = self.dirty.has().then(|| "what isn't committed".to_owned());
         match push {
             Err(_) if self.unpublished() => items.push(Item::new("Publish it as a draft PR: S (nothing to push to before)", Target::Note(""))),
             Ok((remote, branch, name)) => match self.unpushed(&remote, &branch) {
                 Push::Nothing => {}
-                Push::Ahead(n) => items.push(Item::new(format!("Push {n} commit(s) to {name}"), Target::Run(Job::Push(false)))),
+                Push::Ahead(n) => {
+                    left_out = Some(format!("{n} commit(s) not pushed"));
+                    items.push(Item::new(format!("Push {n} commit(s) to {name}"), Target::Run(Job::Push(false))));
+                }
                 Push::Unknown => items.push(Item::new(format!("Push to {name}"), Target::Run(Job::Push(false)))),
                 Push::Diverged => {
                     // Behind only (nothing here it doesn't have): no force-push, just its version.
                     let theirs = self.their_head(&remote, &branch);
                     let ours = diff::git(&["rev-list", "--count", &format!("{theirs}..HEAD")]).ok().and_then(|n| n.trim().parse::<usize>().ok()).unwrap_or(0);
                     if ours > 0 {
+                        left_out = Some(format!("{ours} commit(s) only here"));
                         items.push(Item::new(
                             format!("Force-push to {name} (with a lease: it has commits this doesn't, as after a rebase or amend here)"),
                             Target::Run(Job::Push(true)),
@@ -151,8 +157,10 @@ impl App {
             items.push(Item::new(format!("Mark #{} ready for review (it's a draft)", p.number), Target::GitReady));
         }
         if let Some(p) = &self.pr {
-            let label = format!("Merge #{} with github-merge.py (ends this review; its worktree goes first, if nothing in it is unpushed)", p.number);
-            items.push(Item::new(label, Target::GitMerge));
+            items.push(match left_out {
+                Some(why) => Item::new(format!("Merge #{}: push first ({why}; merging takes GitHub's head)", p.number), Target::Note("")),
+                None => Item::new(format!("Merge #{} with github-merge.py (ends this review)", p.number), Target::GitMerge),
+            });
         }
         self.picker = Some(Picker::new(" git ", items));
     }
@@ -224,7 +232,6 @@ impl App {
     /// Drop what isn't committed (in `path`; else all of it, new files too), after a yes
     /// (`sure`): stashed, so `git stash pop` brings it back.
     pub(super) fn drop_uncommitted(&mut self, path: Option<String>, sure: bool) -> Result<String> {
-        anyhow::ensure!(!self.claude_busy(), "{}", App::busy_says("drop it"));
         let what = path.as_deref().map_or("everything that isn't committed".to_owned(), |p| format!("what isn't committed in {p}"));
         if !sure {
             let items = vec![
@@ -590,7 +597,10 @@ impl App {
             return;
         }
         let git = |args: &[&str]| diff::git_in(&self.root, args);
-        let Ok(now) = git(&["merge-base", branch, "HEAD"]).map(|s| s.trim().to_owned()) else { return };
+        // The base as GitHub has it now, if that's here (a base merged into the PR is: it's in
+        // its history), as dv opened it by (`diff_base`); else the base branch as last fetched.
+        let on = self.pr.as_ref().map(|p| p.base_oid.clone()).filter(|o| !o.is_empty() && git(&["cat-file", "-e", &format!("{o}^{{commit}}")]).is_ok());
+        let Ok(now) = git(&["merge-base", on.as_deref().unwrap_or(branch), "HEAD"]).map(|s| s.trim().to_owned()) else { return };
         if now == self.full_base || git(&["merge-base", "--is-ancestor", &self.full_base, &now]).is_err() {
             return;
         }

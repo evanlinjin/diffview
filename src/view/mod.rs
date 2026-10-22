@@ -412,6 +412,12 @@ const SECTIONS: [&str; 15] = [
 ];
 
 impl Target {
+    /// It changes the checkout (its tree, its branch): not while Claude's at work there
+    /// (`claude_busy`), one rule where it's picked.
+    fn touches_checkout(&self) -> bool {
+        matches!(self, Target::GitDrop(..) | Target::GitTakeTheirs(_) | Target::RebaseAbort | Target::Run(Job::Pull | Job::Rebase) | Target::AmendAsk | Target::AmendAll)
+    }
+
     /// How its item looks: its icon (a Nerd Font's; ' ': none), its color, its section ("": the
     /// one before it's).
     fn look(&self) -> (char, Tone, &'static str) {
