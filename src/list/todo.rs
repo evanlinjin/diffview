@@ -402,6 +402,7 @@ impl List {
         }
         let local: Vec<(u64, String)> = self.local.iter().map(|(&n, (dir, _))| (n, dir.to_string_lossy().into_owned())).collect();
         let heads: HashMap<u64, String> = self.extra.iter().map(|(&n, e)| (n, e.head_oid.clone())).collect();
+        let bases: HashMap<u64, String> = self.prs.iter().map(|p| (p.number, p.base.clone())).collect();
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let found = local
@@ -409,19 +410,16 @@ impl List {
                 .filter_map(|(n, d)| {
                     let git = |args: &[&str]| crate::diff::git(&[&["-C", d.as_str()], args].concat()).ok();
                     let files = git(&["status", "--porcelain"])?.lines().count();
-                    // Beyond the PR's head (as GitHub has it), if that's here; else its upstream's.
-                    let head = heads.get(&n).cloned().filter(|h| git(&["cat-file", "-e", &format!("{h}^{{commit}}")]).is_some());
-                    let theirs = head.unwrap_or_else(|| "@{upstream}".into());
-                    // Still at what dv checked out, the PR moving on since (a force-push): behind,
-                    // not work of yours.
-                    let here = git(&["rev-parse", "HEAD"]).unwrap_or_default();
-                    let stale = crate::last_checkout(n).is_some_and(|c| c == here.trim());
-                    let commits = match stale {
-                        true => 0,
-                        false => git(&["rev-list", "--count", &format!("{theirs}..HEAD")]).and_then(|c| c.trim().parse().ok()).unwrap_or(0),
-                    };
+                    // Beyond the PR's head as GitHub has it (fetched if it isn't here), as dv's
+                    // one rule has it (`only_here`). Its head not known yet: asked again once it
+                    // is.
+                    let head = heads.get(&n).filter(|h| !h.is_empty()).filter(|h| {
+                        git(&["cat-file", "-e", &format!("{h}^{{commit}}")]).is_some()
+                            || git(&["fetch", "-q", "--no-write-fetch-head", &crate::diff::remote(), &format!("refs/pull/{n}/head")]).is_some()
+                    });
+                    let commits = head.map_or(0, |h| crate::only_here(std::path::Path::new(&d), n, h, bases.get(&n).map(String::as_str)));
                     // When the PR's head was made: Claude's changes after it are what's waiting.
-                    let at = git(&["log", "-1", "--format=%ct", &theirs]).and_then(|t| t.trim().parse().ok());
+                    let at = head.and_then(|h| git(&["log", "-1", "--format=%ct", h])).and_then(|t| t.trim().parse().ok());
                     (files + commits > 0).then_some((n, (files, commits, at)))
                 })
                 .collect();

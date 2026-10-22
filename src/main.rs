@@ -717,32 +717,41 @@ pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool) -> anyhow::Res
 /// updating to the PR is safe). Updating never drops them, `-f` or not: dv records the commit
 /// it last checked out (`checkouts/pr-N` in its directory), so a PR its author force-pushed
 /// still updates, while work done here since stays until you push it or drop it yourself.
+/// Commits in checkout `dir` that are only there, PR `n`'s head being `pr` (here) on `base`:
+/// on neither (none behind it, nor still at what dv last checked out for it, the PR
+/// force-pushed since; a checkout left on the base's commits has none: not yours to push).
+/// The one rule for what's yours in a PR's checkout.
+pub(crate) fn only_here(dir: &Path, n: u64, pr: &str, base: Option<&str>) -> usize {
+    let d = dir.to_string_lossy().into_owned();
+    let git = |args: &[&str]| diff::git(&[&["-C", d.as_str()], args].concat());
+    let head = git(&["rev-parse", "HEAD"]).unwrap_or_default().trim().to_owned();
+    if head == pr || git(&["merge-base", "--is-ancestor", &head, pr]).is_ok() || last_checkout(n).as_deref() == Some(head.as_str()) {
+        return 0;
+    }
+    let range = format!("{pr}..HEAD");
+    let base = base.filter(|b| !b.is_empty()).map(crate::diff::remote_branch);
+    let mut count = vec!["rev-list", "--count", &range];
+    if let Some(b) = &base {
+        count.extend(["--not", b]);
+    }
+    git(&count).ok().and_then(|c| c.trim().parse().ok()).unwrap_or(0)
+}
+
 pub(crate) fn local_work(n: u64, dir: &Path) -> Option<String> {
     let d = dir.to_string_lossy().into_owned();
     let git = |args: &[&str]| diff::git(&[&["-C", d.as_str()], args].concat());
-    let head = git(&["rev-parse", "HEAD"]).ok()?.trim().to_owned();
+    git(&["rev-parse", "HEAD"]).ok()?; // (a checkout to look in)
     // (Can't tell, GitHub out of reach: kept as it is, not updated over what may be work.)
     if let Err(e) = git(&["fetch", "-q", &crate::diff::remote(), &format!("refs/pull/{n}/head")]) {
         return Some(format!("couldn't fetch #{n} to see what's only here ({e:#}): kept as it is"));
     }
     let pr = git(&["rev-parse", "FETCH_HEAD"]).ok()?.trim().to_owned();
-    let behind = head == pr || git(&["merge-base", "--is-ancestor", &head, &pr]).is_ok();
-    if behind || last_checkout(n).as_deref() == Some(head.as_str()) {
+    let base = gh::pr(Some(n)).map(|p| p.base).ok();
+    let ahead = only_here(dir, n, &pr, base.as_deref());
+    if ahead == 0 {
         return None;
     }
-    // Work done here: commits on neither the PR nor its base (a checkout left on the base's
-    // commits has none: they're not yours to push to the PR).
-    let base = gh::pr(Some(n)).map(|p| crate::diff::remote_branch(&p.base)).unwrap_or_default();
-    let mut count = vec!["rev-list".to_owned(), "--count".to_owned(), format!("{pr}..HEAD")];
-    if !base.is_empty() {
-        count.extend(["--not".to_owned(), base]);
-    }
-    let ahead = git(&count.iter().map(String::as_str).collect::<Vec<_>>()).unwrap_or_default();
-    let ahead = ahead.trim();
-    if ahead == "0" {
-        return None;
-    }
-    let (s, are, them) = if ahead == "1" { ("", "isn't", "it") } else { ("s", "aren't", "them") };
+    let (s, are, them) = if ahead == 1 { ("", "isn't", "it") } else { ("s", "aren't", "them") };
     Some(format!(
         "{ahead} commit{s} here {are} on PR #{n} (yours or Claude's): kept, not updated to the PR. \
          Space g pushes {them}; to drop {them} instead, `git reset --hard {}`",
