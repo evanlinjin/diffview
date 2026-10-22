@@ -200,12 +200,23 @@ impl App {
             })
     }
 
-    /// Rebuild rows, keeping the cursor on the same code line, thread or PR info row.
+    /// Rebuild rows, keeping the cursor on the same code line, thread or PR info row, and a
+    /// selection's anchor on its own (gone, or now on the other side: none).
     pub(super) fn rebuild(&mut self, keep: CursorKey) {
+        let anchor = (self.anchor != self.head).then(|| (self.key_at(self.anchor.row), self.anchor.col));
+        let (select, lines) = (self.select, self.lines == Some((self.anchor, self.head)));
         self.build();
         let row = self.find_key(keep).unwrap_or(0);
         self.select = false;
         self.goto(row, self.head.col);
+        let anchor = anchor.and_then(|(k, col)| Some((self.find_key(k)?, col))).filter(|&(r, _)| self.side_of(r) == self.side_of(row));
+        if let Some((r, col)) = anchor {
+            self.anchor = Pos { row: r, col: col.min(self.len(r).saturating_sub(1)) };
+        }
+        self.select = select;
+        if lines {
+            self.lines = Some((self.anchor, self.head));
+        }
     }
 
     pub(super) fn build(&mut self) {
