@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.92.14] - 2026-10-22
+
+### Fixed
+- In a narrow window (or beside the floating pane), the pinned PR title no longer goes blank
+  when its state and badge don't fit (0.92.12).
+
 ## [0.92.13] - 2026-10-22
 
 ### Changed
