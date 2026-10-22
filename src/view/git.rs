@@ -290,10 +290,9 @@ impl App {
             self.claude.path.as_ref().map_or(String::new(), |r| r.display().to_string()),
             p.display()
         );
-        // On a fork of the PR's session when it has one: what it knows, without this side task
-        // in the review's conversation (nor its failure costing it).
-        let forked = self.claude.path.as_ref().and_then(|r| crate::claude::load_session(r, &self.root)).is_some_and(|(id, ok)| ok && crate::claude::session_exists(&id));
-        self.claude.job = Some(self.spawn_claude(&prompt, COMMIT_LABEL, crate::claude::Work::Commit, forked, &[])?);
+        // A fork (of the PR's session when it has one: what it knows): this side task kept out of
+        // the review's conversation (nor its failure costing it).
+        self.claude.job = Some(self.spawn_claude(&prompt, COMMIT_LABEL, crate::claude::Work::Commit, true, &[])?);
         Ok("Claude is writing the commit message (your editor opens with it)…".into())
     }
 
