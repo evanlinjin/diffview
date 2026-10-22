@@ -5,6 +5,17 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.92.5] - 2026-10-22
+
+### Fixed
+- Widened context is let go when the diff's commits change, not only its names: a commit made
+  on `HEAD` no longer keeps the old hunks' widening.
+- A reworded commit is followed only when its change is the same (its patch id), not onto
+  another made the same second by the same author.
+- Following the shown commits to the whole diff keeps a range being started in the commit list.
+- Claude's range comments say their range in the review brief Claude reads, and outdated
+  threads carry `original_line` in `dv review-comments`.
+
 ## [0.92.4] - 2026-10-22
 
 ### Fixed
