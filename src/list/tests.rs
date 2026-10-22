@@ -97,7 +97,7 @@ fn filter_and_keys() {
     assert!(k(&mut l, KeyCode::Char('a')).is_none() && l.msg.starts_with("a again: Claude reviews #1 #333"));
     assert!(matches!(k(&mut l, KeyCode::Char('a')), Some(Do::Review(ref p)) if p == &[1, 333]));
     // A failed review can be asked for again.
-    l.batch.insert(1, batch::Status::Failed("boom".into()));
+    l.batch.insert(1, batch::Status::failed("boom"));
     l.marked = HashSet::from([1]);
     assert!(k(&mut l, KeyCode::Char('a')).is_none() && l.msg.starts_with("a again: Claude reviews #1"), "{}", l.msg);
     assert!(matches!(k(&mut l, KeyCode::Char('a')), Some(Do::Review(ref p)) if p == &[1]));

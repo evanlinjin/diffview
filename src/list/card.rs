@@ -69,7 +69,7 @@ impl List {
             _ if self.running.contains_key(&n) => Some((format!("claude: {}…", self.running[&n]), true)),
             // Why, in short (the status bar said it in full): `a a` asks again.
             // All of it (the card cuts it where the window ends).
-            Some(batch::Status::Failed(e)) => Some((format!("claude failed: {}", e.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" · ")), false)),
+            Some(batch::Status::Failed(e, _)) => Some((format!("claude failed: {}", e.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" · ")), false)),
             // (Not a ✓: that'd read as Claude approving it. What's left of what it said.)
             _ if self.reviewed.contains(&n) => Some(match self.claude_open.get(&n) {
                 Some(Some((0, _))) => ("claude: all addressed".into(), true),

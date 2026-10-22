@@ -325,7 +325,7 @@ impl batch::Numbered for Ask {
 fn triage_all(asks: Vec<Ask>, root: PathBuf, extra: String) -> Receiver<(u64, batch::Status)> {
     batch::pool(asks, move |a, tx| {
         _ = tx.send((a.n, batch::Status::Reviewing));
-        (a.n, triage_run(a.n, &a.updated, &a.fixes, &root, &extra).unwrap_or_else(|e| batch::Status::Failed(format!("{e:#}"))))
+        (a.n, triage_run(a.n, &a.updated, &a.fixes, &root, &extra).unwrap_or_else(|e| batch::Status::failed(format!("{e:#}"))))
     })
 }
 
@@ -653,7 +653,7 @@ impl Issues {
                 }
                 match st {
                     batch::Status::Done(took) => self.msg = format!("Claude drafted {} ({took}): dv list's drafts tab has it (I I there)", crate::replace::label(id)),
-                    batch::Status::Failed(e) => self.msg = format!("Claude's draft of {} failed: {}", crate::replace::label(id), e.lines().next().unwrap_or("")),
+                    batch::Status::Failed(e, _) => self.msg = format!("Claude's draft of {} failed: {}", crate::replace::label(id), e.lines().next().unwrap_or("")),
                     _ => {}
                 }
             }
@@ -662,7 +662,7 @@ impl Issues {
                     batch::Status::Done(took) => {
                         (self.msg, self.claude_rx, self.reviews_mtime) = (format!("Claude drafted a comment closing #{n} ({took}): Enter opens it, Space a closes it with it"), None, None);
                     }
-                    batch::Status::Failed(e) => (self.msg, self.claude_rx) = (format!("#{n}: no closing comment: {}", e.lines().next().unwrap_or("")), None),
+                    batch::Status::Failed(e, _) => (self.msg, self.claude_rx) = (format!("#{n}: no closing comment: {}", e.lines().next().unwrap_or("")), None),
                     // Claude at it elsewhere: drafted on a later look.
                     batch::Status::Busy(w) => {
                         (self.claude_rx, self.msg) = (None, format!("#{n}: no closing comment drafted now: Claude is {w} on it (on a later look)"));
@@ -682,7 +682,7 @@ impl Issues {
                             self.auto_done.retain(|d| d.0 != n || d.1.starts_with("closing@"));
                             continue;
                         }
-                        batch::Status::Failed(e) => self.msg = format!("#{n}: {}", e.lines().next().unwrap_or("")),
+                        batch::Status::Failed(e, _) => self.msg = format!("#{n}: {}", e.lines().next().unwrap_or("")),
                         batch::Status::Done(took) => {
                             self.say(format!("triaged #{n} ({took})"));
                             self.reviews_mtime = None; // (read again: written over, the dir may not say)
@@ -1112,7 +1112,7 @@ fn issue_card(i: &Issue, ui: &Ui, selected: bool, marked: bool, num_w: usize, wi
     }
     let triage = match (run, t) {
         (Some(s), _) if s.running() => vec![sp("claude: triaging…".into(), tint(ui.key))],
-        (Some(batch::Status::Failed(e)), _) => vec![sp(format!("claude failed: {}", e.lines().next().unwrap_or("")), tint(ui.error))],
+        (Some(batch::Status::Failed(e, _)), _) => vec![sp(format!("claude failed: {}", e.lines().next().unwrap_or("")), tint(ui.error))],
         _ if !close.is_empty() => vec![sp(format!("✕ close: {close}"), tint(ui.warning))],
         (_, Some(t)) => vec![sp([t.kind.as_str(), t.priority.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" · "), tint(ui.key))],
         _ => vec![],

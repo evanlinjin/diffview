@@ -17,10 +17,17 @@ pub enum Status {
     Reviewing,
     /// What it took ("5 turns, $0.22").
     Done(String),
-    Failed(String),
+    /// Why, and when (a review of it written since ends it: `List::watch_reviews`).
+    Failed(String, std::time::SystemTime),
     /// Not run: Claude was at it already, from another run (`claude::claim`'s holder): to ask
     /// again, not a failure.
     Busy(String),
+}
+
+impl Status {
+    pub fn failed(why: impl Into<String>) -> Status {
+        Status::Failed(why.into(), std::time::SystemTime::now())
+    }
 }
 
 /// What Claude does on a PR: review it (or update the review it has: the prompt says to), update
@@ -111,13 +118,13 @@ impl Status {
 /// the task) from the repo at `root`, with the user's `extra` instructions (if any); progress
 /// comes back on the receiver.
 pub fn start(prs: Vec<(u64, bool, Task)>, root: PathBuf, extra: String) -> Receiver<(u64, Status)> {
-    pool(prs, move |(n, branch, task), tx| (*n, run(Subject::Pr(*n), *branch, task, &root, &extra, tx).unwrap_or_else(|e| Status::Failed(format!("{e:#}")))))
+    pool(prs, move |(n, branch, task), tx| (*n, run(Subject::Pr(*n), *branch, task, &root, &extra, tx).unwrap_or_else(|e| Status::failed(format!("{e:#}")))))
 }
 
 /// Claude does `task` on issue `n` (its closing comment, say), in the checkout at `root`: as
 /// on a PR, its review file the issue's.
 pub fn start_issue(n: u64, task: Task, root: PathBuf) -> Receiver<(u64, Status)> {
-    pool(vec![n], move |n, tx| (*n, run(Subject::Issue(*n), false, &task, &root, "", tx).unwrap_or_else(|e| Status::Failed(format!("{e:#}")))))
+    pool(vec![n], move |n, tx| (*n, run(Subject::Issue(*n), false, &task, &root, "", tx).unwrap_or_else(|e| Status::failed(format!("{e:#}")))))
 }
 
 /// Something to do (a PR to review, an issue to triage): its number first.
@@ -180,7 +187,7 @@ pub fn pool<T: Numbered + Send + 'static>(items: Vec<T>, work: impl Fn(&T, &Send
                 let _slot = Slot::take();
                 // (A panic in one: it failed, and the worker goes on to the next.)
                 let st = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&item, &tx)));
-                _ = tx.send(st.unwrap_or_else(|p| (item.number(), Status::Failed(stopped(&p)))));
+                _ = tx.send(st.unwrap_or_else(|p| (item.number(), Status::failed(stopped(&p)))));
             }
         });
     }
@@ -295,7 +302,7 @@ pub fn replace(prs: Vec<u64>, root: PathBuf, extra: String) -> Receiver<(u64, St
         let ready = tx.clone();
         // (Its run guarded inside, the record's mark coming off; and all of it, here.)
         let st = guarded(|| crate::replace::draft(&prs, &root, &extra, move || _ = ready.send((id, Status::Reviewing))));
-        _ = tx.send((id, st.map_or_else(|e| Status::Failed(format!("{e:#}")), Status::Done)));
+        _ = tx.send((id, st.map_or_else(|e| Status::failed(format!("{e:#}")), Status::Done)));
     });
     rx
 }
@@ -419,6 +426,6 @@ fn a_run_that_panics_says_so() {
     // A worker's panic: that one failed, the next still runs.
     let rx = pool(vec![1u64, 2], |&n, _| if n == 1 { panic!("one") } else { (n, Status::Done("ok".into())) });
     let ends: Vec<(u64, Status)> = rx.iter().filter(|(_, s)| !matches!(s, Status::Queued)).collect();
-    assert!(ends.iter().any(|(n, s)| *n == 1 && matches!(s, Status::Failed(e) if e.contains("one"))));
+    assert!(ends.iter().any(|(n, s)| *n == 1 && matches!(s, Status::Failed(e, _) if e.contains("one"))));
     assert!(ends.iter().any(|(n, s)| *n == 2 && matches!(s, Status::Done(_))));
 }

@@ -331,8 +331,8 @@ impl List {
         if mtime != self.reviews_mtime {
             self.reviews_mtime = mtime;
             // Its review written since it failed (from its view, say): a run that failed is over.
-            let failed_on = &self.failed_on;
-            self.batch.retain(|&n, s| !matches!(s, crate::batch::Status::Failed(_)) || failed_on.get(&n).is_none_or(|t| *t == review_time(n)));
+            let since = |n: u64, at: &std::time::SystemTime| std::fs::metadata(dir.join(format!("pr-{n}.json"))).and_then(|m| m.modified()).is_ok_and(|m| m > *at);
+            self.batch.retain(|&n, s| !matches!(s, crate::batch::Status::Failed(_, at) if since(n, at)));
             self.reviewed = crate::batch::reviewed_in(dir);
             // What's new, what needs you, what Claude would close: from the reviews as they are.
             self.find_new();
@@ -366,9 +366,4 @@ impl List {
             crate::view::prefetch_github(n);
         });
     }
-}
-
-/// When Claude's review of PR `n` was last written, if there is one.
-pub(super) fn review_time(n: u64) -> Option<std::time::SystemTime> {
-    std::fs::metadata(crate::claude::path(Some(n)).ok()?).and_then(|m| m.modified()).ok()
 }

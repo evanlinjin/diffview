@@ -80,8 +80,6 @@ pub struct List {
     marked_saved: HashSet<u64>,
     /// Claude's reviews from here (`a`): how each is going, and the news on its way.
     batch: HashMap<u64, batch::Status>,
-    /// A run that failed: its PR's review file then (its time), for a later review to end it.
-    failed_on: HashMap<u64, Option<std::time::SystemTime>>,
     batch_rx: Vec<Receiver<(u64, batch::Status)>>,
     /// What each of those is (a review, an update to one, answers), for the cards.
     batch_task: HashMap<u64, batch::Task>,
@@ -558,7 +556,7 @@ impl List {
         for (id, s) in news {
             match &s {
                 batch::Status::Done(took) => self.msg = format!("Claude drafted {} ({took}): it's in the drafts tab", crate::replace::label(id)),
-                batch::Status::Failed(e) => self.msg = format!("Claude's draft of {} failed: {e}", crate::replace::label(id)),
+                batch::Status::Failed(e, _) => self.msg = format!("Claude's draft of {} failed: {e}", crate::replace::label(id)),
                 _ => {}
             }
             let done = !s.running();
@@ -577,7 +575,7 @@ impl List {
         // (Claude at it from anywhere: what its claim says, a draft's "drafting" or a run's.)
         let (what, ok) = match self.drafting.get(&id) {
             _ if let Some(w) = self.running_reps.get(&id) => (format!("{w}…"), true),
-            Some(batch::Status::Failed(e)) => return Some((format!("{of}: draft failed: {}", cut(e.lines().next().unwrap_or(""), 60)), false)),
+            Some(batch::Status::Failed(e, _)) => return Some((format!("{of}: draft failed: {}", cut(e.lines().next().unwrap_or(""), 60)), false)),
             Some(s) if s.running() => ("drafting…".into(), true),
             _ => match self.rep_of.get(&id)? {
                 r if r.published.is_some() => return Some((format!("{of}: published as #{}", r.published.unwrap_or(0)), true)),
@@ -618,8 +616,7 @@ impl List {
                         d => format!("Claude is done {d} on #{n} ({took})"),
                     };
                 }
-                batch::Status::Failed(e) => {
-                    self.failed_on.insert(n, github::review_time(n));
+                batch::Status::Failed(e, _) => {
                     self.msg = format!("Claude's {doing} on #{n} failed: {e}{}", if doing == "reviewing" { " (a a asks again)" } else { "" });
                 }
                 batch::Status::Reviewing => worktrees = true, // its worktree is ready
