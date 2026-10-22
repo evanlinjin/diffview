@@ -72,19 +72,19 @@ impl App {
             // (Into the pane: a comment; out of it: the code on that screen row, the side with
             // a part of it there, the right first.)
             let at = |d: usize| match self.drows[d] {
-                DRow::Margin(_, _, c) if right => c,
-                DRow::Margin(..) => self.span(d, true).or_else(|| self.span(d, false)).map(|s| s.row),
+                DRow::Margin(_, _, c) if right => c.map(|c| Pos { row: c, col: 0 }),
+                DRow::Margin(..) => self.span(d, true).or_else(|| self.span(d, false)).map(|s| Pos { row: s.row, col: s.chars.start }),
                 _ => None,
             };
             let near = at(hd)
                 .or_else(|| (hd..self.drows.len()).find_map(|d| right.then(|| at(d)).flatten()))
                 .or_else(|| (0..hd).rev().find_map(at));
             return match near {
-                Some(r) => {
+                Some(p) => {
                     if leaving {
-                        self.right = self.rows[r].line.kind != Kind::Del;
+                        self.right = self.rows[p.row].line.kind != Kind::Del;
                     }
-                    self.goto(r, 0)
+                    self.goto(p.row, p.col)
                 }
                 None => self.msg = if right { "no comments here" } else { "no code here" }.into(),
             };

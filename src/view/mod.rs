@@ -626,7 +626,7 @@ pub struct App {
     /// Where the cursor was last in the code.
     code_head: Pos,
     /// In margin mode: each thread's code line (the one it's about), as laid out.
-    margin_anchor: HashMap<usize, usize>,
+    margin_anchor: std::collections::BTreeMap<usize, usize>,
     /// The marks at the code's right edge, by (row, the old side), from `layout`: a comment's
     /// lines get `╎`, its last line (where it's anchored) a dot. Ranked, the highest shown:
     /// see `MARKS`.

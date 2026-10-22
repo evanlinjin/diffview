@@ -273,17 +273,14 @@ impl App {
         // with the comment rows that follow its rows; and the code row each thread is about.
         let mut units: Vec<(DRow, Vec<usize>)> = vec![];
         let mut unit_of = vec![usize::MAX; n];
-        let mut anchors = HashMap::new();
+        let mut anchors = std::collections::BTreeMap::new();
         let mut last: Option<usize> = None; // the last row in the main column, and the last code row
         let mut last_code: Option<usize> = None;
         let mut i = 0;
         while i < n {
             if margin(i) {
                 let first = i == 0 || self.rows[i - 1].thread != self.rows[i].thread;
-                // (About its file's code only: one placed under its file's header, on no line
-                // of it, is about none, not the last file's last line.)
-                let code = last_code.filter(|&c| self.rows[c].file == self.rows[i].file);
-                if let (true, Some(t), Some(c)) = (first, self.rows[i].thread, code) {
+                if let (true, Some(t), Some(c)) = (first, self.rows[i].thread, last_code) {
                     anchors.insert(t, c);
                 }
                 match last {
@@ -333,8 +330,12 @@ impl App {
                 Kind::Ctx if self.split => push(DRow::Pair(Some(i), Some(i)), &[i], &mut units),
                 _ => push(DRow::Full(i), &[i], &mut units),
             }
-            if code(i) {
-                last_code = Some(i);
+            // (A comment's about its file's code only: one under its file's header, on no line
+            // of it, is about none, not the last file's last line.)
+            match kind(i) {
+                Kind::File => last_code = None,
+                _ if code(i) => last_code = Some(i),
+                _ => {}
             }
             last = Some(i);
             i += 1;

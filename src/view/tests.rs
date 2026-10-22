@@ -3831,6 +3831,5 @@ fn a_comment_on_no_line_is_about_no_other_files_line() {
     app.threads = vec![gh::Thread { path: "z.rs".into(), line: Some(99), comments: vec![gh::Comment { author: "amy".into(), body: "hm".into(), ..Default::default() }], ..Default::default() }];
     app.build();
     _ = screen(220, 20, |f| app.draw(f));
-    let c = app.rows.iter().position(|r| r.line.text == "c").unwrap();
-    assert_ne!(app.margin_anchor.get(&0), Some(&c), "not a.rs's last line");
+    assert!(!app.margin_anchor.contains_key(&0), "about no line (not a.rs's last)");
 }
