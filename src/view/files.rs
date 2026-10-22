@@ -75,7 +75,7 @@ pub(super) enum Spot {
 
 pub(super) struct Entry {
     pub(super) spot: Spot,
-    text: String,
+    pub(super) text: String,
 }
 
 impl App {
@@ -547,10 +547,10 @@ impl App {
             KeyCode::Char('w') if ctrl => return false, // Ctrl-w keys act on the list (resize, hide)
             KeyCode::Char('h') | KeyCode::Left | KeyCode::Backspace => {}
             KeyCode::Enter => {
-                if let Some(s) = self.files_sel {
-                    self.goto_spot(s);
+                match self.files_sel {
+                    Some(s) => self.goto_spot(s),
+                    None => (self.files_focus, self.commit_anchor) = (false, None),
                 }
-                (self.files_focus, self.commit_anchor) = (false, None);
             }
             KeyCode::Char('l') | KeyCode::Right | KeyCode::Esc => (self.files_focus, self.commit_anchor) = (false, None),
             _ => {
@@ -561,15 +561,28 @@ impl App {
         true
     }
 
-    /// To a line of the list (from it, or `Space f`): a file (unfolded) or a section, its
-    /// header at the top; a jump (Ctrl-o comes back).
-    pub(super) fn goto_spot(&mut self, s: Spot) {
-        if let Spot::File(i) = s
-            && let Some(path) = self.files.get(i).map(|f| f.path.clone())
-            && self.collapsed.remove(&path)
-        {
+    /// File `path` shown, for what's wanted of it (`shown`): unfolded, and, not shown in this
+    /// view (Claude's, pending), the whole diff. Rebuilt keeping the cursor.
+    pub(super) fn show_file(&mut self, path: &str, shown: impl Fn(&Self) -> bool) {
+        if self.collapsed.remove(path) {
             let keep = self.cursor_key();
             self.rebuild(keep);
+        }
+        if !shown(self) && self.view != View::All {
+            self.view = View::All;
+            let keep = self.cursor_key();
+            self.rebuild(keep);
+        }
+    }
+
+    /// To a line of the list (from it, or `Space f`): a file (shown) or a section, its header
+    /// at the top; a jump (Ctrl-o comes back), and back to the code from the list.
+    pub(super) fn goto_spot(&mut self, s: Spot) {
+        (self.files_focus, self.commit_anchor) = (false, None);
+        if let Spot::File(i) = s
+            && let Some(path) = self.files.get(i).map(|f| f.path.clone())
+        {
+            self.show_file(&path, |a| a.rows.iter().any(|r| r.file == i));
         }
         let header = |r: &Row| {
             r.line.kind == Kind::File

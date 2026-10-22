@@ -116,11 +116,6 @@ impl App {
             }),
         };
         let Some(rel) = found else { return self.msg = format!("no file {path} here") };
-        // A folded file opens, so the line can show.
-        if self.collapsed.remove(&rel) {
-            let keep = self.cursor_key();
-            self.rebuild(keep);
-        }
         self.jump_loc(&crate::lsp::Loc { path: self.root.join(&rel), line: line.saturating_sub(1), character: 0 });
     }
 

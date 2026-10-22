@@ -4702,7 +4702,7 @@ fn a_picker_open_holds_back_what_changed() {
     }
     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     let _ = std::fs::remove_file(&p);
-    assert_eq!(app.rows[app.head.row].line.text, want);
+    assert!(app.rows[app.head.row].line.text.starts_with(&want), "{want}");
 }
 
 #[test]
@@ -4745,4 +4745,42 @@ fn space_f_lists_the_files_list_and_goes_to_a_section_as_a_jump() {
         (0..k).for_each(|_| app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
         app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     }
+}
+
+#[test]
+fn a_listed_file_outside_the_view_is_shown_and_a_click_leaves_the_list() {
+    let mut app = fixture();
+    app.toggle_view(View::Pending);
+    let big = app.files.iter().position(|f| f.path == "src/big.rs").unwrap();
+    app.goto_spot(super::files::Spot::File(big));
+    assert_eq!(app.rows[app.head.row].file, big, "a listed file outside the view went nowhere");
+    // A click in the list, it focused: back to the code (Enter isn't the list's any more).
+    let mut app = fixture();
+    app.files_pref = Some(true);
+    _ = screen(220, 30, |f| app.draw(f));
+    while !app.files_focus {
+        ctrl(&mut app, 'h');
+    }
+    let sel0 = app.files_sel;
+    let other = app.list_hits.iter().position(|h| matches!(h, files::Hit::Spot(s) if Some(*s) != sel0 && matches!(s, files::Spot::File(_)))).unwrap();
+    let files::Hit::Spot(clicked) = app.list_hits[other] else { panic!() };
+    app.mouse(ratatui::crossterm::event::MouseEvent { kind: ratatui::crossterm::event::MouseEventKind::Down(ratatui::crossterm::event::MouseButton::Left), column: 3, row: (other + 1) as u16, modifiers: KeyModifiers::NONE });
+    assert!(!app.files_focus);
+    _ = screen(220, 30, |f| app.draw(f));
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(app.current_spot(), Some(clicked), "Enter after a click went back to the list's old cursor");
+}
+
+#[test]
+fn a_count_goes_through_a_prefix() {
+    let mut app = fixture();
+    _ = screen(200, 60, |f| app.draw(f));
+    app.goto(0, 0);
+    press(&mut app, "]f]f");
+    let two = app.head.row;
+    app.goto(0, 0);
+    press(&mut app, "2]f");
+    assert_eq!((app.head.row, app.count), (two, 0));
+    press(&mut app, "3gh"); // spent by a prefix's key that takes none
+    assert_eq!(app.count, 0);
 }

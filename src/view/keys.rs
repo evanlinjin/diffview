@@ -540,13 +540,16 @@ impl App {
             (']', 'f') => self.next_kind(true, file),
             ('[', 'f') => self.next_kind(false, file),
             (' ', 'f') => {
-                // (What the files' list has: its files and sections, not the PR's title.)
-                let spot = |r: &Row| r.main.map(super::files::Spot::Section).or((r.file < self.files.len()).then_some(super::files::Spot::File(r.file)));
+                // What the files' list has (its sections, its files by path; not its folders).
+                use super::files::Spot;
                 let items = self
-                    .rows
-                    .iter()
-                    .filter(|r| r.line.kind == Kind::File)
-                    .filter_map(|r| Some(Item::new(r.line.text.clone(), Target::Spot(spot(r)?))))
+                    .file_entries()
+                    .into_iter()
+                    .filter_map(|e| match e.spot {
+                        Spot::Folder => None,
+                        Spot::File(i) => Some(Item::new(self.files[i].path.clone(), Target::Spot(e.spot))),
+                        Spot::Section(_) => Some(Item::new(e.text, Target::Spot(e.spot))),
+                    })
                     .collect();
                 self.picker = Some(Picker::new(" files ", items));
             }
