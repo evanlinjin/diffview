@@ -367,7 +367,7 @@ impl App {
         let text = self.info_body(h);
         let s = match !self.has_proposal() {
             true => {
-                let text = match (text.trim().is_empty(), self.replacement.is_some()) {
+                let text = match (text.trim().is_empty(), self.unpublished()) {
                     (true, true) => "_(not drafted yet)_",
                     (true, false) => "_(no description)_",
                     _ => text,
