@@ -461,11 +461,10 @@ fn run_view(app: &mut view::App, term: &mut ratatui::DefaultTerminal, review: &m
 /// asked to merge it (`Space g`, published before or in the view), for the caller to merge.
 fn replacement_view(id: u64, root: &Path, term: &mut ratatui::DefaultTerminal) -> anyhow::Result<Option<u64>> {
     let r = replace::load(id)?;
-    let dir = worktree_dir_named(root, &replace::name(id))?;
-    // (Its drafting marked before its checkout's made: a moment.)
-    anyhow::ensure!(dir.exists() || r.at_work().is_none(), "Claude is still setting up its checkout: again in a moment");
-    anyhow::ensure!(dir.exists(), "its worktree {} is gone (A A on the PR drafts it again)", dir.display());
-    ensure_worktree_of(&dir, root)?;
+    // (Its drafting marked before its checkout's made: a moment. Its checkout gone: made again,
+    // on its branch.)
+    anyhow::ensure!(worktree_dir_named(root, &replace::name(id))?.exists() || r.at_work().is_none(), "Claude is still setting up its checkout: again in a moment");
+    let dir = replace::worktree(&r, root)?;
     std::env::set_current_dir(&dir)?;
     // Published: it's that PR (its comments, CI, review), its base the PR's (retargeted, too),
     // as any PR's view has it; else the draft's.

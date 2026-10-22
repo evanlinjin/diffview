@@ -299,7 +299,6 @@ pub fn all() -> Vec<Record> {
 /// from the originals' base, in its worktree. Returns the worktree.
 fn prepare(asked: &[u64], root: &Path) -> Result<PathBuf> {
     let id = *asked.first().context("no PR to replace")?;
-    let git = |args: &[&str]| crate::diff::git(&[&["-C", &root.to_string_lossy()], args].concat());
     // All it replaces already (drafted or not), and what's asked now with them (a redraft
     // asked from one of them doesn't drop the others).
     let mut prs = load(id).ok().map_or(vec![], |r| r.ids());
@@ -320,19 +319,27 @@ fn prepare(asked: &[u64], root: &Path) -> Result<PathBuf> {
         (r.base, r.replaces) = (base, originals);
         Ok(())
     })?;
-    let dir = crate::worktree_dir_named(root, &name(id))?;
-    if dir.exists() {
-        crate::ensure_worktree_of(&dir, root)?;
-    } else {
-        _ = git(&["fetch", "-q", &crate::diff::remote(), &r.base]);
-        let (b, d) = (branch(id), dir.to_string_lossy().into_owned());
-        match git(&["rev-parse", "--verify", "-q", &format!("refs/heads/{b}")]) {
-            Ok(_) => git(&["worktree", "add", &d, &b])?,
-            Err(_) => git(&["worktree", "add", "-b", &b, &d, &crate::diff::remote_branch(&r.base)])?,
-        };
-    }
+    let dir = worktree(&r, root)?;
     // Carrying on: from the base as it is now, if that goes cleanly (else Claude sees why).
     _ = rebase(&r, &dir);
+    Ok(dir)
+}
+
+/// Draft `r`'s worktree from the repo at `root`: there, or made again on its branch (its
+/// work), or on a new branch from its base.
+pub fn worktree(r: &Record, root: &Path) -> Result<PathBuf> {
+    let git = |args: &[&str]| crate::diff::git(&[&["-C", &root.to_string_lossy()], args].concat());
+    let dir = crate::worktree_dir_named(root, &name(r.id))?;
+    if dir.exists() {
+        crate::ensure_worktree_of(&dir, root)?;
+        return Ok(dir);
+    }
+    _ = git(&["fetch", "-q", &crate::diff::remote(), &r.base]);
+    let (b, d) = (branch(r.id), dir.to_string_lossy().into_owned());
+    match git(&["rev-parse", "--verify", "-q", &format!("refs/heads/{b}")]) {
+        Ok(_) => git(&["worktree", "add", &d, &b])?,
+        Err(_) => git(&["worktree", "add", "-b", &b, &d, &crate::diff::remote_branch(&r.base)])?,
+    };
     Ok(dir)
 }
 
@@ -347,10 +354,8 @@ pub fn create_new(task: &str, root: &Path) -> Result<u64> {
         dir || git(&["rev-parse", "--verify", "-q", &format!("refs/heads/{}", branch(id))]).is_ok()
     };
     let id = (new_id()..).find(|&id| !taken(id)).context("no new PR id free")?;
-    let r = Record { id, base: base.clone(), task: task.trim().to_owned(), ..Record::default() }; // its session: `draft`
-    let dir = crate::worktree_dir_named(root, &name(id))?;
-    _ = git(&["fetch", "-q", &crate::diff::remote(), &base]);
-    git(&["worktree", "add", "-b", &branch(id), &dir.to_string_lossy(), &crate::diff::remote_branch(&base)])?;
+    let r = Record { id, base, task: task.trim().to_owned(), ..Record::default() }; // its session: `draft`
+    worktree(&r, root)?;
     save(&r)?;
     Ok(id)
 }
@@ -358,9 +363,7 @@ pub fn create_new(task: &str, root: &Path) -> Result<u64> {
 /// A new PR's worktree, to draft it (again): its branch brought up to its base.
 fn prepare_new(id: u64, root: &Path) -> Result<PathBuf> {
     let r = load(id)?;
-    let dir = crate::worktree_dir_named(root, &name(id))?;
-    anyhow::ensure!(dir.exists(), "its worktree {} is gone", dir.display());
-    crate::ensure_worktree_of(&dir, root)?;
+    let dir = worktree(&r, root)?;
     _ = rebase(&r, &dir); // carrying on: from its base as it is now, if that goes cleanly
     Ok(dir)
 }
