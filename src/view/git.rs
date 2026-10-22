@@ -243,16 +243,10 @@ impl App {
         Ok(self.and_reload(format!("dropped {what} (git stash pop brings it back)")))
     }
 
-    /// The diff against `base` from now on (the whole diff's, or `HEAD`'s: what isn't committed).
-    fn diff_against(&mut self, base: String) {
-        self.commit_anchor = None;
-        self.show_whole(base);
-    }
-
     /// Between the whole diff and only what isn't committed.
     pub(super) fn toggle_uncommitted(&mut self) {
         let want = !self.uncommitted();
-        self.diff_against(if want { "HEAD".into() } else { self.full_base.clone() });
+        self.show_whole(if want { "HEAD".into() } else { self.full_base.clone() });
         self.msg = match (self.reload_all(false), want, self.uncommitted()) {
             (Err(e), ..) => format!("{e:#}"),
             (Ok(()), true, false) => "nothing that isn't committed: still the whole diff".into(),
@@ -553,7 +547,7 @@ impl App {
         // no: no file read.)
         let clean = || diff::git(&["diff", "--quiet", "HEAD"]).is_ok() && diff::git(&["ls-files", "--others", "--exclude-standard"]).is_ok_and(|s| s.trim().is_empty());
         if self.uncommitted() && clean() {
-            self.diff_against(self.full_base.clone());
+            self.show_whole(self.full_base.clone());
         }
         let res = self.reload(threads);
         self.rekey_commits(); // (commits rewritten here or elsewhere)

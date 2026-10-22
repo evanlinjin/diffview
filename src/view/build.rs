@@ -664,12 +664,10 @@ impl App {
     }
 
     /// The PR's base moved to `now` (followed on, retargeted): the whole diff from there (only
-    /// what isn't committed, shown, stays so); the commit list's other commits now, a range
-    /// being started there goes.
+    /// what isn't committed, shown, stays so).
     pub(super) fn move_full_base(&mut self, now: String) {
         let base = if self.uncommitted() { self.base.clone() } else { now.clone() };
         self.full_base = now;
-        self.commit_anchor = None;
         self.show_whole(base);
     }
 
