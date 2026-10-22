@@ -87,7 +87,7 @@ impl<T: Tabs> Nav<T> {
             KeyCode::Esc => (self.query.clear(), self.filtering = false).1,
             KeyCode::Enter => self.filtering = false,
             KeyCode::Backspace => _ = self.query.pop(),
-            KeyCode::Char(c) => self.query.push(c),
+            KeyCode::Char(c) if !k.modifiers.contains(KeyModifiers::CONTROL) => self.query.push(c),
             _ => {}
         }
         self.sel = 0;
