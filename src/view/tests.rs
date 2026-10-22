@@ -3877,5 +3877,9 @@ fn a_ranges_bar_passes_a_dot_on_a_wrapped_line() {
     _ = screen(80, 20, |f| app.draw(f));
     let r = app.rows.iter().position(|x| x.line.text == long).unwrap();
     assert_eq!(app.comment_mark(r, None).map(|m| m.0), Some('●'));
-    assert_eq!(app.comment_bar(r, None).map(|m| m.0), Some('╎'));
+    assert_eq!(app.comment_bar(r, None), Some(('╎', app.ui.thread)));
+    // Resolved, its bar is as stale there as on the line's first part.
+    app.threads[0].resolved = true;
+    app.build();
+    assert_eq!(app.comment_bar(r, None), Some(('╎', app.ui.stale)));
 }

@@ -706,10 +706,11 @@ impl App {
             for r in (first..=last).filter(|&r| self.rows[r].thread.is_none() && no(r).is_some()) {
                 let m = if r == last { dot } else if open { MARK_LINE } else { MARK_STALE_LINE };
                 let e = marks.entry((r, th.left)).or_default();
-                // (The strongest mark shows; a range passing, its bar, shows apart from it, down
-                // a wrapped line's later parts: `MARK_BAR`.)
-                let bar = if r != last { MARK_BAR } else { 0 } | (*e & MARK_BAR);
-                *e = (*e & !MARK_BAR).max(m) | bar;
+                // (The strongest mark shows; the strongest range passing, its bar, shows apart
+                // from it, down a wrapped line's later parts: `BAR`.)
+                let passing = if r != last { m } else { 0 };
+                let (rank, bar) = ((*e & 0x0f).max(m), (*e >> BAR).max(passing));
+                *e = rank | bar << BAR;
             }
         }
         marks

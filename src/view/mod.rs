@@ -77,8 +77,9 @@ pub(super) const MARK_LINE: u8 = 2;
 pub(super) const MARK_STALE_DOT: u8 = 3;
 pub(super) const MARK_CLAUDE_DOT: u8 = 4;
 pub(super) const MARK_DOT: u8 = 5;
-/// With a mark: a range's bar passes here too (its comment's last line is further on).
-pub(super) const MARK_BAR: u8 = 0x80;
+/// A mark's rank is in its low 4 bits; above them (`<< BAR`), the strongest range passing too
+/// (its comment's last line further on): `MARK_LINE` or `MARK_STALE_LINE`, or none.
+pub(super) const BAR: u8 = 4;
 
 /// What a row scrolls sideways with (`App::scroller`).
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -119,10 +119,21 @@ impl App {
     /// `╎` over a comment's lines, a dot at its last, `●` others', `◆` Claude's, `○` resolved or
     /// outdated (`App::marks`).
     pub(super) fn comment_mark(&self, r: usize, side: Option<bool>) -> Option<(char, Style)> {
-        let mark = |left: bool| self.marks.get(&(r, left)).map(|m| m & !MARK_BAR);
+        self.mark_of(r, side, |m| m & 0x0f)
+    }
+
+    /// A range's bar at row `r`'s edge, where one passes (beside a wrapped line's later parts),
+    /// as it shows: open or stale.
+    pub(super) fn comment_bar(&self, r: usize, side: Option<bool>) -> Option<(char, Style)> {
+        self.mark_of(r, side, |m| m >> BAR)
+    }
+
+    /// The mark `rank` picks out of row `r`'s (its side's, or either's), as drawn.
+    fn mark_of(&self, r: usize, side: Option<bool>, rank: impl Fn(u8) -> u8) -> Option<(char, Style)> {
+        let at = |left: bool| self.marks.get(&(r, left)).map(|&m| rank(m)).filter(|&m| m > 0);
         let rank = match side {
-            Some(right) => mark(!right),
-            None => mark(false).max(mark(true)),
+            Some(right) => at(!right),
+            None => at(false).max(at(true)),
         }?;
         Some(match rank {
             MARK_DOT => ('●', self.ui.thread),
@@ -131,16 +142,6 @@ impl App {
             MARK_LINE => ('╎', self.ui.thread),
             _ => ('╎', self.ui.stale),
         })
-    }
-
-    /// A range's bar at row `r`'s edge, where one passes (beside a wrapped line's later parts).
-    pub(super) fn comment_bar(&self, r: usize, side: Option<bool>) -> Option<(char, Style)> {
-        let passes = |left: bool| self.marks.get(&(r, left)).is_some_and(|m| m & MARK_BAR != 0);
-        let on = match side {
-            Some(right) => passes(!right),
-            None => passes(false) || passes(true),
-        };
-        on.then_some(('╎', self.ui.thread))
     }
 
     /// The code a comment in the pane is about (the cursor there): its own tint, not the
