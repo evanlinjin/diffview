@@ -431,9 +431,9 @@ fn run_view(app: &mut view::App, term: &mut ratatui::DefaultTerminal) -> anyhow:
                         app.hand_off = Some(pr);
                         return shown;
                     }
-                    if a.merge.is_some() {
-                        app.merge = a.merge;
-                        return shown;
+                    if let Some(n) = a.merge {
+                        app.merge_asked(n);
+                        continue;
                     }
                     shown.with_context(|| format!("#{n}")).map(|_| None)
                 }
@@ -444,11 +444,12 @@ fn run_view(app: &mut view::App, term: &mut ratatui::DefaultTerminal) -> anyhow:
                 let shown = main_checkout(&here).and_then(|root| replacement_view(id, &root, term));
                 // (Back where this view is, or not on: it'd work in another's checkout.)
                 std::env::set_current_dir(&here).with_context(|| format!("back to {}", here.display()))?;
-                // A merge asked for there: this view ends too, for its caller to merge, as every
-                // merge is, after the view (never under one: the merge switches its checkout).
+                // A merge asked for there: this view ends too (if it may: `hold_quit`), for its
+                // caller to merge, as every merge is, after the view (never under one: the merge
+                // switches its checkout).
                 if let Ok(Some(n)) = shown {
-                    app.merge = Some(n);
-                    return Ok(());
+                    app.merge_asked(n);
+                    continue;
                 }
                 shown.with_context(|| replace::label(id)).map(|_| None)
             }

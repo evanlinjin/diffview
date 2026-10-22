@@ -929,6 +929,12 @@ impl App {
         app
     }
 
+    /// Merge PR `n`, asked in a view this one handed over to: this one ends too, as `Space g`
+    /// here would end it (`hold_quit` first), for the caller to merge.
+    pub fn merge_asked(&mut self, n: u64) {
+        (self.merge, self.quit) = (Some(n), true);
+    }
+
     /// Leaving dv while you write beside it (what's written would be lost), whatever asked to
     /// (`q`, Ctrl-c, merging): said first, and left only when asked again a moment later (not
     /// a held key's repeat, nor long after, the warning gone).
@@ -983,8 +989,14 @@ impl App {
     }
 
     pub fn run(&mut self, term: &mut DefaultTerminal) -> Result<()> {
-        // (Till you quit, or an issue's to be shown: then back here, as it was.)
-        while !self.quit && self.hand_off.is_none() {
+        // (Till you quit, or an issue's to be shown: then back here, as it was.) Leaving goes
+        // through `hold_quit`, whatever asked: a key here, a merge asked in a view this one
+        // handed over to (`run_view`).
+        loop {
+            self.hold_quit();
+            if self.quit || self.hand_off.is_some() {
+                break;
+            }
             self.log_msg();
             term.draw(|f| self.draw(f))?;
             if let Some(job) = self.job.take() {
