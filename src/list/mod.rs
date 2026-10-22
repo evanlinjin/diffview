@@ -702,11 +702,16 @@ impl List {
             }
             return None;
         };
-        // (Only an open one: merged or closed, kept for its worktree, or being looked up.)
-        if self.prs.iter().any(|x| x.number == p && !x.open()) {
-            return (self.msg = format!("#{p} isn't open"), None).1;
+        if !self.acts_on(p) {
+            return (self.msg = format!("#{p} isn't open (or not looked up yet)"), None).1;
         }
         Some(p)
+    }
+
+    /// Whether what's done to a PR (`a a`, `b b`, `M M`, marks…) is for PR `n`: listed, and
+    /// open (not merged or closed, kept for its worktree or a mark; nor still being looked up).
+    pub(super) fn acts_on(&self, n: u64) -> bool {
+        self.prs.iter().any(|x| x.number == n && x.open())
     }
 
     /// The selected card's PR: its own, or a replacement's once published.
@@ -925,7 +930,12 @@ pub(super) fn filter_term(t: &str, keyed: impl Fn(&str, &str, &dyn Fn(&str, &str
     // (Smart case by the value: a key's own case doesn't count.)
     let has = |field: &str, v: &str| if v.chars().any(char::is_uppercase) { field.contains(v) } else { field.to_lowercase().contains(v) };
     // (A key in any case: `Label:bug`.)
-    let hit = t.split_once(':').and_then(|(k, v)| keyed(&k.to_lowercase(), v, &has)).unwrap_or_else(|| has(&hay(), t));
+    // (`#12` is that number, a word of its own, not #120's start.)
+    let number = t.strip_prefix('#').is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()));
+    let hit = match number {
+        true => hay().split_whitespace().any(|w| w == t),
+        false => t.split_once(':').and_then(|(k, v)| keyed(&k.to_lowercase(), v, &has)).unwrap_or_else(|| has(&hay(), t)),
+    };
     hit != neg
 }
 

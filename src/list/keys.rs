@@ -205,7 +205,7 @@ impl List {
             KeyCode::Char('a') => {
                 let mut prs: Vec<u64> = match self.marked.is_empty() {
                     true => self.selected_pr().into_iter().collect(),
-                    false => self.marked.iter().copied().collect(),
+                    false => self.marked.iter().copied().filter(|&n| self.acts_on(n)).collect(),
                 };
                 prs.retain(|n| !self.batch.get(n).is_some_and(batch::Status::running));
                 prs.sort();
@@ -223,7 +223,7 @@ impl List {
             KeyCode::Char('A') => {
                 let mut prs: Vec<u64> = match self.marked.is_empty() {
                     true => self.selected().map(|s| vec![s.0]).unwrap_or_default(), // (on a draft: its PR's, drafted again)
-                    false => self.marked.iter().copied().collect(),
+                    false => self.marked.iter().copied().filter(|&n| self.acts_on(n)).collect(),
                 };
                 prs.sort();
                 // (What's busy or published is said per draft, once grouped: `draft_groups`,
