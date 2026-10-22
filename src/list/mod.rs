@@ -477,10 +477,17 @@ impl List {
                 None => merged.push(g),
             }
         }
-        let mut groups = merged;
-        groups.retain(|g| !self.rep_busy(g[0]) && crate::replace::refused(g[0]).is_none());
+        let mut not = vec![];
+        let mut groups = vec![];
+        for g in merged {
+            match crate::replace::refused(g[0]) {
+                _ if self.rep_busy(g[0]) => not.push(format!("Claude is already at work on {}", crate::replace::label(g[0]))),
+                Some(why) => not.push(why),
+                None => groups.push(g),
+            }
+        }
         if groups.is_empty() {
-            return self.msg = "nothing to draft".into();
+            return self.msg = if not.is_empty() { not.join("; ") } else { "nothing to draft".into() };
         }
         let which: Vec<String> = groups.iter().map(|g| g.iter().map(|&n| crate::replace::shown(n)).collect::<Vec<_>>().join("+")).collect();
         let what = format!("instructions for Claude's replacement of {} (optional)", which.join(", "));
@@ -492,6 +499,9 @@ impl List {
         };
         let Some(extra) = extra else { return };
         self.msg = format!("Claude is drafting {} replacement(s): the drafts tab shows them", groups.len());
+        if !not.is_empty() {
+            self.msg += &format!(" (not: {})", not.join("; "));
+        }
         self.marked.clear();
         for g in groups {
             // (A first draft with nothing given takes your saved instructions: `replace::draft`.)
