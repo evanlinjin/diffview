@@ -5110,7 +5110,7 @@ fn the_commits_list_knows_uncommitted_is_shown_and_k_goes_up_one() {
     assert_eq!(app.commit_cur, n + 1, "the cursor not on uncommitted, the one shown");
     app.commit_picker();
     let p = app.picker.take().unwrap();
-    assert!(p.items.last().is_some_and(|i| i.label.starts_with('●') && i.label.contains("uncommitted")));
+    assert!(p.items[1].label.starts_with('●') && p.items[1].label.contains("uncommitted"), "uncommitted: newest, after all commits");
     // k from "all commits": the list's last entry, not where the diff is.
     let mut app = fixture();
     app.files_pref = Some(true);
@@ -5138,4 +5138,19 @@ fn ctrl_w_e_says_when_theres_no_room() {
     press(&mut app, "e");
     _ = screen(90, 20, |f| app.draw(f));
     assert!(app.files_w > 0);
+}
+
+#[test]
+fn ctrl_w_e_while_maximized_shows_the_list() {
+    let mut app = fixture();
+    app.files_pref = Some(true);
+    _ = screen(220, 30, |f| app.draw(f));
+    ctrl(&mut app, 'w');
+    press(&mut app, "o");
+    _ = screen(220, 30, |f| app.draw(f));
+    assert_eq!(app.files_w, 0);
+    ctrl(&mut app, 'w');
+    press(&mut app, "e");
+    _ = screen(220, 30, |f| app.draw(f));
+    assert!(app.files_w > 0 && app.files_pref == Some(true) && app.zoom.is_none(), "{}", app.msg);
 }

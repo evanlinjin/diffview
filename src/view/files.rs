@@ -463,7 +463,7 @@ impl App {
         let mut items = vec![Item::new(format!("{} all commits: the whole diff", mark(0)), Target::CommitRow(0))];
         items.extend(self.commits.iter().enumerate().rev().map(|(i, c)| Item::new(format!("{} {} {}", mark(i + 1), c.short, c.subject), Target::CommitRow(i + 1))));
         if self.dirty.has() {
-            items.push(Item::new(format!("{} uncommitted", mark(n + 1)), Target::CommitRow(n + 1)));
+            items.insert(1, Item::new(format!("{} uncommitted", mark(n + 1)), Target::CommitRow(n + 1))); // (newest of all)
         }
         self.picker = Some(Picker::new(" commits ", items));
     }
@@ -641,14 +641,17 @@ impl App {
         }
     }
 
-    /// `Ctrl-w e`: the files' list on / off, kept for next time (no room for it, said). (Any
-    /// Ctrl-w key but o, h, l un-maximizes first.)
+    /// `Ctrl-w e`: the files' list on / off as it's on screen, kept for next time (no room for
+    /// it, said); shown, un-maximized (a maximized view never has it).
     pub(super) fn toggle_files(&mut self) {
         let on = self.files_w == 0;
         if on && !list_room(self.width as usize) {
             return self.msg = self.list_hidden_why().into();
         }
         self.files_pref = Some(on);
+        if on && self.zoom.take().is_some() {
+            self.relayout();
+        }
         self.save_pane("files", on.into());
         self.msg = if on { "the files' list (Ctrl-w e hides it)" } else { "files' list hidden (Ctrl-w e shows it)" }.into();
     }

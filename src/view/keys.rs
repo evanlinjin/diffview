@@ -439,7 +439,7 @@ impl App {
         let so = super::render::scrolloff(self.height);
         // The window's other keys act on it as you set it, not as maximized (`Ctrl-w o`, `h` /
         // `l`: `side`): as it was first.
-        if p == CTRL_W && !matches!(c, 'o' | 'h' | 'l') && self.zoom.take().is_some() {
+        if p == CTRL_W && !matches!(c, 'o' | 'h' | 'l' | 'e') && self.zoom.take().is_some() {
             self.relayout();
         }
         match (p, c) {
