@@ -467,12 +467,17 @@ fn replacement_view(id: u64, root: &Path, term: &mut ratatui::DefaultTerminal) -
     anyhow::ensure!(dir.exists(), "its worktree {} is gone (A A on the PR drafts it again)", dir.display());
     ensure_worktree_of(&dir, root)?;
     std::env::set_current_dir(&dir)?;
-    let base = diff::merge_base(Some(&crate::diff::remote_branch(&r.base)))?;
-    // Published: it's that PR (its comments, CI, review).
+    // Published: it's that PR (its comments, CI, review), its base the PR's (retargeted, too),
+    // as any PR's view has it; else the draft's.
     let pr = r.published.and_then(|n| gh::pr(Some(n)).ok());
+    let follow = crate::diff::remote_branch(pr.as_ref().map_or(&r.base, |p| &p.base));
+    let base = match &pr {
+        Some(p) => diff_base(&Opts::default(), Some(p))?,
+        None => diff::merge_base(Some(&follow))?,
+    };
     let mut app = view::App::new(base, pr)?;
     // Its base followed as a PR's is: a rebase (a redraft's, publishing's) moves the diff's base.
-    app.follow_base = Some(crate::diff::remote_branch(&r.base));
+    app.follow_base = Some(follow);
     progress(None);
     run_view(&mut app, term, &mut |_| None)?; // (a PR view hands no PRs)
     Ok(app.merge)
