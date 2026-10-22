@@ -222,7 +222,8 @@ impl App {
     pub(super) fn build(&mut self) {
         // Where the cursor was in the code, kept on the same line in the new rows.
         let code = self.key_at(self.code_head.row);
-        self.jumps.clear();
+        // (Jump labels are places in the old rows.)
+        (self.jumps, self.labels) = (vec![], vec![]);
         let mut rows = self.title_rows();
         // Attached to the description (beside it in the pane, as comments are beside their
         // lines; inline after it, the pane hidden): with no description (a branch), after the
