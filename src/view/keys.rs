@@ -150,9 +150,16 @@ impl App {
 
     pub(super) fn key(&mut self, k: KeyEvent) {
         self.msg.clear();
+        // What's typed into (help's search, a picker, the prompt): Ctrl-c closes it as Esc does,
+        // and a Ctrl or Alt key's char isn't typed.
+        let typed = !k.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
+        let k = match k.code {
+            KeyCode::Char('c') if !typed && (self.help.is_some() || self.picker.is_some() || self.prompt.is_some()) => KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+            _ => k,
+        };
         if let Some((q, typing)) = &mut self.help {
             let handled = match (*typing, k.code) {
-                (true, KeyCode::Char(c)) => {
+                (true, KeyCode::Char(c)) if typed => {
                     q.push(c);
                     true
                 }
@@ -198,13 +205,16 @@ impl App {
             match k.code {
                 KeyCode::Esc => self.prompt = None,
                 KeyCode::Enter => {
-                    self.search = self.prompt.take().unwrap_or_default();
+                    // (Nothing typed: the last search again, as Helix's.)
+                    let q = self.prompt.take().unwrap_or_default();
+                    if !q.is_empty() {
+                        self.search = q;
+                    }
                     self.find(true);
                 }
                 KeyCode::Backspace if q.is_empty() => self.prompt = None,
                 KeyCode::Backspace => _ = q.pop(),
-                KeyCode::Char('c') if k.modifiers.contains(KeyModifiers::CONTROL) => self.prompt = None,
-                KeyCode::Char(c) if !k.modifiers.contains(KeyModifiers::CONTROL) => q.push(c),
+                KeyCode::Char(c) if typed => q.push(c),
                 _ => {}
             }
             return;
@@ -701,7 +711,7 @@ impl App {
                 p.query.pop();
                 p.sel = 0;
             }
-            KeyCode::Char(c) => {
+            KeyCode::Char(c) if !k.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => {
                 p.query.push(c);
                 p.sel = 0;
             }
