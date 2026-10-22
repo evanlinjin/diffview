@@ -604,6 +604,7 @@ fn parse(text: &str) -> Result<Review> {
                 left: c["side"] == "old",
                 line: end,
                 start_line: line("start_line").filter(|&s| end.is_some_and(|e| s < e)),
+                start_left: None,
                 original_line: end,
                 conversation,
                 resolved: c["resolved"] == true,

@@ -527,10 +527,9 @@ pub struct App {
     commit_anchor: Option<usize>,
     in_commits: bool,
     files: Vec<FileDiff>,
-    /// Extra context lines per hunk (`HunkKey`: by its first line) → lines (can be negative).
-    extra: HashMap<HunkKey, i64>,
-    /// The same in the Claude / pending view, per comment (by its line).
-    view_extra: HashMap<HunkKey, i64>,
+    /// Extra context lines (can be negative), per hunk of the whole diff, or per comment's
+    /// window in the Claude / pending views (`Wide`).
+    extra: HashMap<Wide, i64>,
     /// Files shown whole (`Z`).
     whole: HashSet<String>,
     collapsed: HashSet<String>,

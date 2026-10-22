@@ -89,8 +89,8 @@ impl App {
             let th = &self.threads[t];
             if th.claude.is_some() {
                 let line = th.line.or(th.original_line)?;
-                return Some(match th.start_line {
-                    Some(s) => format!("{}:{s}-{line}", th.path),
+                return Some(match th.range_start() {
+                    Some((s, _)) => format!("{}:{s}-{line}", th.path),
                     None => format!("{}:{line}", th.path),
                 });
             }

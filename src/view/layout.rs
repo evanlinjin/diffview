@@ -674,8 +674,9 @@ impl App {
     pub(super) fn code_span(&self, t: usize) -> Option<(usize, usize)> {
         let last = *self.margin_anchor.get(&t)?;
         let th = &self.threads[t];
-        let Some(start) = th.range_start() else { return Some((last, last)) };
-        let no = |r: &Row| if th.left { r.line.old } else { r.line.new };
+        let Some((start, left)) = th.range_start() else { return Some((last, last)) };
+        // (Its start's side's numbers: a range can start on the old side and end on the new.)
+        let no = |r: &Row| if left { r.line.old } else { r.line.new };
         let file = self.rows[last].file;
         let first = (0..last)
             .rev()

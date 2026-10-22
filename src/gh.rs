@@ -55,6 +55,9 @@ pub struct Thread {
     /// Current line in the PR diff; `None` when outdated.
     pub line: Option<u32>,
     pub start_line: Option<u32>,
+    /// The side its range starts on, when GitHub says (it can start on the old side and end
+    /// on the new); else its own (`left`).
+    pub start_left: Option<bool>,
     pub original_line: Option<u32>,
     pub resolved: bool,
     /// Claude's (from its review file): the conversation under its comment resolved, the
@@ -369,7 +372,7 @@ pub fn repo_name() -> Result<String> {
 
 const COMMENT: &str = "id databaseId author { login } body createdAt diffHunk state viewerCanUpdate viewerCanDelete \
 reactionGroups { content viewerHasReacted reactors { totalCount } } isMinimized minimizedReason";
-const THREAD: &str = "id path line startLine originalLine diffSide isResolved isOutdated";
+const THREAD: &str = "id path line startLine startDiffSide originalLine diffSide isResolved isOutdated";
 pub(crate) const PAGE: &str = "pageInfo { hasNextPage endCursor }";
 
 /// The PR's review threads, viewed files and your pending review: the first 100 of each
@@ -777,10 +780,12 @@ impl Thread {
         self.resolved || self.outdated
     }
 
-    /// Where its range starts, a range comment's (`start_line`, before its line): none when
-    /// it's on one line, or its line's gone (outdated: its start is of code since changed).
-    pub fn range_start(&self) -> Option<u32> {
-        self.start_line.filter(|&s| self.line.is_some_and(|l| s < l))
+    /// Where its range starts, a range comment's: its first line and the side it's on (before
+    /// its line, on its side; or on the other, the old side's). None when it's on one line, or
+    /// its line's gone (outdated: its start is of code since changed).
+    pub fn range_start(&self) -> Option<(u32, bool)> {
+        let (s, l, left) = (self.start_line?, self.line?, self.start_left.unwrap_or(self.left));
+        (left != self.left || s < l).then_some((s, left))
     }
 }
 
@@ -793,6 +798,7 @@ fn parse_thread(t: &Value) -> Thread {
         left: t["diffSide"] == "LEFT",
         line: line("line"),
         start_line: line("startLine"),
+        start_left: t["startDiffSide"].as_str().map(|s| s == "LEFT"),
         original_line: line("originalLine"),
         resolved: t["isResolved"].as_bool().unwrap_or(false),
         talk_resolved: false,

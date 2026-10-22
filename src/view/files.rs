@@ -350,9 +350,15 @@ impl App {
         self.dirty = Dirty::of(&diff::git(&["status", "--porcelain"]).unwrap_or_default());
         let n = self.commits.len();
         self.commit_cur = self.commit_cur.min(n + usize::from(self.dirty.has()));
-        if self.commit_shown.is_some_and(|(_, b)| b >= n) {
-            self.whole_diff_again();
-            self.base = self.full_base.clone();
+        // The commits shown, as they are now (amended, rebased: other SHAs, other messages); past
+        // the list's end now, the whole diff again.
+        match self.commit_shown {
+            Some((_, b)) if b >= n => {
+                self.whole_diff_again();
+                self.base = self.full_base.clone();
+            }
+            Some(sel) => self.commits_as_now(sel),
+            None => {}
         }
     }
 
@@ -440,21 +446,25 @@ impl App {
         self.picker = Some(Picker::new(" commits ", items));
     }
 
+    /// The diff and messages of commits `a..=b` of the list as it is: from the one before (or
+    /// the base) to the last; their messages, each a section before the files (one `git log`).
+    fn commits_as_now(&mut self, (a, b): (usize, usize)) {
+        self.base = if a == 0 { self.full_base.clone() } else { self.commits[a - 1].sha.clone() };
+        self.to = Some(self.commits[b].sha.clone());
+        let mut args = vec!["log", "--no-walk=unsorted", "--format=%B%x00"];
+        args.extend(self.commits[a..=b].iter().map(|c| c.sha.as_str()));
+        let out = diff::git(&args).unwrap_or_default();
+        self.commit_msgs = out.split('\0').map(|m| m.trim_matches('\n').to_owned()).take(b + 1 - a).collect();
+    }
+
     /// Show commits `first..=last` (`None`: all of them, the whole diff).
     pub(super) fn show_commits(&mut self, sel: Option<(usize, usize)>) {
         let sel = sel.filter(|&(a, b)| a <= b && b < self.commits.len());
-        let (base, to) = match sel {
-            None => (self.full_base.clone(), None),
-            Some((a, b)) => (if a == 0 { self.full_base.clone() } else { self.commits[a - 1].sha.clone() }, Some(self.commits[b].sha.clone())),
-        };
-        (self.base, self.to, self.commit_shown) = (base, to, sel);
-        // Their messages, each a section before the files: one `git log` for them all, in order.
-        self.commit_msgs = sel.map_or(vec![], |(a, b)| {
-            let mut args = vec!["log", "--no-walk=unsorted", "--format=%B%x00"];
-            args.extend(self.commits[a..=b].iter().map(|c| c.sha.as_str()));
-            let out = diff::git(&args).unwrap_or_default();
-            out.split('\0').map(|m| m.trim_matches('\n').to_owned()).take(b + 1 - a).collect()
-        });
+        self.commit_shown = sel;
+        match sel {
+            Some(sel) => self.commits_as_now(sel),
+            None => (self.base, self.to, self.commit_msgs) = (self.full_base.clone(), None, vec![]),
+        }
         self.hunks_afresh();
         self.msg = match (self.reload(false), self.commits_label()) {
             (Err(e), _) => format!("{e:#}"),

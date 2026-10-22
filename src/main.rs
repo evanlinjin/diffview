@@ -913,13 +913,8 @@ fn worktree_on_branch(p: &gh::Pr) -> Option<(PathBuf, bool)> {
     let dir = checked_out_at(&list, branch)?;
     let d = dir.to_string_lossy().into_owned();
     let git = |args: &[&str]| diff::git(&[&["-C", d.as_str()], args].concat()).ok().map(|s| s.trim().to_owned());
-    // Where Space g there pushes (as it decides it): a remote's URL, or the URL itself.
-    let pushes_there = diff::push_target(&dir, branch, Some(branch)).is_some_and(|(remote, to)| {
-        let url = git(&["remote", "get-url", "--push", &remote]).unwrap_or(remote);
-        let repo = url.trim_end_matches('/').trim_end_matches(".git").to_lowercase();
-        let want = p.head_repo.to_lowercase();
-        !want.is_empty() && to == branch && repo.strip_suffix(&want).is_some_and(|r| r.ends_with(['/', ':']))
-    });
+    // Where Space g there pushes (as it decides it): to the PR's repo.
+    let pushes_there = diff::push_target(&dir, branch, Some((branch, &p.head_repo))).is_some_and(|(remote, _)| diff::remote_is(&dir, &remote, &p.head_repo));
     let one_line = !oid.is_empty() && (git(&["merge-base", "--is-ancestor", oid, "HEAD"]).is_some() || git(&["merge-base", "--is-ancestor", "HEAD", oid]).is_some());
     (pushes_there || one_line).then_some((dir, one_line))
 }

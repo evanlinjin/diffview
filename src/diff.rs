@@ -220,7 +220,7 @@ pub fn merge_windows(mut spans: Vec<(usize, usize, usize)>, len: usize, whole: b
 }
 
 /// The lines to show for `windows`, each range under a `@@` header (with git's function context).
-pub fn shown(full: &[Line], windows: &[(usize, usize, Vec<usize>)], headers: &[(u32, String)]) -> Vec<Line> {
+pub fn shown<K>(full: &[Line], windows: &[(usize, usize, K)], headers: &[(u32, String)]) -> Vec<Line> {
     let mut out = vec![];
     for (lo, hi, _) in windows {
         let part = &full[*lo..=*hi];
@@ -235,10 +235,18 @@ pub fn shown(full: &[Line], windows: &[(usize, usize, Vec<usize>)], headers: &[(
     out
 }
 
-/// Where branch `here` in the checkout at `dir` pushes to: its push remote (or its remote; a
-/// remote's name, or a URL as `gh pr checkout` sets one for a fork), and the branch there: the
-/// PR's (`pr_branch`) when it tracks that, whatever it's called here; else its own name.
-pub fn push_target(dir: &std::path::Path, here: &str, pr_branch: Option<&str>) -> Option<(String, String)> {
+/// Whether `remote` (a remote's name in the checkout at `dir`, or a URL, as `gh pr checkout`
+/// sets one for a fork) pushes to GitHub repo `repo` (`owner/name`).
+pub fn remote_is(dir: &std::path::Path, remote: &str, repo: &str) -> bool {
+    let url = git_in(dir, &["remote", "get-url", "--push", remote]).map_or_else(|_| remote.to_owned(), |u| u.trim().to_owned());
+    let url = url.trim_end_matches('/').trim_end_matches(".git").to_lowercase();
+    !repo.is_empty() && url.strip_suffix(&repo.to_lowercase()).is_some_and(|r| r.ends_with(['/', ':']))
+}
+
+/// Where branch `here` in the checkout at `dir` pushes to: its push remote (or its remote), and
+/// the branch there: the PR's (`pr`: its branch and repo) when it tracks that, in that repo,
+/// whatever it's called here; else its own name.
+pub fn push_target(dir: &std::path::Path, here: &str, pr: Option<(&str, &str)>) -> Option<(String, String)> {
     let config = |k: &str| git_in(dir, &["config", "--get", k]).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
     let remote = config(&format!("branch.{here}.pushRemote"))
         .or_else(|| config("remote.pushDefault"))
@@ -246,7 +254,8 @@ pub fn push_target(dir: &std::path::Path, here: &str, pr_branch: Option<&str>) -
     // (Not the branch it tracks, unless that's the PR's: one started from `origin/main` tracks
     // `main`, but isn't it, whatever it's named.)
     let merge = config(&format!("branch.{here}.merge")).map(|m| m.trim_start_matches("refs/heads/").to_owned());
-    let branch = merge.filter(|m| Some(m.as_str()) == pr_branch).unwrap_or_else(|| here.to_owned());
+    let theirs = |m: &String| pr.is_some_and(|(b, repo)| m == b && remote_is(dir, &remote, repo));
+    let branch = merge.filter(theirs).unwrap_or_else(|| here.to_owned());
     Some((remote, branch))
 }
 
@@ -623,8 +632,10 @@ fn a_branch_pushes_to_its_own_name() {
     for (k, v) in [("branch.feat.remote", "origin"), ("branch.feat.merge", "refs/heads/main"), ("branch.amy-fix.remote", "origin"), ("branch.amy-fix.merge", "refs/heads/fix")] {
         git_in(&d, &["config", k, v]).unwrap();
     }
+    git_in(&d, &["remote", "add", "origin", "git@github.com:amy/r.git"]).unwrap();
     assert_eq!(push_target(&d, "feat", None), Some(("origin".into(), "feat".into())));
-    assert_eq!(push_target(&d, "feat", Some("other")), Some(("origin".into(), "feat".into())));
-    assert_eq!(push_target(&d, "amy-fix", Some("fix")), Some(("origin".into(), "fix".into())));
+    // (A fork PR's head is `main` too: not this one's, in another repo.)
+    assert_eq!(push_target(&d, "feat", Some(("main", "bo/r"))), Some(("origin".into(), "feat".into())));
+    assert_eq!(push_target(&d, "amy-fix", Some(("fix", "amy/r"))), Some(("origin".into(), "fix".into())));
     _ = std::fs::remove_dir_all(&d);
 }

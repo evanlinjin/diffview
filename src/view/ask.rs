@@ -213,7 +213,7 @@ impl App {
         let th = &self.threads[t];
         let Some(line) = th.line else { return self.msg = "this thread is outdated: its lines aren't in the diff to ask about".into() };
         let Some(c) = self.comment_under_cursor(t) else { return self.msg = "move onto a comment to ask about it".into() };
-        let anchor = Anchor { path: th.path.clone(), line, left: th.left, start: th.start_line.filter(|&s| s < line).map(|s| (s, th.left)) };
+        let anchor = Anchor { path: th.path.clone(), line, left: th.left, start: th.range_start() };
         let first_line = anchor.start.map_or(line, |s| s.0);
         let Some(code) = self.files.iter().find(|f| f.path == anchor.path).and_then(|f| crate::claude::code_at(f, anchor.left, first_line, line)) else {
             return self.msg = "those lines aren't in this diff".into();

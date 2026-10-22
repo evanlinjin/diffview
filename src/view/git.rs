@@ -365,8 +365,8 @@ impl App {
     fn push_target(&self) -> Result<(String, String, String)> {
         let here = diff::git(&["branch", "--show-current"])?.trim().to_owned();
         if !here.is_empty() {
-            let pr_branch = self.pr.as_ref().map(|p| p.head_branch.as_str());
-            let (remote, branch) = diff::push_target(Path::new("."), &here, pr_branch).with_context(|| format!("{here} has no remote to push to"))?;
+            let pr = self.pr.as_ref().map(|p| (p.head_branch.as_str(), p.head_repo.as_str()));
+            let (remote, branch) = diff::push_target(Path::new("."), &here, pr).with_context(|| format!("{here} has no remote to push to"))?;
             let name = format!("{branch} on {remote}");
             return Ok((remote, branch, name));
         }

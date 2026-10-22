@@ -237,7 +237,7 @@ fn comments_placed_and_anchored() {
     };
     let t = |left, line, resolved, comments| Thread {
         id: format!("T{line:?}"),
-        path: "src/a.rs".into(), left, line, start_line: None, original_line: Some(1), resolved, talk_resolved: false, outdated: line.is_none(),
+        path: "src/a.rs".into(), left, line, start_line: None, start_left: None, original_line: Some(1), resolved, talk_resolved: false, outdated: line.is_none(),
         hunk: vec![], comments, claude: None, severity: String::new(), about: None, conversation: String::new(),
         want: String::new(),
     };
@@ -631,7 +631,7 @@ fn copy_refs() {
     app.pr = Some(gh::Pr { number: 1, node_id: "PR".into(), title: "t".into(), base: "main".into(), head_oid: "abc".into(), url: url.into(), ..Default::default() });
     let c = |id| gh::Comment { id, node_id: String::new(), can_edit: false, can_delete: false, author: "amy".into(), body: "hi".into(), created: String::new(), pending: false, reactions: vec![], hidden: String::new() };
     app.threads = vec![gh::Thread {
-        id: "T".into(), path: "src/a.rs".into(), left: false, line: Some(2), start_line: None, original_line: Some(2),
+        id: "T".into(), path: "src/a.rs".into(), left: false, line: Some(2), start_line: None, start_left: None, original_line: Some(2),
         resolved: false, outdated: false, hunk: vec![], comments: vec![c(11), c(12)], claude: None, severity: String::new(), about: None, conversation: String::new(),
         talk_resolved: false,
         want: String::new(),
@@ -804,7 +804,7 @@ fn cycle_pending_comments() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
     let c = |id, pending| gh::Comment { id, node_id: String::new(), can_edit: true, can_delete: true, author: "me".into(), body: format!("c{id}"), created: String::new(), pending, reactions: vec![], hidden: String::new() };
     let t = |line, comments| gh::Thread {
-        id: String::new(), path: "src/a.rs".into(), left: false, line: Some(line), start_line: None, original_line: Some(line),
+        id: String::new(), path: "src/a.rs".into(), left: false, line: Some(line), start_line: None, start_left: None, original_line: Some(line),
         resolved: false, outdated: false, hunk: vec![], comments, claude: None, severity: String::new(), about: None, conversation: String::new(),
         talk_resolved: false,
         want: String::new(),
@@ -884,7 +884,7 @@ fn comments_in_the_margin() {
     let mut app = App::with("base".into(), diff::parse(sample));
     let c = |id, body: &str| gh::Comment { id, node_id: String::new(), can_edit: false, can_delete: false, author: "amy".into(), body: body.into(), created: String::new(), pending: false, reactions: vec![], hidden: String::new() };
     let t = |line, comments| gh::Thread {
-        id: String::new(), path: "a.rs".into(), left: false, line: Some(line), start_line: None, original_line: Some(line),
+        id: String::new(), path: "a.rs".into(), left: false, line: Some(line), start_line: None, start_left: None, original_line: Some(line),
         resolved: false, outdated: false, hunk: vec![], comments, claude: None, severity: String::new(), about: None, conversation: String::new(),
         talk_resolved: false,
         want: String::new(),
@@ -988,7 +988,7 @@ fn margin_tags_on_their_own_line() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
     let c = gh::Comment { id: 1, node_id: String::new(), can_edit: false, can_delete: false, author: "amy".into(), body: "old".into(), created: String::new(), pending: false, reactions: vec![], hidden: String::new() };
     app.threads = vec![gh::Thread {
-        id: String::new(), path: "src/a.rs".into(), left: false, line: Some(2), start_line: None, original_line: Some(2),
+        id: String::new(), path: "src/a.rs".into(), left: false, line: Some(2), start_line: None, start_left: None, original_line: Some(2),
         resolved: true, outdated: false, hunk: vec![], comments: vec![c], claude: None, severity: String::new(), about: None, conversation: String::new(),
         talk_resolved: false,
         want: String::new(),
@@ -1192,7 +1192,7 @@ fn threads_on_files_gone_from_the_diff() {
         created: "2026-10-01".into(), pending: false, reactions: vec![], hidden: String::new(),
     };
     app.threads = vec![gh::Thread {
-        id: "T1".into(), path: "src/reverted.rs".into(), left: false, line: Some(4), start_line: None, original_line: Some(4),
+        id: "T1".into(), path: "src/reverted.rs".into(), left: false, line: Some(4), start_line: None, start_left: None, original_line: Some(4),
         resolved: false, outdated: false, hunk: vec![], comments: vec![c], claude: None, severity: String::new(), about: None, conversation: String::new(),
         talk_resolved: false,
         want: String::new(),
@@ -1328,7 +1328,7 @@ fn claude_view() {
     app.claude.summary = "Looks fine.".into();
     let c = |author: &str| gh::Comment { id: 1, node_id: String::new(), can_edit: false, can_delete: false, author: author.into(), body: "hm".into(), created: String::new(), pending: false, reactions: vec![], hidden: String::new() };
     let t = |path: &str, line, claude: Option<&str>, author| gh::Thread {
-        id: String::new(), path: path.into(), left: false, line: Some(line), start_line: None, original_line: Some(line),
+        id: String::new(), path: path.into(), left: false, line: Some(line), start_line: None, start_left: None, original_line: Some(line),
         resolved: false, outdated: false, hunk: vec![], comments: vec![c(author)], claude: claude.map(Into::into), severity: String::new(), about: None, conversation: String::new(),
         talk_resolved: false,
         want: String::new(),
@@ -1631,7 +1631,7 @@ fn range_comment_lights_its_lines() {
     let mut app = App::with("base".into(), diff::parse(sample));
     let c = gh::Comment { id: 1, node_id: String::new(), can_edit: false, can_delete: false, author: "amy".into(), body: "these".into(), created: String::new(), pending: false, reactions: vec![], hidden: String::new() };
     app.threads = vec![gh::Thread {
-        id: String::new(), path: "a.rs".into(), left: false, line: Some(4), start_line: Some(2), original_line: Some(4),
+        id: String::new(), path: "a.rs".into(), left: false, line: Some(4), start_line: Some(2), start_left: None, original_line: Some(4),
         resolved: false, outdated: false, hunk: vec![], comments: vec![c], claude: None, severity: String::new(), about: None, conversation: String::new(),
         talk_resolved: false,
         want: String::new(),
@@ -1678,7 +1678,7 @@ fn gf_after_w() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
     let c = gh::Comment { id: 1, node_id: String::new(), can_edit: false, can_delete: false, author: "claude".into(), body: "Rename new_call there".into(), created: String::new(), pending: false, reactions: vec![], hidden: String::new() };
     app.threads = vec![gh::Thread {
-        id: String::new(), path: "src/a.rs".into(), left: false, line: Some(2), start_line: None, original_line: Some(2),
+        id: String::new(), path: "src/a.rs".into(), left: false, line: Some(2), start_line: None, start_left: None, original_line: Some(2),
         resolved: false, outdated: false, hunk: vec![], comments: vec![c], claude: Some("c1".into()), severity: String::new(), about: None, conversation: String::new(),
         talk_resolved: false,
         want: String::new(),
@@ -1731,7 +1731,7 @@ fn fixture() -> App {
     let id = std::cell::Cell::new(0);
     let c = |author: &str, body: &str, pending| gh::Comment { id: { id.set(id.get() + 1); id.get() }, node_id: String::new(), can_edit: true, can_delete: true, author: author.into(), body: body.into(), created: String::new(), pending, reactions: vec![], hidden: String::new() };
     let t = |path: &str, line, comments, claude: Option<&str>, resolved| gh::Thread {
-        id: String::new(), path: path.into(), left: false, line: Some(line), start_line: None, original_line: Some(line),
+        id: String::new(), path: path.into(), left: false, line: Some(line), start_line: None, start_left: None, original_line: Some(line),
         resolved, talk_resolved: false, outdated: false, hunk: vec![], comments, claude: claude.map(Into::into), severity: if claude.is_some() { "nit".into() } else { String::new() }, about: None, conversation: String::new(),
         want: String::new(),
     };
@@ -2875,7 +2875,7 @@ fn hidden_on_github_folded() {
         id, node_id: format!("C{id}"), can_edit: false, can_delete: false, author: "amy".into(), body: format!("secret{id}"), created: String::new(), pending: false, reactions: vec![], hidden: hidden.into(),
     };
     app.threads = vec![Thread {
-        id: "T".into(), path: "src/a.rs".into(), left: true, line: Some(2), start_line: None, original_line: Some(2), resolved: false, talk_resolved: false, outdated: false,
+        id: "T".into(), path: "src/a.rs".into(), left: true, line: Some(2), start_line: None, start_left: None, original_line: Some(2), resolved: false, talk_resolved: false, outdated: false,
         hunk: vec![], comments: vec![c(1, "spam"), c(2, "off topic"), c(3, "")], claude: None, severity: String::new(), about: None, conversation: String::new(), want: String::new(),
     }];
     app.build();
@@ -3929,4 +3929,24 @@ fn windows_and_widening_go_by_one_rule() {
     app.goto(c, 0);
     app.expand(10);
     assert!(app.rows.iter().any(|r| r.line.text == "l5"), "line 5 shown");
+}
+
+#[test]
+fn a_views_windows_widen_per_comment() {
+    // A new file, Claude's comments on lines 10, 12 and 50, the Claude view: `+` on the first
+    // widens its window by one each side, and not the comment's at 50.
+    let body: String = (1..=60).map(|i| format!("+n{i}\n")).collect();
+    let text = format!("diff --git a/new.rs b/new.rs\nnew file mode 100644\n--- /dev/null\n+++ b/new.rs\n@@ -0,0 +1,60 @@\n{body}");
+    let mut app = App::with("base".into(), diff::parse(&text));
+    app.files_pref = Some(false);
+    let t = |line, key: &str| gh::Thread { path: "new.rs".into(), line: Some(line), claude: Some(key.into()), comments: vec![gh::Comment { author: crate::claude::AUTHOR.into(), body: "x".into(), ..Default::default() }], ..Default::default() };
+    app.threads = vec![t(10, "c1"), t(12, "c2"), t(50, "c3")];
+    app.view = View::Claude;
+    app.build();
+    let shown = |app: &App| app.rows.iter().filter(|r| r.line.kind == Kind::Add).count();
+    let before = shown(&app);
+    let c = app.rows.iter().position(|r| r.thread == Some(0)).unwrap();
+    app.goto(c, 0);
+    app.expand(1);
+    assert_eq!(shown(&app), before + 2, "one more line each side of the 10–12 window, only");
 }

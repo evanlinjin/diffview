@@ -566,7 +566,7 @@ impl App {
         if !th.conversation.is_empty() {
             return self.msg = "Claude's answer here is for you, on no lines: C on the comment above quotes it in a new conversation comment".into();
         }
-        let anchor = Anchor { path: th.path.clone(), line: th.line.unwrap_or(0), left: th.left, start: th.start_line.map(|s| (s, th.left)) };
+        let anchor = Anchor { path: th.path.clone(), line: th.line.unwrap_or(0), left: th.left, start: th.range_start() };
         // Claude's comment, wherever in its thread the cursor is: the talk under it is about it,
         // not what's posted.
         let mut body = th.comments.first().map(|c| c.body.clone()).unwrap_or_default();
