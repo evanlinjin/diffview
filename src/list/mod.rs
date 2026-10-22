@@ -471,12 +471,15 @@ impl List {
         // Each as the draft it drafts, one per draft (two groups a draft replaces from: one);
         // not one Claude's at, nor one published.
         let mut merged: Vec<Vec<u64>> = vec![];
-        for g in groups.iter().filter(|g| !g.is_empty()).map(|g| crate::replace::target(g)) {
-            // (Sharing a draft, or any PR: one draft.)
-            match merged.iter_mut().find(|m| m[0] == g[0] || m.iter().any(|n| g.contains(n))) {
-                Some(m) => m.extend(g.into_iter().filter(|n| !m.contains(n)).collect::<Vec<_>>()),
-                None => merged.push(g),
+        // (Sharing any PR, a draft's too, as `target` has them: one draft, however they chain.)
+        for g in groups.iter().filter(|g| !g.is_empty()) {
+            let mut g = crate::replace::target(g);
+            while let Some(i) = merged.iter().position(|m| m.iter().any(|n| g.contains(n))) {
+                let m = merged.remove(i);
+                let rest: Vec<u64> = g.into_iter().filter(|n| !m.contains(n)).collect();
+                g = crate::replace::target(&[m, rest].concat());
             }
+            merged.push(g);
         }
         let mut not = vec![];
         let mut groups = vec![];
