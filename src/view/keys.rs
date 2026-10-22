@@ -434,7 +434,7 @@ impl App {
             (0..n).for_each(|_| self.pending_key(p, c));
             return self.jumps.truncate(j + 1);
         }
-        let file = |rows: &[Row], r: usize| rows[r].line.kind == Kind::File;
+        let file = |app: &App, r: usize| app.rows[r].line.kind == Kind::File;
         let so = super::render::scrolloff(self.height);
         // The window's other keys act on it as you set it, not as maximized (`Ctrl-w o`, `h` /
         // `l`: `side`): as it was first.

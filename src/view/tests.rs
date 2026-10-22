@@ -4884,3 +4884,23 @@ fn the_list_is_entered_fresh_every_way() {
     press(&mut app, "j");
     assert_eq!(app.commit_anchor, None, "a range kept from before");
 }
+
+#[test]
+fn a_change_with_a_comment_in_it_is_one_stop_for_g() {
+    let sample = "diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1,1 +1,4 @@\n one\n+two\n+three\n+four\n";
+    let mut app = App::with("base".into(), diff::parse(sample));
+    let c = gh::Comment { id: 1, node_id: String::new(), can_edit: false, can_delete: false, author: "amy".into(), body: "hm".into(), created: String::new(), pending: false, reactions: vec![], hidden: String::new() };
+    app.threads = vec![gh::Thread {
+        id: String::new(), path: "a.rs".into(), left: false, line: Some(2), start_line: None, start_left: None, original_line: Some(2),
+        resolved: false, outdated: false, hunk: vec![], comments: vec![c], claude: None, severity: String::new(), about: None, conversation: String::new(),
+        talk_resolved: false, want: String::new(),
+    }];
+    app.margin_active = true;
+    app.build();
+    app.goto(0, 0);
+    press(&mut app, "]g");
+    let two = app.head.row;
+    assert_eq!(app.rows[two].line.text, "two");
+    press(&mut app, "]g");
+    assert_eq!(app.head.row, two, "]g stopped inside the change, past its comment");
+}

@@ -110,7 +110,7 @@ impl App {
     /// The next (`fwd`) or previous row after `row` on the same side as it: the code or the
     /// comments pane (they're interleaved in `rows`, but not on screen), for word motions to
     /// carry on along a line of text rather than jump across.
-    fn next_row_here(&self, row: usize, fwd: bool) -> Option<usize> {
+    pub(super) fn next_row_here(&self, row: usize, fwd: bool) -> Option<usize> {
         let here = self.side_of(row);
         let mut rs: Box<dyn Iterator<Item = usize>> = if fwd { Box::new(row + 1..self.rows.len()) } else { Box::new((0..row).rev()) };
         rs.find(|&r| self.side_of(r).is_some() && self.side_of(r) == here)
@@ -347,12 +347,11 @@ impl App {
         self.lines = Some((self.anchor, self.head));
     }
 
-    pub(super) fn next_kind(&mut self, fwd: bool, is_start: impl Fn(&[Row], usize) -> bool) {
-        let rows = &self.rows;
+    pub(super) fn next_kind(&mut self, fwd: bool, is_start: impl Fn(&App, usize) -> bool) {
         let hit = if fwd {
-            (self.head.row + 1..rows.len()).find(|&r| is_start(rows, r))
+            (self.head.row + 1..self.rows.len()).find(|&r| is_start(self, r))
         } else {
-            (0..self.head.row).rev().find(|&r| is_start(rows, r))
+            (0..self.head.row).rev().find(|&r| is_start(self, r))
         };
         if let Some(r) = hit {
             self.goto(r, 0);
