@@ -450,7 +450,7 @@ impl List {
         };
         let suggested = batch::groups_text(&self.group_notes(&groups));
         let mut groups: Vec<Vec<u64>> = groups.iter().map(|g| g.0.clone()).collect();
-        if groups.len() > 1 || groups.first().is_some_and(|g| g.len() > 1) || !why.is_empty() {
+        if groups.len() > 1 || groups.first().is_some_and(|g| !crate::replace::one_draft(g)) || !why.is_empty() {
             let what = match why.is_empty() {
                 true => "replacements to draft: one per line, the PRs it replaces (Claude's suggestion; change it as you like, # notes are ignored)".to_owned(),
                 false => format!("replacements to draft, one per line (Claude couldn't suggest any: {why})"),
