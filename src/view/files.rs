@@ -561,6 +561,19 @@ impl App {
         true
     }
 
+    /// The diff's files anew; the list's cursor kept on its file by path (files come and go
+    /// before it), gone with it.
+    pub(super) fn set_files(&mut self, files: Vec<diff::FileDiff>) {
+        let sel = match self.files_sel {
+            Some(Spot::File(i)) => self.files.get(i).map(|f| f.path.clone()),
+            _ => None,
+        };
+        self.files = files;
+        if let Some(p) = sel {
+            self.files_sel = self.files.iter().position(|f| f.path == p).map(Spot::File);
+        }
+    }
+
     /// File `path` shown, for what's wanted of it (`shown`): unfolded, and, not shown in this
     /// view (Claude's, pending), the whole diff. Rebuilt keeping the cursor.
     pub(super) fn show_file(&mut self, path: &str, shown: impl Fn(&Self) -> bool) {

@@ -4843,3 +4843,17 @@ fn focus_leaves_a_list_hidden_by_a_resize() {
     _ = screen(90, 20, |f| app.draw(f));
     assert!(!app.files_focus, "focus in a list not shown");
 }
+
+#[test]
+fn the_lists_cursor_stays_on_its_file_as_files_come() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    (app.files_w, app.height) = (30, 20);
+    app.focus_list(false);
+    press(&mut app, "j");
+    let Some(files::Spot::File(i)) = app.files_sel else { panic!("{:?}", app.files_sel) };
+    let was = app.files[i].path.clone();
+    let extra = format!("diff --git a/0.rs b/0.rs\nnew file mode 100644\n--- /dev/null\n+++ b/0.rs\n@@ -0,0 +1 @@\n+x\n{}", diff::SAMPLE);
+    app.set_files(diff::parse(&extra));
+    let Some(files::Spot::File(i)) = app.files_sel else { panic!("{:?}", app.files_sel) };
+    assert_eq!(app.files[i].path, was);
+}

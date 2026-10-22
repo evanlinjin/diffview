@@ -566,7 +566,8 @@ impl App {
             self.follow_rebase();
             self.load_commits();
             self.note_diff();
-            self.files = diff::load(&self.base, self.to.as_deref(), DEFAULT_CONTEXT)?;
+            let files = diff::load(&self.base, self.to.as_deref(), DEFAULT_CONTEXT)?;
+            self.set_files(files);
         }
         // After the diff: Claude's comments follow their code, which may have just been edited.
         match threads {
