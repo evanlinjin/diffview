@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.91.14] - 2026-10-22
+
+### Fixed
+- A range comment's `╎` bar runs down every part of its wrapped lines again (only the dot
+  shows once). Split view's runs of changed lines only pair; their comments are placed and
+  anchored as any, by the one rule.
+
 ## [0.91.13] - 2026-10-22
 
 ### Fixed
