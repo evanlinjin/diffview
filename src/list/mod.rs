@@ -702,7 +702,7 @@ impl List {
                 false => (self.msg = format!("#{p} (it was published as) isn't open"), None).1,
             },
             (_, true) => {
-                self.msg = "a draft replacement, not on GitHub: Enter opens it (its own keys are on the drafts tab)".into();
+                self.msg = "a draft replacement, not on GitHub: Enter opens it, D D on the drafts tab removes it".into();
                 None
             }
             (n, false) => Some(n),

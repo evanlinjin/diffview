@@ -82,7 +82,7 @@ impl List {
                         // (Published: its PR's conflicts, as any PR's.)
                         let published = self.rep_of.get(&p.number).and_then(|r| r.published);
                         let tags = published.filter(|n| self.conflicts(*n)).map(|_| vec!["conflicts".to_owned()]).unwrap_or_default();
-                        Mark { marked: false, claude: self.draft_state(p.number, "claude"), new: false, replaces, awaiting: 0, rank: None, tags }
+                        Mark { marked: published.is_some_and(|n| self.marked.contains(&n)), claude: self.draft_state(p.number, "claude"), new: false, replaces, awaiting: 0, rank: None, tags }
                     }
                     false => {
                         // On the todo tab, what Claude could do there (`a a`), when it isn't at it.
@@ -196,14 +196,12 @@ impl List {
                 ("?", "all keys"),
                 ("q", "quit"),
             ];
-            let reps = self.nav.tab == Tab::Replacements;
             let lines: Vec<(&str, &str)> = keys
                 .iter()
                 .filter(|(k, _)| match *k {
                     "D D" => !matches!(self.nav.tab, Tab::Open | Tab::Todo),
                     "o O" => self.nav.tab != Tab::Todo, // in the order of what needs you
                     "r r" | "s" | "p" => self.nav.tab == Tab::Todo,
-                    "m" | "a a" | "A A" | "M M" | "b b" | "W W" | "U U" => !reps,
                     _ => true,
                 })
                 .map(|(k, d)| (*k, *d))
