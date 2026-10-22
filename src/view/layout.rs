@@ -842,7 +842,13 @@ impl App {
 
     /// `stop_on` where the cursor is: its side, the code or the pane.
     pub(super) fn stop_at(&self, d: usize, x: usize) -> Option<Pos> {
-        self.stop_on(d, self.right, x, self.margin_side())
+        self.stop_on(d, self.right, x, self.margin_side()).filter(|&p| self.on_selections_half(p))
+    }
+
+    /// In select mode, a vertical move (keys, the wheel) stops only on the selection's half of
+    /// a split view (not a removed line across a hatch, the half then flipping for good).
+    pub(super) fn on_selections_half(&self, p: Pos) -> bool {
+        !self.select || self.same_half(self.head.row, p.row)
     }
 
     /// Screen rows `within`, nearest `from` first: on from it stepping `step`, then back the

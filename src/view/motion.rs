@@ -433,7 +433,7 @@ impl App {
                 true => &[(right, true), (right, false), (!right, false)],
                 false => &[(right, false), (!right, false), (right, true)],
             };
-            let found = tries.iter().find_map(|&(side, pane)| order.iter().find_map(|&t| self.stop_on(t, side, x, pane)));
+            let found = tries.iter().find_map(|&(side, pane)| order.iter().find_map(|&t| self.stop_on(t, side, x, pane).filter(|&p| self.on_selections_half(p))));
             if let Some(p) = found {
                 self.goto(p.row, p.col);
                 self.want_x = Some(x);

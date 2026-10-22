@@ -5041,3 +5041,16 @@ fn a_split_select_mode_selection_stays_on_its_half() {
     press(&mut app, "]gvj");
     assert_eq!(app.selection_text(false), "three\nf", "onto the right half");
 }
+
+#[test]
+fn select_mode_j_passes_a_removed_line_across_a_hatch() {
+    let sample = "diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1,5 +1,4 @@\n one\n-gone\n two\n-three\n+three!\n four\n";
+    let mut app = App::with("base".into(), diff::parse(sample));
+    app.split = true;
+    app.right = true;
+    app.build();
+    let one = app.rows.iter().position(|r| r.line.text == "one").unwrap();
+    app.goto(one, 0);
+    press(&mut app, "vjjj");
+    assert_eq!(app.selection_text(false), "one\ntwo\nthree!\nf");
+}
