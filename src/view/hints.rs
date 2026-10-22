@@ -143,29 +143,33 @@ impl App {
     /// to keep it quiet.
     pub(super) fn context_keys(&self) -> Option<(&'static str, &'static [(&'static str, &'static str)])> {
         let row = &self.rows[self.head.row];
+        // (What it's of: an issue has no review, nor code; `c` queues into a review.)
+        let what = if self.has_code() { "PR" } else { "issue" };
         // Over several of Claude's threads: one reply to them all.
         if self.selected_claude_threads().is_some() {
             return Some(("Claude's comments, selected", &[("r", "one reply to them all (Claude answers, or makes the changes)"), ("a", "the same"), ("y", "copy")]));
         }
-        // (A draft: nothing on GitHub to comment on yet.)
-        if (self.select || self.anchor.row != self.head.row) && self.unpublished() {
-            return Some(("selection", &[("a", "a comment for Claude"), ("y", "copy"), ("Space c", "copy file:line ref")]));
-        }
+        // A draft: nothing on GitHub to comment on yet; an issue: no review, no code.
         if self.select || self.anchor.row != self.head.row {
-            return Some(("selection", &[
-                ("c", "comment (review)"),
-                ("C", "comment now"),
-                ("s", "suggest a change"),
-                ("a", "a comment for Claude"),
-                ("y", "copy"),
-                ("Space c", "copy file:line ref"),
-            ]));
+            return Some(match (self.unpublished(), self.has_code()) {
+                (true, _) => ("selection", &[("a", "a comment for Claude"), ("y", "copy"), ("Space c", "copy file:line ref")][..]),
+                (_, false) => ("selection", &[("C", "quote in a new comment"), ("a", "a comment for Claude"), ("y", "copy"), ("Space c", "copy file:line ref")][..]),
+                _ => ("selection", &[
+                    ("c", "comment (review)"),
+                    ("C", "comment now"),
+                    ("s", "suggest a change"),
+                    ("a", "a comment for Claude"),
+                    ("y", "copy"),
+                    ("Space c", "copy file:line ref"),
+                ][..]),
+            });
         }
         // (Shown, its text has the usual hints.)
         if self.hidden_here().is_some_and(|n| !self.revealed.contains(&n)) {
             return Some(match row.thread {
                 Some(_) => ("hidden on GitHub", &[("Tab", "show it"), ("r", "reply")]),
-                None => ("hidden on GitHub", &[("Tab", "show it"), ("C", "comment on the PR")]),
+                None if self.has_code() => ("hidden on GitHub", &[("Tab", "show it"), ("C", "comment on the PR")]),
+                None => ("hidden on GitHub", &[("Tab", "show it"), ("C", "comment on the issue")]),
             });
         }
         // On a link: what can be done with it (before what the row it's in offers).
@@ -204,8 +208,6 @@ impl App {
                 ]),
             });
         }
-        // (What it's of: an issue has no review, nor code; `c` queues into a review.)
-        let what = if self.has_code() { "PR" } else { "issue" };
         if row.file == INFO && row.line.kind == Kind::File && !row.links.is_empty() {
             return Some((what, &[("Enter", "open on GitHub"), ("Tab", "fold")]));
         }

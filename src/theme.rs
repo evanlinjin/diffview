@@ -247,11 +247,11 @@ impl Theme {
                 // Its own: not the cursor line's (else a code block reads as the cursor on it).
                 // (The theme's own for code blocks, else the background a shade darker: set in.)
                 code_bg: self.find("markup.raw.block").and_then(|s| s.bg).filter(|&c| Some(c) != cursorline && Some(c) != bg)
-                    .or_else(|| bg.and_then(|b| blend(Color::Rgb(0, 0, 0), b, 0.3)))
+                    .or_else(|| bg.and_then(|b| shade(b, 0.3)))
                     .or(self.find("ui.popup").and_then(|s| s.bg)),
             },
             linenr_selected: self.find("ui.linenr.selected").unwrap_or(self.get("ui.linenr").add_modifier(Modifier::BOLD)),
-            blank: bg.and_then(|b| blend(Color::Rgb(0, 0, 0), b, 0.15)),
+            blank: bg.and_then(|b| shade(b, 0.15)),
         }
     }
 }
@@ -358,6 +358,29 @@ fn modifier(m: &str) -> Modifier {
         "crossed_out" => Modifier::CROSSED_OUT,
         _ => Modifier::empty(),
     }
+}
+
+/// `bg` a shade apart by `t`: darker, or (too dark to show darker) lighter; none where that
+/// can't be told from `bg` (or it isn't RGB).
+fn shade(bg: Color, t: f32) -> Option<Color> {
+    let Color::Rgb(r, g, b) = bg else { return None };
+    let luma = 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32;
+    let to = if luma < 48.0 { Color::Rgb(255, 255, 255) } else { Color::Rgb(0, 0, 0) };
+    let s = blend(to, bg, if luma < 48.0 { t / 3.0 } else { t })?;
+    let Color::Rgb(sr, sg, sb) = s else { return None };
+    // (A step or two: not seen.)
+    let apart = [(sr, r), (sg, g), (sb, b)].iter().map(|&(x, y)| (x as i32 - y as i32).abs()).max().unwrap_or(0);
+    (apart >= 6).then_some(s)
+}
+
+#[test]
+fn shades_show() {
+    // On black or near black, lighter; on a mid grey, darker; never the background itself.
+    for bg in [Color::Rgb(0, 0, 0), Color::Rgb(10, 12, 16), Color::Rgb(40, 40, 40), Color::Rgb(250, 250, 250)] {
+        let s = shade(bg, 0.15).unwrap();
+        assert_ne!(s, bg, "{bg:?}");
+    }
+    assert_eq!(shade(Color::Reset, 0.15), None);
 }
 
 /// `a` mixed into `b` by `t` (0 = b, 1 = a); RGB only.

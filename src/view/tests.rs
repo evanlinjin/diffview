@@ -4312,4 +4312,10 @@ fn an_issues_key_hints_are_an_issues() {
     assert_eq!(at(&mut app, "Same here."), Some(("issue text", vec!["C", "Space =", "Space c"])));
     let facts = at(&mut app, "labels");
     assert!(facts.as_ref().is_some_and(|k| k.0.starts_with("issue")), "{facts:?}");
+    // A selection there: no review's `c`, nor a suggestion's `s`.
+    at(&mut app, "Same here.");
+    app.key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
+    let keys: Vec<&str> = app.context_keys().unwrap().1.iter().map(|e| e.0).collect();
+    assert_eq!(keys, ["C", "a", "y", "Space c"]);
 }
