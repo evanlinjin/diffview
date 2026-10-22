@@ -50,7 +50,8 @@ impl List {
             }
             let looked = seen.as_ref().and_then(|s| std::fs::read_to_string(s.join(format!("pr-{}.looked", p.number))).ok()?.trim().parse().ok());
             let (f, c, head_at) = self.unpushed.get(&p.number).copied().unwrap_or((0, 0, None));
-            let ci_note = ci.as_ref().and_then(|d| crate::claude::ci_note_at(&d.join(format!("pr-{}.json", p.number))));
+            let head = self.extra.get(&p.number).map_or("", |e| e.head_oid.as_str());
+            let ci_note = ci.as_ref().and_then(|d| crate::claude::ci_note_at(&d.join(format!("pr-{}.json", p.number)), head));
             let facts = Facts { pr: p, extra: self.extra.get(&p.number), me: &self.me, review: review.as_ref(), looked, review_changed: file.and_then(secs), unpushed: (f, c), head_at, ci_note: ci_note.as_ref() };
             let (needs, claude) = todo::needs(&facts);
             if !needs.is_empty() {

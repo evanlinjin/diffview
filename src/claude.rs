@@ -272,17 +272,19 @@ pub fn ci_note_path(n: u64) -> Result<PathBuf> {
     Ok(dv_dir()?.join("ci").join(format!("pr-{n}.json")))
 }
 
-pub fn ci_note_at(p: &std::path::Path) -> Option<CiNote> {
+/// The note at `p`, if Claude wrote it at `head` (the PR's head now) and it says CI's failing
+/// isn't the PR's doing: older ones are about other commits; one without a why, that Claude
+/// fixed the cause here (kept for its `rerun`, which Claude reads itself).
+pub fn ci_note_at(p: &std::path::Path, head: &str) -> Option<CiNote> {
     let v: Value = serde_json::from_str(&std::fs::read_to_string(p).ok()?).ok()?;
     let s = |k: &str| v[k].as_str().unwrap_or("").trim().to_owned();
-    Some(CiNote { head: s("head"), why: s("why"), task: s("task"), rerun: v["rerun"] == true })
+    let c = CiNote { head: s("head"), why: s("why"), task: s("task"), rerun: v["rerun"] == true };
+    (!head.is_empty() && c.head == head && !c.why.is_empty()).then_some(c)
 }
 
-/// PR `n`'s note, if Claude wrote it at `head` (the PR's head now) and it says CI's failing
-/// isn't the PR's doing: older ones are about other commits; one without a why, that Claude
-/// fixed the cause here (kept for its `rerun`).
+/// PR `n`'s note, as `ci_note_at` has it.
 pub fn ci_note(n: u64, head: &str) -> Option<CiNote> {
-    ci_note_at(&ci_note_path(n).ok()?).filter(|c| !head.is_empty() && c.head == head && !c.why.is_empty())
+    ci_note_at(&ci_note_path(n).ok()?, head)
 }
 
 /// A PR fixing CI is drafted from PR `n`'s note: its task goes, so it isn't offered again.
@@ -338,12 +340,19 @@ pub fn looked(n: u64) -> Option<i64> {
 
 /// Claude in a pane on PR (or issue) `n`, for `dv list` and any dv: its marker,
 /// `running/pane-N-<session>.json` (a checkout's pane each), with what it's doing and its
-/// session (the pane's command line has it: at it while Claude Code works there, or, opened to
-/// talk in, `talk`, while it's open: `pane::run_live`), and when it started.
-pub fn mark_pane(n: u64, what: &str, session: &str, talk: bool) {
-    let Ok(dir) = running_dir() else { return };
-    let v = serde_json::json!({ "what": what, "session": session, "talk": talk, "started": now_secs() });
-    _ = std::fs::write(dir.join(format!("pane-{n}-{session}.json")), v.to_string());
+/// session (the pane's command line has it: at it while it's open, `pane::run_live`), whether
+/// it's to talk in (`talk`: never closed for being done), and when it started. Made under the
+/// claims' lock, refused (what holds it) while a run has PR `n`: before the pane starts.
+pub fn mark_pane(n: u64, what: &str, session: &str, talk: bool) -> std::result::Result<(), String> {
+    let dir = running_dir().map_err(|e| format!("{e:#}"))?;
+    let claim = dir.join(format!("pr-{n}.json"));
+    locked(&claim, || {
+        if let Some(holder) = live_marker(&claim, &std::cell::OnceCell::new(), None) {
+            return Err(holder);
+        }
+        let v = serde_json::json!({ "what": what, "session": session, "talk": talk, "started": now_secs() });
+        std::fs::write(dir.join(format!("pane-{n}-{session}.json")), v.to_string()).map_err(|e| e.to_string())
+    })?
 }
 
 /// Claude's done in its pane (of `session`) on `n` (or it's closed).
@@ -392,7 +401,7 @@ fn live_marker(path: &std::path::Path, panes: &std::cell::OnceCell<Vec<crate::pa
     if session.is_some() && session == own {
         return None;
     }
-    crate::pane::run_live(pid, session, v["talk"] == true, panes).then(|| v["what"].as_str().unwrap_or("working").to_owned())
+    crate::pane::run_live(pid, session, panes).then(|| v["what"].as_str().unwrap_or("working").to_owned())
 }
 
 /// Runs this dv holds claims for now: quitting asks first while there are any (their end is

@@ -283,7 +283,7 @@ pub fn needs(f: &Facts) -> (Vec<Need>, Option<Task>) {
     // CI failing: nothing merges until it passes. (Someone else's draft isn't up for it yet.)
     // On yours, Claude may have found it isn't the PR's doing (at its head now).
     let head = f.extra.map_or("", |e| e.head_oid.as_str());
-    let not_this = f.ci_note.filter(|c| mine && !head.is_empty() && c.head == head);
+    let not_this = f.ci_note.filter(|_| mine);
     if let Some((_, fail, _)) = pr.checks.filter(|c| c.1 > 0 && (!pr.draft || mine)) {
         out.push(match not_this {
             Some(c) if c.rerun => Need::CiNotThisPr(format!("{}; it reran it once already", c.why), !c.task.is_empty()),
@@ -1081,15 +1081,22 @@ mod tests {
         // head, it looks again.
         let mut p = pr(11, "me");
         p.checks = Some((5, 2, 0));
-        let note = |head: &str| crate::claude::CiNote { head: head.into(), why: "flaky".into(), task: "pin the toolchain".into(), rerun: false };
-        let (here, old) = (note("h"), note("old"));
+        let here = crate::claude::CiNote { head: "h".into(), why: "flaky".into(), task: "pin the toolchain".into(), rerun: false };
         let mut f = facts(leak(p), Some(leak(extra(None, false, "h"))), None);
         f.ci_note = Some(&here);
         let (n, c) = needs(&f);
         assert!(n.contains(&Need::CiNotThisPr("flaky".into(), true)) && c != Some(Task::FixChecks), "{n:?} {c:?}");
         assert!(Need::CiNotThisPr("flaky".into(), true).says().ends_with("N N drafts a PR fixing it, a a has it try again"));
-        f.ci_note = Some(&old);
+        f.ci_note = None;
         assert_eq!(needs(&f).1, Some(Task::FixChecks));
+        // The note as read: at the head now and saying why, or none (an older head's; one that
+        // says Claude fixed the cause here, its why empty).
+        let p = std::env::temp_dir().join(format!("dv-ci-note-{}.json", std::process::id()));
+        std::fs::write(&p, r#"{ "head": "h", "why": "flaky", "task": "", "rerun": true }"#).unwrap();
+        assert!(crate::claude::ci_note_at(&p, "h").is_some_and(|c| c.rerun) && crate::claude::ci_note_at(&p, "old").is_none());
+        std::fs::write(&p, r#"{ "head": "h", "why": "", "task": "", "rerun": true }"#).unwrap();
+        assert!(crate::claude::ci_note_at(&p, "h").is_none());
+        _ = std::fs::remove_file(p);
         // Workflow runs waiting for a maintainer's approval: a need, yours to do (W W).
         let mut e = extra(None, false, "h");
         e.awaiting = 2;

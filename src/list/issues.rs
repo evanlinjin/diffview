@@ -643,8 +643,8 @@ impl Issues {
                     }
                     batch::Status::Failed(e) => (self.msg, self.claude_rx) = (format!("#{n}: no closing comment: {}", e.lines().next().unwrap_or("")), None),
                     // Claude at it elsewhere: drafted on a later look.
-                    batch::Status::Busy(_) => {
-                        self.claude_rx = None;
+                    batch::Status::Busy(w) => {
+                        (self.claude_rx, self.msg) = (None, format!("#{n}: no closing comment drafted now: Claude is {w} on it (on a later look)"));
                         self.auto_done.retain(|d| d.0 != n || !d.1.starts_with("closing@"));
                     }
                     _ => {}

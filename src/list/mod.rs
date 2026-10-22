@@ -567,6 +567,7 @@ impl List {
                 batch::Status::Busy(w) => {
                     self.msg = format!("#{n}: not {doing} now: Claude is {w} on it (a a asks again once it's done)");
                     self.batch.remove(&n);
+                    self.auto_done.retain(|d| d.0 != n || d.2 != doing); // (auto too)
                     continue;
                 }
                 batch::Status::Done(took) => {

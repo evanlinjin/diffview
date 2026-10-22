@@ -222,18 +222,13 @@ pub(crate) fn of_session<'a>(panes: &'a [Pane], id: &str) -> Option<&'a Pane> {
     panes.iter().find(|p| p.1.contains(id) && !p.1.contains("--fork-session"))
 }
 
-/// Whether a Claude run is at it: its process (`pid`) still there, or Claude Code in its pane
-/// (by its `session`, among `panes`, looked up once) working or asking you something (done, it
-/// waits there idle); a pane opened to talk in (`talk`), while it's open.
-pub(crate) fn run_live(pid: Option<u32>, session: Option<&str>, talk: bool, panes: &std::cell::OnceCell<Vec<Pane>>) -> bool {
+/// Whether a Claude run is at it: its process (`pid`) still there, or Claude Code open in its
+/// pane (by its `session`, among `panes`, looked up once): open, it's at the session, whether
+/// working now or waiting on you (a pane done with its request closes, `close_if_done`).
+pub(crate) fn run_live(pid: Option<u32>, session: Option<&str>, panes: &std::cell::OnceCell<Vec<Pane>>) -> bool {
     match (pid, session) {
         (Some(pid), _) => crate::alive(pid),
-        (None, Some(id)) => of_session(panes.get_or_init(open), id).is_some_and(|p| {
-            talk || {
-                let s = screen(p.0);
-                working(&s) || asking(&s)
-            }
-        }),
+        (None, Some(id)) => of_session(panes.get_or_init(open), id).is_some(),
         _ => false,
     }
 }

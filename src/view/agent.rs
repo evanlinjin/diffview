@@ -223,8 +223,10 @@ impl App {
     /// Claude is at work in this checkout: a run of this dv's, its pane working, or (a
     /// replacement) its redraft, from any dv. Nothing here rewrites the branch or commits under
     /// it meanwhile.
+    /// (Another dv's run on it too, dv list's say: in this worktree, perhaps.)
     pub(super) fn claude_busy(&self) -> bool {
-        self.claude.job.is_some() || self.claude.pane_busy || self.replacement.as_ref().is_some_and(|r| r.drafting_now())
+        let elsewhere = || self.subject().and_then(|s| crate::claude::at_work(s.n(), self.claude.session.as_deref())).is_some();
+        self.claude.job.is_some() || self.claude.pane_busy || self.replacement.as_ref().is_some_and(|r| r.drafting_now()) || elsewhere()
     }
 
     /// Why `ask` can't go to the PR's Claude pane, where it would (one is open): the pane is
@@ -796,19 +798,26 @@ impl App {
             .args(claude_dirs())
             // (A checkout of its own to try things in, as the skill has it: not asked each time.)
             .args(["--allowedTools", "Bash(dv scratch:*)"]);
-        let s = cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
-            .status().context("running zellij")?;
-        anyhow::ensure!(s.success(), "zellij run failed ({s})");
-        // Its marker, every pane on the session (not a fork: a session of its own), for dv list
-        // and any dv: a request's at it while Claude works there; one opened to talk in (no
-        // request), while it's open (`claude::claim` waits for it).
-        if let (false, Some(s), Some(id)) = (fork, self.subject(), &self.claude.session) {
-            let what = match prompt {
-                Some(_) => format!("{} (in its pane)", name.trim_start_matches("claude: ")),
-                None => "talking with you (in its pane)".into(),
-            };
-            crate::claude::mark_pane(s.n(), &what, id, prompt.is_none());
+        // Its marker first, every pane on the session (not a fork: a session of its own), for dv
+        // list and any dv (`claude::claim` waits while it's open): refused, no pane, while a run
+        // has it; the pane not started, none.
+        let marked = match (fork, self.subject(), self.claude.session.clone()) {
+            (false, Some(s), Some(id)) => {
+                let what = match prompt {
+                    Some(_) => format!("{} (in its pane)", name.trim_start_matches("claude: ")),
+                    None => "talking with you (in its pane)".into(),
+                };
+                crate::claude::mark_pane(s.n(), &what, &id, prompt.is_none()).map_err(|w| anyhow!("Claude is {w} on {} already (elsewhere): ask again once it's done", s.what()))?;
+                Some((s.n(), id))
+            }
+            _ => None,
+        };
+        let s = cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
+        if let (false, Some((n, id))) = (s.as_ref().is_ok_and(|s| s.success()), &marked) {
+            crate::claude::clear_pane(*n, id);
         }
+        let s = s.context("running zellij")?;
+        anyhow::ensure!(s.success(), "zellij run failed ({s})");
         Ok(())
     }
 
