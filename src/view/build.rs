@@ -73,21 +73,26 @@ fn line_on(left: bool, lines: &[DLine], n: u32) -> Option<usize> {
     lines.iter().position(|l| side(l) && if left { l.old } else { l.new } == Some(n))
 }
 
-/// The diff line a thread belongs under. Current threads use their line. Outdated ones are found
-/// by the commented line's text when it's distinctive, else by their original line number.
+/// The diff line a thread belongs under, one rule for all: its line while that's still the
+/// commented line's text (GitHub's, at the PR's head; the diff here may have lines added above
+/// it, uncommitted or not pushed); else that text where it's distinctive, nearest its line;
+/// else the nearest line by number.
 pub(super) fn anchor_line(t: &Thread, lines: &[DLine]) -> Option<usize> {
     let side = |l: &DLine| match t.left {
         true => matches!(l.kind, Kind::Ctx | Kind::Del),
         false => matches!(l.kind, Kind::Ctx | Kind::Add),
     };
     let no = |l: &DLine| if t.left { l.old } else { l.new };
-    if !t.outdated {
-        return line_on(t.left, lines, t.line?);
-    }
-    let want = t.original_line? as i64;
-    let dist = |i: usize| (no(&lines[i]).unwrap_or(0) as i64 - want).abs();
     let target = t.hunk.last().and_then(|l| l.get(1..)).unwrap_or("").trim();
     let distinctive = target.chars().filter(|c| c.is_alphanumeric()).count() >= 3;
+    if !t.outdated
+        && let Some(i) = t.line.and_then(|n| line_on(t.left, lines, n))
+        && (!distinctive || lines[i].text.trim() == target)
+    {
+        return Some(i);
+    }
+    let want = t.line.filter(|_| !t.outdated).or(t.original_line)? as i64;
+    let dist = |i: usize| (no(&lines[i]).unwrap_or(0) as i64 - want).abs();
     let by_text = (0..lines.len())
         .filter(|&i| distinctive && side(&lines[i]) && lines[i].text.trim() == target)
         .min_by_key(|&i| dist(i));
