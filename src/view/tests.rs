@@ -5192,3 +5192,17 @@ fn the_list_measures_wide_chars_in_columns() {
     let row = s.lines().map(|l| l.split('│').next().unwrap()).find(|l| l.contains('说')).expect(&s);
     assert!(row.contains('…'), "a wide name not cut to the list: {row}");
 }
+
+#[test]
+fn an_emoji_with_its_selector_is_two_columns() {
+    let s = "♻\u{fe0f} refactor ♻\u{fe0f} things";
+    let c = files::cut(s, 12);
+    assert!(Line::from(c.as_str()).width() <= 12, "{c:?} {}", Line::from(c.as_str()).width());
+    assert!(c.ends_with('…'));
+}
+
+#[test]
+fn a_tab_is_four_columns() {
+    assert_eq!(row::cols("\t"), 4);
+    assert_eq!(row::cols("a\tb"), 6);
+}

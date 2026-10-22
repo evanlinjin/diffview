@@ -24,9 +24,10 @@ pub(super) fn fit(line: Line<'static>, w: usize) -> Line<'static> {
     Line::from(spans)
 }
 
-/// The columns `s` takes on screen (as `char_w`'s).
+/// The columns `s` takes on screen, as ratatui draws it (an emoji with its variation selector,
+/// two; a tab, 4: as `render_row` draws it).
 pub(super) fn cols(s: &str) -> usize {
-    s.chars().map(char_w).sum()
+    Span::raw(s).width() + 3 * s.matches('\t').count()
 }
 
 /// The columns `c` takes on screen (a tab, 4: as `render_row` draws it).

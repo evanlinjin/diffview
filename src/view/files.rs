@@ -688,11 +688,15 @@ pub(crate) fn cut(s: &str, n: usize) -> String {
     if super::row::cols(s) <= n {
         return s.to_owned();
     }
-    let mut w = 0;
-    let kept: String = s.chars().take_while(|&c| {
-        w += super::row::char_w(c);
-        w < n
-    }).collect();
+    // (The prefix measured whole, as drawn: a char's width can depend on the next.)
+    let mut kept = String::new();
+    for c in s.chars() {
+        kept.push(c);
+        if super::row::cols(&kept) >= n {
+            kept.pop();
+            break;
+        }
+    }
     format!("{kept}…")
 }
 
