@@ -214,7 +214,7 @@ impl App {
             return Some(if ask.is_none() { App::busy_edit("amend") } else { App::busy_says("ask Claude this") });
         }
         // At it from elsewhere (dv list's, dv issues' runs): one at a time on it, as here.
-        if let Some(what) = self.subject().and_then(|s| crate::claude::at_work(s.n(), self.claude.session.as_deref(), None)) {
+        if let Some(what) = self.held() {
             return Some(format!("Claude is {what} on {} already (elsewhere): ask again once it's done", self.what()));
         }
         // A rebase stopped part way: the tree has its conflicts, HEAD is detached.
@@ -227,13 +227,20 @@ impl App {
     /// Claude is at work in this checkout: a run of this dv's, its pane working, or (a
     /// replacement) its redraft, from any dv. Nothing here rewrites the branch or commits under
     /// it meanwhile.
-    /// (Another dv's run in this checkout too, dv list's say: `elsewhere`.)
+    /// (Another dv's run in this checkout too, dv list's say: looked at now.)
     pub(super) fn claude_busy(&self) -> bool {
-        self.claude.job.is_some() || self.claude.pane_busy || self.replacement.as_ref().is_some_and(|r| r.drafting_now()) || self.claude.elsewhere.is_some()
+        let here = || self.subject().and_then(|s| crate::claude::at_work(s.n(), self.claude.session.as_deref(), Some(&self.root))).is_some();
+        self.claude.job.is_some() || self.claude.pane_busy || self.replacement.as_ref().is_some_and(|r| r.drafting_now()) || here()
+    }
+
+    /// What another run holds this PR (or issue) for, from any dv, any checkout (one at a time
+    /// on it: a new one waits, a pane opened forks).
+    pub(super) fn held(&self) -> Option<String> {
+        self.subject().and_then(|s| crate::claude::at_work(s.n(), self.claude.session.as_deref(), None))
     }
 
     /// Another dv's Claude at work in this checkout on it (dv list's run, a pane of another
-    /// session), every few seconds: what `claude_busy` and the status bar's badge go by.
+    /// session), every few seconds: what the status bar's badge says.
     pub(super) fn watch_elsewhere(&mut self) {
         if self.claude.elsewhere_check.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(3)) {
             return;
@@ -305,7 +312,7 @@ impl App {
         if self.claude_pane().is_some() {
             items.insert(0, Item::new(format!("Show Claude's pane (its session on {})", self.what()), Target::ClaudePane));
         } else if in_zellij() {
-            let what = match self.claude_busy() {
+            let what = match self.claude_busy() || self.held().is_some() {
                 // (Its own session's at work: a copy of it, for you; what's said there stays there.)
                 true => "a copy of its conversation to talk in: the original's at work, and won't hear it",
                 false => &format!("its session on {}, to talk to it", self.what()),
@@ -839,7 +846,7 @@ impl App {
     /// `Space a` → open Claude in a pane, to talk to it: the PR's session, or while a run is at
     /// work on it, a fork of it (two at once on one session would trip each other up).
     pub(super) fn open_claude_pane(&mut self) {
-        let busy = self.claude_busy();
+        let busy = self.claude_busy() || self.held().is_some();
         if let Err(e) = self.claude_pane_run(if busy { "claude (a copy)" } else { "claude" }, None, None, true, busy) {
             self.msg = format!("{e:#}");
         }

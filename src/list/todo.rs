@@ -196,9 +196,8 @@ impl List {
         // Your PRs changed since their descriptions were checked: Claude checks again, proposing
         // a new one if it no longer fits (Space a in the PR approves it). One first seen: its
         // head noted, nothing asked (nothing's changed that dv knows of).
-        let file = crate::claude::dv_dir().ok().map(|d| d.join("described.json")).filter(|_| !cfg!(test));
         if self.described.is_empty() {
-            self.described = file.as_ref().and_then(|f| serde_json::from_str(&std::fs::read_to_string(f).ok()?).ok()).unwrap_or_default();
+            self.described = described_file().and_then(|f| serde_json::from_str(&std::fs::read_to_string(f).ok()?).ok()).unwrap_or_default();
         }
         let mut noted = false;
         let busy = |n: u64| self.running.contains_key(&n) || self.todos.items.iter().any(|it| it.number == n && (it.busy.is_some() || it.deferred.is_some()));
@@ -226,8 +225,8 @@ impl List {
                 _ => {}
             }
         }
-        if let (true, Some(f)) = (noted, &file) {
-            _ = std::fs::write(f, serde_json::to_string(&self.described).unwrap_or_default());
+        if noted {
+            self.save_described();
         }
         // A PR Claude would replace (low effort, worth keeping) with no replacement of it yet:
         // drafted, one at a time, once each at a head (unpublished: the drafts tab has it).
@@ -637,6 +636,14 @@ impl List {
 
     /// What Claude is doing on PR `n` now, if anything: a run from here (`a a`), or any dv's
     /// (its marker in dv's directory, `running`).
+    /// The heads PRs' descriptions were checked at, kept (`described.json`): the one place
+    /// they're written.
+    pub(super) fn save_described(&self) {
+        if let Some(f) = described_file() {
+            _ = std::fs::write(f, serde_json::to_string(&self.described).unwrap_or_default());
+        }
+    }
+
     pub(super) fn claude_doing(&self, n: u64) -> Option<String> {
         match self.batch.get(&n) {
             Some(s) if s.running() => Some(self.batch_task.get(&n).map_or("reviewing", batch::Task::doing).to_owned()),
@@ -729,4 +736,9 @@ impl List {
         }
         it.and_then(|it| it.claude.clone()).unwrap_or(batch::Task::Review)
     }
+}
+
+/// Where the heads PRs' descriptions were checked at are kept (none from tests).
+fn described_file() -> Option<std::path::PathBuf> {
+    crate::claude::dv_dir().ok().map(|d| d.join("described.json")).filter(|_| !cfg!(test))
 }

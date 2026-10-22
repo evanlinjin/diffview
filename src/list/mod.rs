@@ -571,6 +571,7 @@ impl List {
                     self.auto_done.retain(|d| d.0 != n || d.2 != doing);
                     if let Some(batch::Task::Describe(old)) = self.batch_task.get(&n) {
                         self.described.insert(n, old.clone());
+                        self.save_described();
                     }
                     continue;
                 }
