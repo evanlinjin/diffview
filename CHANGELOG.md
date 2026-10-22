@@ -5,6 +5,25 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.95.17] - 2026-10-22
+
+### Fixed
+- Replacements and new PRs: one draft per PR, decided where it's asked (dv list's `A`, its
+  groups, `dv replace`, the view): a PR another draft replaces redrafts that one, whatever
+  the order; groups sharing a PR are one; a published one is refused before your editor opens;
+  what's busy, said and drafted all agree. A redraft keeps all a draft replaces, takes in
+  reviews changed since it last read them (and a newly added PR's), starts a new Claude
+  session when its old one is gone, and moves only its own commits onto a new base.
+- A published replacement is found by its PR however that's opened, and acts as its PR in
+  dv list (its card's keys, marks); its view diffs against the PR's base. Publishing holds
+  Claude's claim; closing the originals passes ones merged already, says what it did, and is
+  refused once its PR was closed unmerged.
+- A removed draft's branch, review and session are kept under another name, so the next draft
+  by that name starts afresh; a draft's worktree gone (or deleted by hand) is made again on its
+  branch, for new PRs too.
+- An unpublished draft shows ✎ uncommitted; new PRs are named as such; the drafts tab's keys
+  and keys bar are the todo tab's.
+
 ## [0.95.16] - 2026-10-22
 
 ### Fixed
