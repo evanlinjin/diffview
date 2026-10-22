@@ -290,11 +290,12 @@ impl List {
     /// Replacement `r`'s branch as published: nothing in its worktree left out (uncommitted, or
     /// commits not pushed), and its PR's CI passing on GitHub now.
     fn rep_pushed(&self, r: &crate::replace::Record) -> anyhow::Result<()> {
-        let dir = crate::worktree_dir_named(&self.root, &crate::replace::name(r.id))?;
-        let d = dir.to_string_lossy().into_owned();
-        let git = |args: &[&str]| crate::diff::git(&[&["-C", d.as_str()], args].concat()).unwrap_or_default();
-        anyhow::ensure!(git(&["status", "--porcelain"]).trim().is_empty(), "its worktree has uncommitted changes");
-        anyhow::ensure!(git(&["rev-list", "--count", "@{upstream}..HEAD"]).trim() == "0", "its worktree has commits not pushed");
+        // (Its worktree as everywhere: made again if it's gone; git failing, said, not read as
+        // nothing there.)
+        let d = crate::replace::worktree(r, &self.root)?.to_string_lossy().into_owned();
+        let git = |args: &[&str]| crate::diff::git(&[&["-C", d.as_str()], args].concat());
+        anyhow::ensure!(git(&["status", "--porcelain"])?.trim().is_empty(), "its worktree has uncommitted changes");
+        anyhow::ensure!(git(&["rev-list", "--count", "@{upstream}..HEAD"])?.trim() == "0", "its worktree has commits not pushed");
         let n = r.published.unwrap_or(0);
         anyhow::ensure!(todo::green(Some(crate::gh::checks(n)?)), "#{n}'s CI isn't all green on GitHub now");
         Ok(())
