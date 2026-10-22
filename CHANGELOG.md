@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.90.0] - 2026-10-22
+
+### Added
+- Benchmarks get the machine to themselves: Claude benchmarks with `dv cargo bench`, which
+  waits for the builds and tests other Claude runs have going (any dv, any repo, machine wide)
+  and holds new ones off till it's done; they wait for it, saying so. Claude's builds and
+  tests all go through `dv cargo` now (plain `cargo` isn't allowed it), so all are counted.
+
 ## [0.89.1] - 2026-10-22
 
 ### Fixed
