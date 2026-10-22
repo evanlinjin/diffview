@@ -431,7 +431,20 @@ pub fn at_work(key: &str, own: Option<&str>, here: Option<&std::path::Path>) -> 
 pub fn at_work_in(dir: &std::path::Path) -> Option<String> {
     let panes = std::cell::OnceCell::new();
     let in_dir = |p: &std::path::Path| std::fs::read_to_string(p).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).is_some_and(|v| v["dir"].as_str().is_some_and(|d| std::path::Path::new(d) == dir));
-    markers(&running_dir().ok()?).into_iter().filter(|m| in_dir(&m.2)).find_map(|m| live_marker(&m.2, &panes, None, None))
+    let marked = running_dir().ok().and_then(|r| markers(&r).into_iter().filter(|m| in_dir(&m.2)).find_map(|m| live_marker(&m.2, &panes, None, None)));
+    // Or Claude Code in a pane there no marker says (one you started, from a shell even: its
+    // screen says), at it or asking you something.
+    marked.or_else(|| {
+        crate::view::in_zellij().then_some(())?;
+        panes.get_or_init(crate::pane::open).iter().filter(|p| p.2.starts_with(dir)).find_map(|p| {
+            let screen = crate::pane::screen(p.0);
+            match (crate::pane::asking(&screen), crate::pane::working(&screen)) {
+                (true, _) => Some("asking you (in its pane)".to_owned()),
+                (_, true) => Some("working (in its pane)".to_owned()),
+                _ => None,
+            }
+        })
+    })
 }
 
 /// What the marker at `path` says Claude's doing, if it's still at it (and not in the pane of
