@@ -28,7 +28,8 @@ impl List {
         // Keep the selection on screen.
         self.nav.keep(self.shown().len(), h);
         let sel = self.nav.sel;
-        let (ui, shown) = (&self.ui, self.shown());
+        let (ui, cards) = (&self.ui, self.shown_cards());
+        let shown: Vec<&Listed> = cards.iter().map(|c| c.0).collect();
         f.render_widget(Paragraph::new("").style(ui.base), area);
 
         let arrow = if self.rev { '↑' } else { '↓' };
@@ -66,7 +67,7 @@ impl List {
             .skip(self.nav.top)
             .take(h)
             .flat_map(|(i, p)| {
-                let item = (self.nav.tab == Tab::Todo).then(|| self.todo_shown().into_iter().find(|(c, _)| std::ptr::eq(*c, *p)).map(|x| x.1)).flatten();
+                let item = cards[i].1;
                 let rep_card = self.nav.tab == Tab::Replacements || item.is_some_and(|it| it.is_rep());
                 let says = item.map(todo_says);
                 let mark = match rep_card {

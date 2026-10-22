@@ -457,15 +457,7 @@ impl List {
                 true => "replacements to draft: one per line, the PRs it replaces (Claude's suggestion; change it as you like, # notes are ignored)".to_owned(),
                 false => format!("replacements to draft, one per line (Claude couldn't suggest any: {why})"),
             };
-            let in_pane = crate::view::in_zellij();
-            if !in_pane {
-                crate::view::restore_terminal();
-            }
-            let edited = crate::view::compose_with(&what, false, &suggested, true);
-            if !in_pane {
-                *term = crate::view::init_terminal();
-            }
-            match edited {
+            match edit(term, &what, &suggested, false, true) {
                 Ok(Some(text)) => groups = batch::parse_groups_text(&text),
                 Ok(None) => return self.msg = "cancelled".into(),
                 Err(e) => return self.msg = format!("{e:#}"),
@@ -941,7 +933,8 @@ fn term(p: &Listed, t: &str) -> bool {
                 _ => return None,
             })
         },
-        || format!("#{} {} @{} {} {}", p.number, p.title, p.author, p.branch, labels()),
+        // (A new PR's card says "new 3": that too.)
+        || format!("#{} {} @{} {} {} {}", p.number, p.title, p.author, p.branch, labels(), crate::replace::shown(p.number)),
     )
 }
 
