@@ -14,6 +14,15 @@ pub(super) type Fetched = (Result<gh::Review>, Result<Info>);
 
 /// Both at once (each is a ~1s GitHub round-trip), kept in `cache` when both came. An issue
 /// has no review threads: its info, and who you are (its "threads" as a PR's would say it).
+/// PR `n`'s head `oid` here, fetched (`refs/pull/N/head`: a fork's too) if it isn't: what's
+/// pushed or not, a force-push's lease and taking theirs go by it.
+pub(super) fn have_head(n: u64, oid: &str) -> anyhow::Result<()> {
+    if oid.is_empty() || diff::git(&["cat-file", "-e", &format!("{oid}^{{commit}}")]).is_ok() {
+        return Ok(());
+    }
+    diff::git(&["fetch", "-q", &crate::diff::remote(), &format!("refs/pull/{n}/head")]).map(drop)
+}
+
 pub(super) fn fetch_github(s: Subject, cache: Option<&Path>) -> Fetched {
     let (threads, mut info) = match s {
         Subject::Pr(n) => std::thread::scope(|s| {
@@ -141,6 +150,10 @@ impl App {
                 {
                     head.clone_from(&i.head);
                     *checks = checks_of(head);
+                }
+                // Its head here (what's pushed or not is known from it), off dv's thread.
+                if let (Subject::Pr(n), Ok(i)) = (s, &f.1) {
+                    _ = have_head(n, &i.head);
                 }
                 f
             };

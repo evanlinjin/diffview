@@ -150,11 +150,9 @@ impl App {
         new
     }
 
-    /// `Space g` → abort the rebase: back to before it.
+    /// `Space g` → abort the rebase: back to before it. (Not while Claude's at it:
+    /// `touches_checkout`.)
     pub(super) fn abort_rebase(&mut self) {
-        if self.claude.job.is_some() {
-            return self.msg = "Claude is still at the rebase: stop it first (Space a), then abort".into();
-        }
         self.msg = match git_in(&self.root, &["rebase", "--abort"]) {
             Ok(_) => {
                 forget_rebase(&self.root);

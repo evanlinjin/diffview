@@ -108,7 +108,10 @@ impl App {
                     left_out = Some(format!("{n} commit(s) not pushed"));
                     items.push(Item::new(format!("Push {n} commit(s) to {name}"), Target::Run(Job::Push(false))));
                 }
-                Push::Unknown => items.push(Item::new(format!("Push to {name}"), Target::Run(Job::Push(false)))),
+                Push::Unknown => {
+                    left_out = Some("can't tell what's on GitHub: R refreshes".into());
+                    items.push(Item::new(format!("Push to {name}"), Target::Run(Job::Push(false))));
+                }
                 Push::Diverged => {
                     // Behind only (nothing here it doesn't have): no force-push, just its version.
                     let theirs = self.their_head(&remote, &branch);
@@ -207,11 +210,10 @@ impl App {
         let theirs = self.their_head(&remote, &branch);
         anyhow::ensure!(diff::git(&["status", "--porcelain"])?.trim().is_empty(), "there are uncommitted changes (commit them first, Space g, or they'd be lost)");
         // Not here yet: fetched (a PR's head is on its base repo too).
-        if diff::git(&["cat-file", "-e", &format!("{theirs}^{{commit}}")]).is_err() {
-            match &self.pr {
-                Some(p) => _ = diff::git(&["fetch", "-q", &crate::diff::remote(), &format!("refs/pull/{}/head", p.number)])?,
-                None => _ = diff::git(&["fetch", "-q", &remote, &branch])?,
-            }
+        match &self.pr {
+            Some(p) => super::github::have_head(p.number, &theirs)?,
+            None if diff::git(&["cat-file", "-e", &format!("{theirs}^{{commit}}")]).is_err() => _ = diff::git(&["fetch", "-q", &remote, &branch])?,
+            None => {}
         }
         let ours: usize = diff::git(&["rev-list", "--count", &format!("{theirs}..HEAD")])?.trim().parse().unwrap_or(0);
         if ours > 0 && !sure {
