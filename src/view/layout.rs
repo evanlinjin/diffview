@@ -280,7 +280,10 @@ impl App {
         while i < n {
             if margin(i) {
                 let first = i == 0 || self.rows[i - 1].thread != self.rows[i].thread;
-                if let (true, Some(t), Some(c)) = (first, self.rows[i].thread, last_code) {
+                // (About its file's code only: one placed under its file's header, on no line
+                // of it, is about none, not the last file's last line.)
+                let code = last_code.filter(|&c| self.rows[c].file == self.rows[i].file);
+                if let (true, Some(t), Some(c)) = (first, self.rows[i].thread, code) {
                     anchors.insert(t, c);
                 }
                 match last {
@@ -533,6 +536,11 @@ impl App {
         self.split && l.or(r).is_some_and(|x| self.rows[x].line.kind.is_code())
     }
 
+    /// Whether screen row `d` is a split pair.
+    pub(super) fn paired_at(&self, d: usize) -> bool {
+        matches!(self.drows.get(d), Some(&(DRow::Pair(l, r) | DRow::Margin(l, r, _))) if self.paired(l, r))
+    }
+
     /// Screen row `d`'s line on a side (`right`, of a split pair; else its one): None for a
     /// spacer, or a pair's hatch (no line on that side).
     pub(super) fn side_row(&self, d: usize, right: bool) -> Option<usize> {
@@ -561,9 +569,10 @@ impl App {
     /// The screen column screen row `d`'s code starts at on a side (as last drawn).
     pub(super) fn code_x(&self, d: usize, right: bool) -> usize {
         let g = self.geom;
-        match self.drows.get(d) {
-            Some(&(DRow::Pair(l, r) | DRow::Margin(l, r, _))) if self.paired(l, r) => if right { self.right_x() } else { g.relw + g.ghw },
-            _ => g.relw + g.gw,
+        match (self.paired_at(d), right) {
+            (true, true) => self.right_x(),
+            (true, false) => g.relw + g.ghw,
+            (false, _) => g.relw + g.gw,
         }
     }
 

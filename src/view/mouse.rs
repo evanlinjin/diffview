@@ -193,7 +193,8 @@ impl App {
         // The code: the side clicked (split view; a hatch, no line there: the other's), what
         // that screen row shows of it (`span`), the click kept within it. A spacer: the comment
         // beside it.
-        let paired = matches!(self.drows.get(d)?, &(DRow::Pair(l, r) | DRow::Margin(l, r, _)) if self.paired(l, r));
+        self.drows.get(d)?;
+        let paired = self.paired_at(d);
         let side = paired && x >= g.relw + g.half;
         let side = if self.side_row(d, side).is_some() { side } else { !side };
         let Some(row) = self.side_row(d, side) else {

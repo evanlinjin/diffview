@@ -69,9 +69,11 @@ impl App {
             return self.goto(r, 0);
         }
         if into_margin || leaving {
+            // (Into the pane: a comment; out of it: the code on that screen row, the side with
+            // a part of it there, the right first.)
             let at = |d: usize| match self.drows[d] {
                 DRow::Margin(_, _, c) if right => c,
-                DRow::Margin(l, r, _) => r.or(l),
+                DRow::Margin(..) => self.span(d, true).or_else(|| self.span(d, false)).map(|s| s.row),
                 _ => None,
             };
             let near = at(hd)
@@ -132,8 +134,7 @@ impl App {
     /// list's): not in split view, or on a full-width row (a header); on that half already; or
     /// with nothing on it (a hatch) to go to.
     fn at_edge(&self, d: usize, right: bool) -> bool {
-        let paired = matches!(self.drows.get(d), Some(&(DRow::Pair(l, r) | DRow::Margin(l, r, _))) if self.paired(l, r));
-        !self.split || !paired || self.head_right() == right || self.side_row(d, right).is_none()
+        !self.paired_at(d) || self.head_right() == right || self.side_row(d, right).is_none()
     }
 
     /// Which half the cursor's drawn on in split view: a removed line's the left, an added

@@ -3822,3 +3822,15 @@ fn the_codes_edges_are_one_rule() {
     app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
     assert!(app.margin_side(), "into the pane at once: {}", app.msg);
 }
+
+#[test]
+fn a_comment_on_no_line_is_about_no_other_files_line() {
+    let text = "diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1,2 +1,2 @@\n a\n-b\n+c\ndiff --git a/z.rs b/z.rs\nindex 1..2 100644\n--- a/z.rs\n+++ b/z.rs\n@@ -1 +1 @@\n-y\n+z\n";
+    let mut app = App::with("base".into(), diff::parse(text));
+    (app.files_pref, app.margin_pref) = (Some(false), Some(true));
+    app.threads = vec![gh::Thread { path: "z.rs".into(), line: Some(99), comments: vec![gh::Comment { author: "amy".into(), body: "hm".into(), ..Default::default() }], ..Default::default() }];
+    app.build();
+    _ = screen(220, 20, |f| app.draw(f));
+    let c = app.rows.iter().position(|r| r.line.text == "c").unwrap();
+    assert_ne!(app.margin_anchor.get(&0), Some(&c), "not a.rs's last line");
+}
