@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.95.5] - 2026-10-22
+
+### Fixed
+- Key hints: with a selection, its keys (copying always; commenting only on code lines of one
+  file); `s` only where a suggestion can be made (not on removed lines), `C` only with no
+  pending review.
+
 ## [0.95.4] - 2026-10-22
 
 ### Fixed
