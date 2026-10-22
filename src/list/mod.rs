@@ -481,7 +481,7 @@ impl List {
             false => self.instructions(term, "replace", &what),
         };
         let Some(extra) = extra else { return };
-        self.msg = format!("Claude is drafting {} replacement(s): the replacements tab shows them", groups.len());
+        self.msg = format!("Claude is drafting {} replacement(s): the drafts tab shows them", groups.len());
         self.marked.clear();
         for g in groups {
             // (A first draft with nothing given takes your saved instructions: `replace::draft`.)
@@ -521,7 +521,7 @@ impl List {
         let news: Vec<(u64, batch::Status)> = self.draft_rx.iter().flat_map(|rx| rx.try_iter()).collect();
         for (id, s) in news {
             match &s {
-                batch::Status::Done(took) => self.msg = format!("Claude drafted a replacement for #{id} ({took}): it's in the replacements tab"),
+                batch::Status::Done(took) => self.msg = format!("Claude drafted {} ({took}): it's in the drafts tab", crate::replace::label(id)),
                 batch::Status::Failed(e) => self.msg = format!("Claude's draft of {} failed: {e}", crate::replace::label(id)),
                 _ => {}
             }

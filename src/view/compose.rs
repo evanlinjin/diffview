@@ -258,14 +258,18 @@ impl App {
             Action::Replace(prs, about) => {
                 // Claude at work on it, or its pane open here (`redraft_waits`).
                 let waits = || self.redraft_waits(prs[0]);
-                let which = prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(", ");
+                // (What it is, said: a new PR's id is no PR number.)
+                let it = match crate::replace::is_new(prs[0]) {
+                    true => crate::replace::label(prs[0]),
+                    false => format!("the replacement of {}", prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(", ")),
+                };
                 // Drafted already: what you want is asked of its drafts (kept with them, shown
                 // there), for the redraft to take in.
                 if crate::replace::drafted(prs[0]) || crate::replace::is_new(prs[0]) {
                     let (what, (on, prefill, want)) = match about {
-                        Some(q @ (_, _, "ask")) => (format!("ask Claude about the replacement of {which}, under the quote (it answers; it changes nothing)"), q),
-                        Some(q) => (format!("ask Claude to redraft the replacement of {which}: what to change, under the quote"), q),
-                        None => (format!("what else Claude should do in its redraft of {which} (optional)"), ("", String::new(), "")),
+                        Some(q @ (_, _, "ask")) => (format!("ask Claude about {it}, under the quote (it answers; it changes nothing)"), q),
+                        Some(q) => (format!("ask Claude to redraft {it}: what to change, under the quote"), q),
+                        None => (format!("what else Claude should do in its redraft of {it} (optional)"), ("", String::new(), "")),
                     };
                     let asking = !prefill.is_empty();
                     let Some(ask) = compose_with(&what, !asking, prefill.trim_end(), !asking)? else { return Ok("not asked".into()) };
@@ -282,7 +286,7 @@ impl App {
                     if let Some(why) = waits() {
                         return Ok(why);
                     }
-                    let what = format!("instructions for Claude's replacement of {which} (optional)");
+                    let what = format!("instructions for Claude's draft of {it} (optional)");
                     let Some(extra) = compose_with(&what, true, crate::claude::instructions("replace").trim_end(), true)? else { return Ok("not asked".into()) };
                     crate::claude::save_instructions("replace", &extra)?; // `dv replace` reads them
                     if let Some(why) = waits() {
@@ -290,7 +294,7 @@ impl App {
                     }
                 }
                 crate::replace::spawn(&prs)?;
-                Ok(format!("Claude is drafting a replacement for {which} in the background: Space a opens it (the status bar says while it's at it)"))
+                Ok(format!("Claude is drafting {it} in the background: Space a opens it (the status bar says while it's at it)"))
             }
             Action::Publish(close) => {
                 // (It rebases and pushes the branch.)

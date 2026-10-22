@@ -40,7 +40,7 @@ const USAGE: &str = "usage: dv [base | PR | list] [-p N] [-f] [-w [-b]]
                    give it the message in file M (a backup branch first)
   dv replace 123 [124 …]   Claude drafts a replacement for those PRs, unpublished, on
                    branch dv/replace-123 in a worktree <repo>-replace-123 (dv list's
-                   replacements tab shows it)
+                   drafts tab shows it)
   dv replace-info  for Claude: the replacement checked out here (its record, what it replaces)
   dv install-skill install the dv-review skill for Claude Code (~/.claude/skills/dv-review)
   dv version       print dv's version (also --version, -V)
