@@ -292,11 +292,15 @@ pub fn no_prompt(cmd: &mut Command) -> &mut Command {
     if may_ask {
         return cmd;
     }
+    // Your ssh as git would pick it (`GIT_SSH_COMMAND`, `core.sshCommand`, ssh), in batch
+    // mode. (`GIT_SSH`, a program, takes no options: left as it is.)
+    // ponytail: read once, where dv first runs it; a per-worktree core.sshCommand would need it per call.
     let ssh = SSH.get_or_init(|| {
-        if std::env::var_os("GIT_SSH_COMMAND").is_some() || std::env::var_os("GIT_SSH").is_some() {
+        if std::env::var_os("GIT_SSH").is_some() && std::env::var_os("GIT_SSH_COMMAND").is_none() {
             return None;
         }
-        let own = Command::new("git").args(["config", "core.sshCommand"]).output().ok().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned()).filter(|s| !s.is_empty());
+        let config = || Command::new("git").args(["config", "core.sshCommand"]).output().ok().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned());
+        let own = std::env::var("GIT_SSH_COMMAND").ok().or_else(config).filter(|s| !s.is_empty());
         Some(format!("{} -o BatchMode=yes", own.as_deref().unwrap_or("ssh")))
     });
     if let Some(s) = ssh {
@@ -313,7 +317,9 @@ pub fn git(args: &[&str]) -> Result<String> {
     // `--untracked-files=no`. No prompt over the view (`no_prompt`).
     let mut cmd = Command::new("git");
     cmd.args(["-c", "log.showSignature=false", "-c", "status.showUntrackedFiles=all"]);
-    let out = no_prompt(&mut cmd)
+    no_prompt(&mut cmd);
+    let asks = !cmd.get_envs().any(|(k, _)| k == "GIT_TERMINAL_PROMPT");
+    let out = cmd
         .args(args)
         .env("GIT_EDITOR", "true")
         .env("GIT_SEQUENCE_EDITOR", "true")
@@ -326,7 +332,11 @@ pub fn git(args: &[&str]) -> Result<String> {
         // Why first (git's "fatal:" / "error:" lines, before what it was doing: "Preparing
         // worktree"), as a message shows its first line.
         let err = String::from_utf8_lossy(&out.stderr);
-        let (why, rest): (Vec<&str>, Vec<&str>) = err.lines().filter(|l| !l.trim().is_empty()).partition(|l| l.starts_with("fatal:") || l.starts_with("error:"));
+        // ssh refused, not asked (`no_prompt`): that first, as git's "fatal:" doesn't say it.
+        let (mut why, rest): (Vec<&str>, Vec<&str>) = err.lines().filter(|l| !l.trim().is_empty()).partition(|l| l.starts_with("fatal:") || l.starts_with("error:"));
+        if !asks && ["Permission denied (publickey", "Host key verification failed"].iter().any(|s| err.contains(s)) {
+            why.insert(0, "ssh isn't let ask for your passphrase over dv (ssh-add your key, or do this from a terminal)");
+        }
         bail!("git {}: {}", args.join(" "), why.into_iter().chain(rest).collect::<Vec<_>>().join("\n"));
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
