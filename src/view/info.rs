@@ -132,13 +132,15 @@ pub fn parse_info(v: &Value) -> Info {
     }
 }
 
-/// A PR's state as GitHub shows it, with its color: DRAFT, OPEN, MERGED or CLOSED.
+/// A PR's (or issue's) state as GitHub shows it, with its color: DRAFT, OPEN, MERGED or CLOSED.
 pub type State = (&'static str, &'static str);
 
 pub fn state(v: &Value) -> State {
-    // A closed draft is closed.
+    // A closed draft is closed; a closed issue, done (purple) or not (grey), as GitHub colors it.
     match (v["state"].as_str().unwrap_or(""), v["isDraft"] == true) {
         ("MERGED", _) => ("MERGED", "8957e5"),
+        ("CLOSED", _) if v["__typename"] == "Issue" && v["stateReason"] == "COMPLETED" => ("CLOSED", "8957e5"),
+        ("CLOSED", _) if v["__typename"] == "Issue" => ("CLOSED", "6e7681"),
         ("CLOSED", _) => ("CLOSED", "da3633"),
         (_, true) => ("DRAFT", "6e7681"),
         _ => ("OPEN", "238636"),

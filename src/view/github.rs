@@ -257,7 +257,7 @@ impl App {
                 self.refresh_sync(); // the PR's head may have moved
                 self.map_head();
             }
-            Err(e) => self.msg = format!("loading PR info: {e:#}"),
+            Err(e) => self.msg = format!("loading {}: {e:#}", self.what()),
         }
         self.follow_github_base(true);
     }

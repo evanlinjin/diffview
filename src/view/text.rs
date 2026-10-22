@@ -514,12 +514,13 @@ impl App {
             return self.msg = self.info[s].text.clone();
         }
         if !start.is_some_and(|s| self.info[s + 1..].iter().any(|l| l.heading)) {
-            return self.msg = "no activity on this PR yet".into();
+            return self.msg = format!("no activity on {} yet", self.what());
         }
         // From another tab: to the whole diff, with all of it.
         self.conversation_all = self.view != View::All || !self.conversation_all;
         if self.view != View::All {
-            (self.view, self.msg) = (View::All, "the whole diff, with all of the PR's activity".into());
+            let whole = if self.has_code() { "the whole diff, with " } else { "" };
+            (self.view, self.msg) = (View::All, format!("{whole}all of {}'s activity", self.what()));
         }
         self.sections_folded.remove(&DESCRIPTION);
         self.info_collapsed = false;

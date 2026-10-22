@@ -498,7 +498,10 @@ impl App {
         };
         keep_on_error(closed, &text)?;
         _ = crate::claude::clear(&path, "closing");
-        self.pr_state = Some(("CLOSED", "da3633"));
+        // (As GitHub will have it: an issue's by why it closed.)
+        let why = if matches!(t.reason.as_str(), "duplicate" | "not planned") { "NOT_PLANNED" } else { "COMPLETED" };
+        let kind = if matches!(s, crate::claude::Subject::Issue(_)) { "Issue" } else { "PullRequest" };
+        self.pr_state = Some(super::info::state(&serde_json::json!({ "__typename": kind, "state": "CLOSED", "stateReason": why })));
         self.github_changed();
         let keep = self.cursor_key();
         self.load_claude();
@@ -564,7 +567,7 @@ impl App {
             Ask::Close => format!(
                 "Use the dv-review skill to draft a comment closing {what}, as the user asks below, in the review file's \
                  top-level \"closing\" field (see \"Draft a closing comment\"). Start from the draft already there, if there \
-                 is one. Don't close the PR or comment on GitHub: the user closes it in dv."
+                 is one. Don't close it or comment on GitHub: the user closes it in dv."
             ),
             Ask::Describe => format!(
                 "Use the dv-review skill to propose a new description for {what}, as the user asks below: the whole new text, \

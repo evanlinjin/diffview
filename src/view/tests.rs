@@ -5495,3 +5495,11 @@ fn a_bots_login_and_page() {
     assert_eq!(gh::page(&serde_json::json!({ "__typename": "Bot", "login": "github-actions" })), "https://github.com/apps/github-actions");
     assert_eq!(gh::page(&serde_json::json!({ "__typename": "User", "login": "amy" })), "https://github.com/amy");
 }
+
+#[test]
+fn a_closed_issues_chip_is_coloured_by_why() {
+    let st = |v: serde_json::Value| info::state(&v);
+    assert_eq!(st(serde_json::json!({ "__typename": "Issue", "state": "CLOSED", "stateReason": "COMPLETED" })), ("CLOSED", "8957e5"));
+    assert_eq!(st(serde_json::json!({ "__typename": "Issue", "state": "CLOSED", "stateReason": "NOT_PLANNED" })), ("CLOSED", "6e7681"));
+    assert_eq!(st(serde_json::json!({ "state": "CLOSED" })), ("CLOSED", "da3633"), "a PR's");
+}
