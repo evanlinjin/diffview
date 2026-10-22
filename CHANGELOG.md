@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.95.0] - 2026-10-22
+
+### Changed
+- `dv issues`: Enter opens an issue in the PR view (as a PR's link to one has since
+  0.94.0): every key and Claude ask works as it does on a PR. A PR's link there is reviewed as
+  dv list does, then back to the issue. The separate issue view is gone, and with it its
+  own keys (`L L`, `T T`, `X X`, `E E`, `a q`, `a e`, `o`): `Space l`, `Space a` and Enter on
+  the title do those now.
+
 ## [0.94.0] - 2026-10-22
 
 ### Changed
