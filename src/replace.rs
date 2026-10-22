@@ -315,13 +315,16 @@ fn prepare(asked: &[u64], root: &Path) -> Result<PathBuf> {
         anyhow::bail!("#{} targets {}, #{n} targets {b}: one replacement can't replace both", bases[0].0, bases[0].1);
     }
     let base = bases.first().map(|b| b.1.clone()).unwrap_or_default();
-    let ((), r) = update(id, |r| {
-        (r.base, r.replaces) = (base, originals);
-        Ok(())
+    let (old, r) = update(id, |r| {
+        let old = std::mem::replace(&mut r.base, base);
+        r.replaces = originals;
+        Ok(old)
     })?;
     let dir = worktree(&r, root)?;
-    // Carrying on: from the base as it is now, if that goes cleanly (else Claude sees why).
-    _ = rebase(&r, &dir);
+    // Carrying on: from the base as it is now (the originals retargeted: from the old one's,
+    // its commits not taken along), if that goes cleanly; else `Space g` rebases it there.
+    let from = (!old.is_empty() && old != r.base).then_some(old);
+    _ = rebase(&r, &dir, from.as_deref());
     Ok(dir)
 }
 
@@ -366,18 +369,25 @@ pub fn create_new(task: &str, root: &Path) -> Result<u64> {
 fn prepare_new(id: u64, root: &Path) -> Result<PathBuf> {
     let r = load(id)?;
     let dir = worktree(&r, root)?;
-    _ = rebase(&r, &dir); // carrying on: from its base as it is now, if that goes cleanly
+    _ = rebase(&r, &dir, None); // carrying on: from its base as it is now, if that goes cleanly
     Ok(dir)
 }
 
 /// Bring replacement `r`'s branch (in `dir`) up to its base on origin: fetch, then rebase onto
-/// it. A rebase that conflicts is undone, and said so.
-pub fn rebase(r: &Record, dir: &Path) -> Result<()> {
+/// it (from base `from`, if it was another). A rebase that conflicts is undone, and said so.
+pub fn rebase(r: &Record, dir: &Path, from: Option<&str>) -> Result<()> {
     let git = |args: &[&str]| crate::diff::git(&[&["-C", &dir.to_string_lossy()], args].concat());
+    let onto = crate::diff::remote_branch(&r.base);
     git(&["fetch", "-q", &crate::diff::remote(), &r.base])?;
-    if let Err(e) = git(&["rebase", "-q", &crate::diff::remote_branch(&r.base)]) {
+    // Its base was another (`from`): only its own commits, from where it left that one.
+    let fork = from.and_then(|f| git(&["merge-base", "HEAD", &crate::diff::remote_branch(f)]).ok()).map(|f| f.trim().to_owned());
+    let res = match &fork {
+        Some(f) => git(&["rebase", "-q", "--onto", &onto, f]),
+        None => git(&["rebase", "-q", &onto]),
+    };
+    if let Err(e) = res {
         _ = git(&["rebase", "--abort"]);
-        anyhow::bail!("it doesn't rebase cleanly onto {} ({e:#}): ask Claude to redraft it on the new base", crate::diff::remote_branch(&r.base));
+        anyhow::bail!("it doesn't rebase cleanly onto {onto} ({e:#}): Space g → Rebase onto {onto}, Claude resolves the conflicts");
     }
     Ok(())
 }
@@ -672,7 +682,7 @@ pub fn publish(r: &mut Record, dir: &Path, title: &str, body: &str, own: Option<
     *r = load(r.id)?;
     anyhow::ensure!(r.published.is_none(), "already published, as #{}", r.published.unwrap_or(0));
     let remote = remote().context("no remote for replacement branches (dv.replaceRemote)")?;
-    rebase(r, dir)?;
+    rebase(r, dir, None)?;
     let b = branch(r.id);
     let url = crate::diff::git(&["remote", "get-url", &remote])?;
     let owner = owner(url.trim()).with_context(|| format!("{remote} ({}) isn't a GitHub repo", url.trim()))?;
