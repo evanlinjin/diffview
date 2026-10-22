@@ -183,6 +183,7 @@ pub(crate) fn show(pane: u64) -> Result<()> {
 /// Whether a Claude Code pane's screen shows it working: its spinner line, a word and how long
 /// it's been at it ("· Moseying… (59s · ↓ 1.3k tokens)"), or, as it used to say, how to stop it.
 pub(crate) fn working(screen: &str) -> bool {
+    let screen = live(screen);
     screen.contains("esc to interrupt") || screen.lines().any(|l| l.split_once("… (").is_some_and(|(_, t)| t.starts_with(|c: char| c.is_ascii_digit())))
 }
 
@@ -191,22 +192,40 @@ pub(crate) fn working(screen: &str) -> bool {
 /// it. Typing in then would answer it. (Not its words asking: a reply ending "Would you like
 /// me to…?" is done, waiting as any.)
 pub(crate) fn asking(screen: &str) -> bool {
-    let option = |l: &str| l.trim_start().strip_prefix("❯ ").is_some_and(|o| o.split_once('.').is_some_and(|(n, _)| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())));
+    // (Its cursor indented, in its menu: a message of yours, `❯ 1. yes`, is at the line's start.)
+    let option = |l: &str| {
+        let o = l.strip_prefix([' ', '│']).map(|l| l.trim_start_matches([' ', '│']));
+        o.and_then(|o| o.strip_prefix("❯ ")).is_some_and(|o| o.split_once('.').is_some_and(|(n, _)| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())))
+    };
+    let screen = live(screen);
     screen.contains("trust this folder") || screen.lines().any(option)
+}
+
+/// What's live on a Claude Code screen: past its transcript's last entry (`●` at a line's
+/// start) and that entry's own text (blank or indented lines after it): its spinner, tasks, a
+/// menu, the input box. Not what it said or showed (a reply reading "… (3 passed)", a file's
+/// text). No entry: all of it.
+fn live(screen: &str) -> &str {
+    let Some(i) = screen.rfind("\n●").map(|i| i + 1).or_else(|| screen.starts_with('●').then_some(0)) else { return screen };
+    let mut rest = screen[i..].split_once('\n').map_or("", |r| r.1);
+    while let Some((l, more)) = rest.split_once('\n') {
+        if !(l.trim().is_empty() || l.starts_with("  ")) {
+            break;
+        }
+        rest = more;
+    }
+    rest
 }
 
 /// What Claude Code in pane `p` is doing, if it's Claude Code there (its command: zellij's is
 /// the pane's foreground process, not an editor's or a shell's, whatever their text) and at
-/// it: working, or asking you something, by what's after its transcript's last entry (`●` at
-/// the line's start: its spinner, tasks, a prompt), not what it said before.
+/// it: working, or asking you something (by what's live on its screen).
 pub(crate) fn claude_doing(p: &Pane) -> Option<&'static str> {
     p.1.contains("claude").then(|| doing(&screen(p.0)))?
 }
 
 fn doing(screen: &str) -> Option<&'static str> {
-    let now = screen.rfind("\n●").map_or(screen, |i| &screen[i + 1..]);
-    let now = now.split_once('\n').map_or("", |(_, rest)| rest); // (past the entry's own line)
-    match (asking(now), working(now)) {
+    match (asking(screen), working(screen)) {
         (true, _) => Some("asking you (in its pane)"),
         (_, true) => Some("working (in its pane)"),
         _ => None,
@@ -264,4 +283,6 @@ fn what_claude_is_doing_now() {
     assert_eq!(doing(&format!("● Reading\n· Moseying… (59s · ↓ 1.3k tokens)\n{tasks}{foot}")), Some("working (in its pane)"));
     // Asking: its menu.
     assert_eq!(doing("● Bash(rm x)\n Do you want to proceed?\n ❯ 1. Yes\n   2. No"), Some("asking you (in its pane)"));
+    // Not: a numbered message of yours, its reply's own text, what a tool showed.
+    assert_eq!(doing(&format!("❯ 1. yes\n● Ran the suite again… (342 passed, 0 failed).\n  ⎿ \"trust this folder\"\n✻ Worked for 9s\n{foot}")), None);
 }
