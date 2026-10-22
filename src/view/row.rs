@@ -455,7 +455,7 @@ impl App {
             spans.push(Span::raw(" ".repeat(tw.saturating_sub(used))));
             return spans;
         }
-        // (The PR's text cut to leave room for them: `row_w`.)
+        // (The PR's text cut to leave room for them: `text_w`.)
         let segs = self.chips(r, self.bar_counts, style);
         match chips_w(&segs) {
             // Right-aligned when it fits after the name; it isn't part of the row's text.

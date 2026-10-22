@@ -66,6 +66,8 @@ impl App {
         let guide = self.rows.get(r).map_or(0, Row::guide_w);
         match self.box_part(r) {
             Some(_) => self.box_w(r, tw).saturating_sub(1 + guide),
+            // The PR's title: up to its chips (state, counts, badge), which always show.
+            None if self.rows[r].file == INFO => tw.saturating_sub(guide + super::row::chips_w(&self.chips(r, self.bar_counts, Style::new()))),
             None => tw.saturating_sub(guide),
         }
     }
@@ -474,17 +476,12 @@ impl App {
     pub(super) fn row_w(&self, r: usize) -> usize {
         let Widths { full, pane, .. } = self.frame_w;
         // (The pinned title shares its row with the pane's tabs: as wide as the code's area.)
-        let w = match (self.in_pane(r), self.rows[r].line.kind.is_code()) {
-            _ if r == 0 && self.pin => self.geom.ctw,
+        match (self.in_pane(r), self.rows[r].line.kind.is_code()) {
+            _ if r == 0 && self.pin => self.text_w(r, self.geom.ctw),
             (true, _) if pane > 0 => self.text_w(r, pane),
             (false, true) => self.code_w(),
             _ if full > 0 => self.text_w(r, full),
             _ => 0,
-        };
-        // The PR's text: up to its chips (state, counts, badge), which always show.
-        match self.rows[r].file == INFO {
-            true => w.saturating_sub(super::row::chips_w(&self.chips(r, self.bar_counts, Style::new()))),
-            false => w,
         }
     }
 

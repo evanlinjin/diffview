@@ -4055,3 +4055,15 @@ fn a_wide_title_is_measured_in_columns() {
     let (r, ch, ..) = app.at_screen(start + x, 0).unwrap();
     assert_eq!((r, text.chars().nth(ch)), (0, Some('修')), "{ch}");
 }
+
+#[test]
+fn a_long_title_keeps_its_chips() {
+    let mut app = fixture();
+    app.pr_state = Some(("OPEN", "238636"));
+    app.sync = "↑2 unpushed".into();
+    app.pr.as_mut().unwrap().title = "x".repeat(200);
+    app.build();
+    let s = screen(100, 12, |f| app.draw(f));
+    let title = s.lines().next().unwrap();
+    assert!(title.contains("OPEN") && title.contains("unpushed"), "{title}");
+}

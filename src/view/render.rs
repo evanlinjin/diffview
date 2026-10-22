@@ -35,7 +35,6 @@ struct Cols {
     relw: usize,
     tw: usize,
     mw: usize,
-    mtw: usize,
     margin: bool,
     float: bool,
     ctw: usize,
@@ -165,6 +164,8 @@ impl App {
         // laid out again (once: with a rebuild, by it).
         // Where the margin starts (floating: over the code's right end).
         let mx = width.saturating_sub(mw).saturating_sub(gw + 1);
+        let changed = ww != self.wrap_w || margin != self.margin_active || (margin && mw != self.margin_w) || float != self.margin_float;
+        (self.wrap_w, self.margin_active, self.margin_w, self.margin_float) = (ww, margin, mw, float);
         let w = Widths {
             full: if margin && !float { ctw } else { tw },
             half: htw_l,
@@ -173,14 +174,12 @@ impl App {
         };
         let rewrap = (w.full, w.half) != (self.frame_w.full, self.frame_w.half) && self.soft_wrap;
         self.frame_w = w;
-        if ww != self.wrap_w || margin != self.margin_active || (margin && mw != self.margin_w) || float != self.margin_float {
-            (self.wrap_w, self.margin_active, self.margin_w, self.margin_float) = (ww, margin, mw, float);
+        if changed {
             let keep = self.cursor_key();
             self.rebuild(keep);
         } else if rewrap {
             self.relayout_keeping_top();
         }
-        let mtw = mw - self.pane_gw();
         if !self.margin_side() {
             self.code_head = self.head;
         }
@@ -192,7 +191,7 @@ impl App {
         // The PR's counts on its pinned title, when they fit beside all of it.
         self.bar_counts = self.pin && self.title_fits(code_tw);
         let hd = self.hd();
-        Cols { full, area, sw, pin, h, lw, gw, ghw, relw, tw, mw, mtw, margin, float, ctw, htw_l, htw_r, mx, code_tw, hd }
+        Cols { full, area, sw, pin, h, lw, gw, ghw, relw, tw, mw, margin, float, ctw, htw_l, htw_r, mx, code_tw, hd }
     }
 
     /// The code scrolled to the cursor, up and down, and sideways: in a comment's code block by
@@ -264,7 +263,7 @@ impl App {
     /// it (floating), the file the top is in pinned over its code; below the last, the line
     /// between them on to the bottom, and what an empty view says.
     fn draw_body(&mut self, f: &mut Frame, c: &Cols) {
-        let Cols { full, area, pin, h, lw, gw, ghw, relw, tw, mw, mtw, margin, float, ctw, htw_l, htw_r, mx, code_tw, hd, .. } = *c;
+        let Cols { full, area, pin, h, lw, gw, ghw, relw, tw, mw, margin, float, ctw, htw_l, htw_r, mx, code_tw, hd, .. } = *c;
         let (s, e) = self.ordered();
         let overlay = self.label_overlay();
         self.highlight_visible();
@@ -310,7 +309,7 @@ impl App {
         };
         // As a column, a space between the line and the pane's boxes (not `││`).
         let pad = self.pane_pad();
-        let ptw = mtw - pad;
+        let ptw = self.frame_w.pane;
         // The file the top of the screen is in, its header scrolled off: pinned over its code.
         let sticky = self.sticky();
         let code_cols = relw + gw + code_tw;
