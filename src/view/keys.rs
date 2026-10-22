@@ -315,8 +315,10 @@ impl App {
             'n' => (0..n).for_each(|_| self.find(true)),
             'N' => (0..n).for_each(|_| self.find(false)),
             '*' => {
-                // (One line of it: a search matches within a line.)
-                self.search = self.selection_text(false).lines().next().unwrap_or("").to_owned();
+                // (Its first line's text, as drawn: a search matches within a line.)
+                let (s, e) = self.ordered();
+                let to = if e.row == s.row { e.col + 1 } else { usize::MAX };
+                self.search = self.chars(s.row).into_iter().skip(s.col).take(to.saturating_sub(s.col)).collect();
                 self.msg = format!("search: {}", self.search);
             }
             '+' | '=' => self.expand(10),
