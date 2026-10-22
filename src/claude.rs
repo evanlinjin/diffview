@@ -193,14 +193,18 @@ fn copy_dir(from: &std::path::Path, to: &std::path::Path) -> Result<()> {
 
 /// Where the review for PR `pr` (or, without one, the current branch) lives.
 pub fn path(pr: Option<u64>) -> Result<PathBuf> {
-    let name = match pr {
-        Some(n) => return Subject::Pr(n).path(),
+    match pr {
+        Some(n) => Subject::Pr(n).path(),
         None => match diff::git(&["branch", "--show-current"])?.trim() {
-            "" => "detached".into(),
-            b => format!("branch-{}", b.replace('/', "-")),
+            "" => Ok(dv_dir()?.join("reviews").join("detached.json")),
+            b => branch_review(b),
         },
-    };
-    Ok(dv_dir()?.join("reviews").join(format!("{name}.json")))
+    }
+}
+
+/// Claude's review of branch `b` (not a PR's).
+pub fn branch_review(b: &str) -> Result<PathBuf> {
+    Ok(dv_dir()?.join("reviews").join(format!("branch-{}.json", b.replace('/', "-"))))
 }
 
 /// What a review file is of, on GitHub: a PR, or an issue (Claude's triage of it, and the
@@ -606,13 +610,19 @@ pub fn session_path(review: &std::path::Path) -> PathBuf {
     review.with_extension("session")
 }
 
-/// Claude's review at `from` (and its session) moved to `to`: a branch's, once it's a PR (a
-/// replacement published). Not over one that's there.
+/// Claude's review at `from` (and its session, and what you've seen of it) moved to `to`: a
+/// branch's, once it's a PR (a replacement published), or once the branch is renamed (a
+/// draft removed). Not over one that's there.
 pub fn move_review(from: &std::path::Path, to: &std::path::Path) -> Result<()> {
+    let seen = |p: &std::path::Path| Some(p.parent()?.parent()?.join("seen").join(p.file_name()?));
     if from.exists() && !to.exists() {
         std::fs::rename(from, to)?;
-        if session_path(from).exists() {
-            std::fs::rename(session_path(from), session_path(to))?;
+        for (f, t) in [(Some(session_path(from)), Some(session_path(to))), (seen(from), seen(to))] {
+            if let (Some(f), Some(t)) = (f, t)
+                && f.exists()
+            {
+                std::fs::rename(f, t)?;
+            }
         }
     }
     Ok(())

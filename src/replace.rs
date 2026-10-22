@@ -647,6 +647,11 @@ pub fn remove(id: u64, root: &Path) -> Result<String> {
     if crate::diff::git(&["-C", &root.to_string_lossy(), "branch", "-m", &b, &kept]).is_err() {
         return Ok(format!("removed {}", label(id)));
     }
+    // (Claude's review of it, its session, what you saw: with the branch, not left for the next
+    // draft by this name.)
+    if let (Ok(from), Ok(to)) = (crate::claude::branch_review(&b), crate::claude::branch_review(&kept)) {
+        _ = crate::claude::move_review(&from, &to);
+    }
     Ok(format!("removed {}; kept its branch as {kept} (`git branch -D {kept}` deletes it)", label(id)))
 }
 
