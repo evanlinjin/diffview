@@ -5029,3 +5029,15 @@ fn a_split_selection_stays_on_the_half_it_began() {
     assert_eq!((a.line, a.left, a.start), (4, true, Some((3, true))));
     assert!(app.file_ref().unwrap().starts_with("a.rs:3-4"));
 }
+
+#[test]
+fn a_split_select_mode_selection_stays_on_its_half() {
+    let sample = "diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1,4 +1,4 @@\n one\n two\n-three\n+three!\n four\n";
+    let mut app = App::with("base".into(), diff::parse(sample));
+    app.split = true;
+    app.right = true;
+    app.build();
+    app.goto(0, 0);
+    press(&mut app, "]gvj");
+    assert_eq!(app.selection_text(false), "three\nf", "onto the right half");
+}
