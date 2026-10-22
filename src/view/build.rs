@@ -95,10 +95,12 @@ pub(super) fn anchor_line(t: &Thread, lines: &[DLine]) -> Option<usize> {
 }
 
 /// First row of a run of added/removed lines, as drawn: the row before it on its side (not a
-/// comment beside it, between its lines in `rows`) isn't one.
+/// comment beside it, between its lines in `rows`) isn't one. (Either half in split view: a
+/// change's removed and added lines are one.)
 pub(super) fn change_start(app: &App, r: usize) -> bool {
     let is = |r: usize| matches!(app.rows[r].line.kind, Kind::Add | Kind::Del);
-    is(r) && !app.next_row_here(r, false).is_some_and(is)
+    let side = app.side_of(r);
+    is(r) && !(0..r).rev().find(|&p| app.side_of(p).is_some() && app.side_of(p) == side).is_some_and(is)
 }
 
 impl App {

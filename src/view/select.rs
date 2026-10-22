@@ -5,10 +5,10 @@ impl App {
     pub(super) fn selection_text(&self, patch: bool) -> String {
         let (s, e) = self.ordered();
         // What's on the side it starts on: the code, or the comments (they're interleaved in
-        // `rows`, not on screen).
+        // `rows`, not on screen); in split view, the cursor's half (a patch: both).
         let side = self.side_of(s.row);
         let mut out = vec![];
-        for r in (s.row..=e.row).filter(|&r| self.side_of(r) == side) {
+        for r in (s.row..=e.row).filter(|&r| self.side_of(r) == side && (patch || self.same_half(self.head.row, r))) {
             let l = &self.rows[r].line;
             let marker = match l.kind {
                 Kind::File => continue,

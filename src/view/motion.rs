@@ -113,7 +113,13 @@ impl App {
     pub(super) fn next_row_here(&self, row: usize, fwd: bool) -> Option<usize> {
         let here = self.side_of(row);
         let mut rs: Box<dyn Iterator<Item = usize>> = if fwd { Box::new(row + 1..self.rows.len()) } else { Box::new((0..row).rev()) };
-        rs.find(|&r| self.side_of(r).is_some() && self.side_of(r) == here)
+        rs.find(|&r| self.side_of(r).is_some() && self.side_of(r) == here && self.same_half(row, r))
+    }
+
+    /// In split view, row `r` drawn on the half `from` is on (a removed line's the left, an
+    /// added one's the right; an unchanged one, both). Not split: every row.
+    pub(super) fn same_half(&self, from: usize, r: usize) -> bool {
+        !self.split || !matches!(self.rows[r].line.kind, Kind::Add | Kind::Del) || self.row_right(r) == self.row_right(from)
     }
 
     /// The side row `r` is on: the comments pane (`true`) or the code; none, a file's comment

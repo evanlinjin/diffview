@@ -4904,3 +4904,49 @@ fn a_change_with_a_comment_in_it_is_one_stop_for_g() {
     press(&mut app, "]g");
     assert_eq!(app.head.row, two, "]g stopped inside the change, past its comment");
 }
+
+#[test]
+fn comment_motions_go_by_where_threads_are_drawn() {
+    let sample = "diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1,13 +1,4 @@\n a\n-x1\n-x2\n-x3\n-x4\n-x5\n-x6\n-x7\n-x8\n b\n c\n-d\n e\n";
+    let c = |id| gh::Comment { id, node_id: String::new(), can_edit: false, can_delete: false, author: "amy".into(), body: "hm".into(), created: String::new(), pending: false, reactions: vec![], hidden: String::new() };
+    let t = |left, line, id| gh::Thread {
+        id: format!("t{id}"), path: "a.rs".into(), left, line: Some(line), start_line: None, start_left: None, original_line: Some(line),
+        resolved: false, outdated: false, hunk: vec![], comments: vec![c(id)], claude: None, severity: String::new(), about: None, conversation: String::new(),
+        talk_resolved: false, want: String::new(),
+    };
+    // On a removed line (old 12) after deletions: ]c goes down to e's (new 4), not back to b's.
+    let mut app = App::with("base".into(), diff::parse(sample));
+    app.threads = vec![t(false, 2, 1), t(false, 4, 2)];
+    app.margin_active = true;
+    app.build();
+    let d = app.rows.iter().position(|r| r.line.text == "d").unwrap();
+    app.goto(d, 0);
+    press(&mut app, "]c");
+    assert_eq!(app.rows[app.head.row].thread, Some(1));
+    // A left thread on d and a right one on e: d's first, as drawn.
+    let mut app = App::with("base".into(), diff::parse(sample));
+    app.threads = vec![t(true, 12, 1), t(false, 4, 2)];
+    app.margin_active = true;
+    app.build();
+    app.goto(0, 0);
+    press(&mut app, "]c");
+    assert_eq!(app.rows[app.head.row].thread, Some(0));
+}
+
+#[test]
+fn split_view_motions_and_copies_keep_to_your_half() {
+    let sample = "diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1,4 +1,4 @@\n one\n two\n-three\n+three!\n four\n";
+    let mut app = App::with("base".into(), diff::parse(sample));
+    app.split = true;
+    app.build();
+    let two = app.rows.iter().position(|r| r.line.text == "two").unwrap();
+    app.right = true;
+    app.goto(two, 0);
+    press(&mut app, "xx");
+    assert_eq!(app.rows[app.head.row].line.text, "three!");
+    assert_eq!(app.selection_text(false), "two\nthree!\n");
+    // ]g still stops once a change (its removed and added lines one).
+    app.goto(0, 0);
+    press(&mut app, "]g]g");
+    assert_eq!(app.rows[app.head.row].line.text, "three");
+}
