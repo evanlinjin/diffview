@@ -278,6 +278,16 @@ impl App {
         let mut last_code: Option<usize> = None;
         let mut i = 0;
         while i < n {
+            // (A split run's lines, paired already: on past them, as any code.)
+            let placed = unit_of[i] != usize::MAX;
+            if placed && !margin(i) {
+                if code(i) {
+                    last_code = Some(i);
+                }
+                last = Some(i);
+                i += 1;
+                continue;
+            }
             if margin(i) {
                 let first = i == 0 || self.rows[i - 1].thread != self.rows[i].thread;
                 if let (true, Some(t), Some(c)) = (first, self.rows[i].thread, last_code) {
@@ -296,36 +306,18 @@ impl App {
             };
             match kind(i) {
                 Kind::Del | Kind::Add if self.split => {
-                    // The run, its comments aside: the k-th removed line beside the k-th added.
+                    // The run, paired: the k-th removed line beside the k-th added. Its lines
+                    // and comments then go on as any (above): each comment with, and about, the
+                    // line before it.
                     let run: Vec<usize> = (i..n).take_while(|&j| margin(j) || matches!(kind(j), Kind::Del | Kind::Add)).collect();
                     let dels: Vec<usize> = run.iter().copied().take_while(|&j| margin(j) || kind(j) == Kind::Del).filter(|&j| !margin(j)).collect();
                     let rest = run.iter().copied().skip_while(|&j| margin(j) || kind(j) == Kind::Del);
                     let adds: Vec<usize> = rest.take_while(|&j| margin(j) || kind(j) == Kind::Add).filter(|&j| !margin(j)).collect();
-                    let end = adds.last().or(dels.last()).copied().unwrap_or(i);
                     for k in 0..dels.len().max(adds.len()) {
                         let (l, r) = (dels.get(k).copied(), adds.get(k).copied());
                         let rows: Vec<usize> = l.into_iter().chain(r).collect();
                         push(DRow::Pair(l, r), &rows, &mut units);
                     }
-                    // Its comments go with the line before them (shown beside it), and are about
-                    // the code before them (as anywhere: `last_code`).
-                    for j in i..=end {
-                        if margin(j) {
-                            let before = (i..j).rev().find(|&b| !margin(b));
-                            let first = self.rows[j - 1].thread != self.rows[j].thread;
-                            if let (true, Some(t), Some(c)) = (first, self.rows[j].thread, last_code) {
-                                anchors.insert(t, c);
-                            }
-                            match before {
-                                Some(b) => units[unit_of[b]].1.push(j),
-                                None => units.last_mut().expect("a unit before").1.push(j),
-                            }
-                        } else if code(j) {
-                            last_code = Some(j);
-                        }
-                    }
-                    last = Some(end);
-                    i = end + 1;
                     continue;
                 }
                 Kind::Ctx if self.split => push(DRow::Pair(Some(i), Some(i)), &[i], &mut units),

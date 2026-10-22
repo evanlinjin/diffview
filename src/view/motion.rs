@@ -69,8 +69,6 @@ impl App {
             return self.goto(r, 0);
         }
         if into_margin || leaving {
-            // (Into the pane: a comment; out of it: the code on that screen row, the side with
-            // a part of it there, the right first.)
             // (Into the pane: a comment, here or below, else above; out of it: the code on that
             // screen row, a header too, the side with a part of it there, the right first, here
             // or above.)
