@@ -770,9 +770,6 @@ impl Thread {
         self.resolved || self.outdated
     }
 
-    /// Where its range starts, a range comment's: its first line and the side it's on (before
-    /// its line, on its side; or on the other, the old side's). None when it's on one line, or
-    /// its line's gone (outdated: its start is of code since changed).
     /// As placed where `moves` (how the PR head's lines moved: `diff::hunks_by_file`) has its
     /// lines: a current GitHub thread's new-side ones moved; else as it is (Claude's follow
     /// their code already; the old side's are the base's). What's sent to GitHub keeps its own.
@@ -787,6 +784,9 @@ impl Thread {
         std::borrow::Cow::Owned(t)
     }
 
+    /// Where its range starts, a range comment's: its first line and the side it's on (before
+    /// its line, on its side; or on the other, the old side's). None when it's on one line, or
+    /// its line's gone (outdated: its start is of code since changed).
     pub fn range_start(&self) -> Option<(u32, bool)> {
         let (s, l, left) = (self.start_line?, self.line?, self.start_left.unwrap_or(self.left));
         (left != self.left || s < l).then_some((s, left))

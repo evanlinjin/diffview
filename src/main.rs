@@ -572,7 +572,7 @@ fn review_file(cmd: &str, o: &Opts) -> anyhow::Result<()> {
     // The PR dv ran Claude on (`claude::PR_ENV`), while this checkout is still on it, or the one
     // named: as dv last fetched it and its threads, if lately (not GitHub again for each of a
     // review's many checks), else from GitHub.
-    let theirs = |p: &gh::Pr| diff::git(&["symbolic-ref", "-q", "--short", "HEAD"]).map_or(true, |b| b.trim() == p.head_branch);
+    let theirs = on_pr;
     let dv_pr = std::env::var(claude::PR_ENV).ok().and_then(|n| n.parse().ok());
     let cached = o.pr.or(dv_pr).and_then(view::recent_github).filter(|(p, _)| o.pr.is_some() || theirs(p));
     let (pr, threads) = match cached {
@@ -580,7 +580,7 @@ fn review_file(cmd: &str, o: &Opts) -> anyhow::Result<()> {
         None => (gh::pr(o.pr).ok(), None),
     };
     if cmd == "review-comments" {
-        return review_comments(pr.as_ref(), threads, o.pr.is_none());
+        return review_comments(pr.as_ref(), threads, pr.as_ref().is_some_and(on_pr));
     }
     let path = claude::path(pr.as_ref().map(|p| p.number))?;
     let base = diff_base(o, pr.as_ref())?;
@@ -627,10 +627,9 @@ fn check_review(path: &std::path::Path, files: &[diff::FileDiff]) -> anyhow::Res
 fn review_comments(pr: Option<&gh::Pr>, threads: Option<serde_json::Value>, here: bool) -> anyhow::Result<()> {
     let p = pr.context("no PR here (dv review-comments -p N for PR N)")?;
     let review = gh::parse_threads(&threads.map_or_else(|| gh::threads_json(p.number), Ok)?);
-    // Its lines as in this checkout (`here`: the PR's own, not one named with -p; local edits,
-    // unpushed or diverged commits move them), as the view shows them and `dv review-check`
-    // places Claude's answers; a named one's, as GitHub has them. (Its head not fetched: as
-    // GitHub has them too.)
+    // Its lines as in this checkout (`here`: it's on the PR, -p or not; local edits, unpushed or
+    // diverged commits move them), as the view shows them and `dv review-check` places Claude's
+    // answers; another PR's, as GitHub has them. (Its head not fetched: as GitHub has them too.)
     let moves = here.then(|| diff::tracked_diff(&p.head_oid, None, 0, &[]).ok()).flatten().map(|f| diff::hunks_by_file(&f)).unwrap_or_default();
     let threads: Vec<serde_json::Value> = review
         .threads
@@ -665,14 +664,24 @@ fn install_skill() -> anyhow::Result<()> {
 /// `gh pr checkout`, except when you're already on the PR's branch and it has commits that
 /// aren't on the PR (unpushed work, or a local rebase): then it stays as it is, and the note
 /// returned says so. Never resets your branch unless `force`.
+/// `branch` is PR `p`'s, as gh names it checked out: the PR's own, or `<owner>-<branch>` when
+/// that name is taken.
+fn on_branch(branch: &str, p: &gh::Pr) -> bool {
+    !p.head_branch.is_empty() && (branch == p.head_branch || branch == format!("{}-{}", p.head_owner, p.head_branch))
+}
+
+/// This checkout is on PR `p` (its branch; detached, taken as on it: a worktree dv made).
+fn on_pr(p: &gh::Pr) -> bool {
+    let branch = diff::git(&["branch", "--show-current"]).unwrap_or_default();
+    branch.trim().is_empty() || on_branch(branch.trim(), p)
+}
+
 pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool) -> anyhow::Result<Option<String>> {
     let Err(e) = gh::checkout(n, force, detach) else { return Ok(None) };
     let msg = format!("{e:#}");
     let diverged = ["Not possible to fast-forward", "Diverging branches"].iter().any(|p| msg.contains(p));
     let here = diff::git(&["branch", "--show-current"]).unwrap_or_default().trim().to_owned();
-    let (theirs, owner) = gh::pr(Some(n)).map(|p| (p.head_branch, p.head_owner)).unwrap_or_default();
-    // gh names the local branch as the PR's, or `<owner>-<branch>` when that name is taken.
-    let on_it = !theirs.is_empty() && (here == theirs || here == format!("{owner}-{theirs}"));
+    let on_it = gh::pr(Some(n)).is_ok_and(|p| on_branch(&here, &p));
     match (diverged && !force && !detach, on_it) {
         (true, true) => Ok(Some(format!(
             "{here} has commits that aren't on PR #{n}: showing it as is (push to update the PR; -f resets to the PR)"
@@ -1078,4 +1087,11 @@ fn self_exe_after_an_install() {
     assert_eq!(runnable(dir.join("dv (deleted)")), bin);
     assert_eq!(runnable(dir.join("gone (deleted)")), PathBuf::from("dv")); // nothing there: PATH's
     _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_prs_branch_as_gh_names_it() {
+    let p = gh::Pr { head_branch: "fix".into(), head_owner: "amy".into(), ..Default::default() };
+    assert!(on_branch("fix", &p) && on_branch("amy-fix", &p));
+    assert!(!on_branch("main", &p) && !on_branch("fix", &gh::Pr::default()));
 }
