@@ -265,7 +265,7 @@ impl List {
             let note = crate::replace::note(&r);
             let res = self.rep_pushed(&r).and_then(|()| crate::replace::close_originals(&mut r, &note));
             said.push(match res {
-                Ok(done) => format!("closed {} (replaced by #{n}, its CI passed)", done.iter().map(|o| format!("#{o}")).collect::<Vec<_>>().join(", ")),
+                Ok(said) => format!("{said} (replaced by #{n}, its CI passed)"),
                 Err(e) => format!("not closing what #{n} replaces: {e:#}"),
             });
             self.load_reps();

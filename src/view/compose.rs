@@ -348,9 +348,7 @@ impl App {
                 let Some(note) = compose_with(&what, false, &crate::replace::note(&r), true)? else { return Ok("nothing closed".into()) };
                 let res = crate::replace::close_originals(&mut r, &note);
                 self.show_replacement(r);
-                let done = keep_on_error(res.as_ref().map(drop).map_err(|e| anyhow!("{e:#}")), &note).map(|_| res.unwrap_or_default())?;
-                let done: Vec<String> = done.iter().map(|n| format!("#{n}")).collect();
-                Ok(format!("closed {}, with the note", done.join(", ")))
+                keep_on_error(res.as_ref().map(drop).map_err(|e| anyhow!("{e:#}")), &note).map(|_| res.unwrap_or_default())
             }
             Action::Converse { quote, as_is } => {
                 let what = format!("comment on {}'s conversation", self.subject().context("no PR or issue")?.what());

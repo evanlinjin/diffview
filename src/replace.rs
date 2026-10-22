@@ -678,13 +678,14 @@ pub fn note(r: &Record) -> String {
 
 /// Close the originals not closed yet, each with `note`: what was closed (an error stops at
 /// the PR it's about, keeping those before).
-pub fn close_originals(r: &mut Record, note: &str) -> Result<Vec<u64>> {
-    let mut done = vec![];
+pub fn close_originals(r: &mut Record, note: &str) -> Result<String> {
+    let (mut done, mut already) = (vec![], vec![]);
     for n in r.replaces.iter().map(|o| o.number).filter(|n| !r.closed.contains(n)).collect::<Vec<_>>() {
         // (Merged or closed already, by someone else: done, not closed again; gh can't close a
         // merged one.)
-        if crate::gh::pr_state(n).ok().flatten().is_none_or(|s| s == "OPEN") {
-            crate::gh::close(n, Some(note)).with_context(|| format!("closing #{n}"))?;
+        match crate::gh::pr_state(n).ok().flatten().is_none_or(|s| s == "OPEN") {
+            true => crate::gh::close(n, Some(note)).with_context(|| format!("closing #{n}")).map(|_| done.push(n))?,
+            false => already.push(n),
         }
         // (Into the record as it is now: what's been written to it meanwhile stays.)
         *r = update(r.id, |r| {
@@ -694,9 +695,14 @@ pub fn close_originals(r: &mut Record, note: &str) -> Result<Vec<u64>> {
             Ok(())
         })?
         .1;
-        done.push(n);
     }
-    Ok(done)
+    let list = |ns: &[u64]| ns.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(", ");
+    Ok(match (done.is_empty(), already.is_empty()) {
+        (false, true) => format!("closed {}, with the note", list(&done)),
+        (true, false) => format!("{} closed or merged already", list(&already)),
+        (false, false) => format!("closed {}, with the note ({} closed or merged already)", list(&done), list(&already)),
+        (true, true) => "nothing to close".into(),
+    })
 }
 
 /// Remove replacement `id`: its worktree (not with local changes) and its record. Its branch
