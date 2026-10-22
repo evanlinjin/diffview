@@ -130,7 +130,18 @@ impl App {
                     items.push(Item::new(label, Target::GitTakeTheirs(ours == 0)));
                 }
             },
-            Err(e) => items.push(Item::new(format!("Can't push: {e:#}"), Target::Note(""))),
+            Err(e) => {
+                // (Nowhere to push, but the PR's head is known: what here it doesn't have.)
+                if let Some(p) = &self.pr {
+                    let ours = diff::git(&["rev-list", "--count", &format!("{}..HEAD", p.head_oid)]).ok().and_then(|n| n.trim().parse::<usize>().ok());
+                    match ours {
+                        Some(0) => {}
+                        Some(n) => left_out = Some(format!("{n} commit(s) only here, and no way to push them")),
+                        None => left_out = Some("can't tell what's on GitHub: R refreshes".into()),
+                    }
+                }
+                items.push(Item::new(format!("Can't push: {e:#}"), Target::Note("")));
+            }
         }
         // Onto the base branch: Claude resolves conflicts.
         if let Some(onto) = self.rebase_onto() {
