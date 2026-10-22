@@ -163,11 +163,14 @@ impl App {
         // What long code lines wrap to (`soft_wrap`): the code's text widths, as `render_row`
         // draws them (less the last column, the comment marks'); split halves alike. Changed,
         // laid out again (once: with a rebuild, by it).
-        let cols = (if margin && !float { ctw } else { tw }.saturating_sub(1).max(1), htw_l.saturating_sub(1).max(1));
-        let rewrap = cols != self.wrap_cols && self.soft_wrap;
-        self.wrap_cols = cols;
-        // (The pane's text width as it's drawn: `ptw` below.)
-        self.frame_w = (if margin && !float { ctw } else { tw }, mw.saturating_sub(self.pane_gw() + self.pane_pad()));
+        let w = Widths {
+            full: if margin && !float { ctw } else { tw },
+            half: htw_l,
+            pane: mw.saturating_sub(self.pane_gw() + self.pane_pad()), // (`ptw` below)
+            float_at: float.then(|| width.saturating_sub(mw).saturating_sub(gw + 1)), // (`mx`)
+        };
+        let rewrap = (w.full, w.half) != (self.frame_w.full, self.frame_w.half) && self.soft_wrap;
+        self.frame_w = w;
         if ww != self.wrap_w || margin != self.margin_active || (margin && mw != self.margin_w) || float != self.margin_float {
             (self.wrap_w, self.margin_active, self.margin_w, self.margin_float) = (ww, margin, mw, float);
             let keep = self.cursor_key();
@@ -319,17 +322,7 @@ impl App {
         let pad = self.pane_pad();
         let ptw = mtw - pad;
         // The file the top of the screen is in, its header scrolled off: pinned over its code.
-        let sticky = (|| {
-            let d = self.top.min(self.drows.len().checked_sub(1)?);
-            let r = match self.drows[d] {
-                DRow::Full(r) => r,
-                DRow::Pair(l, r) | DRow::Margin(l, r, _) => l.or(r)?,
-            };
-            let file = self.rows[r].file;
-            (file < self.files.len()).then_some(())?;
-            let head = self.rows.iter().position(|x| x.file == file && x.line.kind == Kind::File)?;
-            (self.d_of[head] < self.top).then_some(head)
-        })();
+        let sticky = self.sticky();
         let code_cols = relw + gw + code_tw;
         let rows_shown = (self.top + h).min(self.drows.len()).saturating_sub(self.top);
         let lines: Vec<Line> = (0..rows_shown)

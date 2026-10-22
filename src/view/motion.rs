@@ -82,7 +82,7 @@ impl App {
         // short one already ended above: its end. (A hatch, no line there: staying.)
         let Some(r) = self.side_row(hd, right) else { return };
         let x = self.cursor_x();
-        let p = self.stop_on(hd, right, x).unwrap_or(Pos { row: r, col: self.len(r).saturating_sub(1) });
+        let p = self.stop_on(hd, right, x, false).unwrap_or(Pos { row: r, col: self.len(r).saturating_sub(1) });
         self.right = right;
         self.goto(p.row, p.col);
     }
@@ -128,14 +128,11 @@ impl App {
         // can't stop on (`stop_at`), keeping its column.
         // (Overshooting into rows it can't stop on, as far as it can.)
         let x = self.cursor_x();
-        let (hd, last) = (self.hd(), self.drows.len().saturating_sub(1));
-        let t = (hd as isize + d).clamp(0, last as isize) as usize;
-        // (Not back past where it is.)
-        let within = if d < 0 { 0..=hd.saturating_sub(1) } else { (hd + 1).min(last)..=last };
-        if d == 0 || (d < 0 && hd == 0) || (d > 0 && hd >= last) {
-            return;
-        }
-        let Some(p) = self.stop_near(t, if d < 0 { -1 } else { 1 }, within, x) else { return };
+        let (hd, n) = (self.hd(), self.drows.len());
+        let t = (hd as isize + d).clamp(0, n.saturating_sub(1) as isize) as usize;
+        // (On past where it is only: nowhere to go, nothing.)
+        let within = if d < 0 { 0..hd } else { hd + 1..n };
+        let Some(p) = Self::nearest(t, if d < 0 { -1 } else { 1 }, within).find_map(|t| self.stop_at(t, x)) else { return };
         self.goto(p.row, p.col);
         self.want_x = Some(x);
     }
@@ -365,15 +362,18 @@ impl App {
         let into = |hd: usize| hd.clamp(lo, hi.max(lo)).min(last as usize);
         let hd = self.hd();
         if hd < lo || hd > hi {
-            // Onto the screen: the nearest row it can stop on, toward the screen's middle, on
-            // the screen only; with no code there (the pane's boxes running on past it), a comment.
+            // Onto the screen, the nearest row first (toward the screen's middle): where it
+            // can stop on its side; else (a tall pair's short side ended above, the pane's
+            // boxes run out) the code on either side, or a comment.
             let x = self.cursor_x();
             let step: isize = if hd < lo { 1 } else { -1 };
-            let screen = lo.min(last as usize)..=hi.max(lo).min(last as usize);
-            // (None on its side, a tall pair's short side ended above: the other side's line.)
-            let other = || screen.clone().find_map(|d| self.stop_on(d, !self.right, x));
-            let comment = || screen.clone().find_map(|d| self.note_at(d)).map(|c| Pos { row: c, col: 0 });
-            if let Some(p) = self.stop_near(into(hd), step, screen.clone(), x).or_else(other).or_else(comment) {
+            let screen = lo.min(last as usize)..hi.max(lo).min(last as usize) + 1;
+            let order: Vec<usize> = Self::nearest(into(hd), step, screen).collect();
+            let (right, pane) = (self.right, self.margin_side());
+            let found = [(right, pane), (right, false), (!right, false), (right, true)]
+                .into_iter()
+                .find_map(|(side, pane)| order.iter().find_map(|&t| self.stop_on(t, side, x, pane)));
+            if let Some(p) = found {
                 self.goto(p.row, p.col);
                 self.want_x = Some(x);
             }
@@ -385,9 +385,10 @@ impl App {
     pub(super) fn show_labels(&mut self) {
         let mut words = vec![];
         // What's on screen, each part once: each screen row's code, a side each, and the
-        // comment beside it.
+        // comment beside it (not under the file header pinned over the top).
         let mut shown: Vec<Shown> = vec![];
-        for d in self.top..(self.top + self.height).min(self.drows.len()) {
+        let first = self.top + usize::from(self.sticky().is_some());
+        for d in first..(self.top + self.height).min(self.drows.len()) {
             let note = self.note_at(d).and_then(|c| self.span_of(c, 0));
             for s in [self.span(d, false), self.span(d, true), note].into_iter().flatten() {
                 if !shown.contains(&s) {

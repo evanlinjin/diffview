@@ -313,7 +313,8 @@ impl App {
             (None, true) => (len, len, self.col_of(r, len)),
             (_, false) => {
                 let left = self.hscroll(r);
-                (self.char_from(r, left), self.char_at(r, left + text_w), left)
+                let w = self.window(r, left, text_w);
+                (w.start, w.end, left)
             }
         };
         let cut = self.col_of(r, skip) - left;

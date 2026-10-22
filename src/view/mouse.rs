@@ -178,10 +178,9 @@ impl App {
             DRow::Pair(None, None) => return None,
         };
         // What that screen row shows of it (`span_of`: a wrapped line's part, else as it's
-        // scrolled); past a short side's last part, its end.
-        let left = self.span_of(row, self.dseg[d]).map_or_else(|| self.col_of(row, self.len(row)), |s| s.left);
-        // (A reply's guide is before its text.)
-        Some((row, self.char_at(row, left + x.saturating_sub(start + self.rows[row].guide_w())), x < start))
+        // scrolled), the click kept within it. (A reply's guide is before its text.)
+        let s = self.span_of(row, self.dseg[d]);
+        Some((row, self.clicked(row, s.as_ref(), x.saturating_sub(start + self.rows[row].guide_w())), x < start))
     }
 
 }

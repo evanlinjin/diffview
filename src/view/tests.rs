@@ -3524,7 +3524,7 @@ fn long_lines_wrap() {
     assert!(app.soft_wrap, "{}", app.msg);
     let s = screen(80, 20, |f| app.draw(f));
     // The long line takes more screen rows, its parts marked, its numbers on the first only.
-    let w = app.wrap_cols.0;
+    let w = app.code_w();
     assert_eq!(app.drows.len(), rows_before + long.len().div_ceil(w) - 1, "{s}");
     assert!(s.contains('↪'), "{s}");
     assert_eq!(xs(&s), long.len(), "{s}"); // all of it, nothing cut
@@ -3573,7 +3573,7 @@ fn wrapped_lines_move_and_draw_whole() {
     }
     assert!(app.top >= top + 18, "the wheel scrolls: {} from {top}", app.top);
     // A wide character where a part would end: whole, on the next part.
-    let w = app.wrap_cols.0;
+    let w = app.code_w();
     let line = format!("{}界yz", "a".repeat(w - 1));
     let text = format!("diff --git a/b.rs b/b.rs\nindex 1..2 100644\n--- a/b.rs\n+++ b/b.rs\n@@ -1 +1 @@\n-old\n+{line}\n");
     let mut app = App::with("base".into(), diff::parse(&text));
@@ -3610,7 +3610,7 @@ fn wrapped_moves_keep_their_column_and_get_past_pairs() {
     (app.files_pref, app.margin_pref, app.soft_wrap) = (Some(false), Some(false), true);
     _ = screen(80, 30, |f| app.draw(f));
     let first = app.rows.iter().position(|r| r.line.text == long).unwrap();
-    let w = app.wrap_cols.0;
+    let w = app.code_w();
     app.goto(first, w + 70.min(w - 1));
     let parts = app.segs(Some(first), None);
     for _ in 0..parts - 1 {
@@ -3671,4 +3671,57 @@ fn moves_keep_the_column_as_seen_scrolled_split_and_tall() {
         _ = screen(80, 20, |f| app.draw(f));
     }
     assert!(app.top >= 20, "scrolled: top {}", app.top);
+}
+
+#[test]
+fn the_kept_column_survives_scrolling_clicks_and_the_pane() {
+    // Unwrapped: col 150 of a long line, j through a short one, j onto another long one: 150.
+    let long = "z".repeat(200);
+    let text = format!("diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -0,0 +1,3 @@\n+{long}\n+short\n+{long}\n");
+    let mut app = App::with("base".into(), diff::parse(&text));
+    (app.files_pref, app.margin_pref) = (Some(false), Some(false));
+    let first = app.rows.iter().position(|r| r.line.text == long).unwrap();
+    _ = screen(80, 20, |f| app.draw(f));
+    app.goto(first, 150);
+    for _ in 0..2 {
+        _ = screen(80, 20, |f| app.draw(f));
+        app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    }
+    assert_eq!((app.head.row, app.head.col), (first + 2, 150));
+    // Wrapped: a click in the gap at a part's end (a wide char didn't fit) stays on that part.
+    let w = { app.soft_wrap = true; _ = screen(80, 20, |f| app.draw(f)); app.code_w() };
+    let line = format!("{}界yz", "a".repeat(w - 1));
+    let text = format!("diff --git a/b.rs b/b.rs\nindex 1..2 100644\n--- a/b.rs\n+++ b/b.rs\n@@ -1 +1 @@\n-old\n+{line}\n");
+    let mut app = App::with("base".into(), diff::parse(&text));
+    (app.files_pref, app.margin_pref, app.soft_wrap) = (Some(false), Some(false), true);
+    _ = screen(80, 20, |f| app.draw(f));
+    let r = app.rows.iter().position(|x| x.line.text == line).unwrap();
+    let d = app.d_of[r];
+    let g = app.geom.clone();
+    let y = d - app.top + app.pin as usize;
+    let (row, col, _) = app.at_screen(g.relw + g.gw + w, y).unwrap();
+    assert_eq!((row, app.part_at(row, col)), (r, 0), "on the part clicked");
+}
+
+#[test]
+fn the_wheel_from_the_pane_and_labels_under_the_pinned_header() {
+    // A comment near the top, the cursor on it in the pane, then the wheel: it scrolls on.
+    let body: String = (0..200).map(|i| format!("+word{i} other{i}\n")).collect();
+    let text = format!("diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -0,0 +1,200 @@\n{body}");
+    let mut app = App::with("base".into(), diff::parse(&text));
+    app.files_pref = Some(false);
+    app.threads = vec![gh::Thread { path: "a.rs".into(), line: Some(3), comments: vec![gh::Comment { author: "amy".into(), body: "hm".into(), ..Default::default() }], ..Default::default() }];
+    app.build();
+    _ = screen(220, 20, |f| app.draw(f));
+    let c = app.rows.iter().position(|r| r.thread.is_some()).unwrap();
+    app.goto(c, 0);
+    for _ in 0..6 {
+        app.scroll_code(3);
+        _ = screen(220, 20, |f| app.draw(f));
+    }
+    assert!(app.top >= 12, "scrolled: top {}", app.top);
+    // The file's header pinned over the top: no labels on what it covers.
+    assert!(app.sticky().is_some());
+    app.show_labels();
+    assert!(app.labels.iter().all(|l| app.d_at(l.0) > app.top), "none on the row under the header");
 }

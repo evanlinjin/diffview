@@ -430,7 +430,7 @@ impl App {
     /// split half's: both halves alike); none for what doesn't wrap, nor before a width's known
     /// (nothing drawn yet).
     fn wrap_rows(&mut self) {
-        let w = if self.split { self.wrap_cols.1 } else { self.wrap_cols.0 };
+        let w = self.code_w();
         self.wrap = (0..self.rows.len()).map(|r| if self.wraps(r) && w > 0 { self.breaks(r, w) } else { vec![] }).collect();
     }
 
@@ -452,38 +452,57 @@ impl App {
         n(l).max(n(r))
     }
 
+    /// The code's text width (a split half's, in split view), less its marks' column.
+    pub(super) fn code_w(&self) -> usize {
+        if self.split { self.frame_w.half } else { self.frame_w.full }.saturating_sub(1)
+    }
+
+    /// The chars of row `r` on screen scrolled to column `left`, `w` wide (unknown, 0: all).
+    pub(super) fn window(&self, r: usize, left: usize, w: usize) -> std::ops::Range<usize> {
+        let (from, len) = (self.char_from(r, left), self.len(r));
+        let to = if w == 0 { len } else { self.char_at(r, left + w).min(len) };
+        from..to.max(from)
+    }
+
     /// What row `r` shows on its `k`-th screen row (a wrapped line's part; what doesn't wrap,
-    /// its one): the chars on screen there (as far as the code's width goes, scrolled), and the
-    /// column the screen's text starts at. None past a wrapped line's last part.
+    /// its one, as far as it's scrolled and its width goes). None past a wrapped line's last part.
     pub(super) fn span_of(&self, r: usize, k: usize) -> Option<Shown> {
         if self.wraps(r) {
             let chars = self.part(r, k)?;
-            return Some(Shown { row: r, left: self.col_of(r, chars.start), chars });
+            let base = self.col_of(r, chars.start);
+            return Some(Shown { row: r, part: chars.clone(), chars, left: base, base });
         }
         let left = self.hscroll(r);
-        // (The width not known yet, nothing drawn: all of it.)
-        let w = self.row_w(r);
-        let (from, len) = (self.char_from(r, left), self.len(r));
-        let to = if w == 0 { len } else { self.char_at(r, left + w).min(len) };
-        Some(Shown { row: r, chars: from..to.max(from), left })
+        Some(Shown { row: r, chars: self.window(r, left, self.row_w(r)), left, base: 0, part: 0..self.len(r) })
     }
 
-    /// The text width row `r` is drawn at: code's (the one column's, or a split half's), a
-    /// comment's in the pane (its box's), the rest the full width's (a box's, inline). 0 before
-    /// anything's drawn.
+    /// The text width row `r` is drawn at: code's, a comment's in the pane (its box's), the
+    /// rest the full width's (a box's, inline). 0 before anything's drawn.
     pub(super) fn row_w(&self, r: usize) -> usize {
-        let (full, pane) = self.frame_w;
+        let Widths { full, pane, .. } = self.frame_w;
         match (self.in_pane(r), self.rows[r].line.kind.is_code()) {
             (true, _) if pane > 0 => self.text_w(r, pane),
-            (false, true) => if self.split { self.wrap_cols.1 } else { self.wrap_cols.0 },
+            (false, true) => self.code_w(),
             _ if full > 0 => self.text_w(r, full),
             _ => 0,
         }
     }
 
-    /// The char `x` columns into what `s` shows (from where its text starts on screen), within it.
+    /// Char `ch`, kept within `range` (its last char at most).
+    fn within(range: &std::ops::Range<usize>, ch: usize) -> usize {
+        ch.min(range.end.saturating_sub(1)).max(range.start)
+    }
+
+    /// The char `x` columns into `s`'s line from where its part starts (a vertical move's
+    /// column), within its part (on screen or not: the screen follows).
     pub(super) fn place(&self, s: &Shown, x: usize) -> usize {
-        self.char_at(s.row, s.left + x).min(s.chars.end.saturating_sub(1)).max(s.chars.start)
+        Self::within(&s.part, self.char_at(s.row, s.base + x))
+    }
+
+    /// The char `x` columns into what `s` shows on screen (a click's), within what's shown;
+    /// `None`, a short side's row past its end: its end.
+    pub(super) fn clicked(&self, r: usize, s: Option<&Shown>, x: usize) -> usize {
+        s.map_or(self.len(r), |s| Self::within(&s.chars, self.char_at(r, s.left + x)))
     }
 
     /// The comment beside screen row `d`, in the pane.
@@ -512,7 +531,25 @@ impl App {
     /// What screen row `d` shows of its line on a side: none for a spacer, a hatch, or a short
     /// side past its last part. What drawing, the cursor, motions, the mouse and labels all go by.
     pub(super) fn span(&self, d: usize, right: bool) -> Option<Shown> {
-        self.span_of(self.side_row(d, right)?, self.dseg[d])
+        let mut s = self.span_of(self.side_row(d, right)?, self.dseg[d])?;
+        // (Floating, a comment's box beside it covers the code from where the pane starts.)
+        if let (Some(at), Some(_)) = (self.frame_w.float_at, self.note_at(d)) {
+            s.chars.end = s.chars.end.min(self.char_at(s.row, s.left + at)).max(s.chars.start);
+        }
+        Some(s)
+    }
+
+    /// The file header pinned over the top of the screen (its own scrolled off above), if one is.
+    pub(super) fn sticky(&self) -> Option<usize> {
+        let d = self.top.min(self.drows.len().checked_sub(1)?);
+        let r = match self.drows[d] {
+            DRow::Full(r) => r,
+            DRow::Pair(l, r) | DRow::Margin(l, r, _) => l.or(r)?,
+        };
+        let file = self.rows[r].file;
+        (file < self.files.len()).then_some(())?;
+        let head = self.rows.iter().position(|x| x.file == file && x.line.kind == Kind::File)?;
+        (self.d_of[head] < self.top).then_some(head)
     }
 
     /// The column the cursor's text starts at on screen: its part's, wrapped; else as scrolled.
@@ -682,43 +719,42 @@ impl App {
         self.d_at(self.head)
     }
 
-    /// Where the cursor stops on screen row `d`, `x` columns into what's there (`want_x`): on
-    /// the code side, code with text on that row on its side (`right`; a hatch, no line there:
-    /// the other's); in the pane, a comment. None where it can't stop: a spacer, a short
+    /// Where the cursor stops on screen row `d`, `x` columns into its line (`want_x`): on the
+    /// code side, code with text on that row on its side (`right`; a hatch, no line there: the
+    /// other's); in the pane (`pane`), a comment. None where it can't stop: a spacer, a short
     /// side's empty row, a row with nothing in the pane.
-    pub(super) fn stop_on(&self, d: usize, right: bool, x: usize) -> Option<Pos> {
-        if self.margin_side() {
+    pub(super) fn stop_on(&self, d: usize, right: bool, x: usize, pane: bool) -> Option<Pos> {
+        if pane {
             let c = self.note_at(d)?;
             return Some(Pos { row: c, col: self.place(&self.span_of(c, 0)?, x) });
         }
         let s = match self.side_row(d, right) {
-            Some(r) => self.span_of(r, self.dseg[d])?,
+            Some(_) => self.span(d, right)?,
             None => self.span(d, !right)?,
         };
         Some(Pos { row: s.row, col: self.place(&s, x) })
     }
 
-    /// `stop_on` the cursor's side.
+    /// `stop_on` where the cursor is: its side, the code or the pane.
     pub(super) fn stop_at(&self, d: usize, x: usize) -> Option<Pos> {
-        self.stop_on(d, self.right, x)
+        self.stop_on(d, self.right, x, self.margin_side())
     }
 
-    /// The nearest screen row in `within` from `from` the cursor can stop on, stepping `step`;
-    /// none that way, the nearest back the other way. And its place there.
-    pub(super) fn stop_near(&self, from: usize, step: isize, within: std::ops::RangeInclusive<usize>, x: usize) -> Option<Pos> {
-        let rows = |start: isize, step: isize| {
-            let within = within.clone();
+    /// Screen rows `within`, nearest `from` first: on from it stepping `step`, then back the
+    /// other way.
+    pub(super) fn nearest(from: usize, step: isize, within: std::ops::Range<usize>) -> impl Iterator<Item = usize> {
+        let rows = move |start: isize, step: isize, within: std::ops::Range<usize>| {
             (0..).map(move |i| start + i * step).take_while(move |&t| t >= 0 && within.contains(&(t as usize))).map(|t| t as usize)
         };
-        rows(from as isize, step).chain(rows(from as isize - step, -step)).find_map(|t| self.stop_at(t, x))
+        rows(from as isize, step, within.clone()).chain(rows(from as isize - step, -step, within))
     }
 
     /// The cursor's column into what's on its screen row (its part, wrapped), as vertical
     /// moves keep it: as last kept, else where it is.
     pub(super) fn cursor_x(&self) -> usize {
         let (r, col) = (self.head.row, self.head.col);
-        // (From where its row's text starts on screen: what `place` counts from.)
-        self.want_x.unwrap_or_else(|| self.span_of(r, self.part_at(r, col)).map_or(0, |s| self.col_of(r, col).saturating_sub(s.left)))
+        // (From where its part starts in the line: what `place` counts from.)
+        self.want_x.unwrap_or_else(|| self.span_of(r, self.part_at(r, col)).map_or(0, |s| self.col_of(r, col).saturating_sub(s.base)))
     }
     /// The width comments and PR text wrap to: the pane's, when it's shown (they're there).
     pub(super) fn info_w(&self) -> usize {

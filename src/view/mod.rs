@@ -311,13 +311,31 @@ enum Target {
     Warn,
 }
 
-/// What a screen row shows of a line (`App::span`): its row, the chars of it there (a wrapped
-/// line's part, else all of it), and the column the screen's text starts at.
+/// What a screen row shows of a line (`App::span`): its row; the chars of it there (a wrapped
+/// line's part; else as far as it's scrolled and fits); the column the screen's text starts at
+/// (what a click counts from); and where its part starts in the line (wrapped; else 0: what a
+/// vertical move's column counts from, so it's kept however the screen's scrolled).
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct Shown {
     pub row: usize,
     pub chars: std::ops::Range<usize>,
     pub left: usize,
+    pub base: usize,
+    /// Its part of the line (a wrapped line's; else all of it): where a vertical move may go,
+    /// on screen or not (the screen follows).
+    pub part: std::ops::Range<usize>,
+}
+
+/// The text widths rows are drawn at, as last drawn (0: nothing drawn yet): a full-width row's
+/// (beside the pane as a column, as wide as the code; code's one less, for its marks' column),
+/// a split half's (both alike), the pane's; and floating, how far into the code the pane's
+/// boxes start.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(super) struct Widths {
+    pub full: usize,
+    pub half: usize,
+    pub pane: usize,
+    pub float_at: Option<usize>,
 }
 
 /// What a view hands over to show instead, and comes back to after.
@@ -628,11 +646,10 @@ pub struct App {
     /// they wrap to (one column: the whole width or beside the pane; a split half: both halves
     /// alike); and, for this layout, where each row's parts after its first start (`wrap_rows`).
     soft_wrap: bool,
-    wrap_cols: (usize, usize),
-    /// The text widths rows are drawn at, as last drawn: a full-width row's (beside the pane,
-    /// as wide as the code), and the pane's.
-    frame_w: (usize, usize),
     wrap: Vec<Vec<usize>>,
+    /// The text widths rows are drawn at, as last drawn: what wrapping, and what's on screen
+    /// (`span`), go by.
+    frame_w: Widths,
     /// Changed-word spans (char ranges) for paired removed/added rows.
     emph: HashMap<usize, Vec<(usize, usize)>>,
     /// Helix `cursorline` / relative `line-number`.
