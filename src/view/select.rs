@@ -88,11 +88,10 @@ impl App {
         if let Some(t) = row.thread {
             let th = &self.threads[t];
             if th.claude.is_some() {
-                let line = th.line.or(th.original_line)?;
                 // (Claude's: on its own side; outdated, where it was, its range too.)
-                return Some(match th.start_line.filter(|&s| s < line) {
-                    Some(s) => format!("{}:{s}-{line}", th.path),
-                    None => format!("{}:{line}", th.path),
+                return Some(match th.own_lines()? {
+                    (Some(s), line) => format!("{}:{s}-{line}", th.path),
+                    (None, line) => format!("{}:{line}", th.path),
                 });
             }
             let pr = self.pr.as_ref()?;

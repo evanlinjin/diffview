@@ -525,6 +525,8 @@ pub struct App {
     commit_shown: Option<(usize, usize)>,
     /// The first commit shown, by SHA (the last's is `to`): what the list's reloads follow.
     shown_first: Option<String>,
+    /// The commits the diff's ends are (`base`, `to`), as last noted (`note_diff`).
+    diff_at: (String, Option<String>),
     commit_cur: usize,
     commit_anchor: Option<usize>,
     in_commits: bool,

@@ -98,7 +98,11 @@ pub fn review_brief(r: &Review) -> String {
     let mut out = vec![r.summary.trim().to_owned()];
     for t in &r.threads {
         let at = match t.conversation.as_str() {
-            "" => format!("`{}:{}`", t.path, t.line.or(t.original_line).unwrap_or(0)),
+            "" => match t.own_lines() {
+                Some((Some(s), l)) => format!("`{}:{s}-{l}`", t.path),
+                Some((None, l)) => format!("`{}:{l}`", t.path),
+                None => format!("`{}`", t.path),
+            },
             "summary" => "on the summary".into(),
             url => format!("on {url}"),
         };

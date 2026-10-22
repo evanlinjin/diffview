@@ -787,6 +787,13 @@ impl Thread {
         let (s, l, left) = (self.start_line?, self.line?, self.start_left.unwrap_or(self.left));
         (left != self.left || s < l).then_some((s, left))
     }
+
+    /// A Claude thread's lines, on its one side, outdated or not: its range's start (a range's)
+    /// and its line.
+    pub fn own_lines(&self) -> Option<(Option<u32>, u32)> {
+        let line = self.line.or(self.original_line)?;
+        Some((self.start_line.filter(|&s| s < line), line))
+    }
 }
 
 fn parse_thread(t: &Value) -> Thread {

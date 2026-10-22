@@ -578,6 +578,8 @@ fn review_comments(pr: Option<&gh::Pr>, threads: Option<serde_json::Value>) -> a
         .map(|t| {
             serde_json::json!({
                 "path": t.path, "line": t.line, "side": if t.left { "old" } else { "new" },
+                // (Outdated: `line` is gone; where it was, in the commit it was made on.)
+                "original_line": t.original_line.filter(|_| t.outdated),
                 // A range's start (only a range's), and its side: GitHub's can start on the old.
                 "start_line": t.range_start().map(|s| s.0),
                 "start_side": t.range_start().map(|s| if s.1 { "old" } else { "new" }),

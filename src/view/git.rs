@@ -245,6 +245,7 @@ impl App {
 
     /// The diff against `base` from now on (the whole diff's, or `HEAD`'s: what isn't committed).
     fn diff_against(&mut self, base: String) {
+        self.commit_anchor = None;
         self.show_whole(base);
     }
 
@@ -565,6 +566,7 @@ impl App {
         let keep = self.cursor_key();
         self.follow_rebase();
         self.load_commits();
+        self.note_diff();
         self.files = diff::load(&self.base, self.to.as_deref(), DEFAULT_CONTEXT)?;
         // After the diff: Claude's comments follow their code, which may have just been edited.
         match threads {

@@ -636,36 +636,41 @@ impl App {
         true
     }
 
-    /// The whole diff again, from its base as now (another base, a commit or range let go):
-    /// its hunks other ones, their context afresh. Every such change goes through here.
     /// The diff shown: from `base` to `to` (a commit's; else the working tree). Every change of it
     /// goes through here: another one, its hunks are other ones, their widened context let go.
     pub(super) fn set_diff(&mut self, base: String, to: Option<String>) {
-        if (&base, &to) != (&self.base, &self.to) {
-            (self.base, self.to) = (base, to);
-            self.hunks_afresh();
+        (self.base, self.to) = (base, to);
+        self.note_diff();
+    }
+
+    /// The diff as it is now, by the commits its ends name (`HEAD` moves as commits are made):
+    /// another than before, its hunks are other ones, their widened context let go. On every
+    /// change of the diff, and every reload.
+    pub(super) fn note_diff(&mut self) {
+        let at = |rev: &str| diff::git(&["rev-parse", "--verify", "-q", rev]).map(|s| s.trim().to_owned()).unwrap_or_else(|_| rev.to_owned());
+        let now = (at(&self.base), self.to.as_deref().map(at));
+        if now != self.diff_at {
+            self.extra.clear();
+            self.diff_at = now;
         }
     }
 
-    /// The whole diff, from `base`: no commit or range shown.
+    /// The whole diff, from `base`: no commit or range shown (a range being started, the
+    /// commit list's, stays).
     pub(super) fn show_whole(&mut self, base: String) {
-        (self.commit_shown, self.commit_anchor, self.shown_first) = (None, None, None);
+        (self.commit_shown, self.shown_first) = (None, None);
         self.commit_msgs.clear();
         self.set_diff(base, None);
     }
 
     /// The PR's base moved to `now` (followed on, retargeted): the whole diff from there (only
-    /// what isn't committed, shown, stays so).
+    /// what isn't committed, shown, stays so); the commit list's other commits now, a range
+    /// being started there goes.
     pub(super) fn move_full_base(&mut self, now: String) {
         let base = if self.uncommitted() { self.base.clone() } else { now.clone() };
         self.full_base = now;
+        self.commit_anchor = None;
         self.show_whole(base);
-    }
-
-    /// The diff's hunks are other ones: their widened context, the whole diff's and the views',
-    /// let go (`set_diff`).
-    fn hunks_afresh(&mut self) {
-        self.extra.clear();
     }
 
     pub(super) fn toggle_whole(&mut self) {

@@ -852,7 +852,9 @@ fn your_comments_for_claude_stay_private() {
     app.goto(add, 0);
     app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
     let Some(Action::AskClaude { anchor, .. }) = &app.wanting else { panic!("{}", app.msg) };
-    assert!(!anchor.left && anchor.start.is_none_or(|(_, left)| !left), "{:?}", anchor.start);
+    let first = app.rows[add].line.new.unwrap();
+    assert!(!anchor.left);
+    assert!(anchor.start.is_none() || anchor.start == Some((first, false)), "{:?} (first added: {first})", anchor.start);
 }
 
 #[test]

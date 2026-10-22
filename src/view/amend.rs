@@ -151,6 +151,24 @@ fn dropped_file(dir: &Path) -> Option<std::path::PathBuf> {
 
 /// The commits amends here dropped (their changes undone: gone, not rewritten). (Whole shas
 /// only: one being appended meanwhile may be read half written.)
+/// Commit `sha`'s change, as `git patch-id` names it: the same for the same change, whatever
+/// its message or parent.
+fn patch_id(dir: &Path, sha: &str) -> Option<String> {
+    use std::io::Write;
+    let patch = git_in(dir, &["show", "--format=", sha]).ok()?;
+    let mut child = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["patch-id", "--stable"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .ok()?;
+    child.stdin.take()?.write_all(patch.as_bytes()).ok()?;
+    let out = child.wait_with_output().ok()?;
+    String::from_utf8_lossy(&out.stdout).split_whitespace().next().map(str::to_owned)
+}
+
 pub(super) fn dropped_in(dir: &Path) -> Vec<String> {
     let text = dropped_file(dir).and_then(|f| std::fs::read_to_string(f).ok()).unwrap_or_default();
     text.lines().filter(|l| matches!(l.len(), 40 | 64) && l.bytes().all(|b| b.is_ascii_hexdigit())).map(str::to_owned).collect()
@@ -428,12 +446,13 @@ impl App {
             .collect();
         lost.sort();
         lost.dedup();
+        let dropped = dropped_in(&self.root);
         if lost.is_empty() {
             return;
         }
         let moves: Vec<(String, String)> = lost
             .into_iter()
-            .filter_map(|(url, sha)| Some((url.clone(), url.replace(&sha, &self.now_as(&sha)?))))
+            .filter_map(|(url, sha)| Some((url.clone(), url.replace(&sha, &self.now_as(&sha, &dropped)?))))
             .collect();
         if !moves.is_empty() && crate::claude::rename_conversations(&p, &moves).is_ok() {
             let keep = self.cursor_key();
@@ -445,12 +464,12 @@ impl App {
     /// The commit `sha` of the list is now: itself, still here; dropped by an amend, none; else
     /// (amended, rebased: by dv or not) the one with its subject and author date (both kept by a
     /// rebase or an amend), or, reworded, its date and author: the only one.
-    pub(super) fn now_as(&self, sha: &str) -> Option<String> {
+    pub(super) fn now_as(&self, sha: &str, dropped: &[String]) -> Option<String> {
         if self.commits.iter().any(|c| c.sha == sha) {
             return Some(sha.to_owned());
         }
         // (One an amend dropped is gone: not another of the same date and author.)
-        if dropped_in(&self.root).iter().any(|d| d == sha) {
+        if dropped.iter().any(|d| d == sha) {
             return None;
         }
         let was = git_in(&self.root, &["log", "-1", "--format=%at%x09%ae%x09%s", sha]).ok()?;
@@ -459,8 +478,11 @@ impl App {
         let one = |v: Vec<&String>| (v.len() == 1).then(|| v[0].clone());
         let dated = || self.commits.iter().filter(|c| c.at == at);
         let by_subject = one(dated().filter(|c| c.subject.trim() == subject.trim()).map(|c| &c.sha).collect());
+        // (Reworded: its change the same too, its patch's id; not another made the same second.)
         let email_of = |sha: &str| git_in(&self.root, &["log", "-1", "--format=%ae", sha]).is_ok_and(|e| e.trim() == email);
-        by_subject.or_else(|| one(dated().filter(|c| email_of(&c.sha)).map(|c| &c.sha).collect()))
+        let patch = patch_id(&self.root, sha);
+        let same = |c: &&super::files::Commit| email_of(&c.sha) && patch.is_some() && patch_id(&self.root, &c.sha) == patch;
+        by_subject.or_else(|| one(dated().filter(same).map(|c| &c.sha).collect()))
     }
 
     /// `Space g` → amend: where each change goes, and doing it (or asking Claude about the rest).

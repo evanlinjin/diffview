@@ -242,12 +242,13 @@ pub fn remote_is(dir: &std::path::Path, remote: &str, repo: &str) -> bool {
 /// The remote branch `here` in the checkout at `dir` pushes to: its push remote, else the
 /// default one, else its remote (a name, or a URL).
 pub fn push_remote(dir: &std::path::Path, here: &str) -> Option<String> {
-    let config = |k: &str| git_config(dir, k);
-    config(&format!("branch.{here}.pushRemote")).or_else(|| config("remote.pushDefault")).or_else(|| config(&format!("branch.{here}.remote")))
+    git_config(dir, &format!("branch.{here}.pushRemote"))
+        .or_else(|| git_config(dir, "remote.pushDefault"))
+        .or_else(|| git_config(dir, &format!("branch.{here}.remote")))
 }
 
 /// Git config `key` in the checkout at `dir`, set and not empty.
-fn git_config(dir: &std::path::Path, key: &str) -> Option<String> {
+pub fn git_config(dir: &std::path::Path, key: &str) -> Option<String> {
     git_in(dir, &["config", "--get", key]).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
 }
 
@@ -349,9 +350,8 @@ pub fn remote_head() -> Option<String> {
 
 /// The remote as `remote` finds it, in the repo at `dir`, if anything says.
 fn found_remote(dir: &std::path::Path) -> Option<String> {
-    let set = git_in(dir, &["config", "--get", "dv.remote"]).unwrap_or_default();
-    if !set.trim().is_empty() {
-        return Some(set.trim().to_owned());
+    if let Some(set) = git_config(dir, "dv.remote") {
+        return Some(set);
     }
     let names: Vec<String> = git_in(dir, &["remote"]).ok()?.lines().map(str::to_owned).collect();
     if names.len() == 1 {
