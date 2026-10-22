@@ -269,6 +269,7 @@ fn comments_placed_and_anchored() {
     app.goto(10, 0);
     let a = app.selection_anchor().unwrap();
     assert_eq!(app.file_ref().unwrap(), "src/a.rs:2"); // new-side lines only; the deleted one has none
+    app.select = false; // (as an action taken ends it)
 
     // An outdated thread is relocated by the commented line's text.
     let moved = Thread { hunk: vec!["+    new_call(x);".into()], ..t(false, None, false, vec![c(4, "nit")]) };
@@ -4563,4 +4564,42 @@ fn a_long_count_is_capped_and_a_click_ends_labels() {
     press(&mut app, "gw");
     app.mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column: 30, row: 6, modifiers: KeyModifiers::NONE });
     assert!(app.labels.is_empty(), "labels still up after a click");
+}
+
+#[test]
+fn a_rebuild_finds_the_anchor_as_it_was_before_threads_change() {
+    // A new thread first (GitHub's poll, Claude's review): the anchor stays on its comment.
+    let mut app = margin_app();
+    let at = |app: &App, s| app.rows.iter().position(|r| r.line.text.contains(s)).unwrap();
+    app.goto(at(&app, "first"), 0);
+    app.select = true;
+    app.goto(at(&app, "second"), 0);
+    let keep = app.cursor_key();
+    let mut new = app.threads[1].clone();
+    new.line = Some(4);
+    new.comments[0].id = 9;
+    app.threads.insert(0, new);
+    app.rebuild(keep);
+    assert_eq!(app.rows[app.anchor.row].thread.and_then(|t| app.root_id(t)), Some(1), "anchor moved to another thread");
+    // A thread gone, the file folded (no code above its comments): no panic.
+    let mut app = margin_app();
+    app.collapsed.insert("a.rs".into());
+    app.build();
+    app.goto(2, 0);
+    app.select = true;
+    app.goto(1, 0);
+    let keep = app.cursor_key();
+    app.threads.truncate(1);
+    app.rebuild(keep);
+}
+
+#[test]
+fn a_rebuild_ends_jump_labels() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let _ = screen(120, 30, |f| app.draw(f));
+    press(&mut app, "gw");
+    assert!(!app.labels.is_empty());
+    let keep = app.cursor_key();
+    app.rebuild(keep);
+    assert!(app.labels.is_empty(), "labels kept over rows that moved");
 }
