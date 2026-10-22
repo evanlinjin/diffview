@@ -906,12 +906,10 @@ impl App {
     pub(super) fn start_reply(&mut self, review: bool) {
         // Several of Claude's threads selected: one reply to them all.
         if let Some(keys) = self.selected_claude_threads() {
-            self.select = false;
             return self.pick_want(Action::ClaudeReplyAll(keys, ""), None);
         }
         // What's selected, quoted in the reply: what it's about.
         let sel = self.selected_quote();
-        self.select = false;
         // On Claude's review summary: go on in the thread replying to it, or start one.
         if self.rows[self.head.row].info == Some(SUMMARY) && self.rows[self.head.row].thread.is_none() {
             if self.claude.path.is_none() {

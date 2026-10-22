@@ -431,6 +431,8 @@ impl App {
             focus_dv();
         }
         if let Some(a) = self.action.take() {
+            // What was selected for it: used (the action has its lines).
+            (self.select, self.anchor) = (false, self.head);
             // In zellij the editor gets a pane below and dv stays on screen above it.
             let in_pane = in_zellij();
             if !in_pane {

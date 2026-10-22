@@ -56,7 +56,6 @@ impl App {
                 .map(|r| format!("> {}", self.rows[r].line.text.trim_end()))
                 .collect();
             let prs = self.replacement.as_ref().map(crate::replace::Record::ids).unwrap_or_default();
-            self.select = false;
             // What you want of it first, as on a PR's comments.
             return self.pick_want(Action::Replace(prs, Some((which, format!("About the {which}:\n{}\n", lines.iter().map(|l| format!("{l}\n")).collect::<String>()), ""))), None);
         }
@@ -70,7 +69,6 @@ impl App {
                 Some(q) => format!("About this part of your review:\n{q}"),
                 None => String::new(),
             };
-            self.select = false;
             return self.action = Some(Action::AskConversation { url: ON_SUMMARY.into(), prefill, want: "" });
         }
         // A published replacement's closing note: yours to change as it goes out.
@@ -91,14 +89,12 @@ impl App {
         }
         // Several of Claude's threads selected: one reply to them all.
         if let Some(keys) = self.selected_claude_threads() {
-            self.select = false;
             return self.pick_want(Action::ClaudeReplyAll(keys, ""), None);
         }
         // On a thread of Claude's review (its comment, or your question and its answer): a reply
         // there, quoting what's selected of it.
         if let Some((t, k)) = self.claude_at_cursor() {
             let quote = self.selected_quote().map_or(String::new(), |q| format!("About this:\n{q}\n"));
-            self.select = false;
             let reply = Action::ClaudeReply(k, "", quote);
             return match self.threads[t].conversation.is_empty() {
                 true => self.pick_want(reply, Some(t)),
