@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.88.0] - 2026-10-22
+
+### Changed
+- A replacement starts from Claude's review of what it replaces: its prompt carries that review
+  from dv (the summary, and each comment on the code with your replies), to start from what
+  was found and do what you asked there; and it may read the originals' line comments on GitHub
+  (`dv review-comments -p N`), which `gh pr view --comments` leaves out.
+
 ## [0.87.0] - 2026-10-22
 
 ### Added
