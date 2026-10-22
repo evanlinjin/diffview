@@ -133,9 +133,8 @@ impl App {
     /// Rebuild the help overlay for its current search.
     pub(super) fn refresh_help(&mut self) {
         let Some((q, typing)) = self.help.clone() else { return };
-        // Room for popup text: the window minus the popup's margins, padding and scrollbar. Help
-        // takes two columns when they fit, else one of at most 97.
-        let cw = (self.width.saturating_sub(4) as usize).saturating_sub(3);
+        // (Help takes two columns when they fit, else one of at most 97.)
+        let cw = super::render::popup_text_w(self.width);
         let title = match (typing, q.is_empty()) {
             (true, _) => format!(" keys /{q}▏ Enter keep · Esc clear "),
             (false, false) => format!(" keys /{q} · / edit · j/k scroll · other keys close "),

@@ -122,7 +122,7 @@ pub(crate) fn help_lines(help: &str, ui: &Ui, width: usize, query: &str) -> Vec<
 impl App {
     /// Hover markdown, highlighted (code fences in their language), with the fence lines dropped.
     pub(super) fn hover_lines(&self, md: &str) -> Vec<Line<'static>> {
-        let cw = (self.width.saturating_sub(4).min(100) as usize).saturating_sub(3);
+        let cw = super::render::popup_text_w(self.width).min(97);
         let code_bg = self.ui.md.code_bg;
         crate::md::render(md, cw, &self.ui.md, &self.hl, None)
             .into_iter()

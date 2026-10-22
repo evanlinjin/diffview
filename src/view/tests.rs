@@ -612,7 +612,7 @@ fn help_two_columns() {
         lines
     };
     let one = rows(&mut app, 100);
-    let two = rows(&mut app, 200);
+    let two = rows(&mut app, 210);
     assert!(two.len() <= one.len() / 2 + 4, "{} vs {}", two.len(), one.len()); // about half as tall (sections stay whole)
     let text: String = two[0].spans.iter().map(|s| s.content.as_ref()).collect();
     assert!(text.starts_with(" MOVE") && text.trim_end().ends_with(text.split_whitespace().last().unwrap())); // a heading on each side

@@ -193,10 +193,11 @@ impl App {
 
     /// What row `r` scrolls sideways with: the diff, by `left`; a comment's code block or
     /// table (from its first row), by its own offset; nothing (`None`): a comment's prose
-    /// wraps, and the pinned title isn't the diff's.
+    /// wraps, and the pinned title isn't the diff's, nor a hunk's rule (drawn as it is).
     pub(super) fn scroller(&self, r: usize) -> Option<Scroller> {
         match self.box_part(r) {
             None if r == 0 && self.pin => None,
+            None if self.rows[r].line.kind == Kind::Hunk && diff::hunk_label(&self.rows[r].line.text).is_some() => None,
             // (A wrapped line has nothing off to the side: no sideways scrolling, by any key or
             // gesture. What doesn't wrap, a long header, still scrolls.)
             None if self.wraps(r) => None,
@@ -473,14 +474,17 @@ impl App {
     pub(super) fn row_w(&self, r: usize) -> usize {
         let Widths { full, pane, .. } = self.frame_w;
         // (The pinned title shares its row with the pane's tabs: as wide as the code's area.)
-        if r == 0 && self.pin {
-            return self.geom.ctw;
-        }
-        match (self.in_pane(r), self.rows[r].line.kind.is_code()) {
+        let w = match (self.in_pane(r), self.rows[r].line.kind.is_code()) {
+            _ if r == 0 && self.pin => self.geom.ctw,
             (true, _) if pane > 0 => self.text_w(r, pane),
             (false, true) => self.code_w(),
             _ if full > 0 => self.text_w(r, full),
             _ => 0,
+        };
+        // The PR's text: up to its chips (state, counts, badge), which always show.
+        match self.rows[r].file == INFO {
+            true => w.saturating_sub(super::row::chips_w(&self.chips(r, self.bar_counts, Style::new()))),
+            false => w,
         }
     }
 

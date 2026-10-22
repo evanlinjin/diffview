@@ -72,10 +72,11 @@ pub(crate) fn skip_cols(spans: Vec<Span<'static>>, n: usize) -> Vec<Span<'static
         let mut text = String::new();
         for c in sp.content.chars() {
             let cw = char_w(c);
-            if left >= cw && left > 0 {
-                left -= cw;
-            } else {
-                text.push(c);
+            match left {
+                0 => text.push(c),
+                l if l >= cw => left -= cw,
+                // (A wide char cut: what's left of it, blank; all after it kept.)
+                l => (left, text) = (0, " ".repeat(cw - l)),
             }
         }
         if !text.is_empty() {
@@ -85,7 +86,37 @@ pub(crate) fn skip_cols(spans: Vec<Span<'static>>, n: usize) -> Vec<Span<'static
     out
 }
 
+/// The columns `chips` take, with the space before them; none, 0.
+pub(super) fn chips_w(segs: &[(String, Style)]) -> usize {
+    match segs.len() {
+        0 => 0,
+        n => segs.iter().map(|(t, _)| cols(t)).sum::<usize>() + 2 * (n - 1) + 1,
+    }
+}
+
 impl App {
+    /// What's drawn at the right end of header row `r` (on `style`): its state; pinned, the
+    /// PR's title has its counts before it (`counts`, when they fit beside all of it: else they
+    /// stay on the status bar) and how the checkout stands against the PR, a badge.
+    pub(super) fn chips(&self, r: usize, counts: bool, style: Style) -> Vec<(String, Style)> {
+        let (row, ui) = (&self.rows[r], &self.ui);
+        let tag = if row.line.kind == Kind::File && row.main.is_none() { self.header_tag(row.file) } else { None };
+        let pinned = r == 0 && self.pin;
+        let mut segs: Vec<(String, Style)> = vec![];
+        let counts = if pinned && counts { self.pr_counts() } else { String::new() };
+        if !counts.is_empty() {
+            segs.push((counts, style.patch(ui.linenr)));
+        }
+        // (What Claude's doing: the status bar's.)
+        if pinned && !self.sync.is_empty() {
+            segs.push((format!(" {} ", self.sync), super::render::badge(ui, ui.warning.fg)));
+        }
+        if let Some((t, st)) = tag {
+            segs.push((t, style.patch(st)));
+        }
+        segs
+    }
+
     /// A hunk header drawn as a quiet rule: `── fn main ─────── L12–18`. The raw `@@` text stays
     /// the row's text (search, `Y`); only the drawing changes.
     pub(super) fn hunk_divider(&self, r: usize, gw: usize, tw: usize) -> Option<Vec<Span<'static>>> {
@@ -98,7 +129,7 @@ impl App {
         if !ctx.is_empty() {
             left += &format!(" {ctx} ");
         }
-        let fill = tw.saturating_sub(left.chars().count() + range.chars().count() + 1);
+        let fill = tw.saturating_sub(cols(&left) + cols(&range) + 1);
         let text = format!("{left}{}{range}─", "─".repeat(fill));
         let mut spans = vec![Span::styled(" ".repeat(gw), self.ui.linenr)];
         let mut chars = text.chars();
@@ -424,38 +455,12 @@ impl App {
             spans.push(Span::raw(" ".repeat(tw.saturating_sub(used))));
             return spans;
         }
-        let tag = if l.kind == Kind::File && row.main.is_none() { self.header_tag(row.file) } else { None };
-        // Pinned, the PR's title has its counts before its state, when they fit beside all of
-        // it (`bar_counts`; else they stay on the status bar); and, always, how the checkout
-        // stands against the PR, a badge (what Claude's doing: the status bar's).
-        let pinned = r == 0 && self.pin;
-        let counts = match pinned && self.bar_counts {
-            true => self.pr_counts(),
-            false => String::new(),
-        };
-        let mut segs: Vec<(String, Style)> = vec![];
-        if !counts.is_empty() {
-            segs.push((counts, style.patch(ui.linenr)));
-        }
-        // (What Claude's doing: the status bar's.)
-        if pinned && !self.sync.is_empty() {
-            segs.push((format!(" {} ", self.sync), super::render::badge(ui, ui.warning.fg)));
-        }
-        if let Some((t, st)) = tag {
-            segs.push((t, style.patch(st)));
-        }
-        let width = |segs: &[(String, Style)]| segs.iter().map(|(t, _)| cols(t)).sum::<usize>() + 2 * segs.len().saturating_sub(1);
-        // These always show: a long title is cut to make room (the counts go first).
-        let mut used = used;
-        if !segs.is_empty() && row.file == INFO {
-            while used + 1 + width(&segs) > tw && spans.len() > 1 {
-                used -= spans.pop().map_or(0, |s| s.width());
-            }
-        }
-        match width(&segs) {
+        // (The PR's text cut to leave room for them: `row_w`.)
+        let segs = self.chips(r, self.bar_counts, style);
+        match chips_w(&segs) {
             // Right-aligned when it fits after the name; it isn't part of the row's text.
-            n if n > 0 && used + 1 + n <= tw => {
-                spans.push(Span::raw(" ".repeat(tw - used - n)));
+            n if n > 0 && used + n <= tw => {
+                spans.push(Span::raw(" ".repeat(tw + 1 - used - n)));
                 for (k, (t, st)) in segs.into_iter().enumerate() {
                     if k > 0 {
                         spans.push(Span::raw("  "));

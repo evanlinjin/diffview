@@ -433,11 +433,8 @@ impl App {
     /// Whether the PR's counts fit on its pinned title, `w` wide, beside all of it: its text, its
     /// state, the checkout's badge (as `render_row` puts it).
     fn title_fits(&self, w: usize) -> bool {
-        use super::row::cols;
-        let badges = (!self.sync.is_empty()).then(|| cols(&self.sync) + 2);
-        let state = self.header_tag(INFO).map(|t| cols(&t.0)).into_iter().chain(badges).map(|n| n + 2).sum::<usize>();
-        let line = self.rows.first().map_or(0, |r| cols(&r.line.text));
-        line + 2 + cols(&self.pr_counts()) + state <= w
+        let line = self.rows.first().map_or(0, |r| super::row::cols(&r.line.text));
+        line + super::row::chips_w(&self.chips(0, true, Style::new())) <= w
     }
 
     /// Where the pane meets the code: as a column, a dim line; floating, the pane's color.
@@ -693,7 +690,7 @@ impl App {
         let text_w = text.iter().map(Line::width).max().unwrap_or(0).max(title.chars().count() + 1);
         let w = (text_w as u16 + 5).max(30).min(full.width.saturating_sub(4));
         // ponytail: wrapped height estimated from line widths (char wrap, not word wrap).
-        let cw = w.saturating_sub(5).max(1) as usize;
+        let cw = (w as usize).saturating_sub(5).max(1);
         let total: usize = text.iter().map(|l| l.width().div_ceil(cw).max(1)).sum();
         let h = (total as u16 + 2).min(full.height.saturating_sub(4)).max(3);
         let r = centered(full, w, h);
@@ -847,6 +844,12 @@ fn aside(label: &str) -> usize {
         }
     }
     label.chars().count()
+}
+
+/// The text width a popup has in a window `width` wide: its margins (2 a side), border,
+/// padding and scrollbar.
+pub(super) fn popup_text_w(width: u16) -> usize {
+    width.saturating_sub(9) as usize
 }
 
 /// A popup's place: centered in `full`, near its top, `w` × `h` (as much as fits).
