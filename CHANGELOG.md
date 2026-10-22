@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.93.2] - 2026-10-22
+
+### Fixed
+- A sideways wheel that has nothing to scroll (a code block at its end, a title that fits,
+  anything already at its start) leaves the cursor where it is.
+
 ## [0.93.1] - 2026-10-22
 
 ### Fixed
