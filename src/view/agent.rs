@@ -375,6 +375,15 @@ impl App {
             items.push(Item::new(format!("Open its replacement, {} ({how}; q comes back here)", crate::replace::label(r.id)), Target::OpenReplacement(r.id)));
         }
         match (&self.pr, &self.replacement) {
+            // Its replacement, not published: redrafted (all it replaces); published, a PR like
+            // any, Claude asked there.
+            (Some(_), _) if let Some(r) = &self.replaced_by => {
+                if let Some(why) = self.redraft_waits(r.id).filter(|_| r.published.is_none()) {
+                    items.push(Item::new(why, Target::Note("")));
+                } else if r.published.is_none() {
+                    items.push(Item::new(format!("Redraft {} (Claude carries on, with your instructions)", crate::replace::label(r.id)), Target::Do(Action::Replace(r.ids(), None))));
+                }
+            }
             (Some(p), _) => items.push(Item::new(
                 format!("Draft a replacement for #{} (Claude writes it properly, unpublished, in the background)", p.number),
                 Target::Do(Action::Replace(vec![p.number], None)),
