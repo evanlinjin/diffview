@@ -423,7 +423,7 @@ pub fn at_work(key: &str, own: Option<&str>, here: Option<&std::path::Path>) -> 
 }
 
 /// What Claude is doing in checkout `dir` right now, on any key, from any dv (a marker that
-/// doesn't say where isn't counted).
+/// doesn't say where isn't counted: a read-only run, a triage, says none).
 pub fn at_work_in(dir: &std::path::Path) -> Option<String> {
     let panes = std::cell::OnceCell::new();
     let in_dir = |p: &std::path::Path| std::fs::read_to_string(p).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).is_some_and(|v| v["dir"].as_str().is_some_and(|d| std::path::Path::new(d) == dir));

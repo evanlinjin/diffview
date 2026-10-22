@@ -233,7 +233,7 @@ fn triage_run(n: u64, updated: &str, fixes: &[(u64, String, String)], root: &std
     let mut cmd = triage_command(n, fixes, root, extra);
     let child = cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().context("is Claude Code (`claude`) installed?")?;
     claim.set_pid(child.id());
-    claim.set_dir(root);
+    // (No checkout of its own: it only reads, from git's objects; a merge can switch it.)
     let out = child.wait_with_output()?;
     drop(claim);
     let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
