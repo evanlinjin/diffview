@@ -4444,3 +4444,59 @@ fn click_in_code_takes_focus_from_list() {
     app.mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column: 34, row: 2, modifiers: KeyModifiers::NONE });
     assert!(!app.files_focus, "list still focused after a click in the code");
 }
+
+#[test]
+fn x_grows_from_one_char_and_empty_lines() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let r = app.rows.iter().position(|r| r.line.text == "}").unwrap();
+    app.goto(r - 1, 0);
+    press(&mut app, "xx"); // a long line, then "}"
+    assert_eq!((app.anchor, app.head.row), (Pos { row: r - 1, col: 0 }, r));
+    app.goto(r, 0);
+    press(&mut app, "x");
+    assert_eq!(app.head.row, r, "one x: its own line");
+    press(&mut app, "x");
+    assert!(app.head.row > r, "x x stuck on a one-char line");
+}
+
+#[test]
+fn search_and_ge_keep_to_rows_drawn_on_your_side() {
+    let mut app = margin_app();
+    app.threads[1].line = Some(4);
+    app.threads[1].original_line = Some(4);
+    app.build();
+    app.goto(2, 0);
+    press(&mut app, "ge");
+    assert!(!app.margin_side(), "ge from the code went into the pane");
+    app.margin_active = false;
+    app.build();
+    app.goto(2, 0);
+    press(&mut app, "ge");
+    assert!(app.side_of(app.head.row).is_some(), "ge onto a hidden comment");
+    app.goto(0, 0);
+    app.search = "second".into();
+    press(&mut app, "n");
+    assert!(app.side_of(app.head.row).is_some(), "search landed on a hidden comment");
+}
+
+#[test]
+fn arrow_is_a_move_not_a_prefix_char() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let r = app.rows.iter().position(|r| r.line.text == "    new_call(x);").unwrap();
+    app.goto(r, 0);
+    press(&mut app, "f");
+    app.key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+    assert_eq!((app.pending, app.head.col), (None, 1), "f then Right ran fl");
+    press(&mut app, "3");
+    app.key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::ALT));
+    assert_eq!(app.count, 0, "count kept after Alt-x");
+}
+
+#[test]
+fn star_on_a_hunk_header_searches_its_text() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let r = app.rows.iter().position(|r| r.line.kind == Kind::Hunk).unwrap();
+    app.goto(r, 0);
+    press(&mut app, "w*");
+    assert!(!app.search.is_empty());
+}
