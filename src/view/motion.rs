@@ -42,12 +42,12 @@ impl App {
             return;
         }
         // The code's left edge: on into the files' list.
-        if !right && self.files_w > 0 && self.list_has_spots() && !self.margin_side() && (!self.split || !self.right) {
+        if !right && self.files_w > 0 && self.list_has_spots() && !self.margin_side() && (!self.split || !self.head_right()) {
             (self.files_focus, self.files_sel) = (true, self.current_spot());
             return self.msg = "contents: j / k move, Enter goes there, Ctrl-l back".into();
         }
         let hd = self.hd();
-        let into_margin = self.margin_active && right && (!self.split || self.right) && !self.margin_side();
+        let into_margin = self.margin_active && right && (!self.split || self.head_right()) && !self.margin_side();
         // By what a comment is about, not where its box happens to sit (boxes stack down the
         // pane): from a comment to its line, and from a line to the comment about it.
         if self.margin_side() && !right
@@ -108,17 +108,23 @@ impl App {
         }
     }
 
-    /// The cursor to `p`, every move of it through here: the side it's on (split view) with it,
-    /// a removed line's the left, an added line's the right (one on both, unchanged, keeps it),
-    /// so what it's drawn by stays right; and a vertical move's kept column let go.
+    /// The cursor to `p`, every move of it through here: a vertical move's kept column let go.
+    /// (The side you chose, `right`, stays: the side it's drawn on comes from the line,
+    /// `head_right`.)
     pub(super) fn set_head(&mut self, p: Pos) {
-        match self.rows[p.row].line.kind {
-            Kind::Del => self.right = false,
-            Kind::Add => self.right = true,
-            _ => {}
-        }
         self.head = p;
         self.want_x = None;
+    }
+
+    /// Which half the cursor's drawn on in split view: a removed line's the left, an added
+    /// line's the right, one on both (unchanged) the side you chose (`right`: Ctrl-h / Ctrl-l,
+    /// a click on a half).
+    pub(super) fn head_right(&self) -> bool {
+        match self.rows[self.head.row].line.kind {
+            Kind::Del => false,
+            Kind::Add => true,
+            _ => self.right,
+        }
     }
 
     /// Set a selection (motions like `w` select); in select mode only the head moves.

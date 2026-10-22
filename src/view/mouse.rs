@@ -59,6 +59,7 @@ impl App {
             // to (the cursor there would take it back).
             MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight if code => {
                 let Some((row, col, _)) = self.at_screen(x, y) else { return };
+                self.choose_side_at(x);
                 if self.scroller(row).is_none() || kind == MouseEventKind::ScrollRight && self.col_of(row, self.len(row)) <= self.hscroll(row) + 1 && self.hscroll(row) > 0 {
                     return;
                 }
@@ -102,6 +103,7 @@ impl App {
                     return;
                 }
                 let Some((row, col, gutter)) = self.clicked_at(x, y) else { return };
+                self.choose_side_at(x);
                 // On a fold arrow (a file's or a thread's first row, in the gutter): fold / unfold.
                 let first_of_thread = self.rows[row].thread.is_some_and(|t| row == 0 || self.rows[row - 1].thread != Some(t));
                 self.select = false;
@@ -115,6 +117,7 @@ impl App {
             // Dragging selects, from where the button went down (the anchor stays there).
             MouseEventKind::Drag(MouseButton::Left) if self.picker.is_none() && self.popup.is_none() => {
                 if let Some((row, col, _)) = self.at_screen(x, y) {
+                    self.choose_side_at(x);
                     self.set_head(Pos { row, col: col.min(self.len(row).saturating_sub(1)) });
                 }
             }
@@ -146,6 +149,13 @@ impl App {
     }
 
     /// Where a split view's right (new) side's text starts on screen.
+    /// Split view: the half at screen column `x` is the side you chose (a click, a drag).
+    fn choose_side_at(&mut self, x: usize) {
+        if self.split {
+            self.right = x >= self.geom.relw + self.geom.half;
+        }
+    }
+
     pub(super) fn right_x(&self) -> usize {
         let g = self.geom;
         g.relw + g.half + 1 + g.ghw

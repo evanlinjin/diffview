@@ -497,8 +497,8 @@ impl App {
     fn text_x(&self, c: &Cols) -> usize {
         match self.margin_side() {
             true => self.pane_x(),
-            // (The cursor's line is on its side, `right`: as `code_x` has it for any row.)
-            false => self.code_x(c.hd, self.right),
+            // (The cursor's line on the half it's drawn on: as `code_x` has it for any row.)
+            false => self.code_x(c.hd, self.head_right()),
         }
     }
 

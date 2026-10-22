@@ -3754,14 +3754,26 @@ fn the_cursor_lands_where_it_can_be_seen() {
 
 #[test]
 fn every_cursor_move_takes_its_side() {
-    // Split: w from the end of a removed line onto the added one: the cursor's side with it.
-    let text = "diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old one\n+new two\n";
+    // Split: the half the cursor's drawn on is its line's (a removed line's left, an added
+    // line's right), whatever moved it; the side you chose stays yours.
+    let text = "diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1,5 +1,4 @@\n a\n-b1\n-b2\n+c1\n d\n e\n";
     let mut app = App::with("base".into(), diff::parse(text));
     (app.files_pref, app.margin_pref, app.split) = (Some(false), Some(false), true);
     _ = screen(80, 20, |f| app.draw(f));
-    let del = app.rows.iter().position(|r| r.line.kind == Kind::Del).unwrap();
-    app.goto(del, 6);
-    assert!(!app.right);
-    app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
-    assert_eq!((app.rows[app.head.row].line.kind, app.right), (Kind::Add, true));
+    let at = |app: &App, t: &str| app.rows.iter().position(|r| r.line.text == t).unwrap();
+    app.goto(at(&app, "b1"), 1);
+    assert!(!app.head_right());
+    app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE)); // on to b2, then c1 …
+    app.goto(at(&app, "c1"), 0);
+    assert!(app.head_right(), "an added line: the right");
+    // Chosen right at `a`: j through the pair (b2 beside nothing: its hatch) and back: right.
+    app.goto(at(&app, "a"), 0);
+    app.right = true;
+    for _ in 0..3 {
+        app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    }
+    for _ in 0..2 {
+        app.key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
+    }
+    assert_eq!(app.rows[app.head.row].line.text, "c1", "back on the right");
 }
