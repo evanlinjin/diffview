@@ -884,7 +884,10 @@ impl App {
             self.watch_claude_pane();
             self.act(term);
         }
-        self.hand_off_claude();
+        // (Handing over, it's back: Claude's run stays its own.)
+        if self.hand_off.is_none() {
+            self.hand_off_claude();
+        }
         self.seen.current.push(String::new()); // what the cursor is on now counts as seen too
         self.watch_seen();
         if let Some(pr) = &self.pr {
