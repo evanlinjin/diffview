@@ -696,8 +696,11 @@ impl List {
     /// said so).
     fn selected_pr(&mut self) -> Option<u64> {
         match self.selected()? {
-            // (Published: its PR, as any.)
-            (n, true) if let Some(p) = self.rep_of.get(&n).and_then(|r| r.published) => Some(p),
+            // (Published: its PR, as any, while it's open: the list's.)
+            (n, true) if let Some(p) = self.rep_of.get(&n).and_then(|r| r.published) => match self.prs.iter().any(|x| x.number == p) {
+                true => Some(p),
+                false => (self.msg = format!("#{p} (it was published as) isn't open"), None).1,
+            },
             (_, true) => {
                 self.msg = "a draft replacement, not on GitHub: Enter opens it (its own keys are on the drafts tab)".into();
                 None
