@@ -103,9 +103,6 @@ impl List {
                     return Some(Do::RemoveReplacement(id));
                 }
             }
-            KeyCode::Char('m' | 'a' | 'A') if self.nav.tab == Tab::Replacements => {
-                self.msg = "a draft: Enter opens it in dv, D D removes it (N N drafts a new PR)".into();
-            }
             KeyCode::Char('H') if self.nav.tab == Tab::Stalled => return Some(Do::Nudge(self.shown().get(self.nav.sel)?.number)),
             KeyCode::Char('D') if self.nav.tab == Tab::Worktrees => {
                 let p = self.shown().get(self.nav.sel).map(|p| p.number)?;

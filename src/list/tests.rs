@@ -145,7 +145,8 @@ fn filter_and_keys() {
     k(&mut l, KeyCode::Char('n'));
     assert_eq!(l.nav.tab, Tab::Replacements);
     assert_eq!(shown(&l), [1]);
-    assert!(k(&mut l, KeyCode::Char('a')).is_none() && l.msg.starts_with("a draft: Enter opens it"));
+    l.marked.clear();
+    assert!(k(&mut l, KeyCode::Char('a')).is_none() && l.msg.starts_with("a draft replacement, not on GitHub"));
     assert!(k(&mut l, KeyCode::Char('D')).is_none());
     assert!(matches!(k(&mut l, KeyCode::Char('D')), Some(Do::RemoveReplacement(1))));
 }
