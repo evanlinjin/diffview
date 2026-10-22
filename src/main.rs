@@ -627,9 +627,14 @@ fn check_review(path: &std::path::Path, files: &[diff::FileDiff]) -> anyhow::Res
 fn review_comments(pr: Option<&gh::Pr>, threads: Option<serde_json::Value>) -> anyhow::Result<()> {
     let p = pr.context("no PR here (dv review-comments -p N for PR N)")?;
     let review = gh::parse_threads(&threads.map_or_else(|| gh::threads_json(p.number), Ok)?);
+    // Its lines as in this checkout (the PR's, its head in it: local edits, unpushed commits
+    // move them), as `dv review-check` places Claude's answers; another PR's, as GitHub has them.
+    let here = diff::git(&["merge-base", "--is-ancestor", &p.head_oid, "HEAD"]).is_ok();
+    let moves = here.then(|| diff::tracked_diff(&p.head_oid, None, 0, &[]).ok()).flatten().map(|f| diff::hunks_by_file(&f)).unwrap_or_default();
     let threads: Vec<serde_json::Value> = review
         .threads
         .iter()
+        .map(|t| t.here(&moves))
         .map(|t| {
             serde_json::json!({
                 "path": t.path, "line": t.line, "side": if t.left { "old" } else { "new" },
