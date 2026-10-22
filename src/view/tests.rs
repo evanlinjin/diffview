@@ -4500,3 +4500,67 @@ fn star_on_a_hunk_header_searches_its_text() {
     press(&mut app, "w*");
     assert!(!app.search.is_empty());
 }
+
+#[test]
+fn a_rebuild_keeps_the_selection() {
+    // A resize (re-wrapped rows) keeps x's lines, in the pane as in the code.
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let _ = screen(120, 30, |f| app.draw(f));
+    app.goto(4, 0);
+    press(&mut app, "xx");
+    let before = (app.anchor, app.head);
+    let _ = screen(90, 30, |f| app.draw(f));
+    assert_eq!((app.anchor, app.head), before, "resize lost the selection");
+    // The comment seen (its [new] gone): rebuilt under a selection, it stays.
+    let mut app = margin_app();
+    for t in &mut app.threads {
+        for c in &mut t.comments {
+            c.node_id = format!("n{}", c.id);
+        }
+    }
+    app.build();
+    app.seen.path = Some(std::env::temp_dir().join(format!("dv-seen-{}.json", std::process::id())));
+    let r = app.rows.iter().position(|r| r.line.text.contains("first")).unwrap();
+    app.goto(r, 0);
+    app.watch_seen();
+    app.seen.since = Some(std::time::Instant::now() - std::time::Duration::from_secs(10));
+    press(&mut app, "x");
+    let before = (app.anchor, app.head);
+    app.watch_seen();
+    assert_eq!((app.anchor, app.head), before, "seen rebuild dropped the selection");
+    let _ = std::fs::remove_file(app.seen.path.as_ref().unwrap());
+}
+
+#[test]
+fn x_over_two_claude_threads_replies_to_both() {
+    let mut app = margin_app();
+    app.threads[0].claude = Some("k1".into());
+    app.threads[1].claude = Some("k2".into());
+    app.build();
+    let a = app.rows.iter().position(|r| r.line.text.contains("first")).unwrap();
+    let b = app.rows.iter().position(|r| r.line.text.contains("second")).unwrap();
+    app.goto(a, 0);
+    while app.head.row < b {
+        let h = app.head;
+        press(&mut app, "x");
+        if app.head == h {
+            break;
+        }
+    }
+    assert!(app.selected_claude_threads().is_some(), "x over two of Claude's threads: not both");
+}
+
+#[test]
+fn a_long_count_is_capped_and_a_click_ends_labels() {
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    press(&mut app, "99999999999999999999w");
+    let _ = screen(120, 30, |f| app.draw(f));
+    press(&mut app, "gw");
+    assert!(!app.labels.is_empty());
+    ctrl(&mut app, 'd');
+    assert!(app.labels.is_empty(), "Ctrl-d taken as a label's letter");
+    press(&mut app, "gw");
+    app.mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column: 30, row: 6, modifiers: KeyModifiers::NONE });
+    assert!(app.labels.is_empty(), "labels still up after a click");
+}
