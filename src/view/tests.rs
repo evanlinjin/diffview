@@ -4857,3 +4857,30 @@ fn the_lists_cursor_stays_on_its_file_as_files_come() {
     let Some(files::Spot::File(i)) = app.files_sel else { panic!("{:?}", app.files_sel) };
     assert_eq!(app.files[i].path, was);
 }
+
+#[test]
+fn the_list_is_entered_fresh_every_way() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    app.commits = (1..=3).map(|n| files::Commit { sha: format!("{n}{}", "0".repeat(39)), short: format!("c{n}"), at: String::new(), signed: true, subject: format!("commit {n}") }).collect();
+    app.files_pref = Some(true);
+    _ = screen(220, 30, |f| app.draw(f));
+    let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+    // Into the commits and out; Ctrl-h at the code's left edge: the contents, not the commits.
+    ctrl(&mut app, 'w');
+    press(&mut app, "j");
+    assert!(app.files_focus && app.in_commits);
+    app.key(esc);
+    app.goto(app.head.row, 0);
+    ctrl(&mut app, 'h');
+    assert!(app.files_focus && !app.in_commits, "Ctrl-h into the commits");
+    // A range begun (v), the list left by another key: back in, none begun.
+    app.key(esc);
+    ctrl(&mut app, 'w');
+    press(&mut app, "jjv");
+    assert!(app.commit_anchor.is_some());
+    press(&mut app, "?");
+    app.key(esc);
+    ctrl(&mut app, 'w');
+    press(&mut app, "j");
+    assert_eq!(app.commit_anchor, None, "a range kept from before");
+}

@@ -283,8 +283,8 @@ impl App {
             (_, None) => r == 0,
             (_, Some((a, b))) => r > a && r <= b + 1,
         };
-        let picking = self.commit_anchor.map(|a| (a.min(self.commit_cur), a.max(self.commit_cur)));
         let focus = self.files_focus && self.in_commits;
+        let picking = self.commit_anchor.filter(|_| focus).map(|a| (a.min(self.commit_cur), a.max(self.commit_cur)));
         let (cursor, here) = self.list_tints();
         for r in 0..=last {
             let on = focus && r == self.commit_cur;
@@ -549,10 +549,10 @@ impl App {
             KeyCode::Enter => {
                 match self.files_sel {
                     Some(s) => self.goto_spot(s),
-                    None => (self.files_focus, self.commit_anchor) = (false, None),
+                    None => self.files_focus = false,
                 }
             }
-            KeyCode::Char('l') | KeyCode::Right | KeyCode::Esc => (self.files_focus, self.commit_anchor) = (false, None),
+            KeyCode::Char('l') | KeyCode::Right | KeyCode::Esc => self.files_focus = false,
             _ => {
                 self.files_focus = false;
                 return false;
@@ -591,7 +591,7 @@ impl App {
     /// To a line of the list (from it, or `Space f`): a file (shown) or a section, its header
     /// at the top; a jump (Ctrl-o comes back), and back to the code from the list.
     pub(super) fn goto_spot(&mut self, s: Spot) {
-        (self.files_focus, self.commit_anchor) = (false, None);
+        self.files_focus = false;
         if let Spot::File(i) = s
             && let Some(path) = self.files.get(i).map(|f| f.path.clone())
         {
@@ -629,7 +629,8 @@ impl App {
         if !self.list_has_spots() {
             return self.msg = format!("the list has nothing to go to ({})", self.no_files());
         }
-        (self.files_focus, self.files_sel) = (true, self.current_spot());
+        // (Every way in: from the spot shown, no range of commits begun.)
+        (self.files_focus, self.files_sel, self.commit_anchor) = (true, self.current_spot(), None);
         self.in_commits = commits && !self.commits.is_empty();
         if self.in_commits {
             self.commit_cur = self.commit_shown.map_or(0, |(a, _)| a + 1);
