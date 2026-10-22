@@ -531,7 +531,7 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
     // Under way first, before the slow setting up: others (dv list, another dv) see it, and
     // don't start another. Its claim, held while it drafts (this process's: let go as it ends,
     // however); what's read of it after (no other draft's between).
-    let _claim = crate::claude::claim(&crate::claude::rep_key(id), "drafting", None).map_err(|w| anyhow::anyhow!("Claude is {w} on {} already", label(id)))?;
+    let _claim = crate::claude::claim(&crate::claude::rep_key(id), "drafting", None)?.map_err(|w| anyhow::anyhow!("Claude is {w} on {} already", label(id)))?;
     let existed = path(id)?.exists();
     anyhow::ensure!(existed || !is_new(id), "no new PR {}", label(id));
     // When its last draft ended: reviews of the originals changed since go to a redraft. (Not
@@ -681,7 +681,7 @@ fn owner(url: &str) -> Option<&str> {
 pub fn publish(r: &mut Record, dir: &Path, title: &str, body: &str, own: Option<&str>) -> Result<u64> {
     // Not under Claude at it (a redraft from another dv, since you asked; a pane, but `own`'s
     // session's, the asker's to mind): its claim, held while publishing; the record as it is now.
-    let _claim = crate::claude::claim(&crate::claude::rep_key(r.id), "publishing it", own).map_err(|w| anyhow::anyhow!("Claude is {w} on {}: publish it once it's done", label(r.id)))?;
+    let _claim = crate::claude::claim(&crate::claude::rep_key(r.id), "publishing it", own)?.map_err(|w| anyhow::anyhow!("Claude is {w} on {}: publish it once it's done", label(r.id)))?;
     *r = load(r.id)?;
     anyhow::ensure!(r.published.is_none(), "already published, as #{}", r.published.unwrap_or(0));
     let remote = remote().context("no remote for replacement branches (dv.replaceRemote)")?;
@@ -752,7 +752,7 @@ pub fn close_originals(r: &mut Record, note: &str) -> Result<String> {
 /// stays, renamed, in case there's something on it you want.
 pub fn remove(id: u64, root: &Path) -> Result<String> {
     // Not while Claude's at it (a draft, a run, a pane): its claim, held while removing.
-    let _claim = crate::claude::claim(&crate::claude::rep_key(id), "removing it", None).map_err(|w| anyhow::anyhow!("Claude is {w} on {}: remove it once it's done", label(id)))?;
+    let _claim = crate::claude::claim(&crate::claude::rep_key(id), "removing it", None)?.map_err(|w| anyhow::anyhow!("Claude is {w} on {}: remove it once it's done", label(id)))?;
     let dir = crate::worktree_dir_named(root, &name(id))?;
     // Nor under Claude at work in its checkout on any key (published, its PR's).
     if let Some(w) = crate::claude::at_work_in(&dir) {

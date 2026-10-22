@@ -226,7 +226,7 @@ pub(crate) fn save_triage(n: u64, updated: &str, fixes: &[(u64, String, String)]
 /// Claude triages issue `n` here (dv issues'): its hold on it meanwhile (`claude::claim`), for
 /// the issue's view (and any dv) to see.
 fn triage_run(n: u64, updated: &str, fixes: &[(u64, String, String)], root: &std::path::Path, extra: &str) -> Result<batch::Status> {
-    let mut claim = match crate::claude::claim(&crate::claude::pr_key(n), "triaging", None) {
+    let mut claim = match crate::claude::claim(&crate::claude::pr_key(n), "triaging", None)? {
         Ok(c) => c,
         Err(w) => return Ok(batch::Status::Busy(format!("Claude is {w} on it"))),
     };

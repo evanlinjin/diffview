@@ -1520,7 +1520,7 @@ fn replacement_in_the_pr_section() {
     r.asks.push(crate::replace::Request { text: "Shorter.".into(), want: "change".into(), ..Default::default() });
     r.asks.push(crate::replace::Request { text: "Why two?".into(), want: "ask".into(), answer: "One per original.".into(), ..Default::default() });
     r.taking = 1;
-    let claim = crate::claude::claim(&crate::claude::rep_key(r.id), "drafting", None).unwrap();
+    let claim = crate::claude::claim(&crate::claude::rep_key(r.id), "drafting", None).unwrap().unwrap();
     app.show_replacement(r);
     let keep = app.cursor_key();
     app.rebuild(keep);
@@ -3534,7 +3534,7 @@ fn a_prs_replacement_being_drafted_shows_and_opens() {
     app.pr = Some(gh::Pr { number: 87, ..Default::default() });
     // Claude at it (this process stands in for its run): on the status bar.
     app.replaced_by = Some(crate::replace::Record { id: 87, ..Default::default() });
-    let claim = crate::claude::claim(&crate::claude::rep_key(87), "drafting", None).unwrap();
+    let claim = crate::claude::claim(&crate::claude::rep_key(87), "drafting", None).unwrap().unwrap();
     app.watch_elsewhere();
     assert_eq!(app.claude_doing().as_deref(), Some("◐ its replacement: claude drafting (Space a: open it)"));
     drop(claim);
@@ -4304,7 +4304,7 @@ fn a_runs_claim_goes_with_it() {
     app.pr = Some(gh::Pr { number: n, ..Default::default() });
     let mut child = std::process::Command::new("sleep").arg("0.2").spawn().unwrap();
     let key = crate::claude::pr_key(n);
-    let mut claim = crate::claude::claim(&key, "answering", None).unwrap();
+    let mut claim = crate::claude::claim(&key, "answering", None).unwrap().unwrap();
     claim.set_pid(child.id());
     assert_eq!(crate::claude::at_work(&key, None, None).as_deref(), Some("answering"));
     assert!(app.claude_blocked(Some(agent::Ask::Answer)).is_some_and(|w| w.contains("already")));
@@ -5567,7 +5567,7 @@ fn a_drafts_view_claims_its_runs_too() {
     let id = 980_000_000 + u64::from(std::process::id() % 1000);
     app.replacement = Some(crate::replace::Record { id, ..Default::default() });
     assert_eq!(app.run_key(), Some(crate::claude::rep_key(id)));
-    let claim = crate::claude::claim(&app.run_key().unwrap(), "answering", None).unwrap();
+    let claim = crate::claude::claim(&app.run_key().unwrap(), "answering", None).unwrap().unwrap();
     assert!(crate::replace::Record { id, ..Default::default() }.at_work().is_some());
     drop(claim);
     assert!(crate::replace::Record { id, ..Default::default() }.at_work().is_none());

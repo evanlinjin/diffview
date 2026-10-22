@@ -522,9 +522,9 @@ impl Drop for Claimed {
 
 /// Claude, doing `what` on `key` (`pr_key`, `rep_key`): its claim, one run at a time on it
 /// from any dv (a pane's working on it too, but `own`'s: the asker's session's); else what
-/// holds it now.
-pub fn claim(key: &str, what: &str, own: Option<&str>) -> std::result::Result<Claimed, String> {
-    let dir = running_dir().map_err(|e| format!("{e:#}"))?;
+/// holds it now (inside: an error taking it, the outer one, isn't that).
+pub fn claim(key: &str, what: &str, own: Option<&str>) -> Result<std::result::Result<Claimed, String>> {
+    let dir = running_dir()?;
     claim_at(dir.join(format!("{key}.json")), what, |panes| {
         markers(&dir).into_iter().filter(|m| m.0 == key && m.1).find_map(|m| live_marker(&m.2, panes, own, None))
     })
@@ -532,32 +532,33 @@ pub fn claim(key: &str, what: &str, own: Option<&str>) -> std::result::Result<Cl
 
 /// The claim at `path`, taken under its lock (a pane on it, `pane` says, checked under it too,
 /// as `mark_pane` writes them): two claimants at once, one gets it.
-fn claim_at(path: PathBuf, what: &str, pane: impl FnOnce(&std::cell::OnceCell<Vec<crate::pane::Pane>>) -> Option<String>) -> std::result::Result<Claimed, String> {
+fn claim_at(path: PathBuf, what: &str, pane: impl FnOnce(&std::cell::OnceCell<Vec<crate::pane::Pane>>) -> Option<String>) -> Result<std::result::Result<Claimed, String>> {
     locked(&path, || {
         let panes = std::cell::OnceCell::new();
         if let Some(holder) = live_marker(&path, &panes, None, None).or_else(|| pane(&panes)) {
-            return Err(holder);
+            return Ok(Err(holder));
         }
         let pid = std::process::id();
         let v = serde_json::json!({ "what": what, "pid": pid, "started": now_secs() });
-        std::fs::write(&path, v.to_string()).map_err(|e| e.to_string())?;
+        std::fs::write(&path, v.to_string()).with_context(|| format!("writing {}", path.display()))?;
         CLAIMS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        Ok(Claimed { path: path.clone(), pid })
-    })?
+        Ok(Ok(Claimed { path: path.clone(), pid }))
+    })
+    .map_err(|e| anyhow::anyhow!(e))?
 }
 
 #[test]
 fn one_claim_at_a_time() {
     let p = std::env::temp_dir().join(format!("dv-claim-{}.json", std::process::id()));
-    let mut c = claim_at(p.clone(), "triaging", |_| None).unwrap();
-    assert_eq!(claim_at(p.clone(), "reviewing", |_| None).err().as_deref(), Some("triaging"));
+    let mut c = claim_at(p.clone(), "triaging", |_| None).unwrap().unwrap();
+    assert_eq!(claim_at(p.clone(), "reviewing", |_| None).unwrap().err().as_deref(), Some("triaging"));
     assert_eq!(live_marker(&p, &Default::default(), None, None).as_deref(), Some("triaging"));
     // Its run's process, once it's started: gone, so is the claim (dv's still here).
     let mut child = std::process::Command::new("true").spawn().unwrap();
     c.set_pid(child.id());
     _ = child.wait();
     assert!(live_marker(&p, &Default::default(), None, None).is_none());
-    let taken = claim_at(p.clone(), "reviewing", |_| None).unwrap();
+    let taken = claim_at(p.clone(), "reviewing", |_| None).unwrap().unwrap();
     drop(c); // (not its claim now: left alone)
     assert_eq!(live_marker(&p, &Default::default(), None, None).as_deref(), Some("reviewing"));
     drop(taken);

@@ -1061,7 +1061,7 @@ pub(crate) fn remove_worktree(n: u64, force: bool) -> anyhow::Result<String> {
     ensure_ours(&dir)?;
     // Not under Claude at work there (a run, a pane: on it, or in it on any key): its claim,
     // held while removing, as a draft's removal holds its own.
-    let _claim = crate::claude::claim(&crate::claude::pr_key(n), "removing its worktree", None).map_err(|w| anyhow::anyhow!("Claude is {w} on #{n}: remove it once it's done"))?;
+    let _claim = crate::claude::claim(&crate::claude::pr_key(n), "removing its worktree", None)?.map_err(|w| anyhow::anyhow!("Claude is {w} on #{n}: remove it once it's done"))?;
     if let Some(w) = crate::claude::at_work_in(&dir) {
         anyhow::bail!("Claude is {w} in {}: remove it once it's done", dir.display());
     }

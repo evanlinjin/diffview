@@ -999,7 +999,7 @@ impl App {
         use std::os::unix::process::CommandExt;
         // Its hold on it: one run at a time on it, a fork's too (its pane working: that run's).
         let mut claim = match self.run_key() {
-            Some(k) => Some(crate::claude::claim(&k, label, self.claude.session.as_deref()).map_err(|w| anyhow!("Claude is {w} on {} already (elsewhere): ask again once it's done", self.what()))?),
+            Some(k) => Some(crate::claude::claim(&k, label, self.claude.session.as_deref())?.map_err(|w| anyhow!("Claude is {w} on {} already (elsewhere): ask again once it's done", self.what()))?),
             None => None,
         };
         // One log per run, so a follow-up run doesn't wipe the one a message points to.
