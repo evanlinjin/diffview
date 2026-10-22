@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.91.12] - 2026-10-22
+
+### Fixed
+- With two comments on one line, the box lit (and the one Ctrl-l goes into) is always the
+  first, not either at random; Ctrl-h from a comment beside a wrapped line's later part goes
+  straight across to that part.
+
 ## [0.91.11] - 2026-10-22
 
 ### Fixed
