@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.91.11] - 2026-10-22
+
+### Fixed
+- A comment on no line of its file (under its header) is about no line, not the previous
+  file's last one: its box doesn't light from there, nor mark it, and Ctrl-h from it stays in
+  its file. Out of the pane by the code beside a comment, the cursor lands on the side with a
+  part of its line there (a wrapped one's).
+
 ## [0.91.10] - 2026-10-22
 
 ### Fixed
