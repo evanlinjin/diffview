@@ -136,6 +136,10 @@ pub fn merge(n: u64, pane: bool) -> Result<String> {
     let (main, _) = crate::worktree_dir(n)?;
     let dirty = crate::diff::git(&["-C", &main.to_string_lossy(), "status", "--porcelain", "--untracked-files=no"])?;
     anyhow::ensure!(dirty.trim().is_empty(), "{} has local changes, which the merge script's checkouts would trip over: commit or stash them first", main.display());
+    // Nor under Claude at work there, on whatever PR (its edits would land on the base branch).
+    if let Some(w) = crate::claude::at_work_in(&main) {
+        anyhow::bail!("Claude is {w} in {}, which the merge script's checkouts would switch under it: merge once it's done", main.display());
+    }
     // GitHub would refuse the push: say so now, before any of it (the script fails at its end).
     // Can't tell (a GitHub hiccup)? The script goes ahead, as it would have.
     if let Ok(Some(why)) = crate::gh::unsigned_blocking(n) {
