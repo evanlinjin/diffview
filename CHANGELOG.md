@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.91.16] - 2026-10-22
+
+### Fixed
+- A resolved or outdated range's bar down a wrapped line's later parts is as dim as on its
+  first part (it showed as open).
+
 ## [0.91.15] - 2026-10-22
 
 ### Fixed
