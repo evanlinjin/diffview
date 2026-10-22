@@ -198,7 +198,8 @@ impl App {
                 }
                 KeyCode::Backspace if q.is_empty() => self.prompt = None,
                 KeyCode::Backspace => _ = q.pop(),
-                KeyCode::Char(c) => q.push(c),
+                KeyCode::Char('c') if k.modifiers.contains(KeyModifiers::CONTROL) => self.prompt = None,
+                KeyCode::Char(c) if !k.modifiers.contains(KeyModifiers::CONTROL) => q.push(c),
                 _ => {}
             }
             return;
@@ -207,6 +208,11 @@ impl App {
             return;
         }
         let ch = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+        // A key that isn't a char (Enter, Tab…; an arrow's a char's): a prefix or count waiting
+        // goes, as Helix's.
+        if !matches!(k.code, KeyCode::Char(_) | KeyCode::Left | KeyCode::Down | KeyCode::Up | KeyCode::Right) {
+            (self.pending, self.count) = (None, 0);
+        }
         let c = match k.code {
             KeyCode::Char(c) => c,
             KeyCode::Esc => {
@@ -240,7 +246,15 @@ impl App {
             KeyCode::Right => return self.key(ch('l')),
             _ => return,
         };
+        // What a prefix and a count come to: settled here, for every key (a Ctrl key's too).
+        let pending = self.pending.take();
         if k.modifiers.contains(KeyModifiers::CONTROL) {
+            self.count = 0;
+            // Ctrl-w, then Ctrl-l (Helix's window keys take either): as Ctrl-w l. Another
+            // prefix: called off.
+            if pending == Some(CTRL_W) {
+                return self.pending_key(CTRL_W, c);
+            }
             let half = (self.height / 2).max(1) as isize;
             match c {
                 'd' => {
@@ -270,7 +284,7 @@ impl App {
         if k.modifiers.contains(KeyModifiers::ALT) {
             return; // no Alt bindings (n / N repeat the search, as in Helix)
         }
-        if let Some(p) = self.pending.take() {
+        if let Some(p) = pending {
             return self.pending_key(p, c);
         }
         if let Some(d) = c.to_digit(10).filter(|&d| d > 0 || self.count > 0) {
@@ -293,7 +307,8 @@ impl App {
             'n' => (0..n).for_each(|_| self.find(true)),
             'N' => (0..n).for_each(|_| self.find(false)),
             '*' => {
-                self.search = self.selection_text(false).trim_end_matches('\n').to_owned();
+                // (One line of it: a search matches within a line.)
+                self.search = self.selection_text(false).lines().next().unwrap_or("").to_owned();
                 self.msg = format!("search: {}", self.search);
             }
             '+' | '=' => self.expand(10),
