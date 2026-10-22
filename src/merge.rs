@@ -114,7 +114,9 @@ fn pane_argv(argv: &[String], n: u64) -> Vec<String> {
 /// Why PR `n` can't be merged now: Claude at work on it, from any dv (a pane open on it too:
 /// its checkout's switched or removed under it). Asked before a review ends for it, as here.
 pub fn waits(n: u64) -> Option<String> {
-    crate::claude::at_work(&crate::claude::pr_key(n), None, None).map(|w| format!("Claude is {w} on #{n}: merge it once it's done (a pane: closed)"))
+    // Its work under its own key, or its draft's (a pane opened before it was published keeps it).
+    let draft = || crate::replace::all().into_iter().find(|r| r.published == Some(n))?.at_work();
+    crate::claude::at_work(&crate::claude::pr_key(n), None, None).or_else(draft).map(|w| format!("Claude is {w} on #{n}: merge it once it's done (a pane: closed)"))
 }
 
 /// Merge PR `n`: its worktree removed first (if it's safe to), then the script, in a zellij pane
