@@ -80,6 +80,8 @@ pub struct List {
     marked_saved: HashSet<u64>,
     /// Claude's reviews from here (`a`): how each is going, and the news on its way.
     batch: HashMap<u64, batch::Status>,
+    /// A run that failed: its PR's review file then (its time), for a later review to end it.
+    failed_on: HashMap<u64, Option<std::time::SystemTime>>,
     batch_rx: Vec<Receiver<(u64, batch::Status)>>,
     /// What each of those is (a review, an update to one, answers), for the cards.
     batch_task: HashMap<u64, batch::Task>,
@@ -616,7 +618,10 @@ impl List {
                         d => format!("Claude is done {d} on #{n} ({took})"),
                     };
                 }
-                batch::Status::Failed(e) => self.msg = format!("Claude's {doing} on #{n} failed: {e}{}", if doing == "reviewing" { " (a a asks again)" } else { "" }),
+                batch::Status::Failed(e) => {
+                    self.failed_on.insert(n, github::review_time(n));
+                    self.msg = format!("Claude's {doing} on #{n} failed: {e}{}", if doing == "reviewing" { " (a a asks again)" } else { "" });
+                }
                 batch::Status::Reviewing => worktrees = true, // its worktree is ready
                 _ => {}
             }
@@ -651,6 +656,15 @@ impl List {
 
     /// A key that asks to be pressed again (what it'd do, `ask`, said): whether it was (`armed`
     /// is what the last key armed), else it's armed now.
+    /// A confirmation's key for acting on `prs` (on this tab): asked again for those, not
+    /// others the cursor or marks came to meanwhile.
+    pub(super) fn about(&self, prs: &[u64]) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::hash::DefaultHasher::new();
+        (prs, self.nav.tab as u8).hash(&mut h);
+        h.finish()
+    }
+
     fn again(&mut self, armed: Option<(char, u64)>, key: (char, u64), ask: impl Into<String>) -> bool {
         if armed == Some(key) {
             return true;
@@ -709,14 +723,12 @@ impl List {
         Some(p)
     }
 
-    /// The marked PRs that are acted on (`acts_on`); those that aren't, said, and kept marked.
-    pub(super) fn marked_open(&mut self) -> Vec<u64> {
+    /// The marked PRs that are acted on (`acts_on`), and what's said of those that aren't
+    /// (kept marked), for the ask to say.
+    pub(super) fn marked_open(&self) -> (Vec<u64>, String) {
         let (open, not): (Vec<u64>, Vec<u64>) = self.marked.iter().copied().partition(|&n| self.acts_on(n));
-        if !not.is_empty() {
-            let not: Vec<String> = not.iter().map(|n| format!("#{n}")).collect();
-            self.msg = format!("{} not open (or not looked up yet): kept marked", not.join(", "));
-        }
-        open
+        let not: Vec<String> = not.iter().map(|n| format!("#{n}")).collect();
+        (open, if not.is_empty() { String::new() } else { format!(" ({} not open, or not looked up yet: kept marked)", not.join(", ")) })
     }
 
     /// Whether what's done to a PR (`a a`, `b b`, `M M`, marks…) is for PR `n`: listed, and

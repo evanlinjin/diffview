@@ -203,20 +203,27 @@ impl List {
                 }
             }
             KeyCode::Char('a') => {
-                let mut prs: Vec<u64> = match self.marked.is_empty() {
-                    true => self.selected_pr().into_iter().collect(),
+                let (mut prs, mut skipped) = match self.marked.is_empty() {
+                    true => (self.selected_pr().into_iter().collect(), String::new()),
                     false => self.marked_open(),
                 };
+                let at_it: Vec<String> = prs.iter().filter(|n| self.batch.get(n).is_some_and(batch::Status::running)).map(|n| format!("#{n}")).collect();
+                if !at_it.is_empty() {
+                    skipped += &format!(" (Claude's at {} already)", at_it.join(", "));
+                }
                 prs.retain(|n| !self.batch.get(n).is_some_and(batch::Status::running));
                 prs.sort();
                 if prs.is_empty() {
+                    if !skipped.is_empty() {
+                        self.msg = format!("nothing to do{skipped}");
+                    }
                     return None;
                 }
                 let which = match self.nav.tab {
                     Tab::Todo => prs.iter().map(|&n| format!("{} #{n}", self.todo_task(n).doing())).collect::<Vec<_>>().join(", "),
                     _ => format!("reviews {}", prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(" ")),
                 };
-                if self.again(armed, ('a', 0), format!("a again: Claude {which} in the background, each in its worktree (<repo>-N); your editor opens first, for any instructions")) {
+                if self.again(armed, ('a', self.about(&prs)), format!("a again: Claude {which} in the background, each in its worktree (<repo>-N); your editor opens first, for any instructions{skipped}")) {
                     return Some(Do::Review(prs));
                 }
             }
@@ -224,14 +231,17 @@ impl List {
                 if self.group_rx.is_some() {
                     return (self.msg = "Claude is still grouping the marked PRs: once it's done".into(), None).1;
                 }
-                let mut prs: Vec<u64> = match self.marked.is_empty() {
+                let (mut prs, skipped): (Vec<u64>, String) = match self.marked.is_empty() {
                     true => match self.selected() {
-                        Some((id, true)) => vec![id], // a draft: drafted again
-                        _ => self.selected_pr().into_iter().collect(),
+                        Some((id, true)) => (vec![id], String::new()), // a draft: drafted again
+                        _ => (self.selected_pr().into_iter().collect(), String::new()),
                     },
                     false => self.marked_open(),
                 };
                 prs.sort();
+                if prs.is_empty() && !skipped.is_empty() {
+                    return (self.msg = format!("nothing to draft{skipped}"), None).1;
+                }
                 // (What's busy or published is said per draft, once grouped: `draft_groups`,
                 // which drafts what's asked as `replace::target` has it; said so here.)
                 let drafts = crate::replace::target(&prs);
@@ -242,7 +252,7 @@ impl List {
                     true => format!("A again: Claude drafts {}{again}, unpublished; your editor opens first, for instructions", crate::replace::label(id)),
                     false => format!("A again: Claude suggests how to group {which} into replacements (you decide, in your editor), then drafts them, unpublished"),
                 };
-                if self.again(armed, ('A', 0), ask) {
+                if self.again(armed, ('A', self.about(&prs)), ask + &skipped) {
                     return Some(Do::Replace(prs));
                 }
             }
@@ -257,6 +267,10 @@ impl List {
     /// switches to it; the wheel moves the selection.
     pub(super) fn mouse(&mut self, m: event::MouseEvent) -> bool {
         use event::{MouseButton, MouseEventKind};
+        // (A scroll or click calls off what was to be asked again, as a key does.)
+        if matches!(m.kind, MouseEventKind::ScrollDown | MouseEventKind::ScrollUp | MouseEventKind::Down(_)) {
+            self.confirm = None;
+        }
         let n = self.shown().len();
         match m.kind {
             MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => self.nav.step(m.kind == MouseEventKind::ScrollDown, n),
