@@ -266,8 +266,16 @@ impl List {
     pub(super) fn apply_list(&mut self, res: Result<Vec<Listed>>, quiet: bool) {
         // (Before the PRs change: the cursor's card, as shown now.)
         let keep = self.selected();
-        self.local = crate::pr_worktrees().into_iter().map(|(n, dir, b)| (n, (dir, b))).collect();
-        self.scan_unpushed();
+        self.worktrees_changed();
+        // (What was looked up for Enter may have moved on since: a push the list has now.)
+        if let Ok(mut c) = self.pr_cache.lock() {
+            let now = crate::claude::now_secs();
+            let moved = |n: u64, at: &std::time::Instant| {
+                let updated = res.as_ref().ok().and_then(|l| l.iter().find(|p| p.number == n)).and_then(|p| crate::gh::epoch_secs(&p.updated));
+                updated.is_some_and(|u| u >= now - at.elapsed().as_secs() as i64)
+            };
+            c.retain(|n, (at, _)| !moved(*n, at));
+        }
         self.reviewed = crate::batch::reviewed();
         self.load_reps();
         match res {

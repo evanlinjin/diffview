@@ -214,7 +214,7 @@ impl List {
         let keep = self.selected();
         self.find_new(); // back from a PR: that one's seen now
         self.load_reps();
-        self.scan_unpushed(); // and what you (or Claude) left there unpushed
+        self.worktrees_changed(); // a review there may have made one; what's left unpushed
         self.find_todo(); // and what you did there may have seen to it
         self.select_card(keep);
         loop {
@@ -350,7 +350,7 @@ impl List {
                 Some(Do::Remove(n)) => {
                     self.msg = match crate::remove_worktree(n, false) {
                         Ok(m) => {
-                            self.local.remove(&n);
+                            self.worktrees_changed();
                             // Listed only for its worktree (closed, merged): gone with it.
                             self.prs.retain(|p| p.number != n || p.open());
                             self.nav.clamp(self.shown().len());
@@ -525,6 +525,13 @@ impl List {
             .collect()
     }
 
+    /// The PRs' worktrees read again (one made or removed, here or by a review), and what's
+    /// left unpushed in them (its news: what needs you).
+    pub(super) fn worktrees_changed(&mut self) {
+        self.local = crate::pr_worktrees().into_iter().map(|(n, dir, b)| (n, (dir, b))).collect();
+        self.scan_unpushed();
+    }
+
     /// The replacements, as cards: what they replace, and their size against their base.
     fn load_reps(&mut self) {
         let records = crate::replace::all();
@@ -623,11 +630,10 @@ impl List {
             }
             self.batch.insert(n, s);
         }
-        if worktrees {
-            self.local = crate::pr_worktrees().into_iter().map(|(n, dir, b)| (n, (dir, b))).collect();
+        if worktrees || done {
+            self.worktrees_changed();
         }
         if done {
-            self.scan_unpushed();
             self.find_todo(); // Claude at it, or done (its review, or answers, changed what's waiting)
         }
     }
