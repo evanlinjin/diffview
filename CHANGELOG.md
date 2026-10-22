@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.92.8] - 2026-10-22
+
+### Fixed
+- On an unpublished draft, `c` and `s` say it's a draft (`a` comments for Claude, `S`
+  publishes it) instead of "no PR for this branch", and the keys pane no longer lists them.
+
 ## [0.92.7] - 2026-10-22
 
 ### Fixed
