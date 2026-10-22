@@ -199,7 +199,7 @@ impl List {
             let lines: Vec<(&str, &str)> = keys
                 .iter()
                 .filter(|(k, _)| match *k {
-                    "D D" => !matches!(self.nav.tab, Tab::Open | Tab::Todo),
+                    "D D" => matches!(self.nav.tab, Tab::Worktrees | Tab::Replacements), // (as the key does)
                     "o O" => self.nav.tab != Tab::Todo, // in the order of what needs you
                     "r r" | "s" | "p" => self.nav.tab == Tab::Todo,
                     _ => true,
