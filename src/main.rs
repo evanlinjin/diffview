@@ -681,14 +681,19 @@ fn on_branch(branch: &str, p: &gh::Pr) -> bool {
 /// This checkout is on PR `p`: its branch, or (detached) the PR's own worktree dv made, not
 /// any detached checkout (another PR's, a scratch one, mid-rebase).
 fn on_pr(p: &gh::Pr) -> bool {
+    on_pr_n(p.number, Some(p))
+}
+
+/// `on_pr`, by PR `n` (as GitHub has it, `p`, if that's known: its branch's name).
+fn on_pr_n(n: u64, p: Option<&gh::Pr>) -> bool {
     let branch = diff::git(&["branch", "--show-current"]).unwrap_or_default();
     match branch.trim() {
         "" => {
             let real = |d: &str| std::fs::canonicalize(d).ok();
             let top = diff::git(&["rev-parse", "--show-toplevel"]).ok().and_then(|t| real(t.trim()));
-            worktree_dir(p.number).is_ok_and(|(_, d)| top.is_some() && top == real(&d.to_string_lossy()))
+            worktree_dir(n).is_ok_and(|(_, d)| top.is_some() && top == real(&d.to_string_lossy()))
         }
-        b => on_branch(b, p),
+        b => p.is_some_and(|p| on_branch(b, p)),
     }
 }
 
@@ -697,9 +702,7 @@ pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool, own: Option<&s
     // on the PR already (its branch, its own worktree), shown as it is; else not opened here.
     let top = diff::git(&["rev-parse", "--show-toplevel"]).map(|t| PathBuf::from(t.trim()));
     if let Some((top, w)) = top.ok().and_then(|t| Some((t.clone(), crate::claude::at_work_in(&t, own)?))) {
-        let branch = diff::git(&["branch", "--show-current"]).unwrap_or_default();
-        let on_it = gh::pr(Some(n)).is_ok_and(|p| on_branch(branch.trim(), &p)) || worktree_dir(n).is_ok_and(|(_, d)| d == top);
-        anyhow::ensure!(on_it, "Claude is {w} in {}: open #{n} once it's done, or in a worktree of its own (-w)", top.display());
+        anyhow::ensure!(on_pr_n(n, gh::pr(Some(n)).ok().as_ref()), "Claude is {w} in {}: open #{n} once it's done, or in a worktree of its own (-w)", top.display());
         return Ok(Some(format!("Claude is {w} here: shown as it is, not updated to PR #{n}")));
     }
     // Checked out as the PR has it: what dv put here (nothing here is work done since). Kept

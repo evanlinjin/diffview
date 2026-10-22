@@ -205,12 +205,6 @@ fn run(s: Subject, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sen
         Ok(c) => c,
         Err(w) => return Ok(Status::Busy(format!("Claude is {w} on it"))),
     };
-    // Nor in a worktree Claude's at work in otherwise (a pane you started there): not a second.
-    if let Subject::Pr(_) = s
-        && let Some(w) = crate::worktree_dir(n).ok().and_then(|(_, d)| crate::claude::at_work_in(&d, None))
-    {
-        return Ok(Status::Busy(format!("Claude is {w} in its worktree")));
-    }
     // A PR merged or closed while it waited its turn (queued): nothing to do on it now.
     if let Subject::Pr(_) = s
         && let Ok(Some(state)) = crate::gh::pr_state(n)
@@ -240,7 +234,15 @@ fn run(s: Subject, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sen
         }
     };
     let note = note.as_str();
-    claim.set_dir(&dir);
+    // A PR's checkout (the one it's prepared in: its worktree, or one on its branch already):
+    // not where Claude's at work otherwise (a pane you started there), not a second; then marked
+    // its. An issue's run has no checkout of its own: none said.
+    if let Subject::Pr(_) = s {
+        if let Some(w) = crate::claude::at_work_in(&dir, None) {
+            return Ok(Status::Busy(format!("Claude is {w} in {}", dir.display())));
+        }
+        claim.set_dir(&dir);
+    }
     // An update reviews what's new over the commit reviewed, as checked out here. The checkout
     // still there (kept back for work in it): nothing to review. Rewritten (force-pushed,
     // rebased): all of it is new.

@@ -1017,7 +1017,10 @@ impl App {
         self.claude.log = Some(log.clone());
         if let Some(c) = &mut claim {
             c.set_pid(child.id());
-            c.set_dir(&self.root);
+            // (Its checkout: an issue's run has none of its own, nothing to say.)
+            if self.has_code() {
+                c.set_dir(&self.root);
+            }
         }
         Ok(ClaudeJob { _claim: claim, ..ClaudeJob::new(child, log, label, forked) })
     }
