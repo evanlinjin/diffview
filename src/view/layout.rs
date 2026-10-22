@@ -111,8 +111,9 @@ impl App {
     pub(super) fn pane_tabs(&self) -> Vec<(Bar, String, std::ops::Range<usize>)> {
         let mut x = 1;
         // A draft no one else has seen: only Claude's comments and yours, so one tab for both;
-        // and no PR yet (what it replaces is atop its description).
-        let tabs: &[_] = match self.unpublished() {
+        // and no PR yet (what it replaces is atop its description). An issue: no code to
+        // comment on, nor a review pending: one tab too.
+        let tabs: &[_] = match self.one_tab() {
             true => &[(Bar::Claude, "Claude")],
             false => &[(Bar::Comments, "Comments"), (Bar::Claude, "Claude"), (Bar::Pending, "Pending")],
         };
@@ -121,7 +122,7 @@ impl App {
         tabs.iter()
             .map(|&(b, name)| {
                 let v = match b {
-                    Bar::Claude if !self.unpublished() => View::Claude,
+                    Bar::Claude if !self.one_tab() => View::Claude,
                     Bar::Pending => View::Pending,
                     _ => View::All,
                 };
@@ -150,7 +151,7 @@ impl App {
     /// view), or the comments (the whole diff).
     pub(super) fn bar(&self) -> Bar {
         match self.view {
-            _ if self.unpublished() => Bar::Claude,
+            _ if self.one_tab() => Bar::Claude,
             View::Claude => Bar::Claude,
             View::Pending => Bar::Pending,
             View::All => Bar::Comments,
@@ -160,9 +161,10 @@ impl App {
     /// To tab `b` (a click on it, `gn` / `gp`): each tab its view: Claude's, the Claude view
     /// beside its comments; Pending, the pending view; the comments', the whole diff.
     pub(super) fn bar_to(&mut self, b: Bar) {
-        // In a draft, Claude's tab is the whole diff: every comment there is Claude's or yours.
+        // In a draft, Claude's tab is the whole diff: every comment there is Claude's or yours
+        // (an issue's: what's said of it, Claude's triage first).
         let v = match b {
-            Bar::Claude if !self.unpublished() => View::Claude,
+            Bar::Claude if !self.one_tab() => View::Claude,
             Bar::Pending => View::Pending,
             _ => View::All,
         };
@@ -183,6 +185,57 @@ impl App {
     /// draft (whose one tab is Claude's).
     pub(super) fn claude_side(&self) -> bool {
         self.view == View::Claude || self.unpublished()
+    }
+
+    /// What this view is of on GitHub: its PR, or its issue (none: a branch, a draft).
+    pub(super) fn subject(&self) -> Option<crate::claude::Subject> {
+        use crate::claude::Subject;
+        self.pr.as_ref().map(|p| Subject::Pr(p.number)).or(self.issue.as_ref().map(|i| Subject::Issue(i.number)))
+    }
+
+    /// Its title on GitHub, as dv has it.
+    pub(super) fn title_now(&self) -> String {
+        self.pr.as_ref().map(|p| p.title.clone()).or(self.issue.as_ref().map(|i| i.title.clone())).unwrap_or_default()
+    }
+
+    /// The title Claude proposes (an issue's clearer one, from its triage, or as asked), if
+    /// it isn't the title already.
+    pub(super) fn proposed_title(&self) -> Option<String> {
+        Some(self.claude.triage.title.trim().to_owned()).filter(|t| !t.is_empty() && *t != self.title_now())
+    }
+
+    /// The description Claude proposes: its text, or (only a new title proposed) the one there.
+    pub(super) fn proposed_text(&self) -> String {
+        match self.claude.description.is_empty() {
+            true => (0..self.info.len()).find(|&i| self.is_description(i)).and_then(|h| self.info.get(h + 1)).filter(|l| l.md).map_or(String::new(), |l| l.text.clone()),
+            false => self.claude.description.clone(),
+        }
+    }
+
+    /// Whether Claude proposes a new description or title, for you to approve (there's
+    /// something on GitHub to change: a PR's, an issue's).
+    pub(super) fn has_proposal(&self) -> bool {
+        self.subject().is_some() && (!self.claude.description.is_empty() || self.proposed_title().is_some())
+    }
+
+    /// What it is, said: "PR #7", "issue #7", "this branch".
+    pub(super) fn what(&self) -> String {
+        self.subject().map_or("this branch".into(), |s| s.what())
+    }
+
+    /// Its page on GitHub.
+    pub(super) fn subject_url(&self) -> Option<String> {
+        self.pr.as_ref().map(|p| p.url.clone()).or(self.issue.as_ref().map(|i| i.url.clone()))
+    }
+
+    /// Whether there's code here (a diff, commits, a checkout to change): all but an issue.
+    pub(super) fn has_code(&self) -> bool {
+        self.issue.is_none()
+    }
+
+    /// The pane has one tab (Claude's, the whole view): a draft no one else has seen, an issue.
+    pub(super) fn one_tab(&self) -> bool {
+        self.unpublished() || !self.has_code()
     }
 
     /// A replacement (or new PR) not published yet: Claude's draft, seen by no one else.

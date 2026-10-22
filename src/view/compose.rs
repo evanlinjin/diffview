@@ -223,19 +223,25 @@ impl App {
                 let alone = matches!(ask, agent::Ask::Fix | agent::Ask::Edit) && self.change_requests() == 0 || matches!(ask, agent::Ask::Describe);
                 let what = match (ask, alone) {
                     (agent::Ask::Review, _) => "anything for Claude to look at or keep in mind in its review (optional)",
-                    (agent::Ask::Describe, _) if !self.claude.description.is_empty() => "what else to change in Claude's proposed description",
-                    (agent::Ask::Describe, _) => "what to change in the PR's description (Claude proposes a new one; you approve it)",
+                    (agent::Ask::Describe, _) if self.has_proposal() => "what else to change in Claude's proposed description",
+                    (agent::Ask::Describe, _) => "what to change in its description (Claude proposes a new one; you approve it)",
+                    (agent::Ask::Triage, _) => "instructions for Claude's triage (optional)",
                     (agent::Ask::Close, _) if !self.claude.closing.is_empty() => "what to change in Claude's closing comment",
                     (agent::Ask::Close, _) => "why close it, and anything the comment should say (optional: Claude drafts it; you edit it before it goes)",
                     (_, true) => "what Claude should change (there are no open comments to act on)",
                     _ => "instructions for Claude, on top of the open comments (optional)",
                 };
-                // Review instructions start from the last ones (kept if left as they are).
-                let review = matches!(ask, agent::Ask::Review);
-                let last = if review { crate::claude::instructions("review") } else { String::new() };
-                let Some(extra) = compose_with(what, !alone, last.trim(), review)? else { return Ok("Claude not asked".into()) };
-                if review {
-                    _ = crate::claude::save_instructions("review", &extra);
+                // Review (and triage) instructions start from the last ones (kept if left as they
+                // are), as dv list's.
+                let kept = match ask {
+                    agent::Ask::Review => Some("review"),
+                    agent::Ask::Triage => Some("triage"),
+                    _ => None,
+                };
+                let last = kept.map_or(String::new(), crate::claude::instructions);
+                let Some(extra) = compose_with(what, !alone, last.trim(), kept.is_some())? else { return Ok("Claude not asked".into()) };
+                if let Some(k) = kept {
+                    _ = crate::claude::save_instructions(k, &extra);
                 }
                 if self.run_claude(ask, &extra) || extra.trim().is_empty() {
                     return Ok(std::mem::take(&mut self.msg));
@@ -336,8 +342,8 @@ impl App {
                 Ok(format!("closed {}, with the note", done.join(", ")))
             }
             Action::Converse { quote, as_is } => {
-                self.pr.as_ref().context("no PR")?;
-                let Some(body) = compose_with("comment on the PR conversation", false, &quote, as_is)? else {
+                let what = format!("comment on {}'s conversation", self.subject().context("no PR or issue")?.what());
+                let Some(body) = compose_with(&what, false, &quote, as_is)? else {
                     return Ok("comment cancelled".into());
                 };
                 self.post_later(Post::Converse(body))

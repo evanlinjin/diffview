@@ -91,7 +91,7 @@ impl App {
     pub(super) fn issue_here(&self, url: &str) -> Option<u64> {
         let rest = url.strip_prefix(self.repo_url()?)?.strip_prefix("/issues/")?;
         let n = rest.split(['#', '/', '?']).next()?.parse::<u64>().ok()?;
-        (self.pr.as_ref().map(|p| p.number) != Some(n)).then_some(n)
+        (self.subject().map(|s| s.n()) != Some(n)).then_some(n)
     }
 
     pub(super) fn open_url(&mut self, url: &str) {

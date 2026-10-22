@@ -20,6 +20,8 @@ pub(super) enum Ask {
     FixChecks,
     /// Draft a comment closing the PR (in the review file), for you to close it with.
     Close,
+    /// An issue: triage it (again), into its file.
+    Triage,
 }
 
 impl Ask {
@@ -33,6 +35,7 @@ impl Ask {
             Ask::Describe => Work::Describe,
             Ask::FixChecks => Work::FixCi,
             Ask::Close => Work::Close,
+            Ask::Triage => Work::Triage,
         }
     }
 }
@@ -87,6 +90,10 @@ pub(super) struct ClaudeState {
     pub(super) description: String,
     /// A comment Claude drafted for closing the PR (empty: none).
     pub(super) closing: String,
+    /// Why Claude would close it (empty: it wouldn't).
+    pub(super) close: String,
+    /// An issue's: Claude's triage of it.
+    pub(super) triage: crate::claude::Triage,
     /// A background `claude -p` run: (process, log file, what it's doing).
     pub(super) job: Option<agent::ClaudeJob>,
     /// The Claude Code session of the last background run, resumed by the next.
@@ -119,9 +126,11 @@ pub(super) const LANDS: [(&str, &str); 3] = [
 impl App {
     /// Whether `ask` may change the code (or reads it whole: a review): answering does when a
     /// reply waiting wants a change.
+    /// (An issue has no code: nothing changes it.)
     pub(super) fn edits(&self, ask: Ask) -> bool {
         match ask {
-            Ask::Describe | Ask::Close => false,
+            _ if !self.has_code() => false,
+            Ask::Describe | Ask::Close | Ask::Triage => false,
             Ask::Answer => self.threads.iter().any(|t| t.waiting() && super::ask::edits_code(&t.want)),
             _ => true,
         }
@@ -191,10 +200,15 @@ impl App {
             return self.msg = "no review file here (not in a git repo?)".into();
         }
         let has_review = self.threads.iter().any(Thread::by_claude) || !self.claude.summary.is_empty();
-        let review = match (has_review, self.reviewed_before()) {
-            (true, Some(old)) => format!("Update Claude's review: what changed since it reviewed {}", old.get(..8).unwrap_or(old)),
-            (true, None) => "Update Claude's review (keeps comments that still apply, and your replies)".into(),
-            (false, _) => "Review this".into(),
+        // (An issue: triaged, its code nowhere to review or change.)
+        let review = match (has_review, self.has_code()) {
+            (true, false) => (format!("Triage {} again (your talk with Claude stays)", self.what()), Ask::Triage),
+            (false, false) => (format!("Triage {}", self.what()), Ask::Triage),
+            (true, _) => match self.reviewed_before() {
+                Some(old) => (format!("Update Claude's review: what changed since it reviewed {}", old.get(..8).unwrap_or(old)), Ask::Review),
+                None => ("Update Claude's review (keeps comments that still apply, and your replies)".into(), Ask::Review),
+            },
+            (false, _) => ("Review this".into(), Ask::Review),
         };
         let n = self.waiting_replies();
         let open = self.change_requests();
@@ -202,18 +216,17 @@ impl App {
             true => "Edit Claude's notes on this repo (it reads them before each task)",
             false => "Write notes for Claude on this repo (it reads them before each task)",
         };
-        let mut items = vec![
-            Item::new(review, Target::Claude(Ask::Review)),
-            Item::new(format!("Answer your replies ({n} waiting)"), Target::Claude(Ask::Answer)),
-            // (How: suggested, on someone else's PR, or made here; and how they land.)
-            Item::new(
+        let mut items = vec![Item::new(review.0, Target::Claude(review.1)), Item::new(format!("Answer your replies ({n} waiting)"), Target::Claude(Ask::Answer))];
+        // (How: suggested, on someone else's PR, or made here; and how they land.)
+        if self.has_code() {
+            items.push(Item::new(
                 match open {
                     0 => "Make a change… (no open comments: you say what)".to_owned(),
                     n => format!("Make the changes… ({n} open comments)"),
                 },
                 Target::Claude(Ask::Fix),
-            ),
-        ];
+            ));
+        }
         // Your PR's CI failing: Claude finds out why; or found it isn't the PR's doing, and had
         // a fix of its own in mind, a new PR's.
         if let Some(n) = self.pr.as_ref().map(|p| p.number).filter(|_| self.failing > 0 && !self.theirs) {
@@ -223,28 +236,28 @@ impl App {
                 items.insert(0, Item::new(format!("Draft a PR fixing CI (not this PR's doing: {})…", c.why), Target::Do(Action::CiFixPr)));
             }
         }
-        items.push(Item::new("Ask a question about this PR… (it answers in the Claude tab)", Target::ClaudeQuestion));
+        items.push(Item::new(format!("Ask a question about {}… (it answers beside its description)", self.what()), Target::ClaudeQuestion));
         items.extend([
             Item::new(notes, Target::ClaudeNotes),
             Item::new("Check Claude's review now (dv watches it; this reads it again)", Target::ClaudeCheck),
         ]);
         if self.claude_pane().is_some() {
-            items.insert(0, Item::new("Show Claude's pane (its session on this PR)", Target::ClaudePane));
+            items.insert(0, Item::new(format!("Show Claude's pane (its session on {})", self.what()), Target::ClaudePane));
         } else if in_zellij() {
             let what = match self.claude_busy() {
                 // (Its own session's at work: a copy of it, for you; what's said there stays there.)
                 true => "a copy of its conversation to talk in: the original's at work, and won't hear it",
-                false => "its session on this PR, to talk to it",
+                false => &format!("its session on {}, to talk to it", self.what()),
             };
             items.push(Item::new(format!("Open Claude in a pane ({what})"), Target::ClaudeOpen));
         }
         // A description Claude proposed: yours to approve (posted then), take further, or drop.
-        if !self.claude.description.is_empty() {
+        if self.has_proposal() {
             items.insert(0, Item::new("Discard Claude's proposed description", Target::DescDiscard));
             items.insert(0, Item::new("More changes to the description…", Target::Claude(Ask::Describe)));
-            items.insert(0, Item::new("Approve Claude's description… (it replaces the PR's on GitHub)", Target::DescApprove(false)));
-        } else if self.pr.is_some() {
-            items.push(Item::new("Change the PR's description… (you approve it)", Target::Claude(Ask::Describe)));
+            items.insert(0, Item::new("Approve Claude's description… (it replaces the one on GitHub)", Target::DescApprove(false)));
+        } else if self.subject().is_some() {
+            items.push(Item::new(format!("Change {}'s description… (you approve it)", self.what()), Target::Claude(Ask::Describe)));
         }
         // Closing it: Claude drafts the comment; you edit it, then close with it (or don't).
         // (Closed or merged meanwhile: the draft can only go.)
@@ -255,9 +268,9 @@ impl App {
         }
         if drafted && open {
             items.insert(0, Item::new("Changes to the closing comment…", Target::Claude(Ask::Close)));
-            items.insert(0, Item::new("Close the PR with Claude's comment (your editor first)…", Target::Do(Action::ClosePr)));
-        } else if self.pr.is_some() && open {
-            items.push(Item::new("Draft a comment closing the PR… (you edit it, then close)", Target::Claude(Ask::Close)));
+            items.insert(0, Item::new(format!("Close {} with Claude's comment (your editor first)…", self.what()), Target::Do(Action::ClosePr)));
+        } else if self.subject().is_some() && open {
+            items.push(Item::new(format!("Draft a comment closing {}… (you edit it, then close)", self.what()), Target::Claude(Ask::Close)));
         }
         // One that seems stuck: it can be stopped (the session stays, so the next run resumes it).
         if let Some(j) = &self.claude.job {
@@ -285,11 +298,17 @@ impl App {
                 "Redraft this (Claude carries on, with your instructions)",
                 Target::Do(Action::Replace(r.ids(), None)),
             )),
-            _ => {}
+            // An issue: a PR fixing it, Claude's draft (your editor first, on what it should do).
+            _ => {
+                if let Some(i) = &self.issue {
+                    let task = format!("Fix #{}: {}", i.number, i.title);
+                    items.push(Item::new(format!("Draft a PR fixing #{}… (Claude writes it, unpublished, in the background)", i.number), Target::Do(Action::NewPr(task))));
+                }
+            }
         }
         // Preselected: answering your replies if any wait, else the review (never Stop: Enter
         // out of habit mustn't end a run).
-        let want = |t: &Target| matches!(t, Target::Claude(a) if matches!((a, n > 0), (Ask::Answer, true) | (Ask::Review, false)));
+        let want = |t: &Target| matches!(t, Target::Claude(a) if matches!((a, n > 0), (Ask::Answer, true) | (Ask::Review | Ask::Triage, false)));
         self.picker = Some(Picker::new(" claude ", items).select(want));
     }
 
@@ -362,7 +381,7 @@ impl App {
     /// `Space a` → approve Claude's description: after a confirmation (`sure`), it replaces
     /// the PR's on GitHub, and the proposal goes.
     pub(super) fn approve_description(&mut self, sure: bool) {
-        let (Some(pr), Some(path)) = (self.pr.as_ref().map(|p| p.number), self.claude.path.clone()) else { return };
+        let (Some(pr), Some(path)) = (self.subject().map(|s| s.n()), self.claude.path.clone()) else { return };
         if !sure {
             let items = vec![
                 Item::new("No, not yet", Target::Nothing),
@@ -370,23 +389,24 @@ impl App {
             ];
             return self.picker = Some(Picker::new(" description ", items));
         }
-        let text = self.claude.description.clone();
+        // (A new title of Claude's too, if it has one: an issue's; else only the text.)
+        let (text, title) = (self.proposed_text(), self.proposed_title());
         let body = (0..self.info.len()).find(|&i| self.is_description(i)).map(|h| h + 1).filter(|&b| self.info.get(b).is_some_and(|l| l.md));
         let shown = body.map_or(String::new(), |b| self.info[b].text.clone());
         // Edited on GitHub since dv showed it: the proposal's diff was against an older text.
-        let now = match crate::gh::body(pr) {
+        let now = match crate::gh::text(pr) {
             Ok(t) => t,
             Err(e) => return self.msg = format!("description not changed: {e:#}"),
         };
-        if now.trim() != shown.trim() {
+        if now.1.trim() != shown.trim() || title.is_some() && now.0 != self.title_now() {
             if let Some(b) = body {
-                self.info[b].text = now;
+                self.info[b].text = now.1;
             }
             let keep = self.cursor_key();
             self.rebuild(keep);
             return self.msg = "description not changed: it was edited on GitHub since; dv shows it now against Claude's: approve again if it's still right".into();
         }
-        if let Err(e) = crate::gh::set_body(pr, &text) {
+        if let Err(e) = crate::gh::set_text(pr, title.as_deref(), &text) {
             return self.msg = format!("description not changed: {e:#}");
         }
         self.github_changed();
@@ -394,7 +414,10 @@ impl App {
         if let Some(b) = body {
             self.info[b].text = text;
         }
-        let cleared = crate::claude::clear(&path, "description");
+        if let (Some(t), Some(i)) = (title, &mut self.issue) {
+            i.title = t;
+        }
+        let cleared = crate::claude::clear(&path, "description").and_then(|_| crate::claude::clear(&path, "title"));
         let keep = self.cursor_key();
         self.load_claude();
         self.rebuild(keep);
@@ -407,12 +430,18 @@ impl App {
     /// `Space a` → close the PR with Claude's comment: in your editor first (an empty one, or
     /// `:cq`, closes nothing), then posted, and the PR closed.
     pub(super) fn close_pr(&mut self) -> Result<String> {
-        let (Some(n), Some(path)) = (self.pr.as_ref().map(|p| p.number), self.claude.path.clone()) else { return Ok(String::new()) };
+        let (Some(s), Some(path)) = (self.subject(), self.claude.path.clone()) else { return Ok(String::new()) };
+        let n = s.n();
         let what = format!("comment closing #{n} (posted on its conversation, then it's closed; empty closes nothing)");
         let Some(text) = compose_with(&what, false, self.claude.closing.trim(), true)?.filter(|t| !t.trim().is_empty()) else {
             return Ok(format!("#{n} not closed"));
         };
-        keep_on_error(crate::gh::close(n, Some(text.trim())), &text)?;
+        let t = &self.claude.triage;
+        let closed = match s {
+            crate::claude::Subject::Pr(_) => crate::gh::close(n, Some(text.trim())),
+            crate::claude::Subject::Issue(_) => crate::gh::close_issue(n, text.trim(), &t.reason, t.duplicate_of),
+        };
+        keep_on_error(closed, &text)?;
         _ = crate::claude::clear(&path, "closing");
         self.pr_state = Some(("CLOSED", "da3633"));
         self.github_changed();
@@ -422,10 +451,11 @@ impl App {
         Ok(format!("#{n} closed, with your comment"))
     }
 
-    /// `Space a` → discard Claude's draft `key` (`"description"`, `"closing"`), `what` it is.
-    pub(super) fn discard(&mut self, key: &str, what: &str) {
+    /// `Space a` → discard Claude's draft (`keys`: `"description"` and `"title"`, `"closing"`),
+    /// `what` it is.
+    pub(super) fn discard(&mut self, keys: &[&str], what: &str) {
         let Some(path) = self.claude.path.clone() else { return };
-        self.msg = match crate::claude::clear(&path, key) {
+        self.msg = match keys.iter().try_for_each(|k| crate::claude::clear(&path, k)) {
             Ok(()) => {
                 let keep = self.cursor_key();
                 self.load_claude();
@@ -468,10 +498,7 @@ impl App {
 
     /// `extra`: the user's own instructions for this run (may be empty).
     pub(super) fn claude_prompt(&self, ask: Ask, extra: &str) -> String {
-        let what = match &self.pr {
-            Some(p) => format!("PR #{}", p.number),
-            None => "the current branch".into(),
-        };
+        let what = self.subject().map_or("the current branch".into(), |s| s.what());
         let prompt = match ask {
             Ask::Review => match self.reviewed_before() {
                 Some(old) => update_prompt(&what, old),
@@ -487,8 +514,14 @@ impl App {
             Ask::Describe => format!(
                 "Use the dv-review skill to propose a new description for {what}, as the user asks below: the whole new text, \
                  in the review file's top-level \"description\" field (see \"Propose a description\"). Start from the proposal \
-                 already there, if there is one, else from the PR's current description. Don't change the PR on GitHub: the user \
+                 already there, if there is one, else from its current description. Don't change it on GitHub: the user \
                  approves it in dv."
+            ),
+            Ask::Triage => format!(
+                "Use the dv-review skill to triage {what} (see \"Triage an issue\"): the code as it is on the base branch is \
+                 `{base}` (`git show {base}:<path>`, `git log {base}`): this checkout may be on another branch. Write its keys \
+                 into the review file (`dv review-info`), keeping everything else there as it is.",
+                base = crate::diff::remote_branch(&crate::diff::default_branch())
             ),
             Ask::Fix if self.theirs && self.change_requests() == 0 => format!(
                 "Use the dv-review skill to suggest the change the user asks for below, in the dv review of {what}: \
@@ -549,7 +582,7 @@ impl App {
             return self.msg = why;
         }
         match ask {
-            Ask::Describe | Ask::Close if self.pr.is_none() => self.msg = "no PR here".into(),
+            Ask::Describe | Ask::Close | Ask::Triage if self.subject().is_none() => self.msg = "no PR or issue here".into(),
             // Making the changes (not suggesting them): how they land, first.
             // Making the changes: how they land. On someone else's PR, suggested (for you to
             // post) or made here (`Edit`: for you to push to their branch, when they let
@@ -574,7 +607,7 @@ impl App {
                 let p = Picker::new(" how should the changes land? ", items).select(|t| matches!(t, Target::Land(_, k) if *k == land));
                 self.picker = Some(p);
             }
-            Ask::Review | Ask::Describe | Ask::Close => self.action = Some(Action::ClaudeWith(ask)),
+            Ask::Review | Ask::Describe | Ask::Close | Ask::Triage => self.action = Some(Action::ClaudeWith(ask)),
             ask => _ = self.run_claude(ask, ""),
         }
     }
@@ -618,6 +651,7 @@ impl App {
             Ask::Close => "drafting a closing comment",
             Ask::Fix => "making the changes",
             Ask::FixChecks => "fixing CI",
+            Ask::Triage => "triaging it",
         };
         // Claude already open on this PR in a pane: put the request there, rather than open
         // another. Pasted, not sent: what the pane is showing (a permission prompt, your own
@@ -691,7 +725,7 @@ impl App {
         }
         let prompt = self.claude_prompt(Ask::Answer, "");
         let forked = self.claude_pane().is_some();
-        let more = tools_for(None, true);
+        let more = tools_for(None, self.has_code());
         match self.spawn_claude(&prompt, "answering", Ask::Answer.work(), forked, &more.iter().map(String::as_str).collect::<Vec<_>>()) {
             Ok(job) => {
                 self.claude.job = Some(job);
@@ -722,7 +756,7 @@ impl App {
         cmd.args(["--", "env"])
             .arg(path_env) // the pane gets zellij's environment, not dv's
             .args(data_env()) // and so the same dv directory as this one, which it watches
-            .args(self.pr.as_ref().map(|p| format!("{}={}", crate::claude::PR_ENV, p.number)))
+            .args(self.subject().map(|s| s.env()).map(|(k, v)| format!("{k}={v}")))
             .arg("claude")
             .args(prompt)
             .args(crate::claude::model_args(work, &self.root)) // (none: `dv.model`, it's for anything)
@@ -857,7 +891,7 @@ impl App {
             session.push("--fork-session".into());
         }
         let child = claude_command(work, prompt, &self.root, &session, more, None)
-            .envs(self.pr.as_ref().map(|p| (crate::claude::PR_ENV, p.number.to_string())))
+            .envs(self.subject().map(|s| s.env()))
             .stdin(std::process::Stdio::null())
             .stdout(std::fs::File::create(&log)?)
             .stderr(std::fs::File::create(&err)?)

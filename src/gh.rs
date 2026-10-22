@@ -213,15 +213,21 @@ pub(crate) fn gh(args: &[&str]) -> Result<String> {
     gh_input(args, None)
 }
 
-/// PR `n`'s description as it is on GitHub now.
-pub fn body(n: u64) -> Result<String> {
-    let v: Value = gh_json(&["pr", "view", &n.to_string(), "--json", "body"])?;
-    Ok(v["body"].as_str().unwrap_or("").replace("\r\n", "\n"))
+/// PR (or issue) `n`'s title and description as they are on GitHub now (the issues API has
+/// both's).
+pub fn text(n: u64) -> Result<(String, String)> {
+    let v: Value = gh_json(&["api", &format!("repos/{{owner}}/{{repo}}/issues/{n}")])?;
+    let s = |k: &str| v[k].as_str().unwrap_or("").replace("\r\n", "\n");
+    Ok((s("title"), s("body")))
 }
 
-/// Replace PR `n`'s description with `body` (`gh pr edit`, the text on stdin).
-pub fn set_body(n: u64, body: &str) -> Result<()> {
-    gh_input(&["pr", "edit", &n.to_string(), "--body-file", "-"], Some(body)).map(drop)
+/// PR (or issue) `n`'s description `body`, and its `title` if given, on GitHub.
+pub fn set_text(n: u64, title: Option<&str>, body: &str) -> Result<()> {
+    let mut v = json!({ "body": body });
+    if let Some(t) = title {
+        v["title"] = t.into();
+    }
+    gh_input(&["api", "-X", "PATCH", &format!("repos/{{owner}}/{{repo}}/issues/{n}"), "--input", "-"], Some(&v.to_string())).map(drop)
 }
 
 /// Run gh, optionally feeding `input` on stdin (for `--input -` JSON bodies).
@@ -413,6 +419,11 @@ pub(crate) fn next_page(list: &Value) -> Option<String> {
 /// and pushes change it; edits and resolving a thread don't.
 pub fn pr_etag(n: u64, etag: &str) -> Result<Option<String>> {
     etag_of(&format!("repos/{{owner}}/{{repo}}/pulls/{n}"), etag)
+}
+
+/// An issue's ETag, as `pr_etag`'s (a new comment changes it too).
+pub fn issue_etag(n: u64, etag: &str) -> Result<Option<String>> {
+    etag_of(&format!("repos/{{owner}}/{{repo}}/issues/{n}"), etag)
 }
 
 /// API `path`'s ETag, if it has changed from `etag` (`None`: 304 Not Modified, free).
@@ -736,34 +747,18 @@ fn mark(all: Vec<String>, on: &[String]) -> Choices {
 /// Names, each with whether it's on the PR.
 pub type Choices = Vec<(String, bool)>;
 
-/// Add (`on`) or remove a label, an assignee or a requested reviewer on PR `n`.
+/// Add (`on`) or remove a label, an assignee (on PR or issue `n`: the issues API has both's),
+/// or a requested reviewer (a PR's).
 pub fn set_field(n: u64, field: Field, name: &str, on: bool) -> Result<()> {
-    set_on("pr", n, field, name, on)
-}
-
-/// As `set_field`, on issue `n` (a label or an assignee).
-pub fn set_issue_field(n: u64, field: Field, name: &str, on: bool) -> Result<()> {
-    set_on("issue", n, field, name, on)
-}
-
-/// A label, assignee or reviewer on `what` (`pr`, `issue`) `n`.
-fn set_on(what: &str, n: u64, field: Field, name: &str, on: bool) -> Result<()> {
-    // A label's name may have a comma in it, which `gh pr edit` splits on: the API takes it whole.
-    if field == Field::Label {
-        let ep = format!("repos/{{owner}}/{{repo}}/issues/{n}/labels");
-        return match on {
-            true => gh(&["api", "-X", "POST", &ep, "-f", &format!("labels[]={name}")]).map(drop),
-            false => gh(&["api", "-X", "DELETE", &format!("{ep}/{}", percent(name))]).map(drop),
-        };
+    let ep = format!("repos/{{owner}}/{{repo}}/issues/{n}");
+    let method = if on { "POST" } else { "DELETE" };
+    match field {
+        // (A label's name may have a comma in it, which `gh pr edit` splits on: the API takes it whole.)
+        Field::Label if on => gh(&["api", "-X", "POST", &format!("{ep}/labels"), "-f", &format!("labels[]={name}")]).map(drop),
+        Field::Label => gh(&["api", "-X", "DELETE", &format!("{ep}/labels/{}", percent(name))]).map(drop),
+        Field::Assignee => gh(&["api", "-X", method, &format!("{ep}/assignees"), "-f", &format!("assignees[]={name}")]).map(drop),
+        Field::Reviewer => gh(&["pr", "edit", &n.to_string(), if on { "--add-reviewer" } else { "--remove-reviewer" }, name]).map(drop),
     }
-    let flag = match (field, on) {
-        (Field::Label, _) => unreachable!("labels go through the API, above"),
-        (Field::Assignee, true) => "--add-assignee",
-        (Field::Assignee, false) => "--remove-assignee",
-        (Field::Reviewer, true) => "--add-reviewer",
-        (Field::Reviewer, false) => "--remove-reviewer",
-    };
-    gh(&[what, "edit", &n.to_string(), flag, name]).map(drop)
 }
 
 pub fn set_resolved(thread: &str, resolved: bool) -> Result<()> {
@@ -856,9 +851,9 @@ pub fn comment(pr: &Pr, a: &Anchor, body: &str) -> Result<()> {
     post(&ep, &v)
 }
 
-/// A comment on the PR conversation (not tied to a line or a review).
-pub fn conversation_comment(pr: &Pr, body: &str) -> Result<()> {
-    let ep = format!("repos/{{owner}}/{{repo}}/issues/{}/comments", pr.number);
+/// A comment on PR (or issue) `n`'s conversation (not tied to a line or a review).
+pub fn conversation_comment(n: u64, body: &str) -> Result<()> {
+    let ep = format!("repos/{{owner}}/{{repo}}/issues/{n}/comments");
     post(&ep, &json!({ "body": body }))
 }
 
@@ -872,6 +867,19 @@ pub fn create_pr(base: &str, head: &str, title: &str, body: &str) -> Result<u64>
 }
 
 /// Close PR `n` with a comment saying why.
+/// Close issue `n` with `comment`, as `reason` says (`completed`, `not planned`, `duplicate`
+/// of `dup`).
+pub fn close_issue(n: u64, comment: &str, reason: &str, dup: Option<u64>) -> Result<()> {
+    let (n, dup) = (n.to_string(), dup.map(|d| d.to_string()));
+    let mut args = vec!["issue", "close", &n, "--comment", comment];
+    match (reason, &dup) {
+        ("duplicate", Some(d)) => args.extend(["--duplicate-of", d]),
+        ("not planned", _) => args.extend(["--reason", "not planned"]),
+        _ => args.extend(["--reason", "completed"]),
+    }
+    gh(&args).map(drop)
+}
+
 pub fn close(n: u64, comment: Option<&str>) -> Result<()> {
     let n = n.to_string();
     let mut args = vec!["pr", "close", &n];
@@ -1060,7 +1068,7 @@ const ISSUE_ACTIVITY: &str = "\
 /// state, labels, who has it, the PRs that would close it (`dvFixes`), and its activity.
 pub fn issue_json(n: u64) -> Result<Value> {
     let q = "query($owner: String!, $name: String!, $n: Int!) { viewer { login } repository(owner: $owner, name: $name) { issue(number: $n) { \
-             __typename id number title url body state stateReason createdAt updatedAt author { login } \
+             __typename id number title url body state stateReason createdAt updatedAt author { login } viewerDidAuthor \
              labels(first: 100) { nodes { name color } } assignees(first: 50) { nodes { login } } \
              closedByPullRequestsReferences(first: 20, includeClosedPrs: true) { nodes { number title state url } } } } }";
     let t = gh_json(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-F", &format!("n={n}"), "-f", &format!("query={q}")])?;

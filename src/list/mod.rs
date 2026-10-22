@@ -330,7 +330,7 @@ impl List {
                 Some(Do::PostWait(n, text)) => {
                     let what = format!("comment on #{n} saying what it waits on (dv reads it back, yours and others')");
                     if let Some(body) = self.edit_text(term, &what, &text, false) {
-                        self.msg = match gh::conversation_comment(&gh::Pr { number: n, ..Default::default() }, &body) {
+                        self.msg = match gh::conversation_comment(n, &body) {
                             Ok(()) => format!("posted on #{n}: {}", body.lines().next().unwrap_or("")),
                             Err(e) => format!("not posted: {e:#}"),
                         };
@@ -435,7 +435,7 @@ impl List {
         let what = format!("comment asking for a rebase of #{n} (posted on its conversation)");
         let Some(body) = self.edit_text(term, &what, &format!("Needs rebase: this conflicts with {base} now."), false) else { return };
         let pr = gh::Pr { number: n, ..Default::default() };
-        if let Err(e) = gh::conversation_comment(&pr, &body) {
+        if let Err(e) = gh::conversation_comment(pr.number, &body) {
             return self.msg = format!("not posted: {e:#}");
         }
         self.msg = format!("asked for a rebase of #{n}");

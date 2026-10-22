@@ -92,7 +92,7 @@ impl App {
             }
             Job::DeleteComment(c) => self.finish(gh::delete_comment(&c).map(|_| "comment deleted")),
             Job::SetField(field, name, on) => {
-                let n = self.pr.as_ref().map_or(0, |p| p.number);
+                let n = self.subject().map_or(0, |s| s.n());
                 let res = gh::set_field(n, field, &name, on);
                 self.msg = match &res {
                     Err(e) => format!("{e:#}"),
@@ -161,12 +161,13 @@ impl App {
 
     /// Send `p`; if that fails, its text is saved to a file so it isn't lost.
     pub(super) fn post(&mut self, p: Post) -> Result<&'static str> {
-        let pr = self.pr.clone().context("no PR")?;
+        // (On the conversation, an edit: a PR's or an issue's alike; the rest, a PR's.)
+        let pr = || self.pr.clone().context("no PR");
         match p {
             Post::Thread { anchor, review, body, claude } => {
                 let res = match review {
                     true => self.ensure_review().and_then(|r| gh::add_thread(&r, &anchor, &body)),
-                    false => gh::comment(&pr, &anchor, &body),
+                    false => pr().and_then(|pr| gh::comment(&pr, &anchor, &body)),
                 };
                 keep_on_error(res, &body)?;
                 // It's on GitHub now; drop Claude's copy so it doesn't show twice.
@@ -178,12 +179,13 @@ impl App {
             Post::Reply { thread, comment, review, body } => {
                 let res = match review {
                     true => self.ensure_review().and_then(|r| gh::add_reply(&r, &thread, &body)),
-                    false => gh::reply(&pr, comment, &body),
+                    false => pr().and_then(|pr| gh::reply(&pr, comment, &body)),
                 };
                 keep_on_error(res, &body).map(|_| posted_msg(review))
             }
             Post::Converse(body) => {
-                keep_on_error(gh::conversation_comment(&pr, &body), &body).map(|_| "comment posted to the conversation")
+                let n = self.subject().context("no PR or issue")?.n();
+                keep_on_error(gh::conversation_comment(n, &body), &body).map(|_| "comment posted to the conversation")
             }
             Post::Summary(body) => {
                 // A new review starts with it; one started without text can't take any yet, so
@@ -200,6 +202,7 @@ impl App {
             Post::Edit { comment, body } => keep_on_error(gh::edit_comment(&comment, &body), &body).map(|_| "comment updated"),
             Post::Submit(event, body) => {
                 // Closing comments; with nothing to say (and no pending comments) it only closes.
+                let pr = pr()?;
                 let close = event == CLOSE;
                 let event = if close { "COMMENT" } else { event };
                 if !close || self.review.is_some() || !body.trim().is_empty() {
@@ -338,6 +341,9 @@ impl App {
     }
 
     pub(super) fn review_menu(&mut self) {
+        if !self.has_code() {
+            return self.msg = super::git::NO_CODE.into();
+        }
         if self.pr.is_none() && self.replacement.is_some() {
             return self.replacement_menu();
         }
@@ -493,6 +499,7 @@ impl App {
         self.claude.created.clear();
         self.claude.description.clear();
         self.claude.closing.clear();
+        (self.claude.triage, self.claude.close) = Default::default();
         if let Some(Ok(Some(mut r))) = loaded {
             // Comments with their code recorded follow it; others can only trust their lines.
             let head = diff::git(&["rev-parse", "HEAD"]).unwrap_or_default();
@@ -509,7 +516,7 @@ impl App {
                 crate::claude::reanchor(&mut r.threads, &self.files);
             }
             (self.claude.summary, self.claude.head, self.claude.description, self.claude.closing) = (r.summary, r.head, r.description, r.closing);
-            self.claude.created = r.created;
+            (self.claude.created, self.claude.triage, self.claude.close) = (r.created, r.triage, r.close);
             self.threads.extend(r.threads);
             // (Tab's shown talks: while resolved only, so one resolved again, by you or Claude,
             // folds.)
@@ -617,8 +624,13 @@ impl App {
     /// (✓: on it); Enter adds or removes one. Type to find one (`review`, `@` for people).
     pub(super) fn labels_menu(&mut self) {
         self.msg.clear();
-        let Some(n) = self.pr.as_ref().map(|p| p.number) else { return };
-        match gh::pr_fields(n) {
+        // (An issue's: no reviewers.)
+        let fields = match self.subject() {
+            Some(crate::claude::Subject::Pr(n)) => gh::pr_fields(n),
+            Some(crate::claude::Subject::Issue(n)) => gh::issue_fields(n).map(|(l, p)| (l, p, vec![])),
+            None => return,
+        };
+        match fields {
             Ok(x) => self.fields = Some(x),
             Err(e) => return self.msg = format!("{e:#}"),
         };
@@ -630,19 +642,29 @@ impl App {
     pub(super) fn fields_menu(&mut self, query: String, sel: usize) {
         let Some((labels, people, reviewers)) = &self.fields else { return };
         // (Under their sections: Reviewers, Labels, Assignees.)
+        // (The labels Claude's triage suggests, not on it yet: marked, first.)
+        let suggested = |f: gh::Field, x: &str, on: bool| f == gh::Field::Label && !on && self.claude.triage.labels.iter().any(|l| l.eq_ignore_ascii_case(x));
         let item = |field: gh::Field, name: &str, on: bool| {
             let at = if matches!(field, gh::Field::Label) { "" } else { "@" };
-            let tick = if on { "✓ " } else { "  " };
+            let tick = match (on, suggested(field, name, on)) {
+                (true, _) => "✓ ",
+                (_, true) => "◆ ",
+                _ => "  ",
+            };
             Item::new(format!("{tick}{at}{name}"), Target::Run(Job::SetField(field, name.to_owned(), !on)))
         };
         let items: Vec<Item> = [(gh::Field::Reviewer, &reviewers), (gh::Field::Label, &labels), (gh::Field::Assignee, &people)]
             .into_iter()
-            .flat_map(|(f, xs)| xs.iter().map(move |(x, on)| item(f, x, *on)))
+            .flat_map(|(f, xs)| {
+                let mut xs: Vec<&(String, bool)> = xs.iter().collect();
+                xs.sort_by_key(|(x, on)| !(*on || suggested(f, x, *on)));
+                xs.into_iter().map(move |(x, on)| item(f, x, *on))
+            })
             .collect();
         if items.is_empty() {
             return self.msg = "no labels in this repo, nor anyone to assign or ask".into();
         }
-        let p = Picker::new(" reviewers, labels, assignees (✓ on it: Enter adds or takes it off) ", items);
+        let p = Picker::new(" reviewers, labels, assignees (✓ on it, ◆ Claude suggests it: Enter adds or takes it off) ", items);
         self.picker = Some(Picker { query, sel, ..p });
     }
 
@@ -789,7 +811,7 @@ impl App {
     /// `C` in the PR section: a new PR conversation comment quoting the comment (or description)
     /// under the cursor, like GitHub's "Quote reply"; on other PR info lines, an empty one.
     pub(super) fn start_conversation_comment(&mut self) {
-        if self.pr.is_none() {
+        if self.subject().is_none() {
             return self.msg = "no PR for this branch".into();
         }
         let row = &self.rows[self.head.row];

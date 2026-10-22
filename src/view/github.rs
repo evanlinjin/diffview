@@ -1,6 +1,7 @@
 //! The PR from GitHub: fetched (in the background, kept to show at once next time), watched
 //! for changes, applied to the view, and its base followed when it changes there.
 use super::*;
+use crate::claude::Subject;
 
 /// Shown while what's on screen is from the cache.
 pub(super) const STALE: &str = "showing the PR as dv last saw it; refreshing from GitHub…";
@@ -11,12 +12,20 @@ pub(super) const GITHUB_POLL: std::time::Duration = std::time::Duration::from_se
 /// The PR's review threads and its info, as `fetch_github` got them.
 pub(super) type Fetched = (Result<gh::Review>, Result<Info>);
 
-/// Both at once (each is a ~1s GitHub round-trip), kept in `cache` when both came.
-pub(super) fn fetch_github(n: u64, cache: Option<&Path>) -> Fetched {
-    let (threads, mut info) = std::thread::scope(|s| {
-        let info = s.spawn(|| gh::info_json(n));
-        (gh::threads_json(n), info.join().unwrap_or_else(|p| Err(anyhow!(crate::batch::panicked(&p)))))
-    });
+/// Both at once (each is a ~1s GitHub round-trip), kept in `cache` when both came. An issue
+/// has no review threads: its info, and who you are (its "threads" as a PR's would say it).
+pub(super) fn fetch_github(s: Subject, cache: Option<&Path>) -> Fetched {
+    let (threads, mut info) = match s {
+        Subject::Pr(n) => std::thread::scope(|s| {
+            let info = s.spawn(|| gh::info_json(n));
+            (gh::threads_json(n), info.join().unwrap_or_else(|p| Err(anyhow!(crate::batch::panicked(&p)))))
+        }),
+        Subject::Issue(n) => {
+            let info = gh::issue_json(n);
+            let threads = info.as_ref().map(|i| json!({ "viewer": { "login": i["dvMe"] }, "repository": { "pullRequest": { "viewerDidAuthor": i["viewerDidAuthor"] } } })).map_err(|e| anyhow!("{e:#}"));
+            (threads, info)
+        }
+    };
     // What GitHub couldn't give this time: the last it gave, kept.
     if let (Some(p), Ok(i)) = (cache, &mut info)
         && let Some(old) = std::fs::read_to_string(p).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok())
@@ -35,21 +44,25 @@ pub(super) fn fetch_github(n: u64, cache: Option<&Path>) -> Fetched {
 /// that was recent (`gh::RECENT`; its view's watcher fetches them again as they change): for
 /// `dv review-*`, which Claude runs.
 pub(crate) fn recent_github(n: u64) -> Option<(gh::Pr, Value)> {
-    let p = cache_path(n).filter(|p| gh::recent(p))?;
+    let p = cache_path(Subject::Pr(n)).filter(|p| gh::recent(p))?;
     let v: Value = serde_json::from_str(&std::fs::read_to_string(p).ok()?).ok()?;
     Some((gh::pr_of(&v["info"]).ok()?, v["threads"].clone()))
 }
 
-/// Where the PR's last answers from GitHub are kept, to show at once next time.
-pub(super) fn cache_path(n: u64) -> Option<PathBuf> {
-    Some(crate::claude::dv_dir().ok()?.join("cache").join(format!("pr-{n}.json")))
+/// Where the PR's (or issue's) last answers from GitHub are kept, to show at once next time.
+pub(super) fn cache_path(s: Subject) -> Option<PathBuf> {
+    let name = match s {
+        Subject::Pr(n) => format!("pr-{n}"),
+        Subject::Issue(n) => format!("issue-{n}"),
+    };
+    Some(crate::claude::dv_dir().ok()?.join("cache").join(format!("{name}.json")))
 }
 
 /// For `dv list`: PR `n`'s comments and info from GitHub, kept for its first opening if
 /// nothing is (else they show at once already, fetched afresh as they do).
 pub(crate) fn prefetch_github(n: u64) {
-    if let Some(p) = cache_path(n).filter(|p| !p.exists()) {
-        _ = fetch_github(n, Some(&p));
+    if let Some(p) = cache_path(Subject::Pr(n)).filter(|p| !p.exists()) {
+        _ = fetch_github(Subject::Pr(n), Some(&p));
     }
 }
 
@@ -74,16 +87,16 @@ impl App {
     }
 
     pub(super) fn load_github(&mut self) {
-        let Some(n) = self.pr.as_ref().map(|p| p.number) else { return };
+        let Some(s) = self.subject() else { return };
         self.github_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         self.github_stale = false;
-        self.apply_github(fetch_github(n, cache_path(n).as_deref()), true);
+        self.apply_github(fetch_github(s, cache_path(s).as_deref()), true);
     }
 
     /// At start: the PR as dv last saw it, if it kept that, while `start_github_watch` fetches
     /// it afresh. Until that's in, `ensure_fresh` holds back anything that changes GitHub.
-    pub(super) fn show_cached(&mut self, n: u64) -> bool {
-        let Some(f) = cache_path(n).as_deref().and_then(cached_github) else { return false };
+    pub(super) fn show_cached(&mut self) -> bool {
+        let Some(f) = self.subject().and_then(cache_path).as_deref().and_then(cached_github) else { return false };
         let head = self.pr.as_ref().map(|p| p.head_oid.clone()); // just looked up; the cache's may be old
         self.github_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         self.apply_github(f, false);
@@ -107,14 +120,19 @@ impl App {
     /// Every few seconds, a look at the PR's ETag (free while nothing has changed); when it changes,
     /// its threads and info are fetched in the background, for `watch_github` to show.
     /// `fetch_now`: once at the start too (what's shown came from the cache).
-    pub(super) fn start_github_watch(&mut self, n: u64, fetch_now: bool) {
+    pub(super) fn start_github_watch(&mut self, fetch_now: bool) {
+        let Some(s) = self.subject() else { return };
         let (tx, rx) = std::sync::mpsc::channel();
         let loads = self.github_gen.clone();
         let (poke, poked) = std::sync::mpsc::channel();
         self.github_poke = Some(poke);
-        let cache = cache_path(n);
+        let cache = cache_path(s);
+        let etag_of = move |e: &str| match s {
+            Subject::Pr(n) => gh::pr_etag(n, e),
+            Subject::Issue(n) => gh::issue_etag(n, e),
+        };
         std::thread::spawn(move || {
-            let mut etag = gh::pr_etag(n, "").ok().flatten().unwrap_or_default();
+            let mut etag = etag_of("").ok().flatten().unwrap_or_default();
             // CI's checks change on the head commit, not the PR: their ETag, watched too. The
             // head's as last fetched (the cache's, at first). Its ETag taken before a fetch (a
             // check finishing during it is then still news), again after if the head moved.
@@ -124,7 +142,7 @@ impl App {
             let mut head = cached.and_then(|v| v["info"]["headRefOid"].as_str().map(str::to_owned)).unwrap_or_default();
             let mut checks = if head.is_empty() { String::new() } else { checks_of(&head) };
             let fetch = |head: &mut String, checks: &mut String| {
-                let f = fetch_github(n, cache.as_deref());
+                let f = fetch_github(s, cache.as_deref());
                 if let Ok(i) = &f.1
                     && i.head != *head
                 {
@@ -143,11 +161,11 @@ impl App {
                 // change since doesn't fetch again).
                 match poked.recv_timeout(GITHUB_POLL) {
                     Ok(()) => {
-                        if let Ok(Some(e)) = gh::pr_etag(n, &etag) {
+                        if let Ok(Some(e)) = etag_of(&etag) {
                             etag = e;
                         }
                     }
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => match gh::pr_etag(n, &etag) {
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => match etag_of(&etag) {
                         Ok(Some(e)) => etag = e,
                         // (The PR as it was: its checks may not be.)
                         _ if head.is_empty() => continue,
@@ -239,6 +257,8 @@ impl App {
                     if fresh && !base.is_empty() {
                         self.github_base = Some(base);
                     }
+                } else if let Some(i) = &mut self.issue {
+                    (i.title, i.url) = (title, url);
                 }
                 self.refresh_sync(); // the PR's head may have moved
             }

@@ -46,7 +46,7 @@ impl App {
         self.pr = Some(pr);
         self.load_seen();
         self.load_github();
-        self.start_github_watch(n, false);
+        self.start_github_watch(false);
     }
 
     /// Which remote keeps replacement branches: asked once, then kept in `dv.replaceRemote`.

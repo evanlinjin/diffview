@@ -121,7 +121,7 @@ impl App {
                     Some(c) => format!("{} {}", c.short, c.subject),
                     None => r.line.text.clone(),
                 };
-                let text = if id == DESCRIPTION && !self.claude.description.is_empty() { format!("{text} (Claude's proposal)") } else { text };
+                let text = if id == DESCRIPTION && self.has_proposal() { format!("{text} (Claude's proposal)") } else { text };
                 Some(Entry { spot: Spot::Section(id), text })
             })
             .collect();

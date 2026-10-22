@@ -255,7 +255,10 @@ impl App {
                     false => format!("Replacement of #{} · {title}", r.id),
                 })
             }
-            (None, None) => (!self.claude.summary.trim().is_empty()).then(|| "Claude's review".to_owned()),
+            (None, None) => match &self.issue {
+                Some(i) => Some(format!("Issue #{} · {}", i.number, i.title)),
+                None => (!self.claude.summary.trim().is_empty()).then(|| "Claude's review".to_owned()),
+            },
         }
     }
 
@@ -264,7 +267,7 @@ impl App {
     fn title_rows(&self) -> Vec<Row> {
         let Some(title) = self.title() else { return vec![] };
         let mk = |kind, text| Row::text(INFO, kind, text);
-        let url = self.pr.as_ref().map(|p| p.url.clone()).filter(|u| !u.is_empty());
+        let url = self.subject_url().filter(|u| !u.is_empty());
         let links = url.map(|u| vec![(0, title.chars().count(), u)]).unwrap_or_default();
         let by = self.pr.as_ref().filter(|p| !p.author.is_empty()).map(|p| {
             let head = if p.cross_repo { format!("{}:{}", p.head_owner, p.head_branch) } else { p.head_branch.clone() };
@@ -296,7 +299,8 @@ impl App {
             View::All if self.info_collapsed => vec![],
             View::All => {
                 let latest = (!self.conversation_all).then_some(LATEST);
-                [self.pr_facts(), self.conversation(latest), self.no_pr_summary(), self.draft_rows()].into_iter().flatten().collect()
+                // (Without a PR, Claude's summary first: an issue's triage, then what's said.)
+                [self.no_pr_summary(), self.pr_facts(), self.conversation(latest), self.draft_rows()].into_iter().flatten().collect()
             }
             View::Pending | View::Claude => vec![],
         }
@@ -319,7 +323,7 @@ impl App {
     fn description_rows(&self, attached: &mut Vec<Row>) -> Vec<Row> {
         let Some(h) = self.heading(Self::is_description).filter(|_| matches!(self.view, View::All | View::Claude)) else { return vec![] };
         let text = self.info_body(h);
-        let s = match self.claude.description.is_empty() || self.pr.is_none() {
+        let s = match !self.has_proposal() {
             true => {
                 let text = match (text.trim().is_empty(), self.replacement.is_some()) {
                     (true, true) => "_(not drafted yet)_",
@@ -340,7 +344,9 @@ impl App {
             false => self.section_with(DESCRIPTION, "description · Claude's proposal (Space a: approve, more changes, discard)".into(), Some(h + 1), |mk| {
                 let w = self.wrap_w.saturating_sub(2).max(20);
                 let lines = |t: &str| t.replace("\r\n", "\n").lines().map(str::to_owned).collect::<Vec<_>>();
-                line_diff(&lines(text), &lines(&self.claude.description)).into_iter().flat_map(|(k, line)| wrap(&line, w).into_iter().map(move |t| mk(k, t))).collect()
+                // (A new title first, its own line each way.)
+                let title = self.proposed_title().map(|t| vec![(Kind::Del, format!("title: {}", self.title_now())), (Kind::Add, format!("title: {t}"))]).unwrap_or_default();
+                title.into_iter().chain(line_diff(&lines(text), &lines(&self.proposed_text()))).flat_map(|(k, line)| wrap(&line, w).into_iter().map(move |t| mk(k, t))).collect()
             }),
         };
         self.attach(s, attached)

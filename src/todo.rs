@@ -963,7 +963,7 @@ mod tests {
     }
 
     fn review(threads: Vec<Thread>, head: &str) -> crate::claude::Review {
-        crate::claude::Review { head: head.into(), created: String::new(), summary: String::new(), description: String::new(), closing: String::new(), replace: String::new(), close: String::new(), threads }
+        crate::claude::Review { triage: Default::default(), head: head.into(), created: String::new(), summary: String::new(), description: String::new(), closing: String::new(), replace: String::new(), close: String::new(), threads }
     }
 
     #[test]
@@ -1016,7 +1016,7 @@ mod tests {
         // Claude said what it "Changed:" after the PR's head was made: Claude's, to check and push.
         let mut t = Thread { claude: Some("c1".into()), ..Default::default() };
         t.comments = vec![crate::gh::Comment { author: crate::claude::AUTHOR.into(), body: "Changed: renamed it".into(), created: "2026-10-18T10:00:00Z".into(), ..Default::default() }];
-        let r = leak(crate::claude::Review { head: String::new(), created: String::new(), summary: String::new(), description: String::new(), closing: String::new(), replace: String::new(), close: String::new(), threads: vec![t] });
+        let r = leak(crate::claude::Review { triage: Default::default(), head: String::new(), created: String::new(), summary: String::new(), description: String::new(), closing: String::new(), replace: String::new(), close: String::new(), threads: vec![t] });
         let mut f = facts(leak(pr(8, "me")), Some(leak(extra(None, false, "h"))), Some(r));
         f.unpushed = (2, 0);
         f.head_at = crate::gh::epoch_secs("2026-10-18T09:00:00Z");

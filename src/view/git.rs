@@ -58,6 +58,9 @@ impl App {
 
     /// `Space g`: what there is to do with the working tree and the branch.
     pub(super) fn git_menu(&mut self) {
+        if !self.has_code() {
+            return self.msg = NO_CODE.into();
+        }
         // dv's rebase that ended some other way (in a terminal, say): its note goes.
         if !super::rebase::rebasing(&self.root) && self.claude.job.is_none() {
             super::rebase::forget_rebase(&self.root);
@@ -319,8 +322,9 @@ impl App {
     /// has that this doesn't, changes not committed. Empty when it's all in step.
     pub(super) fn refresh_sync(&mut self) {
         let mut parts = vec![];
-        // A draft not published yet: its commits are all unpushed, as they should be.
-        if self.unpublished() {
+        // A draft not published yet: its commits are all unpushed, as they should be. An issue
+        // has no code: nothing here is its.
+        if self.unpublished() || !self.has_code() {
             return self.sync.clear();
         }
         if let Ok((remote, branch, _)) = self.push_target() {
@@ -508,7 +512,8 @@ impl App {
     /// closing.
     // ponytail: polls git status each second; a file watcher if that's ever slow on a big repo.
     pub(super) fn watch_tree(&mut self) {
-        if self.tree_checked.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(1)) {
+        // (An issue's view runs in some checkout: its changes aren't the issue's.)
+        if !self.has_code() || self.tree_checked.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(1)) {
             return;
         }
         self.tree_checked = Some(std::time::Instant::now());
@@ -546,7 +551,7 @@ impl App {
         // change staged then undone, untracked files status is told not to show. Asked yes or
         // no: no file read.)
         let clean = || diff::git(&["diff", "--quiet", "HEAD"]).is_ok() && diff::git(&["ls-files", "--others", "--exclude-standard"]).is_ok_and(|s| s.trim().is_empty());
-        if self.uncommitted() && clean() {
+        if self.has_code() && self.uncommitted() && clean() {
             self.show_whole(self.full_base.clone());
         }
         let res = self.reload(threads);
@@ -558,10 +563,12 @@ impl App {
 
     pub(super) fn reload(&mut self, threads: bool) -> Result<()> {
         let keep = self.cursor_key();
-        self.follow_rebase();
-        self.load_commits();
-        self.note_diff();
-        self.files = diff::load(&self.base, self.to.as_deref(), DEFAULT_CONTEXT)?;
+        if self.has_code() {
+            self.follow_rebase();
+            self.load_commits();
+            self.note_diff();
+            self.files = diff::load(&self.base, self.to.as_deref(), DEFAULT_CONTEXT)?;
+        }
         // After the diff: Claude's comments follow their code, which may have just been edited.
         match threads {
             true => self.load_threads(),
@@ -590,6 +597,9 @@ impl App {
         self.move_full_base(now); // the whole diff (a commit shown, or a range, goes)
     }
 }
+
+/// What Space g, S and the like say on an issue.
+pub(super) const NO_CODE: &str = "an issue has no code: Space a for Claude, C to comment, Space l for its labels";
 
 /// The background run writing a commit message: when it's done, the commit goes on.
 pub(super) const COMMIT_LABEL: &str = "writing the commit message";

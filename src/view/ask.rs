@@ -130,6 +130,11 @@ impl App {
         if self.claude.path.is_none() {
             return self.msg = "no review file here (not in a git repo?)".into();
         }
+        // An issue: no code to change or suggest for; asked, Claude answers.
+        if !self.has_code() {
+            self.wanting = Some(action);
+            return self.want("ask");
+        }
         // About a commit (on no lines): no suggestion to post; an answer, unless you said. A
         // draft's: nothing goes to GitHub from it either; the change, unless you said.
         let commit = matches!(&action, Action::AskConversation { url, .. } if commit_of(url).is_some());

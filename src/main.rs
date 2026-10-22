@@ -383,7 +383,8 @@ fn run_view(app: &mut view::App, term: &mut ratatui::DefaultTerminal, issues: &m
         app.run(term)?;
         let Some(to) = app.hand_off.take() else { return Ok(()) };
         let shown = match to {
-            view::HandOff::Issue(n) => issues.get_or_insert_with(list::issues::Issues::new).run_one(term, n).with_context(|| format!("#{n}")).map(|_| None),
+            // An issue: in the PR view too, its own, as it was when it comes back.
+            view::HandOff::Issue(n) => view::App::open_issue(n).and_then(|mut a| run_view(&mut a, term, issues)).with_context(|| format!("#{n}")).map(|_| None),
             view::HandOff::Replacement(id) => {
                 let here = std::env::current_dir()?;
                 let shown = main_checkout(&here).and_then(|root| replacement_view(id, &root, term, issues));

@@ -339,6 +339,15 @@ pub(super) struct Widths {
     pub float_at: Option<usize>,
 }
 
+/// The issue a view is of (`App::open_issue`): no PR, no code; its text, its conversation, and
+/// Claude's triage of it and talk about it.
+#[derive(Clone, Debug, Default)]
+pub(super) struct IssueRec {
+    pub number: u64,
+    pub title: String,
+    pub url: String,
+}
+
 /// What a view hands over to show instead, and comes back to after.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum HandOff {
@@ -396,14 +405,14 @@ impl Target {
     fn look(&self) -> (char, Tone, &'static str) {
         use {agent::Ask, Tone::*};
         match self {
-            Target::Claude(Ask::Review) => ('\u{f441}', Claude, "Review"),
+            Target::Claude(Ask::Review | Ask::Triage) => ('\u{f441}', Claude, "Review"),
             Target::Claude(Ask::Answer) => ('\u{f4a8}', Claude, "Review"),
             Target::ClaudeQuestion => ('\u{f420}', Claude, "Review"),
             Target::ClaudeNotes => ('\u{f4f6}', Plain, "Claude"),
             Target::ClaudeDismissOutdated(_) => ('\u{f48e}', Danger, "Review"),
             Target::Claude(Ask::Fix | Ask::Edit) => ('\u{f448}', Claude, "Changes"),
             Target::Claude(Ask::FixChecks) => ('\u{f425}', Claude, "Changes"),
-            Target::Do(Action::CiFixPr) => ('\u{f407}', Claude, "Changes"),
+            Target::Do(Action::CiFixPr | Action::NewPr(_)) => ('\u{f407}', Claude, "Changes"),
             Target::Claude(Ask::Describe) => ('\u{f4ed}', Claude, "Description"),
             Target::DescApprove(_) => ('\u{f42e}', Good, "Description"),
             Target::DescDiscard => ('\u{f48e}', Danger, "Description"),
@@ -707,6 +716,8 @@ pub struct App {
     /// and when its record last changed (Claude redrafting it: it's shown again).
     replacement: Option<crate::replace::Record>,
     replacement_mtime: Option<std::time::SystemTime>,
+    /// The issue this view is of, if it is one (no PR: `pr` is none, and no code).
+    issue: Option<IssueRec>,
     /// Your pending review's text so far (on GitHub; `c` in the PR section adds to it), for `S`.
     summary_draft: String,
     /// Your GitHub login: your comments are never new to you.
@@ -772,41 +783,16 @@ impl App {
         let files = diff::load(&base, None, DEFAULT_CONTEXT)?;
         let mut app = Self::with(base, files);
         app.load_commits();
-        let theme = Theme::load();
-        (app.hl, app.ui) = (Highlighter::new(&theme), theme.ui());
-        app.settings = crate::theme::settings();
-        app.github_url = diff::github_url();
-        app.load_pane();
         // A replacement published as this PR: its draft's review is the PR's now.
         if let Some(p) = &pr {
             crate::replace::adopt_review(p.number);
-        }
-        app.claude.path = crate::claude::path(pr.as_ref().map(|p| p.number)).ok();
-        app.load_seen();
-        // The PR's Claude Code session, if an earlier run (any dv, any worktree) started one.
-        // One that started with another version of the skill would keep following that: start afresh.
-        let session = app.claude.path.as_ref().and_then(|p| crate::claude::load_session(p, &app.root));
-        let other_skill = session.as_ref().is_some_and(|s| !s.1);
-        app.claude.session = session.filter(|s| s.1).map(|s| s.0);
-        if pr.is_some() {
             crate::progress(Some("loading comments and PR info"));
         }
+        app.claude.path = crate::claude::path(pr.as_ref().map(|p| p.number)).ok();
         app.pr = pr;
         app.load_replacement();
-        // What dv saw last time, if it kept it, while it fetches the PR afresh.
-        let n = app.pr.as_ref().map(|p| p.number);
-        let cached = n.is_some_and(|n| app.show_cached(n));
-        match cached {
-            true => app.load_claude(),
-            false => app.load_threads(),
-        }
+        app.open_github();
         app.rekey_commits(); // (commits rewritten while dv was closed)
-        if let Some(n) = n {
-            app.start_github_watch(n, cached);
-        }
-        if other_skill && (app.msg.is_empty() || app.github_stale) {
-            app.msg = "dv's Claude skill has changed since this PR's Claude session began: the next Claude run starts a new one".into();
-        }
         app.refresh_sync();
         app.build();
         match Lsp::start(&app.root) {
@@ -817,6 +803,48 @@ impl App {
             Err(e) => app.msg = format!("{e:#}"),
         }
         Ok(app)
+    }
+
+    /// Issue `n` of this repo, in the PR view: its text and conversation from GitHub, Claude's
+    /// triage of it and talk about it; no code (no diff, commits, or language server).
+    pub fn open_issue(n: u64) -> Result<Self> {
+        crate::progress(Some("loading the issue"));
+        let mut app = Self::with(String::new(), vec![]);
+        app.issue = Some(IssueRec { number: n, ..IssueRec::default() });
+        app.claude.path = crate::claude::Subject::Issue(n).path().ok();
+        if let Some(p) = &app.claude.path {
+            _ = crate::claude::adopt_issue_extras(p);
+        }
+        app.open_github();
+        app.files_pref = Some(false); // (no files: its contents would be the description alone)
+        app.build();
+        Ok(app)
+    }
+
+    /// What a view of a PR or an issue starts with alike: the theme, the pane, what was seen,
+    /// Claude's session, and what GitHub has of it (what dv kept, at once; then afresh, and
+    /// watched).
+    fn open_github(&mut self) {
+        let theme = Theme::load();
+        (self.hl, self.ui) = (Highlighter::new(&theme), theme.ui());
+        self.settings = crate::theme::settings();
+        self.github_url = diff::github_url();
+        self.load_pane();
+        self.load_seen();
+        // Its Claude Code session, if an earlier run (any dv, any worktree) started one. One
+        // that started with another version of the skill would keep following that: start afresh.
+        let session = self.claude.path.as_ref().and_then(|p| crate::claude::load_session(p, &self.root));
+        let other_skill = session.as_ref().is_some_and(|s| !s.1);
+        self.claude.session = session.filter(|s| s.1).map(|s| s.0);
+        let cached = self.show_cached();
+        match cached {
+            true => self.load_claude(),
+            false => self.load_threads(),
+        }
+        self.start_github_watch(cached);
+        if other_skill && (self.msg.is_empty() || self.github_stale) {
+            self.msg = "dv's Claude skill has changed since this PR's Claude session began: the next Claude run starts a new one".into();
+        }
     }
 
     /// Keep each new status-bar message, so a long one cut off there can be read in full.
@@ -944,8 +972,9 @@ impl App {
 
     /// https://github.com/owner/repo, for `#123` links: the PR's, else the remote's (a
     /// replacement or new PR not published, a branch).
-    fn repo_url(&self) -> Option<&str> {
-        self.pr.as_ref().and_then(|p| p.url.rsplit_once("/pull/")).map(|(r, _)| r).or(self.github_url.as_deref())
+    fn repo_url<'a>(&'a self) -> Option<&'a str> {
+        let of = |url: &'a str, at| url.rsplit_once(at).map(|(r, _)| r);
+        self.pr.as_ref().and_then(|p| of(&p.url, "/pull/")).or(self.issue.as_ref().and_then(|i| of(&i.url, "/issues/"))).or(self.github_url.as_deref())
     }
 
     fn file_path(&self) -> Option<&str> {

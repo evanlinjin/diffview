@@ -174,8 +174,18 @@ impl App {
                     when.push(format!("of {}, before the PR's latest", old.get(..7).unwrap_or(old)));
                 }
                 let when = if when.is_empty() { String::new() } else { format!(" ({})", when.join(" · ")) };
-                let mut rows = vec![summary(mk(Kind::Thread, format!("claude's review{when}")))];
-                rows.extend(self.md_rows_at(&self.claude.summary, self.info_w(), mk).into_iter().map(summary));
+                // An issue's: its triage, what it is and how urgent; what next, and why close it.
+                let t = &self.claude.triage;
+                let (head, text) = match self.has_code() {
+                    true => ("claude's review".to_owned(), self.claude.summary.clone()),
+                    false => {
+                        let head = ["claude's triage", &t.kind, &t.priority].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ");
+                        let said = [("next", &t.next), ("close it", &self.claude.close)].into_iter().filter(|s| !s.1.trim().is_empty());
+                        (head, said.fold(self.claude.summary.clone(), |text, (k, v)| format!("{text}\n\n**{k}:** {v}")))
+                    }
+                };
+                let mut rows = vec![summary(mk(Kind::Thread, format!("{head}{when}")))];
+                rows.extend(self.md_rows_at(&text, self.info_w(), mk).into_iter().map(summary));
                 rows.push(Row { edge: true, ..summary(mk(Kind::Comment, String::new())) });
                 rows
             }
@@ -217,7 +227,8 @@ impl App {
                 1 => " · 1 comment".into(),
                 n => format!(" · {n} comments"),
             };
-            said.push((created, format!("reviewed{n}"), self.claude.summary.as_str(), roots.first().map(|r| (r.0, 0))));
+            let did = if self.has_code() { "reviewed" } else { "triaged" };
+            said.push((created, format!("{did}{n}"), self.claude.summary.as_str(), roots.first().map(|r| (r.0, 0))));
         }
         // Then all else it wrote: its replies, its answers to your questions and to others'
         // comments (what it answered, changed, suggested), where.

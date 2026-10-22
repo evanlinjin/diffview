@@ -88,7 +88,23 @@ pub struct Review {
     /// Why Claude would replace it with a PR of its own (low effort, AI slop, but the idea's
     /// worth keeping); empty: it wouldn't. Auto drafts that replacement.
     pub replace: String,
+    /// An issue's: Claude's triage of it (`list/issues.rs` writes it; a PR's, none).
+    pub triage: Triage,
     pub threads: Vec<Thread>,
+}
+
+/// An issue's triage: what it is and how urgent, what should happen next, the labels and the
+/// clearer title Claude suggests, and how it'd close (`close` on the review: why).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Triage {
+    pub kind: String,
+    pub priority: String,
+    pub next: String,
+    pub labels: Vec<String>,
+    pub title: String,
+    /// `completed`, `not planned`, or `duplicate` (of `duplicate_of`).
+    pub reason: String,
+    pub duplicate_of: Option<u64>,
 }
 
 /// Claude's review `r` as text for a prompt (a replacement's: what was found wrong): its
@@ -694,7 +710,16 @@ fn parse(text: &str) -> Result<Review> {
             })
         })
         .collect::<Result<_>>()?;
-    Ok(Review { head: s(&v["head"]), created: created.clone(), summary: s(&v["summary"]), description: s(&v["description"]), closing: s(&v["closing"]), close: s(&v["close"]), replace: s(&v["replace"]), threads })
+    let triage = Triage {
+        kind: s(&v["kind"]),
+        priority: s(&v["priority"]),
+        next: s(&v["next"]),
+        labels: v["labels"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect(),
+        title: s(&v["title"]),
+        reason: s(&v["reason"]),
+        duplicate_of: v["duplicate_of"].as_u64(),
+    };
+    Ok(Review { head: s(&v["head"]), created: created.clone(), summary: s(&v["summary"]), description: s(&v["description"]), closing: s(&v["closing"]), close: s(&v["close"]), replace: s(&v["replace"]), triage, threads })
 }
 
 /// A GitHub review comment's id, from a review file's `"about"`: the id, or its link
@@ -752,6 +777,40 @@ fn update(path: &std::path::Path, key: &str, f: impl FnOnce(&mut Vec<Value>, usi
     assign_ids(comments);
     f(comments, i);
     write(path, &v)
+}
+
+/// An issue's file as v0.93.0 kept its `a q` questions (`asks`) and `a e` edit (`edit`), as
+/// the review file has them now: questions on the summary, answered; a proposed title and
+/// text. ponytail: drop this a few releases on.
+pub fn adopt_issue_extras(path: &std::path::Path) -> Result<()> {
+    let Some(text) = read(path)? else { return Ok(()) };
+    let mut v: Value = serde_json::from_str(&text)?;
+    let Some(o) = v.as_object_mut().filter(|o| o.contains_key("asks") || o.contains_key("edit")) else { return Ok(()) };
+    let asks = o.remove("asks").and_then(|a| a.as_array().cloned()).unwrap_or_default();
+    let mut comments = o.get("comments").and_then(Value::as_array).cloned().unwrap_or_default();
+    for a in asks {
+        let created = now();
+        comments.push(serde_json::json!({ "conversation": "summary", "author": USER, "body": a["q"], "created": created,
+            "replies": [{ "author": AUTHOR, "body": a["a"], "created": created }] }));
+    }
+    o.insert("comments".into(), comments.into());
+    if let Some(e) = o.remove("edit") {
+        o.insert("title".into(), e["title"].clone());
+        o.insert("description".into(), e["body"].clone());
+    }
+    write(path, &v)
+}
+
+#[test]
+fn v093_issue_extras_adopted() {
+    let p = std::env::temp_dir().join(format!("dv-adopt-{}.json", std::process::id()));
+    std::fs::write(&p, r#"{ "summary": "s", "asks": [{ "q": "why?", "a": "because" }], "edit": { "title": "T", "body": "B", "was_title": "t", "was_body": "b" } }"#).unwrap();
+    adopt_issue_extras(&p).unwrap();
+    let r = load(&p).unwrap().unwrap();
+    assert_eq!((r.triage.title.as_str(), r.description.as_str(), r.summary.as_str()), ("T", "B", "s"));
+    let t = &r.threads[0];
+    assert_eq!((t.conversation.as_str(), t.comments.len(), t.comments[1].body.as_str()), ("summary", 2, "because"));
+    _ = std::fs::remove_file(p);
 }
 
 /// Who started a comment: Claude, unless it's one the user left for Claude (shown as "you").

@@ -466,15 +466,6 @@ impl Issues {
         }
     }
 
-    /// Issue `n` in the issue view, for a PR's view (a link there): till you leave it.
-    pub fn run_one(&mut self, term: &mut DefaultTerminal, n: u64) -> Result<()> {
-        self.only = true;
-        self.view = Some(self.load_issue(n)?);
-        let res = self.run(term);
-        self.view = None;
-        res.map(drop)
-    }
-
     /// Fetch the issues in the background (the first time: the list says it's loading).
     fn refresh(&mut self) {
         let (tx, rx) = mpsc::channel();
@@ -1322,7 +1313,7 @@ impl Issues {
             KeyCode::Enter | KeyCode::Char(' ') => {
                 let Some((field, name, on)) = items.get_mut(*sel) else { return };
                 let to = !*on;
-                self.msg = match crate::gh::set_issue_field(n, *field, name, to) {
+                self.msg = match crate::gh::set_field(n, *field, name, to) {
                     Ok(()) => {
                         (*on, *changed) = (to, true);
                         format!("#{n}: {} {name}", if to { "added" } else { "removed" })
