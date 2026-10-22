@@ -271,15 +271,36 @@ pub fn git_in(dir: &std::path::Path, args: &[&str]) -> Result<String> {
     git(&[&["-C", d.as_ref()], args].concat())
 }
 
+/// ssh as git runs it here, never asking (`BatchMode`): your `core.sshCommand`, else ssh. None
+/// when `GIT_SSH_COMMAND` or `GIT_SSH` is yours to say.
+fn batch_ssh() -> Option<&'static str> {
+    static SSH: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    SSH.get_or_init(|| {
+        if std::env::var_os("GIT_SSH_COMMAND").is_some() || std::env::var_os("GIT_SSH").is_some() {
+            return None;
+        }
+        let own = Command::new("git").args(["config", "core.sshCommand"]).output().ok().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned()).filter(|s| !s.is_empty());
+        Some(format!("core.sshCommand={} -o BatchMode=yes", own.as_deref().unwrap_or("ssh")))
+    })
+    .as_deref()
+}
+
 pub fn git(args: &[&str]) -> Result<String> {
     // Never an editor (a rebase's, a commit's): dv holds the terminal. These beat git's config.
     // And no signature lines in `git log`'s output (`log.showSignature`): dv parses it. What
     // isn't committed (`git status`): each new file, as the diff lists them (`ls-files
     // --others`), whatever the config; a check of tracked files only says
-    // `--untracked-files=no`.
-    let out = Command::new("git")
-        .args(["-c", "log.showSignature=false", "-c", "status.showUntrackedFiles=all"])
+    // `--untracked-files=no`. Never a prompt for a passphrase or a password either (a fetch
+    // dv does by itself, or yours: its prompt would be drawn over the view and wait there):
+    // it fails, and says why.
+    let mut cmd = Command::new("git");
+    cmd.args(["-c", "log.showSignature=false", "-c", "status.showUntrackedFiles=all"]);
+    if let Some(ssh) = batch_ssh() {
+        cmd.args(["-c", ssh]);
+    }
+    let out = cmd
         .args(args)
+        .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_EDITOR", "true")
         .env("GIT_SEQUENCE_EDITOR", "true")
         // dv's reads (`git status` every few seconds) never take the index lock from a commit
