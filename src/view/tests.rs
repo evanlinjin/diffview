@@ -4082,3 +4082,33 @@ fn chips_too_wide_leave_the_title() {
     let s = screen(60, 12, |f| app.draw(f));
     assert!(s.lines().next().unwrap().contains("Fix the thing"), "{s}");
 }
+
+#[test]
+fn a_long_path_keeps_viewed() {
+    let p = format!("src/{}.rs", "deep/".repeat(20));
+    let text = format!("diff --git a/{p} b/{p}\nindex 1..2 100644\n--- a/{p}\n+++ b/{p}\n@@ -1 +1 @@\n-a\n+b\n");
+    let mut app = App::with("base".into(), diff::parse(&text));
+    (app.files_pref, app.margin_pref) = (Some(false), Some(false));
+    app.apply_viewed(HashMap::from([(p.clone(), "VIEWED".to_owned())]));
+    let s = screen(80, 10, |f| app.draw(f));
+    assert!(s.lines().any(|l| l.contains("deep/") && l.contains("Viewed")), "{s}");
+}
+
+#[test]
+fn the_wheel_scrolls_the_title_only_where_its_cut() {
+    use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
+    let mut app = fixture();
+    _ = screen(220, 20, |f| app.draw(f));
+    app.goto(3, 0);
+    let wheel = |app: &mut App, x: usize| {
+        app.mouse(MouseEvent { kind: MouseEventKind::ScrollRight, column: x as u16, row: 0, modifiers: KeyModifiers::NONE });
+        screen(220, 20, |f| app.draw(f))
+    };
+    // Over the pane's tabs: not the title.
+    let g = app.geom;
+    wheel(&mut app, g.relw + g.gw + g.ctw + 5);
+    assert_eq!(app.head.row, 3);
+    // On a title that fits: nothing to scroll to.
+    let s = wheel(&mut app, 20);
+    assert!(s.lines().next().unwrap().contains("PR #7 · Fix the thing") && app.hscroll(0) == 0, "{s}");
+}

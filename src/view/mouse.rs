@@ -53,10 +53,10 @@ impl App {
         let code = self.picker.is_none() && self.popup.is_none();
         let kind = if code { sideways(&m) } else { m.kind };
         match kind {
-            // Sideways: what's under it (a comment's code block or table, or the diff), the
-            // cursor to it first, as a click. Not what doesn't scroll (a comment's prose, the
-            // pinned title: the cursor stays), nor a line too short to show where it's scrolled
-            // to (the cursor there would take it back).
+            // Sideways: what's under it (a comment's code block or table, the pinned title, or
+            // the diff), the cursor to it first, as a click. Not what doesn't scroll (a
+            // comment's prose: the cursor stays), nor a line too short to show where it's
+            // scrolled to (the cursor there would take it back).
             MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight if code => {
                 let Some((row, col, _, side)) = self.at_screen(x, y) else { return };
                 if self.scroller(row).is_none() || kind == MouseEventKind::ScrollRight && self.col_of(row, self.len(row)) <= self.hscroll(row) + 1 && self.hscroll(row) > 0 {
@@ -109,7 +109,7 @@ impl App {
                 self.select = false;
                 self.goto(row, col);
                 match (gutter, self.rows[row].line.kind) {
-                    (true, Kind::File) if !(row == 0 && self.pin) => self.toggle_collapse(), // pinned: no fold
+                    (true, Kind::File) if !self.pinned(row) => self.toggle_collapse(), // pinned: no fold
                     (true, Kind::Thread) if first_of_thread => self.toggle_thread(),
                     _ => {}
                 }
@@ -176,7 +176,10 @@ impl App {
     pub(super) fn at_screen(&self, x: usize, y: usize) -> Option<(usize, usize, bool, Option<bool>)> {
         let g = self.geom;
         if self.pin && y == 0 {
-            let start = g.relw + g.gw; // the pinned title (and the pane's tabs, `click_tab`)
+            let start = g.relw + g.gw; // the pinned title; after it, the pane's tabs (`click_tab`)
+            if x >= start + g.ctw {
+                return None;
+            }
             return Some((0, self.clicked(0, self.span_of(0, 0).as_ref(), x.saturating_sub(start)), x < start, None));
         }
         let y = y - self.pin as usize;

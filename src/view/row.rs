@@ -101,7 +101,7 @@ impl App {
     pub(super) fn chips(&self, r: usize, counts: bool, style: Style) -> Vec<(String, Style)> {
         let (row, ui) = (&self.rows[r], &self.ui);
         let tag = if row.line.kind == Kind::File && row.main.is_none() { self.header_tag(row.file) } else { None };
-        let pinned = r == 0 && self.pin;
+        let pinned = self.pinned(r);
         let mut segs: Vec<(String, Style)> = vec![];
         let counts = if pinned && counts { self.pr_counts() } else { String::new() };
         if !counts.is_empty() {
@@ -218,13 +218,13 @@ impl App {
                     f => self.files.get(f).is_some_and(|f| self.collapsed.contains(&f.path)),
                 };
                 // The pinned title: as dark as the status bar.
-                let header = match r == 0 && self.pin {
+                let header = match self.pinned(r) {
                     true => Style { bg: ui.bar.or(ui.header.bg), ..ui.header },
                     false => ui.header,
                 };
                 (line_bg, gstyle) = (header.bg, header);
                 let arrow = match collapsed {
-                    _ if r == 0 && self.pin => " ", // a panel, not something to fold
+                    _ if self.pinned(r) => " ", // a panel, not something to fold
                     true => "▸",
                     false => "▾",
                 };

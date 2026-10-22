@@ -66,11 +66,11 @@ impl App {
         let guide = self.rows.get(r).map_or(0, Row::guide_w);
         match self.box_part(r) {
             Some(_) => self.box_w(r, tw).saturating_sub(1 + guide),
-            // The PR's title: up to its chips (state, counts, badge), where they fit (as
-            // `render_row` draws them: else not at all, the title whole).
+            // A header: up to its chips (the PR's state, counts, badge; a file's "Viewed"),
+            // where they fit (as `render_row` draws them: else not at all, the text whole).
             None => {
                 let w = tw.saturating_sub(guide);
-                let chips = if self.rows[r].file == INFO { super::row::chips_w(&self.chips(r, self.bar_counts, Style::new())) } else { 0 };
+                let chips = super::row::chips_w(&self.chips(r, self.bar_counts, Style::new()));
                 if chips <= w { w - chips } else { w }
             }
         }
@@ -197,12 +197,18 @@ impl App {
         Some((0..r).rev().take_while(|&i| same(&self.rows[i])).last().unwrap_or(r))
     }
 
+    /// Whether row `r` is the PR's title pinned over the top (sharing its row with the pane's
+    /// tabs, scrolled on its own, not folded).
+    pub(super) fn pinned(&self, r: usize) -> bool {
+        r == 0 && self.pin
+    }
+
     /// What row `r` scrolls sideways with: the diff, by `left`; a comment's code block or
     /// table (from its first row), and the pinned title, by their own offset; nothing
     /// (`None`): a comment's prose wraps, and a hunk's rule is drawn as it is.
     pub(super) fn scroller(&self, r: usize) -> Option<Scroller> {
         match self.box_part(r) {
-            None if r == 0 && self.pin => Some(Scroller::Block(0)),
+            None if self.pinned(r) => Some(Scroller::Block(0)),
             None if self.rows[r].line.kind == Kind::Hunk && diff::hunk_label(&self.rows[r].line.text).is_some() => None,
             // (A wrapped line has nothing off to the side: no sideways scrolling, by any key or
             // gesture. What doesn't wrap, a long header, still scrolls.)
@@ -481,7 +487,7 @@ impl App {
         let Widths { full, pane, .. } = self.frame_w;
         // (The pinned title shares its row with the pane's tabs: as wide as the code's area.)
         match (self.in_pane(r), self.rows[r].line.kind.is_code()) {
-            _ if r == 0 && self.pin => self.text_w(r, self.geom.ctw),
+            _ if self.pinned(r) => self.text_w(r, self.geom.ctw),
             (true, _) if pane > 0 => self.text_w(r, pane),
             (false, true) => self.code_w(),
             _ if full > 0 => self.text_w(r, full),
