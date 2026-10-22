@@ -142,8 +142,9 @@ impl App {
     /// selection, a review thread, Claude's comment, the PR header or PR text. Nothing elsewhere,
     /// to keep it quiet.
     pub(super) fn context_keys(&self) -> Option<(&'static str, Vec<(&'static str, &'static str)>)> {
+        // (`C` posts now only where `posts_now` lets it: a pending review holds it off.)
         if let Some((what, keys)) = self.row_keys() {
-            return Some((what, keys.to_vec()));
+            return Some((what, keys.iter().filter(|k| k.0 != "C" || self.posts_now().is_ok()).copied().collect()));
         }
         // In a diff's file: a selection's keys (what they do with it), else a code line's; each
         // key only where it acts, as its own check has it.
@@ -153,27 +154,22 @@ impl App {
         }
         let selecting = self.select || self.anchor.row != self.head.row;
         let code = matches!(row.line.kind, Kind::Add | Kind::Del | Kind::Ctx);
-        let on_github = !self.unpublished();
+        if !selecting && !code {
+            return None;
+        }
+        // (Each its handler's own rule: commenting on GitHub, suggesting, asking Claude.)
         let lines = self.selection_anchor().is_ok();
-        let keys: Vec<(&str, &str, bool)> = match selecting {
-            true => vec![
-                ("c", "comment (review)", lines && on_github),
-                ("C", "comment now", lines && on_github && self.review.is_none()),
-                ("s", "suggest a change", on_github && self.suggestion().is_ok()),
-                ("a", "a comment for Claude", lines),
-                ("y", "copy", true),
-                ("Space c", "copy file:line ref", true),
-            ],
-            false if code => vec![
-                ("Enter", "open the file in your editor, at this line", true),
-                ("c", "comment (review)", on_github),
-                ("s", "suggest a change", on_github && self.suggestion().is_ok()),
-                ("a", "a comment for Claude", true),
-                ("v x", "select (to comment on lines)", true),
-                ("Space c", "copy file:line ref", true),
-            ],
-            false => return None,
-        };
+        let comment = self.github_anchor(self.selection_anchor()).is_ok();
+        let keys = [
+            ("Enter", "open the file in your editor, at this line", !selecting),
+            ("c", "comment (review)", comment),
+            ("C", "comment now", comment && self.posts_now().is_ok()),
+            ("s", "suggest a change", self.github_anchor(self.suggestion().map(|s| s.0)).is_ok()),
+            ("a", "a comment for Claude", lines),
+            ("v x", "select (to comment on lines)", !selecting),
+            ("y", "copy", selecting),
+            ("Space c", "copy file:line ref", true),
+        ];
         Some((if selecting { "selection" } else { "code" }, keys.into_iter().filter(|k| k.2).map(|k| (k.0, k.1)).collect()))
     }
 

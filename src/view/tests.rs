@@ -2367,7 +2367,7 @@ fn commits_under_the_files() {
     assert_eq!((app.commit_shown, app.base.as_str(), app.to.as_deref()), (Some((1, 1)), app.commits[0].sha.as_str(), Some(app.commits[1].sha.as_str())));
     // Before the PR's last commit: its comments (on the head's lines) are hidden, and can't be made.
     assert!(app.before_head() && !app.threads.iter().any(|t| app.in_view(t)));
-    assert!(app.check_synced().unwrap_err().to_string().starts_with("comments go on the PR's head"));
+    assert!(app.github_anchor(app.selection_anchor()).err().is_some_and(|e| e.to_string().starts_with("comments go on the PR's head")));
     // v, then down: the range from the first to the last; comments again (it ends at the head).
     app.commit_cur = 1;
     k(&mut app, KeyCode::Char('v'));
@@ -4354,4 +4354,10 @@ fn a_selections_keys_are_those_that_act() {
     let del = app.rows.iter().position(|r| r.line.kind == Kind::Del).unwrap();
     app.goto(del, 0);
     assert!(keys(&app).is_some_and(|(t, k)| t == "code" && !k.contains(&"s") && k.contains(&"c")));
+    // A review pending: `C` posts nothing now, on a thread as on code (c adds to the review).
+    let mut app = fixture();
+    app.review = Some("R".into());
+    let thread = app.rows.iter().position(|r| r.thread.is_some_and(|t| app.threads[t].claude.is_none())).unwrap();
+    app.goto(thread, 0);
+    assert!(keys(&app).is_some_and(|(_, k)| !k.contains(&"C")), "{:?}", keys(&app));
 }

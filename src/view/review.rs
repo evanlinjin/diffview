@@ -582,7 +582,7 @@ impl App {
         if !th.severity.is_empty() && !body.starts_with("**") {
             body = format!("**{}:** {body}", th.severity);
         }
-        match self.check_synced().and_then(|_| self.on_github(anchor)) {
+        match self.github_anchor(Ok(anchor)).and_then(|a| self.check_synced().map(|_| a)) {
             Ok(anchor) => self.action = Some(Action::Comment { anchor, review, prefill: body, claude: Some(key) }),
             Err(e) => self.msg = format!("{e:#}"),
         }
@@ -724,11 +724,9 @@ impl App {
         if review && row.info == Some(DRAFT) {
             return self.msg = "this is your pending review's text: S submits it, editing it first".into();
         }
-        // PR text (not a thread there: those are on files no longer in the diff).
         let pr_text = row.file == INFO && row.thread.is_none();
-        if !review && self.review.is_some() && !pr_text {
-            let n = self.pending_count();
-            return self.msg = format!("you have a pending review ({n}): c adds to it, S submits it, then C posts");
+        if let (false, Err(e)) = (review, self.posts_now()) {
+            return self.msg = format!("{e:#}");
         }
         if let Some((t, k)) = self.claude_at_cursor() {
             return self.start_promote(t, k, review);
@@ -744,15 +742,37 @@ impl App {
         }
     }
 
+    /// Whether `C` can post right away here: GitHub allows one pending review per PR and
+    /// refuses single line comments beside it (not on the PR's text: a conversation comment).
+    /// The one rule `C` and its key hint go by.
+    pub(super) fn posts_now(&self) -> Result<()> {
+        let row = &self.rows[self.head.row];
+        let pr_text = row.file == INFO && row.thread.is_none();
+        if self.review.is_some() && !pr_text && row.info != Some(SUMMARY) {
+            bail!("you have a pending review ({}): c adds to it, S submits it, then C posts", self.pending_count());
+        }
+        Ok(())
+    }
+
+    /// What GitHub takes a line comment on (`a`, the lines): the PR's head, a file it has.
+    /// Without asking git: the key hints go by it too (`check_synced` asks git, as it posts).
+    pub(super) fn github_anchor(&self, a: Result<Anchor>) -> Result<Anchor> {
+        if self.unpublished() {
+            bail!("it's a draft: nothing on GitHub to comment on yet (a comments for Claude; S publishes it)");
+        }
+        self.pr.as_ref().context("no PR for this branch")?;
+        if self.before_head() {
+            bail!("comments go on the PR's head: show commits up to the last one (or all) to comment");
+        }
+        self.on_github(a?)
+    }
+
     /// Line comments are posted against the PR head; local edits would shift the lines.
     pub(super) fn check_synced(&self) -> Result<()> {
         if self.unpublished() {
             bail!("it's a draft: nothing on GitHub to comment on yet (a comments for Claude; S publishes it)");
         }
         let pr = self.pr.as_ref().context("no PR for this branch")?;
-        if self.before_head() {
-            bail!("comments go on the PR's head: show commits up to the last one (or all) to comment");
-        }
         if diff::git(&["rev-parse", "HEAD"])?.trim() != pr.head_oid {
             bail!("HEAD isn't the PR head (pull, or `gh pr checkout {}`)", pr.number);
         }
@@ -771,7 +791,7 @@ impl App {
     }
 
     pub(super) fn start_comment(&mut self, review: bool) {
-        match self.check_synced().and_then(|_| self.selection_anchor()).and_then(|a| self.on_github(a)) {
+        match self.github_anchor(self.selection_anchor()).and_then(|a| self.check_synced().map(|_| a)) {
             Ok(anchor) => self.action = Some(Action::Comment { anchor, review, prefill: String::new(), claude: None }),
             Err(e) => self.msg = format!("{e:#}"),
         }
@@ -779,7 +799,7 @@ impl App {
 
     /// `s`: a GitHub suggestion for the selected new-side lines, pre-filled with their code.
     pub(super) fn start_suggest(&mut self) {
-        match self.check_synced().and_then(|_| self.suggestion()).and_then(|(a, p)| Ok((self.on_github(a)?, p))) {
+        match self.suggestion().and_then(|(a, p)| Ok((self.github_anchor(Ok(a))?, p))).and_then(|r| self.check_synced().map(|_| r)) {
             Ok((anchor, prefill)) => self.action = Some(Action::Comment { anchor, review: true, prefill, claude: None }),
             Err(e) => self.msg = format!("{e:#}"),
         }
