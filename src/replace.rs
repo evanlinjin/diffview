@@ -134,18 +134,20 @@ pub fn current() -> Option<u64> {
     }
 }
 
-/// The replacement checked out here, if it's PR `pr`'s: the PR it was published as (not one
-/// someone else's dv published from a record of its own), or no PR (GitHub not asked, or not
-/// answering).
+/// The replacement PR `pr` is (published as it), however it's checked out; no PR (GitHub not
+/// asked, or not answering): the one checked out here, by its branch.
 pub fn here(pr: Option<u64>) -> Option<Record> {
-    load(current()?).ok().filter(|r| pr.is_none() || r.published == pr)
+    match pr {
+        Some(n) => all().into_iter().find(|r| r.published == Some(n)),
+        None => load(current()?).ok(),
+    }
 }
 
 /// Published as PR `n`: Claude's review of the draft (and its session) moved to the PR's, for
 /// dv on the PR to carry on with. Once: not over one the PR has.
 pub fn adopt_review(n: u64) {
-    if here(Some(n)).is_some()
-        && let (Ok(from), Ok(to)) = (crate::claude::path(None), crate::claude::path(Some(n)))
+    if let Some(r) = here(Some(n))
+        && let (Ok(from), Ok(to)) = (crate::claude::branch_review(&branch(r.id)), crate::claude::path(Some(n)))
     {
         _ = crate::claude::move_review(&from, &to);
     }
@@ -254,12 +256,16 @@ pub fn all() -> Vec<Record> {
 /// Set up a replacement of `prs` (the first names it) from the repo at `root`: what it replaces
 /// and its base in its record (`draft` has marked it, and sets its session), and its branch,
 /// from the originals' base, in its worktree. Returns the worktree.
-fn prepare(prs: &[u64], root: &Path) -> Result<PathBuf> {
-    let id = *prs.first().context("no PR to replace")?;
+fn prepare(asked: &[u64], root: &Path) -> Result<PathBuf> {
+    let id = *asked.first().context("no PR to replace")?;
     let git = |args: &[&str]| crate::diff::git(&[&["-C", &root.to_string_lossy()], args].concat());
+    // Drafted already: still all it replaces, and what's asked now with them (a redraft asked
+    // from one of them doesn't drop the others).
+    let mut prs = load(id).ok().filter(Record::drafted).map_or(vec![], |r| r.ids());
+    prs.extend(asked.iter().filter(|n| !prs.contains(n)).collect::<Vec<_>>());
     let mut originals = vec![];
     let mut bases: Vec<(u64, String)> = vec![];
-    for &n in prs {
+    for &n in &prs {
         let p = crate::gh::pr(Some(n))?;
         bases.push((n, p.base));
         originals.push(Original { number: n, title: p.title, author: p.author, url: p.url });
