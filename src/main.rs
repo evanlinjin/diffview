@@ -572,9 +572,8 @@ fn review_file(cmd: &str, o: &Opts) -> anyhow::Result<()> {
     // The PR dv ran Claude on (`claude::PR_ENV`), while this checkout is still on it, or the one
     // named: as dv last fetched it and its threads, if lately (not GitHub again for each of a
     // review's many checks), else from GitHub.
-    let theirs = on_pr;
     let dv_pr = std::env::var(claude::PR_ENV).ok().and_then(|n| n.parse().ok());
-    let cached = o.pr.or(dv_pr).and_then(view::recent_github).filter(|(p, _)| o.pr.is_some() || theirs(p));
+    let cached = o.pr.or(dv_pr).and_then(view::recent_github).filter(|(p, _)| o.pr.is_some() || on_pr(p));
     let (pr, threads) = match cached {
         Some((p, t)) => (Some(p), Some(t)),
         None => (gh::pr(o.pr).ok(), None),
