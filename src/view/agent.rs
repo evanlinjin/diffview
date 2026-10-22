@@ -806,8 +806,7 @@ impl App {
         // list and any dv (`claude::claim` waits while it's open). While a run holds it: a pane
         // to talk in forks (that run's at the session), a request's refused.
         // (Its session settled first: what it runs on, its marker names.)
-        let session = self.session_args();
-        let mut fork = fork;
+        let mut session = self.session_args(fork);
         let marked = match (fork, self.subject(), session[1].clone()) {
             (false, Some(s), id) => {
                 let what = match prompt {
@@ -816,7 +815,10 @@ impl App {
                 };
                 match crate::claude::mark_pane(s.n(), &what, &id, prompt.is_none(), &self.root) {
                     Ok(()) => Some((s.n(), id)),
-                    Err(_) if prompt.is_none() => (fork = true, None).1,
+                    Err(_) if prompt.is_none() => {
+                        session = self.session_args(true);
+                        None
+                    }
                     Err(w) => anyhow::bail!("Claude is {w} on {} already (elsewhere): ask again once it's done", s.what()),
                 }
             }
@@ -837,7 +839,6 @@ impl App {
             .args(prompt)
             .args(crate::claude::model_args(work, &self.root)) // (none: `dv.model`, it's for anything)
             .args(&session)
-            .args(fork.then_some("--fork-session"))
             .args(claude_dirs())
             // (A checkout of its own to try things in, as the skill has it: not asked each time.)
             .args(["--allowedTools", "Bash(dv scratch:*)"]);
@@ -933,14 +934,22 @@ impl App {
     /// start it under a new id. The id is saved next to the review file (per checkout, as Claude
     /// Code keeps sessions per directory), so the next run continues the same conversation. One
     /// that never started (a pane that failed) isn't resumed: Claude Code doesn't have it.
-    fn session_args(&mut self) -> [String; 2] {
+    /// (`fork`: a fork of it, which leaves it as it is: of it, once Claude Code has it, else a
+    /// throwaway session; neither saved, nor this view's.)
+    fn session_args(&mut self, fork: bool) -> Vec<String> {
+        if fork {
+            return match self.claude.session.clone().filter(|id| crate::claude::session_exists(id)) {
+                Some(id) => vec!["--resume".into(), id, "--fork-session".into()],
+                None => vec!["--session-id".into(), crate::claude::new_session_id()],
+            };
+        }
         let args = match &self.claude.path {
             Some(p) => crate::claude::session_args(p, &self.root).ok(),
             None => None,
         };
         let args = args.unwrap_or_else(|| ["--session-id".into(), crate::claude::new_session_id()]);
         self.claude.session = Some(args[1].clone());
-        args
+        args.to_vec()
     }
 
     /// Remember (or, with `None`, forget) the PR's session in this checkout, on disk too.
@@ -957,10 +966,7 @@ impl App {
     /// `more`: tools it may use on top of `ALLOWED`.
     /// `work`: its model's (`dv.model.<work>`).
     pub(super) fn spawn_claude(&mut self, prompt: &str, label: &'static str, work: crate::claude::Work, forked: bool, more: &[&str]) -> Result<ClaudeJob> {
-        let mut session = self.session_args().to_vec();
-        if forked {
-            session.push("--fork-session".into());
-        }
+        let session = self.session_args(forked);
         self.spawn_job(claude_command(work, prompt, &self.root, &session, more, None), label, forked)
     }
 
