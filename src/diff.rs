@@ -278,13 +278,18 @@ pub fn hold_terminal(on: bool) {
     HELD.store(on, std::sync::atomic::Ordering::SeqCst);
 }
 
-/// `cmd` (git, or gh, which runs git) never asking for a passphrase or a password while dv holds
-/// the terminal: its prompt would be drawn over the view and wait there; it fails, and says
-/// why. (Before the view, or after: it asks as usual.) ssh in batch mode, your
-/// `core.sshCommand` kept; `GIT_SSH_COMMAND` or `GIT_SSH` of yours, left as it is.
+/// `cmd` (git, or gh, which runs git) asking for a passphrase or a password only where that's
+/// yours to answer: dv's own thread, its view not up, a terminal to ask on (before the view, or
+/// after: `dv N`'s checkout, a merge). Anywhere else (the view up, a background thread, a `dv
+/// replace` of its own) it fails, and says why, rather than drawing a prompt over what's there
+/// and waiting. ssh in batch mode, your `core.sshCommand` kept; `GIT_SSH_COMMAND` or
+/// `GIT_SSH` of yours, left as it is.
 pub fn no_prompt(cmd: &mut Command) -> &mut Command {
     static SSH: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
-    if !HELD.load(std::sync::atomic::Ordering::SeqCst) {
+    let may_ask = !HELD.load(std::sync::atomic::Ordering::SeqCst)
+        && std::thread::current().name() == Some("main")
+        && std::io::IsTerminal::is_terminal(&std::io::stdin());
+    if may_ask {
         return cmd;
     }
     let ssh = SSH.get_or_init(|| {
