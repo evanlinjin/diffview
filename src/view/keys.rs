@@ -151,8 +151,8 @@ impl App {
     pub(super) fn key(&mut self, k: KeyEvent) {
         self.msg.clear();
         // What's typed into (help's search, a picker, the prompt): Ctrl-c closes it as Esc does,
-        // and a Ctrl or Alt key's char isn't typed.
-        let typed = !k.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
+        // and a Ctrl or Alt key's char isn't typed (`typed`).
+        let typed = typed(&k);
         let k = match k.code {
             KeyCode::Char('c') if !typed && (self.help.is_some() || self.picker.is_some() || self.prompt.is_some()) => KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
             _ => k,
@@ -720,11 +720,16 @@ impl App {
                 p.query.pop();
                 p.sel = 0;
             }
-            KeyCode::Char(c) if !k.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => {
+            KeyCode::Char(c) if typed(&k) => {
                 p.query.push(c);
                 p.sel = 0;
             }
             _ => {}
         }
     }
+}
+
+/// A key whose char is typed into a text input: none with Ctrl or Alt.
+fn typed(k: &KeyEvent) -> bool {
+    !k.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
 }
