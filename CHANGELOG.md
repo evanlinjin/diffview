@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.90.1] - 2026-10-22
+
+### Fixed
+- The benchmark lock is cargo's to hold: dv killed mid-benchmark (a command timing out) no
+  longer lets builds in while cargo still runs.
+- Waiting is bounded all told (not per lock), under Claude's 2-minute command limit, so it
+  always says why it gave up; a filesystem without locks, or no data directory, runs cargo
+  unlocked, said, rather than failing every build; what's waited for is said rightly (the
+  benchmark running, or the one waiting to); and `dv scratch` says to test with `dv cargo`.
+
 ## [0.90.0] - 2026-10-22
 
 ### Added
