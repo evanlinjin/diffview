@@ -319,12 +319,13 @@ impl App {
     pub(super) fn commit(&mut self, draft: &str) -> Result<String> {
         // (However it got here: an editor pane closing while Claude's at work again, say.)
         anyhow::ensure!(!self.claude_busy(), "{}", App::busy_edit("commit"));
-        if let Some(p) = self.commit_msg_path() {
-            _ = std::fs::remove_file(p); // (Claude's message: given to the editor now)
-        }
         let Some(msg) = compose_with("commit message (everything uncommitted, new files too)", false, draft, true)? else {
             return Ok("commit cancelled".into());
         };
+        // (Claude's message: taken, once written; not when it couldn't be, kept for next time.)
+        if let Some(p) = self.commit_msg_path() {
+            _ = std::fs::remove_file(p);
+        }
         let file = std::env::temp_dir().join(format!("dv-commit-{}.txt", std::process::id()));
         std::fs::write(&file, &msg)?;
         let res = diff::git(&["add", "-A"]).and_then(|_| diff::git(&["commit", "-q", "-F", &file.to_string_lossy()]));

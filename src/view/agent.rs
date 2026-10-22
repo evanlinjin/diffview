@@ -1072,7 +1072,7 @@ impl App {
         if label == super::git::COMMIT_LABEL {
             let wrote = self.commit_msg_path().and_then(|p| std::fs::read_to_string(&p).ok()).map(|m| m.trim().to_owned()).filter(|m| !m.is_empty() && !failed);
             // (Not over what you're at: kept, for Space g → commit to open with.)
-            match self.action.is_none() {
+            match self.action.is_none() && self.writing.is_none() {
                 true => self.action = Some(Action::CommitWith(wrote.unwrap_or_else(|| self.commit_draft()))),
                 false => self.msg += " (Space g → commit opens with its message)",
             }
