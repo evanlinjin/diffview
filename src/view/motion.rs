@@ -48,6 +48,10 @@ impl App {
         }
         let hd = self.hd();
         let into_margin = self.margin_active && right && (!self.split || self.head_right()) && !self.margin_side();
+        // (Into the pane from the right half: the side you're on, back from it.)
+        if into_margin {
+            self.right = true;
+        }
         // By what a comment is about, not where its box happens to sit (boxes stack down the
         // pane): from a comment to its line, and from a line to the comment about it.
         if self.margin_side() && !right
@@ -120,7 +124,12 @@ impl App {
     /// line's the right, one on both (unchanged) the side you chose (`right`: Ctrl-h / Ctrl-l,
     /// a click on a half).
     pub(super) fn head_right(&self) -> bool {
-        match self.rows[self.head.row].line.kind {
+        self.row_right(self.head.row)
+    }
+
+    /// Which half row `r` is drawn on in split view (for the cursor, on one on both: yours).
+    pub(super) fn row_right(&self, r: usize) -> bool {
+        match self.rows[r].line.kind {
             Kind::Del => false,
             Kind::Add => true,
             _ => self.right,

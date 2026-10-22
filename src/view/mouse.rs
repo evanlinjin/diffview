@@ -59,11 +59,11 @@ impl App {
             // to (the cursor there would take it back).
             MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight if code => {
                 let Some((row, col, _)) = self.at_screen(x, y) else { return };
-                self.choose_side_at(x);
                 if self.scroller(row).is_none() || kind == MouseEventKind::ScrollRight && self.col_of(row, self.len(row)) <= self.hscroll(row) + 1 && self.hscroll(row) > 0 {
                     return;
                 }
                 self.select = false;
+                self.choose_side_at(x);
                 self.goto(row, col);
                 self.hnudge = if kind == MouseEventKind::ScrollRight { 8 } else { -8 };
             }
@@ -148,7 +148,6 @@ impl App {
         g.relw + g.gw + g.ctw + 1 + self.pane_pad() + self.pane_gw()
     }
 
-    /// Where a split view's right (new) side's text starts on screen.
     /// Split view: the half at screen column `x` is the side you chose (a click, a drag).
     fn choose_side_at(&mut self, x: usize) {
         if self.split {
@@ -156,6 +155,7 @@ impl App {
         }
     }
 
+    /// Where a split view's right (new) side's text starts on screen.
     pub(super) fn right_x(&self) -> usize {
         let g = self.geom;
         g.relw + g.half + 1 + g.ghw

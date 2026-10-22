@@ -287,7 +287,7 @@ impl App {
         let g = spans.len(); // the gutter's spans (and a reply's guide); the text's follow
         let mut n = 0;
         // A context line shows on both sides of a split row; the cursor goes on the current side.
-        let this_side = side.is_none() || l.kind != Kind::Ctx || side == Some(self.right);
+        let this_side = side.is_none() || side == Some(self.row_right(r));
         let cursor_here = self.head.row == r && this_side;
         // In a box, what doesn't wrap (code) is cut at its edge, and scrolled on its own.
         // (Its box as wide as the comment's, measured from after a reply's guide.)
