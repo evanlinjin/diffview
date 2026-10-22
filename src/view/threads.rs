@@ -172,7 +172,10 @@ impl App {
         }
         let t = &self.threads[ti];
         self.collapsed.remove(&t.path.clone());
-        if let Some(id) = self.root_id(ti) {
+        // (Only one it unfolds: a jump isn't a choice to keep it open.)
+        if !self.thread_open(ti)
+            && let Some(id) = self.root_id(ti)
+        {
             self.toggled.insert(id, true);
         }
         self.rebuild(keep);
