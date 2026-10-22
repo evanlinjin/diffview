@@ -115,8 +115,7 @@ impl App {
             // Dragging selects, from where the button went down (the anchor stays there).
             MouseEventKind::Drag(MouseButton::Left) if self.picker.is_none() && self.popup.is_none() => {
                 if let Some((row, col, _)) = self.at_screen(x, y) {
-                    self.head = Pos { row, col: col.min(self.len(row).saturating_sub(1)) };
-                    self.want_x = None;
+                    self.set_head(Pos { row, col: col.min(self.len(row).saturating_sub(1)) });
                 }
             }
             _ => {}
@@ -152,8 +151,6 @@ impl App {
         g.relw + g.half + 1 + g.ghw
     }
 
-    /// The row and column under screen cell (`x`, `y`), and whether it's in the gutter (line
-    /// numbers, fold arrows), as the last frame drew it.
     /// What a click at screen cell (`x`, `y`) goes to: as `at_screen`, but on the file header
     /// pinned over the top, the header (not what it covers: a drag or the wheel there is still
     /// about the code under it).
@@ -163,6 +160,8 @@ impl App {
         pinned.map(|h| (h, 0, x < g.relw + g.gw)).or_else(|| self.at_screen(x, y))
     }
 
+    /// The row and column under screen cell (`x`, `y`), and whether it's in the gutter (line
+    /// numbers, fold arrows), as the last frame drew it.
     pub(super) fn at_screen(&self, x: usize, y: usize) -> Option<(usize, usize, bool)> {
         let g = self.geom;
         if self.pin && y == 0 {

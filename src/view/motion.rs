@@ -102,25 +102,31 @@ impl App {
     /// Move the head; outside select mode the anchor follows.
     pub(super) fn goto(&mut self, row: usize, col: usize) {
         let row = row.min(self.rows.len() - 1);
-        match self.rows[row].line.kind {
+        self.set_head(Pos { row, col: col.min(self.len(row).saturating_sub(1)) });
+        if !self.select {
+            self.anchor = self.head;
+        }
+    }
+
+    /// The cursor to `p`, every move of it through here: the side it's on (split view) with it,
+    /// a removed line's the left, an added line's the right (one on both, unchanged, keeps it),
+    /// so what it's drawn by stays right; and a vertical move's kept column let go.
+    pub(super) fn set_head(&mut self, p: Pos) {
+        match self.rows[p.row].line.kind {
             Kind::Del => self.right = false,
             Kind::Add => self.right = true,
             _ => {}
         }
-        self.head = Pos { row, col: col.min(self.len(row).saturating_sub(1)) };
-        if !self.select {
-            self.anchor = self.head;
-        }
+        self.head = p;
         self.want_x = None;
     }
 
     /// Set a selection (motions like `w` select); in select mode only the head moves.
     pub(super) fn sel(&mut self, anchor: Pos, head: Pos) {
-        self.head = head;
+        self.set_head(head);
         if !self.select {
             self.anchor = anchor;
         }
-        self.want_x = None;
     }
 
     pub(super) fn vmove(&mut self, d: isize) {
@@ -294,12 +300,11 @@ impl App {
         if s.col == 0 && e.col >= end && self.head == e && s != e {
             let r = (e.row + 1).min(self.rows.len() - 1);
             self.anchor = s;
-            self.head = Pos { row: r, col: self.len(r).saturating_sub(1) };
+            self.set_head(Pos { row: r, col: self.len(r).saturating_sub(1) });
         } else {
             self.anchor = Pos { row: s.row, col: 0 };
-            self.head = Pos { row: e.row, col: end };
+            self.set_head(Pos { row: e.row, col: end });
         }
-        self.want_x = None;
     }
 
     pub(super) fn next_kind(&mut self, fwd: bool, is_start: impl Fn(&[Row], usize) -> bool) {
@@ -335,8 +340,7 @@ impl App {
             };
             if let Some(c) = hit {
                 self.anchor = Pos { row: r, col: c };
-                self.head = Pos { row: r, col: c + qlen - 1 };
-                self.want_x = None;
+                self.set_head(Pos { row: r, col: c + qlen - 1 });
                 return;
             }
         }
@@ -370,9 +374,11 @@ impl App {
             let screen = lo.min(last as usize)..hi.max(lo).min(last as usize) + 1;
             let order: Vec<usize> = Self::nearest(into(hd), step, screen).collect();
             let (right, pane) = (self.right, self.margin_side());
-            let found = [(right, pane), (right, false), (!right, false), (right, true)]
-                .into_iter()
-                .find_map(|(side, pane)| order.iter().find_map(|&t| self.stop_on(t, side, x, pane)));
+            let tries: &[(bool, bool)] = match pane {
+                true => &[(right, true), (right, false), (!right, false)],
+                false => &[(right, false), (!right, false), (right, true)],
+            };
+            let found = tries.iter().find_map(|&(side, pane)| order.iter().find_map(|&t| self.stop_on(t, side, x, pane)));
             if let Some(p) = found {
                 self.goto(p.row, p.col);
                 self.want_x = Some(x);

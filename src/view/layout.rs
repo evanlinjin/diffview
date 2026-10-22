@@ -460,10 +460,11 @@ impl App {
         }
     }
 
-    /// The chars of row `r` on screen scrolled to column `left`, `w` wide (unknown, 0: all).
+    /// The chars of row `r` on screen scrolled to column `left`, `w` wide.
     pub(super) fn window(&self, r: usize, left: usize, w: usize) -> std::ops::Range<usize> {
         let (from, len) = (self.char_from(r, left), self.len(r));
-        let to = if w == 0 { len } else { self.char_at(r, left + w).min(len) };
+        // (Nothing drawn yet, widths unknown: all of it. Drawn 0 wide, covered: none.)
+        let to = if self.frame_w.full == 0 { len } else { self.char_at(r, left + w).min(len) };
         from..to.max(from)
     }
 

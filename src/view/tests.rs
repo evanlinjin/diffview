@@ -3751,3 +3751,17 @@ fn the_cursor_lands_where_it_can_be_seen() {
     assert_eq!(app.clicked_at(g.relw + g.gw + 2, 0).map(|a| a.0), Some(h));
     assert_ne!(app.at_screen(g.relw + g.gw + 2, 0).map(|a| a.0), Some(h)); // (a drag: the code under it)
 }
+
+#[test]
+fn every_cursor_move_takes_its_side() {
+    // Split: w from the end of a removed line onto the added one: the cursor's side with it.
+    let text = "diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old one\n+new two\n";
+    let mut app = App::with("base".into(), diff::parse(text));
+    (app.files_pref, app.margin_pref, app.split) = (Some(false), Some(false), true);
+    _ = screen(80, 20, |f| app.draw(f));
+    let del = app.rows.iter().position(|r| r.line.kind == Kind::Del).unwrap();
+    app.goto(del, 6);
+    assert!(!app.right);
+    app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+    assert_eq!((app.rows[app.head.row].line.kind, app.right), (Kind::Add, true));
+}
