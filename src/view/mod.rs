@@ -1021,7 +1021,7 @@ impl App {
                     _ => {}
                 }
             }
-            self.hold_quit();
+            // (Leaving's decided once, at the top: `hold_quit` takes what it was asked.)
             self.watch();
             self.act(term);
         }
