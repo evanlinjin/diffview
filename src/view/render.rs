@@ -104,9 +104,7 @@ impl App {
         self.files_w = sw;
         let area = Rect { x: full.x + sw as u16, width: full.width - sw as u16, ..full };
         // The PR's title line pinned at the top, as a panel over the code and the pane.
-        self.pin = self.rows.first().is_some_and(|r| r.file == INFO && r.line.kind == Kind::File)
-            && matches!(self.drows.first(), Some(DRow::Full(0)))
-            && area.height > 4;
+        self.pin = self.rows.first().is_some_and(|r| r.file == INFO && r.line.kind == Kind::File) && area.height > 4;
         let pin = self.pin as usize;
         let h = (area.height as usize).saturating_sub(1 + pin);
         self.height = h.max(1);

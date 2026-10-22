@@ -204,23 +204,26 @@ impl App {
                 ]),
             });
         }
+        // (What it's of: an issue has no review, nor code; `c` queues into a review.)
+        let what = if self.has_code() { "PR" } else { "issue" };
         if row.file == INFO && row.line.kind == Kind::File && !row.links.is_empty() {
-            return Some(("PR", &[("Enter", "open on GitHub"), ("Tab", "fold")]));
+            return Some((what, &[("Enter", "open on GitHub"), ("Tab", "fold")]));
         }
         if row.info == Some(MORE_CONVERSATION) {
             return Some(("activity", &[("Enter", "all of it, or only the latest"), ("Space o", "the same")]));
         }
-        if row.info == Some(SUMMARY) && self.pr.is_none() {
-            return Some(("Claude's review", &[("r", "reply (Claude answers)")]));
-        }
         if row.info == Some(SUMMARY) {
-            return Some(("Claude's review", &[("r", "reply (Claude answers)"), ("c", "add to your review summary"), ("C", "post it as your PR comment")]));
+            return Some(match (self.subject().is_some(), self.has_code()) {
+                (false, _) => ("Claude's review", &[("r", "reply (Claude answers)")]),
+                (true, false) => ("Claude's triage", &[("r", "reply (Claude answers)"), ("C", "post it as your comment")]),
+                (true, true) => ("Claude's review", &[("r", "reply (Claude answers)"), ("c", "add to your review summary"), ("C", "post it as your PR comment")]),
+            });
         }
         if self.replacement_draft(self.head.row).is_some() {
             return Some(("Claude's draft", &[("a", "ask Claude about it, or for a change (quoted)")]));
         }
         if row.info == Some(FACTS) {
-            return Some(("PR", &[("Enter", "open the link under the cursor (a check: its run)")]));
+            return Some((what, &[("Enter", "open the link under the cursor (a check: its run)")]));
         }
         if row.info == Some(DRAFT) {
             return Some(("your review", &[("S", "edit it and submit"), ("C", "new conversation comment"), ("Space c", "copy link")]));
@@ -248,9 +251,12 @@ impl App {
                 ("Space c", "copy file:line ref"),
             ]));
         }
-        // (A line of the PR's own text: not one of dv's boxes.)
-        (row.file == INFO && row.info.is_some_and(|i| i < self.info.len()) && self.pr.is_some())
-            .then_some(("PR text", &[("c", "quote in your review summary"), ("C", "quote in a new conversation comment"), ("Space =", "react"), ("Space c", "copy link")]))
+        // (A line of the PR's (or issue's) own text: not one of dv's boxes.)
+        let text = row.file == INFO && row.info.is_some_and(|i| i < self.info.len()) && self.subject().is_some();
+        text.then(|| match self.has_code() {
+            true => ("PR text", &[("c", "quote in your review summary"), ("C", "quote in a new conversation comment"), ("Space =", "react"), ("Space c", "copy link")][..]),
+            false => ("issue text", &[("C", "quote in a new comment"), ("Space =", "react"), ("Space c", "copy link")][..]),
+        })
     }
 
     /// The Claude or pending view with nothing in it: what the code side and the pane say.

@@ -86,7 +86,7 @@ impl App {
                     // its own end. The comments with the code (they're beside their lines), while
                     // there are comments that way.
                     let d = if down { 3 } else { -3 };
-                    let over_pane = self.margin_active && x > self.geom.relw + self.geom.gw + self.geom.ctw;
+                    let over_pane = y.checked_sub(self.pin as usize).is_some_and(|y| self.over_pane(x, self.top + y));
                     if !over_pane || self.comments_beyond(down) {
                         _ = self.scroll_code(d);
                     }
@@ -175,6 +175,13 @@ impl App {
         pinned.map(|h| (h, 0, x < g.relw + g.gw, None)).or_else(|| self.at_screen(x, y))
     }
 
+    /// Whether column `x` of screen row `d` is the pane's: right of the code, and floating,
+    /// only where a comment's box is (the code's at full width elsewhere).
+    pub(super) fn over_pane(&self, x: usize, d: usize) -> bool {
+        let g = self.geom;
+        self.margin_active && x > g.relw + g.gw + g.ctw && (!self.margin_float || self.note_at(d).is_some())
+    }
+
     /// The row and column under screen cell (`x`, `y`), whether it's in the gutter (line
     /// numbers, fold arrows), as the last frame drew it; and on a split pair, the side it's on
     /// (a hatch, no line on the half clicked: the other's, where it lands).
@@ -193,7 +200,7 @@ impl App {
         }
         let d = self.top + y;
         // In the pane: the comment there.
-        if let Some(note) = self.note_at(d).filter(|_| x > g.relw + g.gw + g.ctw) {
+        if let Some(note) = self.note_at(d).filter(|_| self.over_pane(x, d)) {
             let s = self.span_of(note, 0);
             let at = x.saturating_sub(self.pane_x() + self.rows[note].guide_w());
             return Some((note, self.clicked(note, s.as_ref(), at), x < self.pane_x(), None));

@@ -4277,3 +4277,39 @@ fn a_runs_claim_goes_with_it() {
     app.poll_claude();
     assert!(app.claude.job.is_none() && crate::claude::at_work(n, None, None).is_none());
 }
+
+#[test]
+fn the_wheel_over_code_beside_a_floating_pane_scrolls_it() {
+    // The pane floating covers the code only where a comment's box is: elsewhere the wheel
+    // there is over code, and scrolls it (no comments beyond, even).
+    use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
+    let mut app = fixture();
+    app.margin_pref = Some(true);
+    let draw = |app: &mut App| screen(100, 14, |f| app.draw(f));
+    draw(&mut app);
+    assert!(app.margin_float);
+    while app.comments_beyond(true) {
+        app.scroll_code(1);
+        draw(&mut app);
+    }
+    let y = (1..12).find(|&y| app.note_at(app.top + y - 1).is_none()).unwrap();
+    let x = (app.geom.relw + app.geom.gw + app.geom.ctw + 5) as u16;
+    let top = app.top;
+    app.mouse(MouseEvent { kind: MouseEventKind::ScrollDown, column: x, row: y as u16, modifiers: KeyModifiers::NONE });
+    assert!(app.top > top, "{top} -> {}", app.top);
+}
+
+#[test]
+fn an_issues_key_hints_are_an_issues() {
+    // Its text and comments: C quotes them (no review for c); its facts box: the issue's.
+    let mut app = issue_app(issue_fixture());
+    _ = screen(120, 30, |f| app.draw(f));
+    let at = |app: &mut App, t: &str| {
+        let r = app.rows.iter().position(|r| r.line.text.contains(t)).unwrap();
+        app.goto(r, 0);
+        app.context_keys().map(|k| (k.0, k.1.iter().map(|e| e.0).collect::<Vec<_>>()))
+    };
+    assert_eq!(at(&mut app, "Same here."), Some(("issue text", vec!["C", "Space =", "Space c"])));
+    let facts = at(&mut app, "labels");
+    assert!(facts.as_ref().is_some_and(|k| k.0.starts_with("issue")), "{facts:?}");
+}

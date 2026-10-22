@@ -121,11 +121,7 @@ impl App {
         let about_code: Vec<&Thread> = self.threads.iter().filter(|t| self.on_code(t)).collect();
         tabs.iter()
             .map(|&(b, name)| {
-                let v = match b {
-                    Bar::Claude if !self.one_tab() => View::Claude,
-                    Bar::Pending => View::Pending,
-                    _ => View::All,
-                };
+                let v = self.tab_view(b);
                 let shown: Vec<&&Thread> = about_code.iter().filter(|t| self.in_view_of(v, t)).collect();
                 // How many are done of them, resolved or outdated (its code changed: shown folded,
                 // as a resolved one is), as the title's files viewed: "1/3", "3/3" when all are;
@@ -150,24 +146,24 @@ impl App {
     /// The tab that's lit: Claude's review (the Claude view), your pending one (the pending
     /// view), or the comments (the whole diff).
     pub(super) fn bar(&self) -> Bar {
-        match self.view {
-            _ if self.one_tab() => Bar::Claude,
-            View::Claude => Bar::Claude,
-            View::Pending => Bar::Pending,
-            View::All => Bar::Comments,
+        [Bar::Claude, Bar::Pending, Bar::Comments].into_iter().find(|&b| self.tab_view(b) == self.view).unwrap_or(Bar::Comments)
+    }
+
+    /// Tab `b`'s view: Claude's, the Claude view beside its comments; Pending, the pending
+    /// view; the comments', the whole diff. One tab (a draft, an issue): Claude's is the whole
+    /// view, every comment there Claude's or yours.
+    fn tab_view(&self, b: Bar) -> View {
+        match b {
+            Bar::Claude if !self.one_tab() => View::Claude,
+            Bar::Pending => View::Pending,
+            _ => View::All,
         }
     }
 
     /// To tab `b` (a click on it, `gn` / `gp`): each tab its view: Claude's, the Claude view
     /// beside its comments; Pending, the pending view; the comments', the whole diff.
     pub(super) fn bar_to(&mut self, b: Bar) {
-        // In a draft, Claude's tab is the whole diff: every comment there is Claude's or yours
-        // (an issue's: what's said of it, Claude's triage first).
-        let v = match b {
-            Bar::Claude if !self.one_tab() => View::Claude,
-            Bar::Pending => View::Pending,
-            _ => View::All,
-        };
+        let v = self.tab_view(b);
         if v != self.view {
             self.toggle_view(if v == View::All { self.view } else { v });
         }
@@ -424,8 +420,8 @@ impl App {
         }
         // The margin: comments wait in `pending` for a free row beside code.
         let mut pending: std::collections::VecDeque<usize> = Default::default();
-        // The first screen row whose margin is free: at the top, below the pinned title.
-        let mut free = usize::from(self.rows.first().is_some_and(|r| r.file == INFO && r.line.kind == Kind::File));
+        // The first screen row whose margin is free (the title, a row of its own, comes first).
+        let mut free = 0;
         let flush = |d: &mut Vec<DRow>, ds: &mut Vec<usize>, pending: &mut std::collections::VecDeque<usize>| {
             ds.extend(pending.iter().map(|_| 0));
             d.extend(pending.drain(..).map(|c| DRow::Margin(None, None, Some(c))));
