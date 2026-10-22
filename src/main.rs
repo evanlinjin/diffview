@@ -1,4 +1,5 @@
 mod batch;
+mod bench;
 mod claude;
 mod diff;
 mod gh;
@@ -883,9 +884,15 @@ fn checked_cargo(args: &[String]) -> anyhow::Result<i32> {
     let sub = args.iter().find(|a| !a.starts_with(['+', '-'])).map(String::as_str).unwrap_or(""); // (past `-q` and the like)
     let fmt_check = sub == "fmt" && args.iter().any(|a| a == "--check");
     anyhow::ensure!(
-        ["check", "build", "test", "clippy", "doc"].contains(&sub) || fmt_check,
-        "dv cargo runs check, build, test, clippy, doc or fmt --check (on any +toolchain), not `{sub}`"
+        ["check", "build", "test", "clippy", "doc", "bench"].contains(&sub) || fmt_check,
+        "dv cargo runs check, build, test, clippy, doc, bench or fmt --check (on any +toolchain), not `{sub}`"
     );
+    // A benchmark with the machine to itself (others' builds waited for, held off); a build
+    // once none has it (`bench`).
+    let _held = match sub {
+        "bench" => bench::bench(&format!("cargo {}", args.join(" ")))?,
+        _ => bench::build()?,
+    };
     Ok(std::process::Command::new("cargo").args(args).status()?.code().unwrap_or(1))
 }
 

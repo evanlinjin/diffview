@@ -16,24 +16,10 @@ pub(crate) const ALLOWED: &[&str] = &[
     // Why CI fails, to fix it.
     "Bash(gh pr checks:*)",
     "Bash(gh run view:*)",
-    // To check a change it made still builds and passes.
-    "Bash(cargo check:*)",
-    "Bash(cargo build:*)",
-    "Bash(cargo test:*)",
-    "Bash(cargo clippy:*)",
-    // As CI runs them (bdk's: nightly rustfmt; clippy, on the default toolchain here).
-    // (Checking only: a `cargo fmt` would rewrap files the PR never touched.)
-    "Bash(cargo fmt --check:*)",
-    "Bash(cargo fmt -- --check:*)",
-    "Bash(cargo fmt --all --check:*)",
-    "Bash(cargo fmt --all -- --check:*)",
-    "Bash(cargo +nightly fmt --check:*)",
-    "Bash(cargo +nightly fmt -- --check:*)",
-    "Bash(cargo +nightly fmt --all --check:*)",
-    "Bash(cargo +nightly fmt --all -- --check:*)",
-    "Bash(cargo +nightly clippy:*)",
-    "Bash(cargo +stable clippy:*)",
-    // Any other toolchain (a pinned one, as CI's MSRV job): through dv, which runs only these.
+    // To check a change it made still builds and passes, as CI runs it (any toolchain; fmt
+    // checking only: a `cargo fmt` would rewrap files the PR never touched), and to benchmark:
+    // all through dv, which runs only these, and keeps builds out of a benchmark's way,
+    // machine wide (`bench`).
     "Bash(dv cargo:*)",
     // A checkout of its own to try things in (`dv scratch`), rather than ask.
     "Bash(dv scratch:*)",

@@ -205,15 +205,18 @@ and `dv amend <sha> -F <file>` (with files too, to fold them in the same go). Do
 hand. Say which commit it went in.
 
 Your commands run only if each is allowed on its own: one plain command per call (no `cd`, `&&`,
-loops, pipes into other commands, or `git -C`). Build and test with `cargo test`, `cargo clippy`
-(`cargo +nightly fmt --check` works too); on another toolchain, as CI pins one, `dv cargo
-+1.85.0 clippy …` (check, build, test, clippy, doc or fmt --check, any toolchain).
+loops, pipes into other commands, or `git -C`). Build and test through dv: `dv cargo test`,
+`dv cargo clippy`, `dv cargo +nightly fmt --check`, `dv cargo +1.85.0 clippy …` (check, build,
+test, clippy, doc, bench or fmt --check, on any toolchain). To measure performance, `dv cargo
+bench`: it waits for the builds and tests other Claude runs have going on this machine, and
+holds new ones off till it's done, so its numbers aren't theirs. Any of these may say it's
+waiting, or give up after a while saying why (another's benchmark, say): run it again then.
 
 **Find out rather than ask.** When you could settle a question by running something (does
 this test fail without the fix? does the base build? does this input panic?), do it, here or
 in a review: `dv scratch <rev>` gives you a checkout of your own at that commit (detached,
 outside the user's work: `HEAD`, the base, `HEAD~1`), and prints its directory. Edit files
-there (revert the fix, add a repro) and run `cargo test --manifest-path <dir>/Cargo.toml`.
+there (revert the fix, add a repro) and run `dv cargo test --manifest-path <dir>/Cargo.toml`.
 `dv scratch --rm <dir>` when you're done. Then say what you found ("fails on master
 without the fix: …") instead of asking the user or the author to check. Never change the
 user's own checkout for this.
