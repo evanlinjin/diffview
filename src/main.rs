@@ -1066,6 +1066,11 @@ pub(crate) fn remove_worktree(n: u64, force: bool) -> anyhow::Result<String> {
         anyhow::bail!("Claude is {w} in {}: remove it once it's done", dir.display());
     }
     let branch = diff::git(&["-C", &dir.to_string_lossy(), "branch", "--show-current"]).unwrap_or_default();
+    // Detached, its commits beyond the PR are on no branch: removed with it, lost. (On a
+    // branch, they stay on it.)
+    if !force && branch.trim().is_empty() {
+        crate::merge::nothing_to_lose(&dir, n)?;
+    }
     std::env::set_current_dir(&main)?; // not from inside the dir being removed
     let d = dir.to_string_lossy();
     let mut args = vec!["worktree", "remove"];

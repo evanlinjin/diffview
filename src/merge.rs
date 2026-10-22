@@ -42,7 +42,7 @@ fn clear_worktree(n: u64) -> Result<Option<String>> {
 
 /// Worktree `dir` of PR `n` has nothing that isn't on GitHub: no local changes (untracked files
 /// count), and no commits beyond the PR's head there.
-fn nothing_to_lose(dir: &std::path::Path, n: u64) -> Result<()> {
+pub(crate) fn nothing_to_lose(dir: &std::path::Path, n: u64) -> Result<()> {
     let d = dir.to_string_lossy().into_owned();
     let git = |args: &[&str]| crate::diff::git(&[&["-C", d.as_str()], args].concat());
     anyhow::ensure!(git(&["status", "--porcelain"])?.trim().is_empty(), "{d} has local changes: commit and push them (or drop them) first");
