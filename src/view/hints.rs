@@ -166,7 +166,7 @@ impl App {
         }
         // On a link: what can be done with it (before what the row it's in offers).
         if self.link_at_cursor().is_some() {
-            return Some(("link", &[("Enter", "open it in the browser"), ("Space c", "copy it"), ("Space k", "preview it (an issue or PR)")]));
+            return Some(("link", &[("Enter", "open it (this repo's issue: in dv)"), ("Space c", "copy it"), ("Space k", "preview it (an issue or PR)")]));
         }
         if let Some(t) = row.thread {
             let t = &self.threads[t];

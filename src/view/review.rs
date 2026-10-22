@@ -38,7 +38,7 @@ impl App {
     pub(super) fn run_job(&mut self, job: Job) {
         // What changes GitHub works on the PR as it is now, not as cached (not what only reads
         // it, nor git's own work).
-        if !matches!(job, Job::Preview(_) | Job::Reactions(_) | Job::Labels | Job::Retarget(_) | Job::Rebase | Job::Pull | Job::Push(_)) {
+        if !matches!(job, Job::Preview(_) | Job::OpenIssue(..) | Job::Reactions(_) | Job::Labels | Job::Retarget(_) | Job::Rebase | Job::Pull | Job::Push(_)) {
             self.ensure_fresh();
         }
         match job {
@@ -75,6 +75,11 @@ impl App {
             Job::Preview(url) => match gh::issue_preview(&url) {
                 Ok((title, md)) => (self.msg.clear(), self.popup = Some((title, self.hover_lines(&md), 0))).1,
                 Err(e) => self.msg = format!("{e:#}"),
+            },
+            // (GitHub's links say /issues/ for PRs too: it's asked which.)
+            Job::OpenIssue(n, url) => match gh::gh(&["pr", "view", &n.to_string(), "--json", "number"]) {
+                Ok(_) => self.open_url(&url),
+                Err(_) => (self.open_issue, self.msg) = (Some(n), String::new()),
             },
             Job::Refresh => self.finish(Ok("refreshed")),
             Job::Resolve(t, on) => self.finish(gh::set_resolved(&t, on).map(|_| if on { "thread resolved" } else { "thread unresolved" })),

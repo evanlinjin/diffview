@@ -185,6 +185,8 @@ struct CursorKey {
 
 /// Network work that doesn't need the terminal; run after a frame shows its "…" message.
 enum Job {
+    /// This repo's #N, from a link (its URL): an issue's in dv's issue view, a PR's in the browser.
+    OpenIssue(u64, String),
     Refresh,
     /// Bring the checkout up to date: the PR's head, or `git pull --ff-only` without a PR.
     Pull,
@@ -225,6 +227,7 @@ impl Job {
             Job::Discard(_) => "discarding…".into(),
             Job::DeleteComment(_) => "deleting…".into(),
             Job::Preview(url) => format!("loading {url}…"),
+            Job::OpenIssue(n, _) => format!("opening #{n}…"),
             Job::Reactions(_) => "asking GitHub for its reactions…".into(),
             Job::Rebase => "rebasing…".into(),
             Job::Retarget(base) => format!("the PR's base is {base} now: fetching it…"),
@@ -533,6 +536,9 @@ pub struct App {
     job: Option<Job>,
     /// The viewer's pending review on the PR, if any.
     review: Option<String>,
+    /// An issue of this repo's to show in dv's issue view (a link's): the view hands it over,
+    /// and goes on as it was after.
+    pub open_issue: Option<u64>,
     /// Your "Viewed" marks from GitHub: path → VIEWED / DISMISSED.
     viewed: HashMap<String, String>,
     /// Viewed marks on their way to GitHub (shown already): path → how it's going.
@@ -825,7 +831,8 @@ impl App {
     }
 
     pub fn run(&mut self, term: &mut DefaultTerminal) -> Result<()> {
-        while !self.quit {
+        // (Till you quit, or an issue's to be shown: then back here, as it was.)
+        while !self.quit && self.open_issue.is_none() {
             self.log_msg();
             self.watch_seen();
             term.draw(|f| self.draw(f))?;

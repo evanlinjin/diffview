@@ -317,6 +317,9 @@ pub enum IssuesDo {
 
 #[derive(Default)]
 pub struct Issues {
+    /// Showing one issue for a PR's view (a link there): leaving it goes back there; no
+    /// auto runs, and a PR's link opens in the browser.
+    only: bool,
     ui: Ui,
     items: Vec<Issue>,
     me: String,
@@ -373,6 +376,15 @@ impl Issues {
         }
     }
 
+    /// Issue `n` in the issue view, for a PR's view (a link there): till you leave it.
+    pub fn run_one(&mut self, term: &mut DefaultTerminal, n: u64) -> Result<()> {
+        self.only = true;
+        self.view = Some(self.load_issue(n)?);
+        let res = self.run(term);
+        self.view = None;
+        res.map(drop)
+    }
+
     /// Fetch the issues in the background (the first time: the list says it's loading).
     fn refresh(&mut self) {
         let (tx, rx) = mpsc::channel();
@@ -427,7 +439,7 @@ impl Issues {
     /// triage), `AT_ONCE` at a time, once each; and ranks the todo again once something's new or
     /// changed, at most every quarter hour.
     fn auto_run(&mut self) {
-        if !self.todos.auto || !self.started || self.fetched.is_some() {
+        if self.only || !self.todos.auto || !self.started || self.fetched.is_some() {
             return;
         }
         let busy = self.running.values().any(batch::Status::running);
@@ -544,6 +556,9 @@ impl Issues {
         }
         self.refresh();
         loop {
+            if self.only && self.view.is_none() {
+                return Ok(IssuesDo::Prs);
+            }
             term.draw(|f| self.draw(f))?;
             if let Some(Ok(res)) = self.fetched.as_ref().map(Receiver::try_recv) {
                 self.fetched = None;
@@ -561,7 +576,10 @@ impl Issues {
                         self.watch_reviews();
                         // Auto on (from dv list too: one setting): what it's about to cost, said (once
                         // the triages there are read).
-                        if first && self.todos.auto && self.untriaged() > 0 {
+                        if let Some(v) = self.view.as_mut() {
+                            v.set_can_triage(can_triage); // (opened before GitHub said)
+                        }
+                        if first && self.todos.auto && self.untriaged() > 0 && !self.only {
                             self.msg = format!("auto is on: Claude triages the {} issue(s) not triaged, two at a time (~$0.30 each; C turns it off)", self.untriaged());
                         }
                         self.nav.sel = keep.and_then(|n| self.shown().iter().position(|i| i.number == n)).unwrap_or(0);
@@ -867,6 +885,10 @@ impl Issues {
                     _ = term.draw(|f| self.draw(f));
                     self.msg.clear();
                     if pr || crate::gh::gh(&["pr", "view", &n.to_string(), "--json", "number"]).is_ok() {
+                        // (From a PR's view: its PRs are dv list's; here, the browser.)
+                        if self.only {
+                            return (self.msg = crate::view::open_url(&u), None).1;
+                        }
                         return Some(IssuesDo::Pr(n));
                     }
                     match self.load_issue(n) {
@@ -1246,7 +1268,8 @@ impl Issues {
         if let Some(v) = self.view.as_mut() {
             v.title_bar(f, ui, Rect { height: 1.min(area.height), ..area });
             let cursor = v.draw(f, ui, Rect { y: area.y + 1, height: area.height.saturating_sub(2), ..area }, self.unfocused);
-            let left = if self.msg.is_empty() { " ? keys · q back to the issues".to_owned() } else { format!(" {}", self.msg) };
+            let back = if self.only { "the PR" } else { "the issues" };
+            let left = if self.msg.is_empty() { format!(" ? keys · q back to {back}") } else { format!(" {}", self.msg) };
             status_bar(f, ui, &left, &format!("#{}", v.number), self.todos.auto, "");
             if self.nav.help {
                 draw_help(f, ui, super::issue_view::VIEW_HELP, "an issue's keys");

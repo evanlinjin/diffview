@@ -3475,3 +3475,14 @@ fn a_folded_files_comments_stay_in_the_pane() {
     let t = app.rows[app.head.row].thread.unwrap();
     assert!(app.threads[t].claude.is_some(), "on Claude's comment");
 }
+
+#[test]
+fn this_repos_issue_links_open_in_dv() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    app.pr = Some(gh::Pr { number: 87, url: "https://github.com/o/r/pull/87".into(), ..Default::default() });
+    assert_eq!(app.issue_here("https://github.com/o/r/issues/82"), Some(82));
+    assert_eq!(app.issue_here("https://github.com/o/r/issues/82#issuecomment-1"), Some(82));
+    assert_eq!(app.issue_here("https://github.com/o/r/issues/87"), None); // this PR
+    assert_eq!(app.issue_here("https://github.com/o/other/issues/82"), None); // another repo's: the browser
+    assert_eq!(app.issue_here("https://github.com/o/r/pull/82"), None); // a PR: the browser
+}

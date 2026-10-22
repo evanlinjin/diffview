@@ -503,6 +503,10 @@ impl IssueView {
         (n != self.number).then_some((n, pr))
     }
 
+    pub fn set_can_triage(&mut self, can: bool) {
+        self.can_triage = can;
+    }
+
     pub fn url(&self) -> &str {
         &self.url
     }

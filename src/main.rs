@@ -438,7 +438,16 @@ fn review(o: &Opts, pr_num: Option<u64>, known: Option<gh::Pr>) -> anyhow::Resul
         app.notice(n);
     }
     let mut term = view::init_terminal();
-    let res = app.run(&mut term);
+    // An issue a link there goes to: in dv's issue view, then back to the PR, as it was.
+    let mut issues = None;
+    let res = loop {
+        let res = app.run(&mut term);
+        let Some(n) = app.open_issue.take().filter(|_| res.is_ok()) else { break res };
+        let is = issues.get_or_insert_with(list::issues::Issues::new);
+        if let Err(e) = is.run_one(&mut term, n) {
+            app.notice(format!("#{n}: {e:#}"));
+        }
+    };
     view::restore_terminal();
     Ok((wt, res.map(|_| app.merge)))
 }
