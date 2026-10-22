@@ -455,11 +455,15 @@ fn replacement_view(id: u64, root: &Path, term: &mut ratatui::DefaultTerminal) -
     app.follow_base = Some(crate::diff::remote_branch(&r.base));
     progress(None);
     run_view(&mut app, term)?;
-    // Merging it (its PR): from the main checkout, as `dv list` merges.
+    // Merging it (its PR): from the main checkout, as `dv list` merges, and as every merge
+    // does, with the terminal let go (its prompts, git's, are yours), then retaken.
     match r.published.filter(|_| app.merge) {
         Some(n) => {
             std::env::set_current_dir(root)?;
-            Ok(Some(merge::merge(n, view::in_zellij()).unwrap_or_else(|e| format!("not merged: {e:#}"))))
+            view::restore_terminal();
+            let said = merge::merge(n, view::in_zellij()).unwrap_or_else(|e| format!("not merged: {e:#}"));
+            *term = view::init_terminal();
+            Ok(Some(said))
         }
         None => Ok(None),
     }
