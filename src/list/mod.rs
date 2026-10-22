@@ -81,8 +81,6 @@ pub struct List {
     /// Claude's reviews from here (`a`): how each is going, and the news on its way.
     batch: HashMap<u64, batch::Status>,
     batch_rx: Vec<Receiver<(u64, batch::Status)>>,
-    /// When runs held back (`Busy`) were last looked at again.
-    busy_checked: Option<std::time::Instant>,
     /// What each of those is (a review, an update to one, answers), for the cards.
     batch_task: HashMap<u64, batch::Task>,
     /// The todo tab: you (your login) and what GitHub says beyond the cards (on its way, like
@@ -244,17 +242,6 @@ impl List {
             self.gone_news();
             self.prefetch();
             self.others_news();
-            // Runs that found Claude at it: once it isn't (on the PR, nor where it'd work), asked
-            // again, by auto too (that task); looked at every few seconds, whatever else changed.
-            if self.busy_checked.is_none_or(|t| t.elapsed() >= Duration::from_secs(3)) {
-                self.busy_checked = Some(std::time::Instant::now());
-                let done: Vec<u64> = self.batch.iter().filter(|(n, s)| matches!(s, batch::Status::Busy(_, d) if !batch::held(**n, d.as_deref()))).map(|(&n, _)| n).collect();
-                for n in done {
-                    self.batch.remove(&n);
-                    let doing = self.batch_task.get(&n).map_or("reviewing", batch::Task::doing);
-                    self.auto_done.retain(|d| d.0 != n || d.2 != doing);
-                }
-            }
             if self.watch_running() {
                 self.worktrees_changed(); // what it finished with may be waiting to be pushed (another dv's: a worktree made)
                 self.find_todo(); // Claude started or finished somewhere: its item moves

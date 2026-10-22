@@ -689,7 +689,15 @@ impl List {
         }
         let changed = now != self.running || reps != self.running_reps;
         (self.running, self.running_reps) = (now, reps);
-        changed
+        // Runs that found Claude at it: once it isn't (on the PR, nor where it'd work), asked
+        // again, by auto too (that task): a change as any here.
+        let free: Vec<u64> = self.batch.iter().filter(|(n, s)| matches!(s, batch::Status::Busy(_, d) if !batch::held(**n, d.as_deref()))).map(|(&n, _)| n).collect();
+        for &n in &free {
+            self.batch.remove(&n);
+            let doing = self.batch_task.get(&n).map_or("reviewing", batch::Task::doing);
+            self.auto_done.retain(|d| d.0 != n || d.2 != doing);
+        }
+        changed || !free.is_empty()
     }
 
     /// `s` on the selected todo item: bring it back if it's deferred, else ask for how long.

@@ -866,7 +866,7 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
         && let Some((other, one_line)) = worktree_on_branch(p).filter(|d| d.0 != dir)
     {
         std::env::set_current_dir(&other)?;
-        let apart = if one_line { "" } else { " (diverged from the PR's head: Space g says how)" };
+        let apart = if one_line { "" } else { " (not at the PR's head: Space g says how)" };
         let note = format!("#{n}'s branch {} is checked out in {}: opened there{apart}", p.head_branch, other.display());
         return Ok((other, Some(note)));
     }
@@ -1051,8 +1051,8 @@ fn checked_cargo(args: &[String]) -> anyhow::Result<i32> {
 /// Only ever touch a dir that's a worktree of this repo.
 /// The worktree of this repo that has PR `p`'s branch checked out, if one does and it's the
 /// PR's (not just a branch of the same name, a fork's `master`, say): it pushes to the PR's
-/// branch (diverged or not: a rebase there, an amend), or its history and the PR head are one
-/// line (either contains the other). And whether it's one line with the PR's head.
+/// branch (behind it, diverged: a rebase there, an amend), or its history holds the PR's head.
+/// And whether it holds it.
 fn worktree_on_branch(p: &gh::Pr) -> Option<(PathBuf, bool)> {
     let (branch, oid) = (p.head_branch.as_str(), p.head_oid.as_str());
     let list = diff::git(&["worktree", "list", "--porcelain"]).ok()?;
