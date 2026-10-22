@@ -19,8 +19,8 @@ pub enum Status {
     Done(String),
     /// Why, and when (a review of it written since ends it: `List::watch_reviews`).
     Failed(String, std::time::SystemTime),
-    /// Not run: Claude was at it already, from another run (`claude::claim`'s holder): to ask
-    /// again, not a failure.
+    /// Not run, and why (Claude at it already, from another run, `claude::claim`'s holder; the
+    /// PR merged meanwhile): not a failure.
     Busy(String),
 }
 
@@ -201,14 +201,14 @@ fn run(s: Subject, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sen
     // this ends, however.
     let mut claim = match crate::claude::claim(&crate::claude::pr_key(n), task.doing(), None) {
         Ok(c) => c,
-        Err(w) => return Ok(Status::Busy(w)),
+        Err(w) => return Ok(Status::Busy(format!("Claude is {w} on it"))),
     };
     // A PR merged or closed while it waited its turn (queued): nothing to do on it now.
     if let Subject::Pr(_) = s
         && let Ok(Some(state)) = crate::gh::pr_state(n)
         && state != "OPEN"
     {
-        return Ok(Status::failed(format!("#{n} is {} now: left as it is", state.to_lowercase())));
+        return Ok(Status::Busy(format!("it's {} now", state.to_lowercase())));
     }
     _ = tx.send((n, Status::Preparing));
     // The worktree, checked out at the PR (by a dv of its own: that changes directory); an

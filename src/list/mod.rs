@@ -598,7 +598,7 @@ impl List {
             match &s {
                 // Claude at it elsewhere (a PR's view, say): not asked now, as if never asked.
                 batch::Status::Busy(w) => {
-                    self.msg = format!("#{n}: not {doing} now: Claude is {w} on it (a a asks again once it's done)");
+                    self.msg = format!("#{n}: not {doing} now: {w}");
                     self.batch.remove(&n);
                     // (Auto too: as if not asked. A description check, its head as it was.)
                     self.auto_done.retain(|d| d.0 != n || d.2 != doing);
