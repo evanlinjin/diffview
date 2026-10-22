@@ -501,6 +501,7 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
     let last = std::fs::metadata(path(id)?).and_then(|m| m.modified()).ok();
     // Its claim, held while it drafts (this process's: let go as it ends, however).
     let _claim = crate::claude::claim(&crate::claude::rep_key(id), "drafting", None).map_err(|w| anyhow::anyhow!("Claude is {w} on {} already", label(id)))?;
+    let mut added = vec![];
     let (first, _) = update(id, |r| {
         // (Checked as it's marked: nothing written for one refused.)
         if let Some(why) = refused(prs) {
@@ -511,6 +512,7 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
         for &n in prs.iter().filter(|_| !is_new(id)) {
             if !r.replaces.iter().any(|o| o.number == n) {
                 r.replaces.push(Original { number: n, ..Original::default() });
+                added.push(n);
             }
         }
         if r.drafted() && !extra.trim().is_empty() {
@@ -555,6 +557,10 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
     // again and again.
     _ = update(id, |now| {
         now.taking = 0;
+        // Not set up (a PR not there, or on another base): what it was to take in, not.
+        if !set_up {
+            now.replaces.retain(|o| !added.contains(&o.number));
+        }
         let was_given = |a: &Request| given.iter().any(|(t, on)| *t == a.text && *on == a.on);
         for a in now.asks.iter_mut().filter(|a| res.is_ok() && a.want != "ask" && !a.done() && was_given(a)) {
             a.answer = NO_ANSWER.into();
