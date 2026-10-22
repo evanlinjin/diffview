@@ -597,10 +597,13 @@ impl App {
             return;
         }
         let git = |args: &[&str]| diff::git_in(&self.root, args);
-        // The base as GitHub has it now, if that's here (a base merged into the PR is: it's in
-        // its history), as dv opened it by (`diff_base`); else the base branch as last fetched.
+        // The base branch as last fetched, and as GitHub has it now if that's here (a base
+        // merged into the PR is: it's in its history): whichever HEAD forks from further on (a
+        // rebase here that GitHub doesn't know of yet, or a base merged in as it does).
         let on = self.pr.as_ref().map(|p| p.base_oid.clone()).filter(|o| !o.is_empty() && git(&["cat-file", "-e", &format!("{o}^{{commit}}")]).is_ok());
-        let Ok(now) = git(&["merge-base", on.as_deref().unwrap_or(branch), "HEAD"]).map(|s| s.trim().to_owned()) else { return };
+        let mut args = vec!["merge-base", "HEAD", branch.as_str()];
+        args.extend(on.as_deref());
+        let Ok(now) = git(&args).map(|s| s.trim().to_owned()) else { return };
         if now == self.full_base || git(&["merge-base", "--is-ancestor", &self.full_base, &now]).is_err() {
             return;
         }

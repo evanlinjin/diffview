@@ -116,6 +116,11 @@ fn pane_argv(argv: &[String], n: u64) -> Vec<String> {
 /// for you to read why), else in this terminal (dv waits for Enter after it). Returns what to
 /// tell you.
 pub fn merge(n: u64, pane: bool) -> Result<String> {
+    // Not while Claude's at work on it (its checkout's switched or removed under it), from
+    // any dv.
+    if let Some(w) = crate::claude::at_work(&crate::claude::pr_key(n), None, None) {
+        anyhow::bail!("Claude is {w} on #{n}: merge it once it's done");
+    }
     // As GitHub has it now (the list may be older): merged or closed, there's nothing to merge,
     // and the script would only fail on the merge ref GitHub has dropped.
     if let Some(state) = crate::gh::pr_state(n)?.filter(|s| s != "OPEN") {

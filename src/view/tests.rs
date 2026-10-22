@@ -5543,3 +5543,31 @@ fn a_drafts_view_claims_its_runs_too() {
     drop(claim);
     assert!(crate::replace::Record { id, ..Default::default() }.at_work().is_none());
 }
+
+#[test]
+fn the_diff_follows_a_rebase_github_doesnt_know_of_yet() {
+    // Space g → rebase here: onto origin/main (b), fetched. GitHub's baseRefOid is still what the
+    // PR was last pushed on (a): it can't know of a rebase not pushed yet.
+    let dir = diff::scratch_repo("probe-rebase");
+    let git = |args: &[&str]| diff::git_in(&dir, args).unwrap().trim().to_owned();
+    let commit = |f: &str| {
+        std::fs::write(dir.join(f), f).unwrap();
+        git(&["add", f]);
+        git(&["commit", "-qm", f]);
+        git(&["rev-parse", "HEAD"])
+    };
+    let a = commit("a");
+    git(&["checkout", "-qb", "pr"]);
+    commit("p");
+    git(&["checkout", "-q", "main"]);
+    let b = commit("b");
+    git(&["update-ref", "refs/remotes/origin/main", &b]);
+    git(&["checkout", "-q", "pr"]);
+    git(&["rebase", "-q", "main"]);
+    let mut app = fixture();
+    app.pr.as_mut().unwrap().base_oid = a.clone();
+    (app.root, app.base, app.full_base, app.follow_base) = (dir.clone(), a.clone(), a.clone(), Some("origin/main".into()));
+    app.follow_rebase();
+    assert_eq!(app.full_base, b, "the diff didn't follow the rebase");
+    _ = std::fs::remove_dir_all(&dir);
+}
