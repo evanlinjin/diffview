@@ -294,9 +294,6 @@ pub fn git(args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-/// The remote of the GitHub repo the PRs are on: `dv.remote` in the repo's git config (what you
-/// said when dv asked: `ensure_remote`), else its only remote, else the one gh took for the
-/// base repo (`gh-resolved`), else `origin`.
 /// GitHub's page for this repo (`https://github.com/owner/name`), from its remote's URL (SSH or
 /// HTTPS): for `#123` links where there's no PR to say.
 pub fn github_url() -> Option<String> {
@@ -317,6 +314,9 @@ fn github_url_of_remotes() {
     assert_eq!(github_url_of("https://gitlab.com/o/r"), None);
 }
 
+/// The remote of the GitHub repo the PRs are on: `dv.remote` in the repo's git config (what you
+/// said when dv asked: `ensure_remote`), else its only remote, else the one gh took for the
+/// base repo (`gh-resolved`), else `origin`.
 pub fn remote() -> String {
     let mut r = REMOTE.lock().unwrap_or_else(|e| e.into_inner());
     r.get_or_insert_with(|| found_remote(std::path::Path::new("."))).clone().unwrap_or_else(|| "origin".into())
