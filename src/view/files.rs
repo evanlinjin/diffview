@@ -576,14 +576,14 @@ impl App {
     }
 
     /// File `i`, unfolded, its header at the top.
-    fn goto_file(&mut self, i: usize) {
+    pub(super) fn goto_file(&mut self, i: usize) {
         let path = self.files[i].path.clone();
         if self.collapsed.remove(&path) {
             let keep = self.cursor_key();
             self.rebuild(keep);
         }
         if let Some(r) = self.rows.iter().position(|r| r.file == i && r.line.kind == Kind::File) {
-            self.goto(r, 0);
+            self.jump(r, 0);
             self.top = self.d_of[r].max(self.pin as usize);
         }
     }

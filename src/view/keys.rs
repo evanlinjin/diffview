@@ -537,7 +537,7 @@ impl App {
                     .iter()
                     .enumerate()
                     .filter(|(_, r)| r.line.kind == Kind::File)
-                    .map(|(i, r)| Item::new(r.line.text.clone(), Target::Row(i)))
+                    .map(|(_, r)| Item::new(r.line.text.clone(), Target::File(r.file)))
                     .collect();
                 self.picker = Some(Picker::new(" files ", items));
             }
@@ -618,7 +618,7 @@ impl App {
                             self.start(job);
                         }
                         Target::Run(job) => self.start(job),
-                        Target::Row(r) => self.jump(r, 0),
+                        Target::File(i) => self.goto_file(i),
                         Target::Loc(l) => self.jump_loc(&l),
                         Target::Discard => {
                             let n = self.pending_count();

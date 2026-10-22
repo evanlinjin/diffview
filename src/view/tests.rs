@@ -4626,7 +4626,7 @@ fn nothing_changes_the_rows_under_half_typed_jump_labels() {
 }
 
 #[test]
-fn a_file_unfolded_from_the_list_keeps_the_anchor() {
+fn a_file_from_the_list_is_a_jump_back_from() {
     let s = "diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1,4 +1,4 @@\n one\n two\n three\n-four\n+four!\ndiff --git a/b.rs b/b.rs\nindex 1..2 100644\n--- a/b.rs\n+++ b/b.rs\n@@ -1,2 +1,2 @@\n alpha\n-beta\n+gamma\n";
     let mut app = App::with("base".into(), diff::parse(s));
     app.collapsed.insert("a.rs".into());
@@ -4635,8 +4635,21 @@ fn a_file_unfolded_from_the_list_keeps_the_anchor() {
     app.goto(at(&app, "alpha"), 0);
     app.select = true;
     app.goto(at(&app, "gamma"), 0);
-    app.goto_spot(super::files::Spot::File(0)); // a click on a.rs in the files' list
-    assert_eq!(app.rows[app.anchor.row].line.text, "alpha", "anchor now on another line");
+    app.goto_spot(super::files::Spot::File(0)); // a click on a.rs in the files' list: a jump
+    assert_eq!(app.rows[app.head.row].line.text, "a.rs  +1 −1");
+    ctrl(&mut app, 'o');
+    assert_eq!(app.rows[app.head.row].line.text, "gamma", "Ctrl-o not back where you were");
+}
+
+#[test]
+fn the_files_picker_goes_to_its_file_after_a_resize() {
+    let mut app = fixture();
+    _ = screen(200, 40, |f| app.draw(f));
+    press(&mut app, " fa.rs");
+    _ = screen(60, 40, |f| app.draw(f)); // the PR's text re-wrapped: the rows moved
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(app.rows[app.head.row].line.kind, Kind::File);
+    assert!(app.rows[app.head.row].line.text.contains("a.rs"));
 }
 
 #[test]
