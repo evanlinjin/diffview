@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.91.10] - 2026-10-22
+
+### Fixed
+- Split view: the code's edges are one rule both ways: Ctrl-h from an added line with nothing
+  to its left goes on into the files' list, and on a header (across the width) Ctrl-l / Ctrl-h
+  go straight into the pane / the list. Out of the pane, your side is the line's you land on (a
+  comment's line: the side the comment's on), so in and straight back changes nothing.
+
 ## [0.91.9] - 2026-10-22
 
 ### Fixed
