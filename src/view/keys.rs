@@ -304,6 +304,10 @@ impl App {
             self.count = (self.count * 10 + d as usize).min(10_000); // (a motion repeated: not forever)
             return;
         }
+        // A prefix: the count's for what follows it (`2]f`).
+        if matches!(c, 'g' | ']' | '[' | ' ' | 'f' | 't' | 'F' | 'T' | 'z' | 'm') {
+            return self.pending = Some(c);
+        }
         let n = std::mem::take(&mut self.count).max(1);
         match c {
             'h' => self.goto(self.head.row, self.head.col.saturating_sub(n)),
@@ -341,7 +345,6 @@ impl App {
             'S' => self.review_menu(),
             'R' => self.start(Job::Refresh),
             'q' => self.quit = true,
-            'g' | ']' | '[' | ' ' | 'f' | 't' | 'F' | 'T' | 'z' | 'm' => self.pending = Some(c),
             _ => {}
         }
     }
@@ -413,6 +416,11 @@ impl App {
     }
 
     pub(super) fn pending_key(&mut self, p: char, c: char) {
+        // A count before the prefix: `]` / `[` go that many times; spent either way.
+        let n = std::mem::take(&mut self.count).max(1);
+        if matches!(p, ']' | '[') && n > 1 {
+            return (0..n).for_each(|_| self.pending_key(p, c));
+        }
         let file = |rows: &[Row], r: usize| rows[r].line.kind == Kind::File;
         let so = super::render::scrolloff(self.height);
         // The window's other keys act on it as you set it, not as maximized (`Ctrl-w o`, `h` /
