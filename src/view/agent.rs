@@ -239,7 +239,7 @@ impl App {
     /// pane open on it: the redraft's claim waits for each).
     pub(super) fn redraft_waits(&self, id: u64) -> Option<String> {
         let w = crate::replace::load(id).ok()?.at_work()?;
-        Some(format!("Claude is {w} on {}: redraft once it's done (a pane: closed)", crate::replace::label(id)))
+        Some(format!("Claude is {w} on {}: Space a → Redraft once it's done", crate::replace::label(id)))
     }
 
     /// Claude at work on it (a run of this view's, or another's from any dv: a redraft, a pane
@@ -922,7 +922,7 @@ impl App {
             Some(j) => Some(format!("◐ claude: {} {}", j.label, ago(j.started))),
             None if self.claude.asking => Some("◐ claude is asking you (Space a)".into()),
             None if self.claude.pane_busy => Some("◐ claude working (its pane)".into()),
-            None if let Some(w) = &self.claude.replacing => Some(format!("◐ claude {w} on its replacement (Space a: open it)")),
+            None if let Some(w) = &self.claude.replacing => Some(format!("◐ its replacement: claude {w} (Space a: open it)")),
             None => self.claude.elsewhere.as_ref().map(|w| format!("◐ claude {w} (another dv's)")),
         }
     }

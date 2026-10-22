@@ -363,7 +363,7 @@ pub struct Issues {
     todos: Todos,
     /// Issues a draft of Claude's (unpublished: `N N`'s) is to fix: its label, whether Claude's
     /// at it now. Not on the todo till it's done: nothing for you there meanwhile.
-    draft_fix: HashMap<u64, (String, bool)>,
+    draft_fix: HashMap<u64, (String, Option<String>)>,
     running: HashMap<u64, batch::Status>,
     running_rx: Vec<Receiver<(u64, batch::Status)>>,
     reviews_dir: Option<PathBuf>,
@@ -1050,7 +1050,7 @@ impl Issues {
 /// it and who has it, and Claude's triage (what kind, how pressing); the PRs that would fix it,
 /// and what Claude says is next (or that it's at it).
 #[allow(clippy::too_many_arguments)]
-fn issue_card(i: &Issue, ui: &Ui, selected: bool, marked: bool, num_w: usize, width: usize, t: Option<&Triage>, run: Option<&batch::Status>, rank: Option<usize>, close: &str, draft: Option<&(String, bool)>) -> Vec<Line<'static>> {
+fn issue_card(i: &Issue, ui: &Ui, selected: bool, marked: bool, num_w: usize, width: usize, t: Option<&Triage>, run: Option<&batch::Status>, rank: Option<usize>, close: &str, draft: Option<&(String, Option<String>)>) -> Vec<Line<'static>> {
     let row = card_row(ui, selected);
     let tint = |st: Style| row.patch(Style { bg: None, ..st });
     let dim = tint(ui.stale);
@@ -1104,8 +1104,8 @@ fn issue_card(i: &Issue, ui: &Ui, selected: bool, marked: bool, num_w: usize, wi
     }
     match (draft, t.filter(|t| !t.next.is_empty())) {
         // Claude's draft fixing it: that, not what's next (it is).
-        (Some((d, true)), _) => fix.push(sp(format!("Claude is drafting a fix: {d}"), tint(ui.key))),
-        (Some((d, false)), _) => fix.push(sp(format!("a draft fix: {d} (dv list's drafts tab: review it, S publishes it)"), tint(ui.plus))),
+        (Some((d, Some(w))), _) => fix.push(sp(format!("Claude is {w} on its fix: {d}"), tint(ui.key))),
+        (Some((d, None)), _) => fix.push(sp(format!("a draft fix: {d} (dv list's drafts tab: review it, S publishes it)"), tint(ui.plus))),
         (None, Some(t)) => fix.push(sp(format!("→ {}", t.next), tint(ui.key))),
         (None, None) => {}
     }
@@ -1121,17 +1121,17 @@ fn records() -> Vec<crate::replace::Record> {
     if cfg!(test) { vec![] } else { crate::replace::all() }
 }
 
-/// Unpublished drafts fixing an issue: the issue → the draft's label, whether Claude's at it
-/// (its record says so, or this dv just started it: its record may not say yet). One whose
-/// run failed or stopped before drafting doesn't count: nothing to wait on.
-fn draft_fix(records: &[crate::replace::Record], here: &HashSet<u64>) -> HashMap<u64, (String, bool)> {
+/// Unpublished drafts fixing an issue: the issue → the draft's label, what Claude's doing on it
+/// (its claims say, or this dv just started drafting it: not claimed yet). One whose run
+/// failed or stopped before drafting doesn't count: nothing to wait on.
+fn draft_fix(records: &[crate::replace::Record], here: &HashSet<u64>) -> HashMap<u64, (String, Option<String>)> {
     records
         .iter()
         .filter(|r| r.published.is_none())
         .filter_map(|r| {
             let n = crate::replace::fixes(&r.task)?;
-            let at_it = here.contains(&r.id) || r.at_work().is_some();
-            (at_it || !r.title.is_empty()).then(|| (n, (crate::replace::label(r.id), at_it)))
+            let at_it = if here.contains(&r.id) { Some("drafting".to_owned()) } else { r.at_work() };
+            (at_it.is_some() || !r.title.is_empty()).then(|| (n, (crate::replace::label(r.id), at_it)))
         })
         .collect()
 }
@@ -1271,8 +1271,8 @@ fn a_draft_holds_its_issue_while_it_can_come() {
     let records = [rec(1, "Fix #7: it panics", "Fix the panic"), rec(2, "Fix #8: slow", ""), rec(3, "Fix #9: odd", ""), rec(4, "Refactor", "x")];
     // #7 drafted; #8 started here (its record doesn't say yet); #9's run failed before drafting.
     let fix = draft_fix(&records, &HashSet::from([2]));
-    assert_eq!(fix.get(&7).map(|f| f.1), Some(false));
-    assert_eq!(fix.get(&8).map(|f| f.1), Some(true));
+    assert_eq!(fix.get(&7).map(|f| f.1.as_deref()), Some(None));
+    assert_eq!(fix.get(&8).map(|f| f.1.as_deref()), Some(Some("drafting")));
     assert!(!fix.contains_key(&9) && fix.len() == 2);
 }
 

@@ -362,7 +362,8 @@ pub fn needs(f: &Facts) -> (Vec<Need>, Option<Task>) {
 /// What a replacement needs from you: publishing, then closing what it replaces.
 pub fn rep_needs(r: &crate::replace::Record) -> Vec<Need> {
     match r.published {
-        None if !r.title.is_empty() && r.at_work().is_none() => vec![Need::Publish],
+        // (Claude at it meanwhile: dv list's busy rows say so.)
+        None if !r.title.is_empty() => vec![Need::Publish],
         Some(_) => match r.replaces.iter().filter(|o| !r.closed.contains(&o.number)).count() {
             0 => vec![],
             n => vec![Need::CloseOriginals(n)],
