@@ -368,6 +368,8 @@ pub struct Issues {
     running_rx: Vec<Receiver<(u64, batch::Status)>>,
     reviews_dir: Option<PathBuf>,
     reviews_mtime: Option<std::time::SystemTime>,
+    /// When the drafts fixing issues were last looked at (`watch_drafts`).
+    drafts_checked: Option<std::time::Instant>,
     fetched: Option<Receiver<Fetch>>,
     /// Claude's drafts of PRs fixing issues, under way.
     drafts: Vec<Receiver<(u64, batch::Status)>>,
@@ -405,6 +407,18 @@ impl Issues {
     }
 
     /// Claude's triages, read again when the reviews' directory changes.
+    /// Drafts fixing issues, every couple of seconds: one started, redrafted or done from
+    /// anywhere (another dv, the draft's view), or Claude at it there or not, moves its issue.
+    fn watch_drafts(&mut self) {
+        if self.drafts_checked.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(2)) {
+            return;
+        }
+        self.drafts_checked = Some(std::time::Instant::now());
+        if draft_fix(&records(), &self.drafting) != self.draft_fix {
+            self.find_todo();
+        }
+    }
+
     fn watch_reviews(&mut self) {
         let Some(dir) = &self.reviews_dir else { return };
         let mtime = std::fs::metadata(dir).and_then(|m| m.modified()).ok();
@@ -602,6 +616,7 @@ impl Issues {
                 }
             }
             self.watch_reviews();
+            self.watch_drafts();
             self.auto_run();
             // Claude's reading of a deferral's "until …".
             match self.todos.until_news() {
