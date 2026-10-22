@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.91.13] - 2026-10-22
+
+### Fixed
+- With the cursor in the pane, only its comment row has the cursor line's tint (not every
+  comment beside a wrapped line); a wrapped line's comment marks show once (its first part);
+  in split view, comments are about code only, as in unified (a gone file's comment isn't
+  about the proposed description); Ctrl-h from a folded file's comment goes to its header;
+  the file header stays pinned with a comment-only row at the top.
+
 ## [0.91.12] - 2026-10-22
 
 ### Fixed
