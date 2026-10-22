@@ -368,7 +368,7 @@ pub struct Issues {
     running_rx: Vec<Receiver<(u64, batch::Status)>>,
     reviews_dir: Option<PathBuf>,
     reviews_mtime: Option<std::time::SystemTime>,
-    /// When the drafts fixing issues were last looked at (`watch_drafts`), and what Claude's
+    /// When the drafts fixing issues were last looked at (`watch_running`), and what Claude's
     /// doing, by key, then (`claude::sweep_running`).
     drafts_checked: Option<std::time::Instant>,
     at_work: HashMap<String, String>,
@@ -408,9 +408,10 @@ impl Issues {
         self.fetched = Some(rx);
     }
 
-    /// Drafts fixing issues, every couple of seconds: one started, redrafted or done from
-    /// anywhere (another dv, the draft's view), or Claude at it there or not, moves its issue.
-    fn watch_drafts(&mut self) {
+    /// What Claude's doing, every couple of seconds (`claude::sweep_running`, as dv list's): a
+    /// draft fixing an issue started, redrafted or done from anywhere, or Claude at it there or
+    /// not, moves its issue; auto's picks go by it too.
+    fn watch_running(&mut self) {
         if self.drafts_checked.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(2)) {
             return;
         }
@@ -487,7 +488,7 @@ impl Issues {
             // (Not what you've put aside.)
             let deferred: HashSet<u64> = self.todos.items.iter().filter(|it| it.deferred.is_some()).map(|it| it.number).collect();
             let next = self.items.iter().map(|i| (i.number, i.updated.clone())).find(|(n, u)| {
-                !deferred.contains(n) && self.close_why(*n).is_some() && !drafted(*n) && !self.auto_done.contains(&(*n, format!("closing@{u}"))) && crate::claude::at_work(&crate::claude::pr_key(*n), None, None).is_none()
+                !deferred.contains(n) && self.close_why(*n).is_some() && !drafted(*n) && !self.auto_done.contains(&(*n, format!("closing@{u}"))) && !self.at_work.contains_key(&crate::claude::pr_key(*n))
             });
             if let Some((n, u)) = next {
                 self.auto_done.insert((n, format!("closing@{u}")));
@@ -512,7 +513,7 @@ impl Issues {
             // move the issue's time).
             let merged: Vec<u64> = i.fixed_by.iter().filter(|p| p.1 == "MERGED").map(|p| p.0).collect();
             // (Not one Claude's at elsewhere just now: on a later look, once it's done.)
-            let free = || crate::claude::at_work(&crate::claude::pr_key(i.number), None, None).is_none();
+            let free = || !self.at_work.contains_key(&crate::claude::pr_key(i.number)); // (`watch_running`'s)
             if due && run.len() < batch::AT_ONCE && free() && self.auto_done.insert((i.number, format!("{}{merged:?}", i.updated))) {
                 run.push(i.number);
             }
@@ -620,7 +621,7 @@ impl Issues {
                 }
             }
             self.watch_reviews();
-            self.watch_drafts();
+            self.watch_running();
             self.auto_run();
             // Claude's reading of a deferral's "until …".
             match self.todos.until_news() {
