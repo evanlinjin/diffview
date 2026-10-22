@@ -434,6 +434,7 @@ impl App {
             && let Some(text) = self.writing.as_mut().and_then(|w| w.1.done())
         {
             let (a, w) = self.writing.take().unwrap();
+            self.quit_armed = None; // (what held leaving is over: a merge held with it too)
             (self.action, given, kept) = (Some(a), Some(text), w.kept);
             focus_dv();
         }

@@ -760,8 +760,9 @@ pub struct App {
     /// What's being written in the editor's pane (inside zellij), dv going on meanwhile, and
     /// what asked for it: done again once it's written, given the text (`term::Writing`).
     writing: Option<(Action, term::Writing)>,
-    /// Quitting while writing beside dv was warned of, by the last key: the next quit goes.
-    quit_armed: Option<std::time::Instant>,
+    /// Quitting while writing beside dv was warned of, by the last key: the next quit goes,
+    /// with the merge it held, if one was asked (`Space g`), and only then.
+    quit_armed: Option<(std::time::Instant, Option<u64>)>,
     /// When dv last looked at the working tree, and what it saw (`watch_tree`).
     tree_checked: Option<std::time::Instant>,
     tree_seen: Option<(Option<std::time::SystemTime>, u64)>,
@@ -942,21 +943,21 @@ impl App {
         if !self.quit || self.writing.is_none() {
             return;
         }
-        let again = self.quit_armed.take().is_some_and(|t| (QUIT_AFTER..QUIT_WITHIN).contains(&t.elapsed()));
-        if !again {
-            // (A merge asked stays asked: leaving then, asked again, merges.)
-            (self.quit, self.quit_armed) = (false, Some(std::time::Instant::now()));
-            self.msg = "you're writing in the editor's pane: save or :cq it first (again: leaves anyway)".into();
+        match self.quit_armed.take().filter(|(t, _)| (QUIT_AFTER..QUIT_WITHIN).contains(&t.elapsed())) {
+            Some((_, held)) => self.merge = self.merge.or(held),
+            None => {
+                (self.quit, self.quit_armed) = (false, Some((std::time::Instant::now(), self.merge.take())));
+                self.msg = "you're writing in the editor's pane: save or :cq it first (again: leaves anyway)".into();
+            }
         }
     }
 
     /// A key pressed: what it does, and (another key than leaving) leaving asks again.
     pub(super) fn press(&mut self, k: KeyEvent) {
         self.key(k);
-        // (Not while a sequence is under way: `Space g` asking again is one.) A merge held
-        // with it goes too: what's asked again is what goes.
+        // (Not while a sequence is under way: `Space g` asking again is one.)
         if !self.quit && !self.mid_sequence() {
-            (self.quit_armed, self.merge) = (None, None);
+            self.quit_armed = None;
         }
     }
 

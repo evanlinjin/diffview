@@ -2985,30 +2985,38 @@ fn quitting_while_writing_beside_says_so_first() {
     // A held key's repeat doesn't leave; nor asking long after.
     quit(&mut app, q);
     assert!(!app.quit);
-    app.quit_armed = Some(ago(10_000));
+    app.quit_armed = Some((ago(10_000), None));
     quit(&mut app, q);
     assert!(!app.quit);
     // Another key between: asked again.
-    app.quit_armed = Some(ago(1000));
+    app.quit_armed = Some((ago(1000), None));
     quit(&mut app, KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
     quit(&mut app, q);
     assert!(!app.quit);
-    // Merging is held the same way, and kept while you ask again (`Space g` is a sequence)…
+    // Merging is held the same way, with the hold, kept while you ask again (`Space g` is a
+    // sequence)…
     (app.merge, app.quit) = (Some(1), true);
     app.hold_quit();
-    assert!(!app.quit && app.merge == Some(1));
-    app.quit_armed = Some(ago(1000));
+    assert!(!app.quit && app.merge.is_none() && app.quit_armed.is_some_and(|(_, m)| m == Some(1)));
+    app.quit_armed = app.quit_armed.map(|(_, m)| (ago(1000), m));
     app.press(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-    assert!(app.quit_armed.is_some() && app.merge == Some(1));
+    assert!(app.quit_armed.is_some());
     app.pending = None;
     // Said a moment ago: leaves (merging).
     quit(&mut app, ctrl_c);
     assert!(app.quit && app.merge == Some(1));
     // …another key between: neither.
-    app.quit = false;
-    app.quit_armed = Some(ago(1000));
+    (app.quit, app.merge) = (true, Some(1));
+    app.hold_quit();
+    app.quit_armed = app.quit_armed.map(|(_, m)| (ago(1000), m));
     quit(&mut app, KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
     assert!(app.quit_armed.is_none() && app.merge.is_none());
+    // The writing over: a quit later is only that.
+    (app.merge, app.quit) = (Some(1), true);
+    app.hold_quit();
+    app.writing = None;
+    quit(&mut app, q);
+    assert!(app.quit && app.merge.is_none());
 }
 
 #[test]
