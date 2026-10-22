@@ -828,6 +828,9 @@ impl App {
     /// `c` in the PR section: the comment (or description) under the cursor, quoted at the end
     /// of your pending review's text.
     pub(super) fn quote_into_summary(&mut self) {
+        if !self.has_code() {
+            return self.msg = NO_REVIEW.into();
+        }
         let i = self.rows[self.head.row].info.filter(|&i| i < self.info.len());
         match i.map(|i| self.seen_info(i)) {
             Some(None) => self.msg = HIDDEN_FIRST.into(),
@@ -854,7 +857,10 @@ impl App {
     /// quote. `c` puts it in your review summary (`S` starts from it); `C` posts it as your PR
     /// comment, after the editor.
     pub(super) fn promote_summary(&mut self, review: bool) {
-        if self.pr.is_none() {
+        if review && !self.has_code() {
+            return self.msg = NO_REVIEW.into();
+        }
+        if self.subject().is_none() {
             return self.msg = "no PR for this branch".into();
         }
         let text = self.claude.summary.trim().to_owned();
@@ -914,3 +920,6 @@ impl App {
 
 /// `S` → "Close the PR": a comment review (if there's anything to say), then closing.
 pub(super) const CLOSE: &str = "CLOSE";
+
+/// What `c` says on an issue: there's no review of yours to queue it into.
+const NO_REVIEW: &str = "an issue has no review to add to: C comments (quoting what's under the cursor)";

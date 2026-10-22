@@ -180,7 +180,11 @@ impl App {
                     true => ("claude's review".to_owned(), self.claude.summary.clone()),
                     false => {
                         let head = ["claude's triage", &t.kind, &t.priority].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ");
-                        let said = [("next", &t.next), ("close it", &self.claude.close)].into_iter().filter(|s| !s.1.trim().is_empty());
+                        let labels = match t.labels.is_empty() {
+                            true => String::new(),
+                            false => format!("{} (Space l: marked ◆)", t.labels.join(", ")),
+                        };
+                        let said = [("labels", &labels), ("next", &t.next), ("close it", &self.claude.close)].into_iter().filter(|s| !s.1.trim().is_empty());
                         (head, said.fold(self.claude.summary.clone(), |text, (k, v)| format!("{text}\n\n**{k}:** {v}")))
                     }
                 };
@@ -487,7 +491,7 @@ impl App {
     /// the description, or (again) only its latest. In the whole diff (where it is), the cursor
     /// on the conversation's heading.
     pub(super) fn toggle_conversation(&mut self) {
-        if self.pr.is_none() {
+        if self.subject().is_none() {
             return self.msg = "no PR here".into();
         }
         let start = self.info.iter().position(|l| l.key == "activity");

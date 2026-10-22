@@ -226,13 +226,25 @@ impl Subject {
         }
     }
 
-    /// Its review file.
-    pub fn path(self) -> Result<PathBuf> {
-        let name = match self {
+    /// Its files' name in dv's directories (`reviews/`, `cache/`): `pr-7`, `issue-7`.
+    pub fn name(self) -> String {
+        match self {
             Subject::Pr(n) => format!("pr-{n}"),
             Subject::Issue(n) => format!("issue-{n}"),
-        };
-        Ok(dv_dir()?.join("reviews").join(format!("{name}.json")))
+        }
+    }
+
+    /// Its review file.
+    pub fn path(self) -> Result<PathBuf> {
+        Ok(dv_dir()?.join("reviews").join(format!("{}.json", self.name())))
+    }
+
+    /// Where GitHub's REST API has it (`repos/{owner}/{repo}/pulls/7`, `…/issues/7`).
+    pub fn api_path(self) -> String {
+        match self {
+            Subject::Pr(n) => format!("repos/{{owner}}/{{repo}}/pulls/{n}"),
+            Subject::Issue(n) => format!("repos/{{owner}}/{{repo}}/issues/{n}"),
+        }
     }
 
     /// In the environment of a Claude dv runs on it (`PR_ENV`, `ISSUE_ENV`).
@@ -331,6 +343,14 @@ pub fn mark_running(n: u64, what: &str, pid: Option<u32>, session: Option<&str>)
     _ = std::fs::create_dir_all(&dir);
     let v = serde_json::json!({ "what": what, "pid": pid, "session": session, "started": now_secs() });
     _ = std::fs::write(dir.join(format!("pr-{n}.json")), v.to_string());
+}
+
+/// What Claude is doing on PR (or issue) `n` right now, by its marker (a run whose process is
+/// still there), from any dv.
+pub fn at_work(n: u64) -> Option<String> {
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(dv_dir().ok()?.join("running").join(format!("pr-{n}.json"))).ok()?).ok()?;
+    let pid = v["pid"].as_u64()? as u32;
+    crate::alive(pid).then(|| v["what"].as_str().unwrap_or("working").to_owned())
 }
 
 /// Claude's done with PR `n` (or stopped).

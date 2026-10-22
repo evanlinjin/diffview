@@ -40,7 +40,8 @@ pub(super) enum Action {
     /// A new PR fixing CI for Claude to draft, after the editor (from Claude's note on this PR).
     CiFixPr,
     /// A new PR for Claude to draft, from this prefill (`Space N`: what's selected).
-    NewPr(String),
+    /// A new PR for Claude to draft, what it should do (`as_is`: the prefill alone will do).
+    NewPr { prefill: String, as_is: bool },
     /// Close the PR with Claude's draft comment, after the editor.
     ClosePr,
     /// Close the PRs the replacement here replaces, after the editor (the note).
@@ -329,7 +330,7 @@ impl App {
                 }
                 Ok(drafting(id))
             }
-            Action::NewPr(prefill) => Ok(drafting(self.new_pr("a new PR for Claude to draft: what it should do; unpublished until you publish it", &prefill, false)?)),
+            Action::NewPr { prefill, as_is } => Ok(drafting(self.new_pr("a new PR for Claude to draft: what it should do; unpublished until you publish it", &prefill, as_is)?)),
             Action::CloseOriginals => {
                 let mut r = self.replacement.clone().context("not a replacement")?;
                 let which: Vec<String> = r.replaces.iter().filter(|o| !r.closed.contains(&o.number)).map(|o| format!("#{}", o.number)).collect();

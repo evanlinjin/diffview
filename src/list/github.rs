@@ -221,7 +221,7 @@ pub fn list_checks(ns: Vec<u64>) -> Result<ListChecks> {
 }
 
 /// The open PRs' ETag (as `list` lists them: most recently updated first), if it has changed
-/// from `etag`, as `pr_etag`: a push, comment, review, new or closed PR changes it; CI doesn't.
+/// from `etag`, as a PR's (`gh::etag_of`): a push, comment, review, new or closed PR changes it; CI doesn't.
 pub fn list_etag(etag: &str) -> Result<Option<String>> {
     etag_of("repos/{owner}/{repo}/pulls?state=open&sort=updated&direction=desc&per_page=100", etag)
 }

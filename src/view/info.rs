@@ -101,6 +101,9 @@ pub struct Info {
     /// Its base branch, and whether it conflicts with it.
     pub base: String,
     pub conflicts: bool,
+    /// An issue's: when it last changed, and the PRs linked as fixing it (number, state, head).
+    pub updated: String,
+    pub fixes: Vec<(u64, String, String)>,
 }
 
 /// The PR section's lines, its title, head, URL and state, its commits GitHub has no valid
@@ -111,7 +114,22 @@ pub fn parse_info(v: &Value) -> Info {
     // (What fails that decides: required checks, when its base names any.)
     let failing = gate(v["statusCheckRollup"].as_array().map(Vec::as_slice).unwrap_or(&[])).1;
     let awaiting = v["dvAwaiting"].as_u64().unwrap_or(0) as usize;
-    Info { lines: info_lines(v), title: s("title"), head: s("headRefOid"), url: s("url"), state: state(v), unsigned, awaiting, failing, base: s("baseRefName"), conflicts: s("mergeable") == "CONFLICTING" }
+    let fixes = v["dvFixes"].as_array().into_iter().flatten();
+    let fixes = fixes.map(|p| (p["number"].as_u64().unwrap_or(0), p["state"].as_str().unwrap_or("").to_owned(), p["headRefOid"].as_str().unwrap_or("").to_owned())).collect();
+    Info {
+        lines: info_lines(v),
+        title: s("title"),
+        head: s("headRefOid"),
+        url: s("url"),
+        state: state(v),
+        unsigned,
+        awaiting,
+        failing,
+        base: s("baseRefName"),
+        conflicts: s("mergeable") == "CONFLICTING",
+        updated: s("updatedAt"),
+        fixes,
+    }
 }
 
 /// A PR's state as GitHub shows it, with its color: DRAFT, OPEN, MERGED or CLOSED.

@@ -51,11 +51,7 @@ pub(crate) fn recent_github(n: u64) -> Option<(gh::Pr, Value)> {
 
 /// Where the PR's (or issue's) last answers from GitHub are kept, to show at once next time.
 pub(super) fn cache_path(s: Subject) -> Option<PathBuf> {
-    let name = match s {
-        Subject::Pr(n) => format!("pr-{n}"),
-        Subject::Issue(n) => format!("issue-{n}"),
-    };
-    Some(crate::claude::dv_dir().ok()?.join("cache").join(format!("{name}.json")))
+    Some(crate::claude::dv_dir().ok()?.join("cache").join(format!("{}.json", s.name())))
 }
 
 /// For `dv list`: PR `n`'s comments and info from GitHub, kept for its first opening if
@@ -127,10 +123,7 @@ impl App {
         let (poke, poked) = std::sync::mpsc::channel();
         self.github_poke = Some(poke);
         let cache = cache_path(s);
-        let etag_of = move |e: &str| match s {
-            Subject::Pr(n) => gh::pr_etag(n, e),
-            Subject::Issue(n) => gh::issue_etag(n, e),
-        };
+        let etag_of = move |e: &str| gh::etag_of(&s.api_path(), e);
         std::thread::spawn(move || {
             let mut etag = etag_of("").ok().flatten().unwrap_or_default();
             // CI's checks change on the head commit, not the PR: their ETag, watched too. The
@@ -241,7 +234,7 @@ impl App {
             Err(e) => self.msg = format!("loading comments: {e:#}"),
         }
         match info {
-            Ok(Info { lines, title, head, url, state, unsigned, awaiting, failing, base, conflicts }) => {
+            Ok(Info { lines, title, head, url, state, unsigned, awaiting, failing, base, conflicts, updated, fixes }) => {
                 (self.awaiting, self.failing, self.conflicts) = (awaiting, failing, conflicts);
                 (self.info, self.pr_state) = (lines, Some(state));
                 // GitHub's word on its commits' signatures, for the contents' commits (none this
@@ -258,7 +251,7 @@ impl App {
                         self.github_base = Some(base);
                     }
                 } else if let Some(i) = &mut self.issue {
-                    (i.title, i.url) = (title, url);
+                    (i.title, i.url, i.updated, i.fixes) = (title, url, updated, fixes);
                 }
                 self.refresh_sync(); // the PR's head may have moved
             }

@@ -1828,7 +1828,7 @@ fn github_changes_shown_when_idle() {
     newer[0].comments.push(reply);
     let fetched = |threads: Vec<Thread>| -> github::Fetched {
         let r = gh::Review { pr_id: "PR".into(), mine: true, me: "you".into(), pending: None, pending_body: String::new(), threads, viewed: Default::default() };
-        (Ok(r), Ok(Info { lines: app_info(), title: "Fix the thing".into(), head: "abc".into(), url: String::new(), state: ("OPEN", "238636"), unsigned: Some(vec![]), awaiting: 0, failing: 0, base: String::new(), conflicts: false }))
+        (Ok(r), Ok(Info { lines: app_info(), title: "Fix the thing".into(), head: "abc".into(), url: String::new(), state: ("OPEN", "238636"), unsigned: Some(vec![]), awaiting: 0, failing: 0, base: String::new(), conflicts: false, updated: String::new(), fixes: vec![] }))
     };
     let replies = |app: &App| app.threads.iter().flat_map(|t| &t.comments).filter(|c| c.body == "Fair.").count();
     // Mid-way through something (here a picker): it waits. (What's shown came from the cache.)
@@ -4231,6 +4231,17 @@ fn an_issue_in_the_pr_view() {
     app.key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
     app.key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE));
     assert_eq!(app.msg, git::NO_CODE);
+    // What's GitHub's works on an issue as on a PR: Space l (its labels), Space o (all of its
+    // conversation); `c` has no review to queue into.
+    app.key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
+    assert!(matches!(app.job, Some(Job::Labels)), "{}", app.msg);
+    app.job = None;
+    let all = app.conversation_all;
+    app.toggle_conversation();
+    assert_ne!(app.conversation_all, all, "{}", app.msg);
+    app.quote_into_summary();
+    assert!(app.msg.starts_with("an issue has no review"), "{}", app.msg);
     _ = std::fs::remove_dir_all(dir);
 }
 

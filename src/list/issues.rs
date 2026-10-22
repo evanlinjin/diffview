@@ -183,11 +183,10 @@ pub fn about_issue(it: &crate::todo::Item, i: &Issue, t: Option<&Triage>) -> Str
     v.to_string()
 }
 
-/// Claude triages issue `n` (`extra`: your instructions), in the main checkout, reading only
-/// (it can't edit: its answer is the triage, which dv writes to `issue-N.json` beside the PRs'
-/// reviews).
-fn triage_run(n: u64, updated: &str, fixes: &[(u64, String, String)], root: &std::path::Path, extra: &str) -> Result<batch::Status> {
-    let file = crate::claude::dv_dir()?.join("reviews").join(format!("issue-{n}.json"));
+/// The command Claude triages issue `n` with (`fixes`: the PRs linked as fixing it; `extra`:
+/// your instructions), in the checkout at `root`, reading only: its answer is the triage, as
+/// JSON, for `save_triage` (dv list's and the issue's view alike).
+pub(crate) fn triage_command(n: u64, fixes: &[(u64, String, String)], root: &std::path::Path, extra: &str) -> std::process::Command {
     let base = crate::diff::remote_branch(&crate::diff::default_branch());
     let prompt = format!(
         "{}Use the dv-review skill to triage issue #{n} (see \"Triage an issue\"); the code as it is on the base branch \
@@ -206,18 +205,37 @@ fn triage_run(n: u64, updated: &str, fixes: &[(u64, String, String)], root: &std
     );
     let prompt = crate::claude::with_instructions(&prompt, extra);
     let tools = ["Bash(gh issue view:*)", "Bash(gh issue list:*)", "Bash(gh search:*)", "Bash(gh label list:*)"];
-    let out = crate::claude::claude_reader(crate::claude::Work::Triage, &prompt, root, &tools).stdin(std::process::Stdio::null()).output().context("is Claude Code (`claude`) installed?")?;
-    let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
+    let mut cmd = crate::claude::claude_reader(crate::claude::Work::Triage, &prompt, root, &tools);
+    cmd.stdin(std::process::Stdio::null());
+    cmd
+}
+
+/// What a triage run of issue `n` said (`claude -p`'s JSON, `v`), merged into its file (as of
+/// `updated`, the issue's; `fixes`, as asked): how many turns it took, what it cost.
+pub(crate) fn save_triage(n: u64, updated: &str, fixes: &[(u64, String, String)], v: &Value) -> Result<String> {
+    let file = crate::claude::Subject::Issue(n).path()?;
     let answer = v["result"].as_str().unwrap_or("");
-    // (Its own word for what went wrong, where it said one.)
-    let why = if answer.is_empty() { String::from_utf8_lossy(&out.stderr).lines().last().unwrap_or("").to_owned() } else { answer.lines().next().unwrap_or("").to_owned() };
-    anyhow::ensure!(out.status.success() && v["is_error"] == false, "Claude stopped ({}): {why}", out.status);
     let t = crate::claude::json_in(answer, '{').filter(Value::is_object).context("no triage in Claude's answer")?;
     let old: Value = std::fs::read_to_string(&file).ok().and_then(|o| serde_json::from_str(&o).ok()).unwrap_or_default();
     let t = merge_triage(&old, t, n, updated, fixes);
     std::fs::create_dir_all(file.parent().context("no dir")?)?;
     crate::claude::write(&file, &t)?;
-    Ok(batch::Status::Done(format!("{} turns, ${:.2}", v["num_turns"].as_u64().unwrap_or(0), v["total_cost_usd"].as_f64().unwrap_or(0.0))))
+    Ok(format!("{} turns, ${:.2}", v["num_turns"].as_u64().unwrap_or(0), v["total_cost_usd"].as_f64().unwrap_or(0.0)))
+}
+
+/// Claude triages issue `n` here (dv list's): marked at it meanwhile, for the issue's view (and
+/// any dv) to see.
+fn triage_run(n: u64, updated: &str, fixes: &[(u64, String, String)], root: &std::path::Path, extra: &str) -> Result<batch::Status> {
+    crate::claude::mark_running(n, "triaging", Some(std::process::id()), None);
+    let out = triage_command(n, fixes, root, extra).output();
+    crate::claude::clear_running(n);
+    let out = out.context("is Claude Code (`claude`) installed?")?;
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
+    let answer = v["result"].as_str().unwrap_or("");
+    // (Its own word for what went wrong, where it said one.)
+    let why = if answer.is_empty() { String::from_utf8_lossy(&out.stderr).lines().last().unwrap_or("").to_owned() } else { answer.lines().next().unwrap_or("").to_owned() };
+    anyhow::ensure!(out.status.success() && v["is_error"] == false, "Claude stopped ({}): {why}", out.status);
+    save_triage(n, updated, fixes, &v).map(batch::Status::Done)
 }
 
 /// What an issue's triage says (Claude's word on it, each triage anew).
@@ -225,16 +243,22 @@ const TRIAGE_KEYS: [&str; 10] = ["kind", "priority", "summary", "next", "labels"
 
 /// A new triage `t` of issue `n` (as of `updated`, with the PRs linked as fixing it) in its
 /// file as it was (`old`): what the last triage said goes, the rest stays (the talk with
-/// Claude, its proposals). A closing comment drafted for it (`X X`) stays too while this
-/// triage still says to close it and has none of its own.
+/// Claude, its proposals). A closing comment drafted for it stays too while this triage still
+/// says to close it and has none of its own; and a title proposed with a new text you asked
+/// for (`"title"` with `"description"`), till you approve or drop it.
 fn merge_triage(old: &Value, t: Value, n: u64, updated: &str, fixes: &[(u64, String, String)]) -> Value {
     let said = |v: &Value, k: &str| v[k].as_str().is_some_and(|c| !c.trim().is_empty());
     let keep_closing = said(&t, "close") && !said(&t, "closing") && said(old, "closing");
+    let proposing = said(old, "description");
     let mut m = old.as_object().cloned().unwrap_or_default();
-    for k in TRIAGE_KEYS {
+    let mut t = t.as_object().cloned().unwrap_or_default();
+    for k in TRIAGE_KEYS.into_iter().filter(|&k| !(proposing && k == "title")) {
         m.remove(k);
     }
-    m.extend(t.as_object().cloned().unwrap_or_default());
+    if proposing {
+        t.remove("title");
+    }
+    m.extend(t);
     if keep_closing {
         for k in ["closing", "reason", "duplicate_of"] {
             m.insert(k.into(), old[k].clone());
@@ -259,6 +283,9 @@ fn a_triage_keeps_the_rest_of_the_file() {
     assert_eq!((t["closing"].as_str(), t["reason"].as_str(), t["fixes_seen"][0].as_u64()), (Some("Thanks!"), Some("completed"), Some(9)));
     // Not to close now: no closing comment.
     assert!(merge_triage(&old, serde_json::json!({ "summary": "keep it" }), 7, "u", &[])["closing"].is_null());
+    // A title proposed with a new text you asked for stays (the triage's own one waits).
+    let old = serde_json::json!({ "title": "Asked for", "description": "proposed" });
+    assert_eq!(merge_triage(&old, serde_json::json!({ "title": "Triage's" }), 7, "u", &[])["title"], "Asked for");
 }
 
 /// Whether `k` is for moving about, the tabs, the filter, the help (`Nav`) while `pending`
@@ -301,43 +328,6 @@ fn fixes_text(fixes: &[(u64, String, String)]) -> String {
     fixes.iter().map(|(n, s, _)| format!("#{n} ({})", s.to_lowercase())).collect::<Vec<_>>().join(", ")
 }
 
-/// Claude drafts a comment closing issue `n` (reading only), in the background: kept in its
-/// review file (`close`, `closing`, `reason`, `duplicate_of`), for its view to close with.
-fn draft_closing(n: u64, root: PathBuf) -> Receiver<Result<String>> {
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        let res = crate::batch::guarded(|| -> Result<String> {
-            let file = crate::claude::Subject::Issue(n).path()?;
-            let prompt = format!(
-                "{}The maintainer is closing issue #{n}. Read it (`gh issue view {n} --comments`, its triage and your talk \
-                 about it in {} if there are any, related issues and PRs) and draft the comment it closes with: short, kind, \
-                 saying why (fixed by which PR, a duplicate of which issue, answered, out of scope, stale), thanking the author \
-                 where it fits. Reply with only a JSON object: {{\"close\": \"why, a few words\", \"closing\": \"the comment, \
-                 markdown\", \"reason\": \"completed\" | \"not planned\" | \"duplicate\", \"duplicate_of\": N or null}}. (It's {} now.)",
-                crate::claude::notes_preamble(),
-                file.display(),
-                crate::claude::now()
-            );
-            let tools = ["Bash(gh issue view:*)", "Bash(gh issue list:*)", "Bash(gh pr view:*)", "Bash(gh search:*)"];
-            let out = crate::claude::claude_reader(crate::claude::Work::Close, &prompt, &root, &tools).stdin(std::process::Stdio::null()).output()?;
-            let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
-            anyhow::ensure!(v["is_error"] == false, "Claude stopped ({})", out.status);
-            let d = crate::claude::json_in(v["result"].as_str().unwrap_or(""), '{').filter(Value::is_object).context("no draft in what Claude said")?;
-            let said = |k: &str| d[k].as_str().is_some_and(|s| !s.trim().is_empty());
-            anyhow::ensure!(said("close") && said("closing"), "Claude's draft said no why or no comment");
-            let mut t: Value = std::fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| serde_json::json!({ "issue": n }));
-            for k in ["close", "closing", "reason", "duplicate_of"] {
-                t[k] = d[k].clone();
-            }
-            std::fs::create_dir_all(file.parent().context("no dir")?)?;
-            crate::claude::write(&file, &t)?;
-            Ok(format!("Claude drafted a comment closing #{n}: Enter opens it, Space a closes it with it"))
-        });
-        _ = tx.send(res);
-    });
-    rx
-}
-
 /// What the issues list asks of its caller.
 pub enum IssuesDo {
     Quit,
@@ -377,8 +367,8 @@ pub struct Issues {
     drafts: Vec<Receiver<(u64, batch::Status)>>,
     /// Those drafts not done yet (by id).
     drafting: HashSet<u64>,
-    /// A closing comment Claude's drafting (for which issue), on its way; one at a time.
-    claude_rx: Option<(u64, Receiver<Result<String>>)>,
+    /// A closing comment Claude's drafting (`batch`'s, as for a PR's), on its way; one at a time.
+    claude_rx: Option<Receiver<(u64, batch::Status)>>,
     /// Auto (`C`, git config `dv.auto`, as dv list's): Claude triages what isn't triaged, and
     /// what's changed since, and ranks the todo again. Whether it's started (the first fetch
     /// in), what it's done (once each), and when it last ranked.
@@ -466,16 +456,18 @@ impl Issues {
             self.triage(run, String::new());
         }
         // An issue Claude would close with no closing comment drafted yet: drafted, one at a time,
-        // once each (X X then closes with it, your editor first).
+        // once each (its view closes with it, your editor first).
         if self.claude_rx.is_none() && !started {
             let dir = self.reviews_dir.clone();
             let drafted = |n: u64| dir.as_ref().and_then(|d| std::fs::read_to_string(d.join(format!("issue-{n}.json"))).ok()).is_some_and(|t| serde_json::from_str::<Value>(&t).is_ok_and(|v| v["closing"].as_str().is_some_and(|c| !c.trim().is_empty())));
             // (Not what you've put aside.)
             let deferred: HashSet<u64> = self.todos.items.iter().filter(|it| it.deferred.is_some()).map(|it| it.number).collect();
-            let next = self.items.iter().map(|i| (i.number, i.updated.clone())).find(|(n, u)| !deferred.contains(n) && self.close_why(*n).is_some() && !drafted(*n) && !self.auto_done.contains(&(*n, format!("closing@{u}"))));
+            let next = self.items.iter().map(|i| (i.number, i.updated.clone())).find(|(n, u)| {
+                !deferred.contains(n) && self.close_why(*n).is_some() && !drafted(*n) && !self.auto_done.contains(&(*n, format!("closing@{u}"))) && crate::claude::at_work(*n).is_none()
+            });
             if let Some((n, u)) = next {
                 self.auto_done.insert((n, format!("closing@{u}")));
-                self.claude_rx = Some((n, draft_closing(n, self.root.clone())));
+                self.claude_rx = Some(batch::start_issue(n, batch::Task::Close, self.root.clone()));
                 self.say(format!("auto: Claude is drafting a comment closing #{n}"));
             }
         }
@@ -636,20 +628,13 @@ impl Issues {
                     _ => {}
                 }
             }
-            // (Its thread gone without a word: as a failure, not drafting forever.)
-            let news = self.claude_rx.as_ref().map(|(_, rx)| rx.try_recv());
-            if let Some(Ok(_) | Err(mpsc::TryRecvError::Disconnected)) = &news {
-                let n = self.claude_rx.take().map_or(0, |c| c.0);
-                let res = match news {
-                    Some(Ok(r)) => r,
-                    _ => Err(anyhow::anyhow!("its run stopped")),
-                };
-                match res {
-                    Ok(said) => {
-                        self.msg = said;
-                        self.reviews_mtime = None;
+            for (n, st) in self.claude_rx.iter().flat_map(|rx| rx.try_iter()).collect::<Vec<_>>() {
+                match st {
+                    batch::Status::Done(took) => {
+                        (self.msg, self.claude_rx, self.reviews_mtime) = (format!("Claude drafted a comment closing #{n} ({took}): Enter opens it, Space a closes it with it"), None, None);
                     }
-                    Err(e) => self.msg = format!("#{n}: {e:#}"),
+                    batch::Status::Failed(e) => (self.msg, self.claude_rx) = (format!("#{n}: no closing comment: {}", e.lines().next().unwrap_or("")), None),
+                    _ => {}
                 }
             }
             for (n, st) in self.running_rx.iter().flat_map(|rx| rx.try_iter()).collect::<Vec<_>>() {
@@ -862,8 +847,10 @@ impl Issues {
 
     /// Claude triages `ns` (`extra`: your instructions), each as listed now (`Ask`).
     fn triage(&mut self, ns: Vec<u64>, extra: String) {
+        // (Not one Claude's at already, from an issue's view, say: its triage is on its way.)
         let asks = ns
             .into_iter()
+            .filter(|&n| crate::claude::at_work(n).is_none())
             .map(|n| match self.items.iter().find(|i| i.number == n) {
                 Some(i) => Ask { n, updated: i.updated.clone(), fixes: i.fixed_by.clone() },
                 None => Ask { n, updated: String::new(), fixes: vec![] },

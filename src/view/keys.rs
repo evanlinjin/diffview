@@ -517,7 +517,7 @@ impl App {
             (' ', 'c') => self.copy_ref(),
             (' ', 'r') => self.toggle_resolved(),
             (' ', '=' | '+') => self.start_react(),
-            (' ', 'l') => match self.pr {
+            (' ', 'l') => match self.subject() {
                 Some(_) => self.start(Job::Labels),
                 None => self.msg = "no PR here".into(),
             },

@@ -407,8 +407,20 @@ fn run_view(app: &mut view::App, term: &mut ratatui::DefaultTerminal) -> anyhow:
                 app.hand_off = Some(to);
                 return Ok(());
             }
-            // An issue: in the PR view too, its own, as it was when it comes back.
-            view::HandOff::Issue(n) => view::App::open_issue(n).and_then(|mut a| run_view(&mut a, term)).with_context(|| format!("#{n}")).map(|_| None),
+            // An issue: in the PR view too, its own, as it was when it comes back; a PR its link
+            // goes to, handed on as this view hands them (`hands_prs`).
+            view::HandOff::Issue(n) => match view::App::open_issue(n) {
+                Ok(mut a) => {
+                    a.hands_prs = app.hands_prs;
+                    let shown = run_view(&mut a, term);
+                    if let Some(pr @ view::HandOff::Pr(_)) = a.hand_off.take() {
+                        app.hand_off = Some(pr);
+                        return shown;
+                    }
+                    shown.with_context(|| format!("#{n}")).map(|_| None)
+                }
+                Err(e) => Err(e).with_context(|| format!("#{n}")),
+            },
             view::HandOff::Replacement(id) => {
                 let here = std::env::current_dir()?;
                 let shown = main_checkout(&here).and_then(|root| replacement_view(id, &root, term));

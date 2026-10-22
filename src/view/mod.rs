@@ -343,6 +343,9 @@ pub(super) struct IssueRec {
     pub number: u64,
     pub title: String,
     pub url: String,
+    /// When it last changed, and the PRs linked as fixing it: what a triage is as of.
+    pub updated: String,
+    pub fixes: Vec<(u64, String, String)>,
 }
 
 /// What a view hands over to show instead, and comes back to after.
@@ -411,7 +414,7 @@ impl Target {
             Target::ClaudeDismissOutdated(_) => ('\u{f48e}', Danger, "Review"),
             Target::Claude(Ask::Fix | Ask::Edit) => ('\u{f448}', Claude, "Changes"),
             Target::Claude(Ask::FixChecks) => ('\u{f425}', Claude, "Changes"),
-            Target::Do(Action::CiFixPr | Action::NewPr(_)) => ('\u{f407}', Claude, "Changes"),
+            Target::Do(Action::CiFixPr | Action::NewPr { .. }) => ('\u{f407}', Claude, "Changes"),
             Target::Claude(Ask::Describe) => ('\u{f4ed}', Claude, "Description"),
             Target::DescApprove(_) => ('\u{f42e}', Good, "Description"),
             Target::DescDiscard => ('\u{f48e}', Danger, "Description"),

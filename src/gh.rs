@@ -414,19 +414,9 @@ pub(crate) fn next_page(list: &Value) -> Option<String> {
     (p["hasNextPage"] == true).then(|| p["endCursor"].as_str().map(str::to_owned)).flatten()
 }
 
-/// The PR's ETag, if it has changed from `etag` (empty: the first look); `None` if GitHub says
-/// 304 Not Modified, which doesn't count against the rate limit. New comments, replies, reviews
-/// and pushes change it; edits and resolving a thread don't.
-pub fn pr_etag(n: u64, etag: &str) -> Result<Option<String>> {
-    etag_of(&format!("repos/{{owner}}/{{repo}}/pulls/{n}"), etag)
-}
-
-/// An issue's ETag, as `pr_etag`'s (a new comment changes it too).
-pub fn issue_etag(n: u64, etag: &str) -> Result<Option<String>> {
-    etag_of(&format!("repos/{{owner}}/{{repo}}/issues/{n}"), etag)
-}
-
-/// API `path`'s ETag, if it has changed from `etag` (`None`: 304 Not Modified, free).
+/// API `path`'s ETag, if it has changed from `etag` (empty: the first look); `None` if GitHub
+/// says 304 Not Modified, which doesn't count against the rate limit. A PR's (or an issue's):
+/// new comments, replies, reviews and pushes change it; edits and resolving a thread don't.
 pub(crate) fn etag_of(path: &str, etag: &str) -> Result<Option<String>> {
     let header = format!("If-None-Match: {etag}");
     let mut args = vec!["api", "-i", path];
@@ -1070,7 +1060,7 @@ pub fn issue_json(n: u64) -> Result<Value> {
     let q = "query($owner: String!, $name: String!, $n: Int!) { viewer { login } repository(owner: $owner, name: $name) { issue(number: $n) { \
              __typename id number title url body state stateReason createdAt updatedAt author { login } viewerDidAuthor \
              labels(first: 100) { nodes { name color } } assignees(first: 50) { nodes { login } } \
-             closedByPullRequestsReferences(first: 20, includeClosedPrs: true) { nodes { number title state url } } } } }";
+             closedByPullRequestsReferences(first: 20, includeClosedPrs: true) { nodes { number title state url headRefOid } } } } }";
     let t = gh_json(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-F", &format!("n={n}"), "-f", &format!("query={q}")])?;
     let mut v = t["data"]["repository"]["issue"].clone();
     // (GitHub's reason, if it gave one: a PR's number, no access to the repo.)

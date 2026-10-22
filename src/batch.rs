@@ -1,6 +1,7 @@
 //! Batch reviews from `dv list`: Claude reviews each marked PR in the background, in the PR's
 //! worktree (`<repo>-N`, as `dv N -w` makes it), a couple at a time. Each gets the PR's own
 //! session and review file, so opening the PR in dv later picks up where it left off.
+use crate::claude::Subject;
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -73,8 +74,8 @@ impl Task {
         }
     }
 
-    fn prompt(&self, n: u64) -> String {
-        let what = format!("PR #{n}");
+    fn prompt(&self, s: crate::claude::Subject) -> String {
+        let (n, what) = (s.n(), s.what());
         match self {
             Task::Review => crate::claude::review_prompt(&what),
             Task::Update(old) => crate::claude::update_prompt(&what, old),
@@ -82,8 +83,8 @@ impl Task {
             Task::FixChecks => crate::claude::fix_checks_prompt(n),
             Task::Close => format!(
                 "Use the dv-review skill to draft a comment closing {what}, in the review file's top-level \"closing\" \
-                 field (see \"Draft a closing comment\"): your review says it should be closed. Don't close the PR or \
-                 comment on GitHub: the user closes it in dv."
+                 field (see \"Draft a closing comment\"): your review (or triage) says it should be closed. Don't close it \
+                 or comment on GitHub: the user closes it in dv."
             ),
             Task::Describe(old) => format!(
                 "{what} has changed since {old} (`git diff {old} HEAD`; that commit gone, a force-push: the whole PR, \
@@ -107,7 +108,19 @@ impl Status {
 /// the task) from the repo at `root`, with the user's `extra` instructions (if any); progress
 /// comes back on the receiver.
 pub fn start(prs: Vec<(u64, bool, Task)>, root: PathBuf, extra: String) -> Receiver<(u64, Status)> {
-    pool(prs, move |(n, branch, task), tx| (*n, run(*n, *branch, task, &root, &extra, tx).unwrap_or_else(|e| Status::Failed(format!("{e:#}")))))
+    pool(prs, move |(n, branch, task), tx| (*n, run(Subject::Pr(*n), *branch, task, &root, &extra, tx).unwrap_or_else(|e| Status::Failed(format!("{e:#}")))))
+}
+
+/// Claude does `task` on issue `n` (its closing comment, say), in the checkout at `root`: as
+/// on a PR, its review file the issue's.
+/// (Marked at it meanwhile, for the issue's view, and any dv, to see.)
+pub fn start_issue(n: u64, task: Task, root: PathBuf) -> Receiver<(u64, Status)> {
+    pool(vec![n], move |n, tx| {
+        crate::claude::mark_running(*n, task.doing(), Some(std::process::id()), None);
+        let st = run(Subject::Issue(*n), false, &task, &root, "", tx).unwrap_or_else(|e| Status::Failed(format!("{e:#}")));
+        crate::claude::clear_running(*n);
+        (*n, st)
+    })
 }
 
 /// Something to do (a PR to review, an issue to triage): its number first.
@@ -152,24 +165,31 @@ pub fn pool<T: Numbered + Send + 'static>(items: Vec<T>, work: impl Fn(&T, &Send
     rx
 }
 
-fn run(n: u64, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sender<(u64, Status)>) -> anyhow::Result<Status> {
+fn run(s: Subject, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sender<(u64, Status)>) -> anyhow::Result<Status> {
     use anyhow::Context;
+    let n = s.n();
     _ = tx.send((n, Status::Preparing));
-    // The worktree, checked out at the PR (by a dv of its own: that changes directory).
-    let mut prep = std::process::Command::new(crate::self_exe());
-    prep.args(["prepare-worktree", &n.to_string()]).current_dir(root);
-    if branch {
-        prep.arg("-b");
-    }
-    let out = prep.stdin(std::process::Stdio::null()).output()?;
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
-        anyhow::bail!("{}", err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("preparing the worktree failed").trim());
-    }
-    let out = String::from_utf8_lossy(&out.stdout);
-    let mut said = out.lines();
-    let dir = PathBuf::from(said.next().unwrap_or("").trim());
-    let note = said.next().unwrap_or("").trim();
+    // The worktree, checked out at the PR (by a dv of its own: that changes directory); an
+    // issue's, here (no code of its own).
+    let (dir, note) = match s {
+        Subject::Issue(_) => (root.to_path_buf(), String::new()),
+        Subject::Pr(_) => {
+            let mut prep = std::process::Command::new(crate::self_exe());
+            prep.args(["prepare-worktree", &n.to_string()]).current_dir(root);
+            if branch {
+                prep.arg("-b");
+            }
+            let out = prep.stdin(std::process::Stdio::null()).output()?;
+            if !out.status.success() {
+                let err = String::from_utf8_lossy(&out.stderr);
+                anyhow::bail!("{}", err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("preparing the worktree failed").trim());
+            }
+            let out = String::from_utf8_lossy(&out.stdout);
+            let mut said = out.lines();
+            (PathBuf::from(said.next().unwrap_or("").trim()), said.next().unwrap_or("").trim().to_owned())
+        }
+    };
+    let note = note.as_str();
     // An update reviews what's new over the commit reviewed, as checked out here. The checkout
     // still there (kept back for work in it): nothing to review. Rewritten (force-pushed,
     // rebased): all of it is new.
@@ -190,15 +210,15 @@ fn run(n: u64, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sender<
     };
     // The PR's session in that checkout, as dv there would resume it (a new one, if it has
     // none, or one from another version of the skill).
-    let review = crate::claude::path(Some(n))?;
+    let review = s.path()?;
     let session = crate::claude::session_args(&review, &dir)?;
     _ = tx.send((n, Status::Reviewing));
-    let prompt = format!("{} (It's {} now.)", task.prompt(n), crate::claude::now());
+    let prompt = format!("{} (It's {} now.)", task.prompt(s), crate::claude::now());
     let prompt = crate::claude::with_instructions(&prompt, extra);
     let log = std::env::temp_dir().join(format!("dv-claude-batch-{}-{n}.log", std::process::id()));
     let more = crate::claude::tools_for(matches!(task, Task::FixChecks).then_some(n), matches!(task, Task::Answer { .. }));
     let st = crate::claude::claude_command(task.work(), &prompt, &dir, &session, &more.iter().map(String::as_str).collect::<Vec<_>>(), None)
-        .env(crate::claude::PR_ENV, n.to_string())
+        .envs([s.env()])
         .stdin(std::process::Stdio::null())
         .stdout(std::fs::File::create(&log)?)
         .stderr(std::fs::File::create(log.with_extension("err"))?)

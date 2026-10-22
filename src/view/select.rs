@@ -46,7 +46,7 @@ impl App {
         let at = [self.file_ref(), self.pr.as_ref().map(|p| format!("PR #{}", p.number))].into_iter().flatten().collect::<Vec<_>>().join(", ");
         let from = if at.is_empty() { String::new() } else { format!(" ({at})") };
         // (A fence of four: one of three in the text doesn't end it.)
-        self.action = Some(Action::NewPr(format!("From this{from}:\n\n````\n{}\n````\n\nWhat a PR should do about it: ", t.trim_end())));
+        self.action = Some(Action::NewPr { prefill: format!("From this{from}:\n\n````\n{}\n````\n\nWhat a PR should do about it: ", t.trim_end()), as_is: false });
     }
 
     pub(super) fn yank(&mut self, patch: bool) {
