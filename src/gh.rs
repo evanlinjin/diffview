@@ -121,6 +121,12 @@ pub(crate) fn login(v: &Value) -> String {
     l.strip_prefix("app/").unwrap_or(l).to_owned()
 }
 
+/// `v`'s page on GitHub (a bot's is under /apps/: gh's `is_bot`, GraphQL's `Bot`).
+pub(crate) fn page(v: &Value) -> String {
+    let app = v["is_bot"] == true || v["__typename"] == "Bot";
+    format!("https://github.com/{}{}", if app { "apps/" } else { "" }, login(v))
+}
+
 /// Whether `err` (a gh run's, as said) is GitHub out of reach (the network: a timeout, no
 /// connection, no DNS), not something to see to (a login run out, a refusal).
 pub(crate) fn unreachable(err: &str) -> bool {
@@ -1079,7 +1085,7 @@ const ISSUE_ACTIVITY: &str = "\
 /// state, labels, who has it, the PRs that would close it (`dvFixes`), and its activity.
 pub fn issue_json(n: u64) -> Result<Value> {
     let q = "query($owner: String!, $name: String!, $n: Int!) { viewer { login } repository(owner: $owner, name: $name) { issue(number: $n) { \
-             __typename id number title url body state stateReason createdAt updatedAt author { login } viewerDidAuthor \
+             __typename id number title url body state stateReason createdAt updatedAt author { __typename login } viewerDidAuthor \
              labels(first: 100) { nodes { name color } } assignees(first: 50) { nodes { login } } \
              closedByPullRequestsReferences(first: 20, includeClosedPrs: true) { nodes { number title state url headRefOid } } } } }";
     let t = gh_json(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-F", &format!("n={n}"), "-f", &format!("query={q}")])?;

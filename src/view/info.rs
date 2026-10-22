@@ -166,9 +166,7 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
     // Author, branches, size (the state is on the PR's header line); an issue's, when.
     let author = crate::gh::login(&v["author"]);
     let mut l = InfoLine::new(false, false);
-    // (A bot's page is under /apps/.)
-    let page = if v["author"]["is_bot"] == true || v["author"]["__typename"] == "Bot" { "apps/" } else { "" };
-    l.put(&format!("@{author}"), Some(Mark::Link(format!("https://github.com/{page}{author}"))));
+    l.put(&format!("@{author}"), Some(Mark::Link(crate::gh::page(&v["author"]))));
     match issue {
         true => _ = l.put(&format!(" · opened {}", ago(&s(&v["createdAt"]))), None),
         false => {

@@ -5491,4 +5491,7 @@ fn a_bots_login_and_page() {
     let lines = info::parse_info(&v).lines;
     let author = lines.iter().find(|l| l.text.starts_with("@dependabot")).expect("its author line");
     assert!(author.marks.iter().any(|m| matches!(&m.2, info::Mark::Link(u) if u == "https://github.com/apps/dependabot")));
+    // An issue's (GraphQL's shape): a Bot.
+    assert_eq!(gh::page(&serde_json::json!({ "__typename": "Bot", "login": "github-actions" })), "https://github.com/apps/github-actions");
+    assert_eq!(gh::page(&serde_json::json!({ "__typename": "User", "login": "amy" })), "https://github.com/amy");
 }
