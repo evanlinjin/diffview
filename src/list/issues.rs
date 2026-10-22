@@ -368,8 +368,10 @@ pub struct Issues {
     running_rx: Vec<Receiver<(u64, batch::Status)>>,
     reviews_dir: Option<PathBuf>,
     reviews_mtime: Option<std::time::SystemTime>,
-    /// When the drafts fixing issues were last looked at (`watch_drafts`).
+    /// When the drafts fixing issues were last looked at (`watch_drafts`), and what Claude's
+    /// doing, by key, then (`claude::sweep_running`).
     drafts_checked: Option<std::time::Instant>,
+    at_work: HashMap<String, String>,
     fetched: Option<Receiver<Fetch>>,
     /// Claude's drafts of PRs fixing issues, under way.
     drafts: Vec<Receiver<(u64, batch::Status)>>,
@@ -406,7 +408,6 @@ impl Issues {
         self.fetched = Some(rx);
     }
 
-    /// Claude's triages, read again when the reviews' directory changes.
     /// Drafts fixing issues, every couple of seconds: one started, redrafted or done from
     /// anywhere (another dv, the draft's view), or Claude at it there or not, moves its issue.
     fn watch_drafts(&mut self) {
@@ -414,11 +415,14 @@ impl Issues {
             return;
         }
         self.drafts_checked = Some(std::time::Instant::now());
-        if draft_fix(&records(), &self.drafting) != self.draft_fix {
+        let Some(dir) = self.reviews_dir.as_ref().and_then(|d| d.parent()).map(|d| d.join("running")) else { return };
+        self.at_work = crate::claude::sweep_running(&dir, &std::cell::OnceCell::new());
+        if draft_fix(&records(), &self.drafting, &self.at_work) != self.draft_fix {
             self.find_todo();
         }
     }
 
+    /// Claude's triages, read again when the reviews' directory changes.
     fn watch_reviews(&mut self) {
         let Some(dir) = &self.reviews_dir else { return };
         let mtime = std::fs::metadata(dir).and_then(|m| m.modified()).ok();
@@ -447,7 +451,7 @@ impl Issues {
             })
             .collect();
         // (A draft fixing it, unpublished: its record's task starts "Fix #N", as `N N` has it.)
-        self.draft_fix = draft_fix(&records(), &self.drafting);
+        self.draft_fix = draft_fix(&records(), &self.drafting, &self.at_work);
         let items: Vec<Item> = items.into_iter().filter(|it| !self.draft_fix.contains_key(&it.number)).collect();
 
         let met = self.todos.met(&items, |_, c, _| self.happened(c));
@@ -1139,13 +1143,13 @@ fn records() -> Vec<crate::replace::Record> {
 /// Unpublished drafts fixing an issue: the issue → the draft's label, what Claude's doing on it
 /// (its claims say, or this dv just started drafting it: not claimed yet). One whose run
 /// failed or stopped before drafting doesn't count: nothing to wait on.
-fn draft_fix(records: &[crate::replace::Record], here: &HashSet<u64>) -> HashMap<u64, (String, Option<String>)> {
+fn draft_fix(records: &[crate::replace::Record], here: &HashSet<u64>, at_work: &HashMap<String, String>) -> HashMap<u64, (String, Option<String>)> {
     records
         .iter()
         .filter(|r| r.published.is_none())
         .filter_map(|r| {
             let n = crate::replace::fixes(&r.task)?;
-            let at_it = if here.contains(&r.id) { Some("drafting".to_owned()) } else { r.at_work() };
+            let at_it = if here.contains(&r.id) { Some("drafting".to_owned()) } else { at_work.get(&crate::claude::rep_key(r.id)).cloned() };
             (at_it.is_some() || !r.title.is_empty()).then(|| (n, (crate::replace::label(r.id), at_it)))
         })
         .collect()
@@ -1285,7 +1289,7 @@ fn a_draft_holds_its_issue_while_it_can_come() {
     let rec = |id: u64, task: &str, title: &str| Record { id, task: task.into(), title: title.into(), ..Default::default() };
     let records = [rec(1, "Fix #7: it panics", "Fix the panic"), rec(2, "Fix #8: slow", ""), rec(3, "Fix #9: odd", ""), rec(4, "Refactor", "x")];
     // #7 drafted; #8 started here (its record doesn't say yet); #9's run failed before drafting.
-    let fix = draft_fix(&records, &HashSet::from([2]));
+    let fix = draft_fix(&records, &HashSet::from([2]), &HashMap::new());
     assert_eq!(fix.get(&7).map(|f| f.1.as_deref()), Some(None));
     assert_eq!(fix.get(&8).map(|f| f.1.as_deref()), Some(Some("drafting")));
     assert!(!fix.contains_key(&9) && fix.len() == 2);

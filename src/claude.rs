@@ -785,6 +785,20 @@ fn pane_run_in(marker: &std::path::Path) -> Option<(String, i64)> {
     Some((v["session"].as_str()?.to_owned(), v["started"].as_i64().unwrap_or(0)))
 }
 
+/// What Claude's doing now, by key, from the markers in `dir` (`running/`), a pane done with
+/// its run closed first (`close_if_done`: its session stays, for the next ask): what dv list
+/// and the issues list show, one rule (`panes`: zellij's, looked up once).
+pub fn sweep_running(dir: &std::path::Path, panes: &std::cell::OnceCell<Vec<crate::pane::Pane>>) -> std::collections::HashMap<String, String> {
+    for (_, session, since) in pane_runs(dir) {
+        if let Some(p) = crate::pane::of_session(panes.get_or_init(crate::pane::open), &session)
+            && crate::pane::close_if_done(p.0, &session, since)
+        {
+            clear_pane(&session);
+        }
+    }
+    running(dir, panes)
+}
+
 /// Every run in a pane, from the markers in `dir` (`running/`): (its key, session, started).
 pub fn pane_runs(dir: &std::path::Path) -> Vec<(String, String, i64)> {
     markers(dir).into_iter().filter(|m| m.1).filter_map(|(k, _, p)| pane_run_in(&p).map(|(s, t)| (k, s, t))).collect()

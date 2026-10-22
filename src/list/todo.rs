@@ -667,7 +667,7 @@ impl List {
         let Some(dir) = self.reviews_dir.as_ref().and_then(|d| d.parent()).map(|d| d.join("running")) else { return false };
         let panes = std::cell::OnceCell::new(); // zellij's panes, looked up only if a run is in one
         // (PRs' and issues' runs; replacements' and new PRs' drafts and runs: their claims.)
-        let all = crate::claude::running(&dir, &panes);
+        let all = crate::claude::sweep_running(&dir, &panes);
         let of = |rep| all.iter().filter_map(move |(k, w)| Some((crate::claude::key_n(k, rep)?, w.clone())));
         let (mut now, mut reps): (HashMap<u64, String>, HashMap<u64, String>) = (of(false).collect(), of(true).collect());
         // Claude Code in a pane in a PR's worktree, or a replacement's (one you started, from a
@@ -692,17 +692,6 @@ impl List {
                     (_, Some(r)) => reps.insert(r, doing.into()),
                     _ => None,
                 };
-            }
-        }
-        // A pane dv started, Claude done there: closed (`close_if_done`), its run over (its
-        // session stays, for the next ask to resume). Every marker of a pane run is looked at
-        // (a cheap read of its transcript's end), so one not closed at first (you were on it)
-        // is later.
-        for (_, session, since) in crate::claude::pane_runs(&dir) {
-            if let Some(p) = crate::pane::of_session(panes.get_or_init(crate::pane::open), &session)
-                && crate::pane::close_if_done(p.0, &session, since)
-            {
-                crate::claude::clear_pane(&session);
             }
         }
         let changed = now != self.running || reps != self.running_reps;
