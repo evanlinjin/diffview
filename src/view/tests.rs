@@ -4993,3 +4993,24 @@ fn a_split_selection_is_drawn_copied_and_suggested_alike() {
     assert_eq!(app.selection_text(false), "two\nthree!\n");
     assert!(app.suggestion().is_ok(), "{:?}", app.suggestion().err());
 }
+
+#[test]
+fn a_left_half_selection_comments_and_refers_to_the_old_side() {
+    let sample = "diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1,4 +1,4 @@\n one\n two\n-three\n+three!\n four\n";
+    let mut app = App::with("base".into(), diff::parse(sample));
+    app.split = true;
+    app.build();
+    let two = app.rows.iter().position(|r| r.line.text == "two").unwrap();
+    app.right = false;
+    app.goto(two, 0);
+    press(&mut app, "xxx");
+    assert_eq!(app.selection_text(false), "two\nthree\nfour\n");
+    let a = app.selection_anchor().unwrap();
+    assert_eq!((a.line, a.left, a.start), (4, true, Some((2, true))));
+    assert_eq!(app.file_ref().unwrap(), "a.rs:2-4 (the old side, at base base)");
+    // From the removed line: the old side's numbers.
+    let three = app.rows.iter().position(|r| r.line.text == "three").unwrap();
+    app.goto(three, 0);
+    press(&mut app, "xx");
+    assert!(app.file_ref().unwrap().starts_with("a.rs:3-4"), "{:?}", app.file_ref());
+}

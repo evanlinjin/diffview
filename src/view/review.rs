@@ -693,16 +693,15 @@ impl App {
     /// GitHub anchor for the selected code lines (comment rows inside the selection are ignored).
     pub(super) fn selection_anchor(&self) -> Result<Anchor> {
         let (s, e) = self.ordered();
-        let code: Vec<usize> = (s.row..=e.row)
-            .filter(|&r| self.rows[r].line.kind.is_code())
-            .collect();
+        let code: Vec<usize> = (s.row..=e.row).filter(|&r| self.in_selection(r) && self.rows[r].line.kind.is_code()).collect();
         let (Some(&a), Some(&b)) = (code.first(), code.last()) else { bail!("select code lines to comment on") };
         if self.rows[a].file != self.rows[b].file {
             bail!("a comment can't span files");
         }
+        // (A removed line's the old side; so is any on a split view's left half.)
         let side = |r: usize| {
             let l = &self.rows[r].line;
-            if l.kind == Kind::Del { (l.old, true) } else { (l.new, false) }
+            if l.kind == Kind::Del || (self.split && !self.row_right(r)) { (l.old, true) } else { (l.new, false) }
         };
         let ((Some(line), left), (Some(sl), sleft)) = (side(b), side(a)) else { bail!("no line number") };
         Ok(Anchor {

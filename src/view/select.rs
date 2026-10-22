@@ -59,19 +59,21 @@ impl App {
         self.msg = format!("copied {} line(s)", t.lines().count().max(1));
     }
 
-    /// `path:line` or `path:start-end` for the selection (new-side numbering), for pasting elsewhere.
+    /// `path:line` or `path:start-end` for the selection (new-side numbering; a split view's
+    /// left half, the old side's), for pasting elsewhere.
     pub(super) fn file_ref(&self) -> Option<String> {
         let (s, e) = self.ordered();
         let fi = self.rows[self.head.row].file;
         let f = self.files.get(fi)?;
-        let in_file = || self.rows[s.row..=e.row].iter().filter(|r| r.file == fi && r.thread.is_none());
+        let in_file = || (s.row..=e.row).filter(|&r| self.in_selection(r)).map(|r| &self.rows[r]).filter(|r| r.file == fi && r.thread.is_none());
         let span = |p: &str, a: u32, b: u32| if a == b { format!("{p}:{a}") } else { format!("{p}:{a}-{b}") };
-        let news: Vec<u32> = in_file().filter_map(|r| r.line.new).collect();
+        let left = self.split && !self.row_right(self.head.row);
+        let news: Vec<u32> = in_file().filter_map(|r| r.line.new).filter(|_| !left).collect();
         let olds: Vec<u32> = in_file().filter_map(|r| r.line.old).collect();
         Some(match (news.first(), news.last(), olds.first(), olds.last()) {
             (Some(&a), Some(&b), _, _) => span(&f.path, a, b),
             (_, _, Some(&a), Some(&b)) => {
-                format!("{} (removed lines, at base {})", span(&f.old_path, a, b), &self.base[..self.base.len().min(10)])
+                format!("{} (the old side, at base {})", span(&f.old_path, a, b), &self.base[..self.base.len().min(10)])
             }
             _ => f.path.clone(),
         })
