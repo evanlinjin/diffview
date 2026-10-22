@@ -119,7 +119,7 @@ impl App {
     /// `╎` over a comment's lines, a dot at its last, `●` others', `◆` Claude's, `○` resolved or
     /// outdated (`App::marks`).
     pub(super) fn comment_mark(&self, r: usize, side: Option<bool>) -> Option<(char, Style)> {
-        self.mark_of(r, side, |m| m & 0x0f)
+        self.mark_of(r, side, |m| m & RANK)
     }
 
     /// A range's bar at row `r`'s edge, where one passes (beside a wrapped line's later parts),
@@ -128,9 +128,9 @@ impl App {
         self.mark_of(r, side, |m| m >> BAR)
     }
 
-    /// The mark `rank` picks out of row `r`'s (its side's, or either's), as drawn.
-    fn mark_of(&self, r: usize, side: Option<bool>, rank: impl Fn(u8) -> u8) -> Option<(char, Style)> {
-        let at = |left: bool| self.marks.get(&(r, left)).map(|&m| rank(m)).filter(|&m| m > 0);
+    /// The mark `pick` takes out of row `r`'s (its side's, or either's), as drawn.
+    fn mark_of(&self, r: usize, side: Option<bool>, pick: impl Fn(u8) -> u8) -> Option<(char, Style)> {
+        let at = |left: bool| self.marks.get(&(r, left)).map(|&m| pick(m)).filter(|&m| m > 0);
         let rank = match side {
             Some(right) => at(!right),
             None => at(false).max(at(true)),

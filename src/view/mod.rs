@@ -80,6 +80,8 @@ pub(super) const MARK_DOT: u8 = 5;
 /// A mark's rank is in its low 4 bits; above them (`<< BAR`), the strongest range passing too
 /// (its comment's last line further on): `MARK_LINE` or `MARK_STALE_LINE`, or none.
 pub(super) const BAR: u8 = 4;
+/// A mark's own rank, its low bits.
+pub(super) const RANK: u8 = (1 << BAR) - 1;
 
 /// What a row scrolls sideways with (`App::scroller`).
 #[derive(Clone, Copy, Debug, PartialEq)]

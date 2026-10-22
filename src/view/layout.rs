@@ -709,7 +709,7 @@ impl App {
                 // (The strongest mark shows; the strongest range passing, its bar, shows apart
                 // from it, down a wrapped line's later parts: `BAR`.)
                 let passing = if r != last { m } else { 0 };
-                let (rank, bar) = ((*e & 0x0f).max(m), (*e >> BAR).max(passing));
+                let (rank, bar) = ((*e & RANK).max(m), (*e >> BAR).max(passing));
                 *e = rank | bar << BAR;
             }
         }
