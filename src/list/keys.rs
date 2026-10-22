@@ -88,6 +88,10 @@ impl List {
         if self.nav.key(k, n) {
             return None;
         }
+        // (A Ctrl key past those is no letter's: Ctrl-a isn't a.)
+        if ctrl {
+            return None;
+        }
         match k.code {
             // A filter that's just a number opens that PR, listed or not (older, or closed).
             KeyCode::Enter => {
@@ -210,11 +214,12 @@ impl List {
                     true => (self.selected_pr().into_iter().collect(), String::new()),
                     false => self.marked_open(),
                 };
-                let at_it: Vec<String> = prs.iter().filter(|n| self.batch.get(n).is_some_and(batch::Status::running)).map(|n| format!("#{n}")).collect();
+                // (Claude at it, from here or any dv: kept marked, said.)
+                let at_it: Vec<String> = prs.iter().filter(|&&n| self.claude_doing(n).is_some()).map(|n| format!("#{n}")).collect();
                 if !at_it.is_empty() {
                     skipped += &format!(" (Claude's at {} already)", at_it.join(", "));
                 }
-                prs.retain(|n| !self.batch.get(n).is_some_and(batch::Status::running));
+                prs.retain(|&n| self.claude_doing(n).is_none());
                 prs.sort();
                 if prs.is_empty() {
                     if !skipped.is_empty() {

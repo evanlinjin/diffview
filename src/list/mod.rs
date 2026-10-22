@@ -243,6 +243,10 @@ impl List {
             self.prefetch();
             self.others_news();
             if self.watch_running() {
+                // Runs that found Claude at it: asked again, auto's too, now that's changed.
+                let busy: Vec<u64> = self.batch.iter().filter(|(_, s)| matches!(s, batch::Status::Busy(_))).map(|(&n, _)| n).collect();
+                self.batch.retain(|n, _| !busy.contains(n));
+                self.auto_done.retain(|d| !busy.contains(&d.0));
                 self.worktrees_changed(); // what it finished with may be waiting to be pushed (another dv's: a worktree made)
                 self.find_todo(); // Claude started or finished somewhere: its item moves
             }
@@ -593,16 +597,14 @@ impl List {
             let doing = self.batch_task.get(&n).map_or("reviewing", batch::Task::doing);
             match &s {
                 // Claude at it elsewhere (a PR's view, say): not asked now, as if never asked.
+                // Claude at it elsewhere: kept as said (auto not starting it again and again),
+                // asked again once Claude starts or ends somewhere (`watch_running`), or a a.
                 batch::Status::Busy(w) => {
                     self.msg = format!("#{n}: not {doing} now: {w}");
-                    self.batch.remove(&n);
-                    // (Auto too: as if not asked. A description check, its head as it was.)
-                    self.auto_done.retain(|d| d.0 != n || d.2 != doing);
                     if let Some(batch::Task::Describe(old)) = self.batch_task.get(&n) {
                         self.described.insert(n, old.clone());
                         self.save_described();
                     }
-                    continue;
                 }
                 // Merged or closed meanwhile: so in the list now (not asked again, by auto
                 // either), till GitHub's list says.
