@@ -5,6 +5,18 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.95.13] - 2026-10-22
+
+### Fixed
+- PR info: the labels/assignees/reviewers picker comes back on the one picked; an event's
+  line isn't quoted or hinted as text; the failed checks' rerun is offered whatever's
+  required; checks gh gave without what's required say so.
+- Bots: named as GitHub names them (not `app/dependabot`), linked to their page under /apps/,
+  and named when asked to review.
+- The issue view: a closed issue's chip coloured as GitHub does (done purple, else grey); it
+  names the issue, not the PR (closing, its activity, notes, menus); its facts box links to it,
+  Space c copies its link, Space N says which issue.
+
 ## [0.95.12] - 2026-10-22
 
 ### Fixed
