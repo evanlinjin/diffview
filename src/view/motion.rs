@@ -442,7 +442,12 @@ impl App {
                 true => &[(right, true), (right, false), (!right, false)],
                 false => &[(right, false), (!right, false), (right, true)],
             };
-            let found = tries.iter().find_map(|&(side, pane)| order.iter().find_map(|&t| self.stop_on(t, side, x, pane).filter(|&p| self.on_selections_half(p))));
+            // (In select mode, the selection's half and side first; none on screen (a removed
+            // block taller than it), anywhere: the view moves on.)
+            let on = |held: bool| {
+                tries.iter().filter(|&&(_, p)| !held || p == pane).find_map(|&(side, p)| order.iter().find_map(|&t| self.stop_on(t, side, x, p).filter(|&s| !held || self.on_selections_half(s))))
+            };
+            let found = on(true).or_else(|| on(false));
             if let Some(p) = found {
                 self.goto(p.row, p.col);
                 self.want_x = Some(x);

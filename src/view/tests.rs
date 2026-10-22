@@ -5075,3 +5075,22 @@ fn the_wheel_in_select_mode_keeps_a_split_selection_on_its_half() {
     }
     assert!(app.selection_text(false).starts_with("one\nthree\n"), "{:?}", app.selection_text(false));
 }
+
+#[test]
+fn the_wheel_in_select_mode_moves_on_over_a_tall_removed_block() {
+    let gone: String = (0..40).map(|i| format!("-gone{i}\n")).collect();
+    let sample = format!("diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1,42 +1,2 @@\n one\n{gone} two\n");
+    let mut app = App::with("base".into(), diff::parse(&sample));
+    (app.files_pref, app.margin_pref) = (Some(false), Some(false));
+    (app.split, app.right) = (true, true);
+    app.build();
+    _ = screen(120, 14, |f| app.draw(f));
+    let one = app.rows.iter().position(|r| r.line.text == "one").unwrap();
+    app.goto(one, 0);
+    press(&mut app, "v");
+    for _ in 0..3 {
+        app.mouse(ratatui::crossterm::event::MouseEvent { kind: ratatui::crossterm::event::MouseEventKind::ScrollDown, column: 60, row: 5, modifiers: KeyModifiers::NONE });
+        _ = screen(120, 14, |f| app.draw(f));
+    }
+    assert!(app.top > 0 && app.head.row != one, "the view froze: top {} head {:?}", app.top, app.head);
+}
