@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.95.4] - 2026-10-22
+
+### Fixed
+- Key hints with a selection: shown wherever the selection's keys act on it (code lines of one
+  file, the cursor on a hunk's rule or the file's header too), and not where they'd refuse (no
+  code selected, two files).
+
 ## [0.95.3] - 2026-10-22
 
 ### Fixed
