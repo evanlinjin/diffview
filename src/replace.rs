@@ -149,6 +149,19 @@ pub fn of(n: u64) -> Option<Record> {
     all.iter().find(|r| r.id == n).or(all.first()).cloned()
 }
 
+/// What a draft asked for `prs` drafts (its id first): a PR another's replacement replaces
+/// too redrafts that one. Asked where the id's chosen (what's said, what's busy, its news).
+pub fn target(prs: &[u64]) -> Vec<u64> {
+    match prs.first().and_then(|&n| of(n)) {
+        Some(r) if r.id != prs[0] => {
+            let mut out = vec![r.id];
+            out.extend(prs.iter().filter(|&&n| n != r.id));
+            out
+        }
+        _ => prs.to_vec(),
+    }
+}
+
 /// Published as PR `n`: Claude's review of the draft (and its session) moved to the PR's, for
 /// dv on the PR to carry on with. Once: not over one the PR has.
 pub fn adopt_review(n: u64) {
@@ -468,16 +481,8 @@ pub fn writable() -> Result<PathBuf> {
 /// instructions for a first draft (none: your last ones for replacements); for one drafted
 /// already, asked of its drafts (as `ask`).
 pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> Result<String> {
-    // A PR another's replacement replaces too: that one, redrafted (what it replaces, and these).
-    let joined;
-    let prs = match of(*prs.first().context("no PR to replace")?) {
-        Some(r) if r.id != prs[0] && !is_new(prs[0]) => {
-            joined = std::iter::once(r.id).chain(prs.iter().copied()).collect::<Vec<_>>();
-            &joined[..]
-        }
-        _ => prs,
-    };
-    let id = prs[0];
+    let prs = &target(prs)[..];
+    let id = *prs.first().context("no PR to replace")?;
     // Under way first, before the slow setting up: others (dv list, another dv) see it, and
     // don't start another.
     let existed = path(id)?.exists();

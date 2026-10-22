@@ -256,6 +256,7 @@ impl App {
                 Ok(keep_on_error::<()>(Err(anyhow::anyhow!(why)), &extra).err().map_or(String::new(), |e| format!("{e:#}")))
             }
             Action::Replace(prs, about) => {
+                let prs = crate::replace::target(&prs);
                 // Claude at work on it, or its pane open here (`redraft_waits`).
                 let waits = || self.redraft_waits(prs[0]);
                 if let Some(n) = crate::replace::load(prs[0]).ok().and_then(|r| r.published) {

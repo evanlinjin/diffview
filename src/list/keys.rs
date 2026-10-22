@@ -232,6 +232,7 @@ impl List {
                     false => self.marked.iter().copied().collect(),
                 };
                 prs.sort();
+                let prs = crate::replace::target(&prs);
                 let id = *prs.first()?;
                 if self.rep_busy(id) {
                     return (self.msg = format!("Claude is already at work on {}", crate::replace::label(id)), None).1;

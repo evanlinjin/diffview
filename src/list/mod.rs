@@ -468,7 +468,8 @@ impl List {
                 Err(e) => return self.msg = format!("{e:#}"),
             }
         }
-        groups.retain(|g| !g.is_empty() && !self.rep_busy(g[0]));
+        let mut groups: Vec<Vec<u64>> = groups.iter().filter(|g| !g.is_empty()).map(|g| crate::replace::target(g)).collect();
+        groups.retain(|g| !self.rep_busy(g[0]));
         if groups.is_empty() {
             return self.msg = "nothing to draft".into();
         }
