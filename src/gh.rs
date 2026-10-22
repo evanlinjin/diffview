@@ -987,13 +987,19 @@ pub fn keep_known(new: &mut Value, old: &Value) {
     }
 }
 
-/// The PR's activity, as its page on GitHub lists it: comments, reviews, commits pushed, and
-/// what happened to it (labels, reviewers, force-pushes, renames, merged or closed, …), oldest
-/// first; and its own reactions. One query for the last 100 (fewer, asked again, if GitHub
-/// runs out of time), then those before, 100 at a time. `id`: the PR's node id.
-pub fn activity(id: &str) -> Result<Value> {
+/// The PR's (or `issue`'s) activity, as its page on GitHub lists it: comments, reviews,
+/// commits pushed, and what happened to it (labels, reviewers, force-pushes, renames, merged
+/// or closed, …), oldest first; and its own reactions. One query for the last 100 (fewer,
+/// asked again, if GitHub runs out of time), then those before, 100 at a time. `id`: its node
+/// id.
+pub fn activity(id: &str, issue: bool) -> Result<Value> {
+    // (An issue's timeline has none of a PR's own: asking for them is an error.)
+    let (on, types, own) = match issue {
+        false => ("PullRequest", PR_TYPES, PR_ACTIVITY),
+        true => ("Issue", ISSUE_TYPES, ISSUE_ACTIVITY),
+    };
     let q = format!(
-        "query($id: ID!, $b: String, $n: Int!) {{ node(id: $id) {{ ... on PullRequest {{ {REACTED} timelineItems(last: $n, before: $b, itemTypes: [{ACTIVITY_TYPES}]) {{ pageInfo {{ hasPreviousPage startCursor }} nodes {{ {ACTIVITY} }} }} }} }} }}"
+        "query($id: ID!, $b: String, $n: Int!) {{ node(id: $id) {{ ... on {on} {{ {REACTED} timelineItems(last: $n, before: $b, itemTypes: [{ACTIVITY_TYPES}, {types}]) {{ pageInfo {{ hasPreviousPage startCursor }} nodes {{ {ACTIVITY} {own} }} }} }} }} }}"
     );
     let page = |b: Option<&str>, n: u32| graphql(&q, json!({ "id": id, "b": b, "n": n }));
     let first = page(None, 100).or_else(|_| page(None, 25))?;
@@ -1015,33 +1021,62 @@ pub fn activity(id: &str) -> Result<Value> {
 /// A node's reactions, with which are yours.
 const REACTED: &str = "reactionGroups { content viewerHasReacted reactors { totalCount } }";
 
-/// What GitHub's PR page shows of its timeline (not who subscribed or was mentioned, say).
-const ACTIVITY_TYPES: &str = "ISSUE_COMMENT, PULL_REQUEST_REVIEW, PULL_REQUEST_COMMIT, HEAD_REF_FORCE_PUSHED_EVENT, \
-LABELED_EVENT, UNLABELED_EVENT, REVIEW_REQUESTED_EVENT, REVIEW_REQUEST_REMOVED_EVENT, ASSIGNED_EVENT, UNASSIGNED_EVENT, \
-RENAMED_TITLE_EVENT, MERGED_EVENT, CLOSED_EVENT, REOPENED_EVENT, READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT, \
-BASE_REF_CHANGED_EVENT, CROSS_REFERENCED_EVENT, REVIEW_DISMISSED_EVENT";
+/// What GitHub's page shows of a PR's or an issue's timeline (not who subscribed or was
+/// mentioned, say): what both have, then each one's own.
+const ACTIVITY_TYPES: &str = "ISSUE_COMMENT, LABELED_EVENT, UNLABELED_EVENT, ASSIGNED_EVENT, UNASSIGNED_EVENT, \
+RENAMED_TITLE_EVENT, CLOSED_EVENT, REOPENED_EVENT, CROSS_REFERENCED_EVENT";
+const PR_TYPES: &str = "PULL_REQUEST_REVIEW, PULL_REQUEST_COMMIT, HEAD_REF_FORCE_PUSHED_EVENT, REVIEW_REQUESTED_EVENT, \
+REVIEW_REQUEST_REMOVED_EVENT, MERGED_EVENT, READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT, BASE_REF_CHANGED_EVENT, \
+REVIEW_DISMISSED_EVENT";
+const ISSUE_TYPES: &str = "MARKED_AS_DUPLICATE_EVENT, CONNECTED_EVENT";
 
 /// Each of those, with what `view::info` says of it.
 const ACTIVITY: &str = "__typename ... on Node { id } \
 ... on IssueComment { id url body createdAt author { login } isMinimized minimizedReason reactionGroups { content viewerHasReacted reactors { totalCount } } } \
+... on LabeledEvent { createdAt actor { login } label { name color } } \
+... on UnlabeledEvent { createdAt actor { login } label { name color } } \
+... on AssignedEvent { createdAt actor { login } assignee { ... on User { login } ... on Bot { login } ... on Mannequin { login } ... on Organization { login } } } \
+... on UnassignedEvent { createdAt actor { login } assignee { ... on User { login } ... on Bot { login } ... on Mannequin { login } ... on Organization { login } } } \
+... on RenamedTitleEvent { createdAt actor { login } previousTitle currentTitle } \
+... on ClosedEvent { createdAt actor { login } stateReason closer { ... on PullRequest { number url } ... on Commit { abbreviatedOid url } } } \
+... on ReopenedEvent { createdAt actor { login } } \
+... on CrossReferencedEvent { createdAt actor { login } source { ... on Issue { number title url repository { nameWithOwner } } ... on PullRequest { number title url repository { nameWithOwner } } } }";
+const PR_ACTIVITY: &str = "\
 ... on PullRequestReview { id body state submittedAt createdAt author { login } comments { totalCount } commit { oid abbreviatedOid } reactionGroups { content viewerHasReacted reactors { totalCount } } } \
 ... on PullRequestCommit { commit { abbreviatedOid messageHeadline committedDate author { user { login } name } } } \
 ... on HeadRefForcePushedEvent { createdAt actor { login } beforeCommit { abbreviatedOid } afterCommit { abbreviatedOid } } \
-... on LabeledEvent { createdAt actor { login } label { name color } } \
-... on UnlabeledEvent { createdAt actor { login } label { name color } } \
 ... on ReviewRequestedEvent { createdAt actor { login } requestedReviewer { ... on User { login } ... on Team { name } } } \
 ... on ReviewRequestRemovedEvent { createdAt actor { login } requestedReviewer { ... on User { login } ... on Team { name } } } \
-... on AssignedEvent { createdAt actor { login } assignee { ... on User { login } } } \
-... on UnassignedEvent { createdAt actor { login } assignee { ... on User { login } } } \
-... on RenamedTitleEvent { createdAt actor { login } previousTitle currentTitle } \
 ... on MergedEvent { createdAt actor { login } commit { abbreviatedOid } mergeRefName } \
-... on ClosedEvent { createdAt actor { login } } \
-... on ReopenedEvent { createdAt actor { login } } \
 ... on ReadyForReviewEvent { createdAt actor { login } } \
 ... on ConvertToDraftEvent { createdAt actor { login } } \
 ... on BaseRefChangedEvent { createdAt actor { login } previousRefName currentRefName } \
-... on CrossReferencedEvent { createdAt actor { login } source { ... on Issue { number title url } ... on PullRequest { number title url } } } \
 ... on ReviewDismissedEvent { createdAt actor { login } }";
+const ISSUE_ACTIVITY: &str = "\
+... on MarkedAsDuplicateEvent { createdAt actor { login } canonical { ... on Issue { number url repository { nameWithOwner } } ... on PullRequest { number url repository { nameWithOwner } } } } \
+... on ConnectedEvent { createdAt actor { login } subject { ... on Issue { number title url repository { nameWithOwner } } ... on PullRequest { number title url repository { nameWithOwner } } } }";
+
+/// Issue `n` as `info_json` has a PR, for the same view to read (`view::info`): its text,
+/// state, labels, who has it, the PRs that would close it (`dvFixes`), and its activity.
+pub fn issue_json(n: u64) -> Result<Value> {
+    let q = "query($owner: String!, $name: String!, $n: Int!) { viewer { login } repository(owner: $owner, name: $name) { issue(number: $n) { \
+             __typename id number title url body state stateReason createdAt updatedAt author { login } \
+             labels(first: 100) { nodes { name color } } assignees(first: 50) { nodes { login } } \
+             closedByPullRequestsReferences(first: 20, includeClosedPrs: true) { nodes { number title state url } } } } }";
+    let t = gh_json(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-F", &format!("n={n}"), "-f", &format!("query={q}")])?;
+    let mut v = t["data"]["repository"]["issue"].clone();
+    // (GitHub's reason, if it gave one: a PR's number, no access to the repo.)
+    anyhow::ensure!(v.is_object(), "#{n}: {}", t["errors"][0]["message"].as_str().unwrap_or("no such issue here"));
+    // (Lists as `gh pr view` has them.)
+    for k in ["labels", "assignees"] {
+        v[k] = v[k]["nodes"].clone();
+    }
+    v["dvFixes"] = v["closedByPullRequestsReferences"]["nodes"].clone();
+    v["dvMe"] = t["data"]["viewer"]["login"].clone();
+    let id = v["id"].as_str().unwrap_or("").to_owned();
+    v["dvActivity"] = activity(&id, true).unwrap_or_else(|e| json!({ "error": first_line(&format!("{e:#}")) }));
+    Ok(v)
+}
 
 /// PR info lines, plus the current (title, head commit, url) so a refresh picks up new pushes.
 /// GitHub's answer, as JSON (dv caches it; `parse_info` reads it).
@@ -1059,7 +1094,7 @@ pub fn info_json(n: u64) -> Result<Value> {
     // Its activity (comments, reviews, commits, events), and its commits' signatures, at once.
     let id = s(&v["id"]);
     let (activity, signatures) = std::thread::scope(|sc| {
-        let activity = sc.spawn(|| activity(&id));
+        let activity = sc.spawn(|| activity(&id, false));
         let signatures = pr_query(n).and_then(|p| signatures_of(&p)).map_err(|e| format!("{e:#}"));
         (activity.join().unwrap_or_else(|p| Err(anyhow::anyhow!(crate::batch::panicked(&p)))), signatures.map_err(|w| first_line(&w)))
     });

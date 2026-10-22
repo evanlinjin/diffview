@@ -142,19 +142,36 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         l
     };
 
-    // Author, branches, size (the state is on the PR's header line).
+    // An issue's (`gh::issue_json`): what a PR's are, but for its code (branches, size,
+    // reviews, checks, commits); and the PRs that would close it.
+    let issue = v["__typename"] == "Issue";
+    // Author, branches, size (the state is on the PR's header line); an issue's, when.
     let author = crate::gh::login(&v["author"]);
     let mut l = InfoLine::new(false, false);
-    l.put(&format!("@{author}"), Some(Mark::Link(format!("https://github.com/{author}"))))
-        .put(&format!(" · {} ← {} · ", s(&v["baseRefName"]), s(&v["headRefName"])), None)
-        .put(&format!("+{}", v["additions"]), Some(Mark::Pass))
-        .put(" ", None)
-        .put(&format!("−{}", v["deletions"]), Some(Mark::Fail))
-        .put(&format!(" in {} files", v["changedFiles"]), None);
-    if v["mergeable"] == "CONFLICTING" {
-        l.put(" · ", None).put(&format!("conflicts with {}", s(&v["baseRefName"])), Some(Mark::Fail));
+    l.put(&format!("@{author}"), Some(Mark::Link(format!("https://github.com/{author}"))));
+    match issue {
+        true => _ = l.put(&format!(" · opened {}", ago(&s(&v["createdAt"]))), None),
+        false => {
+            l.put(&format!(" · {} ← {} · ", s(&v["baseRefName"]), s(&v["headRefName"])), None)
+                .put(&format!("+{}", v["additions"]), Some(Mark::Pass))
+                .put(" ", None)
+                .put(&format!("−{}", v["deletions"]), Some(Mark::Fail))
+                .put(&format!(" in {} files", v["changedFiles"]), None);
+            if v["mergeable"] == "CONFLICTING" {
+                l.put(" · ", None).put(&format!("conflicts with {}", s(&v["baseRefName"])), Some(Mark::Fail));
+            }
+        }
     }
     push("author".into(), l);
+    let fixes = list(&v["dvFixes"]);
+    if !fixes.is_empty() {
+        let mut l = InfoLine::new(false, false);
+        l.put("fixed by", Some(Mark::Dim));
+        for p in &fixes {
+            l.put(" ", None).put(&format!("#{}", p["number"]), Some(Mark::Link(s(&p["url"])))).put(&format!(" ({})", s(&p["state"]).to_lowercase()), Some(Mark::Dim));
+        }
+        push("fixes".into(), l);
+    }
 
     let labels = list(&v["labels"]);
     if !labels.is_empty() {
@@ -183,125 +200,127 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         push("reactions".into(), l);
     }
 
-    // Who did what, one reviewer a line (no scrolling sideways for them all): "✗ @bo requested
-    // changes", "✓ @amy approved", "● @cy requested" (waiting on them); in their colors.
-    let reviews = list(&v["latestReviews"]);
-    let by = |state: &str| -> Vec<String> { reviews.iter().filter(|r| r["state"] == state).map(|r| crate::gh::login(&r["author"])).collect() };
-    let requested: Vec<String> = list(&v["reviewRequests"]).iter().map(|r| r["login"].as_str().or(r["slug"].as_str()).or(r["name"].as_str()).unwrap_or("?").to_owned()).collect();
-    let groups = [
-        ("✗", "requested changes", by("CHANGES_REQUESTED"), Mark::Fail),
-        ("✓", "approved", by("APPROVED"), Mark::Pass),
-        ("●", "requested", requested, Mark::Pending),
-    ];
-    let mut l = InfoLine::new(false, false);
-    l.put("reviews:", None);
-    if groups.iter().all(|g| g.2.is_empty()) {
-        let decision = s(&v["reviewDecision"]).to_lowercase().replace('_', " ");
-        l.put(" ", None).put(if decision.is_empty() { "none yet" } else { &decision }, Some(Mark::Dim));
-    }
-    push("reviews".into(), l);
-    for (sign, what, who, mark) in groups {
-        for name in who {
-            let mut l = InfoLine::new(false, false);
-            l.put(&format!("{sign} @{name}"), Some(mark.clone())).put(&format!(" {what}"), None);
-            push(format!("reviewer/{name}"), l);
-        }
-    }
-
-    let checks = list(&v["statusCheckRollup"]);
-    if checks.is_empty() {
-        push("checks".into(), plain("checks: none".into()));
-    } else {
-        let optional = |c: &&Value| optional(c, &checks);
-        let any_required = checks.iter().any(|c| c["isRequired"] == true);
+    if !issue {
+        // Who did what, one reviewer a line (no scrolling sideways for them all): "✗ @bo requested
+        // changes", "✓ @amy approved", "● @cy requested" (waiting on them); in their colors.
+        let reviews = list(&v["latestReviews"]);
+        let by = |state: &str| -> Vec<String> { reviews.iter().filter(|r| r["state"] == state).map(|r| crate::gh::login(&r["author"])).collect() };
+        let requested: Vec<String> = list(&v["reviewRequests"]).iter().map(|r| r["login"].as_str().or(r["slug"].as_str()).or(r["name"].as_str()).unwrap_or("?").to_owned()).collect();
+        let groups = [
+            ("✗", "requested changes", by("CHANGES_REQUESTED"), Mark::Fail),
+            ("✓", "approved", by("APPROVED"), Mark::Pass),
+            ("●", "requested", requested, Mark::Pending),
+        ];
         let mut l = InfoLine::new(false, false);
-        l.put("checks", Some(Mark::Link(format!("{}/checks", s(&v["url"])))));
-        l.put(": ", None);
-        // Only the counts that aren't zero; the base's required checks apart from the others,
-        // when it names any.
-        let counts = |l: &mut InfoLine, of: &[Value]| {
-            let (pass, fail, pending) = tally(of);
-            let parts = [(pass, "✓", "passed", Mark::Pass), (fail, "✗", "failed", Mark::Fail), (pending, "●", "pending", Mark::Pending)];
-            for (k, (n, sym, what, m)) in parts.into_iter().filter(|p| p.0 > 0).enumerate() {
-                if k > 0 {
-                    l.put(" · ", None);
-                }
-                l.put(&format!("{sym} {n} {what}"), Some(m));
-            }
-        };
-        match !any_required {
-            true => counts(&mut l, &checks),
-            false => {
-                let (opt, req): (Vec<Value>, Vec<Value>) = checks.iter().cloned().partition(|c| optional(&c));
-                l.put("required ", None);
-                counts(&mut l, &req);
-                if !opt.is_empty() {
-                    l.put(" · optional ", None);
-                    counts(&mut l, &opt);
-                }
+        l.put("reviews:", None);
+        if groups.iter().all(|g| g.2.is_empty()) {
+            let decision = s(&v["reviewDecision"]).to_lowercase().replace('_', " ");
+            l.put(" ", None).put(if decision.is_empty() { "none yet" } else { &decision }, Some(Mark::Dim));
+        }
+        push("reviews".into(), l);
+        for (sign, what, who, mark) in groups {
+            for name in who {
+                let mut l = InfoLine::new(false, false);
+                l.put(&format!("{sign} @{name}"), Some(mark.clone())).put(&format!(" {what}"), None);
+                push(format!("reviewer/{name}"), l);
             }
         }
-        // Its base's required checks unreadable: one not reported yet would be missing here.
-        if v["dvRequiredUnknown"] == true {
-            l.put(" · can't read which its base requires", Some(Mark::Dim));
-        }
-        push("checks".into(), l);
-        for c in checks.iter().filter(|c| verdict(c) != '✓') {
-            let name = check_name(c);
-            let m = if verdict(c) == '✗' { Mark::Fail } else { Mark::Pending };
+
+        let checks = list(&v["statusCheckRollup"]);
+        if checks.is_empty() {
+            push("checks".into(), plain("checks: none".into()));
+        } else {
+            let optional = |c: &&Value| optional(c, &checks);
+            let any_required = checks.iter().any(|c| c["isRequired"] == true);
             let mut l = InfoLine::new(false, false);
-            l.put(&format!("{} ", verdict(c)), Some(m.clone()));
-            // Its run on GitHub (a check run's details, a status's target).
-            match c["detailsUrl"].as_str().or(c["targetUrl"].as_str()).filter(|u| !u.is_empty()) {
-                Some(u) => l.put(name, Some(Mark::Link(u.to_owned()))),
-                None => l.put(name, Some(m)),
+            l.put("checks", Some(Mark::Link(format!("{}/checks", s(&v["url"])))));
+            l.put(": ", None);
+            // Only the counts that aren't zero; the base's required checks apart from the others,
+            // when it names any.
+            let counts = |l: &mut InfoLine, of: &[Value]| {
+                let (pass, fail, pending) = tally(of);
+                let parts = [(pass, "✓", "passed", Mark::Pass), (fail, "✗", "failed", Mark::Fail), (pending, "●", "pending", Mark::Pending)];
+                for (k, (n, sym, what, m)) in parts.into_iter().filter(|p| p.0 > 0).enumerate() {
+                    if k > 0 {
+                        l.put(" · ", None);
+                    }
+                    l.put(&format!("{sym} {n} {what}"), Some(m));
+                }
             };
-            if optional(&c) {
-                l.put(" (optional)", Some(Mark::Dim));
+            match !any_required {
+                true => counts(&mut l, &checks),
+                false => {
+                    let (opt, req): (Vec<Value>, Vec<Value>) = checks.iter().cloned().partition(|c| optional(&c));
+                    l.put("required ", None);
+                    counts(&mut l, &req);
+                    if !opt.is_empty() {
+                        l.put(" · optional ", None);
+                        counts(&mut l, &opt);
+                    }
+                }
             }
-            push(format!("check/{name}"), l);
+            // Its base's required checks unreadable: one not reported yet would be missing here.
+            if v["dvRequiredUnknown"] == true {
+                l.put(" · can't read which its base requires", Some(Mark::Dim));
+            }
+            push("checks".into(), l);
+            for c in checks.iter().filter(|c| verdict(c) != '✓') {
+                let name = check_name(c);
+                let m = if verdict(c) == '✗' { Mark::Fail } else { Mark::Pending };
+                let mut l = InfoLine::new(false, false);
+                l.put(&format!("{} ", verdict(c)), Some(m.clone()));
+                // Its run on GitHub (a check run's details, a status's target).
+                match c["detailsUrl"].as_str().or(c["targetUrl"].as_str()).filter(|u| !u.is_empty()) {
+                    Some(u) => l.put(name, Some(Mark::Link(u.to_owned()))),
+                    None => l.put(name, Some(m)),
+                };
+                if optional(&c) {
+                    l.put(" (optional)", Some(Mark::Dim));
+                }
+                push(format!("check/{name}"), l);
+            }
         }
-    }
 
-    // Workflow runs that won't run until a maintainer approves them.
-    match v["dvAwaiting"].as_u64().unwrap_or(0) {
-        0 => {}
-        k => {
+        // Workflow runs that won't run until a maintainer approves them.
+        match v["dvAwaiting"].as_u64().unwrap_or(0) {
+            0 => {}
+            k => {
+                let mut l = InfoLine::new(false, false);
+                let s = if k == 1 { "" } else { "s" };
+                l.put(&format!("⏸ {k} workflow run{s} awaiting approval"), Some(Mark::Pending)).put(" (Space g approves)", Some(Mark::Dim));
+                push("awaiting".into(), l);
+            }
+        }
+        // Its commits signed, or which aren't (and whether its base requires them to be).
+        if let Some(cs) = v["dvCommits"].as_array().filter(|c| !c.is_empty()) {
+            let unsigned: Vec<String> = cs.iter().filter(|c| c["signed"] != true).map(|c| s(&c["oid"]).chars().take(8).collect()).collect();
+            let required = v["dvSignaturesRequired"] == true;
             let mut l = InfoLine::new(false, false);
-            let s = if k == 1 { "" } else { "s" };
-            l.put(&format!("⏸ {k} workflow run{s} awaiting approval"), Some(Mark::Pending)).put(" (Space g approves)", Some(Mark::Dim));
-            push("awaiting".into(), l);
+            l.put("commits: ", None);
+            match unsigned.len() {
+                0 => l.put(&format!("✓ {} signed", if cs.len() == 1 { "1".to_owned() } else { format!("all {}", cs.len()) }), Some(Mark::Pass)),
+                k => l.put(&format!("✗ {k} of {} unsigned: {}", cs.len(), unsigned.join(", ")), Some(if required { Mark::Fail } else { Mark::Pending })),
+            };
+            // More than GitHub's last 100: the older ones aren't checked.
+            let total = v["dvCommitsTotal"].as_u64().unwrap_or(0) as usize;
+            if total > cs.len() {
+                l.put(&format!(" (the last {} of {total})", cs.len()), Some(Mark::Dim));
+            }
+            if required {
+                let st = if unsigned.is_empty() { Mark::Dim } else { Mark::Fail };
+                l.put(" · ", None).put(&format!("{} requires signed commits", s(&v["baseRefName"])), Some(st));
+            }
+            // GitHub couldn't say this time: what it said last (`keep_known`).
+            if v["dvCommitsKept"] == true {
+                let when = Some(s(&v["dvCommitsAt"])).filter(|t| !t.is_empty()).map_or("an earlier look".to_owned(), |t| ago(&t));
+                l.put(&format!(" (as of {when})"), Some(Mark::Dim));
+            }
+            push("commits".into(), l);
+        } else if let Some(why) = v["dvCommitsUnknown"].as_str() {
+            let mut l = InfoLine::new(false, false);
+            l.put("commits: ", None).put(&format!("signatures unknown ({why})"), Some(Mark::Dim));
+            push("commits".into(), l);
         }
-    }
-    // Its commits signed, or which aren't (and whether its base requires them to be).
-    if let Some(cs) = v["dvCommits"].as_array().filter(|c| !c.is_empty()) {
-        let unsigned: Vec<String> = cs.iter().filter(|c| c["signed"] != true).map(|c| s(&c["oid"]).chars().take(8).collect()).collect();
-        let required = v["dvSignaturesRequired"] == true;
-        let mut l = InfoLine::new(false, false);
-        l.put("commits: ", None);
-        match unsigned.len() {
-            0 => l.put(&format!("✓ {} signed", if cs.len() == 1 { "1".to_owned() } else { format!("all {}", cs.len()) }), Some(Mark::Pass)),
-            k => l.put(&format!("✗ {k} of {} unsigned: {}", cs.len(), unsigned.join(", ")), Some(if required { Mark::Fail } else { Mark::Pending })),
-        };
-        // More than GitHub's last 100: the older ones aren't checked.
-        let total = v["dvCommitsTotal"].as_u64().unwrap_or(0) as usize;
-        if total > cs.len() {
-            l.put(&format!(" (the last {} of {total})", cs.len()), Some(Mark::Dim));
-        }
-        if required {
-            let st = if unsigned.is_empty() { Mark::Dim } else { Mark::Fail };
-            l.put(" · ", None).put(&format!("{} requires signed commits", s(&v["baseRefName"])), Some(st));
-        }
-        // GitHub couldn't say this time: what it said last (`keep_known`).
-        if v["dvCommitsKept"] == true {
-            let when = Some(s(&v["dvCommitsAt"])).filter(|t| !t.is_empty()).map_or("an earlier look".to_owned(), |t| ago(&t));
-            l.put(&format!(" (as of {when})"), Some(Mark::Dim));
-        }
-        push("commits".into(), l);
-    } else if let Some(why) = v["dvCommitsUnknown"].as_str() {
-        let mut l = InfoLine::new(false, false);
-        l.put("commits: ", None).put(&format!("signatures unknown ({why})"), Some(Mark::Dim));
-        push("commits".into(), l);
     }
 
     let heading = |t: String| {
@@ -329,6 +348,12 @@ fn info_lines(v: &Value) -> Vec<InfoLine> {
         }
     }
     out
+}
+
+/// `owner/name` of a GitHub URL (`https://github.com/o/r/issues/7`).
+fn url_repo(url: &str) -> &str {
+    let rest = url.strip_prefix("https://github.com/").unwrap_or("");
+    rest.match_indices('/').nth(1).map_or(rest, |(i, _)| &rest[..i])
 }
 
 /// The PR section's lines' text, for a live test to look at.
@@ -388,6 +413,13 @@ fn activity_items(v: &Value, items: &[Value]) -> Vec<Vec<(String, InfoLine)>> {
         vec![(key, l)]
     };
     let t = |t: &str| (t.to_owned(), None);
+    // Another issue or PR, linked: "#9 title" (another repo's, with its name).
+    let here = url_repo(v["url"].as_str().unwrap_or(""));
+    let other = |x: &Value| -> (String, Option<Mark>) {
+        let repo = x["repository"]["nameWithOwner"].as_str().filter(|r| !r.eq_ignore_ascii_case(here)).unwrap_or("");
+        let what = x["number"].as_u64().map_or("a deleted or private one".to_owned(), |n| format!("{repo}#{n} {}", s(&x["title"])));
+        (what.trim_end().to_owned(), Some(s(&x["url"])).filter(|u| !u.is_empty()).map(Mark::Link))
+    };
     for it in items {
         let at = s(&it["createdAt"]);
         let who = &*crate::gh::login(&it["actor"]);
@@ -462,16 +494,27 @@ fn activity_items(v: &Value, items: &[Value]) -> Vec<Vec<(String, InfoLine)>> {
                 let what = format!("merged {} into {}", s(&it["commit"]["abbreviatedOid"]), s(&it["mergeRefName"]));
                 event(key, who, &[(what, Some(Mark::Chip("8957e5".into())))], &at)
             }
-            "ClosedEvent" => event(key, who, &[("closed it".into(), Some(Mark::Fail))], &at),
+            "ClosedEvent" => {
+                // With what (a PR, a commit), and why (completed, not planned, a duplicate).
+                let c = &it["closer"];
+                let by = c["number"].as_u64().map(|n| format!("#{n}")).or(c["abbreviatedOid"].as_str().map(str::to_owned));
+                let why = s(&it["stateReason"]).to_lowercase().replace('_', " ");
+                let mut parts = vec![("closed it".to_owned(), Some(Mark::Fail))];
+                if let Some(by) = by {
+                    parts.extend([t(" with "), (by, Some(s(&c["url"])).filter(|u| !u.is_empty()).map(Mark::Link))]);
+                }
+                if !why.is_empty() {
+                    parts.push(t(&format!(" ({why})")));
+                }
+                event(key, who, &parts, &at)
+            }
             "ReopenedEvent" => event(key, who, &[("reopened it".into(), Some(Mark::Pass))], &at),
             "ReadyForReviewEvent" => event(key, who, &[t("marked it ready for review")], &at),
             "ConvertToDraftEvent" => event(key, who, &[t("marked it as a draft")], &at),
             "BaseRefChangedEvent" => event(key, who, &[t(&format!("changed the base from {} to {}", s(&it["previousRefName"]), s(&it["currentRefName"])))], &at),
-            "CrossReferencedEvent" => {
-                let src = &it["source"];
-                let what = format!("#{} {}", src["number"], s(&src["title"]));
-                event(key, who, &[t("mentioned this in "), (what, Some(Mark::Link(s(&src["url"]))))], &at)
-            }
+            "CrossReferencedEvent" => event(key, who, &[t("mentioned this in "), other(&it["source"])], &at),
+            "MarkedAsDuplicateEvent" => event(key, who, &[t("marked this a duplicate of "), other(&it["canonical"])], &at),
+            "ConnectedEvent" => event(key, who, &[t("linked "), other(&it["subject"])], &at),
             "ReviewDismissedEvent" => event(key, who, &[t("dismissed a review")], &at),
             _ => continue,
         };
@@ -486,6 +529,40 @@ mod tests {
     use super::*;
     use crate::gh::*;
     use serde_json::json;
+
+    #[test]
+    fn an_issues_facts_and_timeline() {
+        // As `gh::issue_json` has it: no branches, reviews, checks or commits; who opened it
+        // when, and the PRs that would close it.
+        let item = |t: &str, at: &str, rest: serde_json::Value| {
+            let mut v = json!({ "__typename": t, "id": format!("{t}{at}"), "createdAt": format!("2026-01-0{at}T00:00:00Z"), "actor": { "login": "bo" } });
+            v.as_object_mut().unwrap().extend(rest.as_object().unwrap().clone());
+            v
+        };
+        let v = json!({
+            "__typename": "Issue", "url": "https://github.com/o/r/issues/7", "author": { "login": "amy" }, "createdAt": "2026-01-01T00:00:00Z",
+            "state": "OPEN", "body": "It panics.", "labels": [{ "name": "bug", "color": "d73a4a" }], "assignees": [],
+            "dvFixes": [{ "number": 9, "state": "OPEN", "url": "https://github.com/o/r/pull/9" }],
+            "dvActivity": { "items": [
+                item("CrossReferencedEvent", "3", json!({ "source": { "number": 9, "title": "Fix the panic", "url": "https://github.com/o/r/pull/9", "repository": { "nameWithOwner": "o/r" } } })),
+                item("ClosedEvent", "4", json!({ "stateReason": "COMPLETED", "closer": { "number": 9, "url": "https://github.com/o/r/pull/9" } })),
+                item("CrossReferencedEvent", "5", json!({ "source": { "number": 4, "title": "Elsewhere", "url": "https://github.com/o/w/issues/4", "repository": { "nameWithOwner": "o/w" } } })),
+                item("MarkedAsDuplicateEvent", "6", json!({ "canonical": { "number": 2, "url": "https://github.com/o/r/issues/2" } })),
+                item("ConnectedEvent", "7", json!({ "subject": { "number": 9, "title": "Fix the panic", "url": "https://github.com/o/r/pull/9" } })),
+            ] },
+        });
+        let t = info_lines_of(&v);
+        assert!(t[0].starts_with("@amy · opened ") && t[1] == "fixed by #9 (open)" && t[2] == "labels  bug ", "{t:#?}");
+        assert!(!t.iter().any(|l| l.starts_with("reviews:") || l.starts_with("checks")), "{t:#?}");
+        let events: Vec<&str> = t.iter().filter(|l| l.starts_with("● ")).map(|l| l.rsplit_once(" · ").unwrap().0).collect();
+        assert_eq!(events, [
+            "● @bo mentioned this in #9 Fix the panic",
+            "● @bo closed it with #9 (completed)",
+            "● @bo mentioned this in o/w#4 Elsewhere", // (another repo's, named so)
+            "● @bo marked this a duplicate of #2",
+            "● @bo linked #9 Fix the panic",
+        ]);
+    }
 
     #[test]
     fn info_summarises_checks() {
@@ -656,6 +733,20 @@ mod tests {
             react(node, "EYES", false).unwrap();
             assert_eq!(mine(node), Some((0, false)), "{node}: taken back");
         }
+    }
+
+    /// Live: an issue as the PR view reads it (its query, its activity's, valid on GitHub).
+    /// `DV_LIVE_REPO=<a checkout> DV_LIVE_ISSUE=<n> cargo test live_issue -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn live_issue() {
+        std::env::set_current_dir(std::env::var("DV_LIVE_REPO").expect("DV_LIVE_REPO")).unwrap();
+        let n: u64 = std::env::var("DV_LIVE_ISSUE").expect("DV_LIVE_ISSUE").parse().unwrap();
+        let v = issue_json(n).unwrap();
+        for l in info_lines_of(&v) {
+            println!("{l}");
+        }
+        assert!(v["dvActivity"]["error"].is_null(), "{}", v["dvActivity"]["error"]);
     }
 
     /// Live: label and assign a PR, then take both back. Changes GitHub: give it a throwaway PR.
