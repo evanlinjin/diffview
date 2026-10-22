@@ -31,7 +31,7 @@ impl App {
         if facts == 0 {
             return vec![];
         }
-        let url = self.pr.as_ref().map(|p| p.url.clone()).filter(|u| !u.is_empty());
+        let url = self.subject_url().filter(|u| !u.is_empty()); // (an issue's too)
         let fact = |r: Row| Row { info: Some(FACTS), ..r };
         let title = if url.is_some() { "status · on GitHub ↗" } else { "status" };
         let links = url.iter().map(|u| (9, title.chars().count(), u.clone())).collect();
