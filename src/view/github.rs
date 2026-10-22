@@ -180,10 +180,13 @@ impl App {
     }
 
     /// dv has just changed the PR on GitHub (pushed, posted its description, …): what a fetch
-    /// under way brings back is from before, and would undo what dv shows now. The next one,
-    /// after it, is current.
+    /// under way brings back is from before, and would undo what dv shows now; the watcher's
+    /// asked again (it may hold the ETag already), and that answer's current.
     pub(super) fn github_changed(&mut self) {
         self.github_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if let Some(p) = &self.github_poke {
+            _ = p.send(());
+        }
     }
 
     /// Shows what the background look at GitHub fetched, once nothing's to be done first.
@@ -194,12 +197,7 @@ impl App {
         }
         let Some((at, f)) = self.github.as_ref().and_then(|rx| rx.try_iter().last()) else { return };
         if at != self.github_gen.load(std::sync::atomic::Ordering::SeqCst) {
-            // Changed since (by us): this is old. Asked again, as the watcher may already hold
-            // the ETag this answer was for (a change it carried would be missed).
-            if let Some(p) = &self.github_poke {
-                _ = p.send(());
-            }
-            return;
+            return; // changed since (asked again then: `github_changed`), or loaded since
         }
         let count = |a: &App| a.threads.iter().filter(|t| t.claude.is_none()).map(|t| t.comments.len()).sum::<usize>();
         let before = count(self);
