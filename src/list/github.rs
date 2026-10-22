@@ -329,7 +329,10 @@ impl List {
         let Some(dir) = &self.reviews_dir else { return };
         let mtime = std::fs::metadata(dir).and_then(|m| m.modified()).ok();
         if mtime != self.reviews_mtime {
-            self.reviews_mtime = mtime;
+            // A review written since (from its view, say): a run that failed on it is over.
+            let since = std::mem::replace(&mut self.reviews_mtime, mtime);
+            let newer = |n: u64| std::fs::metadata(dir.join(format!("pr-{n}.json"))).and_then(|m| m.modified()).ok().zip(since).is_some_and(|(m, s)| m >= s);
+            self.batch.retain(|&n, s| !matches!(s, crate::batch::Status::Failed(_)) || !newer(n));
             self.reviewed = crate::batch::reviewed_in(dir);
             // What's new, what needs you, what Claude would close: from the reviews as they are.
             self.find_new();
