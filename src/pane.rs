@@ -199,3 +199,33 @@ fn other_tab(pane: u64) -> Option<u64> {
     let own = std::env::var("ZELLIJ_PANE_ID").ok().and_then(|id| id.parse().ok()).and_then(tab)?;
     tab(pane).filter(|&t| t != own)
 }
+
+/// A zellij pane: its id, its command line, its working directory.
+pub(crate) type Pane = (u64, String, std::path::PathBuf);
+
+/// zellij's open panes (none outside zellij).
+pub(crate) fn open() -> Vec<Pane> {
+    if !crate::view::in_zellij() {
+        return vec![];
+    }
+    list(&["-c"])
+        .unwrap_or_default()
+        .iter()
+        .filter(|p| p["exited"] != true && p["is_plugin"] != true)
+        .filter_map(|p| Some((p["id"].as_u64()?, p["pane_command"].as_str()?.to_owned(), std::path::PathBuf::from(p["pane_cwd"].as_str().unwrap_or("")))))
+        .collect()
+}
+
+/// Whether a Claude run is at it: its process (`pid`) still there, or Claude Code in its pane
+/// (by its `session`, among `panes`, looked up once) working or asking you something (done, it
+/// waits there idle).
+pub(crate) fn run_live(pid: Option<u32>, session: Option<&str>, panes: &std::cell::OnceCell<Vec<Pane>>) -> bool {
+    match (pid, session) {
+        (Some(pid), _) => crate::alive(pid),
+        (None, Some(id)) => panes.get_or_init(open).iter().find(|p| p.1.contains(id)).is_some_and(|p| {
+            let s = screen(p.0);
+            working(&s) || asking(&s)
+        }),
+        _ => false,
+    }
+}

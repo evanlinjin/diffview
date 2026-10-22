@@ -335,98 +335,133 @@ pub fn looked(n: u64) -> Option<i64> {
     std::fs::read_to_string(dv_dir().ok()?.join(format!("seen/pr-{n}.looked"))).ok()?.trim().parse().ok()
 }
 
-/// Claude at work on PR `n`, for `dv list` (any dv's run): a marker in dv's directory,
-/// `running/pr-N.json`, with what it's doing and how to tell it's still at it: its process, or
-/// its zellij pane (by the session in its command line).
-pub fn mark_running(n: u64, what: &str, pid: Option<u32>, session: Option<&str>) {
-    let Ok(dir) = dv_dir().map(|d| d.join("running")) else { return };
-    _ = std::fs::create_dir_all(&dir);
-    let v = serde_json::json!({ "what": what, "pid": pid, "session": session, "started": now_secs() });
-    _ = std::fs::write(dir.join(format!("pr-{n}.json")), v.to_string());
+/// Claude in a pane on PR (or issue) `n`, for `dv list` and any dv: its marker,
+/// `running/pane-N.json`, with what it's doing and its session (the pane's command line has
+/// it: at it while Claude Code works there, `pane::run_live`), and when it started.
+pub fn mark_pane(n: u64, what: &str, session: &str) {
+    let Ok(dir) = running_dir() else { return };
+    let v = serde_json::json!({ "what": what, "session": session, "started": now_secs() });
+    _ = std::fs::write(dir.join(format!("pane-{n}.json")), v.to_string());
 }
 
-/// What Claude is doing on PR (or issue) `n` right now, by its marker (a run whose process is
-/// still there), from any dv.
-pub fn at_work(n: u64) -> Option<String> {
-    at_work_at(&running_marker(n).ok()?)
+/// Claude's done in its pane on `n` (or it's closed).
+pub fn clear_pane(n: u64) {
+    if let Ok(d) = running_dir() {
+        _ = std::fs::remove_file(d.join(format!("pane-{n}.json")));
+    }
 }
 
-fn at_work_at(marker: &std::path::Path) -> Option<String> {
-    let v: Value = serde_json::from_str(&std::fs::read_to_string(marker).ok()?).ok()?;
-    let pid = v["pid"].as_u64()? as u32;
-    crate::alive(pid).then(|| v["what"].as_str().unwrap_or("working").to_owned())
-}
-
-fn running_marker(n: u64) -> Result<PathBuf> {
+fn running_dir() -> Result<PathBuf> {
     let dir = dv_dir()?.join("running");
     std::fs::create_dir_all(&dir)?;
-    Ok(dir.join(format!("pr-{n}.json")))
+    Ok(dir)
 }
 
-/// A run's hold on PR (or issue) `n`: its marker, this dv's (its process: alive while the run
-/// can be), for dv list and any dv to see; let go when dropped (only if it's still this one's).
+/// What Claude is doing on PR (or issue) `n` right now, from any dv: a run's claim
+/// (`running/pr-N.json`, its process still there) or its pane (working, or asking you).
+pub fn at_work(n: u64) -> Option<String> {
+    let dir = running_dir().ok()?;
+    let panes = std::cell::OnceCell::new();
+    [format!("pr-{n}.json"), format!("pane-{n}.json")].into_iter().find_map(|f| live_marker(&dir.join(f), &panes))
+}
+
+/// What the marker at `path` says Claude's doing, if it's still at it.
+fn live_marker(path: &std::path::Path, panes: &std::cell::OnceCell<Vec<crate::pane::Pane>>) -> Option<String> {
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+    let pid = v["pid"].as_u64().map(|p| p as u32);
+    crate::pane::run_live(pid, v["session"].as_str(), panes).then(|| v["what"].as_str().unwrap_or("working").to_owned())
+}
+
+/// Runs this dv holds claims for now: quitting asks first while there are any (their end is
+/// waited for here: a triage's answer kept, say).
+static CLAIMS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+pub fn claims_held() -> usize {
+    CLAIMS.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// A run's hold on PR (or issue) `n`: its marker, with its process (`pid`: this dv's till its
+/// own is known, `set_pid`), for dv list and any dv to see; let go when dropped (only if it's
+/// still this run's).
 pub struct Claimed {
     path: PathBuf,
+    pid: u32,
 }
 
-impl Drop for Claimed {
-    fn drop(&mut self) {
-        let mine = std::fs::read_to_string(&self.path).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).is_some_and(|v| v["pid"] == std::process::id());
-        if mine {
-            _ = std::fs::remove_file(&self.path);
+impl Claimed {
+    /// The run's own process, now it's started: what tells it's at it (dv may go first).
+    pub fn set_pid(&mut self, pid: u32) {
+        let Some(mut v) = std::fs::read_to_string(&self.path).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()) else { return };
+        if v["pid"] == self.pid {
+            v["pid"] = pid.into();
+            _ = std::fs::write(&self.path, v.to_string());
+            self.pid = pid;
         }
     }
 }
 
-/// Claude, doing `what` on PR (or issue) `n`: its claim, one run at a time on it from any dv;
-/// else what holds it now. (A pane's marker, or a gone run's, gives way.)
-pub fn claim(n: u64, what: &str) -> std::result::Result<Claimed, String> {
-    claim_at(running_marker(n).map_err(|e| format!("{e:#}"))?, what)
+impl Drop for Claimed {
+    fn drop(&mut self) {
+        let mine = std::fs::read_to_string(&self.path).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).is_some_and(|v| v["pid"] == self.pid);
+        if mine {
+            _ = std::fs::remove_file(&self.path);
+        }
+        CLAIMS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
 }
 
+/// Claude, doing `what` on PR (or issue) `n`: its claim, one run at a time on it from any dv
+/// (a pane's working on it too); else what holds it now.
+pub fn claim(n: u64, what: &str) -> std::result::Result<Claimed, String> {
+    let dir = running_dir().map_err(|e| format!("{e:#}"))?;
+    if let Some(pane) = live_marker(&dir.join(format!("pane-{n}.json")), &std::cell::OnceCell::new()) {
+        return Err(pane);
+    }
+    claim_at(dir.join(format!("pr-{n}.json")), what)
+}
+
+/// The claim at `path`, taken under its lock (`<path>.lock`): two claimants at once, one gets it.
 fn claim_at(path: PathBuf, what: &str) -> std::result::Result<Claimed, String> {
-    if let Some(holder) = at_work_at(&path) {
+    let lock = std::fs::File::options().create(true).truncate(false).write(true).open(path.with_extension("lock")).map_err(|e| e.to_string())?;
+    lock.lock().map_err(|e| e.to_string())?;
+    if let Some(holder) = live_marker(&path, &std::cell::OnceCell::new()) {
         return Err(holder);
     }
-    _ = std::fs::remove_file(&path);
-    let v = serde_json::json!({ "what": what, "pid": std::process::id(), "started": now_secs() });
-    // (Two at once: one makes it, the other's told who.)
-    let made = std::fs::File::options().write(true).create_new(true).open(&path).and_then(|mut f| std::io::Write::write_all(&mut f, v.to_string().as_bytes()));
-    match made {
-        Ok(()) => Ok(Claimed { path }),
-        Err(_) => Err(at_work_at(&path).unwrap_or_else(|| "at work".into())),
-    }
+    let pid = std::process::id();
+    let v = serde_json::json!({ "what": what, "pid": pid, "started": now_secs() });
+    std::fs::write(&path, v.to_string()).map_err(|e| e.to_string())?;
+    CLAIMS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    Ok(Claimed { path, pid })
 }
 
 #[test]
 fn one_claim_at_a_time() {
     let p = std::env::temp_dir().join(format!("dv-claim-{}.json", std::process::id()));
-    let c = claim_at(p.clone(), "triaging").unwrap();
+    let mut c = claim_at(p.clone(), "triaging").unwrap();
     assert_eq!(claim_at(p.clone(), "reviewing").err().as_deref(), Some("triaging"));
-    assert_eq!(at_work_at(&p).as_deref(), Some("triaging"));
-    drop(c);
-    assert!(at_work_at(&p).is_none() && !p.exists());
-    // A pane's marker (no process to tell by) gives way.
-    std::fs::write(&p, r#"{ "what": "in its pane", "pid": null, "session": "s" }"#).unwrap();
-    drop(claim_at(p.clone(), "reviewing").unwrap());
+    assert_eq!(live_marker(&p, &Default::default()).as_deref(), Some("triaging"));
+    // Its run's process, once it's started: gone, so is the claim (dv's still here).
+    let mut child = std::process::Command::new("true").spawn().unwrap();
+    c.set_pid(child.id());
+    _ = child.wait();
+    assert!(live_marker(&p, &Default::default()).is_none());
+    let taken = claim_at(p.clone(), "reviewing").unwrap();
+    drop(c); // (not its claim now: left alone)
+    assert_eq!(live_marker(&p, &Default::default()).as_deref(), Some("reviewing"));
+    drop(taken);
     assert!(!p.exists());
+    _ = std::fs::remove_file(p.with_extension("lock"));
 }
 
-/// Claude's done with PR `n` (or stopped).
-pub fn clear_running(n: u64) {
-    if let Ok(d) = dv_dir() {
-        _ = std::fs::remove_file(d.join("running").join(format!("pr-{n}.json")));
-    }
-}
-
-/// What Claude is doing, by PR, from the markers in `dir` (`running/`): only those still at it
-/// (`alive` says, for a process or a pane's session).
+/// What Claude is doing, by PR, from the markers in `dir` (`running/`): a run's, or a pane's,
+/// still at it (`alive` says, for a process or a pane's session).
 pub fn running(dir: &std::path::Path, alive: impl Fn(Option<u32>, Option<&str>) -> bool) -> std::collections::HashMap<u64, String> {
     let Ok(entries) = std::fs::read_dir(dir) else { return Default::default() };
     entries
         .flatten()
         .filter_map(|e| {
-            let n: u64 = e.file_name().to_str()?.strip_prefix("pr-")?.strip_suffix(".json")?.parse().ok()?;
+            let name = e.file_name().to_str()?.strip_suffix(".json")?.to_owned();
+            let n: u64 = name.strip_prefix("pr-").or(name.strip_prefix("pane-"))?.parse().ok()?;
             let v: Value = serde_json::from_str(&std::fs::read_to_string(e.path()).ok()?).ok()?;
             let pid = v["pid"].as_u64().map(|p| p as u32);
             alive(pid, v["session"].as_str()).then(|| (n, v["what"].as_str().unwrap_or("working").to_owned()))
@@ -651,9 +686,9 @@ fn turn_ended_in(tail: &str, since: i64) -> Option<String> {
     Some(text.into_iter().rev().collect::<Vec<_>>().join("\n"))
 }
 
-/// PR `n`'s run in a pane, from its marker (`mark_running`): its session, and when it started.
+/// PR `n`'s run in a pane, from its marker (`mark_pane`): its session, and when it started.
 pub fn pane_run(n: u64) -> Option<(String, i64)> {
-    pane_run_in(&dv_dir().ok()?.join("running").join(format!("pr-{n}.json")))
+    pane_run_in(&running_dir().ok()?.join(format!("pane-{n}.json")))
 }
 
 fn pane_run_in(marker: &std::path::Path) -> Option<(String, i64)> {
@@ -667,7 +702,7 @@ pub fn pane_runs(dir: &std::path::Path) -> Vec<(u64, String, i64)> {
     entries
         .flatten()
         .filter_map(|e| {
-            let n = e.file_name().to_str()?.strip_prefix("pr-")?.strip_suffix(".json")?.parse().ok()?;
+            let n = e.file_name().to_str()?.strip_prefix("pane-")?.strip_suffix(".json")?.parse().ok()?;
             let (s, t) = pane_run_in(&e.path())?;
             Some((n, s, t))
         })
@@ -1364,7 +1399,7 @@ fn running_markers() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("pr-7.json"), r#"{"what": "making the changes", "pid": 42, "session": null}"#).unwrap();
-    std::fs::write(dir.join("pr-8.json"), r#"{"what": "reviewing (in its pane)", "pid": null, "session": "abc"}"#).unwrap();
+    std::fs::write(dir.join("pane-8.json"), r#"{"what": "reviewing (in its pane)", "pid": null, "session": "abc"}"#).unwrap();
     std::fs::write(dir.join("pr-9.json"), r#"{"what": "answering", "pid": 43, "session": null}"#).unwrap();
     // Only the ones still at it: process 42 is, 43 isn't; the pane with session abc is open.
     let alive = |pid: Option<u32>, session: Option<&str>| pid == Some(42) || session == Some("abc");

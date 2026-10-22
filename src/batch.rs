@@ -164,7 +164,7 @@ fn run(s: Subject, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sen
     let n = s.n();
     // Its hold on it: one run on it at a time, from any dv (an issue's view, a PR's); let go as
     // this ends, however.
-    let _claim = crate::claude::claim(n, task.doing()).map_err(|w| anyhow::anyhow!("Claude is {w} on {} already", s.what()))?;
+    let mut claim = crate::claude::claim(n, task.doing()).map_err(|w| anyhow::anyhow!("Claude is {w} on {} already", s.what()))?;
     _ = tx.send((n, Status::Preparing));
     // The worktree, checked out at the PR (by a dv of its own: that changes directory); an
     // issue's, here (no code of its own).
@@ -214,13 +214,16 @@ fn run(s: Subject, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sen
     let prompt = crate::claude::with_instructions(&prompt, extra);
     let log = std::env::temp_dir().join(format!("dv-claude-batch-{}-{n}.log", std::process::id()));
     let more = crate::claude::tools_for(matches!(task, Task::FixChecks).then_some(n), matches!(task, Task::Answer { .. }));
-    let st = crate::claude::claude_command(task.work(), &prompt, &dir, &session, &more.iter().map(String::as_str).collect::<Vec<_>>(), None)
+    let mut child = crate::claude::claude_command(task.work(), &prompt, &dir, &session, &more.iter().map(String::as_str).collect::<Vec<_>>(), None)
         .envs([s.env()])
         .stdin(std::process::Stdio::null())
         .stdout(std::fs::File::create(&log)?)
         .stderr(std::fs::File::create(log.with_extension("err"))?)
-        .status()
+        .spawn()
         .context("is Claude Code (`claude`) installed?")?;
+    // (Its claim by its own process from here: what tells any dv it's at it, this one gone even.)
+    claim.set_pid(child.id());
+    let st = child.wait()?;
     let v: serde_json::Value = std::fs::read_to_string(&log).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
     if !st.success() || v["is_error"] != false {
         _ = crate::claude::save_session(&review, &dir, None); // start afresh next time

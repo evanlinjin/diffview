@@ -139,9 +139,9 @@ pub(super) struct ClaudeState {
 /// A triage run's label (`poll_claude` keeps its answer).
 pub(super) const TRIAGE_LABEL: &str = "triaging it";
 
-/// A view gone with a Claude run of its own still under way, not handed off (a nested issue's,
-/// its view dropped as a PR's link was followed): its end waited for elsewhere, a triage's
-/// answer kept, its hold let go, as `hand_off_claude` does.
+/// A view gone with a Claude run of its own still under way (quit, or a nested issue's view
+/// dropped as a PR's link was followed): its end waited for elsewhere, a triage's answer kept,
+/// its hold let go (dv asks before quitting while it holds one: `claude::claims_held`).
 impl Drop for ClaudeState {
     fn drop(&mut self) {
         if let Some(mut j) = self.job.take() {
@@ -375,21 +375,6 @@ impl App {
         } else if !ran && !self.claude.path.as_ref().is_some_and(|p| p.exists()) {
             self.msg = "Claude hasn't written a review yet (Space a → review asks for one)".into();
         }
-    }
-
-    /// The view closing with a Claude run of its own under way (dv list's, say, goes on): its
-    /// end waited for elsewhere, its marks off then (else they'd stand, its process a zombie).
-    /// (A triage's answer kept, as `poll_claude` would; its hold let go with it.)
-    pub(super) fn hand_off_claude(&mut self) {
-        let Some(mut j) = self.claude.job.take() else { return };
-        let rep = self.replacement.as_ref().map(|r| r.id);
-        std::thread::spawn(move || {
-            _ = j.child.wait();
-            _ = j.kept();
-            if let Some(id) = rep {
-                crate::replace::mark_at_work(id, None, j.child.id());
-            }
-        });
     }
 
     /// `Space a` → stop: end the background run (its log stays). The session is kept, so the
@@ -738,7 +723,7 @@ impl App {
                     // For dv list: at it while its pane is open (a session: when it's done
                     // working there, only the pane knows).
                     if let (Some(s), Some(id)) = (self.subject(), &self.claude.session) {
-                        crate::claude::mark_running(s.n(), &format!("{label} (in its pane)"), None, Some(id));
+                        crate::claude::mark_pane(s.n(), &format!("{label} (in its pane)"), id);
                     }
                     (format!("Claude is {label} in a hidden pane (Space a shows it; it closes when Claude's done); its comments show up here as it writes them"), true)
                 }
@@ -869,7 +854,7 @@ impl App {
         let (Some(pr), Some(pane)) = (self.subject().map(|s| s.n()), pane) else { return };
         let Some((session, since)) = crate::claude::pane_run(pr).filter(|r| Some(&r.0) == self.claude.session.as_ref()) else { return };
         if crate::pane::close_if_done(pane, &session, since) {
-            crate::claude::clear_running(pr);
+            crate::claude::clear_pane(pr);
             self.msg = "Claude's done: its pane closed (Space a asks it more, in the same session)".into();
         }
     }
@@ -948,8 +933,8 @@ impl App {
     /// as `spawn_claude`'s): its log, and its marks for dv list (and any dv) to see.
     pub(super) fn spawn_job(&mut self, mut cmd: std::process::Command, label: &'static str, forked: bool) -> Result<ClaudeJob> {
         use std::os::unix::process::CommandExt;
-        // Its hold on it (a fork's, its pane open: that pane's run holds it).
-        let claim = match self.subject().filter(|_| !forked) {
+        // Its hold on it: one run at a time on it, a fork's too (its pane working: that run's).
+        let mut claim = match self.subject() {
             Some(s) => Some(crate::claude::claim(s.n(), label).map_err(|w| anyhow!("Claude is {w} on {} already (elsewhere): ask again once it's done", s.what()))?),
             None => None,
         };
@@ -971,6 +956,9 @@ impl App {
         if let Some(r) = self.replacement.as_ref().filter(|_| self.unpublished()) {
             crate::replace::mark_at_work(r.id, Some(child.id()), 0);
         }
+        if let Some(c) = &mut claim {
+            c.set_pid(child.id());
+        }
         Ok(ClaudeJob { _claim: claim, ..ClaudeJob::new(child, log, label, forked) })
     }
 
@@ -982,7 +970,9 @@ impl App {
         let Some(job) = self.claude.job.take() else { return };
         // (What it said, a triage's kept, before the file's read again; its hold let go.)
         let (out, triaged) = job.kept();
-        let ClaudeJob { child, log, label, forked, .. } = job;
+        // (Its hold let go first: answering what came in meanwhile, below, claims anew.)
+        let ClaudeJob { child, log, label, forked, _claim, .. } = job;
+        drop(_claim);
         if let Some(r) = &self.replacement {
             crate::replace::mark_at_work(r.id, None, child.id());
         }

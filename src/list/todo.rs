@@ -650,24 +650,14 @@ impl List {
         self.running_checked = Some(std::time::Instant::now());
         let Some(dir) = self.reviews_dir.as_ref().and_then(|d| d.parent()).map(|d| d.join("running")) else { return false };
         let panes = std::cell::OnceCell::new(); // zellij's panes, looked up only if a run is in one
-        // A run in a pane is at it while Claude Code works there (or asks you something), not
-        // just while its pane is open: done, it waits there idle.
-        let alive = |pid: Option<u32>, session: Option<&str>| match (pid, session) {
-            (Some(pid), _) => crate::alive(pid),
-            (None, Some(id)) => panes.get_or_init(open_panes).iter().find(|p: &&Pane| p.1.contains(id)).is_some_and(|p| {
-                let screen = crate::pane::screen(p.0);
-                crate::pane::working(&screen) || crate::pane::asking(&screen)
-            }),
-            _ => false,
-        };
-        let mut now = crate::claude::running(&dir, alive);
+        let mut now = crate::claude::running(&dir, |pid, session| crate::pane::run_live(pid, session, &panes));
         let mut reps = HashMap::new();
         // Claude Code in a pane in a PR's worktree, or a replacement's (one you started, from a
         // shell even: its screen says): at it there, or asking you something.
         let rep_dirs: Vec<(u64, std::path::PathBuf)> =
             self.rep_of.keys().filter_map(|&id| Some((id, crate::worktree_dir_named(&self.root, &crate::replace::name(id)).ok()?))).collect();
         if crate::view::in_zellij() && (!self.local.is_empty() || !rep_dirs.is_empty()) {
-            for (id, _, cwd) in panes.get_or_init(open_panes) {
+            for (id, _, cwd) in panes.get_or_init(crate::pane::open) {
                 let pr = self.local.iter().find(|(_, (d, _))| cwd.starts_with(d)).map(|(n, _)| *n).filter(|n| !now.contains_key(n));
                 let rep = rep_dirs.iter().find(|(_, d)| cwd.starts_with(d)).map(|(r, _)| *r);
                 if pr.is_none() && rep.is_none() {
@@ -691,10 +681,10 @@ impl List {
         // (a cheap read of its transcript's end), so one not closed at first (you were on it)
         // is later.
         for (n, session, since) in crate::claude::pane_runs(&dir).into_iter().filter(|r| !now.contains_key(&r.0)) {
-            if let Some(p) = panes.get_or_init(open_panes).iter().find(|p| p.1.contains(&session))
+            if let Some(p) = panes.get_or_init(crate::pane::open).iter().find(|p| p.1.contains(&session))
                 && crate::pane::close_if_done(p.0, &session, since)
             {
-                crate::claude::clear_running(n);
+                crate::claude::clear_pane(n);
             }
         }
         let changed = now != self.running || reps != self.running_reps;
@@ -736,20 +726,4 @@ impl List {
         }
         it.and_then(|it| it.claude.clone()).unwrap_or(batch::Task::Review)
     }
-}
-
-/// A zellij pane: its id, command and working directory.
-type Pane = (u64, String, std::path::PathBuf);
-
-/// zellij's open panes (none outside zellij).
-fn open_panes() -> Vec<Pane> {
-    if !crate::view::in_zellij() {
-        return vec![];
-    }
-    crate::pane::list(&["-c"])
-        .unwrap_or_default()
-        .iter()
-        .filter(|p| p["exited"] != true && p["is_plugin"] != true)
-        .filter_map(|p| Some((p["id"].as_u64()?, p["pane_command"].as_str()?.to_owned(), std::path::PathBuf::from(p["pane_cwd"].as_str().unwrap_or("")))))
-        .collect()
 }

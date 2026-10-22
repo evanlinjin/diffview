@@ -226,10 +226,12 @@ pub(crate) fn save_triage(n: u64, updated: &str, fixes: &[(u64, String, String)]
 /// Claude triages issue `n` here (dv issues'): its hold on it meanwhile (`claude::claim`), for
 /// the issue's view (and any dv) to see.
 fn triage_run(n: u64, updated: &str, fixes: &[(u64, String, String)], root: &std::path::Path, extra: &str) -> Result<batch::Status> {
-    let claim = crate::claude::claim(n, "triaging").map_err(|w| anyhow::anyhow!("Claude is {w} on #{n} already"))?;
-    let out = triage_command(n, fixes, root, extra).output();
+    let mut claim = crate::claude::claim(n, "triaging").map_err(|w| anyhow::anyhow!("Claude is {w} on #{n} already"))?;
+    let mut cmd = triage_command(n, fixes, root, extra);
+    let child = cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().context("is Claude Code (`claude`) installed?")?;
+    claim.set_pid(child.id());
+    let out = child.wait_with_output()?;
     drop(claim);
-    let out = out.context("is Claude Code (`claude`) installed?")?;
     let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
     let answer = v["result"].as_str().unwrap_or("");
     // (Its own word for what went wrong, where it said one.)
@@ -515,7 +517,8 @@ impl Issues {
 
     /// Claude at work from here: triaging, drafting a fix or a closing comment, ranking.
     pub fn busy(&self) -> bool {
-        self.running.values().any(batch::Status::running) || !self.drafting.is_empty() || self.claude_rx.is_some() || self.todos.rank_rx.is_some()
+        // (A view's run left at work counts too: `claude::claims_held`.)
+        self.running.values().any(batch::Status::running) || !self.drafting.is_empty() || self.claude_rx.is_some() || self.todos.rank_rx.is_some() || crate::claude::claims_held() > 0
     }
 
     /// The issues on the tab shown, filtered.

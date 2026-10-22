@@ -175,7 +175,8 @@ impl List {
     /// Claude at work from here: reviews under way or queued, replacements or new PRs being
     /// drafted, a ranking asked (each lost, or left half done, if dv quits).
     pub fn busy(&self) -> bool {
-        self.batch.values().any(batch::Status::running) || self.drafting.values().any(batch::Status::running) || self.todos.rank_rx.is_some()
+        // (A view's run left at work counts too: `claude::claims_held`.)
+        self.batch.values().any(batch::Status::running) || self.drafting.values().any(batch::Status::running) || self.todos.rank_rx.is_some() || crate::claude::claims_held() > 0
     }
 
     pub fn new(flags: String) -> List {
