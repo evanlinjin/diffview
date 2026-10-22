@@ -7,15 +7,16 @@ use super::*;
 pub(super) const OUTDATED_SLACK: i64 = 10;
 
 /// The Claude / pending view's windows of `f` (as `diff::windows`): each of `threads` with its
-/// lines and a few around them (± its `extra`), merged where they meet, each with the threads
-/// it covers (indexes into `threads`). `whole` shows the entire file.
-pub(super) fn view_windows(threads: &[&Thread], f: &FileDiff, extra: impl Fn(&Thread) -> i64, whole: bool) -> Vec<(usize, usize, Vec<usize>)> {
-    let spans = threads.iter().enumerate().filter(|(_, t)| t.path == f.path).filter_map(|(k, t)| {
+/// lines and a few around them (± its `extra`), merged where they meet, each with the comments
+/// it covers. `whole` shows the entire file.
+pub(super) fn view_windows(threads: &[&Thread], f: &FileDiff, extra: impl Fn(&Wide) -> i64, whole: bool) -> Vec<(usize, usize, Vec<Wide>)> {
+    let spans = threads.iter().filter(|t| t.path == f.path).filter_map(|t| {
+        let k = comment_wide(t);
         let at = anchor_line(t, &f.full)?;
         // (A range: from its first line, wherever that is in the diff; removed lines between
         // don't count toward it.)
         let first = t.range_start().and_then(|(s, left)| line_on(left, &f.full, s)).filter(|&s| s <= at).unwrap_or(at);
-        let x = (DEFAULT_CONTEXT as i64 + extra(t)).max(0) as usize;
+        let x = (DEFAULT_CONTEXT as i64 + extra(&k)).max(0) as usize;
         Some((first.saturating_sub(x), at + x, k))
     });
     diff::merge_windows(spans.collect(), f.full.len(), whole)
@@ -25,7 +26,7 @@ pub(super) fn view_windows(threads: &[&Thread], f: &FileDiff, extra: impl Fn(&Th
 /// it is in the base (its first line's old number, or for an added line, the one before it:
 /// the same hunk across reloads, as the working tree changes); or a comment's window in the
 /// Claude / pending views, by the comment.
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Wide {
     Hunk(String, u32),
     Comment(String, String),
@@ -45,9 +46,24 @@ fn comment_wide(t: &Thread) -> Wide {
 /// The whole diff's windows of `f`: its hunks, widened as `extra` keeps them, each with what
 /// widens it.
 fn hunk_windows(f: &FileDiff, extra: &HashMap<Wide, i64>, whole: bool) -> Vec<(usize, usize, Vec<Wide>)> {
-    let e = |a| *extra.get(&hunk_wide(f, a)).unwrap_or(&0);
-    let ws = diff::windows(&f.full, DEFAULT_CONTEXT as usize, e, whole);
-    ws.into_iter().map(|(lo, hi, ats)| (lo, hi, ats.into_iter().map(|a| hunk_wide(f, a)).collect())).collect()
+    let ctx = DEFAULT_CONTEXT as usize;
+    let spans = diff::hunks(&f.full, ctx).into_iter().map(|(a, b)| {
+        let k = hunk_wide(f, a);
+        let x = (ctx as i64 + *extra.get(&k).unwrap_or(&0)).max(0) as usize;
+        (a.saturating_sub(x), b + x, k)
+    });
+    diff::merge_windows(spans.collect(), f.full.len(), whole)
+}
+
+/// Range start `start` (a line and its side) as a line on side `left`: itself on that side;
+/// from the other, the first line of `f`'s diff on `left`'s side from there on (what reads only
+/// one side, the review file and the code quoted, takes a range as one side's).
+pub(super) fn start_on_side(f: &FileDiff, (s, from): (u32, bool), left: bool) -> Option<u32> {
+    if from == left {
+        return Some(s);
+    }
+    let i = line_on(from, &f.full, s)?;
+    f.full[i..].iter().find_map(|l| if left { l.old } else { l.new })
 }
 
 /// The diff line of line `n` on a side (`left`: the old one).
@@ -103,9 +119,8 @@ impl App {
         if self.view == View::All {
             return hunk_windows(f, &self.extra, whole);
         }
-        let ts: Vec<&Thread> = self.threads.iter().filter(|t| t.path == f.path && self.in_view(t)).collect();
-        let ws = view_windows(&ts, f, |t| *self.extra.get(&comment_wide(t)).unwrap_or(&0), whole);
-        ws.into_iter().map(|(lo, hi, ks)| (lo, hi, ks.into_iter().map(|k| comment_wide(ts[k])).collect())).collect()
+        let ts: Vec<&Thread> = self.threads.iter().filter(|t| self.in_view(t)).collect();
+        view_windows(&ts, f, |k| *self.extra.get(k).unwrap_or(&0), whole)
     }
 
     pub(super) fn cursor_key(&self) -> CursorKey {
@@ -626,8 +641,17 @@ impl App {
     /// The whole diff again, from its base as now (another base, a commit or range let go):
     /// its hunks other ones, their context afresh. Every such change goes through here.
     pub(super) fn whole_diff_again(&mut self) {
-        (self.to, self.commit_shown, self.commit_anchor) = (None, None, None);
+        (self.to, self.commit_shown, self.commit_anchor, self.shown_first) = (None, None, None, None);
         self.hunks_afresh();
+    }
+
+    /// The diff from `base` now: another one, its hunks are other ones (their widened context
+    /// let go). Every change of the base goes through here.
+    pub(super) fn set_base(&mut self, base: String) {
+        if base != self.base {
+            self.base = base;
+            self.hunks_afresh();
+        }
     }
 
     /// The diff's hunks are other ones (another base, a commit's or a range's): their widened

@@ -3950,3 +3950,15 @@ fn a_views_windows_widen_per_comment() {
     app.expand(1);
     assert_eq!(shown(&app), before + 2, "one more line each side of the 10–12 window, only");
 }
+
+#[test]
+fn a_range_from_the_old_side_reads_as_the_new_sides() {
+    // GitHub's range from old line 20 to new line 6: on the new side, it starts at the first new
+    // line from there (5), as Claude reads it.
+    let text = "diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -20,2 +5,3 @@\n-gone\n ctx\n+one\n+two\n";
+    let f = &diff::parse(text)[0];
+    assert_eq!(super::build::start_on_side(f, (20, true), false), Some(5));
+    assert_eq!(super::build::start_on_side(f, (6, false), false), Some(6));
+    let t = gh::Thread { path: "a.rs".into(), start_line: Some(20), start_left: Some(true), line: Some(6), ..Default::default() };
+    assert_eq!(t.range_start(), Some((20, true)));
+}

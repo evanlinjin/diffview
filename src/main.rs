@@ -578,6 +578,8 @@ fn review_comments(pr: Option<&gh::Pr>, threads: Option<serde_json::Value>) -> a
         .map(|t| {
             serde_json::json!({
                 "path": t.path, "line": t.line, "start_line": t.start_line, "side": if t.left { "old" } else { "new" },
+                // (A range can start on the other side: GitHub's, old to new.)
+                "start_side": t.start_line.map(|_| if t.start_left.unwrap_or(t.left) { "old" } else { "new" }),
                 "resolved": t.resolved, "outdated": t.outdated,
                 "comments": t.comments.iter().map(|c| serde_json::json!({ "id": c.id, "author": c.author, "body": c.body })).collect::<Vec<_>>(),
             })
@@ -914,7 +916,7 @@ fn worktree_on_branch(p: &gh::Pr) -> Option<(PathBuf, bool)> {
     let d = dir.to_string_lossy().into_owned();
     let git = |args: &[&str]| diff::git(&[&["-C", d.as_str()], args].concat()).ok().map(|s| s.trim().to_owned());
     // Where Space g there pushes (as it decides it): to the PR's repo.
-    let pushes_there = diff::push_target(&dir, branch, Some((branch, &p.head_repo))).is_some_and(|(remote, _)| diff::remote_is(&dir, &remote, &p.head_repo));
+    let pushes_there = diff::push_remote(&dir, branch).is_some_and(|remote| diff::remote_is(&dir, &remote, &p.head_repo));
     let one_line = !oid.is_empty() && (git(&["merge-base", "--is-ancestor", oid, "HEAD"]).is_some() || git(&["merge-base", "--is-ancestor", "HEAD", oid]).is_some());
     (pushes_there || one_line).then_some((dir, one_line))
 }

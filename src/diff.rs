@@ -178,9 +178,10 @@ pub fn hunks(full: &[Line], ctx: usize) -> Vec<(usize, usize)> {
     out
 }
 
-/// Shown ranges of `full`: each hunk ± (ctx + its extra), merged where they meet, each with
-/// the hunks it covers. `whole` shows the entire file.
-pub fn windows(full: &[Line], ctx: usize, extra: impl Fn(usize) -> i64, whole: bool) -> Vec<(usize, usize, Vec<usize>)> {
+/// Hunks ± (ctx + their extra) as windows, keyed by their first index (what `hunk_windows`
+/// does, by its own keys).
+#[cfg(test)]
+fn windows(full: &[Line], ctx: usize, extra: impl Fn(usize) -> i64, whole: bool) -> Vec<(usize, usize, Vec<usize>)> {
     let spans = hunks(full, ctx).into_iter().map(|(a, b)| {
         let x = (ctx as i64 + extra(a)).max(0) as usize;
         (a.saturating_sub(x), b + x, a)
@@ -188,24 +189,23 @@ pub fn windows(full: &[Line], ctx: usize, extra: impl Fn(usize) -> i64, whole: b
     merge_windows(spans.collect(), full.len(), whole)
 }
 
-/// Spans of `full` (`len` lines: first, last, and what each's for), as windows: merged where
-/// they meet, each with what it covers; `whole`, the entire file, covering them all.
-pub fn merge_windows(mut spans: Vec<(usize, usize, usize)>, len: usize, whole: bool) -> Vec<(usize, usize, Vec<usize>)> {
+/// Spans of a file's whole diff (`len` lines: first, last, and what each's for), as the windows
+/// shown: merged where they meet, each with what it covers (once, in order); `whole`, the
+/// entire file, covering them all.
+pub fn merge_windows<K: Ord>(mut spans: Vec<(usize, usize, K)>, len: usize, whole: bool) -> Vec<(usize, usize, Vec<K>)> {
     if len == 0 {
         return vec![];
     }
-    spans.sort();
-    // (Each once, in order: two comments on one line are one window's line, widened once.)
-    let keys = |ats: Vec<usize>| {
-        let mut ats = ats;
-        ats.sort();
-        ats.dedup();
-        ats
+    spans.sort_by_key(|s| (s.0, s.1));
+    let keys = |mut ks: Vec<K>| {
+        ks.sort();
+        ks.dedup();
+        ks
     };
     if whole {
         return vec![(0, len - 1, keys(spans.into_iter().map(|s| s.2).collect()))];
     }
-    let mut out: Vec<(usize, usize, Vec<usize>)> = vec![];
+    let mut out: Vec<(usize, usize, Vec<K>)> = vec![];
     for (lo, hi, at) in spans {
         let hi = hi.min(len - 1);
         match out.last_mut() {
@@ -216,7 +216,7 @@ pub fn merge_windows(mut spans: Vec<(usize, usize, usize)>, len: usize, whole: b
             _ => out.push((lo, hi, vec![at])),
         }
     }
-    out.into_iter().map(|(lo, hi, ats)| (lo, hi, keys(ats))).collect()
+    out.into_iter().map(|(lo, hi, ks)| (lo, hi, keys(ks))).collect()
 }
 
 /// The lines to show for `windows`, each range under a `@@` header (with git's function context).
@@ -243,14 +243,19 @@ pub fn remote_is(dir: &std::path::Path, remote: &str, repo: &str) -> bool {
     !repo.is_empty() && url.strip_suffix(&repo.to_lowercase()).is_some_and(|r| r.ends_with(['/', ':']))
 }
 
+/// The remote branch `here` in the checkout at `dir` pushes to: its push remote, else the
+/// default one, else its remote (a name, or a URL).
+pub fn push_remote(dir: &std::path::Path, here: &str) -> Option<String> {
+    let config = |k: &str| git_in(dir, &["config", "--get", k]).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
+    config(&format!("branch.{here}.pushRemote")).or_else(|| config("remote.pushDefault")).or_else(|| config(&format!("branch.{here}.remote")))
+}
+
 /// Where branch `here` in the checkout at `dir` pushes to: its push remote (or its remote), and
 /// the branch there: the PR's (`pr`: its branch and repo) when it tracks that, in that repo,
 /// whatever it's called here; else its own name.
 pub fn push_target(dir: &std::path::Path, here: &str, pr: Option<(&str, &str)>) -> Option<(String, String)> {
     let config = |k: &str| git_in(dir, &["config", "--get", k]).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
-    let remote = config(&format!("branch.{here}.pushRemote"))
-        .or_else(|| config("remote.pushDefault"))
-        .or_else(|| config(&format!("branch.{here}.remote")))?;
+    let remote = push_remote(dir, here)?;
     // (Not the branch it tracks, unless that's the PR's: one started from `origin/main` tracks
     // `main`, but isn't it, whatever it's named.)
     let merge = config(&format!("branch.{here}.merge")).map(|m| m.trim_start_matches("refs/heads/").to_owned());

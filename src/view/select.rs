@@ -89,8 +89,9 @@ impl App {
             let th = &self.threads[t];
             if th.claude.is_some() {
                 let line = th.line.or(th.original_line)?;
-                return Some(match th.range_start() {
-                    Some((s, _)) => format!("{}:{s}-{line}", th.path),
+                // (Claude's: on its own side; outdated, where it was, its range too.)
+                return Some(match th.start_line.filter(|&s| s < line) {
+                    Some(s) => format!("{}:{s}-{line}", th.path),
                     None => format!("{}:{line}", th.path),
                 });
             }

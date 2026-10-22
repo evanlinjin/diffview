@@ -523,6 +523,8 @@ pub struct App {
     /// Its checks failing, as GitHub said last.
     failing: usize,
     commit_shown: Option<(usize, usize)>,
+    /// The first commit shown, by SHA (the last's is `to`): what the list's reloads follow.
+    shown_first: Option<String>,
     commit_cur: usize,
     commit_anchor: Option<usize>,
     in_commits: bool,

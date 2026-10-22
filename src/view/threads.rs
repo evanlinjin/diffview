@@ -196,10 +196,15 @@ impl App {
     /// A thread's rows, `open` or folded to its heading.
     pub(super) fn thread_rows_as(&self, ti: usize, file: usize, open: bool) -> Vec<Row> {
         let t = &self.threads[ti];
-        let range = match (t.start_line, t.line.or(t.original_line)) {
-            (Some(s), Some(e)) if s != e => format!(" · L{s}-{e}"),
-            (_, Some(e)) if t.outdated => format!(" · was L{e}"),
-            (_, Some(e)) => format!(" · L{e}"),
+        // Its lines: a range (from the other side, each with its side: `−` the old, `+` the
+        // new); outdated, where it was.
+        let side = |left: bool| if left { '−' } else { '+' };
+        let range = match (t.range_start(), t.line, t.start_line, t.original_line) {
+            (Some((s, from)), Some(e), ..) if from != t.left => format!(" · L{}{s}–{}{e}", side(from), side(t.left)),
+            (Some((s, _)), Some(e), ..) => format!(" · L{s}-{e}"),
+            (None, Some(e), ..) => format!(" · L{e}"),
+            (_, None, Some(s), Some(e)) if s < e => format!(" · was L{s}-{e}"),
+            (_, None, _, Some(e)) => format!(" · was L{e}"),
             _ => String::new(),
         };
         // Tags lead the header so stale threads are easy to spot when scanning.

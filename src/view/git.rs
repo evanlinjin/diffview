@@ -245,7 +245,7 @@ impl App {
 
     /// The diff against `base` from now on (the whole diff's, or `HEAD`'s: what isn't committed).
     fn diff_against(&mut self, base: String) {
-        self.base = base;
+        self.set_base(base);
         self.whole_diff_again();
     }
 
@@ -593,7 +593,7 @@ impl App {
             return;
         }
         if !self.uncommitted() {
-            self.base = now.clone(); // the whole diff (a commit shown, or a range, goes)
+            self.set_base(now.clone()); // the whole diff (a commit shown, or a range, goes)
         }
         self.full_base = now;
         self.whole_diff_again();

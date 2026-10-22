@@ -290,7 +290,7 @@ impl App {
             };
             let mb = mb.trim().to_owned();
             if !self.uncommitted() {
-                self.base = mb.clone();
+                self.set_base(mb.clone());
             }
             (self.full_base, self.follow_base) = (mb, Some(onto));
             self.whole_diff_again();

@@ -437,24 +437,30 @@ impl App {
         }
         let moves: Vec<(String, String)> = lost
             .into_iter()
-            .filter_map(|(url, sha)| {
-                let was = git_in(&self.root, &["log", "-1", "--format=%at%x09%ae%x09%s", &sha]).ok()?;
-                let mut f = was.trim_end_matches('\n').splitn(3, '\t');
-                let (at, email, subject) = (f.next()?, f.next()?, f.next()?);
-                let one = |v: Vec<&String>| (v.len() == 1).then(|| v[0].clone());
-                // The same date and subject; reworded (a new subject), the same date and author.
-                let dated = || self.commits.iter().filter(|c| c.at == at);
-                let by_subject = one(dated().filter(|c| c.subject.trim() == subject.trim()).map(|c| &c.sha).collect());
-                let email_of = |sha: &str| git_in(&self.root, &["log", "-1", "--format=%ae", sha]).is_ok_and(|e| e.trim() == email);
-                let to = by_subject.or_else(|| one(dated().filter(|c| email_of(&c.sha)).map(|c| &c.sha).collect()))?;
-                Some((url.clone(), url.replace(&sha, &to)))
-            })
+            .filter_map(|(url, sha)| Some((url.clone(), url.replace(&sha, &self.now_as(&sha)?))))
             .collect();
         if !moves.is_empty() && crate::claude::rename_conversations(&p, &moves).is_ok() {
             let keep = self.cursor_key();
             self.load_claude();
             self.rebuild(keep);
         }
+    }
+
+    /// The commit `sha` of the list is now: itself, still here; else (amended, rebased: by dv or
+    /// not) the one with its subject and author date (both kept by a rebase or an amend), or,
+    /// reworded, its date and author: the only one.
+    pub(super) fn now_as(&self, sha: &str) -> Option<String> {
+        if self.commits.iter().any(|c| c.sha == sha) {
+            return Some(sha.to_owned());
+        }
+        let was = git_in(&self.root, &["log", "-1", "--format=%at%x09%ae%x09%s", sha]).ok()?;
+        let mut f = was.trim_end_matches('\n').splitn(3, '\t');
+        let (at, email, subject) = (f.next()?, f.next()?, f.next()?);
+        let one = |v: Vec<&String>| (v.len() == 1).then(|| v[0].clone());
+        let dated = || self.commits.iter().filter(|c| c.at == at);
+        let by_subject = one(dated().filter(|c| c.subject.trim() == subject.trim()).map(|c| &c.sha).collect());
+        let email_of = |sha: &str| git_in(&self.root, &["log", "-1", "--format=%ae", sha]).is_ok_and(|e| e.trim() == email);
+        by_subject.or_else(|| one(dated().filter(|c| email_of(&c.sha)).map(|c| &c.sha).collect()))
     }
 
     /// `Space g` → amend: where each change goes, and doing it (or asking Claude about the rest).
