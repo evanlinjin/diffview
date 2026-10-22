@@ -5384,7 +5384,7 @@ fn a_thread_on_a_line_edited_here_stays_on_it() {
 
 #[test]
 fn a_head_line_maps_through_the_moves_here() {
-    use super::build::{hunks_by_file, moved};
+    use crate::diff::{hunks_by_file, moved};
     // 3 lines added after line 1; line 5 edited; 2 removed at 8-9.
     // (A file deleted here after it: its hunks its own.)
     let m = hunks_by_file(&diff::parse("diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1,0 +2,3 @@\n+a\n+b\n+c\n@@ -5 +8 @@\n-x\n+y\n@@ -8,2 +10,0 @@\n-p\n-q\ndiff --git a/b.rs b/b.rs\ndeleted file mode 100644\n--- a/b.rs\n+++ /dev/null\n@@ -1,20 +0,0 @@\n-z\n"));
@@ -5433,4 +5433,21 @@ fn asking_claude_about_a_moved_comment_quotes_its_code_here() {
     app.ask_about(0);
     let Some(Action::AskClaude { code, .. }) = app.action.take() else { panic!("{}", app.msg) };
     assert_eq!(code, ["    baz(y);"]);
+}
+
+#[test]
+fn a_moved_threads_labels_name_its_line_here() {
+    let mut text = String::from("diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1,4 +1,19 @@\n fn main() {\n");
+    for i in 0..15 {
+        text.push_str(&format!("+    added_{i}();\n"));
+    }
+    text.push_str("     foo_bar(x);\n     baz(y);\n }\n");
+    let mut app = App::with("base".into(), diff::parse(&text));
+    app.head_moves = HashMap::from([("a.rs".to_owned(), vec![(1, 0, 2, 15)])]);
+    let c = gh::Comment { id: 1, node_id: "n".into(), author: "amy".into(), body: "these".into(), ..Default::default() };
+    app.threads = vec![gh::Thread { id: "T".into(), path: "a.rs".into(), line: Some(3), original_line: Some(3), comments: vec![c], ..Default::default() }];
+    app.build();
+    assert!(app.rows.iter().any(|r| r.thread == Some(0) && r.line.text.contains("L18")), "its header names the head's L3");
+    app.threads_picker(THREADS_ALL);
+    assert!(app.picker.as_ref().unwrap().items.iter().any(|i| i.label.contains("a.rs:18")));
 }

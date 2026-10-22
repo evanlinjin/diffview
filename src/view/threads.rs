@@ -52,7 +52,7 @@ impl App {
             .filter(|(_, t)| keep(t))
             .filter_map(|(ti, t)| {
                 let c = t.comments.first()?;
-                let line = t.line.or(t.original_line).map_or(String::new(), |n| format!(":{n}"));
+                let line = self.here(t).line.or(t.original_line).map_or(String::new(), |n| format!(":{n}"));
                 let severity = (!t.severity.is_empty()).then(|| format!("[{}] ", t.severity));
                 let tags: String = [
                     (self.is_new(t), "[new] "),
@@ -83,7 +83,7 @@ impl App {
         let mut items = vec![];
         for (ti, t) in self.threads.iter().enumerate() {
             for (ci, c) in t.comments.iter().enumerate().filter(|(_, c)| c.pending) {
-                let line = t.line.or(t.original_line).map_or(String::new(), |n| format!(":{n}"));
+                let line = self.here(t).line.or(t.original_line).map_or(String::new(), |n| format!(":{n}"));
                 let kind = match (ci, self.seen_body(c).is_some_and(|b| b.contains("```suggestion"))) {
                     (_, true) => "suggestion",
                     (0, _) => "comment",
@@ -208,7 +208,8 @@ impl App {
 
     /// A thread's rows, `open` or folded to its heading.
     pub(super) fn thread_rows_as(&self, ti: usize, file: usize, open: bool) -> Vec<Row> {
-        let t = &self.threads[ti];
+        // (Its lines as here: what it's drawn under.)
+        let t = &*self.here(&self.threads[ti]);
         // Its lines: a range (from the other side, each with its side: `−` the old, `+` the
         // new); outdated, where it was.
         let side = |left: bool| if left { '−' } else { '+' };
