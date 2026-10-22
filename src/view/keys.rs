@@ -419,7 +419,10 @@ impl App {
         // A count before the prefix: `]` / `[` go that many times; spent either way.
         let n = std::mem::take(&mut self.count).max(1);
         if matches!(p, ']' | '[') && n > 1 {
-            return (0..n).for_each(|_| self.pending_key(p, c));
+            // (One motion, one jump: Ctrl-o back to where it began.)
+            let j = self.jumps.len();
+            (0..n).for_each(|_| self.pending_key(p, c));
+            return self.jumps.truncate(j + 1);
         }
         let file = |rows: &[Row], r: usize| rows[r].line.kind == Kind::File;
         let so = super::render::scrolloff(self.height);

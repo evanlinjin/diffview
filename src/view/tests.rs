@@ -4783,4 +4783,10 @@ fn a_count_goes_through_a_prefix() {
     assert_eq!((app.head.row, app.count), (two, 0));
     press(&mut app, "3gh"); // spent by a prefix's key that takes none
     assert_eq!(app.count, 0);
+    // A counted jump is one jump: Ctrl-o back to where it began.
+    app.goto(0, 0);
+    press(&mut app, "3]c");
+    assert_ne!(app.head.row, 0);
+    ctrl(&mut app, 'o');
+    assert_eq!(app.head.row, 0);
 }
