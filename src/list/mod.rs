@@ -608,6 +608,16 @@ impl List {
                     }
                     continue;
                 }
+                // Merged or closed meanwhile: so in the list now (not asked again, by auto
+                // either), till GitHub's list says.
+                batch::Status::Gone(state) => {
+                    self.msg = format!("#{n}: not {doing}: it's {} now", state.to_lowercase());
+                    self.batch.remove(&n);
+                    if let Some(p) = self.prs.iter_mut().find(|p| p.number == n) {
+                        p.state = state.clone();
+                    }
+                    continue;
+                }
                 batch::Status::Done(took) => {
                     // (Reviewed or not: its review file says, as `watch_reviews` sees it come.)
                     self.new.insert(n);

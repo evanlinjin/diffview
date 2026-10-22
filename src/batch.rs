@@ -19,9 +19,11 @@ pub enum Status {
     Done(String),
     /// Why, and when (a review of it written since ends it: `List::watch_reviews`).
     Failed(String, std::time::SystemTime),
-    /// Not run, and why (Claude at it already, from another run, `claude::claim`'s holder; the
-    /// PR merged meanwhile): not a failure.
+    /// Not run, and why (Claude at it already, from another run, `claude::claim`'s holder):
+    /// not a failure, to ask again.
     Busy(String),
+    /// Not run: the PR isn't open now (its state: merged or closed meanwhile), nothing to do.
+    Gone(String),
 }
 
 impl Status {
@@ -208,7 +210,7 @@ fn run(s: Subject, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sen
         && let Ok(Some(state)) = crate::gh::pr_state(n)
         && state != "OPEN"
     {
-        return Ok(Status::Busy(format!("it's {} now", state.to_lowercase())));
+        return Ok(Status::Gone(state));
     }
     _ = tx.send((n, Status::Preparing));
     // The worktree, checked out at the PR (by a dv of its own: that changes directory); an
