@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.92.15] - 2026-10-22
+
+### Fixed
+- Moving along a long pinned PR title scrolls it to the cursor (marked `›` where it's cut),
+  rather than leaving the cursor on text that isn't shown.
+
 ## [0.92.14] - 2026-10-22
 
 ### Fixed
