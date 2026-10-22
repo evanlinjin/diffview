@@ -5,6 +5,17 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.92.1] - 2026-10-22
+
+### Fixed
+- `Space g` pushes to the branch a branch tracks only when that's the PR's; else to its own
+  name (a branch named like `update-main`, tracking `main`, would have pushed onto `main`).
+- Two comments on one line widen their window once per `+`; an outdated comment's old range
+  start doesn't stretch its window; `+` on a comment whose line is in hidden context widens
+  the nearest hunk to it; widened context stays with its hunk as lines are added above it in
+  the working tree (kept by where it is in the base), and goes with every change of the
+  diff's base (a rebase, the PR's base, a commit list shrinking).
+
 ## [0.92.0] - 2026-10-22
 
 ### Fixed
