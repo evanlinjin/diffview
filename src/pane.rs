@@ -186,24 +186,29 @@ pub(crate) fn working(screen: &str) -> bool {
     screen.contains("esc to interrupt") || screen.lines().any(|l| l.split_once("… (").is_some_and(|(_, t)| t.starts_with(|c: char| c.is_ascii_digit())))
 }
 
-/// Whether a Claude Code pane's screen shows it asking you something: a permission prompt, or
-/// (in a folder it hasn't seen) whether you trust it. Typing in then would answer it.
+/// Whether a Claude Code pane's screen shows it asking you something: a permission prompt (a
+/// numbered menu, its cursor on an option), or (in a folder it hasn't seen) whether you trust
+/// it. Typing in then would answer it. (Not its words asking: a reply ending "Would you like
+/// me to…?" is done, waiting as any.)
 pub(crate) fn asking(screen: &str) -> bool {
-    ["Do you want", "Would you like", "❯ 1.", "trust this folder"].iter().any(|p| screen.contains(p))
+    let option = |l: &str| l.trim_start().strip_prefix("❯ ").is_some_and(|o| o.split_once('.').is_some_and(|(n, _)| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())));
+    screen.contains("trust this folder") || screen.lines().any(option)
 }
 
-/// What Claude Code in pane `p` is doing, by its screen, if it's Claude Code there (by its
-/// command, or its own lines at the screen's foot: not an editor's or shell's text that reads
-/// alike) and at it: working, or asking you something.
+/// What Claude Code in pane `p` is doing, if it's Claude Code there (its command: zellij's is
+/// the pane's foreground process, not an editor's or a shell's, whatever their text) and at
+/// it: working, or asking you something, by what's after its transcript's last entry (`●` at
+/// the line's start: its spinner, tasks, a prompt), not what it said before.
 pub(crate) fn claude_doing(p: &Pane) -> Option<&'static str> {
-    let screen = screen(p.0);
-    let lines: Vec<&str> = screen.lines().filter(|l| !l.trim().is_empty()).collect();
-    let foot = lines[lines.len().saturating_sub(12)..].join("\n");
-    let claude = p.1.contains("claude") || ["? for shortcuts", "esc to interrupt", "accept edits", "plan mode"].iter().any(|s| foot.contains(s));
-    match (claude, asking(&foot), working(&foot)) {
-        (false, ..) => None,
-        (_, true, _) => Some("asking you (in its pane)"),
-        (_, _, true) => Some("working (in its pane)"),
+    p.1.contains("claude").then(|| doing(&screen(p.0)))?
+}
+
+fn doing(screen: &str) -> Option<&'static str> {
+    let now = screen.rfind("\n●").map_or(screen, |i| &screen[i + 1..]);
+    let now = now.split_once('\n').map_or("", |(_, rest)| rest); // (past the entry's own line)
+    match (asking(now), working(now)) {
+        (true, _) => Some("asking you (in its pane)"),
+        (_, true) => Some("working (in its pane)"),
         _ => None,
     }
 }
@@ -247,4 +252,16 @@ pub(crate) fn run_live(pid: Option<u32>, session: Option<&str>, panes: &std::cel
         (None, Some(id)) => of_session(panes.get_or_init(open), id).is_some(),
         _ => false,
     }
+}
+
+#[test]
+fn what_claude_is_doing_now() {
+    let foot = "───\n❯ \n───\n  ⏵⏵ auto mode on";
+    // Done, its reply asking you something in words: waiting, as any.
+    assert_eq!(doing(&format!("● Fixed it.\n  Would you like me to also update the docs?\n✻ Worked for 49s\n{foot}")), None);
+    // Working, its tasks under the spinner however many.
+    let tasks: String = (1..9).map(|i| format!("  ☐ task {i}\n")).collect();
+    assert_eq!(doing(&format!("● Reading\n· Moseying… (59s · ↓ 1.3k tokens)\n{tasks}{foot}")), Some("working (in its pane)"));
+    // Asking: its menu.
+    assert_eq!(doing("● Bash(rm x)\n Do you want to proceed?\n ❯ 1. Yes\n   2. No"), Some("asking you (in its pane)"));
 }
