@@ -445,18 +445,31 @@ impl App {
         self.attach(vec![], &mut rows)
     }
 
+    /// The lines file `f` shows: all, or (the Claude / pending views) those around their
+    /// threads.
+    pub(super) fn lines_shown<'a>(&self, f: &'a FileDiff) -> std::borrow::Cow<'a, [DLine]> {
+        match self.view {
+            View::All => std::borrow::Cow::Borrowed(&f.lines),
+            _ => std::borrow::Cow::Owned(diff::shown(&f.full, &self.windows_of(f), &f.headers)),
+        }
+    }
+
+    /// Where thread `t` sits among `lines` (file `f`'s, as shown): under line `i`. Found in the
+    /// whole diff (as the views' windows are), so an outdated comment's line is the same however
+    /// much context shows; not shown (hidden context) or not placeable, none: under the header.
+    pub(super) fn place_in(&self, t: usize, f: &FileDiff, lines: &[DLine]) -> Option<usize> {
+        let k = anchor_line(&self.threads[t], &f.full)?;
+        let at = (f.full[k].old, f.full[k].new);
+        lines.iter().position(|l| l.kind != Kind::Hunk && (l.old, l.new) == at)
+    }
+
     /// File `i`'s rows: its header, then its lines with the threads `shown` on them (the Claude
     /// and pending views: only a file with some, and only around them); folded, its header.
     fn file_rows(&self, i: usize, f: &FileDiff, shown: &[&Thread]) -> Vec<Row> {
-        let around;
-        let lines = match self.view != View::All {
-            true if !shown.iter().any(|t| t.path == f.path) => return vec![],
-            true => {
-                around = diff::shown(&f.full, &self.windows_of(f), &f.headers);
-                &around
-            }
-            false => &f.lines,
-        };
+        if self.view != View::All && !shown.iter().any(|t| t.path == f.path) {
+            return vec![];
+        }
+        let lines = self.lines_shown(f);
         let mut rows = vec![self.file_header(i, f, shown)];
         let theirs = (0..self.threads.len()).filter(|&t| self.threads[t].path == f.path && self.in_view(&self.threads[t]));
         if self.collapsed.contains(&f.path) {
@@ -467,21 +480,8 @@ impl App {
             }
             return rows;
         }
-        // (thread, index into its lines it sits under); unplaceable ones under the header.
-        // Found in the whole diff (as the views' windows are), not just what's shown: an
-        // outdated comment's line is then the same however much context shows. Under it if it's
-        // shown; else (hidden context) under the header.
-        // (The shown lines by their numbers, in a file with comments only.)
-        let theirs: Vec<usize> = theirs.collect();
-        let shown_at: HashMap<(Option<u32>, Option<u32>), usize> = match theirs.is_empty() {
-            true => HashMap::new(),
-            false => lines.iter().enumerate().filter(|(_, l)| l.kind != Kind::Hunk).map(|(i, l)| ((l.old, l.new), i)).collect(),
-        };
-        let at = |t: usize| {
-            let k = anchor_line(&self.threads[t], &f.full)?;
-            shown_at.get(&(f.full[k].old, f.full[k].new)).copied()
-        };
-        let placed: Vec<(usize, Option<usize>)> = theirs.into_iter().map(|t| (t, at(t))).collect();
+        // (thread, index into its lines it sits under: `place_in`.)
+        let placed: Vec<(usize, Option<usize>)> = theirs.map(|t| (t, self.place_in(t, f, &lines))).collect();
         for &(t, _) in placed.iter().filter(|p| p.1.is_none()) {
             rows.extend(self.thread_rows(t, i));
         }

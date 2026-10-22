@@ -4950,3 +4950,46 @@ fn split_view_motions_and_copies_keep_to_your_half() {
     press(&mut app, "]g]g");
     assert_eq!(app.rows[app.head.row].line.text, "three");
 }
+
+#[test]
+fn c_takes_a_comment_under_the_header_first() {
+    // A thread on hidden context (new line 8) is drawn under the header: ]c from the header
+    // goes there first, then on down, never back up.
+    let mut body = String::from("diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1,13 +1,15 @@\n+top\n");
+    for i in 1..=13 {
+        body.push_str(&format!(" l{i}\n"));
+    }
+    body.push_str("+bottom\n");
+    let c = |id| gh::Comment { id, node_id: String::new(), can_edit: false, can_delete: false, author: "amy".into(), body: "hm".into(), created: String::new(), pending: false, reactions: vec![], hidden: String::new() };
+    let t = |line, id| gh::Thread {
+        id: format!("t{id}"), path: "a.rs".into(), left: false, line: Some(line), start_line: None, start_left: None, original_line: Some(line),
+        resolved: false, outdated: false, hunk: vec![], comments: vec![c(id)], claude: None, severity: String::new(), about: None, conversation: String::new(),
+        talk_resolved: false, want: String::new(),
+    };
+    let mut app = App::with("base".into(), diff::parse(&body));
+    app.threads = vec![t(8, 1), t(1, 2)];
+    app.build();
+    let hdr = app.rows.iter().position(|r| r.line.kind == Kind::File).unwrap();
+    app.goto(hdr, 0);
+    press(&mut app, "]c");
+    let first = app.head.row;
+    assert_eq!(app.rows[first].thread, Some(0));
+    press(&mut app, "]c");
+    assert!(app.head.row > first && app.rows[app.head.row].thread == Some(1), "]c went back up");
+}
+
+#[test]
+fn a_split_selection_is_drawn_copied_and_suggested_alike() {
+    let sample = "diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1,4 +1,4 @@\n one\n two\n-three\n+three!\n four\n";
+    let mut app = App::with("base".into(), diff::parse(sample));
+    app.split = true;
+    app.build();
+    let two = app.rows.iter().position(|r| r.line.text == "two").unwrap();
+    app.right = true;
+    app.goto(two, 0);
+    press(&mut app, "xx");
+    let three = app.rows.iter().position(|r| r.line.text == "three").unwrap();
+    assert!(!app.in_selection(three), "the left half's removed line drawn selected");
+    assert_eq!(app.selection_text(false), "two\nthree!\n");
+    assert!(app.suggestion().is_ok(), "{:?}", app.suggestion().err());
+}
