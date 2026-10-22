@@ -124,10 +124,12 @@ impl App {
         // (file, place, thread, comment): the place as drawn, under its file's header (0) or
         // under its line (1 on: `place_in`); a code line counts as thread -1, before the threads
         // under it. (A file gone: by its line.)
+        // (Each file's shown lines, once: a view's are worked out from its threads.)
+        let shown: Vec<_> = self.files.iter().map(|f| self.lines_shown(f)).collect();
         let key = |t: usize, c: usize| -> Option<(usize, usize, i64, usize)> {
             let th = &self.threads[t];
-            let place = match self.files.iter().find(|f| f.path == th.path) {
-                Some(f) => self.place_in(t, f, &self.lines_shown(f)).map_or(0, |i| i + 1),
+            let place = match self.files.iter().position(|f| f.path == th.path) {
+                Some(i) => self.place_in(t, &self.files[i], &shown[i]).map_or(0, |i| i + 1),
                 None => th.line.or(th.original_line).unwrap_or(0) as usize,
             };
             Some((file(&th.path)?, place, t as i64, c))
@@ -145,9 +147,8 @@ impl App {
             Some(t) => key(t, self.comment_index_under_cursor(t)),
             None if row.file == INFO => None,
             // (A code line, or a hunk's header: its first line's, as `key_at` has it.)
-            None => self.files.get(row.file).map(|f| {
-                let lines = self.lines_shown(f);
-                let at = self.key_at(self.head.row).line.and_then(|(_, old, new)| lines.iter().position(|l| l.kind != Kind::Hunk && (l.old, l.new) == (old, new) && (old, new) != (None, None)));
+            None => self.files.get(row.file).map(|_| {
+                let at = self.key_at(self.head.row).line.and_then(|(_, old, new)| shown[row.file].iter().position(|l| l.kind != Kind::Hunk && (l.old, l.new) == (old, new) && (old, new) != (None, None)));
                 (row.file + 1, at.map_or(0, |i| i + 1), -1, 0)
             }),
         };
