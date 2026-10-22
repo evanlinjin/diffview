@@ -5,6 +5,22 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.91.0] - 2026-10-22
+
+### Changed
+- Wrapping, reworked around one map: each line's wrap points are worked out once a layout,
+  and what a screen row shows (its line, chars and column) comes from one place, for drawing,
+  the cursor, `j`/`k`, the wheel, clicks, the key hints and link tips alike.
+- Split view's halves are as wide as each other, so a line on both sides wraps alike.
+- Relative line numbers count screen rows, as `5j` moves.
+
+### Fixed
+- In split view, `j` from a short line beside a long wrapped one goes on past them.
+- Moving up and down keeps your column as you see it (through short lines, tabs, wide
+  characters), not as characters counted.
+- The wheel no longer lands the cursor on a spacer row or a short side's empty one.
+- Resizing keeps the part of a line that's at the top there, and lays out once.
+
 ## [0.90.1] - 2026-10-22
 
 ### Fixed
