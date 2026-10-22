@@ -65,8 +65,8 @@ pub struct Record {
     pub asks: Vec<Request>,
     /// How many of `asks` the draft under way was given (the rest wait for the next).
     pub taking: usize,
-    /// When its last draft ended (unix seconds; 0: not known): reviews of the originals changed
-    /// since go to a redraft.
+    /// When its last draft (that went through) read the originals' reviews (unix seconds; 0:
+    /// not known): reviews changed since go to a redraft.
     pub drafted_at: u64,
 }
 
@@ -550,7 +550,7 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
         }
         e => e,
     };
-    let mut set_up = false;
+    let (mut set_up, mut started) = (false, 0);
     // What it was given of what you asked (by text and draft: Claude may reorder the record).
     let mut given: Vec<(String, String)> = vec![];
     // (A panic in it: a failure, the record's mark off all the same, not "drafting" for good.)
@@ -565,6 +565,8 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
             r.taking = r.asks.len();
             Ok(r.clone())
         })?;
+        // (The reviews it's given are read now: changes after go to the next.)
+        started = crate::claude::now_secs() as u64;
         given = r.asks.iter().filter(|a| !a.done()).map(|a| (a.text.clone(), a.on.clone())).collect();
         run_claude(&r, &dir, first, if first { extra } else { "" }, last, prepared)
     });
@@ -574,7 +576,7 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
     _ = update(id, |now| {
         now.taking = 0;
         if res.is_ok() {
-            now.drafted_at = crate::claude::now_secs() as u64;
+            now.drafted_at = started;
         }
         // Not set up (a PR not there, or on another base): what it was to take in, not.
         if !set_up {
@@ -680,11 +682,16 @@ pub fn note(r: &Record) -> String {
 /// the PR it's about, keeping those before).
 pub fn close_originals(r: &mut Record, note: &str) -> Result<String> {
     let (mut done, mut already) = (vec![], vec![]);
+    let list = |ns: &[u64]| ns.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(", ");
     for n in r.replaces.iter().map(|o| o.number).filter(|n| !r.closed.contains(n)).collect::<Vec<_>>() {
         // (Merged or closed already, by someone else: done, not closed again; gh can't close a
         // merged one.)
         match crate::gh::pr_state(n).ok().flatten().is_none_or(|s| s == "OPEN") {
-            true => crate::gh::close(n, Some(note)).with_context(|| format!("closing #{n}")).map(|_| done.push(n))?,
+            true => match crate::gh::close(n, Some(note)) {
+                Ok(_) => done.push(n),
+                Err(e) if done.is_empty() => return Err(e.context(format!("closing #{n}"))),
+                Err(e) => return Err(e.context(format!("closing #{n} ({} closed, with the note)", list(&done)))),
+            },
             false => already.push(n),
         }
         // (Into the record as it is now: what's been written to it meanwhile stays.)
@@ -696,7 +703,6 @@ pub fn close_originals(r: &mut Record, note: &str) -> Result<String> {
         })?
         .1;
     }
-    let list = |ns: &[u64]| ns.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(", ");
     Ok(match (done.is_empty(), already.is_empty()) {
         (false, true) => format!("closed {}, with the note", list(&done)),
         (true, false) => format!("{} closed or merged already", list(&already)),
