@@ -75,8 +75,9 @@ fn line_on(left: bool, lines: &[DLine], n: u32) -> Option<usize> {
 
 /// The diff line a thread belongs under, one rule for all: its line while that's still the
 /// commented line's text (GitHub's, at the PR's head; the diff here may have lines added above
-/// it, uncommitted or not pushed); else that text where it's distinctive, nearest its line;
-/// else the nearest line by number.
+/// it, uncommitted or not pushed); else that text where it's distinctive, nearest its line
+/// (a current thread's, within a few lines: its own line edited here, a copy far off isn't
+/// it, and it stays on its line); else the nearest line by number.
 pub(super) fn anchor_line(t: &Thread, lines: &[DLine]) -> Option<usize> {
     let side = |l: &DLine| match t.left {
         true => matches!(l.kind, Kind::Ctx | Kind::Del),
@@ -85,8 +86,8 @@ pub(super) fn anchor_line(t: &Thread, lines: &[DLine]) -> Option<usize> {
     let no = |l: &DLine| if t.left { l.old } else { l.new };
     let target = t.hunk.last().and_then(|l| l.get(1..)).unwrap_or("").trim();
     let distinctive = target.chars().filter(|c| c.is_alphanumeric()).count() >= 3;
-    if !t.outdated
-        && let Some(i) = t.line.and_then(|n| line_on(t.left, lines, n))
+    let at = t.line.filter(|_| !t.outdated).and_then(|n| line_on(t.left, lines, n));
+    if let Some(i) = at
         && (!distinctive || lines[i].text.trim() == target)
     {
         return Some(i);
@@ -95,8 +96,9 @@ pub(super) fn anchor_line(t: &Thread, lines: &[DLine]) -> Option<usize> {
     let dist = |i: usize| (no(&lines[i]).unwrap_or(0) as i64 - want).abs();
     let by_text = (0..lines.len())
         .filter(|&i| distinctive && side(&lines[i]) && lines[i].text.trim() == target)
+        .filter(|&i| t.outdated || dist(i) <= OUTDATED_SLACK)
         .min_by_key(|&i| dist(i));
-    by_text.or_else(|| (0..lines.len()).filter(|&i| side(&lines[i])).min_by_key(|&i| dist(i)).filter(|&i| dist(i) <= OUTDATED_SLACK))
+    by_text.or(at).or_else(|| (0..lines.len()).filter(|&i| side(&lines[i])).min_by_key(|&i| dist(i)).filter(|&i| dist(i) <= OUTDATED_SLACK))
 }
 
 /// First row of a run of added/removed lines, as drawn: the row before it on its side (not a

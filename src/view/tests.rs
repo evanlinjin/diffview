@@ -5364,3 +5364,20 @@ fn c_on_claudes_comment_or_a_thread_names_what_queues_there() {
     app.goto(app.rows.iter().position(|r| r.thread == Some(theirs)).unwrap(), 0);
     assert!(app.posts_now().err().is_some_and(|e| e.to_string().contains("r adds a reply")));
 }
+
+#[test]
+fn a_thread_on_a_line_edited_here_stays_on_it() {
+    // Its line edited (as answering the comment does); the old text as context far below.
+    let mut text = String::from("diff --git a/src/a.rs b/src/a.rs\nindex 1..2 100644\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1,41 +1,41 @@\n fn main() {\n-    foo_bar(x);\n+    foo_bar(y);\n");
+    for i in 3..40 {
+        text.push_str(&format!(" l{i}\n"));
+    }
+    text.push_str("     foo_bar(x);\n }\n");
+    let mut app = App::with("base".into(), diff::parse(&text));
+    let c = gh::Comment { id: 1, node_id: "n".into(), author: "amy".into(), body: "y?".into(), ..Default::default() };
+    app.threads = vec![gh::Thread { id: "T".into(), path: "src/a.rs".into(), line: Some(2), original_line: Some(2), hunk: vec![" fn main() {".into(), "+    foo_bar(x);".into()], comments: vec![c], ..Default::default() }];
+    app.build();
+    let r = app.rows.iter().position(|r| r.thread == Some(0)).unwrap();
+    let above = app.rows[..r].iter().rev().find(|r| r.line.kind.is_code()).unwrap();
+    assert_eq!(above.line.new, Some(2), "moved to a copy of its old text: {:?}", above.line.text);
+}
