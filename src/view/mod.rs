@@ -262,8 +262,8 @@ enum Target {
     /// Something done with the editor (`Action`), or after a frame saying so (`Job`).
     Do(Action),
     Run(Job),
-    /// A file of the diff (its index): there, unfolded.
-    File(usize),
+    /// A line of the files' list (a file, a section): there.
+    Spot(files::Spot),
     Loc(Loc),
     /// Asks for confirmation first.
     Discard,
@@ -463,7 +463,7 @@ impl Target {
             Target::Want("suggest") => ('\u{f41f}', Claude, ""),
             Target::Want("change") => ('\u{f448}', Claude, ""),
             Target::Want(_) | Target::Land(..) => ('\u{f417}', Claude, ""),
-            Target::File(_) => ('\u{f4a5}', Plain, ""),
+            Target::Spot(_) => ('\u{f4a5}', Plain, ""),
             Target::Commit(_) => ('\u{f417}', Plain, ""),
             Target::Loc(_) => ('\u{f450}', Plain, ""),
             Target::Comment(..) => ('\u{f41f}', Plain, ""),

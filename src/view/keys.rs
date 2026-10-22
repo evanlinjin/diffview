@@ -532,12 +532,13 @@ impl App {
             (']', 'f') => self.next_kind(true, file),
             ('[', 'f') => self.next_kind(false, file),
             (' ', 'f') => {
+                // (What the files' list has: its files and sections, not the PR's title.)
+                let spot = |r: &Row| r.main.map(super::files::Spot::Section).or((r.file < self.files.len()).then_some(super::files::Spot::File(r.file)));
                 let items = self
                     .rows
                     .iter()
-                    .enumerate()
-                    .filter(|(_, r)| r.line.kind == Kind::File)
-                    .map(|(_, r)| Item::new(r.line.text.clone(), Target::File(r.file)))
+                    .filter(|r| r.line.kind == Kind::File)
+                    .filter_map(|r| Some(Item::new(r.line.text.clone(), Target::Spot(spot(r)?))))
                     .collect();
                 self.picker = Some(Picker::new(" files ", items));
             }
@@ -618,7 +619,7 @@ impl App {
                             self.start(job);
                         }
                         Target::Run(job) => self.start(job),
-                        Target::File(i) => self.goto_file(i),
+                        Target::Spot(s) => self.goto_spot(s),
                         Target::Loc(l) => self.jump_loc(&l),
                         Target::Discard => {
                             let n = self.pending_count();

@@ -561,28 +561,25 @@ impl App {
         true
     }
 
-    /// To a line of the list: a file, or a section's header (at the top).
+    /// To a line of the list (from it, or `Space f`): a file (unfolded) or a section, its
+    /// header at the top; a jump (Ctrl-o comes back).
     pub(super) fn goto_spot(&mut self, s: Spot) {
-        match s {
-            Spot::File(i) => self.goto_file(i),
-            Spot::Section(id) => {
-                if let Some(r) = self.rows.iter().position(|r| r.main == Some(id) && r.line.kind == Kind::File) {
-                    self.goto(r, 0);
-                    self.top = self.d_of[r].max(self.pin as usize);
-                }
-            }
-            Spot::Folder => {}
-        }
-    }
-
-    /// File `i`, unfolded, its header at the top.
-    pub(super) fn goto_file(&mut self, i: usize) {
-        let path = self.files[i].path.clone();
-        if self.collapsed.remove(&path) {
+        if let Spot::File(i) = s
+            && let Some(path) = self.files.get(i).map(|f| f.path.clone())
+            && self.collapsed.remove(&path)
+        {
             let keep = self.cursor_key();
             self.rebuild(keep);
         }
-        if let Some(r) = self.rows.iter().position(|r| r.file == i && r.line.kind == Kind::File) {
+        let header = |r: &Row| {
+            r.line.kind == Kind::File
+                && match s {
+                    Spot::File(i) => r.file == i,
+                    Spot::Section(id) => r.main == Some(id),
+                    Spot::Folder => false,
+                }
+        };
+        if let Some(r) = self.rows.iter().position(header) {
             self.jump(r, 0);
             self.top = self.d_of[r].max(self.pin as usize);
         }

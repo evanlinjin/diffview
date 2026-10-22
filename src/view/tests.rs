@@ -4719,3 +4719,30 @@ fn a_hunk_header_is_kept_across_rebuilds_and_ctrl_o() {
     ctrl(&mut app, 'o');
     assert_eq!(app.head.row, h, "Ctrl-o not back on the hunk's header");
 }
+
+#[test]
+fn space_f_lists_the_files_list_and_goes_to_a_section_as_a_jump() {
+    let mut app = fixture();
+    _ = screen(200, 40, |f| app.draw(f));
+    press(&mut app, " f");
+    let labels: Vec<String> = app.picker.as_ref().unwrap().items.iter().map(|i| i.label.clone()).collect();
+    assert!(!labels.iter().any(|l| l.contains("Fix the thing")), "the PR's title isn't a file: {labels:?}");
+    app.picker = None;
+    // A section, from the list, with a selection up: a jump (it ends, Ctrl-o comes back).
+    let code = app.rows.iter().position(|r| r.line.kind.is_code()).unwrap();
+    app.goto(code, 0);
+    press(&mut app, "v");
+    let id = app.rows.iter().find_map(|r| r.main).unwrap();
+    app.goto_spot(super::files::Spot::Section(id));
+    assert!(!app.select && app.anchor == app.head && app.rows[app.head.row].main == Some(id));
+    ctrl(&mut app, 'o');
+    assert_eq!(app.head.row, code);
+    // Every item goes somewhere (none's the title, which would panic).
+    press(&mut app, " f");
+    let n = app.picker.as_ref().unwrap().items.len();
+    for k in 0..n {
+        press(&mut app, " f");
+        (0..k).for_each(|_| app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    }
+}
