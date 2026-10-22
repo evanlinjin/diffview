@@ -203,6 +203,13 @@ fn run(s: Subject, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sen
         Ok(c) => c,
         Err(w) => return Ok(Status::Busy(w)),
     };
+    // A PR merged or closed while it waited its turn (queued): nothing to do on it now.
+    if let Subject::Pr(_) = s
+        && let Ok(Some(state)) = crate::gh::pr_state(n)
+        && state != "OPEN"
+    {
+        return Ok(Status::failed(format!("#{n} is {} now: left as it is", state.to_lowercase())));
+    }
     _ = tx.send((n, Status::Preparing));
     // The worktree, checked out at the PR (by a dv of its own: that changes directory); an
     // issue's, here (no code of its own).
