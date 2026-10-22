@@ -198,11 +198,11 @@ impl App {
     }
 
     /// What row `r` scrolls sideways with: the diff, by `left`; a comment's code block or
-    /// table (from its first row), by its own offset; nothing (`None`): a comment's prose
-    /// wraps, and the pinned title isn't the diff's, nor a hunk's rule (drawn as it is).
+    /// table (from its first row), and the pinned title, by their own offset; nothing
+    /// (`None`): a comment's prose wraps, and a hunk's rule is drawn as it is.
     pub(super) fn scroller(&self, r: usize) -> Option<Scroller> {
         match self.box_part(r) {
-            None if r == 0 && self.pin => None,
+            None if r == 0 && self.pin => Some(Scroller::Block(0)),
             None if self.rows[r].line.kind == Kind::Hunk && diff::hunk_label(&self.rows[r].line.text).is_some() => None,
             // (A wrapped line has nothing off to the side: no sideways scrolling, by any key or
             // gesture. What doesn't wrap, a long header, still scrolls.)

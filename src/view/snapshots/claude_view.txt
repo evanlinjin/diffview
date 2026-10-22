@@ -1,4 +1,4 @@
-          PR #7 · Fix the thing  @bo · main ← amy  Comments 1/4  Claude 0/1  Pending 1           gn
+          PR #7 · Fix the thing  @bo · main ← am›  Comments 1/4  Claude 0/1  Pending 1           gn
  ▾        description
           Fixes the thing, see new_call.          ╭─ claude's review ──────────────────────────────╮
                                                   │  Looks right; one nit.                         │

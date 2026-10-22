@@ -1,4 +1,4 @@
-          PR #7 · Fix the thing  @bo · main ← amy  Comments 1/4  Claude 0/1  Pending 1           gn
+          PR #7 · Fix the thing  @bo · main ← am›  Comments 1/4  Claude 0/1  Pending 1           gn
 ╭ Claude's comment ───────────────────────────────────────────╮
 │ r        reply to Claude                                    │────────────────────────────────────╮
 │ Enter    go to the file:line, name or link under the cursor │ main ← fix · +2 −2 in 3 files      │
