@@ -5,6 +5,22 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.92.2] - 2026-10-22
+
+### Fixed
+- `Space g` pushes to the PR's branch only from a branch tracking it in the PR's repo (one
+  tracking the base repo's `main`, a fork PR's head being `main` too, pushes as itself).
+- The Claude and pending views widen per comment: `+` on one widens its window once, not every
+  comment's on the same added lines (all of a new file's, before). `mm` there grows the view's
+  window to the match (it grew the whole diff's, and the cursor stayed).
+- A commit or range shown (Space C) follows its commits when they're amended or rebased (it
+  showed the old ones' diff under the new ones' messages).
+- A range comment from the old side to the new (GitHub's) starts on its own side.
+
+### Changed
+- One map of widened context, one function for a view's windows; placing comments looks lines up
+  in a map again (only in files with comments).
+
 ## [0.92.1] - 2026-10-22
 
 ### Fixed
