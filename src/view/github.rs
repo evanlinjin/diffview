@@ -222,10 +222,14 @@ impl App {
                     self.summary_draft = r.pending_body;
                 }
                 // GitHub's threads, new; Claude's (from its review file) as they were, after them.
+                // (New comments' viewed files unfold, however this answer came: the poll, R, a
+                // post's reload.)
+                let had_new = self.new_paths();
                 let claude: Vec<Thread> = std::mem::take(&mut self.threads).into_iter().filter(|t| t.claude.is_some()).collect();
                 (self.threads, self.review) = (r.threads.into_iter().chain(claude).collect(), r.pending);
                 (self.theirs, self.me) = (!r.mine, r.me); // (before: your own comments aren't new)
                 self.apply_viewed(r.viewed); // after the threads: not folded with new ones
+                self.unfold_new(&had_new);
                 if let Some(pr) = &mut self.pr {
                     pr.node_id = r.pr_id;
                 }

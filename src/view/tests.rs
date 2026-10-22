@@ -5227,3 +5227,23 @@ fn root_files_have_a_heading_among_folders() {
     let app = App::with("base".into(), diff::parse(&d("build.rs")));
     assert_eq!(app.file_entries().into_iter().map(|e| e.text).collect::<Vec<_>>(), ["build.rs"]);
 }
+
+#[test]
+fn a_new_comment_unfolds_its_viewed_file_however_it_arrives() {
+    let review = |n: usize| {
+        let cs: Vec<gh::Comment> = (0..n).map(|i| gh::Comment { id: 10 + i as u64, node_id: format!("N{i}"), author: "amy".into(), body: "hm".into(), ..Default::default() }).collect();
+        gh::Review {
+            pr_id: "PR".into(), mine: false, me: "me".into(), pending: None, pending_body: String::new(),
+            threads: vec![gh::Thread { id: "T".into(), path: "src/a.rs".into(), line: Some(2), comments: cs, ..Default::default() }],
+            viewed: HashMap::from([("src/a.rs".to_owned(), "VIEWED".to_owned())]),
+        }
+    };
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    app.seen.path = Some(std::env::temp_dir().join(format!("dv-seen-unfold-{}", std::process::id())));
+    app.apply_github((Ok(review(0)), Err(anyhow!("x"))), true);
+    assert!(app.collapsed.contains("src/a.rs"));
+    // As a reload has it (R, after a post): GitHub's answer, then Claude's file.
+    app.apply_github((Ok(review(1)), Err(anyhow!("x"))), true);
+    app.load_claude();
+    assert!(!app.collapsed.contains("src/a.rs"), "a viewed file with a new comment stayed folded");
+}
