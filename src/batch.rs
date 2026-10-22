@@ -145,12 +145,12 @@ impl Numbered for (u64, bool, Task) {
 
 /// One of the `AT_ONCE` Claude runs this dv may have going from its lists, across all its
 /// pools, drafts and groupings (one asked while others run waits for them): held while a run's at work, given back as it ends.
-struct Slot;
+pub(crate) struct Slot;
 
 static SLOTS: (Mutex<usize>, std::sync::Condvar) = (Mutex::new(0), std::sync::Condvar::new());
 
 impl Slot {
-    fn take() -> Slot {
+    pub(crate) fn take() -> Slot {
         let mut n = SLOTS.0.lock().unwrap_or_else(|e| e.into_inner());
         while *n >= AT_ONCE {
             n = SLOTS.1.wait(n).unwrap_or_else(|e| e.into_inner());
@@ -292,7 +292,6 @@ pub fn replace(prs: Vec<u64>, root: PathBuf, extra: String) -> Receiver<(u64, St
     let id = prs[0];
     _ = tx.send((id, Status::Preparing));
     std::thread::spawn(move || {
-        let _slot = Slot::take(); // (a Claude run as any: two at a time)
         let ready = tx.clone();
         // (Its run guarded inside, the record's mark coming off; and all of it, here.)
         let st = guarded(|| crate::replace::draft(&prs, &root, &extra, move || _ = ready.send((id, Status::Reviewing))));

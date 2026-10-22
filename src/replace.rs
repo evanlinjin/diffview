@@ -568,6 +568,9 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
         }
         Ok((first, fresh))
     })?;
+    // Under way (claimed, marked): then its turn among Claude's runs from this dv (two at a
+    // time), waited for.
+    let _slot = crate::batch::Slot::take();
     let saved;
     let extra = match extra.trim() {
         "" if first && !is_new(id) => {
