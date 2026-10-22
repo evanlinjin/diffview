@@ -776,10 +776,10 @@ impl App {
         if let Some(why) = self.claude_blocked(Some(Ask::Answer)) {
             return format!("reply saved; {why} (then Space a has Claude answer)");
         }
-        // A commit or an amend asked for while Claude's pane works in this checkout: not two at
-        // once on its history.
-        if self.claude.pane_busy && self.threads.iter().any(|t| t.waiting() && matches!(t.want.as_str(), "amend" | "commit")) {
-            return "reply saved; Claude's pane is at work here, and this commits: Space a has Claude answer once it's done".into();
+        // A change asked for while Claude's pane works in this checkout: not two at once on its
+        // code (`edits`, the one rule).
+        if self.claude.pane_busy && self.edits(Ask::Answer) {
+            return "reply saved; Claude's pane is at work here, and this changes code: Space a has Claude answer once it's done".into();
         }
         let prompt = self.claude_prompt(Ask::Answer, "");
         let forked = self.claude_pane().is_some();
