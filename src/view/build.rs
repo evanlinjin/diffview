@@ -118,25 +118,20 @@ pub(super) fn moved(moves: &[(u32, u32, u32, u32)], n: u32) -> u32 {
     (n as i64 + shift).max(1) as u32
 }
 
-/// `git diff -U0`'s hunks, by file (its new path).
-pub(super) fn hunks_by_file(out: &str) -> HashMap<String, Vec<(u32, u32, u32, u32)>> {
-    let mut m: HashMap<String, Vec<(u32, u32, u32, u32)>> = HashMap::new();
-    let mut path = String::new();
+/// The hunks of a diff (`diff::parse`'s, its paths as the shown diff's), by file: each from its
+/// header, `@@ -os,ol +ns,nl @@`.
+pub(super) fn hunks_by_file(files: &[FileDiff]) -> HashMap<String, Vec<(u32, u32, u32, u32)>> {
     let range = |s: &str| -> Option<(u32, u32)> {
         let (a, b) = s.split_once(',').unwrap_or((s, "1"));
         Some((a.parse().ok()?, b.parse().ok()?))
     };
-    for l in out.lines() {
-        if let Some(p) = l.strip_prefix("+++ b/") {
-            path = p.to_owned();
-        } else if let Some(h) = l.strip_prefix("@@ -") {
-            let mut parts = h.split(' ');
-            if let (Some((os, ol)), Some((ns, nl))) = (parts.next().and_then(range), parts.next().and_then(|s| range(s.strip_prefix('+')?))) {
-                m.entry(path.clone()).or_default().push((os, ol, ns, nl));
-            }
-        }
-    }
-    m
+    let hunk = |text: &str| {
+        let mut parts = text.strip_prefix("@@ -")?.split(' ');
+        let (os, ol) = range(parts.next()?)?;
+        let (ns, nl) = range(parts.next()?.strip_prefix('+')?)?;
+        Some((os, ol, ns, nl))
+    };
+    files.iter().map(|f| (f.path.clone(), f.lines.iter().filter(|l| l.kind == Kind::Hunk).filter_map(|l| hunk(&l.text)).collect())).collect()
 }
 
 /// First row of a run of added/removed lines, as drawn: the row before it on its side (not a
@@ -187,11 +182,7 @@ impl App {
     /// `head_moves` worked out anew (the diff shown, or the PR's head, changed).
     pub(super) fn map_head(&mut self) {
         let head = self.pr.as_ref().map(|p| p.head_oid.clone()).filter(|h| !h.is_empty());
-        let moves = head.and_then(|h| {
-            let mut args = vec!["diff", "-U0", "--no-color", "--no-ext-diff", h.as_str()];
-            args.extend(self.to.as_deref());
-            diff::git(&args).ok().map(|o| hunks_by_file(&o))
-        });
+        let moves = head.and_then(|h| diff::tracked_diff(&h, self.to.as_deref(), 0, &[]).ok()).map(|f| hunks_by_file(&f));
         self.head_moves = moves.unwrap_or_default();
     }
 

@@ -423,7 +423,7 @@ fn literal(paths: &[&str]) -> Vec<String> {
 }
 
 /// Git's diff of what's tracked (`paths`: those only), parsed.
-fn tracked_diff(base: &str, to: Option<&str>, context: u32, paths: &[&str]) -> Result<Vec<FileDiff>> {
+pub(crate) fn tracked_diff(base: &str, to: Option<&str>, context: u32, paths: &[&str]) -> Result<Vec<FileDiff>> {
     let u = format!("-U{context}");
     let specs = literal(paths);
     let mut args = vec![
