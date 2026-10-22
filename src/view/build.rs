@@ -126,7 +126,7 @@ impl App {
         Kept { head: self.key_at(self.head.row), anchor }
     }
 
-    fn key_at(&self, row: usize) -> CursorKey {
+    pub(super) fn key_at(&self, row: usize) -> CursorKey {
         let Some(r) = self.rows.get(row) else { return CursorKey { line: None, thread: None, info: None, section: None, goes: None } };
         CursorKey {
             // (The code line it's on, or under: a comment's, should its thread go, as one posted
@@ -164,7 +164,7 @@ impl App {
     }
 
     /// The row `key` is on now.
-    fn find_key(&self, key: CursorKey) -> Option<usize> {
+    pub(super) fn find_key(&self, key: CursorKey) -> Option<usize> {
         // (A line standing for a comment: that comment's, wherever the list put it.)
         let goes = key.goes.and_then(|((root, id), off)| {
             let first = self.rows.iter().position(|r| r.goes.is_some_and(|(t, k)| self.root_id(t) == Some(root) && self.threads[t].comments.get(k).is_some_and(|c| c.id == id)))?;
@@ -223,7 +223,7 @@ impl App {
         // Where the cursor was in the code, kept on the same line in the new rows.
         let code = self.key_at(self.code_head.row);
         // (Jump labels are places in the old rows.)
-        (self.jumps, self.labels) = (vec![], vec![]);
+        self.labels.clear();
         let mut rows = self.title_rows();
         // Attached to the description (beside it in the pane, as comments are beside their
         // lines; inline after it, the pane hidden): with no description (a branch), after the

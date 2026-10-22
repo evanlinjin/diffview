@@ -493,7 +493,7 @@ impl App {
 
     /// Jump within the diff, remembering where we came from (Ctrl-o goes back).
     pub(super) fn jump(&mut self, row: usize, col: usize) {
-        self.jumps.push(self.head);
+        self.jumps.push((self.key_at(self.head.row), self.head.col)); // (by key: rows move)
         self.select = false;
         self.goto(row, col);
     }

@@ -284,9 +284,9 @@ impl App {
                 'l' => self.side(true),
                 'y' => self.scroll(-5),
                 'o' => {
-                    if let Some(p) = self.jumps.pop() {
+                    if let Some((r, col)) = self.jumps.pop().and_then(|(k, col)| Some((self.find_key(k)?, col))) {
                         self.select = false;
-                        self.goto(p.row, p.col);
+                        self.goto(r, col);
                     }
                 }
                 'c' => self.quit = true,

@@ -760,7 +760,7 @@ pub struct App {
     popup: Option<(String, Vec<Line<'static>>, u16)>,
     /// Help overlay search: (query, typing it).
     help: Option<(String, bool)>,
-    jumps: Vec<Pos>,
+    jumps: Vec<(CursorKey, usize)>,
     alphabet: Vec<char>,
     /// `gw` jump labels: (word start, word end, label), plus the first label char typed.
     labels: Vec<(Pos, Pos, [char; 2])>,
