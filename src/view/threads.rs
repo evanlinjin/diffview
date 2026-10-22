@@ -155,6 +155,7 @@ impl App {
     /// Jump to comment `ci` of thread `ti`, unfolding its file and thread if needed.
     pub(super) fn goto_comment(&mut self, ti: usize, ci: usize) {
         let Some(t) = self.threads.get(ti) else { return };
+        let keep = self.cursor_key();
         if !self.in_view(t) {
             self.view = View::All; // it's not in this view: back to the whole diff, to show it
         }
@@ -165,7 +166,7 @@ impl App {
         {
             flip(&mut self.toggled, id);
         }
-        self.build();
+        self.rebuild(keep);
         // Each comment starts with an author row; outdated threads' code rows aren't author rows.
         let row = self.rows.iter().enumerate().filter(|(_, r)| r.thread == Some(ti) && r.line.kind == Kind::Thread).nth(ci);
         match row {
