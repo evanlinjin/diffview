@@ -205,6 +205,12 @@ fn run(s: Subject, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sen
         Ok(c) => c,
         Err(w) => return Ok(Status::Busy(format!("Claude is {w} on it"))),
     };
+    // Nor in a worktree Claude's at work in otherwise (a pane you started there): not a second.
+    if let Subject::Pr(_) = s
+        && let Some(w) = crate::worktree_dir(n).ok().and_then(|(_, d)| crate::claude::at_work_in(&d))
+    {
+        return Ok(Status::Busy(format!("Claude is {w} in its worktree")));
+    }
     // A PR merged or closed while it waited its turn (queued): nothing to do on it now.
     if let Subject::Pr(_) = s
         && let Ok(Some(state)) = crate::gh::pr_state(n)

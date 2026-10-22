@@ -511,9 +511,7 @@ fn review(o: &Opts, pr_num: Option<u64>, known: Option<gh::Pr>) -> anyhow::Resul
                 Some(note) => (None, Some(note)),
                 None => {
                     progress(Some(&format!("checking out PR #{n}")));
-                    let note = checkout_or_keep(n, o.force, false)?;
-                    record_checkout(n);
-                    (None, note)
+                    (None, checkout_or_keep(n, o.force, false)?)
                 }
             }
         }
@@ -695,7 +693,17 @@ fn on_pr(p: &gh::Pr) -> bool {
 }
 
 pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool) -> anyhow::Result<Option<String>> {
-    let Err(e) = gh::checkout(n, force, detach) else { return Ok(None) };
+    // Not under Claude at work in this checkout (a run, its pane): shown as it is.
+    let here = diff::git(&["rev-parse", "--show-toplevel"]).map(|t| PathBuf::from(t.trim()));
+    if let Some(w) = here.ok().and_then(|h| crate::claude::at_work_in(&h)) {
+        return Ok(Some(format!("Claude is {w} here: shown as it is, not updated to PR #{n}")));
+    }
+    // Checked out as the PR has it: what dv put here (nothing here is work done since). Kept
+    // as it was (a note): not that.
+    let Err(e) = gh::checkout(n, force, detach) else {
+        record_checkout(n);
+        return Ok(None);
+    };
     let msg = format!("{e:#}");
     let diverged = ["Not possible to fast-forward", "Diverging branches"].iter().any(|p| msg.contains(p));
     let here = diff::git(&["branch", "--show-current"]).unwrap_or_default().trim().to_owned();
@@ -712,11 +720,6 @@ pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool) -> anyhow::Res
     }
 }
 
-/// Commits here that PR `n` doesn't have (yours, or Claude's: a commit, an amend, a rebase): a
-/// note saying they're kept, else `None` (nothing here but what dv checked out, or older:
-/// updating to the PR is safe). Updating never drops them, `-f` or not: dv records the commit
-/// it last checked out (`checkouts/pr-N` in its directory), so a PR its author force-pushed
-/// still updates, while work done here since stays until you push it or drop it yourself.
 /// Commits in checkout `dir` that are only there, PR `n`'s head being `pr` (here) on `base`:
 /// on neither (none behind it, nor still at what dv last checked out for it, the PR
 /// force-pushed since; a checkout left on the base's commits has none: not yours to push).
@@ -729,14 +732,21 @@ pub(crate) fn only_here(dir: &Path, n: u64, pr: &str, base: Option<&str>) -> usi
         return 0;
     }
     let range = format!("{pr}..HEAD");
-    let base = base.filter(|b| !b.is_empty()).map(crate::diff::remote_branch);
+    // (A base not fetched here: left out, so more is counted, never less.)
+    let base = base.filter(|b| !b.is_empty()).map(crate::diff::remote_branch).filter(|b| git(&["rev-parse", "--verify", "-q", &format!("{b}^{{commit}}")]).is_ok());
     let mut count = vec!["rev-list", "--count", &range];
     if let Some(b) = &base {
         count.extend(["--not", b]);
     }
-    git(&count).ok().and_then(|c| c.trim().parse().ok()).unwrap_or(0)
+    // (Can't tell: one, kept as work, not taken for none.)
+    git(&count).ok().and_then(|c| c.trim().parse().ok()).unwrap_or(1)
 }
 
+/// Commits in `dir` that PR `n` doesn't have (yours, or Claude's: a commit, an amend, a rebase): a
+/// note saying they're kept, else `None` (nothing here but what dv checked out, or older:
+/// updating to the PR is safe). Updating never drops them, `-f` or not: dv records the commit
+/// it last checked out (`checkouts/pr-N` in its directory), so a PR its author force-pushed
+/// still updates, while work done here since stays until you push it or drop it yourself.
 pub(crate) fn local_work(n: u64, dir: &Path) -> Option<String> {
     let d = dir.to_string_lossy().into_owned();
     let git = |args: &[&str]| diff::git(&[&["-C", d.as_str()], args].concat());
@@ -864,10 +874,6 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
     if !existed {
         record_checkout(n); // what dv put here: nothing here is work done since
     }
-    // Claude at work in it (a run of dv list's, a pane): shown as it is, not moved under it.
-    if existed && let Some(w) = crate::claude::at_work_in(&dir) {
-        return Ok((dir, Some(format!("Claude is {w} here: shown as it is, not updated to the PR"))));
-    }
     if known.is_some_and(|p| at_head(p, !branch)) {
         record_checkout(n);
         return Ok((dir, None));
@@ -887,7 +893,6 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
         };
         e.context(format!("checking out PR #{n} in {}{hint}", dir.display()))
     })?;
-    record_checkout(n);
     Ok((dir, note))
 }
 
@@ -1078,9 +1083,12 @@ pub(crate) fn remove_worktree(n: u64, force: bool) -> anyhow::Result<String> {
     if !force && branch.trim().is_empty() {
         crate::merge::nothing_to_lose(&dir, n)?;
     }
-    std::env::set_current_dir(&main)?; // not from inside the dir being removed
-    let d = dir.to_string_lossy();
-    let mut args = vec!["worktree", "remove"];
+    // (Not from inside the dir being removed; else where it was, a list's home kept.)
+    if std::env::current_dir().is_ok_and(|c| c.starts_with(&dir)) {
+        std::env::set_current_dir(&main)?;
+    }
+    let (d, m) = (dir.to_string_lossy(), main.to_string_lossy());
+    let mut args = vec!["-C", &m, "worktree", "remove"];
     if force {
         args.push("--force");
     }
