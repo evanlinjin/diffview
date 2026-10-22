@@ -118,7 +118,6 @@ impl App {
                     };
                     list.iter_mut().filter(|x| x.0 == name).for_each(|x| x.1 = on);
                     self.github_changed();
-                    self.refresh_at = Some(std::time::Instant::now());
                 }
                 if let Some((query, sel)) = self.fields_at.take() {
                     self.fields_menu(query, sel);

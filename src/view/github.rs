@@ -194,16 +194,19 @@ impl App {
         }
         let Some((at, f)) = self.github.as_ref().and_then(|rx| rx.try_iter().last()) else { return };
         if at != self.github_gen.load(std::sync::atomic::Ordering::SeqCst) {
-            return; // loaded since: that's newer
+            // Changed since (by us): this is old. Asked again, as the watcher may already hold
+            // the ETag this answer was for (a change it carried would be missed).
+            if let Some(p) = &self.github_poke {
+                _ = p.send(());
+            }
+            return;
         }
         let count = |a: &App| a.threads.iter().filter(|t| t.claude.is_none()).map(|t| t.comments.len()).sum::<usize>();
         let before = count(self);
-        let had_new = self.new_paths();
         let keep = self.cursor_key();
         self.apply_github(f, true);
         self.shape();
         let new = count(self).saturating_sub(before);
-        self.unfold_new(&had_new);
         self.rebuild(keep);
         if std::mem::take(&mut self.github_stale) && self.msg == STALE {
             self.msg.clear();
