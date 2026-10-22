@@ -697,7 +697,7 @@ impl List {
     fn selected_pr(&mut self) -> Option<u64> {
         match self.selected()? {
             // (Published: its PR, as any, while it's open: the list's.)
-            (n, true) if let Some(p) = self.rep_of.get(&n).and_then(|r| r.published) => match self.prs.iter().any(|x| x.number == p) {
+            (n, true) if let Some(p) = self.rep_of.get(&n).and_then(|r| r.published) => match self.prs.iter().any(|x| x.number == p && x.open()) {
                 true => Some(p),
                 false => (self.msg = format!("#{p} (it was published as) isn't open"), None).1,
             },
