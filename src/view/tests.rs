@@ -5312,6 +5312,7 @@ fn c_on_lines_is_refused_up_front_with_a_review_on_another_head() {
     let keys = app.context_keys().map(|(_, k)| k.iter().map(|e| e.0).collect::<Vec<_>>()).unwrap_or_default();
     assert!(!keys.contains(&"c") && !keys.contains(&"s"), "{keys:?}");
     assert!(app.on_head().err().is_some_and(|e| e.to_string().contains("pending review is on old")));
+    assert!(app.posts_now().err().is_some_and(|e| e.to_string().contains("pending review is on old")), "C sends you to a c that's refused");
     // Submitted (or discarded): its old commit no longer counts.
     app.review = None;
     assert!(app.on_head().is_ok());

@@ -773,6 +773,10 @@ impl App {
         let row = &self.rows[self.head.row];
         let pr_text = row.file == INFO && row.thread.is_none();
         if self.review.is_some() && !pr_text && row.info != Some(SUMMARY) {
+            // (On lines, its own head moved past: c can't add them either; that said.)
+            if row.thread.is_none() {
+                self.pending_on(self.pr.as_ref().map(|p| p.head_oid.as_str()))?;
+            }
             bail!("you have a pending review ({}): c adds to it, S submits it, then C posts", self.pending_count());
         }
         Ok(())
