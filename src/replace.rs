@@ -332,11 +332,8 @@ pub fn rebase(r: &Record, dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// What Claude is asked, to draft (or redraft) replacement `r`. Your notes on the repo come
-/// with it, to read: a draft reads untrusted PRs, so it gets no access to them (nor to dv's
-/// other files), only to its record.
 /// Claude's reviews of the PRs `r` replaces, from dv (its own and the user's words, not the
-/// PRs'), for a replacement to start from what they found.
+/// PRs'), for a replacement to start from what they found: each as of the commit it reviewed.
 fn reviews_of(r: &Record) -> String {
     let reviews: Vec<String> = r
         .replaces
@@ -344,19 +341,24 @@ fn reviews_of(r: &Record) -> String {
         .filter_map(|o| {
             let review = crate::claude::load(&crate::claude::path(Some(o.number)).ok()?).ok()??;
             let text = crate::claude::review_brief(&review);
-            (!text.is_empty()).then(|| format!("<review pr=\"{}\">\n{text}\n</review>", o.number))
+            let head = review.head.get(..8).unwrap_or(&review.head);
+            (!text.is_empty()).then(|| format!("<review pr=\"{}\" of=\"{head}\">\n{text}\n</review>", o.number))
         })
         .collect();
     match reviews.is_empty() {
         true => String::new(),
         false => format!(
-            "\n\nYour review of it in dv, with the user's replies (what you and the user found wrong with it: \
-             start from that, and do what the user asked there):\n{}",
+            "\n\nYour reviews in dv of what it replaces, with the user's replies (what you and the user found wrong: \
+             start from that, and do what the user asked there; each of the commit it names, which may have moved on \
+             since, so check its lines against `gh pr diff`):\n{}",
             reviews.join("\n")
         ),
     }
 }
 
+/// What Claude is asked, to draft (or redraft) replacement `r`. Your notes on the repo come
+/// with it, to read: a draft reads untrusted PRs, so it gets no access to them (nor to dv's
+/// other files), only to its record.
 pub fn prompt(r: &Record, extra: &str) -> String {
     let prs: Vec<String> = r.replaces.iter().map(|o| format!("#{}", o.number)).collect();
     let now = crate::claude::now();
@@ -377,7 +379,8 @@ pub fn prompt(r: &Record, extra: &str) -> String {
             "Use the dv-review skill to draft a replacement for PR {} (its section 6: \"Draft a replacement or a new PR\"). \
              First run `dv replace-info`. (It's {now} now.){notes}{}",
             prs.join(", "),
-            reviews_of(r)
+            // (A redraft carries on in its session, which has them; what's asked since is in `asks`.)
+            if r.drafted() { String::new() } else { reviews_of(r) }
         ),
     };
     // What you asked of its drafts that no redraft has taken in yet: in the record, to answer.

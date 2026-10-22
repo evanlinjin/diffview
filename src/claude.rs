@@ -95,8 +95,12 @@ pub struct Review {
 /// summary, then each comment on code with its replies (yours and Claude's), where it is.
 pub fn review_brief(r: &Review) -> String {
     let mut out = vec![r.summary.trim().to_owned()];
-    for t in r.threads.iter().filter(|t| t.conversation.is_empty()) {
-        let at = format!("`{}:{}`", t.path, t.line.or(t.original_line).unwrap_or(0));
+    for t in &r.threads {
+        let at = match t.conversation.as_str() {
+            "" => format!("`{}:{}`", t.path, t.line.or(t.original_line).unwrap_or(0)),
+            "summary" => "on the summary".into(),
+            url => format!("on {url}"),
+        };
         let state = [(t.resolved, "resolved"), (t.outdated, "outdated")].iter().filter(|s| s.0).map(|s| s.1).collect::<Vec<_>>().join(", ");
         let tag = [t.severity.as_str(), state.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(", ");
         let tag = if tag.is_empty() { String::new() } else { format!(" ({tag})") };
@@ -1256,12 +1260,12 @@ fn a_review_as_a_replacement_reads_it() {
         threads: vec![
             t("src/a.rs", 12, "bug", vec![c(AUTHOR, "This drops the error."), c("you", "Agreed:\nmake it return it")]),
             crate::gh::Thread { resolved: true, ..t("src/b.rs", 3, "", vec![c("you", "rename it")]) },
-            crate::gh::Thread { conversation: "summary".into(), ..t("", 0, "", vec![c("you", "why?")]) }, // about the summary: not code
+            crate::gh::Thread { conversation: "summary".into(), ..t("", 0, "", vec![c("you", "move the check into parse()")]) },
         ],
         ..Default::default()
     };
     assert_eq!(
         review_brief(&r),
-        "Fixes the symptom.\n\n- `src/a.rs:12` (bug)\n  Claude: This drops the error.\n  the user: Agreed:\n  make it return it\n\n- `src/b.rs:3` (resolved)\n  the user: rename it"
+        "Fixes the symptom.\n\n- `src/a.rs:12` (bug)\n  Claude: This drops the error.\n  the user: Agreed:\n  make it return it\n\n- `src/b.rs:3` (resolved)\n  the user: rename it\n\n- on the summary\n  the user: move the check into parse()"
     );
 }

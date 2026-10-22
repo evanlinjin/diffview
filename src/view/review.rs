@@ -500,7 +500,7 @@ impl App {
             if moved && r.threads.iter().any(|t| t.hunk.is_empty()) {
                 self.msg = format!(
                     "Claude reviewed {}; HEAD has moved since, so its line numbers may be off (`dv review-check` re-anchors)",
-                    &r.head[..r.head.len().min(8)]
+                    r.head.get(..8).unwrap_or(&r.head)
                 );
             }
             // Not against HEAD: files without uncommitted changes aren't in that diff, and

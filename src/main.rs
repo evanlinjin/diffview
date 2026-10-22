@@ -368,10 +368,36 @@ fn review_replacement(id: u64, root: &Path) -> anyhow::Result<()> {
     res
 }
 
+/// `app` on `term`, and what it hands over meanwhile (an issue a link goes to, in dv's issue
+/// view; the PR's replacement, in its own): shown, then back to it, as it was. What goes wrong
+/// handing over is said there, not an end to it (the terminal's the caller's to restore).
+fn run_view(app: &mut view::App, term: &mut ratatui::DefaultTerminal) -> anyhow::Result<()> {
+    let mut issues = None;
+    loop {
+        app.run(term)?;
+        let Some(to) = app.hand_off.take() else { return Ok(()) };
+        let shown = match to {
+            view::HandOff::Issue(n) => issues.get_or_insert_with(list::issues::Issues::new).run_one(term, n).with_context(|| format!("#{n}")),
+            view::HandOff::Replacement(id) => std::env::current_dir().map_err(anyhow::Error::from).and_then(|here| {
+                let shown = main_checkout(&here).and_then(|root| replacement_view(id, &root, term));
+                std::env::set_current_dir(&here)?;
+                shown.with_context(|| replace::label(id))
+            }),
+        };
+        // (What was drawn over it, and the loading lines written meanwhile: all drawn anew.)
+        _ = term.clear();
+        if let Err(e) = shown {
+            app.notice(format!("{e:#}"));
+        }
+    }
+}
+
 /// A replacement's view, in its worktree (left there), on `term`.
 fn replacement_view(id: u64, root: &Path, term: &mut ratatui::DefaultTerminal) -> anyhow::Result<()> {
     let r = replace::load(id)?;
     let dir = worktree_dir_named(root, &replace::name(id))?;
+    // (Its drafting marked before its checkout's made: a moment.)
+    anyhow::ensure!(dir.exists() || !r.drafting_now(), "Claude is still setting up its checkout: again in a moment");
     anyhow::ensure!(dir.exists(), "its worktree {} is gone (A A on the PR drafts it again)", dir.display());
     ensure_worktree_of(&dir, root)?;
     std::env::set_current_dir(&dir)?;
@@ -382,7 +408,8 @@ fn replacement_view(id: u64, root: &Path, term: &mut ratatui::DefaultTerminal) -
     // Its base followed as a PR's is: a rebase (a redraft's, publishing's) moves the diff's base.
     app.follow_base = Some(crate::diff::remote_branch(&r.base));
     progress(None);
-    app.run(term)
+    _ = term.clear(); // (over another view, perhaps: drawn anew)
+    run_view(&mut app, term)
 }
 
 /// Check PR `n` out as `o` says and review it. The outer error is setup (checkout, diff); the
@@ -443,25 +470,7 @@ fn review(o: &Opts, pr_num: Option<u64>, known: Option<gh::Pr>) -> anyhow::Resul
         app.notice(n);
     }
     let mut term = view::init_terminal();
-    // An issue a link there goes to (in dv's issue view), the PR's replacement (in its own):
-    // shown, then back to the PR, as it was.
-    let mut issues = None;
-    let res = loop {
-        let res = app.run(&mut term);
-        let Some(to) = app.hand_off.take().filter(|_| res.is_ok()) else { break res };
-        let shown = match to {
-            view::HandOff::Issue(n) => issues.get_or_insert_with(list::issues::Issues::new).run_one(&mut term, n).with_context(|| format!("#{n}")),
-            view::HandOff::Replacement(id) => {
-                let here = std::env::current_dir()?;
-                let shown = main_checkout(&here).and_then(|root| replacement_view(id, &root, &mut term));
-                std::env::set_current_dir(&here)?;
-                shown.with_context(|| replace::label(id))
-            }
-        };
-        if let Err(e) = shown {
-            app.notice(format!("{e:#}"));
-        }
-    };
+    let res = run_view(&mut app, &mut term);
     view::restore_terminal();
     Ok((wt, res.map(|_| app.merge)))
 }
