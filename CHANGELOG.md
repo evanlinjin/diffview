@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.92.10] - 2026-10-22
+
+### Added
+- `Ctrl-e` / `Ctrl-y` scroll the issue view (the side the cursor's on), as in the PR view.
+
 ## [0.92.9] - 2026-10-22
 
 ### Fixed
