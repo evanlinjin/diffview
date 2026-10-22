@@ -276,8 +276,6 @@ fn prepare(prs: &[u64], root: &Path) -> Result<PathBuf> {
     let dir = crate::worktree_dir_named(root, &name(id))?;
     if dir.exists() {
         crate::ensure_worktree_of(&dir, root)?;
-        // Carrying on: from the base as it is now, if that goes cleanly (else Claude sees why).
-        _ = rebase(&r, &dir);
     } else {
         _ = git(&["fetch", "-q", &crate::diff::remote(), &r.base]);
         let (b, d) = (branch(id), dir.to_string_lossy().into_owned());
@@ -286,6 +284,8 @@ fn prepare(prs: &[u64], root: &Path) -> Result<PathBuf> {
             Err(_) => git(&["worktree", "add", "-b", &b, &d, &crate::diff::remote_branch(&r.base)])?,
         };
     }
+    // Carrying on: from the base as it is now, if that goes cleanly (else Claude sees why).
+    _ = rebase(&r, &dir);
     Ok(dir)
 }
 
@@ -630,8 +630,13 @@ pub fn remove(id: u64, root: &Path) -> Result<String> {
         })?;
     }
     _ = std::fs::remove_file(path(id)?);
-    let b = branch(id);
-    Ok(format!("removed {}; kept branch {b} (`git branch -D {b}` deletes it)", label(id)))
+    // Its branch kept under another name: a draft of it again starts afresh, from its base,
+    // not on what was removed.
+    let (b, kept) = (branch(id), format!("{}-removed-{}", branch(id), crate::claude::now_secs()));
+    if crate::diff::git(&["-C", &root.to_string_lossy(), "branch", "-m", &b, &kept]).is_err() {
+        return Ok(format!("removed {}", label(id)));
+    }
+    Ok(format!("removed {}; kept its branch as {kept} (`git branch -D {kept}` deletes it)", label(id)))
 }
 
 /// The issue a new PR's task is to fix: its first line's "Fix #N" (as an issue's "Draft a PR
