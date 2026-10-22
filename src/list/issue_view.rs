@@ -704,7 +704,7 @@ impl IssueView {
     }
 
     /// A key in the view, Helix's: `h j k l` (and arrows), `w b e`, `gh gl`, `gg ge`,
-    /// `Ctrl-d Ctrl-u`, `Tab` to the other side; `v` selects, `x` the line (again: the next
+    /// `Ctrl-d Ctrl-u`, `Ctrl-e Ctrl-y`, `Tab` to the other side; `v` selects, `x` the line (again: the next
     /// too), `;` drops it, `y` copies it; Enter opens the link under the cursor.
     pub fn key(&mut self, pending: Option<char>, k: KeyCode, ctrl: bool) -> Did {
         let (row, col) = self.cur;
@@ -712,6 +712,18 @@ impl IssueView {
         match (pending, k) {
             (_, KeyCode::Char('d')) if ctrl => self.go(row + half, col),
             (_, KeyCode::Char('u')) if ctrl => self.go(row.saturating_sub(half), col),
+            // Ctrl-e / Ctrl-y: the side scrolled (as the PR view's), the cursor kept in view.
+            (_, KeyCode::Char(c @ ('e' | 'y'))) if ctrl => {
+                let i = self.side_of(col);
+                self.scroll(col, if c == 'e' { 5 } else { -5 });
+                let (top, h) = (self.scroll[i], self.shown.max(1));
+                let (off, last) = (3.min(h / 2), self.lines(i).len().saturating_sub(h));
+                // (Off its edges where it can be: the scroll is the key's, not `go`'s.)
+                let lo = if top == 0 { 0 } else { (top + off).min(top + h - 1) };
+                let hi = if top >= last { usize::MAX } else { (top + h).saturating_sub(off + 1).max(lo) };
+                self.go(row.clamp(lo, hi), col);
+                self.scroll[i] = top;
+            }
             // Ctrl-h / Ctrl-l: to the description / the pane (as the PR view's sides).
             (_, KeyCode::Char(c @ ('h' | 'l'))) if ctrl => self.go_side(c == 'l'),
             _ if ctrl => return Did::Not,
@@ -900,6 +912,7 @@ pub(super) const VIEW_HELP: &str = "
 MOVE
   h j k l, arrows      move the cursor (Helix's); w b e by word; gh gl the line's start / end
   Ctrl-d Ctrl-u        half a page down / up
+  Ctrl-e Ctrl-y        scroll down / up (the cursor kept in view)
   gg ge                top / end
   Tab, Ctrl-h Ctrl-l   to the other side / the description / the pane
   v, x                 select from here; the line (again: the next too); ; drops it
@@ -1077,6 +1090,13 @@ fn an_issue_and_its_triage() {
     assert_eq!(v.scroll, [2, 2]);
     v.mouse(MouseEventKind::Drag(MouseButton::Left), 2, -1);
     assert_eq!(v.scroll, [1, 2]);
+    // Ctrl-e / Ctrl-y scroll the cursor's side, the cursor kept in view; back at the top, as it was.
+    v.mouse(MouseEventKind::Up(MouseButton::Left), 2, -1);
+    (v.shown, v.scroll, v.cur) = (4, [0, 0], (0, 2));
+    v.key(None, KeyCode::Char('e'), true);
+    assert!(v.scroll[0] > 0 && v.cur.0 >= v.scroll[0] && v.cur.0 < v.scroll[0] + 4, "{:?} {:?}", v.scroll, v.cur);
+    v.key(None, KeyCode::Char('y'), true);
+    assert_eq!(v.scroll[0], 0);
 }
 
 #[test]
