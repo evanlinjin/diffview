@@ -222,7 +222,7 @@ impl App {
     /// char (where the cursor follows), and a block no further than its widest line's end at
     /// the right edge (nothing that fits scrolled).
     pub(super) fn hmost(&self, r: usize, w: usize) -> usize {
-        let own = self.col_of(r, self.len(r)).saturating_sub(1);
+        let own = self.col_of(r, self.len(r).saturating_sub(1));
         match self.scroller(r) {
             Some(Scroller::Block(b)) => {
                 let rows = (b..self.rows.len()).take_while(|&x| x == b || self.code_block(x) == Some(b));

@@ -4167,3 +4167,15 @@ fn the_wheel_at_a_blocks_end_leaves_the_cursor() {
     wheel(&mut app, x + 20);
     assert_eq!((app.code_left, app.head.col), (left, col));
 }
+
+#[test]
+fn as_far_as_a_line_scrolls_is_its_last_char() {
+    // (A wide char or a tab last: its start, where the cursor on it pulls the scroll back to.)
+    for (end, at) in [("界", 300), ("\t", 300), ("y", 300)] {
+        let text = format!("diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-a\n+{}{end}\n", "x".repeat(300));
+        let mut app = App::with("base".into(), diff::parse(&text));
+        _ = screen(80, 12, |f| app.draw(f));
+        let r = (0..app.rows.len()).find(|&r| app.len(r) == 301).unwrap();
+        assert_eq!(app.hmost(r, app.row_w(r)), at, "{end:?}");
+    }
+}
