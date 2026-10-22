@@ -755,7 +755,7 @@ pub fn remove(id: u64, root: &Path) -> Result<String> {
     let _claim = crate::claude::claim(&crate::claude::rep_key(id), "removing it", None)?.map_err(|w| anyhow::anyhow!("Claude is {w} on {}: remove it once it's done", label(id)))?;
     let dir = crate::worktree_dir_named(root, &name(id))?;
     // Nor under Claude at work in its checkout on any key (published, its PR's).
-    if let Some(w) = crate::claude::at_work_in(&dir) {
+    if let Some(w) = crate::claude::at_work_in(&dir, None) {
         anyhow::bail!("Claude is {w} in {}: remove it once it's done", dir.display());
     }
     if dir.exists() {

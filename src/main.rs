@@ -511,7 +511,7 @@ fn review(o: &Opts, pr_num: Option<u64>, known: Option<gh::Pr>) -> anyhow::Resul
                 Some(note) => (None, Some(note)),
                 None => {
                     progress(Some(&format!("checking out PR #{n}")));
-                    (None, checkout_or_keep(n, o.force, false)?)
+                    (None, checkout_or_keep(n, o.force, false, None)?)
                 }
             }
         }
@@ -692,10 +692,14 @@ fn on_pr(p: &gh::Pr) -> bool {
     }
 }
 
-pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool) -> anyhow::Result<Option<String>> {
-    // Not under Claude at work in this checkout (a run, its pane): shown as it is.
-    let here = diff::git(&["rev-parse", "--show-toplevel"]).map(|t| PathBuf::from(t.trim()));
-    if let Some(w) = here.ok().and_then(|h| crate::claude::at_work_in(&h)) {
+pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool, own: Option<&str>) -> anyhow::Result<Option<String>> {
+    // Not under Claude at work in this checkout (a run, a pane, but `own`'s, the asker's):
+    // on the PR already (its branch, its own worktree), shown as it is; else not opened here.
+    let top = diff::git(&["rev-parse", "--show-toplevel"]).map(|t| PathBuf::from(t.trim()));
+    if let Some((top, w)) = top.ok().and_then(|t| Some((t.clone(), crate::claude::at_work_in(&t, own)?))) {
+        let branch = diff::git(&["branch", "--show-current"]).unwrap_or_default();
+        let on_it = gh::pr(Some(n)).is_ok_and(|p| on_branch(branch.trim(), &p)) || worktree_dir(n).is_ok_and(|(_, d)| d == top);
+        anyhow::ensure!(on_it, "Claude is {w} in {}: open #{n} once it's done, or in a worktree of its own (-w)", top.display());
         return Ok(Some(format!("Claude is {w} here: shown as it is, not updated to PR #{n}")));
     }
     // Checked out as the PR has it: what dv put here (nothing here is work done since). Kept
@@ -883,7 +887,7 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
         return Ok((dir, Some(note)));
     }
     progress(Some(&format!("checking out PR #{n} in {}", dir.display())));
-    let note = checkout_or_keep(n, force, !branch).map_err(|e| {
+    let note = checkout_or_keep(n, force, !branch, None).map_err(|e| {
         // git words this a few ways depending on the step that hits it.
         let msg = format!("{e:#}");
         let in_use = ["already checked out", "already used by worktree", "checked out at"].iter().any(|p| msg.contains(p));
@@ -1074,7 +1078,7 @@ pub(crate) fn remove_worktree(n: u64, force: bool) -> anyhow::Result<String> {
     // Not under Claude at work there (a run, a pane: on it, or in it on any key): its claim,
     // held while removing, as a draft's removal holds its own.
     let _claim = crate::claude::claim(&crate::claude::pr_key(n), "removing its worktree", None)?.map_err(|w| anyhow::anyhow!("Claude is {w} on #{n}: remove it once it's done"))?;
-    if let Some(w) = crate::claude::at_work_in(&dir) {
+    if let Some(w) = crate::claude::at_work_in(&dir, None) {
         anyhow::bail!("Claude is {w} in {}: remove it once it's done", dir.display());
     }
     let branch = diff::git(&["-C", &dir.to_string_lossy(), "branch", "--show-current"]).unwrap_or_default();

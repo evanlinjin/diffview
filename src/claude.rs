@@ -426,12 +426,13 @@ pub fn at_work(key: &str, own: Option<&str>, here: Option<&std::path::Path>) -> 
     markers(&running_dir().ok()?).into_iter().filter(|m| m.0 == key).find_map(|m| live_marker(&m.2, &panes, own, here))
 }
 
-/// What Claude is doing in checkout `dir` right now, on any key, from any dv (a marker that
+/// What Claude is doing in checkout `dir` right now, on any key, from any dv (but in the pane
+/// of session `own`, the asker's to mind; a marker that
 /// doesn't say where isn't counted: a read-only run, a triage, says none).
-pub fn at_work_in(dir: &std::path::Path) -> Option<String> {
+pub fn at_work_in(dir: &std::path::Path, own: Option<&str>) -> Option<String> {
     let panes = std::cell::OnceCell::new();
     let in_dir = |p: &std::path::Path| std::fs::read_to_string(p).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).is_some_and(|v| v["dir"].as_str().is_some_and(|d| std::path::Path::new(d) == dir));
-    let marked = running_dir().ok().and_then(|r| markers(&r).into_iter().filter(|m| in_dir(&m.2)).find_map(|m| live_marker(&m.2, &panes, None, None)));
+    let marked = running_dir().ok().and_then(|r| markers(&r).into_iter().filter(|m| in_dir(&m.2)).find_map(|m| live_marker(&m.2, &panes, own, None)));
     // Or Claude Code in a pane there no marker says (one you started, from a shell even: its
     // screen says), at it or asking you something.
     marked.or_else(|| {

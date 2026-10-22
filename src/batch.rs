@@ -207,7 +207,7 @@ fn run(s: Subject, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sen
     };
     // Nor in a worktree Claude's at work in otherwise (a pane you started there): not a second.
     if let Subject::Pr(_) = s
-        && let Some(w) = crate::worktree_dir(n).ok().and_then(|(_, d)| crate::claude::at_work_in(&d))
+        && let Some(w) = crate::worktree_dir(n).ok().and_then(|(_, d)| crate::claude::at_work_in(&d, None))
     {
         return Ok(Status::Busy(format!("Claude is {w} in its worktree")));
     }

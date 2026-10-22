@@ -127,7 +127,7 @@ pub fn waits(n: u64) -> Option<String> {
         Err(e) => return Some(format!("{e:#}")),
     };
     // Nor under Claude at work there, on whatever PR (its edits would land on the base branch).
-    if let Some(w) = crate::claude::at_work_in(&main) {
+    if let Some(w) = crate::claude::at_work_in(&main, None) {
         return Some(format!("Claude is {w} in {}, which the merge script's checkouts would switch under it: merge once it's done", main.display()));
     }
     match crate::diff::git(&["-C", &main.to_string_lossy(), "status", "--porcelain", "--untracked-files=no"]) {

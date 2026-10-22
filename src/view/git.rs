@@ -19,7 +19,7 @@ impl App {
         match &self.pr {
             Some(p) => {
                 let detached = diff::git(&["branch", "--show-current"])?.trim().is_empty();
-                let note = crate::checkout_or_keep(p.number, false, detached)?;
+                let note = crate::checkout_or_keep(p.number, false, detached, self.claude.session.as_deref())?;
                 Ok(note.unwrap_or_else(|| format!("up to date with PR #{}", p.number)))
             }
             None => {
