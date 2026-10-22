@@ -380,24 +380,26 @@ pub fn rebase(r: &Record, dir: &Path) -> Result<()> {
 /// Which of Claude's reviews of the originals a draft's prompt carries: all (a first draft: a
 /// new session), or those changed since its last draft ended (a redraft: its session has the
 /// rest), none if that's not known.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub enum Reviews {
     All,
-    Since(Option<std::time::SystemTime>),
+    /// Changed since then, and the originals new to it (theirs not seen at all).
+    Since(Option<std::time::SystemTime>, Vec<u64>),
 }
 
 /// Claude's reviews of the PRs `r` replaces, from dv (its own and the user's words, not the
 /// PRs'), for a replacement to start from what they found: each as of the commit it reviewed.
 fn reviews_of(r: &Record, which: Reviews) -> String {
-    let changed = |p: &std::path::Path| match which {
+    let changed = |n: u64, p: &std::path::Path| match &which {
         Reviews::All => true,
-        Reviews::Since(t) => t.zip(std::fs::metadata(p).and_then(|m| m.modified()).ok()).is_some_and(|(t, m)| m > t),
+        Reviews::Since(_, new) if new.contains(&n) => true,
+        Reviews::Since(t, _) => t.as_ref().copied().zip(std::fs::metadata(p).and_then(|m| m.modified()).ok()).is_some_and(|(t, m)| m > t),
     };
     let reviews: Vec<String> = r
         .replaces
         .iter()
         .filter_map(|o| {
-            let path = crate::claude::path(Some(o.number)).ok().filter(|p| changed(p))?;
+            let path = crate::claude::path(Some(o.number)).ok().filter(|p| changed(o.number, p))?;
             let review = crate::claude::load(&path).ok()??;
             let text = crate::claude::review_brief(&review);
             let head = review.head.get(..8).unwrap_or(&review.head);
@@ -568,7 +570,8 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
         // (The reviews it's given are read now: changes after go to the next.)
         started = crate::claude::now_secs() as u64;
         given = r.asks.iter().filter(|a| !a.done()).map(|a| (a.text.clone(), a.on.clone())).collect();
-        run_claude(&r, &dir, first, if first { extra } else { "" }, last, prepared)
+        let which = if first { Reviews::All } else { Reviews::Since(last, added.clone()) };
+        run_claude(&r, &dir, first, if first { extra } else { "" }, which, prepared)
     });
     // Claude has written to the record meanwhile (its answers): the mark comes off; a change
     // it was given and made (it finished) without saying so is done all the same, not asked
@@ -596,14 +599,14 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
 }
 
 /// `first`: its first draft (a new session; else it carries on in its own).
-fn run_claude(r: &Record, dir: &Path, first: bool, extra: &str, last: Option<std::time::SystemTime>, prepared: impl FnOnce()) -> Result<String> {
+fn run_claude(r: &Record, dir: &Path, first: bool, extra: &str, which: Reviews, prepared: impl FnOnce()) -> Result<String> {
     prepared();
     let session = match first {
         true => ["--session-id".to_owned(), r.session.clone()],
         false => ["--resume".to_owned(), r.session.clone()],
     };
     let log = std::env::temp_dir().join(format!("dv-claude-replace-{}-{}.log", std::process::id(), r.id));
-    let st = crate::claude::claude_command(crate::claude::Work::Replace, &prompt(r, extra, if first { Reviews::All } else { Reviews::Since(last) }), dir, &session, crate::claude::REPLACE_TOOLS, Some(&writable()?))
+    let st = crate::claude::claude_command(crate::claude::Work::Replace, &prompt(r, extra, which), dir, &session, crate::claude::REPLACE_TOOLS, Some(&writable()?))
         .stdin(std::process::Stdio::null())
         .stdout(std::fs::File::create(&log)?)
         .stderr(std::fs::File::create(log.with_extension("err"))?)
