@@ -296,11 +296,11 @@ pub fn no_prompt(cmd: &mut Command) -> &mut Command {
     // mode. (`GIT_SSH`, a program, takes no options: left as it is.)
     // ponytail: read once, where dv first runs it; a per-worktree core.sshCommand would need it per call.
     let ssh = SSH.get_or_init(|| {
-        if std::env::var_os("GIT_SSH").is_some() && std::env::var_os("GIT_SSH_COMMAND").is_none() {
-            return None;
-        }
         let config = || Command::new("git").args(["config", "core.sshCommand"]).output().ok().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned());
         let own = std::env::var("GIT_SSH_COMMAND").ok().or_else(config).filter(|s| !s.is_empty());
+        if own.is_none() && std::env::var_os("GIT_SSH").is_some() {
+            return None;
+        }
         Some(format!("{} -o BatchMode=yes", own.as_deref().unwrap_or("ssh")))
     });
     if let Some(s) = ssh {
