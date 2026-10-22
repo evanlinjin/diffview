@@ -267,9 +267,8 @@ fn run() -> anyhow::Result<()> {
         anyhow::bail!("--worktree needs a PR, e.g. `dv 123 -w`\n{USAGE}");
     }
     let (wt, res) = review(&o, o.pr, None)?;
-    if res.as_ref().is_ok_and(|m| *m) {
+    if let Ok(Some(n)) = res {
         std::env::set_current_dir(&root)?; // out of the worktree it may remove
-        let n = o.pr.context("merging needs the PR's number")?;
         eprintln!("{}", merge::merge(n, false)?);
         return Ok(());
     }
@@ -358,8 +357,8 @@ fn review_back(o: &Opts, n: u64, known: Option<gh::Pr>, root: &Path) -> anyhow::
     std::env::set_current_dir(root)?; // a worktree review leaves us in the worktree
     Ok(match res {
         Err(e) => Some(format!("PR #{n}: {e:#}")),
-        Ok(true) => Some(merge_from(n, root)),
-        Ok(false) => None,
+        Ok(Some(m)) => Some(merge_from(m, root)),
+        Ok(None) => None,
     })
 }
 
@@ -476,10 +475,10 @@ fn replacement_view(id: u64, root: &Path, term: &mut ratatui::DefaultTerminal) -
 }
 
 /// Check PR `n` out as `o` says and review it. The outer error is setup (checkout, diff); the
-/// inner one is from the TUI, which the worktree note is printed after; its `true`: you asked
-/// to merge the PR (`Space g`), which is for the caller to do, out of the review.
+/// inner one is from the TUI, which the worktree note is printed after; its PR: you asked to
+/// merge it (`Space g`), which is for the caller to do, out of the review.
 /// `known`: PR `pr_num` as GitHub has it, if that's just been looked up (`dv list`).
-fn review(o: &Opts, pr_num: Option<u64>, known: Option<gh::Pr>) -> anyhow::Result<(Option<PathBuf>, anyhow::Result<bool>)> {
+fn review(o: &Opts, pr_num: Option<u64>, known: Option<gh::Pr>) -> anyhow::Result<(Option<PathBuf>, anyhow::Result<Option<u64>>)> {
     // A PR with a worktree already (`<repo>-N`) opens there, as it was made: its branch can't
     // be checked out here too, and that's where you were reviewing it.
     let found = pr_num.filter(|_| !o.worktree).and_then(|n| pr_worktrees().into_iter().find(|w| w.0 == n));
@@ -535,7 +534,7 @@ fn review(o: &Opts, pr_num: Option<u64>, known: Option<gh::Pr>) -> anyhow::Resul
     let mut term = view::init_terminal();
     let res = run_view(&mut app, &mut term);
     view::restore_terminal();
-    Ok((wt, res.map(|_| app.merge.is_some())))
+    Ok((wt, res.map(|_| app.merge)))
 }
 
 /// The commit the diff starts from: the merge-base with the given base, else the PR's base
