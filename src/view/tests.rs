@@ -5154,3 +5154,17 @@ fn ctrl_w_e_while_maximized_shows_the_list() {
     _ = screen(220, 30, |f| app.draw(f));
     assert!(app.files_w > 0 && app.files_pref == Some(true) && app.zoom.is_none(), "{}", app.msg);
 }
+
+#[test]
+fn a_on_uncommitted_says_what_a_does() {
+    let mut app = fixture();
+    app.files_pref = Some(true);
+    let c = |sha: &str| files::Commit { sha: sha.into(), short: sha.into(), subject: String::new(), at: String::new() };
+    app.commits = vec![c("aaa")];
+    app.dirty = files::Dirty { changed: 1, ..Default::default() };
+    _ = screen(220, 30, |f| app.draw(f));
+    app.focus_list(true);
+    app.commit_cur = app.last_commit_row();
+    press(&mut app, "a");
+    assert!(app.msg.starts_with("a on a commit"), "{:?}", app.msg);
+}

@@ -393,7 +393,7 @@ impl App {
     /// `m` in the commits: the one under the cursor's whole message (and who, when), in a
     /// popup.
     fn commit_popup(&mut self) {
-        let Some(c) = self.commit_cur.checked_sub(1).and_then(|i| self.commits.get(i)) else {
+        let Some(c) = self.commit_here().map(|i| &self.commits[i]) else {
             return self.msg = "m on a commit shows its message".into();
         };
         let text = diff::git(&["log", "-1", "--format=%an <%ae> · %ad%n%n%B", "--date=format:%Y-%m-%d %H:%M", &c.sha]).unwrap_or_else(|e| format!("{e:#}"));
@@ -450,6 +450,11 @@ impl App {
             (_, None) => (0, 0),
             (_, Some((a, b))) => (a + 1, b + 1),
         }
+    }
+
+    /// The commit under the commits list's cursor (not "all commits", not "uncommitted").
+    fn commit_here(&self) -> Option<usize> {
+        self.commit_cur.checked_sub(1).filter(|&i| i < self.commits.len())
     }
 
     /// The commits list's last row: "uncommitted" when anything is, else the newest commit.
@@ -534,15 +539,15 @@ impl App {
             // Between the files and the commits, without going through every file.
             KeyCode::Tab | KeyCode::BackTab => self.focus_list(!self.in_commits),
             KeyCode::Char('m') if self.in_commits => self.commit_popup(),
-            KeyCode::Char('a') if self.in_commits => match self.commit_cur.checked_sub(1) {
+            KeyCode::Char('a') if self.in_commits => match self.commit_here() {
                 Some(i) => self.ask_commit(i),
                 None => self.msg = "a on a commit asks Claude about it, or for a change to it".into(),
             },
-            KeyCode::Char('f') if self.in_commits => match self.commit_cur.checked_sub(1).and_then(|i| self.commits.get(i)).map(|c| c.sha.clone()) {
+            KeyCode::Char('f') if self.in_commits => match self.commit_here().map(|i| self.commits[i].sha.clone()) {
                 Some(sha) => self.amend_into(&sha),
                 None => self.msg = "f on a commit folds what isn't committed into it (amends it)".into(),
             },
-            KeyCode::Char('y') if self.in_commits => match self.commit_cur.checked_sub(1).and_then(|i| self.commits.get(i)).map(|c| c.sha.clone()) {
+            KeyCode::Char('y') if self.in_commits => match self.commit_here().map(|i| self.commits[i].sha.clone()) {
                 Some(sha) => {
                     clipboard(&sha);
                     self.msg = format!("copied {sha}");
