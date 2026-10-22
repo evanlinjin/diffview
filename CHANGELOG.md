@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.91.8] - 2026-10-22
+
+### Fixed
+- Split view: a sideways swipe that moves nothing (over wrapped code, a comment's prose)
+  leaves your side as it was; Ctrl-l into the comments pane from an added line takes you back
+  (Ctrl-h) to the right half, where you came from.
+
 ## [0.91.7] - 2026-10-22
 
 ### Fixed
