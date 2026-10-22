@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.91.9] - 2026-10-22
+
+### Fixed
+- Split view: a click on a hatch (nothing on that half) takes the cursor to the line on the
+  other, and your side with it, not the empty half; Ctrl-h out of the comments pane lands on
+  the right half beside it however you got in (search, a label, a word motion), and a Ctrl-l
+  that goes nowhere changes nothing; Ctrl-l from a removed line with nothing to its right
+  goes on into the pane.
+
 ## [0.91.8] - 2026-10-22
 
 ### Fixed
