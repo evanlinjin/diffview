@@ -5483,3 +5483,12 @@ fn an_events_line_isnt_quoted_nor_hinted_as_text() {
     app.git_menu();
     assert!(app.picker.as_ref().unwrap().items.iter().any(|i| i.label.starts_with("Rerun the failed checks")));
 }
+
+#[test]
+fn a_bots_login_and_page() {
+    assert_eq!(gh::login(&serde_json::json!({ "login": "app/dependabot", "is_bot": true })), "dependabot");
+    let v = serde_json::json!({ "number": 1, "title": "Bump", "url": "u", "headRefOid": "a", "state": "OPEN", "isDraft": false, "author": { "login": "app/dependabot", "is_bot": true } });
+    let lines = info::parse_info(&v).lines;
+    let author = lines.iter().find(|l| l.text.starts_with("@dependabot")).expect("its author line");
+    assert!(author.marks.iter().any(|m| matches!(&m.2, info::Mark::Link(u) if u == "https://github.com/apps/dependabot")));
+}

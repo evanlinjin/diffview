@@ -114,9 +114,11 @@ pub struct Anchor {
     pub commit: String,
 }
 
-/// Who `v` (GitHub's author, actor: `{login}`) is: a deleted account's, GitHub's "ghost".
+/// Who `v` (GitHub's author, actor: `{login}`) is: a deleted account's, GitHub's "ghost"; a
+/// bot's as GraphQL names it (gh's REST answers say `app/dependabot`).
 pub(crate) fn login(v: &Value) -> String {
-    v["login"].as_str().unwrap_or("ghost").to_owned()
+    let l = v["login"].as_str().unwrap_or("ghost");
+    l.strip_prefix("app/").unwrap_or(l).to_owned()
 }
 
 /// Whether `err` (a gh run's, as said) is GitHub out of reach (the network: a timeout, no
@@ -1062,8 +1064,8 @@ const PR_ACTIVITY: &str = "\
 ... on PullRequestReview { id body state submittedAt createdAt author { login } comments { totalCount } commit { oid abbreviatedOid } reactionGroups { content viewerHasReacted reactors { totalCount } } } \
 ... on PullRequestCommit { commit { abbreviatedOid messageHeadline committedDate author { user { login } name } } } \
 ... on HeadRefForcePushedEvent { createdAt actor { login } beforeCommit { abbreviatedOid } afterCommit { abbreviatedOid } } \
-... on ReviewRequestedEvent { createdAt actor { login } requestedReviewer { ... on User { login } ... on Team { name } } } \
-... on ReviewRequestRemovedEvent { createdAt actor { login } requestedReviewer { ... on User { login } ... on Team { name } } } \
+... on ReviewRequestedEvent { createdAt actor { login } requestedReviewer { ... on User { login } ... on Bot { login } ... on Mannequin { login } ... on Team { name } } } \
+... on ReviewRequestRemovedEvent { createdAt actor { login } requestedReviewer { ... on User { login } ... on Bot { login } ... on Mannequin { login } ... on Team { name } } } \
 ... on MergedEvent { createdAt actor { login } commit { abbreviatedOid } mergeRefName } \
 ... on ReadyForReviewEvent { createdAt actor { login } } \
 ... on ConvertToDraftEvent { createdAt actor { login } } \
@@ -1130,6 +1132,8 @@ pub fn info_json(n: u64) -> Result<Value> {
     if let Some(r) = ci::rollups(&[n]).ok().and_then(|mut r| r.remove(&n)) {
         v["statusCheckRollup"] = r.checks.into();
         v["dvRequiredUnknown"] = r.unknown.into();
+    } else {
+        v["dvRequiredUnknown"] = true.into(); // (gh's checks: which are required, unknown)
     }
     Ok(v)
 }
