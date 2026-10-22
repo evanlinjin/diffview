@@ -342,12 +342,13 @@ impl App {
     /// has that this doesn't, changes not committed. Empty when it's all in step.
     pub(super) fn refresh_sync(&mut self) {
         let mut parts = vec![];
-        // A draft not published yet: its commits are all unpushed, as they should be. An issue
-        // has no code: nothing here is its.
-        if self.unpublished() || !self.has_code() {
+        // An issue has no code: nothing here is its.
+        if !self.has_code() {
             return self.sync.clear();
         }
-        if let Ok((remote, branch, _)) = self.push_target() {
+        // (A draft not published yet: its commits are all unpushed, as they should be; what
+        // isn't committed is said as anywhere.)
+        if let Some((remote, branch, _)) = self.push_target().ok().filter(|_| !self.unpublished()) {
             let theirs = self.their_head(&remote, &branch);
             match self.unpushed(&remote, &branch) {
                 Push::Ahead(n) => parts.push(format!("↑{n} unpushed")),
