@@ -676,18 +676,13 @@ impl List {
         let rep_dirs: Vec<(u64, std::path::PathBuf)> =
             self.rep_of.keys().filter_map(|&id| Some((id, crate::worktree_dir_named(&self.root, &crate::replace::name(id)).ok()?))).collect();
         if crate::view::in_zellij() && (!self.local.is_empty() || !rep_dirs.is_empty()) {
-            for (id, _, cwd) in panes.get_or_init(crate::pane::open) {
-                let pr = self.local.iter().find(|(_, (d, _))| cwd.starts_with(d)).map(|(n, _)| *n).filter(|n| !now.contains_key(n));
-                let rep = rep_dirs.iter().find(|(_, d)| cwd.starts_with(d)).map(|(r, _)| *r);
+            for p in panes.get_or_init(crate::pane::open) {
+                let pr = self.local.iter().find(|(_, (d, _))| p.2.starts_with(d)).map(|(n, _)| *n).filter(|n| !now.contains_key(n));
+                let rep = rep_dirs.iter().find(|(_, d)| p.2.starts_with(d)).map(|(r, _)| *r);
                 if pr.is_none() && rep.is_none() {
                     continue;
                 }
-                let screen = crate::pane::screen(*id);
-                let doing = match (crate::pane::asking(&screen), crate::pane::working(&screen)) {
-                    (true, _) => "asking you (in its pane)",
-                    (_, true) => "working (in its pane)",
-                    _ => continue,
-                };
+                let Some(doing) = crate::pane::claude_doing(p) else { continue };
                 match (pr, rep) {
                     (Some(n), _) => now.insert(n, doing.into()),
                     (_, Some(r)) => reps.insert(r, doing.into()),

@@ -436,14 +436,7 @@ pub fn at_work_in(dir: &std::path::Path) -> Option<String> {
     // screen says), at it or asking you something.
     marked.or_else(|| {
         crate::view::in_zellij().then_some(())?;
-        panes.get_or_init(crate::pane::open).iter().filter(|p| p.2.starts_with(dir)).find_map(|p| {
-            let screen = crate::pane::screen(p.0);
-            match (crate::pane::asking(&screen), crate::pane::working(&screen)) {
-                (true, _) => Some("asking you (in its pane)".to_owned()),
-                (_, true) => Some("working (in its pane)".to_owned()),
-                _ => None,
-            }
-        })
+        panes.get_or_init(crate::pane::open).iter().filter(|p| p.2.starts_with(dir)).find_map(|p| crate::pane::claude_doing(p).map(str::to_owned))
     })
 }
 

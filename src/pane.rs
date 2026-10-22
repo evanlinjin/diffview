@@ -192,6 +192,22 @@ pub(crate) fn asking(screen: &str) -> bool {
     ["Do you want", "Would you like", "❯ 1.", "trust this folder"].iter().any(|p| screen.contains(p))
 }
 
+/// What Claude Code in pane `p` is doing, by its screen, if it's Claude Code there (by its
+/// command, or its own lines at the screen's foot: not an editor's or shell's text that reads
+/// alike) and at it: working, or asking you something.
+pub(crate) fn claude_doing(p: &Pane) -> Option<&'static str> {
+    let screen = screen(p.0);
+    let lines: Vec<&str> = screen.lines().filter(|l| !l.trim().is_empty()).collect();
+    let foot = lines[lines.len().saturating_sub(12)..].join("\n");
+    let claude = p.1.contains("claude") || ["? for shortcuts", "esc to interrupt", "accept edits", "plan mode"].iter().any(|s| foot.contains(s));
+    match (claude, asking(&foot), working(&foot)) {
+        (false, ..) => None,
+        (_, true, _) => Some("asking you (in its pane)"),
+        (_, _, true) => Some("working (in its pane)"),
+        _ => None,
+    }
+}
+
 /// The tab zellij pane `pane` is in, if it's another than dv's.
 fn other_tab(pane: u64) -> Option<u64> {
     let panes = list(&["-t"])?;
