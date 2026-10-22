@@ -610,14 +610,18 @@ pub fn session_path(review: &std::path::Path) -> PathBuf {
     review.with_extension("session")
 }
 
+/// What you've seen of a review (`seen/<its name>`, beside `reviews/`).
+pub fn seen_path(review: &std::path::Path) -> Option<PathBuf> {
+    Some(review.parent()?.parent()?.join("seen").join(review.file_name()?))
+}
+
 /// Claude's review at `from` (and its session, and what you've seen of it) moved to `to`: a
 /// branch's, once it's a PR (a replacement published), or once the branch is renamed (a
 /// draft removed). Not over one that's there.
 pub fn move_review(from: &std::path::Path, to: &std::path::Path) -> Result<()> {
-    let seen = |p: &std::path::Path| Some(p.parent()?.parent()?.join("seen").join(p.file_name()?));
     if from.exists() && !to.exists() {
         std::fs::rename(from, to)?;
-        for (f, t) in [(Some(session_path(from)), Some(session_path(to))), (seen(from), seen(to))] {
+        for (f, t) in [(Some(session_path(from)), Some(session_path(to))), (seen_path(from), seen_path(to))] {
             if let (Some(f), Some(t)) = (f, t)
                 && f.exists()
             {

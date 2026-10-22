@@ -51,7 +51,7 @@ impl App {
     /// What you've seen of this PR's (or branch's) threads, in dv's directory: `seen/` beside
     /// `reviews/`, by the same name.
     pub(super) fn load_seen(&mut self) {
-        self.seen.path = self.claude.path.as_ref().and_then(|p| Some(p.parent()?.parent()?.join("seen").join(p.file_name()?)));
+        self.seen.path = self.claude.path.as_deref().and_then(crate::claude::seen_path);
         let text = self.seen.path.as_ref().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
         self.seen.keys = serde_json::from_str(&text).unwrap_or_default();
         self.seen.before = self.seen.keys.clone();
