@@ -285,6 +285,12 @@ fn prepare(asked: &[u64], root: &Path) -> Result<PathBuf> {
     // asked from one of them doesn't drop the others).
     let mut prs = load(id).ok().map_or(vec![], |r| r.ids());
     prs.extend(asked.iter().filter(|n| !prs.contains(n)).collect::<Vec<_>>());
+    // A PR is in one draft at most: what it replaces is closed once, by one.
+    for other in all().into_iter().filter(|r| r.id != id) {
+        if let Some(n) = prs.iter().find(|n| other.ids().contains(n)) {
+            anyhow::bail!("#{n} is in {} already: one draft each", label(other.id));
+        }
+    }
     let mut originals = vec![];
     let mut bases: Vec<(u64, String)> = vec![];
     for &n in &prs {
