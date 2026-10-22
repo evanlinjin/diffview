@@ -464,13 +464,13 @@ pub fn prompt(r: &Record, extra: &str, reviews: Reviews) -> String {
     crate::claude::with_instructions(&p, extra)
 }
 
-/// Whether replacement `id` has drafts (`Record::drafted`).
 /// Whether what you write for draft `id` is asked of it (as its drafts' asks, or a new PR's
 /// instructions with its task), not your instructions for replacements' first drafts.
 pub fn redrafts(id: u64) -> bool {
     is_new(id) || drafted(id)
 }
 
+/// Whether replacement `id` has drafts (`Record::drafted`).
 pub fn drafted(id: u64) -> bool {
     load(id).is_ok_and(|r| r.drafted())
 }
@@ -526,7 +526,7 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
         s => Some(std::time::UNIX_EPOCH + std::time::Duration::from_secs(s)),
     };
     let mut added = vec![];
-    let (first, _) = update(id, |r| {
+    let ((first, fresh), _) = update(id, |r| {
         // (Checked as it's marked: nothing written for one refused.)
         if let Some(why) = refused(prs) {
             anyhow::bail!(why);
@@ -545,10 +545,13 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
         // A first draft: a session of its own (one that failed before may have made the last
         // one, which Claude Code won't start again).
         let first = !r.drafted();
-        if first {
+        // A session of its own afresh, too, once Claude Code no longer has its last one (it
+        // cleans old ones up): carrying on there fails, every time.
+        let fresh = first || !crate::claude::session_exists(&r.session);
+        if fresh {
             r.session = crate::claude::new_session_id();
         }
-        Ok(first)
+        Ok((first, fresh))
     })?;
     let saved;
     let extra = match extra.trim() {
@@ -576,8 +579,9 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
         // (The reviews it's given are read now: changes after go to the next.)
         started = crate::claude::now_secs() as u64;
         given = r.asks.iter().filter(|a| !a.done()).map(|a| (a.text.clone(), a.on.clone())).collect();
-        let which = if first { Reviews::All } else { Reviews::Since(last, added.clone()) };
-        run_claude(&r, &dir, first, if first { extra } else { "" }, which, prepared)
+        // (A new session has seen none of the reviews.)
+        let which = if fresh { Reviews::All } else { Reviews::Since(last, added.clone()) };
+        run_claude(&r, &dir, fresh, if first { extra } else { "" }, which, prepared)
     });
     // Claude has written to the record meanwhile (its answers): the mark comes off; a change
     // it was given and made (it finished) without saying so is done all the same, not asked
@@ -726,6 +730,10 @@ pub fn remove(id: u64, root: &Path) -> Result<String> {
     // Not while Claude's at it (a draft, a run, a pane): its claim, held while removing.
     let _claim = crate::claude::claim(&crate::claude::rep_key(id), "removing it", None).map_err(|w| anyhow::anyhow!("Claude is {w} on {}: remove it once it's done", label(id)))?;
     let dir = crate::worktree_dir_named(root, &name(id))?;
+    // Nor under Claude at work in its checkout on any key (published, its PR's).
+    if let Some(w) = crate::claude::at_work_in(&dir) {
+        anyhow::bail!("Claude is {w} in {}: remove it once it's done", dir.display());
+    }
     if dir.exists() {
         crate::ensure_worktree_of(&dir, root)?;
         crate::diff::git(&["-C", &root.to_string_lossy(), "worktree", "remove", &dir.to_string_lossy()]).map_err(|e| {
