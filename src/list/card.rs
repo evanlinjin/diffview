@@ -24,6 +24,8 @@ pub(super) fn rep_card(r: &crate::replace::Record, root: &std::path::Path) -> Li
         branch,
         state: "OPEN".into(),
         updated: git(&["log", "-1", "--format=%cI", &crate::replace::branch(r.id)]).trim().to_owned(),
+        // (Created: its first commit's, as authored, a rebase keeping it; not drafted yet, none.)
+        created: git(&["log", "--reverse", "--format=%aI", &format!("{}..{}", crate::diff::remote_branch(&r.base), crate::replace::branch(r.id))]).lines().next().unwrap_or("").to_owned(),
         files: count("file"),
         additions: count("insertion"),
         deletions: count("deletion"),

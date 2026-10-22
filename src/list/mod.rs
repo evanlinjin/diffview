@@ -407,7 +407,8 @@ impl List {
     fn new_pr(&mut self, term: &mut DefaultTerminal) {
         let what = "a new PR for Claude to draft: what it should do (issues by #N: Claude reads them); unpublished until you publish it";
         // On a todo item whose CI fails through no fault of its own: the fix Claude had in mind.
-        let n = self.shown().get(self.nav.sel).map(|p| p.number).filter(|_| self.nav.tab == Tab::Todo);
+        // (A PR's: not a replacement's card, whose number is the PR it replaces'.)
+        let n = self.selected().filter(|s| !s.1 && self.nav.tab == Tab::Todo).map(|s| s.0);
         let head = |n: u64| self.extra.get(&n).map(|e| e.head_oid.clone());
         let note = n.and_then(|n| Some((n, crate::claude::ci_note(n, &head(n)?)?))).filter(|(_, c)| !c.task.is_empty());
         let prefill = note.as_ref().map_or(String::new(), |(n, c)| c.prefill(*n));
