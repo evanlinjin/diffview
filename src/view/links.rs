@@ -87,13 +87,11 @@ impl App {
     }
 
     /// The number in `url` when it's an issue (or PR: GitHub links those to /issues/ too) of
-    /// this PR's repo, not this PR.
+    /// this repo, not this PR.
     pub(super) fn issue_here(&self, url: &str) -> Option<u64> {
-        let pr = self.pr.as_ref()?;
-        let repo = pr.url.split("/pull/").next().filter(|r| !r.is_empty())?;
-        let rest = url.strip_prefix(repo)?.strip_prefix("/issues/")?;
+        let rest = url.strip_prefix(self.repo_url()?)?.strip_prefix("/issues/")?;
         let n = rest.split(['#', '/', '?']).next()?.parse::<u64>().ok()?;
-        (n != pr.number).then_some(n)
+        (self.pr.as_ref().map(|p| p.number) != Some(n)).then_some(n)
     }
 
     pub(super) fn open_url(&mut self, url: &str) {

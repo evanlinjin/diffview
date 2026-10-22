@@ -554,6 +554,8 @@ pub struct App {
     /// This PR's replacement (one replacing it, among others or not), as last read, and when
     /// that was looked for (every few seconds, as the records change).
     replaced_by: Option<crate::replace::Record>,
+    /// The repo's page on GitHub, by its remote (`repo_url` when there's no PR).
+    github_url: Option<String>,
     replaced_at: Option<(std::time::Instant, Option<std::time::SystemTime>)>,
     /// Your "Viewed" marks from GitHub: path → VIEWED / DISMISSED.
     viewed: HashMap<String, String>,
@@ -730,6 +732,7 @@ impl App {
         let theme = Theme::load();
         (app.hl, app.ui) = (Highlighter::new(&theme), theme.ui());
         app.settings = crate::theme::settings();
+        app.github_url = diff::github_url();
         app.load_pane();
         // A replacement published as this PR: its draft's review is the PR's now.
         if let Some(p) = &pr {
@@ -896,9 +899,10 @@ impl App {
         Ok(())
     }
 
-    /// https://github.com/owner/repo, for `#123` links.
+    /// https://github.com/owner/repo, for `#123` links: the PR's, else the remote's (a
+    /// replacement or new PR not published, a branch).
     fn repo_url(&self) -> Option<&str> {
-        self.pr.as_ref().and_then(|p| p.url.rsplit_once("/pull/")).map(|(r, _)| r)
+        self.pr.as_ref().and_then(|p| p.url.rsplit_once("/pull/")).map(|(r, _)| r).or(self.github_url.as_deref())
     }
 
     fn file_path(&self) -> Option<&str> {

@@ -257,6 +257,26 @@ pub fn git(args: &[&str]) -> Result<String> {
 /// The remote of the GitHub repo the PRs are on: `dv.remote` in the repo's git config (what you
 /// said when dv asked: `ensure_remote`), else its only remote, else the one gh took for the
 /// base repo (`gh-resolved`), else `origin`.
+/// GitHub's page for this repo (`https://github.com/owner/name`), from its remote's URL (SSH or
+/// HTTPS): for `#123` links where there's no PR to say.
+pub fn github_url() -> Option<String> {
+    github_url_of(git(&["remote", "get-url", &remote()]).ok()?.trim())
+}
+
+fn github_url_of(remote: &str) -> Option<String> {
+    let path = remote.split_once("github.com")?.1.trim_start_matches([':', '/']);
+    let path = path.trim_end_matches('/').trim_end_matches(".git");
+    path.split_once('/').filter(|(o, r)| !o.is_empty() && !r.is_empty() && !r.contains('/')).map(|_| format!("https://github.com/{path}"))
+}
+
+#[test]
+fn github_url_of_remotes() {
+    for r in ["git@github.com:o/r.git", "https://github.com/o/r", "https://github.com/o/r.git", "ssh://git@github.com/o/r.git"] {
+        assert_eq!(github_url_of(r).as_deref(), Some("https://github.com/o/r"), "{r}");
+    }
+    assert_eq!(github_url_of("https://gitlab.com/o/r"), None);
+}
+
 pub fn remote() -> String {
     let mut r = REMOTE.lock().unwrap_or_else(|e| e.into_inner());
     r.get_or_insert_with(|| found_remote(std::path::Path::new("."))).clone().unwrap_or_else(|| "origin".into())

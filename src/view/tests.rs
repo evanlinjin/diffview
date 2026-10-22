@@ -3485,6 +3485,9 @@ fn this_repos_issue_links_open_in_dv() {
     assert_eq!(app.issue_here("https://github.com/o/r/issues/87"), None); // this PR
     assert_eq!(app.issue_here("https://github.com/o/other/issues/82"), None); // another repo's: the browser
     assert_eq!(app.issue_here("https://github.com/o/r/pull/82"), None); // a PR: the browser
+    // No PR (a replacement not published): the repo by its remote.
+    (app.pr, app.github_url) = (None, Some("https://github.com/o/r".into()));
+    assert_eq!(app.issue_here("https://github.com/o/r/issues/82"), Some(82));
 }
 
 #[test]
