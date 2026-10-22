@@ -472,19 +472,20 @@ impl App {
     pub(super) fn span_of(&self, r: usize, k: usize) -> Option<Shown> {
         if self.wraps(r) {
             let chars = self.part(r, k)?;
-            return Some(Shown { row: r, part: chars.clone(), left: self.col_of(r, chars.start), chars });
+            return Some(Shown { row: r, left: self.col_of(r, chars.start), chars });
         }
         let left = self.hscroll(r);
-        let chars = self.window(r, left, self.row_w(r));
-        // (The screen follows the cursor along it, if it scrolls; else it lands on what's shown.)
-        let part = if self.scroller(r).is_some() { 0..self.len(r) } else { chars.clone() };
-        Some(Shown { row: r, chars, left, part })
+        Some(Shown { row: r, chars: self.window(r, left, self.row_w(r)), left })
     }
 
     /// The text width row `r` is drawn at: code's, a comment's in the pane (its box's), the
     /// rest the full width's (a box's, inline). 0 before anything's drawn.
     pub(super) fn row_w(&self, r: usize) -> usize {
         let Widths { full, pane, .. } = self.frame_w;
+        // (The pinned title shares its row with the pane's tabs: as wide as the code's area.)
+        if r == 0 && self.pin {
+            return self.geom.ctw;
+        }
         match (self.in_pane(r), self.rows[r].line.kind.is_code()) {
             (true, _) if pane > 0 => self.text_w(r, pane),
             (false, true) => self.code_w(),
@@ -501,7 +502,15 @@ impl App {
     /// The char `x` columns into `s`'s line from where its part starts (a vertical move's
     /// column), within its part (on screen or not: the screen follows).
     pub(super) fn place(&self, s: &Shown, x: usize) -> usize {
-        Self::within(&s.part, self.char_at(s.row, self.col_of(s.row, s.part.start) + x))
+        let land = self.landing(s);
+        Self::within(&land, self.char_at(s.row, self.col_of(s.row, land.start) + x))
+    }
+
+    /// Where on `s`'s row the cursor may land: a line the screen scrolls sideways to follow,
+    /// all of it; else (wrapped, or what doesn't scroll) just what's shown. A vertical move's
+    /// column counts from where this starts, so it's kept however the screen's scrolled.
+    pub(super) fn landing(&self, s: &Shown) -> std::ops::Range<usize> {
+        if self.scroller(s.row).is_some() { 0..self.len(s.row) } else { s.chars.clone() }
     }
 
     /// The char `x` columns into what `s` shows on screen (a click's), within what's shown;
@@ -539,17 +548,17 @@ impl App {
         let mut s = self.span_of(self.side_row(d, right)?, self.dseg[d])?;
         // (Floating, a comment's box beside it covers the code from where the pane starts: on
         // what doesn't follow the cursor sideways, the cursor lands short of it too.)
+        // ponytail: a wrapped part beside a box still wraps at the code's width, so `l`/`w` can
+        // go on under the box there; wrapping those parts at the cut would make the layout
+        // depend on where its boxes land.
         if let (Some(cut), Some(_)) = (self.float_cut(self.code_x(d, right)), self.note_at(d)) {
             s.chars.end = s.chars.end.min(self.char_at(s.row, s.left + cut)).max(s.chars.start);
-            if self.scroller(s.row).is_none() {
-                s.part = s.chars.clone();
-            }
         }
         Some(s)
     }
 
     /// The screen column screen row `d`'s code starts at on a side (as last drawn).
-    fn code_x(&self, d: usize, right: bool) -> usize {
+    pub(super) fn code_x(&self, d: usize, right: bool) -> usize {
         let g = self.geom;
         match self.drows.get(d) {
             Some(&(DRow::Pair(l, r) | DRow::Margin(l, r, _))) if self.paired(l, r) => if right { self.right_x() } else { g.relw + g.ghw },
@@ -777,7 +786,7 @@ impl App {
     pub(super) fn cursor_x(&self) -> usize {
         let (r, col) = (self.head.row, self.head.col);
         // (From where its part starts in the line: what `place` counts from.)
-        self.want_x.unwrap_or_else(|| self.span_of(r, self.part_at(r, col)).map_or(0, |s| self.col_of(r, col).saturating_sub(self.col_of(r, s.part.start))))
+        self.want_x.unwrap_or_else(|| self.span_of(r, self.part_at(r, col)).map_or(0, |s| self.col_of(r, col).saturating_sub(self.col_of(r, self.landing(&s).start))))
     }
     /// The width comments and PR text wrap to: the pane's, when it's shown (they're there).
     pub(super) fn info_w(&self) -> usize {

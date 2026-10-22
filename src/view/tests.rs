@@ -3748,5 +3748,6 @@ fn the_cursor_lands_where_it_can_be_seen() {
     _ = screen(80, 20, |f| app.draw(f));
     let h = app.sticky().expect("pinned");
     let g = app.geom;
-    assert_eq!(app.at_screen(g.relw + g.gw + 2, 0).map(|a| a.0), Some(h));
+    assert_eq!(app.clicked_at(g.relw + g.gw + 2, 0).map(|a| a.0), Some(h));
+    assert_ne!(app.at_screen(g.relw + g.gw + 2, 0).map(|a| a.0), Some(h)); // (a drag: the code under it)
 }

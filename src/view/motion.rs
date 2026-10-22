@@ -370,9 +370,9 @@ impl App {
             let screen = lo.min(last as usize)..hi.max(lo).min(last as usize) + 1;
             let order: Vec<usize> = Self::nearest(into(hd), step, screen).collect();
             let (right, pane) = (self.right, self.margin_side());
-            let mut tries = vec![(right, pane)];
-            tries.extend([(right, false), (!right, false), (right, true)].into_iter().filter(|&t| t != (right, pane)));
-            let found = tries.into_iter().find_map(|(side, pane)| order.iter().find_map(|&t| self.stop_on(t, side, x, pane)));
+            let found = [(right, pane), (right, false), (!right, false), (right, true)]
+                .into_iter()
+                .find_map(|(side, pane)| order.iter().find_map(|&t| self.stop_on(t, side, x, pane)));
             if let Some(p) = found {
                 self.goto(p.row, p.col);
                 self.want_x = Some(x);
@@ -416,7 +416,10 @@ impl App {
                 }
             }
         }
-        words.sort_by_key(|w| w.0);
+        // (A word on both sides of a split line, cut short on one by a floating comment: once,
+        // whole.)
+        words.sort_by_key(|w| (w.0, std::cmp::Reverse(w.1)));
+        words.dedup_by_key(|w| w.0);
         let split = words.partition_point(|w| w.0 <= self.head);
         let (back, fwd) = words.split_at(split);
         let (mut fwd, mut back) = (fwd.iter(), back.iter().rev());

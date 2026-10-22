@@ -101,7 +101,7 @@ impl App {
                     }
                     return;
                 }
-                let Some((row, col, gutter)) = self.at_screen(x, y) else { return };
+                let Some((row, col, gutter)) = self.clicked_at(x, y) else { return };
                 // On a fold arrow (a file's or a thread's first row, in the gutter): fold / unfold.
                 let first_of_thread = self.rows[row].thread.is_some_and(|t| row == 0 || self.rows[row - 1].thread != Some(t));
                 self.select = false;
@@ -154,6 +154,15 @@ impl App {
 
     /// The row and column under screen cell (`x`, `y`), and whether it's in the gutter (line
     /// numbers, fold arrows), as the last frame drew it.
+    /// What a click at screen cell (`x`, `y`) goes to: as `at_screen`, but on the file header
+    /// pinned over the top, the header (not what it covers: a drag or the wheel there is still
+    /// about the code under it).
+    pub(super) fn clicked_at(&self, x: usize, y: usize) -> Option<(usize, usize, bool)> {
+        let g = self.geom;
+        let pinned = (y == self.pin as usize && x < g.relw + g.gw + g.ctw).then(|| self.sticky()).flatten();
+        pinned.map(|h| (h, 0, x < g.relw + g.gw)).or_else(|| self.at_screen(x, y))
+    }
+
     pub(super) fn at_screen(&self, x: usize, y: usize) -> Option<(usize, usize, bool)> {
         let g = self.geom;
         if self.pin && y == 0 {
@@ -165,29 +174,25 @@ impl App {
             return None; // the status bar
         }
         let d = self.top + y;
-        // (The file header pinned over the top: its own row, in the code's columns.)
-        if y == 0
-            && x < g.relw + g.gw + g.ctw
-            && let Some(h) = self.sticky()
-        {
-            return Some((h, 0, x < g.relw + g.gw));
+        // In the pane: the comment there.
+        if let Some(note) = self.note_at(d).filter(|_| x > g.relw + g.gw + g.ctw) {
+            let s = self.span_of(note, 0);
+            let at = x.saturating_sub(self.pane_x() + self.rows[note].guide_w());
+            return Some((note, self.clicked(note, s.as_ref(), at), x < self.pane_x()));
         }
-        let (row, start) = match *self.drows.get(d)? {
-            DRow::Margin(_, _, Some(note)) if x > g.relw + g.gw + g.ctw => (note, self.pane_x()),
-            // Split view: the old side, the divider, the new side (a hatch: the other's line).
-            DRow::Pair(l, r) | DRow::Margin(l, r, _) if self.paired(l, r) => {
-                let side = x >= g.relw + g.half;
-                let side = if self.side_row(d, side).is_some() { side } else { !side };
-                (self.side_row(d, side)?, if side { self.right_x() } else { g.relw + g.ghw })
-            }
-            DRow::Margin(_, _, note) => (self.side_row(d, false).or(note)?, g.relw + g.gw),
-            DRow::Full(r) | DRow::Pair(Some(r), _) | DRow::Pair(None, Some(r)) => (r, g.relw + g.gw),
-            DRow::Pair(None, None) => return None,
+        // The code: the side clicked (split view; a hatch, no line there: the other's), what
+        // that screen row shows of it (`span`), the click kept within it. A spacer: the comment
+        // beside it.
+        let paired = matches!(self.drows.get(d)?, &(DRow::Pair(l, r) | DRow::Margin(l, r, _)) if self.paired(l, r));
+        let side = paired && x >= g.relw + g.half;
+        let side = if self.side_row(d, side).is_some() { side } else { !side };
+        let Some(row) = self.side_row(d, side) else {
+            let note = self.note_at(d)?;
+            return Some((note, 0, false));
         };
-        // What that screen row shows of it (`span_of`: a wrapped line's part, else as it's
-        // scrolled), the click kept within it. (A reply's guide is before its text.)
-        let s = self.span_of(row, self.dseg[d]);
-        Some((row, self.clicked(row, s.as_ref(), x.saturating_sub(start + self.rows[row].guide_w())), x < start))
+        let start = self.code_x(d, side) + self.rows[row].guide_w();
+        let s = self.span(d, side);
+        Some((row, self.clicked(row, s.as_ref(), x.saturating_sub(start)), x < self.code_x(d, side)))
     }
 
 }

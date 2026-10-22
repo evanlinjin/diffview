@@ -495,15 +495,10 @@ impl App {
     /// Where the cursor line's text starts on screen: in the pane, after the code column, the
     /// gap and its own gutter; in split view, at its half's.
     fn text_x(&self, c: &Cols) -> usize {
-        let Cols { gw, ghw, relw, hd, .. } = *c;
-        match self.drows[hd] {
-            _ if self.margin_side() => self.pane_x(),
-            DRow::Pair(..) | DRow::Margin(Some(_), Some(_), _) if self.right => self.right_x(),
-            DRow::Pair(..) => relw + ghw,
-            DRow::Margin(Some(_), Some(_), _) if self.split => relw + ghw,
-            DRow::Margin(Some(l), None, _) if self.split && self.rows[l].line.kind == Kind::Del => relw + ghw,
-            DRow::Margin(None, Some(_), _) if self.split => self.right_x(),
-            _ => relw + gw,
+        match self.margin_side() {
+            true => self.pane_x(),
+            // (The cursor's line is on its side, `right`: as `code_x` has it for any row.)
+            false => self.code_x(c.hd, self.right),
         }
     }
 
