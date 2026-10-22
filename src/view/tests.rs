@@ -3859,3 +3859,23 @@ fn split_anchors_and_a_folded_files_comment() {
     app.key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL));
     assert_eq!(app.rows[app.head.row].file, 1, "its own file's header: {:?}", app.rows[app.head.row].line.text);
 }
+
+#[test]
+fn a_ranges_bar_passes_a_dot_on_a_wrapped_line() {
+    // A range comment on lines 1–3, another on line 2 alone, line 2 wrapped: the range's bar
+    // runs on beside line 2's later parts, past the other's dot on its first.
+    let long = "q".repeat(200);
+    let text = format!("diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -0,0 +1,3 @@\n+one\n+{long}\n+three\n");
+    let mut app = App::with("base".into(), diff::parse(&text));
+    (app.files_pref, app.margin_pref, app.soft_wrap) = (Some(false), Some(false), true);
+    let c = |b: &str| gh::Comment { author: "amy".into(), body: b.into(), ..Default::default() };
+    app.threads = vec![
+        gh::Thread { path: "a.rs".into(), start_line: Some(1), line: Some(3), comments: vec![c("range")], ..Default::default() },
+        gh::Thread { path: "a.rs".into(), line: Some(2), comments: vec![c("dot")], ..Default::default() },
+    ];
+    app.build();
+    _ = screen(80, 20, |f| app.draw(f));
+    let r = app.rows.iter().position(|x| x.line.text == long).unwrap();
+    assert_eq!(app.comment_mark(r, None).map(|m| m.0), Some('●'));
+    assert_eq!(app.comment_bar(r, None).map(|m| m.0), Some('╎'));
+}

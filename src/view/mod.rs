@@ -77,6 +77,8 @@ pub(super) const MARK_LINE: u8 = 2;
 pub(super) const MARK_STALE_DOT: u8 = 3;
 pub(super) const MARK_CLAUDE_DOT: u8 = 4;
 pub(super) const MARK_DOT: u8 = 5;
+/// With a mark: a range's bar passes here too (its comment's last line is further on).
+pub(super) const MARK_BAR: u8 = 0x80;
 
 /// What a row scrolls sideways with (`App::scroller`).
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -119,9 +119,10 @@ impl App {
     /// `╎` over a comment's lines, a dot at its last, `●` others', `◆` Claude's, `○` resolved or
     /// outdated (`App::marks`).
     pub(super) fn comment_mark(&self, r: usize, side: Option<bool>) -> Option<(char, Style)> {
+        let mark = |left: bool| self.marks.get(&(r, left)).map(|m| m & !MARK_BAR);
         let rank = match side {
-            Some(right) => self.marks.get(&(r, !right)).copied(),
-            None => self.marks.get(&(r, false)).copied().max(self.marks.get(&(r, true)).copied()),
+            Some(right) => mark(!right),
+            None => mark(false).max(mark(true)),
         }?;
         Some(match rank {
             MARK_DOT => ('●', self.ui.thread),
@@ -130,6 +131,16 @@ impl App {
             MARK_LINE => ('╎', self.ui.thread),
             _ => ('╎', self.ui.stale),
         })
+    }
+
+    /// A range's bar at row `r`'s edge, where one passes (beside a wrapped line's later parts).
+    pub(super) fn comment_bar(&self, r: usize, side: Option<bool>) -> Option<(char, Style)> {
+        let passes = |left: bool| self.marks.get(&(r, left)).is_some_and(|m| m & MARK_BAR != 0);
+        let on = match side {
+            Some(right) => passes(!right),
+            None => passes(false) || passes(true),
+        };
+        on.then_some(('╎', self.ui.thread))
     }
 
     /// The code a comment in the pane is about (the cursor there): its own tint, not the
@@ -277,8 +288,6 @@ impl App {
         // A code line keeps its last column for comment marks (`╎` over a comment's lines, a dot
         // at its last), at the edge beside the pane.
         let code_row = l.kind.is_code();
-        // (A wrapped line: a range's bar down every part, a dot once, on its first.)
-        let mark = code_row.then(|| self.comment_mark(r, side)).flatten().filter(|&(c, _)| seg == 0 || c == '╎');
         let tw = if code_row { tw.saturating_sub(1) } else { tw };
         let mut spans = vec![Span::styled(gutter, gstyle)];
         // A reply under Claude's comment: its guide, then its text (narrower by it).
@@ -303,6 +312,12 @@ impl App {
         // own width (a box's), as they're scrolled.
         let wrapped = self.wraps(r);
         let shown = if code_row { self.span_of(r, seg) } else { None };
+        // (A wrapped line: its mark on its first part; down the rest, a range's bar passing, where
+        // it has a part to be beside.)
+        let mark = match seg {
+            0 => code_row.then(|| self.comment_mark(r, side)).flatten(),
+            _ => (code_row && shown.is_some()).then(|| self.comment_bar(r, side)).flatten(),
+        };
         if wrapped && seg > 0 {
             let w = spans[0].width();
             let mark = if shown.is_some() { "↪" } else { "" };

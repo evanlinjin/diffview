@@ -178,7 +178,12 @@ fn a_benchmark_waits_for_builds_and_holds_them_off() {
     drop(held);
     assert!(run2.try_lock_shared().is_err(), "held while cargo has it");
     drop(cargo);
-    assert!(run2.try_lock_shared().is_ok());
+    // (Let go: a moment, while another test's child, forked meanwhile, still has it till its exec.)
+    let free = (0..100).any(|_| run2.try_lock_shared().is_ok() || {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        false
+    });
+    assert!(free);
     assert_eq!(holder(&d), "a benchmark"); // (what it wrote of itself, gone)
     _ = std::fs::remove_dir_all(&d);
 }

@@ -278,16 +278,6 @@ impl App {
         let mut last_code: Option<usize> = None;
         let mut i = 0;
         while i < n {
-            // (A split run's lines, paired already: on past them, as any code.)
-            let placed = unit_of[i] != usize::MAX;
-            if placed && !margin(i) {
-                if code(i) {
-                    last_code = Some(i);
-                }
-                last = Some(i);
-                i += 1;
-                continue;
-            }
             if margin(i) {
                 let first = i == 0 || self.rows[i - 1].thread != self.rows[i].thread;
                 if let (true, Some(t), Some(c)) = (first, self.rows[i].thread, last_code) {
@@ -300,11 +290,14 @@ impl App {
                 i += 1;
                 continue;
             }
+            // (A split run's lines are paired already, from its first: on past them, as any code.)
+            let placed = unit_of[i] != usize::MAX;
             let mut push = |u: DRow, rows: &[usize], units: &mut Vec<(DRow, Vec<usize>)>| {
                 rows.iter().for_each(|&r| unit_of[r] = units.len());
                 units.push((u, vec![]));
             };
             match kind(i) {
+                _ if placed => {}
                 Kind::Del | Kind::Add if self.split => {
                     // The run, paired: the k-th removed line beside the k-th added. Its lines
                     // and comments then go on as any (above): each comment with, and about, the
@@ -318,7 +311,6 @@ impl App {
                         let rows: Vec<usize> = l.into_iter().chain(r).collect();
                         push(DRow::Pair(l, r), &rows, &mut units);
                     }
-                    continue;
                 }
                 Kind::Ctx if self.split => push(DRow::Pair(Some(i), Some(i)), &[i], &mut units),
                 _ => push(DRow::Full(i), &[i], &mut units),
@@ -714,7 +706,10 @@ impl App {
             for r in (first..=last).filter(|&r| self.rows[r].thread.is_none() && no(r).is_some()) {
                 let m = if r == last { dot } else if open { MARK_LINE } else { MARK_STALE_LINE };
                 let e = marks.entry((r, th.left)).or_default();
-                *e = (*e).max(m);
+                // (The strongest mark shows; a range passing, its bar, shows apart from it, down
+                // a wrapped line's later parts: `MARK_BAR`.)
+                let bar = if r != last { MARK_BAR } else { 0 } | (*e & MARK_BAR);
+                *e = (*e & !MARK_BAR).max(m) | bar;
             }
         }
         marks
