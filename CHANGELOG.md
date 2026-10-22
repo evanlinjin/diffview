@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.92.13] - 2026-10-22
+
+### Changed
+- `N N` on an issue starts the editor with just "Fix #N: title", for what you want; Claude
+  reads the issue, its conversation and Claude's triage of it itself (`dv replace-info` lists
+  the triage of each issue a new PR's task names).
+
 ## [0.92.12] - 2026-10-22
 
 ### Fixed
