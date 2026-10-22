@@ -141,8 +141,6 @@ impl App {
         // (Optional ones too, not only those the base requires: GitHub says if none failed.)
         if self.pr.is_some() {
             items.push(Item::new("Rerun the failed checks (their failed jobs, on GitHub)", Target::Run(Job::Rerun(false))));
-        }
-        if self.pr.is_some() {
             items.push(Item::new("Rerun every check (all the head's finished runs, on GitHub)", Target::Run(Job::Rerun(true))));
         }
         if self.awaiting > 0 {

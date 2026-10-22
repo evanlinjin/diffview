@@ -404,19 +404,23 @@ impl App {
         (!self.unseen(&c.hidden, &c.node_id)).then_some(c.body.as_str())
     }
 
-    /// The same for the PR's text: `info` line `i`, unless it's a conversation comment's,
-    /// hidden on GitHub and not shown here.
     /// The PR text under the cursor that `c`, `C`, `Space =` and their hints act on: a comment's
-    /// or the description's text (on its heading, the text under it), as seen (`Some(None)`:
-    /// hidden on GitHub, unseen); an event's line or a fact, none.
-    pub(super) fn quotable(&self) -> Option<Option<&InfoLine>> {
+    /// or the description's text (on its heading, the text under it), its `info` index; an
+    /// event's line or a fact, none.
+    pub(super) fn text_at(&self) -> Option<usize> {
         let row = &self.rows[self.head.row];
         let i = row.info.filter(|&i| row.file == INFO && row.thread.is_none() && i < self.info.len())?;
         let i = if self.info[i].heading { i + 1 } else { i };
-        self.info.get(i).filter(|l| l.md)?;
-        Some(self.seen_info(i))
+        self.info.get(i).filter(|l| l.md).map(|_| i)
     }
 
+    /// `text_at`'s line, as seen (`Some(None)`: hidden on GitHub, unseen).
+    pub(super) fn quotable(&self) -> Option<Option<&InfoLine>> {
+        self.text_at().map(|i| self.seen_info(i))
+    }
+
+    /// The same for the PR's text: `info` line `i`, unless it's a conversation comment's,
+    /// hidden on GitHub and not shown here.
     pub(super) fn seen_info(&self, i: usize) -> Option<&InfoLine> {
         let head = i.checked_sub(1).and_then(|h| self.info.get(h)).filter(|h| h.heading);
         self.info.get(i).filter(|_| !head.is_some_and(|h| self.unseen(&h.hidden, &h.node)))

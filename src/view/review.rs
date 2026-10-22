@@ -626,13 +626,8 @@ impl App {
     /// The PR conversation's comment (or review) under the cursor, or the description (the PR
     /// itself): its node id.
     pub(super) fn conversation_node(&self) -> Option<String> {
-        let row = &self.rows[self.head.row];
-        let i = row.info.filter(|_| row.file == INFO && row.thread.is_none() && matches!(row.main, None | Some(DESCRIPTION)))?;
-        let head = match self.info.get(i)? {
-            l if l.heading => l,
-            l if l.md => self.info.get(i.checked_sub(1)?).filter(|h| h.heading)?,
-            _ => return None,
-        };
+        // (Its text's heading's: `text_at`, as c and C go by.)
+        let head = self.info.get(self.text_at()?.checked_sub(1)?).filter(|h| h.heading)?;
         Some(head.node.clone()).filter(|n| !n.is_empty())
     }
 
