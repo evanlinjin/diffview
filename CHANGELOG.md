@@ -5,6 +5,17 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.88.1] - 2026-10-22
+
+### Fixed
+- Handing a view over (an issue, a replacement) can't leave the terminal raw on an error,
+  works from a replacement's view too (an issue link there), and redraws the whole screen
+  after (the loading lines written meanwhile no longer leave stray rows).
+- A PR's view takes its own replacement over one of several it's in; opening one still being
+  set up says to wait a moment, not to draft it again.
+- A replacement's prompt carries your replies to Claude's summary too, says which commit each
+  review was of, and is only sent on the first draft (a redraft's session has it already).
+
 ## [0.88.0] - 2026-10-22
 
 ### Changed
