@@ -3024,6 +3024,11 @@ fn quitting_while_writing_beside_says_so_first() {
     quit(&mut app, q);
     assert!(app.quit && app.merge == Some(2));
     app.quit = false;
+    // A PR handed off (the view not come back to) is held the same way.
+    app.quit_armed = None;
+    app.hand_off = Some(HandOff::Pr(5));
+    app.hold_quit();
+    assert!(app.hand_off.is_none() && app.quit_armed.is_some());
     // The writing over: a quit later is only that.
     (app.merge, app.quit) = (Some(1), true);
     app.hold_quit();
