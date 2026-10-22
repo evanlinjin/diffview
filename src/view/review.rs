@@ -23,14 +23,15 @@ enum Mark {
 }
 
 impl App {
-    /// The pending review to add to, starting one on the PR head if there isn't one yet (with
-    /// your review text so far, as GitHub can't add any later to one started without).
-    pub(super) fn ensure_review(&mut self) -> Result<String> {
+    /// The pending review to add to, starting one on the PR head if there isn't one yet, with
+    /// `body` (your review text, as GitHub can't add any later to one started without). The
+    /// caller's text, as it was when posted: a refresh meanwhile can't swap it out.
+    pub(super) fn ensure_review(&mut self, body: &str) -> Result<String> {
         if let Some(r) = &self.review {
             return Ok(r.clone());
         }
         let pr = self.pr.as_ref().context("no PR")?;
-        let id = gh::start_review(&pr.node_id, &pr.head_oid, &self.summary_draft)?;
+        let id = gh::start_review(&pr.node_id, &pr.head_oid, body)?;
         self.review = Some(id.clone());
         Ok(id)
     }
@@ -166,7 +167,10 @@ impl App {
         match p {
             Post::Thread { anchor, review, body, claude } => {
                 let res = match review {
-                    true => self.ensure_review().and_then(|r| gh::add_thread(&r, &anchor, &body)),
+                    true => {
+                        let draft = self.summary_draft.clone();
+                        self.ensure_review(&draft).and_then(|r| gh::add_thread(&r, &anchor, &body))
+                    }
                     false => pr().and_then(|pr| gh::comment(&pr, &anchor, &body)),
                 };
                 keep_on_error(res, &body)?;
@@ -178,7 +182,10 @@ impl App {
             }
             Post::Reply { thread, comment, review, body } => {
                 let res = match review {
-                    true => self.ensure_review().and_then(|r| gh::add_reply(&r, &thread, &body)),
+                    true => {
+                        let draft = self.summary_draft.clone();
+                        self.ensure_review(&draft).and_then(|r| gh::add_reply(&r, &thread, &body))
+                    }
                     false => pr().and_then(|pr| gh::reply(&pr, comment, &body)),
                 };
                 keep_on_error(res, &body).map(|_| posted_msg(review))
@@ -191,7 +198,7 @@ impl App {
                 // A new review starts with it; one started without text can't take any yet, so
                 // it stays here (S submits it with the review).
                 let fresh = self.review.is_none();
-                let res = self.ensure_review().and_then(|r| if fresh { Ok(()) } else { gh::set_review_body(&r, &body) });
+                let res = self.ensure_review(&body).and_then(|r| if fresh { Ok(()) } else { gh::set_review_body(&r, &body) });
                 match res {
                     Err(e) if format!("{e:#}").contains("missing body") => Ok(
                         "in your review summary till you quit (GitHub won't hold it yet): S submits it",
