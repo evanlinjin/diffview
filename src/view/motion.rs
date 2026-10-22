@@ -370,9 +370,9 @@ impl App {
             let screen = lo.min(last as usize)..hi.max(lo).min(last as usize) + 1;
             let order: Vec<usize> = Self::nearest(into(hd), step, screen).collect();
             let (right, pane) = (self.right, self.margin_side());
-            let found = [(right, pane), (right, false), (!right, false), (right, true)]
-                .into_iter()
-                .find_map(|(side, pane)| order.iter().find_map(|&t| self.stop_on(t, side, x, pane)));
+            let mut tries = vec![(right, pane)];
+            tries.extend([(right, false), (!right, false), (right, true)].into_iter().filter(|&t| t != (right, pane)));
+            let found = tries.into_iter().find_map(|(side, pane)| order.iter().find_map(|&t| self.stop_on(t, side, x, pane)));
             if let Some(p) = found {
                 self.goto(p.row, p.col);
                 self.want_x = Some(x);
@@ -387,10 +387,12 @@ impl App {
         // What's on screen, each part once: each screen row's code, a side each, and the
         // comment beside it (not under the file header pinned over the top).
         let mut shown: Vec<Shown> = vec![];
-        let first = self.top + usize::from(self.sticky().is_some());
-        for d in first..(self.top + self.height).min(self.drows.len()) {
+        let pinned = self.sticky().is_some();
+        for d in self.top..(self.top + self.height).min(self.drows.len()) {
             let note = self.note_at(d).and_then(|c| self.span_of(c, 0));
-            for s in [self.span(d, false), self.span(d, true), note].into_iter().flatten() {
+            // (Under the pinned header, the code's covered; the pane beside it isn't.)
+            let code = if pinned && d == self.top { [None, None] } else { [self.span(d, false), self.span(d, true)] };
+            for s in code.into_iter().chain([note]).flatten() {
                 if !shown.contains(&s) {
                     shown.push(s);
                 }

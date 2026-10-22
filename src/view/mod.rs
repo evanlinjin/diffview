@@ -313,23 +313,21 @@ enum Target {
 
 /// What a screen row shows of a line (`App::span`): its row; the chars of it there (a wrapped
 /// line's part; else as far as it's scrolled and fits); the column the screen's text starts at
-/// (what a click counts from); and where its part starts in the line (wrapped; else 0: what a
-/// vertical move's column counts from, so it's kept however the screen's scrolled).
+/// (what a click counts from); and where on it the cursor may land (`part`): a line the screen
+/// scrolls sideways to follow, all of it; else just what's shown. A vertical move's column
+/// counts from where `part` starts, so it's kept however the screen's scrolled.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct Shown {
     pub row: usize,
     pub chars: std::ops::Range<usize>,
     pub left: usize,
-    pub base: usize,
-    /// Its part of the line (a wrapped line's; else all of it): where a vertical move may go,
-    /// on screen or not (the screen follows).
     pub part: std::ops::Range<usize>,
 }
 
 /// The text widths rows are drawn at, as last drawn (0: nothing drawn yet): a full-width row's
 /// (beside the pane as a column, as wide as the code; code's one less, for its marks' column),
-/// a split half's (both alike), the pane's; and floating, how far into the code the pane's
-/// boxes start.
+/// a split half's (both alike), the pane's; and floating, the screen column the pane's boxes
+/// start at (over the code's right end).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(super) struct Widths {
     pub full: usize,

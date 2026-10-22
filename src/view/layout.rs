@@ -454,7 +454,10 @@ impl App {
 
     /// The code's text width (a split half's, in split view), less its marks' column.
     pub(super) fn code_w(&self) -> usize {
-        if self.split { self.frame_w.half } else { self.frame_w.full }.saturating_sub(1)
+        match if self.split { self.frame_w.half } else { self.frame_w.full } {
+            0 => 0, // (not known yet)
+            w => (w - 1).max(1),
+        }
     }
 
     /// The chars of row `r` on screen scrolled to column `left`, `w` wide (unknown, 0: all).
@@ -469,11 +472,13 @@ impl App {
     pub(super) fn span_of(&self, r: usize, k: usize) -> Option<Shown> {
         if self.wraps(r) {
             let chars = self.part(r, k)?;
-            let base = self.col_of(r, chars.start);
-            return Some(Shown { row: r, part: chars.clone(), chars, left: base, base });
+            return Some(Shown { row: r, part: chars.clone(), left: self.col_of(r, chars.start), chars });
         }
         let left = self.hscroll(r);
-        Some(Shown { row: r, chars: self.window(r, left, self.row_w(r)), left, base: 0, part: 0..self.len(r) })
+        let chars = self.window(r, left, self.row_w(r));
+        // (The screen follows the cursor along it, if it scrolls; else it lands on what's shown.)
+        let part = if self.scroller(r).is_some() { 0..self.len(r) } else { chars.clone() };
+        Some(Shown { row: r, chars, left, part })
     }
 
     /// The text width row `r` is drawn at: code's, a comment's in the pane (its box's), the
@@ -496,7 +501,7 @@ impl App {
     /// The char `x` columns into `s`'s line from where its part starts (a vertical move's
     /// column), within its part (on screen or not: the screen follows).
     pub(super) fn place(&self, s: &Shown, x: usize) -> usize {
-        Self::within(&s.part, self.char_at(s.row, s.base + x))
+        Self::within(&s.part, self.char_at(s.row, self.col_of(s.row, s.part.start) + x))
     }
 
     /// The char `x` columns into what `s` shows on screen (a click's), within what's shown;
@@ -532,11 +537,29 @@ impl App {
     /// side past its last part. What drawing, the cursor, motions, the mouse and labels all go by.
     pub(super) fn span(&self, d: usize, right: bool) -> Option<Shown> {
         let mut s = self.span_of(self.side_row(d, right)?, self.dseg[d])?;
-        // (Floating, a comment's box beside it covers the code from where the pane starts.)
-        if let (Some(at), Some(_)) = (self.frame_w.float_at, self.note_at(d)) {
-            s.chars.end = s.chars.end.min(self.char_at(s.row, s.left + at)).max(s.chars.start);
+        // (Floating, a comment's box beside it covers the code from where the pane starts: on
+        // what doesn't follow the cursor sideways, the cursor lands short of it too.)
+        if let (Some(cut), Some(_)) = (self.float_cut(self.code_x(d, right)), self.note_at(d)) {
+            s.chars.end = s.chars.end.min(self.char_at(s.row, s.left + cut)).max(s.chars.start);
+            if self.scroller(s.row).is_none() {
+                s.part = s.chars.clone();
+            }
         }
         Some(s)
+    }
+
+    /// The screen column screen row `d`'s code starts at on a side (as last drawn).
+    fn code_x(&self, d: usize, right: bool) -> usize {
+        let g = self.geom;
+        match self.drows.get(d) {
+            Some(&(DRow::Pair(l, r) | DRow::Margin(l, r, _))) if self.paired(l, r) => if right { self.right_x() } else { g.relw + g.ghw },
+            _ => g.relw + g.gw,
+        }
+    }
+
+    /// Floating, how much of text starting at screen column `x` shows before the pane's boxes.
+    pub(super) fn float_cut(&self, x: usize) -> Option<usize> {
+        self.frame_w.float_at.map(|at| at.saturating_sub(x))
     }
 
     /// The file header pinned over the top of the screen (its own scrolled off above), if one is.
@@ -754,7 +777,7 @@ impl App {
     pub(super) fn cursor_x(&self) -> usize {
         let (r, col) = (self.head.row, self.head.col);
         // (From where its part starts in the line: what `place` counts from.)
-        self.want_x.unwrap_or_else(|| self.span_of(r, self.part_at(r, col)).map_or(0, |s| self.col_of(r, col).saturating_sub(s.base)))
+        self.want_x.unwrap_or_else(|| self.span_of(r, self.part_at(r, col)).map_or(0, |s| self.col_of(r, col).saturating_sub(self.col_of(r, s.part.start))))
     }
     /// The width comments and PR text wrap to: the pane's, when it's shown (they're there).
     pub(super) fn info_w(&self) -> usize {

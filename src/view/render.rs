@@ -163,11 +163,13 @@ impl App {
         // What long code lines wrap to (`soft_wrap`): the code's text widths, as `render_row`
         // draws them (less the last column, the comment marks'); split halves alike. Changed,
         // laid out again (once: with a rebuild, by it).
+        // Where the margin starts (floating: over the code's right end).
+        let mx = width.saturating_sub(mw).saturating_sub(gw + 1);
         let w = Widths {
             full: if margin && !float { ctw } else { tw },
             half: htw_l,
             pane: mw.saturating_sub(self.pane_gw() + self.pane_pad()), // (`ptw` below)
-            float_at: float.then(|| width.saturating_sub(mw).saturating_sub(gw + 1)), // (`mx`)
+            float_at: float.then_some(relw + gw + mx),
         };
         let rewrap = (w.full, w.half) != (self.frame_w.full, self.frame_w.half) && self.soft_wrap;
         self.frame_w = w;
@@ -182,8 +184,6 @@ impl App {
         if !self.margin_side() {
             self.code_head = self.head;
         }
-        // Where the margin starts (floating: over the code's right end).
-        let mx = width.saturating_sub(mw).saturating_sub(gw + 1);
         // The code's text width: beside the pane as a column, under it floating up to where
         // it starts; the whole width without it. (What the title, a pinned header, a row cut at
         // the pane, and a click go by.)
@@ -198,7 +198,7 @@ impl App {
     /// The code scrolled to the cursor, up and down, and sideways: in a comment's code block by
     /// that block only, in the diff by `left`.
     fn scroll_to_cursor(&mut self, c: &Cols) {
-        let Cols { pin, h, gw, relw, tw, mtw, ctw, htw_l, htw_r, hd, float, mx, .. } = *c;
+        let Cols { pin, h, tw, mtw, ctw, htw_l, htw_r, hd, float, .. } = *c;
         let so = scrolloff(h);
         // Scroll the code to the cursor.
         if hd < self.top + so {
@@ -221,7 +221,7 @@ impl App {
         // half's too.
         let cur_w = match self.drows[hd] {
             // (Over all of it: nowhere to keep the cursor; as without it, not pinned to it.)
-            DRow::Margin(_, _, Some(_)) if float && !self.margin_side() => match (relw + gw + mx).saturating_sub(self.text_x(c)) {
+            DRow::Margin(_, _, Some(_)) if float && !self.margin_side() => match self.float_cut(self.text_x(c)).unwrap_or(0) {
                 0 => cur_w,
                 seen => cur_w.min(seen),
             },

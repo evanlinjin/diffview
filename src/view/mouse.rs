@@ -165,6 +165,13 @@ impl App {
             return None; // the status bar
         }
         let d = self.top + y;
+        // (The file header pinned over the top: its own row, in the code's columns.)
+        if y == 0
+            && x < g.relw + g.gw + g.ctw
+            && let Some(h) = self.sticky()
+        {
+            return Some((h, 0, x < g.relw + g.gw));
+        }
         let (row, start) = match *self.drows.get(d)? {
             DRow::Margin(_, _, Some(note)) if x > g.relw + g.gw + g.ctw => (note, self.pane_x()),
             // Split view: the old side, the divider, the new side (a hatch: the other's line).

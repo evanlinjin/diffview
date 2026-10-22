@@ -3725,3 +3725,28 @@ fn the_wheel_from_the_pane_and_labels_under_the_pinned_header() {
     app.show_labels();
     assert!(app.labels.iter().all(|l| app.d_at(l.0) > app.top), "none on the row under the header");
 }
+
+#[test]
+fn the_cursor_lands_where_it_can_be_seen() {
+    // The pinned title doesn't scroll sideways: k onto it lands on what's shown of it.
+    let mut app = fixture();
+    _ = screen(40, 20, |f| app.draw(f));
+    let shown = app.span_of(0, 0).unwrap().chars;
+    app.goto(4, 35);
+    for _ in 0..4 {
+        app.key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
+        _ = screen(40, 20, |f| app.draw(f));
+    }
+    assert!(app.head.row != 0 || shown.contains(&app.head.col), "{:?} within {shown:?}", app.head);
+    // A click on the file header pinned over the top goes to the header.
+    let body: String = (0..60).map(|i| format!("+word{i} other{i}\n")).collect();
+    let text = format!("diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -0,0 +1,60 @@\n{body}");
+    let mut app = App::with("base".into(), diff::parse(&text));
+    (app.files_pref, app.margin_pref) = (Some(false), Some(false));
+    _ = screen(80, 20, |f| app.draw(f));
+    app.goto(40, 0);
+    _ = screen(80, 20, |f| app.draw(f));
+    let h = app.sticky().expect("pinned");
+    let g = app.geom;
+    assert_eq!(app.at_screen(g.relw + g.gw + 2, 0).map(|a| a.0), Some(h));
+}
