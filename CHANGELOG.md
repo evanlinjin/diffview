@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.88.2] - 2026-10-22
+
+### Fixed
+- `#123` in an unpublished replacement's or new PR's text (its description, Claude's review)
+  links to the repo's issue, by its GitHub remote, and Enter opens it in dv, as in a PR's.
+- Opening an issue or a replacement from a PR no longer lets go of the PR's Claude run (back
+  there, dv still knows it's at work); merging a published replacement from its view does it.
+- A redraft takes in the originals' reviews changed since the last draft (your new replies).
+
 ## [0.88.1] - 2026-10-22
 
 ### Fixed
