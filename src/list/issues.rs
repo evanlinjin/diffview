@@ -226,7 +226,7 @@ pub(crate) fn save_triage(n: u64, updated: &str, fixes: &[(u64, String, String)]
 /// Claude triages issue `n` here (dv issues'): its hold on it meanwhile (`claude::claim`), for
 /// the issue's view (and any dv) to see.
 fn triage_run(n: u64, updated: &str, fixes: &[(u64, String, String)], root: &std::path::Path, extra: &str) -> Result<batch::Status> {
-    let mut claim = crate::claude::claim(n, "triaging").map_err(|w| anyhow::anyhow!("Claude is {w} on #{n} already"))?;
+    let mut claim = crate::claude::claim(n, "triaging", None).map_err(|w| anyhow::anyhow!("Claude is {w} on #{n} already"))?;
     let mut cmd = triage_command(n, fixes, root, extra);
     let child = cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().context("is Claude Code (`claude`) installed?")?;
     claim.set_pid(child.id());
@@ -465,7 +465,7 @@ impl Issues {
             // (Not what you've put aside.)
             let deferred: HashSet<u64> = self.todos.items.iter().filter(|it| it.deferred.is_some()).map(|it| it.number).collect();
             let next = self.items.iter().map(|i| (i.number, i.updated.clone())).find(|(n, u)| {
-                !deferred.contains(n) && self.close_why(*n).is_some() && !drafted(*n) && !self.auto_done.contains(&(*n, format!("closing@{u}"))) && crate::claude::at_work(*n).is_none()
+                !deferred.contains(n) && self.close_why(*n).is_some() && !drafted(*n) && !self.auto_done.contains(&(*n, format!("closing@{u}"))) && crate::claude::at_work(*n, None).is_none()
             });
             if let Some((n, u)) = next {
                 self.auto_done.insert((n, format!("closing@{u}")));
@@ -853,7 +853,7 @@ impl Issues {
         // (Not one Claude's at already, from an issue's view, say: its triage is on its way.)
         let asks = ns
             .into_iter()
-            .filter(|&n| crate::claude::at_work(n).is_none())
+            .filter(|&n| crate::claude::at_work(n, None).is_none())
             .map(|n| match self.items.iter().find(|i| i.number == n) {
                 Some(i) => Ask { n, updated: i.updated.clone(), fixes: i.fixed_by.clone() },
                 None => Ask { n, updated: String::new(), fixes: vec![] },

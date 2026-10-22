@@ -164,7 +164,7 @@ fn run(s: Subject, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sen
     let n = s.n();
     // Its hold on it: one run on it at a time, from any dv (an issue's view, a PR's); let go as
     // this ends, however.
-    let mut claim = crate::claude::claim(n, task.doing()).map_err(|w| anyhow::anyhow!("Claude is {w} on {} already", s.what()))?;
+    let mut claim = crate::claude::claim(n, task.doing(), None).map_err(|w| anyhow::anyhow!("Claude is {w} on {} already", s.what()))?;
     _ = tx.send((n, Status::Preparing));
     // The worktree, checked out at the PR (by a dv of its own: that changes directory); an
     // issue's, here (no code of its own).

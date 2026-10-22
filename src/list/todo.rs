@@ -650,7 +650,7 @@ impl List {
         self.running_checked = Some(std::time::Instant::now());
         let Some(dir) = self.reviews_dir.as_ref().and_then(|d| d.parent()).map(|d| d.join("running")) else { return false };
         let panes = std::cell::OnceCell::new(); // zellij's panes, looked up only if a run is in one
-        let mut now = crate::claude::running(&dir, |pid, session| crate::pane::run_live(pid, session, &panes));
+        let mut now = crate::claude::running(&dir, &panes);
         let mut reps = HashMap::new();
         // Claude Code in a pane in a PR's worktree, or a replacement's (one you started, from a
         // shell even: its screen says): at it there, or asking you something.

@@ -210,7 +210,7 @@ impl App {
             return Some(if ask.is_none() { App::busy_edit("amend") } else { App::busy_says("ask Claude this") });
         }
         // At it from elsewhere (dv list's, dv issues' runs): one at a time on it, as here.
-        if let Some(what) = self.subject().and_then(|s| crate::claude::at_work(s.n())) {
+        if let Some(what) = self.subject().and_then(|s| crate::claude::at_work(s.n(), self.claude.session.as_deref())) {
             return Some(format!("Claude is {what} on {} already (elsewhere): ask again once it's done", self.what()));
         }
         // A rebase stopped part way: the tree has its conflicts, HEAD is detached.
@@ -935,7 +935,7 @@ impl App {
         use std::os::unix::process::CommandExt;
         // Its hold on it: one run at a time on it, a fork's too (its pane working: that run's).
         let mut claim = match self.subject() {
-            Some(s) => Some(crate::claude::claim(s.n(), label).map_err(|w| anyhow!("Claude is {w} on {} already (elsewhere): ask again once it's done", s.what()))?),
+            Some(s) => Some(crate::claude::claim(s.n(), label, self.claude.session.as_deref()).map_err(|w| anyhow!("Claude is {w} on {} already (elsewhere): ask again once it's done", s.what()))?),
             None => None,
         };
         // One log per run, so a follow-up run doesn't wipe the one a message points to.
