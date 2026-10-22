@@ -270,40 +270,99 @@ fn fixes_text(fixes: &[(u64, String, String)]) -> String {
     fixes.iter().map(|(n, s, _)| format!("#{n} ({})", s.to_lowercase())).collect::<Vec<_>>().join(", ")
 }
 
-/// Claude drafts a comment closing issue `n` (reading only), in the background: kept in its
-/// triage (`close`, `closing`, `reason`, `duplicate_of`), for `X X` to close with.
-fn draft_closing(n: u64, root: PathBuf) -> Receiver<Result<()>> {
+/// What Claude's asked to do with an issue, in the background (reading only), its answer
+/// kept in the issue's triage file: a closing comment (`X X` closes with it), an edit of its
+/// title and text (what you want changed, and them as they are: `E E` applies it), or an
+/// answer to your question.
+pub(super) enum OnIssue {
+    Closing,
+    Edit { what: String, title: String, body: String },
+    Question(String),
+}
+
+/// Claude does `ask` for issue `n`, in the background: what to say when it's done, on the
+/// receiver.
+fn ask_claude(n: u64, root: PathBuf, ask: OnIssue) -> Receiver<Result<String>> {
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
-        let res = crate::batch::guarded(|| -> Result<()> {
+        let res = crate::batch::guarded(|| -> Result<String> {
             let file = crate::claude::dv_dir()?.join("reviews").join(format!("issue-{n}.json"));
-            let prompt = format!(
-                "{}The maintainer is closing issue #{n}. Read it (`gh issue view {n} --comments`, its triage in {} if \
-                 there is one, related issues and PRs) and draft the comment it closes with: short, kind, saying why \
-                 (fixed by which PR, a duplicate of which issue, answered, out of scope, stale), thanking the author \
-                 where it fits. Reply with only a JSON object: {{\"close\": \"why, a few words\", \"closing\": \
-                 \"the comment, markdown\", \"reason\": \"completed\" | \"not planned\" | \"duplicate\", \
-                 \"duplicate_of\": N or null}}.",
-                crate::claude::notes_preamble(),
-                file.display()
-            );
-            let tools = ["Bash(gh issue view:*)", "Bash(gh issue list:*)", "Bash(gh search:*)"];
-            let out = crate::claude::claude_reader(crate::claude::Work::Close, &prompt, &root, &tools).stdin(std::process::Stdio::null()).output()?;
+            let read = format!("Read it (`gh issue view {n} --comments`, its triage and your earlier answers in {} if there are any, related issues and PRs, the code it's about)", file.display());
+            let (work, ask_for) = match &ask {
+                OnIssue::Closing => (
+                    crate::claude::Work::Close,
+                    format!(
+                        "The maintainer is closing issue #{n}. {read} and draft the comment it closes with: short, kind, \
+                         saying why (fixed by which PR, a duplicate of which issue, answered, out of scope, stale), thanking \
+                         the author where it fits. Reply with only a JSON object: {{\"close\": \"why, a few words\", \
+                         \"closing\": \"the comment, markdown\", \"reason\": \"completed\" | \"not planned\" | \"duplicate\", \
+                         \"duplicate_of\": N or null}}."
+                    ),
+                ),
+                OnIssue::Edit { what, .. } => (
+                    crate::claude::Work::Triage,
+                    format!(
+                        "The maintainer wants issue #{n}'s title or text changed. {read}, then rewrite them as asked, and \
+                         only as asked: the rest of the author's words kept as they are. Reply with only a JSON object: \
+                         {{\"title\": \"the whole title\", \"body\": \"the whole text, markdown\"}}. They ask:\n{what}"
+                    ),
+                ),
+                OnIssue::Question(q) => (
+                    crate::claude::Work::Triage,
+                    format!(
+                        "The maintainer asks you about issue #{n}. {read}, and answer, briefly: what they asked, with what \
+                         you found (file:line, links). Reply with only a JSON object: {{\"answer\": \"markdown\"}}. They ask:\n{q}"
+                    ),
+                ),
+            };
+            let prompt = format!("{}{ask_for} (It's {} now.)", crate::claude::notes_preamble(), crate::claude::now());
+            let tools = ["Bash(gh issue view:*)", "Bash(gh issue list:*)", "Bash(gh pr view:*)", "Bash(gh search:*)"];
+            let out = crate::claude::claude_reader(work, &prompt, &root, &tools).stdin(std::process::Stdio::null()).output()?;
             let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
-            anyhow::ensure!(v["is_error"] == false, "Claude couldn't draft it ({})", out.status);
-            let d = crate::claude::json_in(v["result"].as_str().unwrap_or(""), '{').filter(Value::is_object).context("no draft in Claude's answer")?;
+            anyhow::ensure!(v["is_error"] == false, "Claude stopped ({})", out.status);
+            let d = crate::claude::json_in(v["result"].as_str().unwrap_or(""), '{').filter(Value::is_object).context("no answer in what Claude said")?;
             let said = |k: &str| d[k].as_str().is_some_and(|s| !s.trim().is_empty());
-            anyhow::ensure!(said("close") && said("closing"), "Claude's draft said no why or no comment");
             let mut t: Value = std::fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| serde_json::json!({ "issue": n }));
-            for k in ["close", "closing", "reason", "duplicate_of"] {
-                t[k] = d[k].clone();
-            }
+            let msg = match ask {
+                OnIssue::Closing => {
+                    anyhow::ensure!(said("close") && said("closing"), "Claude's draft said no why or no comment");
+                    for k in ["close", "closing", "reason", "duplicate_of"] {
+                        t[k] = d[k].clone();
+                    }
+                    format!("Claude drafted a comment closing #{n}: X X closes with it (your editor first)")
+                }
+                OnIssue::Edit { title, body, .. } => {
+                    anyhow::ensure!(said("title") && d["body"].is_string(), "Claude's edit had no title or text");
+                    // (What it's an edit of: applied only to them as they still are.)
+                    t["edit"] = serde_json::json!({ "title": d["title"], "body": d["body"], "was_title": title, "was_body": body });
+                    format!("Claude's edit of #{n} is in its pane: E E applies it")
+                }
+                OnIssue::Question(q) => {
+                    anyhow::ensure!(said("answer"), "Claude gave no answer");
+                    let mut asks = t["asks"].as_array().cloned().unwrap_or_default();
+                    asks.push(serde_json::json!({ "q": q, "a": d["answer"] }));
+                    t["asks"] = asks.into();
+                    format!("Claude answered your question about #{n} (in its pane)")
+                }
+            };
             std::fs::create_dir_all(file.parent().context("no dir")?)?;
-            crate::claude::write(&file, &t)
+            crate::claude::write(&file, &t)?;
+            Ok(msg)
         });
         _ = tx.send(res);
     });
     rx
+}
+
+/// Claude's edit of issue `n` dropped from its triage file (applied).
+fn drop_edit(dir: Option<&std::path::Path>, n: u64) {
+    let Some(file) = dir.map(|d| d.join(format!("issue-{n}.json"))) else { return };
+    if let Some(mut t) = std::fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()) {
+        if let Some(o) = t.as_object_mut() {
+            o.remove("edit");
+        }
+        _ = crate::claude::write(&file, &t);
+    }
 }
 
 /// What the issues list asks of its caller.
@@ -352,8 +411,8 @@ pub struct Issues {
     drafts: Vec<Receiver<(u64, batch::Status)>>,
     /// Those drafts not done yet (by id).
     drafting: HashSet<u64>,
-    /// A closing comment Claude's drafting (for which issue), on its way.
-    closing_rx: Option<(u64, Receiver<Result<()>>)>,
+    /// What Claude's doing with an issue (`OnIssue`: for which), on its way; one at a time.
+    claude_rx: Option<(u64, Receiver<Result<String>>)>,
     /// Auto (`C`, git config `dv.auto`, as dv list's): Claude triages what isn't triaged, and
     /// what's changed since, and ranks the todo again. Whether it's started (the first fetch
     /// in), what it's done (once each), and when it last ranked.
@@ -451,7 +510,7 @@ impl Issues {
         }
         // An issue Claude would close with no closing comment drafted yet: drafted, one at a time,
         // once each (X X then closes with it, your editor first).
-        if self.closing_rx.is_none() && !started {
+        if self.claude_rx.is_none() && !started {
             let dir = self.reviews_dir.clone();
             let drafted = |n: u64| dir.as_ref().and_then(|d| std::fs::read_to_string(d.join(format!("issue-{n}.json"))).ok()).is_some_and(|t| serde_json::from_str::<Value>(&t).is_ok_and(|v| v["closing"].as_str().is_some_and(|c| !c.trim().is_empty())));
             // (Not what you've put aside.)
@@ -459,7 +518,7 @@ impl Issues {
             let next = self.items.iter().map(|i| (i.number, i.updated.clone())).find(|(n, u)| !deferred.contains(n) && self.close_why(*n).is_some() && !drafted(*n) && !self.auto_done.contains(&(*n, format!("closing@{u}"))));
             if let Some((n, u)) = next {
                 self.auto_done.insert((n, format!("closing@{u}")));
-                self.closing_rx = Some((n, draft_closing(n, self.root.clone())));
+                self.claude_rx = Some((n, ask_claude(n, self.root.clone(), OnIssue::Closing)));
                 self.say(format!("auto: Claude is drafting a comment closing #{n}"));
             }
         }
@@ -507,7 +566,7 @@ impl Issues {
 
     /// Claude at work from here: triaging, drafting a fix or a closing comment, ranking.
     pub fn busy(&self) -> bool {
-        self.running.values().any(batch::Status::running) || !self.drafting.is_empty() || self.closing_rx.is_some() || self.todos.rank_rx.is_some()
+        self.running.values().any(batch::Status::running) || !self.drafting.is_empty() || self.claude_rx.is_some() || self.todos.rank_rx.is_some()
     }
 
     /// The issues on the tab shown, filtered.
@@ -627,23 +686,23 @@ impl Issues {
                 }
             }
             // (Its thread gone without a word: as a failure, not drafting forever.)
-            let news = self.closing_rx.as_ref().map(|(_, rx)| rx.try_recv());
+            let news = self.claude_rx.as_ref().map(|(_, rx)| rx.try_recv());
             if let Some(Ok(_) | Err(mpsc::TryRecvError::Disconnected)) = &news {
-                let n = self.closing_rx.take().map_or(0, |c| c.0);
+                let n = self.claude_rx.take().map_or(0, |c| c.0);
                 let res = match news {
                     Some(Ok(r)) => r,
                     _ => Err(anyhow::anyhow!("its run stopped")),
                 };
                 match res {
-                    Ok(()) => {
-                        self.msg = format!("Claude drafted a comment closing #{n}: X X closes with it (your editor first)");
+                    Ok(said) => {
+                        self.msg = said;
                         self.reviews_mtime = None;
                         let dir = self.reviews_dir.clone();
                         if let Some(v) = self.view.as_mut().filter(|v| v.number == n) {
                             v.reload_triage(dir.as_deref());
                         }
                     }
-                    Err(e) => self.msg = format!("no closing comment: {e:#}"),
+                    Err(e) => self.msg = format!("#{n}: {e:#}"),
                 }
             }
             for (n, st) in self.running_rx.iter().flat_map(|rx| rx.try_iter()).collect::<Vec<_>>() {
@@ -867,8 +926,8 @@ impl Issues {
         // The cursor's keys (Helix's), but not the second of another pair (`L L`).
         // (A pair's second key isn't the cursor's: `L j` moves it, `L` called off.)
         {
-            // (`Space l`'s l isn't the cursor's either.)
-            let key = if pending == Some(' ') { super::issue_view::Did::Not } else { v.key(pending.filter(|&p| p == 'g'), k.code, ctrl) };
+            // (`Space l`'s l isn't the cursor's either, nor `a e`'s e.)
+            let key = if matches!(pending, Some(' ' | 'a')) { super::issue_view::Did::Not } else { v.key(pending.filter(|&p| p == 'g'), k.code, ctrl) };
             match key {
                 super::issue_view::Did::Not => {}
                 super::issue_view::Did::Nothing => return None,
@@ -903,6 +962,11 @@ impl Issues {
             (Some(_), KeyCode::Esc) => {} // (a pending key called off, as Helix's: L, g, Space…)
             // Esc drops a selection first, as Helix's.
             (_, KeyCode::Esc) if v.selecting() => v.drop_selection(),
+            // (Before `q` closes it: `a q`'s q.)
+            (Some('a'), KeyCode::Char('q')) => {
+                let q = said(edit(term, &format!("a question about #{n} for Claude"), "", false, true), &mut self.msg)?;
+                self.on_issue(n, OnIssue::Question(q), format!("Claude is looking into your question about #{n}…"));
+            }
             (_, KeyCode::Char('q') | KeyCode::Esc) => self.view = None,
             (_, KeyCode::Char('?')) => self.nav.help = true,
             (_, KeyCode::Char('o')) => self.msg = crate::view::open_url(v.url()),
@@ -915,10 +979,11 @@ impl Issues {
                 self.reload_view(n);
             }
             // Labelling, and retitling or closing someone else's issue, take triage access.
-            (Some(c @ ('L' | 'T' | 'X')), KeyCode::Char(k)) if k == c && !self.can_triage && (c == 'L' || v.author != self.me) => {
+            (Some(c @ ('L' | 'T' | 'X' | 'E')), KeyCode::Char(k)) if k == c && !self.can_triage && (c == 'L' || v.author != self.me) => {
                 let what = match c {
                     'L' => "labelling issues",
                     'T' => "retitling others' issues",
+                    'E' => "editing others' issues",
                     _ => "closing others' issues",
                 };
                 self.msg = format!("{what} here takes triage access, which you don't have");
@@ -944,12 +1009,27 @@ impl Issues {
             }
             // No closing comment of Claude's yet: it drafts one first (X X then closes with it).
             (Some('X'), KeyCode::Char('X')) if v.closing().is_none_or(|c| c.is_empty()) => {
-                if self.closing_rx.is_some() {
-                    self.msg = "Claude's drafting a closing comment already".into();
-                } else {
-                    self.closing_rx = Some((n, draft_closing(n, self.root.clone())));
-                    self.msg = format!("Claude is drafting a comment closing #{n} (X X then closes with it)…");
+                self.on_issue(n, OnIssue::Closing, format!("Claude is drafting a comment closing #{n} (X X then closes with it)…"));
+            }
+            // Claude's edit of its title and text, applied: only to them as they still are.
+            (Some('E'), KeyCode::Char('E')) => {
+                let Some((title, body)) = v.edit() else { return (self.msg = format!("no edit of Claude's for #{n}: a e asks for one"), None).1 };
+                if !v.edit_current() {
+                    return (self.msg = format!("#{n} has changed since Claude's edit: a e asks for it again"), None).1;
                 }
+                self.msg = match crate::gh::gh(&["issue", "edit", &n.to_string(), "--title", &title, "--body", &body]) {
+                    Ok(_) => {
+                        drop_edit(self.reviews_dir.as_deref(), n);
+                        format!("#{n} edited as Claude drafted it")
+                    }
+                    Err(e) => format!("not edited: {e:#}"),
+                };
+                self.reload_view(n);
+            }
+            (Some('a'), KeyCode::Char('e')) => {
+                let what = said(edit(term, &format!("what Claude should change in #{n}'s title or text (you see its edit before it's applied)"), "", false, true), &mut self.msg)?;
+                let ask = OnIssue::Edit { what, title: v.title().to_owned(), body: v.body().to_owned() };
+                self.on_issue(n, ask, format!("Claude is drafting an edit of #{n} (shown in its pane; E E applies it)…"));
             }
             (Some('X'), KeyCode::Char('X')) => {
                 let closing = v.closing().unwrap_or_default();
@@ -1020,7 +1100,7 @@ impl Issues {
             }
             (_, KeyCode::Char(' ')) => (self.pending, self.msg) = (Some(' '), "Space: l labels, assignees · N a PR from the selection".into()),
             (Some(' '), _) => self.msg.clear(), // (Space, then not l: called off)
-            (_, KeyCode::Char(c @ ('g' | 'L' | 'T' | 'X' | 'N' | 'a'))) => {
+            (_, KeyCode::Char(c @ ('g' | 'L' | 'T' | 'X' | 'N' | 'a' | 'E'))) => {
                 self.pending = Some(c);
                 self.msg = match c {
                     'L' => match v.new_labels() {
@@ -1036,7 +1116,11 @@ impl Issues {
                         false => format!("X again: Claude drafts a comment closing #{n} (then X X closes with it)"),
                     },
                     'N' => format!("N again: Claude drafts a PR fixing #{n} (your editor first)"),
-                    'a' => format!("a again: Claude triages #{n} again"),
+                    'a' => format!("a again: Claude triages #{n} again · q a question for Claude · e Claude edits its title or text"),
+                    'E' => match v.edit() {
+                        None => (self.pending = None, format!("no edit of Claude's for #{n}: a e asks for one")).1,
+                        Some(_) => format!("E again: edit #{n} as Claude drafted it (its pane shows how)"),
+                    },
                     _ => String::new(),
                 };
             }
@@ -1046,6 +1130,17 @@ impl Issues {
     }
 
     /// The issue open, from GitHub again (after a comment, a label, a title).
+    /// Claude does `ask` for issue `n` (`doing`: said meanwhile), unless it's at one already.
+    fn on_issue(&mut self, n: u64, ask: OnIssue, doing: String) {
+        self.msg = match &self.claude_rx {
+            Some((m, _)) => format!("Claude's busy with #{m}: ask again once it's done"),
+            None => {
+                self.claude_rx = Some((n, ask_claude(n, self.root.clone(), ask)));
+                doing
+            }
+        };
+    }
+
     fn reload_view(&mut self, n: u64) {
         let keep = self.view.as_ref().map_or([0; 2], |v| v.scroll_at());
         match self.load_issue(n) {
@@ -1277,7 +1372,7 @@ impl Issues {
                 draw_meta(f, ui, items, *sel, v.number);
             } else {
                 // The keys most often wanted here, bottom right, as the PR view shows them.
-                let keys = [("C", "comment"), ("Space l", "labels, assignees"), ("X X", "close it"), ("a a", "triage again"), ("Enter", "open link"), ("o", "in the browser"), ("?", "all keys")];
+                let keys = [("C", "comment"), ("Space l", "labels, assignees"), ("X X", "close it"), ("a a", "triage again"), ("a q", "ask Claude"), ("Enter", "open link"), ("o", "in the browser"), ("?", "all keys")];
                 draw_keys(f, ui, &keys, cursor);
             }
             return;

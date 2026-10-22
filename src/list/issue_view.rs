@@ -244,6 +244,23 @@ impl IssueView {
         Some(self.t("title")).filter(|t| !t.is_empty() && *t != self.title)
     }
 
+    /// Claude's edit of its title and text (`a e`), if there is one.
+    pub fn edit(&self) -> Option<(String, String)> {
+        let e = &self.triage["edit"];
+        Some((e["title"].as_str()?.to_owned(), e["body"].as_str()?.to_owned()))
+    }
+
+    /// Whether the issue is still as it was when Claude edited it (else its edit is of
+    /// something else: not applied).
+    pub fn edit_current(&self) -> bool {
+        let e = &self.triage["edit"];
+        e["was_title"].as_str() == Some(self.title.as_str()) && e["was_body"].as_str() == Some(self.body.as_str())
+    }
+
+    pub fn body(&self) -> &str {
+        &self.body
+    }
+
     /// Claude's closing comment, if it would close it.
     pub fn closing(&self) -> Option<String> {
         (!self.t("close").is_empty()).then(|| self.t("closing"))
@@ -395,6 +412,23 @@ impl IssueView {
             if !acts.is_empty() {
                 right.push((Line::default(), 0..0, vec![]));
                 right.extend(bubble(claude("claude suggests".into()), acts, right_w));
+            }
+            // Its edit (`a e`): what it changes, before E E applies it.
+            if let Some((title, body)) = self.edit() {
+                let e = &self.triage["edit"];
+                let was = (e["was_title"].as_str().unwrap_or(""), e["was_body"].as_str().unwrap_or(""));
+                let head = match self.edit_current() {
+                    true => "claude's edit (E E applies it)",
+                    false => "claude's edit, of the issue as it was (a e again)",
+                };
+                right.push((Line::default(), 0..0, vec![]));
+                right.extend(bubble(claude(head.into()), edit_diff(was, (&title, &body), inner, ui), right_w));
+            }
+            // Your questions (`a q`), Claude's answers.
+            for a in self.triage["asks"].as_array().into_iter().flatten() {
+                right.push((Line::default(), 0..0, vec![]));
+                right.extend(bubble(vec![Span::styled("you asked", ui.thread)], md(a["q"].as_str().unwrap_or(""), inner, 1), right_w));
+                right.extend(bubble(claude("claude".into()), md(a["a"].as_str().unwrap_or(""), inner, 1), right_w));
             }
         }
         // The drafts of Claude's that fix it, published or not.
@@ -905,6 +939,72 @@ impl IssueView {
     }
 }
 
+/// Claude's edit as a diff of what it changes: the title, then the text by line (`-` what
+/// goes, `+` what comes, two lines about each change; `⋯` what's between), wrapped to `w`.
+fn edit_diff(was: (&str, &str), now: (&str, &str), w: usize, ui: &Ui) -> Vec<(Line<'static>, Links)> {
+    let w = w.saturating_sub(2).max(1);
+    let mut out = vec![];
+    let mut say = |mark: char, text: &str, st: Style| {
+        let mut parts = vec![String::new()];
+        let mut cols = 0;
+        for c in text.chars() {
+            let cw = Span::raw(c.to_string()).width();
+            if cols + cw > w && cols > 0 {
+                parts.push(String::new());
+                cols = 0;
+            }
+            parts.last_mut().unwrap().push(c);
+            cols += cw;
+        }
+        for (i, p) in parts.into_iter().enumerate() {
+            out.push((Line::from(Span::styled(format!("{} {p}", if i == 0 { mark } else { ' ' }), st)), vec![]));
+        }
+    };
+    if was.0 != now.0 {
+        say('-', &format!("title: {}", was.0), ui.minus);
+        say('+', &format!("title: {}", now.0), ui.plus);
+    }
+    // ponytail: a quadratic LCS by line, fine for an issue's text.
+    let (a, b): (Vec<&str>, Vec<&str>) = (was.1.lines().collect(), now.1.lines().collect());
+    let (ka, kb) = crate::diff::lcs(&a, &b, |x, y| x == y);
+    let (mut i, mut j, mut ops) = (0, 0, vec![]);
+    while i < a.len() || j < b.len() {
+        if i < a.len() && !ka[i] {
+            ops.push(('-', a[i]));
+            i += 1;
+        } else if j < b.len() && !kb[j] {
+            ops.push(('+', b[j]));
+            j += 1;
+        } else {
+            ops.push((' ', a[i]));
+            (i, j) = (i + 1, j + 1);
+        }
+    }
+    let near = |k: usize| ops[k.saturating_sub(2)..(k + 3).min(ops.len())].iter().any(|o| o.0 != ' ');
+    let mut gap = false;
+    for (k, &(m, text)) in ops.iter().enumerate() {
+        match (m, near(k)) {
+            (' ', false) => gap = true,
+            _ => {
+                if std::mem::take(&mut gap) {
+                    say('⋯', "", ui.linenr);
+                }
+                say(m, text, match m {
+                    '-' => ui.minus,
+                    '+' => ui.plus,
+                    _ => Style::new(),
+                });
+            }
+        }
+    }
+    match was == now {
+        true => say(' ', "(no change)", ui.linenr),
+        false if gap => say('⋯', "", ui.linenr),
+        false => {}
+    }
+    out
+}
+
 pub(super) const VIEW_HELP: &str = "
 MOVE
   h j k l, arrows      move the cursor (Helix's); w b e by word; gh gl the line's start / end
@@ -929,12 +1029,16 @@ ON GITHUB
                        first (N N: a PR fixing the whole issue)
   L L                  add the labels Claude's triage suggests
   T T                  give it the title Claude's triage suggests
+  E E                  edit its title and text as Claude drafted (a e), shown in its pane
   X X                  close it, with Claude's closing comment (your editor first; none
                        yet: Claude drafts one, then X X closes with it)
   o                    open it in the browser
 
 CLAUDE
   a a                  triage it (again)
+  a q                  ask Claude about it (your editor first): its answer in the pane
+  a e                  Claude edits its title or text as you ask (your editor first): the
+                       change shown in the pane, for E E to apply
   N N                  Claude drafts a PR fixing it (unpublished, on dv list's drafts tab)";
 
 #[test]
@@ -1094,6 +1198,18 @@ fn an_issue_and_its_triage() {
     assert!(v.scroll[0] > 0 && v.cur.0 >= v.scroll[0] && v.cur.0 < v.scroll[0] + 4, "{:?} {:?}", v.scroll, v.cur);
     v.key(None, KeyCode::Char('y'), true);
     assert_eq!(v.scroll[0], 0);
+    // Claude's edit (`a e`), its diff in the pane, and your questions with its answers (`a q`).
+    v.triage["edit"] = serde_json::json!({ "title": "panic on reorg", "body": v.body, "was_title": v.title, "was_body": v.body });
+    v.triage["asks"] = serde_json::json!([{ "q": "Since when?", "a": "Since #3." }]);
+    assert!(v.edit_current() && v.edit().is_some_and(|e| e.0 == "panic on reorg"));
+    v.redraw();
+    _ = screen(160, 60, |f| _ = v.draw(f, &ui, f.area(), false));
+    let pane: Vec<String> = v.lines(1).iter().map(|l| l.to_string()).collect();
+    let has = |t: &str| pane.iter().any(|l| l.contains(t));
+    assert!(has("claude's edit (E E applies it)") && has("+ title: panic on reorg") && has("Since when?") && has("Since #3."), "{pane:#?}");
+    // The issue changed since: not applied (said so).
+    v.title = "panics".into();
+    assert!(!v.edit_current());
 }
 
 #[test]
@@ -1115,4 +1231,16 @@ fn an_issues_timeline() {
     assert_eq!(said, ["@bo added the label bug ", "@cy mentioned this in #9 Fix the panic https://github.com/o/r/pull/9", "@bo closed it with #9 (completed) https://github.com/o/r/pull/9",
         "@ghost mentioned this in o/w#4 Elsewhere https://github.com/o/w/issues/4"]); // (another repo's, named so; a deleted account's)
     assert_eq!(url_repo("https://github.com/o/r/issues/7"), "o/r");
+}
+
+#[test]
+fn claudes_edit_as_a_diff() {
+    let ui = crate::theme::Theme::load().ui();
+    let body: String = (1..=10).map(|i| format!("line {i}\n")).collect();
+    let now = body.replace("line 5\n", "line five\n");
+    let text = |l: &[(Line, Links)]| l.iter().map(|(l, _)| l.to_string()).collect::<Vec<_>>();
+    let d = text(&edit_diff(("panic", &body), ("Panics on reorg", &now), 40, &ui));
+    assert_eq!(d, ["- title: panic", "+ title: Panics on reorg", "⋯ ", "  line 3", "  line 4", "- line 5", "+ line five", "  line 6", "  line 7", "⋯ "]);
+    // Nothing changed: said so.
+    assert_eq!(text(&edit_diff(("t", "b"), ("t", "b"), 40, &ui)), ["  (no change)"]);
 }
