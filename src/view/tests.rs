@@ -4112,3 +4112,27 @@ fn the_wheel_scrolls_the_title_only_where_its_cut() {
     let s = wheel(&mut app, 20);
     assert!(s.lines().next().unwrap().contains("PR #7 · Fix the thing") && app.hscroll(0) == 0, "{s}");
 }
+
+#[test]
+fn the_wheel_over_a_short_line_leaves_the_scroll() {
+    use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
+    let long = "x".repeat(300);
+    let text = format!("diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1,3 +1,3 @@\n short\n-{long}\n+{long}y\n short2\n");
+    let mut app = App::with("base".into(), diff::parse(&text));
+    (app.files_pref, app.margin_pref) = (Some(false), Some(false));
+    _ = screen(80, 12, |f| app.draw(f));
+    let long_r = (0..app.rows.len()).find(|&r| app.len(r) == 300).unwrap();
+    let y = |app: &App, r: usize| (app.d_of[r] - app.top + app.pin as usize) as u16;
+    let wheel = |app: &mut App, kind, r: usize| {
+        let row = y(app, r);
+        app.mouse(MouseEvent { kind, column: 40, row, modifiers: KeyModifiers::NONE });
+        _ = screen(80, 12, |f| app.draw(f));
+    };
+    for _ in 0..15 {
+        wheel(&mut app, MouseEventKind::ScrollRight, long_r);
+    }
+    let left = app.left;
+    // Over the short line above, scrolled past its end: nothing either way (not back to it).
+    wheel(&mut app, MouseEventKind::ScrollLeft, long_r - 1);
+    assert_eq!(app.left, left);
+}

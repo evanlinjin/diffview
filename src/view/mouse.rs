@@ -59,7 +59,7 @@ impl App {
             // scrolled to (the cursor there would take it back).
             MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight if code => {
                 let Some((row, col, _, side)) = self.at_screen(x, y) else { return };
-                if self.scroller(row).is_none() || kind == MouseEventKind::ScrollRight && self.col_of(row, self.len(row)) <= self.hscroll(row) + 1 && self.hscroll(row) > 0 {
+                if self.scroller(row).is_none() || self.col_of(row, self.len(row)) <= self.hscroll(row) + 1 && self.hscroll(row) > 0 {
                     return;
                 }
                 self.select = false;
