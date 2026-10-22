@@ -2525,9 +2525,9 @@ fn commit_picker_lists_the_commits() {
     app.commit_picker();
     let p = app.picker.as_ref().unwrap();
     assert!(p.items[0].label.contains("all commits") && p.items[0].label.starts_with('●'));
-    assert_eq!(p.items.len(), app.commits.len() + 1);
+    assert_eq!(p.items.len(), app.commits.len() + 1 + usize::from(app.dirty.has()));
     assert!(p.items[1].label.contains("bbb second")); // newest first
-    assert!(matches!(&p.items[1].target, Target::Commit(Some(s)) if s == "bbb"));
+    assert!(matches!(&p.items[1].target, Target::CommitRow(2)));
 }
 
 #[test]
@@ -4840,7 +4840,7 @@ fn focus_leaves_a_list_hidden_by_a_resize() {
     ctrl(&mut app, 'w');
     press(&mut app, "k");
     assert!(app.files_focus);
-    _ = screen(90, 20, |f| app.draw(f));
+    _ = screen(40, 20, |f| app.draw(f)); // no room for it
     assert!(!app.files_focus, "focus in a list not shown");
 }
 
@@ -5093,4 +5093,49 @@ fn the_wheel_in_select_mode_moves_on_over_a_tall_removed_block() {
         _ = screen(120, 14, |f| app.draw(f));
     }
     assert!(app.top > 0 && app.head.row != one, "the view froze: top {} head {:?}", app.top, app.head);
+}
+
+#[test]
+fn the_commits_list_knows_uncommitted_is_shown_and_k_goes_up_one() {
+    let mut app = fixture();
+    app.files_pref = Some(true);
+    _ = screen(220, 30, |f| app.draw(f));
+    let c = |sha: &str| files::Commit { sha: sha.into(), short: sha.into(), subject: String::new(), at: String::new(), signed: true };
+    app.commits = vec![c("aaa"), c("bbb")];
+    app.base = "HEAD".into(); // showing what isn't committed
+    app.dirty = files::Dirty { changed: 1, ..Default::default() };
+    let n = app.commits.len();
+    assert_eq!(app.shown_rows(), (n + 1, n + 1));
+    app.focus_list(true);
+    assert_eq!(app.commit_cur, n + 1, "the cursor not on uncommitted, the one shown");
+    app.commit_picker();
+    let p = app.picker.take().unwrap();
+    assert!(p.items.last().is_some_and(|i| i.label.starts_with('●') && i.label.contains("uncommitted")));
+    // k from "all commits": the list's last entry, not where the diff is.
+    let mut app = fixture();
+    app.files_pref = Some(true);
+    app.commits = vec![c("aaa")];
+    _ = screen(220, 30, |f| app.draw(f));
+    app.focus_list(true);
+    app.commit_cur = 0;
+    press(&mut app, "k");
+    let last = app.file_entries().into_iter().map(|e| e.spot).rfind(|&s| s != files::Spot::Folder);
+    assert_eq!((app.in_commits, app.files_sel), (false, last));
+}
+
+#[test]
+fn ctrl_w_e_says_when_theres_no_room() {
+    let mut app = fixture();
+    _ = screen(40, 20, |f| app.draw(f));
+    let pref = app.files_pref;
+    ctrl(&mut app, 'w');
+    press(&mut app, "e");
+    assert_eq!(app.msg, "too narrow for the files' list");
+    assert_eq!(app.files_pref, pref, "a setting saved that can't show");
+    // 90 wide: room (a third, past its least), so it shows.
+    _ = screen(90, 20, |f| app.draw(f));
+    ctrl(&mut app, 'w');
+    press(&mut app, "e");
+    _ = screen(90, 20, |f| app.draw(f));
+    assert!(app.files_w > 0);
 }

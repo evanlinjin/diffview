@@ -287,8 +287,8 @@ enum Target {
     ClaudeCheck,
     ClaudeStop,
     GitView,
-    /// Show that commit (by its sha: the list may have changed since; `None`: all of them).
-    Commit(Option<String>),
+    /// A row of the commits list to show, as Enter on it there (`shown_rows`' terms).
+    CommitRow(usize),
     /// The amend picker / amend what isn't committed into the PR's commits / ask Claude where
     /// what blame couldn't place goes.
     AmendMenu,
@@ -464,7 +464,7 @@ impl Target {
             Target::Want("change") => ('\u{f448}', Claude, ""),
             Target::Want(_) | Target::Land(..) => ('\u{f417}', Claude, ""),
             Target::Spot(_) => ('\u{f4a5}', Plain, ""),
-            Target::Commit(_) => ('\u{f417}', Plain, ""),
+            Target::CommitRow(_) => ('\u{f417}', Plain, ""),
             Target::Loc(_) => ('\u{f450}', Plain, ""),
             Target::Comment(..) => ('\u{f41f}', Plain, ""),
             Target::ReplaceRemote(..) => ('\u{f402}', Plain, ""),

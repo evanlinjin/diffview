@@ -90,7 +90,7 @@ impl App {
     /// The list's width (its divider included), or 0 when it's hidden.
     pub(super) fn files_width(&self, full: usize) -> usize {
         // (However many files: none, its heading says so.)
-        let shown = self.files_pref.unwrap_or(full >= FILES_AUTO) && full >= 100;
+        let shown = self.files_pref.unwrap_or(full >= FILES_AUTO) && list_room(full);
         if !shown {
             return 0;
         }
@@ -278,11 +278,8 @@ impl App {
         let mut lines = vec![(Line::from(Span::styled(format!("{title:<w$}"), Style { bg: ui.bar, ..ui.header })), Hit::Nothing)];
         // Rows: 0 "all commits", r the commit r - 1; then, if anything isn't, "uncommitted".
         let last = n + usize::from(self.dirty.has());
-        let shown = |r: usize| match (self.uncommitted(), self.commit_shown) {
-            (true, _) => r == n + 1,
-            (_, None) => r == 0,
-            (_, Some((a, b))) => r > a && r <= b + 1,
-        };
+        let (sa, sb) = self.shown_rows();
+        let shown = |r: usize| r >= sa && r <= sb;
         let focus = self.files_focus && self.in_commits;
         let picking = self.commit_anchor.filter(|_| focus).map(|a| (a.min(self.commit_cur), a.max(self.commit_cur)));
         let (cursor, here) = self.list_tints();
@@ -322,7 +319,7 @@ impl App {
             Some(Hit::Spot(s)) => self.goto_spot(s),
             Some(Hit::Commit(r)) => {
                 self.commit_cur = r;
-                self.commit_anchor = self.commit_shown.map(|(a, _)| a + 1).filter(|_| shift && r > 0);
+                self.commit_anchor = Some(self.shown_rows().0).filter(|&a| shift && r > 0 && a > 0);
                 self.pick_commits();
             }
             _ => {} // a folder, a heading, the key hints
@@ -427,7 +424,7 @@ impl App {
 
     /// `Enter` in the commits: the one under the cursor, or the range from `v`'s anchor to it
     /// ("all commits" in it: the whole diff).
-    fn pick_commits(&mut self) {
+    pub(super) fn pick_commits(&mut self) {
         // "uncommitted": what isn't committed (as Space g shows it). (Picking commits leaves it:
         // show_commits sets the base.)
         if self.commit_cur > self.commits.len() {
@@ -446,18 +443,30 @@ impl App {
         self.show_commits((a > 0).then(|| (a - 1, b - 1)));
     }
 
-    /// `Space C`: the PR's commits to pick one of (its diff alone), or all of them (newest first;
-    /// the one shown marked).
+    /// The commits list's rows shown in the diff: 0 "all commits", `r` the commit `r - 1` (a
+    /// range: its first and last), past the commits "uncommitted".
+    pub(super) fn shown_rows(&self) -> (usize, usize) {
+        match (self.uncommitted(), self.commit_shown) {
+            (true, _) => (self.commits.len() + 1, self.commits.len() + 1),
+            (_, None) => (0, 0),
+            (_, Some((a, b))) => (a + 1, b + 1),
+        }
+    }
+
+    /// `Space C`: the commits list's rows to pick one of, as Enter on it there (newest first;
+    /// those shown marked).
     pub(super) fn commit_picker(&mut self) {
         if self.commits.is_empty() {
             return self.msg = "no commits here to pick from".into();
         }
-        let all = self.commit_shown.is_none() && !self.uncommitted();
-        let mut items = vec![Item::new(format!("{} all commits: the whole diff", if all { "●" } else { " " }), Target::Commit(None))];
-        items.extend(self.commits.iter().enumerate().rev().map(|(i, c)| {
-            let on = if self.commit_shown == Some((i, i)) { "●" } else { " " };
-            Item::new(format!("{on} {} {}", c.short, c.subject), Target::Commit(Some(c.sha.clone())))
-        }));
+        let (a, b) = self.shown_rows();
+        let mark = |r: usize| if r >= a && r <= b { "●" } else { " " };
+        let n = self.commits.len();
+        let mut items = vec![Item::new(format!("{} all commits: the whole diff", mark(0)), Target::CommitRow(0))];
+        items.extend(self.commits.iter().enumerate().rev().map(|(i, c)| Item::new(format!("{} {} {}", mark(i + 1), c.short, c.subject), Target::CommitRow(i + 1))));
+        if self.dirty.has() {
+            items.push(Item::new(format!("{} uncommitted", mark(n + 1)), Target::CommitRow(n + 1)));
+        }
         self.picker = Some(Picker::new(" commits ", items));
     }
 
@@ -513,7 +522,7 @@ impl App {
         match k.code {
             // In the commits: j / k move, v marks a range's start, Enter shows it.
             KeyCode::Char('j') | KeyCode::Down if !ctrl && self.in_commits => self.commit_cur = (self.commit_cur + 1).min(self.commits.len() + usize::from(self.dirty.has())),
-            KeyCode::Char('k') | KeyCode::Up if !ctrl && self.in_commits && self.commit_cur == 0 => self.in_commits = false,
+            KeyCode::Char('k') | KeyCode::Up if !ctrl && self.in_commits && self.commit_cur == 0 => (self.in_commits, self.files_sel) = (false, spots.last().copied()),
             KeyCode::Char('k') | KeyCode::Up if !ctrl && self.in_commits => self.commit_cur -= 1,
             KeyCode::Char('v') if self.in_commits && self.commit_cur > self.commits.len() && self.commit_anchor.is_none() => {} // (no range from "uncommitted")
             KeyCode::Char('v') if self.in_commits => self.commit_anchor = if self.commit_anchor.is_some() { None } else { Some(self.commit_cur) },
@@ -538,10 +547,7 @@ impl App {
             },
             KeyCode::Esc if self.commit_anchor.is_some() => self.commit_anchor = None,
             // Past the last file: on into the commits, at the one shown.
-            KeyCode::Char('j') | KeyCode::Down if !ctrl && last_file && !self.commits.is_empty() => {
-                self.in_commits = true;
-                self.commit_cur = self.commit_shown.map_or(0, |(a, _)| a + 1);
-            }
+            KeyCode::Char('j') | KeyCode::Down if !ctrl && last_file && !self.commits.is_empty() => self.focus_list(true),
             KeyCode::Char('j') | KeyCode::Down if !ctrl => step(self, 1),
             KeyCode::Char('k') | KeyCode::Up if !ctrl => step(self, -1),
             KeyCode::Char('w') if ctrl => return false, // Ctrl-w keys act on the list (resize, hide)
@@ -624,7 +630,7 @@ impl App {
 
     pub(super) fn focus_list(&mut self, commits: bool) {
         if self.files_w == 0 {
-            return self.msg = "the files' list is hidden (Ctrl-w e shows it)".into();
+            return self.msg = self.list_hidden_why().into();
         }
         if !self.list_has_spots() {
             return self.msg = format!("the list has nothing to go to ({})", self.no_files());
@@ -633,17 +639,38 @@ impl App {
         (self.files_focus, self.files_sel, self.commit_anchor) = (true, self.current_spot(), None);
         self.in_commits = commits && !self.commits.is_empty();
         if self.in_commits {
-            self.commit_cur = self.commit_shown.map_or(0, |(a, _)| a + 1);
+            self.commit_cur = self.shown_rows().0;
         }
     }
 
-    /// `Ctrl-w e`: the files' list on / off, kept for next time.
+    /// `Ctrl-w e`: the files' list on / off, kept for next time (shown, the code un-maximized;
+    /// no room for it, said).
     pub(super) fn toggle_files(&mut self) {
         let on = self.files_w == 0;
+        if on && !list_room(self.width as usize) {
+            return self.msg = self.list_hidden_why().into();
+        }
         self.files_pref = Some(on);
+        if on && self.zoom.take().is_some() {
+            self.relayout();
+        }
         self.save_pane("files", on.into());
         self.msg = if on { "the files' list (Ctrl-w e hides it)" } else { "files' list hidden (Ctrl-w e shows it)" }.into();
     }
+
+    /// Why the list isn't shown: no room, the code maximized, or hidden.
+    fn list_hidden_why(&self) -> &'static str {
+        match () {
+            _ if !list_room(self.width as usize) => "too narrow for the files' list",
+            _ if self.zoom.is_some() => "maximized: no files' list (Ctrl-w o, or Ctrl-w e shows it)",
+            _ => "the files' list is hidden (Ctrl-w e shows it)",
+        }
+    }
+}
+
+/// Room for the files' list beside the code at width `full`: a third of it, at least its least.
+fn list_room(full: usize) -> bool {
+    full / 3 >= FILES_MIN
 }
 
 /// `s` in at most `n` chars, ending in `…` if it was longer (dv list's too).
