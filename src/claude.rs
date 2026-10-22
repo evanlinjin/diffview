@@ -1093,8 +1093,9 @@ pub fn reply(path: &std::path::Path, key: &str, body: &str, want: &str) -> Resul
         if let Some(a) = c[i]["replies"].as_array_mut() {
             a.push(r);
         }
-        // (Talk again: the conversation's open again.)
-        c[i]["talk_resolved"] = false.into();
+        // (Talk again: the conversation's open again, a resolved comment's too, so it's
+        // answered.)
+        (c[i]["talk_resolved"], c[i]["resolved"]) = (false.into(), false.into());
     })
 }
 

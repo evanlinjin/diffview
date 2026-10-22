@@ -5511,3 +5511,18 @@ fn space_c_on_an_issues_text_copies_its_link() {
     app.goto(r, 0);
     assert!(app.cursor_ref().is_some_and(|u| u.contains("/issues/")), "{:?}", app.cursor_ref());
 }
+
+#[test]
+fn a_reply_on_a_resolved_claude_comment_waits_for_an_answer() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let dir = std::env::temp_dir().join(format!("dv-reply-resolved-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let p = dir.join("pr-1.json");
+    std::fs::write(&p, r#"{ "comments": [ { "id": "c1", "path": "src/a.rs", "line": 2, "body": "rename x", "code": ["    new_call(x);"], "resolved": true,
+        "replies": [ { "author": "user", "body": "do it", "want": "change" }, { "author": "claude", "body": "Changed: renamed." } ] } ] }"#).unwrap();
+    app.claude.path = Some(p.clone());
+    crate::claude::reply(&p, "c1", "not right: it's still x in b.rs", "change").unwrap();
+    app.load_claude();
+    _ = std::fs::remove_dir_all(&dir);
+    assert_eq!((app.threads[0].resolved, app.waiting_replies()), (false, 1));
+}
