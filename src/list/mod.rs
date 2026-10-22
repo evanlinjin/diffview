@@ -538,14 +538,15 @@ impl List {
     /// replaces: "claude: drafted" there reads "replacement: drafted" (not a ✓: it reads as
     /// approving).
     fn draft_state(&self, id: u64, of: &str) -> Option<(String, bool)> {
+        // (Claude at it from anywhere: what its claim says, a draft's "drafting" or a run's.)
         let (what, ok) = match self.drafting.get(&id) {
-            _ if self.drafting_elsewhere(id) => ("drafting…", true),
+            _ if let Some(w) = self.running_reps.get(&id) => (format!("{w}…"), true),
             Some(batch::Status::Failed(e)) => return Some((format!("{of}: draft failed: {}", cut(e.lines().next().unwrap_or(""), 60)), false)),
-            Some(s) if s.running() => ("drafting…", true),
+            Some(s) if s.running() => ("drafting…".into(), true),
             _ => match self.rep_of.get(&id)? {
                 r if r.published.is_some() => return Some((format!("{of}: published as #{}", r.published.unwrap_or(0)), true)),
-                r if r.title.is_empty() => ("no draft yet", false),
-                _ => ("drafted", true),
+                r if r.title.is_empty() => ("no draft yet".into(), false),
+                _ => ("drafted".into(), true),
             },
         };
         Some((format!("{of}: {what}"), ok))

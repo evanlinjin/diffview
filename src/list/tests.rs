@@ -699,3 +699,13 @@ fn the_keys_keep_off_the_cursor() {
     let right = format!("{}{}", " ".repeat(30), "x".repeat(30));
     assert_eq!(corner(&right, None), (true, false)); // text on the right: the left
 }
+
+#[test]
+fn a_drafts_card_says_what_claude_is_doing_on_it() {
+    let mut l = List::new("".into());
+    l.rep_of.insert(1, crate::replace::Record { id: 1, title: "Do it".into(), ..Default::default() });
+    l.running_reps.insert(1, "making changes".into());
+    assert_eq!(l.draft_state(1, "claude").map(|s| s.0).as_deref(), Some("claude: making changes…"));
+    l.running_reps.clear();
+    assert_eq!(l.draft_state(1, "claude").map(|s| s.0).as_deref(), Some("claude: drafted"));
+}
