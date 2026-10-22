@@ -174,16 +174,13 @@ impl List {
                 }
             }
             KeyCode::Char('m') => {
-                let state = self.shown().get(self.nav.sel).map(|p| p.state.clone())?;
-                let p = self.selected_pr()?;
-                if !matches!(state.as_str(), "OPEN" | "") && !self.marked.contains(&p) {
-                    return (self.msg = format!("#{p} isn't open: nothing to mark it for"), None).1;
-                }
-                if !self.marked.remove(&p) {
+                // (Marked: unmarked, open or not. Else marked as a PR's acted on: open.)
+                if !self.card_pr().is_some_and(|p| self.marked.remove(&p)) {
+                    let p = self.selected_pr()?;
                     self.marked.insert(p);
                 }
                 self.nav.step(true, n); // on to the next, to mark a run
-                self.msg = format!("{} marked: a asks Claude to review them", self.marked.len());
+                self.msg = format!("{} marked: a a has Claude do its part on them", self.marked.len());
             }
             // Auto on / off: Claude runs, drafts marked ready, rankings, without you.
             KeyCode::Char('C') => {
