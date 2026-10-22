@@ -244,7 +244,7 @@ impl Job {
             Job::Retarget(base) => format!("the PR's base is {base} now: fetching it…"),
             Job::Rerun(all) => if *all { "rerunning every check…" } else { "rerunning the failed checks…" }.into(),
             Job::Labels => "asking GitHub for labels, assignees, reviewers…".into(),
-            Job::SetField(..) => "editing the PR…".into(),
+            Job::SetField(..) => "changing it on GitHub…".into(),
             Job::Push(force) => if *force { "force-pushing…" } else { "pushing…" }.into(),
             Job::Post(p) => match p {
                 Post::Thread { review: true, .. } | Post::Reply { review: true, .. } => "adding to your pending review…",
@@ -867,7 +867,7 @@ impl App {
         }
         self.start_github_watch(cached);
         if other_skill && (self.msg.is_empty() || self.github_stale) {
-            self.msg = "dv's Claude skill has changed since this PR's Claude session began: the next Claude run starts a new one".into();
+            self.msg = format!("dv's Claude skill has changed since {}'s Claude session began: the next Claude run starts a new one", self.what());
         }
     }
 

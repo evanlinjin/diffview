@@ -259,7 +259,7 @@ impl App {
         let (_, cmd) = self.claude_pane_cmd()?;
         let dv = crate::claude::dv_dir().map(|d| d.display().to_string()).unwrap_or_default();
         (needs_files && !dv.is_empty() && !cmd.contains(&dv)).then(|| {
-            "Claude's pane for this PR can't reach dv's review files (it's from an older dv): close it, and Space a starts a new one".into()
+            format!("Claude's pane for {} can't reach dv's review files (it's from an older dv): close it, and Space a starts a new one", self.what())
         })
     }
 
@@ -350,7 +350,7 @@ impl App {
             items.push(Item::new(format!("Dismiss Claude's outdated comments ({outdated})"), Target::ClaudeDismissOutdated(false)));
         }
         if self.claude.session.is_some() {
-            items.push(Item::new("Start a fresh Claude session for this PR (the review stays)", Target::ClaudeFresh));
+            items.push(Item::new(format!("Start a fresh Claude session for {} (the review stays)", self.what()), Target::ClaudeFresh));
         }
         // A replacement: Claude writes the change itself, unpublished, for you to review here.
         if let Some(r) = &self.replaced_by {
@@ -492,16 +492,15 @@ impl App {
             return Ok(format!("#{n} not closed"));
         };
         let t = &self.claude.triage;
+        // (Its state as GitHub now has it: an issue's by why it closed.)
         let closed = match s {
-            crate::claude::Subject::Pr(_) => crate::gh::close(n, Some(text.trim())),
-            crate::claude::Subject::Issue(_) => crate::gh::close_issue(n, text.trim(), &t.reason, t.duplicate_of),
+            crate::claude::Subject::Pr(_) => crate::gh::close(n, Some(text.trim())).map(|_| serde_json::json!({ "state": "CLOSED" })),
+            crate::claude::Subject::Issue(_) => crate::gh::close_issue(n, text.trim(), &t.reason, t.duplicate_of)
+                .map(|why| serde_json::json!({ "__typename": "Issue", "state": "CLOSED", "stateReason": why })),
         };
-        keep_on_error(closed, &text)?;
+        let now = keep_on_error(closed, &text)?;
         _ = crate::claude::clear(&path, "closing");
-        // (As GitHub will have it: an issue's by why it closed.)
-        let why = if matches!(t.reason.as_str(), "duplicate" | "not planned") { "NOT_PLANNED" } else { "COMPLETED" };
-        let kind = if matches!(s, crate::claude::Subject::Issue(_)) { "Issue" } else { "PullRequest" };
-        self.pr_state = Some(super::info::state(&serde_json::json!({ "__typename": kind, "state": "CLOSED", "stateReason": why })));
+        self.pr_state = Some(super::info::state(&now));
         self.github_changed();
         let keep = self.cursor_key();
         self.load_claude();

@@ -4,7 +4,7 @@ use super::*;
 use crate::claude::Subject;
 
 /// Shown while what's on screen is from the cache.
-pub(super) const STALE: &str = "showing the PR as dv last saw it; refreshing from GitHub…";
+pub(super) const STALE: &str = "showing it as dv last saw it; refreshing from GitHub…";
 
 /// How often dv looks at whether the PR changed on GitHub (a 304 costs no rate limit).
 pub(super) const GITHUB_POLL: std::time::Duration = std::time::Duration::from_secs(5);

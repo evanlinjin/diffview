@@ -886,15 +886,26 @@ pub fn create_pr(base: &str, head: &str, title: &str, body: &str) -> Result<u64>
 /// Close PR `n` with a comment saying why.
 /// Close issue `n` with `comment`, as `reason` says (`completed`, `not planned`, `duplicate`
 /// of `dup`).
-pub fn close_issue(n: u64, comment: &str, reason: &str, dup: Option<u64>) -> Result<()> {
+/// Closes issue `n`, as `reason` says (a duplicate of `dup`, not planned, else done): GitHub's
+/// `stateReason` for it.
+pub fn close_issue(n: u64, comment: &str, reason: &str, dup: Option<u64>) -> Result<&'static str> {
     let (n, dup) = (n.to_string(), dup.map(|d| d.to_string()));
     let mut args = vec!["issue", "close", &n, "--comment", comment];
-    match (reason, &dup) {
-        ("duplicate", Some(d)) => args.extend(["--duplicate-of", d]),
-        ("not planned", _) => args.extend(["--reason", "not planned"]),
-        _ => args.extend(["--reason", "completed"]),
-    }
-    gh(&args).map(drop)
+    let why = match (reason, &dup) {
+        ("duplicate", Some(d)) => {
+            args.extend(["--duplicate-of", d]);
+            "DUPLICATE"
+        }
+        ("not planned", _) => {
+            args.extend(["--reason", "not planned"]);
+            "NOT_PLANNED"
+        }
+        _ => {
+            args.extend(["--reason", "completed"]);
+            "COMPLETED"
+        }
+    };
+    gh(&args).map(|_| why)
 }
 
 pub fn close(n: u64, comment: Option<&str>) -> Result<()> {

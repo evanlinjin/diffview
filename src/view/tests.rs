@@ -2472,7 +2472,7 @@ fn ask_claude_about_a_conversation_comment() {
     app.toggle_view(View::Claude);
     let q = app.rows.iter().position(|r| r.line.text.contains("what do they mean?")).expect("the question, in the Claude view");
     let heading = app.rows[..q].iter().rev().find(|r| r.line.kind == Kind::Thread && r.thread.is_none()).unwrap();
-    assert_eq!(heading.line.text, "questions about the PR's conversation");
+    assert_eq!(heading.line.text, "questions about PR #7's conversation");
 }
 
 #[test]
@@ -3006,11 +3006,11 @@ fn quitting_while_writing_beside_says_so_first() {
 
 #[test]
 fn unsent_text_kept_but_no_empty_files() {
-    let e = keep_on_error(Err(anyhow!("down")), "my words").unwrap_err().to_string();
+    let e = keep_on_error::<()>(Err(anyhow!("down")), "my words").unwrap_err().to_string();
     let path = e.split("text saved to ").nth(1).unwrap().trim_end_matches(')');
     assert_eq!(std::fs::read_to_string(path).unwrap(), "my words");
     std::fs::remove_file(path).unwrap();
-    assert_eq!(keep_on_error(Err(anyhow!("down")), "").unwrap_err().to_string(), "down");
+    assert_eq!(keep_on_error::<()>(Err(anyhow!("down")), "").unwrap_err().to_string(), "down");
 }
 
 #[test]

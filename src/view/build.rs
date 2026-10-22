@@ -352,7 +352,7 @@ impl App {
         if self.view != View::All || self.claude.closing.trim().is_empty() {
             return vec![];
         }
-        let it = self.subject().map_or("the PR", |s| if matches!(s, crate::claude::Subject::Issue(_)) { "the issue" } else { "the PR" });
+        let it = self.what();
         let what = match self.pr_state.is_some_and(|s| matches!(s.0, "OPEN" | "DRAFT")) {
             true => format!("closing comment · Claude's draft (Space a: close {it} with it, more changes, discard)"),
             false => format!("closing comment · Claude's draft ({it} isn't open: Space a discards it)"),
@@ -445,7 +445,7 @@ impl App {
             match (th.path.is_empty(), commit_of(&th.conversation)) {
                 (false, _) => th.path.clone(),
                 (true, Some(sha)) => format!("about commit {}", self.commit_short(sha)),
-                (true, None) => "questions about the PR's conversation".into(),
+                (true, None) => format!("questions about {}'s conversation", self.what()),
             }
         };
         gone.sort_by_cached_key(|&t| (self.threads[t].path.is_empty(), label(t)));

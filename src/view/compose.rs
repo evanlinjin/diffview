@@ -83,7 +83,7 @@ pub(super) fn clean_body(text: &str, mark: &str, prefill: &str) -> String {
 }
 
 /// If posting failed, save what was written so it isn't lost, and say where.
-pub(super) fn keep_on_error(res: Result<()>, body: &str) -> Result<()> {
+pub(super) fn keep_on_error<T>(res: Result<T>, body: &str) -> Result<T> {
     res.map_err(|e| {
         let saved = term::unsent_path();
         match !body.is_empty() && std::fs::write(&saved, body).is_ok() {
@@ -250,7 +250,7 @@ impl App {
                 }
                 // It couldn't be asked after all: keep what you wrote.
                 let why = std::mem::take(&mut self.msg);
-                Ok(keep_on_error(Err(anyhow::anyhow!(why)), &extra).err().map_or(String::new(), |e| format!("{e:#}")))
+                Ok(keep_on_error::<()>(Err(anyhow::anyhow!(why)), &extra).err().map_or(String::new(), |e| format!("{e:#}")))
             }
             Action::Replace(prs, about) => {
                 // Claude at work in its checkout: drafting it (from anywhere), or this dv's run or
@@ -462,7 +462,7 @@ impl App {
             let res = match left.flatten().filter(|b| !b.trim().is_empty()) {
                 Some(body) => {
                     let why = res.as_ref().map_or_else(|e| format!("{e:#}"), String::clone);
-                    Err(keep_on_error(Err(anyhow!("{why}: what you wrote wasn't sent")), &body).unwrap_err())
+                    Err(keep_on_error::<()>(Err(anyhow!("{why}: what you wrote wasn't sent")), &body).unwrap_err())
                 }
                 None => res,
             };
