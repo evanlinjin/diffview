@@ -380,9 +380,7 @@ impl App {
                 hits.filter(|&c| k > 0 || c < from.col).last()
             };
             if let Some(c) = hit {
-                self.anchor = Pos { row: r, col: c };
-                self.set_head(Pos { row: r, col: c + qlen - 1 });
-                return;
+                return self.sel(Pos { row: r, col: c }, Pos { row: r, col: c + qlen - 1 });
             }
         }
         self.msg = format!("no match: {}", self.search);
