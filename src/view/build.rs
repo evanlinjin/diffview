@@ -100,40 +100,6 @@ pub(super) fn anchor_line(t: &Thread, lines: &[DLine]) -> Option<usize> {
     by_text.or(at).or_else(|| (0..lines.len()).filter(|&i| side(&lines[i])).min_by_key(|&i| dist(i)).filter(|&i| dist(i) <= OUTDATED_SLACK))
 }
 
-/// Line `n` at the PR's head, here: past the `moves` above it (their lines added less
-/// removed); in one (edited here), that hunk's first line.
-pub(super) fn moved(moves: &[(u32, u32, u32, u32)], n: u32) -> u32 {
-    let mut shift: i64 = 0;
-    for &(os, ol, ns, nl) in moves {
-        // (No lines removed: lines added after line `os`.)
-        let end = if ol == 0 { os + 1 } else { os + ol };
-        if n >= end {
-            shift += nl as i64 - ol as i64;
-        } else if ol > 0 && n >= os {
-            return ns.max(1);
-        } else {
-            break;
-        }
-    }
-    (n as i64 + shift).max(1) as u32
-}
-
-/// The hunks of a diff (`diff::parse`'s, its paths as the shown diff's), by file: each from its
-/// header, `@@ -os,ol +ns,nl @@`.
-pub(super) fn hunks_by_file(files: &[FileDiff]) -> HashMap<String, Vec<(u32, u32, u32, u32)>> {
-    let range = |s: &str| -> Option<(u32, u32)> {
-        let (a, b) = s.split_once(',').unwrap_or((s, "1"));
-        Some((a.parse().ok()?, b.parse().ok()?))
-    };
-    let hunk = |text: &str| {
-        let mut parts = text.strip_prefix("@@ -")?.split(' ');
-        let (os, ol) = range(parts.next()?)?;
-        let (ns, nl) = range(parts.next()?.strip_prefix('+')?)?;
-        Some((os, ol, ns, nl))
-    };
-    files.iter().map(|f| (f.path.clone(), f.lines.iter().filter(|l| l.kind == Kind::Hunk).filter_map(|l| hunk(&l.text)).collect())).collect()
-}
-
 /// First row of a run of added/removed lines, as drawn: the row before it on its side (not a
 /// comment beside it, between its lines in `rows`) isn't one. (Either half in split view: a
 /// change's removed and added lines are one.)
@@ -169,20 +135,13 @@ impl App {
     /// head's lines have here (`head_moves`); else as it is (Claude's follow their code
     /// already; the old side's lines are the base's). What's sent to GitHub keeps its own.
     pub(super) fn here<'a>(&self, t: &'a Thread) -> std::borrow::Cow<'a, Thread> {
-        let Some(moves) = self.head_moves.get(&t.path).filter(|_| t.claude.is_none() && !t.outdated) else {
-            return std::borrow::Cow::Borrowed(t);
-        };
-        let mv = |n: u32, left: bool| if left { n } else { moved(moves, n) };
-        let mut m = t.clone();
-        m.line = t.line.map(|n| mv(n, t.left));
-        m.start_line = t.start_line.map(|s| mv(s, t.start_left.unwrap_or(t.left)));
-        std::borrow::Cow::Owned(m)
+        t.here(&self.head_moves)
     }
 
     /// `head_moves` worked out anew (the diff shown, or the PR's head, changed).
     pub(super) fn map_head(&mut self) {
         let head = self.pr.as_ref().map(|p| p.head_oid.clone()).filter(|h| !h.is_empty());
-        let moves = head.and_then(|h| diff::tracked_diff(&h, self.to.as_deref(), 0, &[]).ok()).map(|f| hunks_by_file(&f));
+        let moves = head.and_then(|h| diff::tracked_diff(&h, self.to.as_deref(), 0, &[]).ok()).map(|f| diff::hunks_by_file(&f));
         self.head_moves = moves.unwrap_or_default();
     }
 

@@ -607,7 +607,7 @@ pub struct App {
     /// How lines at the PR's head moved in what's shown here (local edits, unpushed commits,
     /// a commit before it): per file, its hunks (old start, old count, new start, new count).
     /// GitHub's line numbers are the head's; `here` maps them.
-    head_moves: HashMap<String, Vec<(u32, u32, u32, u32)>>,
+    head_moves: diff::Moves,
     review: Option<String>,
     /// The commit the pending review is on (`review`'s).
     review_on: String,

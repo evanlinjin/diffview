@@ -773,6 +773,20 @@ impl Thread {
     /// Where its range starts, a range comment's: its first line and the side it's on (before
     /// its line, on its side; or on the other, the old side's). None when it's on one line, or
     /// its line's gone (outdated: its start is of code since changed).
+    /// As placed where `moves` (how the PR head's lines moved: `diff::hunks_by_file`) has its
+    /// lines: a current GitHub thread's new-side ones moved; else as it is (Claude's follow
+    /// their code already; the old side's are the base's). What's sent to GitHub keeps its own.
+    pub fn here(&self, moves: &crate::diff::Moves) -> std::borrow::Cow<'_, Thread> {
+        let Some(m) = moves.get(&self.path).filter(|_| self.claude.is_none() && !self.outdated) else {
+            return std::borrow::Cow::Borrowed(self);
+        };
+        let mv = |n: u32, left: bool| if left { n } else { crate::diff::moved(m, n) };
+        let mut t = self.clone();
+        t.line = self.line.map(|n| mv(n, self.left));
+        t.start_line = self.start_line.map(|s| mv(s, self.start_left.unwrap_or(self.left)));
+        std::borrow::Cow::Owned(t)
+    }
+
     pub fn range_start(&self) -> Option<(u32, bool)> {
         let (s, l, left) = (self.start_line?, self.line?, self.start_left.unwrap_or(self.left));
         (left != self.left || s < l).then_some((s, left))

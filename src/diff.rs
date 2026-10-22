@@ -645,3 +645,40 @@ fn a_branch_pushes_to_its_own_name() {
     assert_eq!(push_target(&d, "amy-fix", Some(("fix", "amy/r"))), Some(("origin".into(), "fix".into())));
     _ = std::fs::remove_dir_all(&d);
 }
+
+/// How a diff moved lines, by file: its hunks (old start, old count, new start, new count).
+pub type Moves = std::collections::HashMap<String, Vec<(u32, u32, u32, u32)>>;
+
+/// Line `n` at the PR's head, here: past the `moves` above it (their lines added less
+/// removed); in one (edited here), that hunk's first line.
+pub fn moved(moves: &[(u32, u32, u32, u32)], n: u32) -> u32 {
+    let mut shift: i64 = 0;
+    for &(os, ol, ns, nl) in moves {
+        // (No lines removed: lines added after line `os`.)
+        let end = if ol == 0 { os + 1 } else { os + ol };
+        if n >= end {
+            shift += nl as i64 - ol as i64;
+        } else if ol > 0 && n >= os {
+            return ns.max(1);
+        } else {
+            break;
+        }
+    }
+    (n as i64 + shift).max(1) as u32
+}
+
+/// The hunks of a diff (`diff::parse`'s, its paths as the shown diff's), by file: each from its
+/// header, `@@ -os,ol +ns,nl @@`.
+pub fn hunks_by_file(files: &[FileDiff]) -> Moves {
+    let range = |s: &str| -> Option<(u32, u32)> {
+        let (a, b) = s.split_once(',').unwrap_or((s, "1"));
+        Some((a.parse().ok()?, b.parse().ok()?))
+    };
+    let hunk = |text: &str| {
+        let mut parts = text.strip_prefix("@@ -")?.split(' ');
+        let (os, ol) = range(parts.next()?)?;
+        let (ns, nl) = range(parts.next()?.strip_prefix('+')?)?;
+        Some((os, ol, ns, nl))
+    };
+    files.iter().map(|f| (f.path.clone(), f.lines.iter().filter(|l| l.kind == Kind::Hunk).filter_map(|l| hunk(&l.text)).collect())).collect()
+}
