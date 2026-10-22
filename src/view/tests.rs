@@ -2993,14 +2993,22 @@ fn quitting_while_writing_beside_says_so_first() {
     quit(&mut app, KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
     quit(&mut app, q);
     assert!(!app.quit);
-    // Merging is held the same way.
+    // Merging is held the same way, and kept while you ask again (`Space g` is a sequence)…
     (app.merge, app.quit) = (Some(1), true);
     app.hold_quit();
-    assert!(!app.quit && app.merge.is_none());
-    // Said a moment ago: leaves.
+    assert!(!app.quit && app.merge == Some(1));
     app.quit_armed = Some(ago(1000));
+    app.press(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+    assert!(app.quit_armed.is_some() && app.merge == Some(1));
+    app.pending = None;
+    // Said a moment ago: leaves (merging).
     quit(&mut app, ctrl_c);
-    assert!(app.quit);
+    assert!(app.quit && app.merge == Some(1));
+    // …another key between: neither.
+    app.quit = false;
+    app.quit_armed = Some(ago(1000));
+    quit(&mut app, KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    assert!(app.quit_armed.is_none() && app.merge.is_none());
 }
 
 #[test]

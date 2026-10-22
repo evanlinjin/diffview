@@ -944,7 +944,8 @@ impl App {
         }
         let again = self.quit_armed.take().is_some_and(|t| (QUIT_AFTER..QUIT_WITHIN).contains(&t.elapsed()));
         if !again {
-            (self.quit, self.merge, self.quit_armed) = (false, None, Some(std::time::Instant::now()));
+            // (A merge asked stays asked: leaving then, asked again, merges.)
+            (self.quit, self.quit_armed) = (false, Some(std::time::Instant::now()));
             self.msg = "you're writing in the editor's pane: save or :cq it first (again: leaves anyway)".into();
         }
     }
@@ -952,8 +953,10 @@ impl App {
     /// A key pressed: what it does, and (another key than leaving) leaving asks again.
     pub(super) fn press(&mut self, k: KeyEvent) {
         self.key(k);
-        if !self.quit {
-            self.quit_armed = None;
+        // (Not while a sequence is under way: `Space g` asking again is one.) A merge held
+        // with it goes too: what's asked again is what goes.
+        if !self.quit && !self.mid_sequence() {
+            (self.quit_armed, self.merge) = (None, None);
         }
     }
 
