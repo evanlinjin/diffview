@@ -217,7 +217,8 @@ impl App {
     /// under the cursor (quoted unless it's hidden on GitHub, with its link, else its id, so
     /// Claude reads it and the thread).
     pub(super) fn ask_about(&mut self, t: usize) {
-        let th = &self.threads[t];
+        // (Its lines as here, not the PR head's: Claude reads the code here.)
+        let th = self.here(&self.threads[t]).into_owned();
         let Some(line) = th.line else { return self.msg = "this thread is outdated: its lines aren't in the diff to ask about".into() };
         let Some(c) = self.comment_under_cursor(t) else { return self.msg = "move onto a comment to ask about it".into() };
         let anchor = self.one_sided(Anchor { path: th.path.clone(), line, left: th.left, start: th.range_start(), ..Default::default() });
