@@ -190,7 +190,7 @@ impl App {
     /// something (a picker's rows would move under it).
     pub(super) fn watch_github(&mut self) {
         let busy = self.action.is_some() || self.job.is_some() || self.picker.is_some() || self.prompt.is_some();
-        if busy || self.pending.is_some() {
+        if busy {
             return;
         }
         let Some((at, f)) = self.github.as_ref().and_then(|rx| rx.try_iter().last()) else { return };

@@ -935,11 +935,34 @@ impl App {
         }
     }
 
+    /// What changed elsewhere (the tree, Claude, GitHub, …) shown. Not while a key sequence
+    /// is half typed (a prefix, jump labels): the rows stay as it began on till it's done.
+    pub(super) fn watch(&mut self) {
+        if self.pending.is_some() || !self.labels.is_empty() {
+            return;
+        }
+        self.watch_seen();
+        self.watch_tree();
+        self.watch_claude();
+        self.watch_github();
+        self.watch_marks();
+        if self.refresh_at.is_some_and(|t| t <= std::time::Instant::now()) {
+            self.refresh_at = None;
+            if let Some(p) = &self.github_poke {
+                _ = p.send(());
+            }
+        }
+        self.watch_replacement();
+        self.watch_replaced_by();
+        self.poll_claude();
+        self.watch_claude_pane();
+        self.watch_elsewhere();
+    }
+
     pub fn run(&mut self, term: &mut DefaultTerminal) -> Result<()> {
         // (Till you quit, or an issue's to be shown: then back here, as it was.)
         while !self.quit && self.hand_off.is_none() {
             self.log_msg();
-            self.watch_seen();
             term.draw(|f| self.draw(f))?;
             if let Some(job) = self.job.take() {
                 self.run_job(job);
@@ -957,21 +980,7 @@ impl App {
             }
             self.hold_quit();
             self.lsp_poll();
-            self.watch_tree();
-            self.watch_claude();
-            self.watch_github();
-            self.watch_marks();
-            if self.refresh_at.is_some_and(|t| t <= std::time::Instant::now()) {
-                self.refresh_at = None;
-                if let Some(p) = &self.github_poke {
-                    _ = p.send(());
-                }
-            }
-            self.watch_replacement();
-            self.watch_replaced_by();
-            self.poll_claude();
-            self.watch_claude_pane();
-            self.watch_elsewhere();
+            self.watch();
             self.act(term);
         }
         self.seen.current.push(String::new()); // what the cursor is on now counts as seen too
