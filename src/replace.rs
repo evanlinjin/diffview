@@ -617,6 +617,8 @@ pub fn close_originals(r: &mut Record, note: &str) -> Result<Vec<u64>> {
 /// Remove replacement `id`: its worktree (not with local changes) and its record. Its branch
 /// stays, in case there's something on it you want.
 pub fn remove(id: u64, root: &Path) -> Result<String> {
+    // Not while Claude's at it (a draft, a run, a pane): its claim, held while removing.
+    let _claim = crate::claude::claim(&crate::claude::rep_key(id), "removing it", None).map_err(|w| anyhow::anyhow!("Claude is {w} on {}: remove it once it's done", label(id)))?;
     let dir = crate::worktree_dir_named(root, &name(id))?;
     if dir.exists() {
         crate::ensure_worktree_of(&dir, root)?;
