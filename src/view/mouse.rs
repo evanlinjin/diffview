@@ -52,6 +52,11 @@ impl App {
         // Sideways over the code (a popup or a picker scrolls as with the wheel).
         let code = self.picker.is_none() && self.popup.is_none();
         let kind = if code { sideways(&m) } else { m.kind };
+        // A click or drag in the code: the focus there (not the files' list), and a prefix or
+        // count waiting gone, as any key that isn't theirs.
+        if code && matches!(kind, MouseEventKind::Down(_) | MouseEventKind::Drag(_)) {
+            (self.files_focus, self.pending, self.count) = (false, None, 0);
+        }
         match kind {
             // Sideways: what's under it (a comment's code block or table, the pinned title, or
             // the diff), the cursor to it first, as a click. Not where nothing would scroll
