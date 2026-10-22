@@ -81,6 +81,8 @@ pub struct List {
     /// Claude's reviews from here (`a`): how each is going, and the news on its way.
     batch: HashMap<u64, batch::Status>,
     batch_rx: Vec<Receiver<(u64, batch::Status)>>,
+    /// The instructions each was asked with (`a a`'s), for asking it again.
+    batch_extra: HashMap<u64, String>,
     /// What each of those is (a review, an update to one, answers), for the cards.
     batch_task: HashMap<u64, batch::Task>,
     /// The todo tab: you (your login) and what GitHub says beyond the cards (on its way, like
@@ -391,6 +393,7 @@ impl List {
         let doing: Vec<String> = prs.iter().map(|(n, _, t)| format!("{} #{n}", t.doing())).collect();
         for (n, _, t) in &prs {
             self.batch_task.insert(*n, t.clone());
+            self.batch_extra.insert(*n, extra.clone()); // (asked again with them, held back)
             // Queued now, not once its news comes: what looks at it next sees it under way.
             self.batch.insert(*n, batch::Status::Queued);
         }
@@ -610,8 +613,7 @@ impl List {
                     self.new.insert(n);
                     // A description checked: at that head (not again till it moves).
                     if let Some(batch::Task::Describe(_, head)) = self.batch_task.get(&n).cloned() {
-                        self.described.insert(n, head);
-                        self.save_described();
+                        self.note_described(n, head);
                     }
                     self.msg = match doing {
                         "reviewing" => format!("Claude reviewed #{n} ({took}): Enter opens it, in its worktree from the worktrees tab"),

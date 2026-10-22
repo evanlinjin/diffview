@@ -196,18 +196,16 @@ impl List {
         // Your PRs changed since their descriptions were checked: Claude checks again, proposing
         // a new one if it no longer fits (Space a in the PR approves it). One first seen: its
         // head noted, nothing asked (nothing's changed that dv knows of).
-        if self.described.is_empty() {
-            self.described = described_file().and_then(|f| serde_json::from_str(&std::fs::read_to_string(f).ok()?).ok()).unwrap_or_default();
+        // (As saved now: another dv list may have noted some since.)
+        if let Some(saved) = read_described() {
+            self.described = saved;
         }
-        let mut noted = false;
+        let mut noted = vec![];
         let busy = |n: u64| self.running.contains_key(&n) || self.todos.items.iter().any(|it| it.number == n && (it.busy.is_some() || it.deferred.is_some()));
         for p in self.prs.iter().filter(|p| p.open() && p.author == self.me) {
             let Some(head) = self.extra.get(&p.number).map(|e| e.head_oid.clone()).filter(|h| !h.is_empty()) else { continue };
             match self.described.get(&p.number).cloned() {
-                None => {
-                    self.described.insert(p.number, head);
-                    noted = true;
-                }
+                None => noted.push((p.number, head)),
                 // (A draft: its description's still to come. One Claude hasn't reviewed: that's
                 // its first run, not this: a description alone would stand for a review.)
                 // (Once a head, as auto's every task: `auto_done`; noted checked once it is.)
@@ -224,8 +222,8 @@ impl List {
                 _ => {}
             }
         }
-        if noted {
-            self.save_described();
+        for (n, head) in noted {
+            self.note_described(n, head);
         }
         // A PR Claude would replace (low effort, worth keeping) with no replacement of it yet:
         // drafted, one at a time, once each at a head (unpublished: the drafts tab has it).
@@ -638,11 +636,14 @@ impl List {
         })
     }
 
-    /// The heads PRs' descriptions were checked at, kept (`described.json`): the one place
-    /// they're written.
-    pub(super) fn save_described(&self) {
+    /// PR `n`'s description checked at `head`, kept (`described.json`): that one entry, into
+    /// the file as it is now (another dv list's notes kept), the one place they're written.
+    pub(super) fn note_described(&mut self, n: u64, head: String) {
+        self.described.insert(n, head.clone());
         if let Some(f) = described_file() {
-            _ = std::fs::write(f, serde_json::to_string(&self.described).unwrap_or_default());
+            let mut all = read_described().unwrap_or_default();
+            all.insert(n, head);
+            _ = std::fs::write(f, serde_json::to_string(&all).unwrap_or_default());
         }
     }
 
@@ -690,12 +691,12 @@ impl List {
         let changed = now != self.running || reps != self.running_reps;
         (self.running, self.running_reps) = (now, reps);
         // Runs that found Claude at it: once it isn't (on the PR, nor where it'd work), asked
-        // again, by auto too (that task): a change as any here.
+        // again as they were (yours, auto's): a change as any here.
         let free: Vec<u64> = self.batch.iter().filter(|(n, s)| matches!(s, batch::Status::Busy(_, d) if !batch::held(**n, d.as_deref()))).map(|(&n, _)| n).collect();
         for &n in &free {
-            self.batch.remove(&n);
-            let doing = self.batch_task.get(&n).map_or("reviewing", batch::Task::doing);
-            self.auto_done.retain(|d| d.0 != n || d.2 != doing);
+            let task = self.batch_task.get(&n).cloned().unwrap_or(batch::Task::Review);
+            let extra = self.batch_extra.get(&n).cloned().unwrap_or_default();
+            self.start_batch(vec![(n, task)], extra);
         }
         changed || !free.is_empty()
     }
@@ -739,4 +740,9 @@ impl List {
 /// Where the heads PRs' descriptions were checked at are kept (none from tests).
 fn described_file() -> Option<std::path::PathBuf> {
     crate::claude::dv_dir().ok().map(|d| d.join("described.json")).filter(|_| !cfg!(test))
+}
+
+/// The heads PRs' descriptions were checked at, as saved (`described.json`), if it's there.
+fn read_described() -> Option<HashMap<u64, String>> {
+    serde_json::from_str(&std::fs::read_to_string(described_file()?).ok()?).ok()
 }
