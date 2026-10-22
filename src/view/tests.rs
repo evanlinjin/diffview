@@ -1828,7 +1828,7 @@ fn github_changes_shown_when_idle() {
     (reply.id, reply.body) = (99, "Fair.".into());
     newer[0].comments.push(reply);
     let fetched = |threads: Vec<Thread>| -> github::Fetched {
-        let r = gh::Review { pr_id: "PR".into(), mine: true, me: "you".into(), pending: None, pending_body: String::new(), threads, viewed: Default::default() };
+        let r = gh::Review { pr_id: "PR".into(), mine: true, me: "you".into(), pending: None, pending_body: String::new(), pending_on: String::new(), threads, viewed: Default::default() };
         (Ok(r), Ok(Info { lines: app_info(), title: "Fix the thing".into(), head: "abc".into(), url: String::new(), state: ("OPEN", "238636"), unsigned: Some(vec![]), awaiting: 0, failing: 0, base: String::new(), conflicts: false, updated: String::new(), fixes: vec![] }))
     };
     let replies = |app: &App| app.threads.iter().flat_map(|t| &t.comments).filter(|c| c.body == "Fair.").count();
@@ -5233,7 +5233,7 @@ fn a_new_comment_unfolds_its_viewed_file_however_it_arrives() {
     let review = |n: usize| {
         let cs: Vec<gh::Comment> = (0..n).map(|i| gh::Comment { id: 10 + i as u64, node_id: format!("N{i}"), author: "amy".into(), body: "hm".into(), ..Default::default() }).collect();
         gh::Review {
-            pr_id: "PR".into(), mine: false, me: "me".into(), pending: None, pending_body: String::new(),
+            pr_id: "PR".into(), mine: false, me: "me".into(), pending: None, pending_body: String::new(), pending_on: String::new(),
             threads: vec![gh::Thread { id: "T".into(), path: "src/a.rs".into(), line: Some(2), comments: cs, ..Default::default() }],
             viewed: HashMap::from([("src/a.rs".to_owned(), "VIEWED".to_owned())]),
         }
@@ -5279,4 +5279,25 @@ fn a_thread_opened_with_tab_stays_open_unresolved() {
     let keep = app.cursor_key();
     app.rebuild(keep);
     assert!(app.thread_open(3), "unresolved, the thread you opened stays open");
+}
+
+#[test]
+fn a_pending_review_on_another_head_refuses_lines_and_an_approval_read_on_this() {
+    let mut app = fixture();
+    (app.review, app.review_on) = (Some("R".into()), "aaa".into());
+    let e = app.ensure_review("", Some("bbb")).unwrap_err().to_string();
+    assert!(e.contains("your pending review is on aaa"), "{e}");
+    assert_eq!(app.ensure_review("", Some("aaa")).unwrap(), "R");
+    assert_eq!(app.ensure_review("", None).unwrap(), "R", "a reply has no lines");
+}
+
+#[test]
+fn a_jump_to_a_thread_doesnt_pin_it_open() {
+    let mut app = fixture();
+    let t = (0..app.threads.len()).find(|&t| app.thread_open(t) && app.threads[t].claude.is_none()).unwrap();
+    app.goto_comment(t, 0);
+    app.threads[t].resolved = true;
+    let keep = app.cursor_key();
+    app.rebuild(keep);
+    assert!(!app.thread_open(t), "resolved after a jump onto it, it stays open");
 }

@@ -27,14 +27,26 @@ impl App {
     /// PR's head) if there isn't one yet, with `body` (your review text, as GitHub can't add any
     /// later to one started without). The caller's, as when posted: a refresh meanwhile can't
     /// swap them out.
+    /// One on another commit (started before a pull) can't take lines read on this one (they'd
+    /// land on its), said.
     pub(super) fn ensure_review(&mut self, body: &str, commit: Option<&str>) -> Result<String> {
         if let Some(r) = &self.review {
+            self.pending_on(commit)?;
             return Ok(r.clone());
         }
         let pr = self.pr.as_ref().context("no PR")?;
-        let id = gh::start_review(&pr.node_id, commit.unwrap_or(&pr.head_oid), body)?;
-        self.review = Some(id.clone());
+        let on = commit.unwrap_or(&pr.head_oid).to_owned();
+        let id = gh::start_review(&pr.node_id, &on, body)?;
+        (self.review, self.review_on) = (Some(id.clone()), on);
         Ok(id)
+    }
+
+    /// The pending review is on `commit` (none: any), or it's said what to do.
+    fn pending_on(&self, commit: Option<&str>) -> Result<()> {
+        match commit.filter(|c| !self.review_on.is_empty() && *c != self.review_on) {
+            Some(_) => bail!("your pending review is on {} (before the head moved): S submits it, or Space p, Ctrl-d discards it", &self.review_on[..self.review_on.len().min(8)]),
+            None => Ok(()),
+        }
     }
 
     pub(super) fn run_job(&mut self, job: Job) {
@@ -214,8 +226,9 @@ impl App {
                 let close = event == CLOSE;
                 let event = if close { "COMMENT" } else { event };
                 if !close || self.review.is_some() || !body.trim().is_empty() {
+                    // (An approval's ACK names a head: its review on another, refused.)
                     let res = match &self.review {
-                        Some(r) => gh::submit_review(r, event, &body),
+                        Some(r) => self.pending_on((event == "APPROVE").then_some(on.as_str())).and_then(|_| gh::submit_review(r, event, &body)),
                         // (On the head its summary was written on: an ACK names it.)
                         None => gh::review_now(&pr.node_id, &on, event, &body),
                     };

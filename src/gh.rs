@@ -41,6 +41,8 @@ pub struct Review {
     pub pending: Option<String>,
     /// Its text so far (the review summary, submitted with it).
     pub pending_body: String,
+    /// The commit it's on (its comments' lines are that commit's).
+    pub pending_on: String,
     pub threads: Vec<Thread>,
     /// Your "Viewed" marks: path → VIEWED, or DISMISSED (the file changed after you marked it).
     pub viewed: std::collections::HashMap<String, String>,
@@ -451,7 +453,7 @@ fn fetch_review(mut run: impl FnMut(&str, &[(&str, &str)]) -> Result<Value>) -> 
     let mut d = run(
         &format!(
             "query({vars}) {{ viewer {{ login }} {pr} {{ id viewerDidAuthor
-               reviews(states: PENDING, first: 10) {{ nodes {{ id viewerDidAuthor body }} }} {} {} }} }} }}",
+               reviews(states: PENDING, first: 10) {{ nodes {{ id viewerDidAuthor body commit {{ oid }} }} }} {} {} }} }} }}",
             files(""),
             threads("")
         ),
@@ -500,6 +502,7 @@ fn parse_review(pr: &Value) -> Review {
         me: String::new(),
         pending: pending.as_ref().and_then(|r| r["id"].as_str().map(str::to_owned)),
         pending_body: pending.as_ref().and_then(|r| r["body"].as_str()).unwrap_or("").to_owned(),
+        pending_on: pending.as_ref().and_then(|r| r["commit"]["oid"].as_str()).unwrap_or("").to_owned(),
         threads: nodes(&pr["reviewThreads"]).iter().map(parse_thread).collect(),
         viewed: nodes(&pr["files"])
             .iter()

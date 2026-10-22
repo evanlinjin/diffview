@@ -605,6 +605,8 @@ pub struct App {
     job: Option<Job>,
     /// The viewer's pending review on the PR, if any.
     review: Option<String>,
+    /// The commit the pending review is on (`review`'s).
+    review_on: String,
     /// What to show instead for a while (an issue a link goes to, this PR's replacement): the
     /// view hands it over, and goes on as it was after.
     pub hand_off: Option<HandOff>,
