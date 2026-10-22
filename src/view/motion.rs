@@ -119,6 +119,11 @@ impl App {
         (!(self.rows[r].thread.is_some() && !self.rows[r].attached && !self.in_pane(r))).then(|| self.in_pane(r))
     }
 
+    /// A selection's up (select mode's, or one a motion made), not a bare cursor.
+    pub(super) fn selecting(&self) -> bool {
+        self.select || self.anchor != self.head
+    }
+
     /// Move the head; outside select mode the anchor follows.
     pub(super) fn goto(&mut self, row: usize, col: usize) {
         let row = row.min(self.rows.len() - 1);

@@ -155,7 +155,7 @@ impl App {
         if row.file == INFO {
             return None;
         }
-        let selecting = self.select || self.anchor.row != self.head.row;
+        let selecting = self.selecting();
         let code = matches!(row.line.kind, Kind::Add | Kind::Del | Kind::Ctx);
         if !selecting && !code {
             return None;

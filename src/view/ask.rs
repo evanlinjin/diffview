@@ -177,7 +177,7 @@ impl App {
     /// Claude's threads on lines in the selection, when it spans more than one (`r`/`a` reply to
     /// them all, once): their keys, in order.
     pub(super) fn selected_claude_threads(&self) -> Option<Vec<String>> {
-        if !self.select {
+        if !self.selecting() {
             return None;
         }
         let (s, e) = self.ordered();
@@ -260,7 +260,7 @@ impl App {
 
     /// The selected text, quoted (`> `), when there's a selection.
     pub(super) fn selected_quote(&self) -> Option<String> {
-        (self.select || self.anchor != self.head).then(|| super::quote(self.selection_text(false).trim_end())).filter(|q| !q.is_empty())
+        self.selecting().then(|| super::quote(self.selection_text(false).trim_end())).filter(|q| !q.is_empty())
     }
 
     /// Which of a replacement's drafts row `r` is a line of: "description" or "closing note".
