@@ -159,6 +159,15 @@ pub fn target(prs: &[u64]) -> Vec<u64> {
     }
 }
 
+/// Whether `prs` are one draft's (a PR no draft replaces is its own): drafted as it, not
+/// grouped first.
+pub fn one_draft(prs: &[u64]) -> bool {
+    let mut ids: Vec<u64> = prs.iter().map(|&n| target(&[n])[0]).collect();
+    ids.sort();
+    ids.dedup();
+    ids.len() <= 1
+}
+
 /// Why the draft of `prs` (as `target` has them, its id first) isn't drafted: published, it's
 /// a PR like any (Claude asked there); a PR in it is another draft's (one draft each: what it
 /// replaces is closed once, by one).
@@ -493,14 +502,14 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
     let prs = &target(prs)[..];
     let id = *prs.first().context("no PR to replace")?;
     // Under way first, before the slow setting up: others (dv list, another dv) see it, and
-    // don't start another.
+    // don't start another. Its claim, held while it drafts (this process's: let go as it ends,
+    // however); what's read of it after (no other draft's between).
+    let _claim = crate::claude::claim(&crate::claude::rep_key(id), "drafting", None).map_err(|w| anyhow::anyhow!("Claude is {w} on {} already", label(id)))?;
     let existed = path(id)?.exists();
     anyhow::ensure!(existed || !is_new(id), "no new PR {}", label(id));
     // When its last draft ended (the record as it left it): reviews of the originals changed
     // since go to a redraft.
     let last = std::fs::metadata(path(id)?).and_then(|m| m.modified()).ok();
-    // Its claim, held while it drafts (this process's: let go as it ends, however).
-    let _claim = crate::claude::claim(&crate::claude::rep_key(id), "drafting", None).map_err(|w| anyhow::anyhow!("Claude is {w} on {} already", label(id)))?;
     let mut added = vec![];
     let (first, _) = update(id, |r| {
         // (Checked as it's marked: nothing written for one refused.)
@@ -662,8 +671,11 @@ pub fn note(r: &Record) -> String {
 pub fn close_originals(r: &mut Record, note: &str) -> Result<Vec<u64>> {
     let mut done = vec![];
     for n in r.replaces.iter().map(|o| o.number).filter(|n| !r.closed.contains(n)).collect::<Vec<_>>() {
-        let res = crate::gh::close(n, Some(note)).with_context(|| format!("closing #{n}"));
-        res?;
+        // (Merged or closed already, by someone else: done, not closed again; gh can't close a
+        // merged one.)
+        if crate::gh::pr_state(n).ok().flatten().is_none_or(|s| s == "OPEN") {
+            crate::gh::close(n, Some(note)).with_context(|| format!("closing #{n}"))?;
+        }
         // (Into the record as it is now: what's been written to it meanwhile stays.)
         *r = update(r.id, |r| {
             if !r.closed.contains(&n) {

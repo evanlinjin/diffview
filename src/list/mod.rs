@@ -317,8 +317,9 @@ impl List {
                     self.msg = format!("Claude is {}{with}, {} at a time", self.start_batch(prs, extra), batch::AT_ONCE);
                     self.marked.clear();
                 }
-                // One PR: its replacement. Several: Claude suggests how to group them first.
-                Some(Do::Replace(prs)) if prs.len() == 1 => self.draft_groups(term, Ok(vec![(prs, String::new())])),
+                // One draft's (one PR, or PRs one draft replaces): it. Several: Claude suggests
+                // how to group them first.
+                Some(Do::Replace(prs)) if crate::replace::one_draft(&prs) => self.draft_groups(term, Ok(vec![(prs, String::new())])),
                 Some(Do::Replace(prs)) => {
                     let about = |n: u64| self.prs.iter().find(|p| p.number == n).map(|p| (n, p.title.clone(), p.author.clone(), p.base.clone()));
                     let prs = prs.into_iter().map(|n| about(n).unwrap_or((n, String::new(), String::new(), String::new()))).collect();

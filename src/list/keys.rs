@@ -238,9 +238,9 @@ impl List {
                 let id = *drafts.first()?;
                 let which = drafts.iter().map(|&n| crate::replace::shown(n)).collect::<Vec<_>>().join(" ");
                 let again = if self.rep_of.contains_key(&id) { " (again: it has one, which Claude carries on from)" } else { "" };
-                let ask = match prs.len() {
-                    1 => format!("A again: Claude drafts {}{again}, unpublished; your editor opens first, for instructions", crate::replace::label(id)),
-                    _ => format!("A again: Claude suggests how to group {which} into replacements (you decide, in your editor), then drafts them, unpublished"),
+                let ask = match crate::replace::one_draft(&prs) {
+                    true => format!("A again: Claude drafts {}{again}, unpublished; your editor opens first, for instructions", crate::replace::label(id)),
+                    false => format!("A again: Claude suggests how to group {which} into replacements (you decide, in your editor), then drafts them, unpublished"),
                 };
                 if self.again(armed, ('A', 0), ask) {
                     return Some(Do::Replace(prs));
