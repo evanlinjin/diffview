@@ -5,6 +5,23 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.95.8] - 2026-10-22
+
+### Fixed
+- Selections: `x` grows from an empty or one-char line and stays on its side of a comment
+  beside the code; copying across comments in the pane keeps to them; a selection survives a
+  resize, a comment seen and GitHub's poll, and ends once an action has used it.
+- Search: `n` / `N` go from the selection's ends; search, `gg` and `ge` skip comments not
+  drawn; `*` searches the line as drawn (a hunk header's too).
+- Keys: Ctrl, Alt, arrows and clicks end a prefix and count; a count goes through `]` / `[`
+  (`2]f`), capped, as one jump; jump labels end on a click, a Ctrl key or a rebuild; the prompt
+  takes no Ctrl chars (Ctrl-c closes it).
+- Nothing from outside (GitHub, Claude, the tree, rust-analyzer) changes the rows under a
+  half-typed key, jump labels, a picker or the prompt.
+- Ctrl-o's jumps survive rebuilds; a hunk's header is kept across them; `Space f` lists the
+  files list's entries (no panic on the title), survives a resize, and shows a file outside
+  the Claude / pending view; going to a file or section is a jump and leaves the list.
+
 ## [0.95.7] - 2026-10-22
 
 ### Fixed
