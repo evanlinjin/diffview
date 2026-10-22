@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.92.6] - 2026-10-22
+
+### Fixed
+- A commit dv's amend both changed and reworded is followed (the commit shown, a range's
+  start, Claude's questions about it): amends record what each commit became.
+- A range being started in the commit list survives a commit made elsewhere or a base moved.
+
 ## [0.92.5] - 2026-10-22
 
 ### Fixed
