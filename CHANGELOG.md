@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.86.0] - 2026-10-22
+
+### Added
+- Enter on a link to an issue of the PR's repo (`#82`) opens it in dv's issue view, with all
+  of its keys (comment, labels, close, a PR fixing it); `q` comes back to the PR as you left it.
+
 ## [0.85.0] - 2026-10-21
 
 ### Changed
