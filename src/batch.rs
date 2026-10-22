@@ -143,6 +143,30 @@ impl Numbered for (u64, bool, Task) {
     }
 }
 
+/// One of the `AT_ONCE` Claude runs this dv may have going, across all its pools (a batch
+/// asked while another runs waits for it): held while a run's at work, given back as it ends.
+struct Slot;
+
+static SLOTS: (Mutex<usize>, std::sync::Condvar) = (Mutex::new(0), std::sync::Condvar::new());
+
+impl Slot {
+    fn take() -> Slot {
+        let mut n = SLOTS.0.lock().unwrap_or_else(|e| e.into_inner());
+        while *n >= AT_ONCE {
+            n = SLOTS.1.wait(n).unwrap_or_else(|e| e.into_inner());
+        }
+        *n += 1;
+        Slot
+    }
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        *SLOTS.0.lock().unwrap_or_else(|e| e.into_inner()) -= 1;
+        SLOTS.1.notify_one();
+    }
+}
+
 /// `items` done by `work` (which may say how it's going on the sender), `AT_ONCE` at a time,
 /// in the background: each queued first, then its news and how it ended, by number.
 pub fn pool<T: Numbered + Send + 'static>(items: Vec<T>, work: impl Fn(&T, &Sender<(u64, Status)>) -> (u64, Status) + Send + Sync + 'static) -> Receiver<(u64, Status)> {
@@ -153,6 +177,7 @@ pub fn pool<T: Numbered + Send + 'static>(items: Vec<T>, work: impl Fn(&T, &Send
         let (queue, tx, work) = (queue.clone(), tx.clone(), work.clone());
         std::thread::spawn(move || {
             while let Some(item) = queue.lock().ok().and_then(|mut q| q.pop_front()) {
+                let _slot = Slot::take();
                 // (A panic in one: it failed, and the worker goes on to the next.)
                 let st = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&item, &tx)));
                 _ = tx.send(st.unwrap_or_else(|p| (item.number(), Status::Failed(stopped(&p)))));
