@@ -168,7 +168,7 @@ impl App {
         if cols != self.wrap_cols {
             self.wrap_cols = cols;
             if self.soft_wrap {
-                self.layout();
+                self.relayout_keeping_top();
             }
         }
         let mtw = mw - self.pane_gw();
@@ -328,16 +328,23 @@ impl App {
         let lines: Vec<Line> = (0..rows_shown)
             .map(|y| {
                 let d = self.top + y;
-                let cur = d == hd;
-                // (A wrapped line's part: drawn on from where the last left off.)
+                // (A wrapped line's part: drawn on from where the last left off. Its parts are
+                // the cursor's line, all of them; its relative number is lines', on its first.)
                 let seg = self.dseg.get(d).copied().unwrap_or(0);
+                let line = |d: usize| d - self.dseg.get(d).copied().unwrap_or(0);
+                let cur = line(d) == line(hd);
                 // The cursor line's tint: on the side with focus only (none with the list's).
                 let tint = cur && !self.files_focus;
                 let rel = match (relw, cur) {
                     (0, _) => vec![],
                     // (Lit as the code's line is: when it has focus.)
                     (_, true) => vec![Span::styled(format!("{:>w$} ", "", w = relw - 1), if tint && !self.margin_side() { self.ui.linenr_selected } else { self.ui.linenr })],
-                    _ => vec![Span::styled(format!("{:>w$} ", d.abs_diff(hd), w = relw - 1), self.ui.linenr)],
+                    _ if seg > 0 => vec![Span::styled(" ".repeat(relw), self.ui.linenr)],
+                    _ => {
+                        let (a, b) = (line(d).min(line(hd)), line(d).max(line(hd)));
+                        let lines = (a + 1..=b).filter(|&x| self.dseg.get(x).is_some_and(|&s| s == 0)).count();
+                        vec![Span::styled(format!("{:>w$} ", lines, w = relw - 1), self.ui.linenr)]
+                    }
                 };
                 let mut spans = rel;
                 // Beside the pane (as a column), full-width rows are as wide as the code.
@@ -512,7 +519,7 @@ impl App {
         let header = self.rows[self.head.row].line.kind == Kind::File;
         if let (Some(url), None, None, false) = (self.link_at_cursor(), &self.picker, &self.popup, header) {
             let y = (hd - self.top) as u16 + pin as u16;
-            let x = ((self.text_x(c) + self.rows[self.head.row].guide_w() + self.col_of(self.head.row, self.head.col).saturating_sub(self.hscroll(self.head.row))) as u16).min(area.width.saturating_sub(20));
+            let x = ((self.text_x(c) + self.rows[self.head.row].guide_w() + self.col_of(self.head.row, self.head.col).saturating_sub(self.text_left(self.head.row, self.head.col))) as u16).min(area.width.saturating_sub(20));
             // (Just where it goes: its keys are in the key hints.)
             let text = format!(" ↗ {url} ");
             let w = (text.chars().count() as u16).min(area.width - x);
@@ -692,7 +699,7 @@ impl App {
             return Rect { x: c.area.x + x as u16, y: c.area.y + c.pin as u16, width: c.area.width.saturating_sub(x as u16), height: c.h as u16 };
         }
         let row = self.head.row;
-        let x = self.text_x(c) + self.rows[row].guide_w() + self.col_of(row, self.head.col).saturating_sub(self.hscroll(row));
+        let x = self.text_x(c) + self.rows[row].guide_w() + self.col_of(row, self.head.col).saturating_sub(self.text_left(row, self.head.col));
         let y = c.pin + c.hd.saturating_sub(self.top);
         Rect { x: c.area.x + x as u16, y: c.area.y + y as u16, width: 1, height: 1 }
     }
@@ -937,6 +944,7 @@ impl App {
                 DRow::Margin(l, r, c) => out.extend(l.into_iter().chain(r.filter(|&r| Some(r) != l)).chain(c)),
             }
         }
+        out.dedup(); // (a wrapped line's parts: once)
         out
     }
 

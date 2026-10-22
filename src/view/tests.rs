@@ -3547,3 +3547,42 @@ fn long_lines_wrap() {
     _ = screen(80, 20, |f| app.draw(f));
     assert_eq!(app.drows.len(), rows_before);
 }
+
+#[test]
+fn wrapped_lines_move_and_draw_whole() {
+    // 40 long lines: j goes through each's parts, the wheel scrolls past them.
+    let body: String = (0..40).map(|i| format!("+{}{}\n", i % 10, "y".repeat(299))).collect();
+    let text = format!("diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -0,0 +1,40 @@\n{body}");
+    let mut app = App::with("base".into(), diff::parse(&text));
+    (app.files_pref, app.margin_pref, app.soft_wrap) = (Some(false), Some(false), true);
+    _ = screen(80, 20, |f| app.draw(f));
+    let first = app.rows.iter().position(|r| r.line.kind == Kind::Add).unwrap();
+    app.goto(first, 0);
+    let parts = app.parts(first, app.wrap_cols.0).len();
+    assert!(parts > 1);
+    for k in 1..parts {
+        app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        assert_eq!((app.head.row, app.hd()), (first, app.d_of[first] + k), "j to part {k}");
+    }
+    app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    assert_eq!(app.head.row, first + 1, "then the next line");
+    let top = app.top;
+    for _ in 0..6 {
+        app.scroll_code(3);
+        _ = screen(80, 20, |f| app.draw(f));
+    }
+    assert!(app.top >= top + 18, "the wheel scrolls: {} from {top}", app.top);
+    // A wide character where a part would end: whole, on the next part.
+    let w = app.wrap_cols.0;
+    let line = format!("{}界yz", "a".repeat(w - 1));
+    let text = format!("diff --git a/b.rs b/b.rs\nindex 1..2 100644\n--- a/b.rs\n+++ b/b.rs\n@@ -1 +1 @@\n-old\n+{line}\n");
+    let mut app = App::with("base".into(), diff::parse(&text));
+    (app.files_pref, app.margin_pref, app.soft_wrap) = (Some(false), Some(false), true);
+    _ = screen(80, 20, |f| app.draw(f));
+    let s = screen(80, 20, |f| app.draw(f));
+    assert!(s.contains("↪ 界"), "{s}"); // (its second column: a space, in this screen's text)
+    // Split view: the short side's later rows have no ↪ of their own.
+    app.toggle_split();
+    let s = screen(80, 20, |f| app.draw(f));
+    assert_eq!(s.matches('↪').count(), app.segs(None, app.rows.iter().position(|r| r.line.text == line)) - 1, "{s}");
+}

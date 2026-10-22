@@ -141,8 +141,19 @@ impl App {
         if skip(target) {
             return;
         }
-        self.goto(self.pick(target), w);
+        // (Wrapped lines: by their parts, as Helix moves, as far into the part as you were.)
+        let (row, col) = self.pick_at(target, self.within(w));
+        self.goto(row, col);
         self.want_col = w;
+    }
+
+    /// How far into its part column `w` of the cursor's line is (wrapped; else `w`).
+    fn within(&self, w: usize) -> usize {
+        let r = self.head.row;
+        if !self.wraps(r) {
+            return w;
+        }
+        w - self.part_of(r, w).1
     }
 
     pub(super) fn ordered(&self) -> (Pos, Pos) {
@@ -371,7 +382,8 @@ impl App {
         let hd = self.hd();
         if hd < lo || hd > hi {
             let w = self.want_col;
-            self.goto(self.pick(into(hd)), w);
+            let (row, col) = self.pick_at(into(hd), self.within(w));
+            self.goto(row, col);
             self.want_col = w;
         }
         true
@@ -386,7 +398,7 @@ impl App {
             }
             let chars = self.chars(row);
             let class = |c: char| if c.is_whitespace() { 0 } else if c.is_alphanumeric() || c == '_' { 1 } else { 2 };
-            let mut i = self.char_from(row, self.hscroll(row)); // where its text starts on screen
+            let mut i = if self.wraps(row) { 0 } else { self.char_from(row, self.hscroll(row)) }; // where its text starts on screen
             while i < chars.len() {
                 let (c, start) = (class(chars[i]), i);
                 while i < chars.len() && class(chars[i]) == c {

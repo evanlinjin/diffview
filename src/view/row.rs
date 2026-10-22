@@ -249,11 +249,7 @@ impl App {
                     None => format!("{:>lw$} {:>lw$} {m} ", num(l.old), num(l.new)),
                     Some(right) => format!("{:>lw$} {m} ", num(if right { l.new } else { l.old })),
                 };
-                // A wrapped line's part after its first: no numbers, `↪` where its mark is.
-                let gutter = match seg {
-                    0 => gutter,
-                    _ => format!("{:>w$} ", "↪", w = gutter.chars().count() - 1),
-                };
+
                 (gutter, Style::new())
             }
         };
@@ -299,10 +295,20 @@ impl App {
         let tw = tw.saturating_sub(row.guide_w());
         // Scrolled by columns, every row alike (a tab's 4, a wide character's 2): the chars
         // wholly in `left..left + text_w`, after the part of one cut at the left.
-        // Wrapped (`soft_wrap`), a part of the line: from where the part before it ended.
-        let wrapped = self.soft_wrap && code_row;
-        let left = if wrapped { seg * text_w } else { self.hscroll(r) };
-        let (skip, end) = (self.char_from(r, left), self.char_at(r, left + text_w));
+        // Wrapped (`soft_wrap`), a part of the line (`parts`: whole chars each); past its last
+        // (a pair's shorter side), nothing; and after its first, no numbers: `↪` for its mark.
+        let wrapped = self.wraps(r);
+        let parts = if wrapped { self.parts(r, text_w) } else { vec![] };
+        if wrapped && seg > 0 {
+            let w = spans[0].width();
+            let mark = if seg < parts.len() { "↪" } else { "" };
+            spans[0].content = format!("{mark:>w$} ", w = w.saturating_sub(1)).into();
+        }
+        let (skip, end) = match wrapped {
+            true => (parts.get(seg).copied().unwrap_or(self.len(r)), parts.get(seg + 1).copied().unwrap_or(self.len(r))),
+            false => (self.char_from(r, self.hscroll(r)), self.char_at(r, self.hscroll(r) + text_w)),
+        };
+        let left = if wrapped { self.col_of(r, skip) } else { self.hscroll(r) };
         let cut = self.col_of(r, skip) - left;
         if cut > 0 {
             spans.push(Span::styled(" ".repeat(cut), style));
@@ -331,7 +337,7 @@ impl App {
             n = i + 1;
         }
         // (Past the line's end: on its last part, wrapped.)
-        let last_part = !wrapped || self.col_of(r, self.len(r)) <= left + text_w;
+        let last_part = !wrapped || seg + 1 == parts.len();
         if cursor_here && self.head.col >= n.max(skip) && last_part {
             spans.push(Span::styled(" ", self.cursor_style()));
         }

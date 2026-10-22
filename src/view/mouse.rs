@@ -59,7 +59,9 @@ impl App {
             // to (the cursor there would take it back).
             MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight if code => {
                 let Some((row, col, _)) = self.at_screen(x, y) else { return };
-                if self.scroller(row).is_none() || kind == MouseEventKind::ScrollRight && self.col_of(row, self.len(row)) <= self.hscroll(row) + 1 && self.hscroll(row) > 0 {
+                // (Wrapped, the diff has nothing off to the side.)
+                let wrapped = self.wraps(row) && matches!(self.scroller(row), Some(Scroller::Diff));
+                if wrapped || self.scroller(row).is_none() || kind == MouseEventKind::ScrollRight && self.col_of(row, self.len(row)) <= self.hscroll(row) + 1 && self.hscroll(row) > 0 {
                     return;
                 }
                 self.select = false;
@@ -182,9 +184,13 @@ impl App {
             }
             DRow::Margin(l, r, note) => (l.or(r).or(note)?, g.relw + g.gw, one),
         };
-        // Wrapped, the part of its line this screen row has; else as it's scrolled.
-        let left = match self.soft_wrap && self.rows[row].line.kind.is_code() {
-            true => self.dseg.get(d).copied().unwrap_or(0) * w,
+        // Wrapped, the part of its line this screen row has (past a short side's end: its end);
+        // else as it's scrolled.
+        let left = match self.wraps(row) {
+            true => {
+                let starts = self.parts(row, w);
+                self.col_of(row, starts.get(self.dseg.get(d).copied().unwrap_or(0)).copied().unwrap_or(self.len(row)))
+            }
             false => self.hscroll(row),
         };
         // (A reply's guide is before its text.)
