@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.92.9] - 2026-10-22
+
+### Fixed
+- A popup or picker opened in a very short terminal no longer crashes dv.
+- With the pane as a column, the cursor on a file header wider than the code scrolls into view.
+- A PR title with wide characters (CJK) gives up its counts before being cut, and a click on
+  it lands on the character under the mouse; the status bar cuts such text with `…`.
+
 ## [0.92.8] - 2026-10-22
 
 ### Fixed
