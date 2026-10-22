@@ -44,9 +44,13 @@ impl App {
         let hd = self.hd();
         let at_edge = self.at_edge(hd, right);
         // The code's left edge: on into the files' list.
-        if !right && self.files_w > 0 && self.list_has_spots() && !self.margin_side() && at_edge {
+        // (Hidden or empty, it says so.)
+        if !right && !self.margin_side() && at_edge {
             self.focus_list(false);
-            return self.msg = "contents: j / k move, Enter goes there, Ctrl-l back".into();
+            if self.files_focus {
+                self.msg = "contents: j / k move, Enter goes there, Ctrl-l back".into();
+            }
+            return;
         }
         // The right edge: on into the pane.
         let into_margin = self.margin_active && right && at_edge && !self.margin_side();
