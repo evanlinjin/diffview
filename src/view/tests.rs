@@ -4430,7 +4430,8 @@ fn search_back_from_selection_start() {
     app.goto(4, 15);
     app.search = "(".into();
     press(&mut app, "N"); // back from the selection's start: main's, not new_call's
-    assert_eq!(app.anchor, Pos { row: 2, col: 7 });
+    assert_eq!(app.head, Pos { row: 2, col: 7 });
+    assert_eq!(app.anchor, Pos { row: 3, col: 0 }, "select mode: the selection extends");
 }
 
 #[test]
@@ -4789,4 +4790,56 @@ fn a_count_goes_through_a_prefix() {
     assert_ne!(app.head.row, 0);
     ctrl(&mut app, 'o');
     assert_eq!(app.head.row, 0);
+}
+
+#[test]
+fn jumps_are_moves_and_gg_is_one() {
+    // ]c onto where you are: no jump; one Ctrl-o back to where it began.
+    let mut app = margin_app();
+    app.threads.truncate(1);
+    app.build();
+    app.goto(0, 0);
+    press(&mut app, "]c]c]c");
+    ctrl(&mut app, 'o');
+    assert_eq!(app.head.row, 0);
+    // gg / ge: jumps, a selection going on.
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    app.goto(4, 0);
+    press(&mut app, "gg");
+    ctrl(&mut app, 'o');
+    assert_eq!(app.head.row, 4);
+    press(&mut app, "vgg");
+    assert_eq!((app.anchor.row, app.head.row), (4, 0));
+}
+
+#[test]
+fn text_inputs_take_no_ctrl_chars_and_ctrl_c_closes_them() {
+    let mut app = fixture();
+    press(&mut app, " f");
+    ctrl(&mut app, 'u');
+    assert_eq!(app.picker.as_ref().map(|p| p.query.as_str()), Some(""));
+    ctrl(&mut app, 'c');
+    assert!(app.picker.is_none(), "Ctrl-c didn't close the picker");
+    assert!(!app.quit);
+    press(&mut app, "?/");
+    ctrl(&mut app, 'x');
+    assert_eq!(app.help.as_ref().map(|h| h.0.as_str()), Some(""));
+    // An empty search: the last one again.
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    app.search = "call".into();
+    press(&mut app, "/");
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(app.search, "call");
+}
+
+#[test]
+fn focus_leaves_a_list_hidden_by_a_resize() {
+    let mut app = fixture();
+    app.files_pref = Some(true);
+    _ = screen(220, 20, |f| app.draw(f));
+    ctrl(&mut app, 'w');
+    press(&mut app, "k");
+    assert!(app.files_focus);
+    _ = screen(90, 20, |f| app.draw(f));
+    assert!(!app.files_focus, "focus in a list not shown");
 }

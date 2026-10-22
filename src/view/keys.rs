@@ -443,8 +443,17 @@ impl App {
         }
         match (p, c) {
             // In the pane, its own top / end (the first and last comment, or the PR's text).
-            ('g', 'g') => self.goto(self.rows_here().first().copied().unwrap_or(self.head.row), 0),
-            ('g', 'e') => self.goto(self.rows_here().last().copied().unwrap_or(self.head.row), 0),
+            // (Jumps, Ctrl-o comes back; a selection goes on, as Helix's.)
+            ('g', 'g') => {
+                let r = self.rows_here().first().copied().unwrap_or(self.head.row);
+                self.push_jump(r, 0);
+                self.goto(r, 0);
+            }
+            ('g', 'e') => {
+                let r = self.rows_here().last().copied().unwrap_or(self.head.row);
+                self.push_jump(r, 0);
+                self.goto(r, 0);
+            }
             ('g', 'h') => self.goto(self.head.row, 0),
             ('g', 'l') => self.goto(self.head.row, usize::MAX),
             ('m', 'm') => self.match_bracket(),

@@ -491,9 +491,18 @@ impl App {
 
     /// Jump within the diff, remembering where we came from (Ctrl-o goes back).
     pub(super) fn jump(&mut self, row: usize, col: usize) {
-        self.jumps.push((self.key_at(self.head.row), self.head.col)); // (by key: rows move)
+        self.push_jump(row, col);
         self.select = false;
         self.goto(row, col);
+    }
+
+    /// Where the cursor is, for Ctrl-o to come back to, when it's going elsewhere (to `row`,
+    /// `col`): by key, as rows move.
+    pub(super) fn push_jump(&mut self, row: usize, col: usize) {
+        let to = Pos { row: row.min(self.rows.len() - 1), col: col.min(self.len(row.min(self.rows.len() - 1)).saturating_sub(1)) };
+        if to != self.head {
+            self.jumps.push((self.key_at(self.head.row), self.head.col));
+        }
     }
 }
 
