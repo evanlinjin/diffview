@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.92.7] - 2026-10-22
+
+### Fixed
+- After resetting to an amend's backup, the commit shown, a range's start and Claude's
+  questions follow back to the commit as it was (and on, if it's rebased again later).
+
 ## [0.92.6] - 2026-10-22
 
 ### Fixed
