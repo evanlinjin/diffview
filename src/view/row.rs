@@ -297,18 +297,24 @@ impl App {
         // wholly in `left..left + text_w`, after the part of one cut at the left.
         // Wrapped (`soft_wrap`), a part of the line (`parts`: whole chars each); past its last
         // (a pair's shorter side), nothing; and after its first, no numbers: `↪` for its mark.
+        // Code: what this screen row shows of it (`span_of`: a wrapped line's part, or as it's
+        // scrolled; past a short side's last part, nothing). Comments and the rest: in their
+        // own width (a box's), as they're scrolled.
         let wrapped = self.wraps(r);
-        let shown = self.span_of(r, if wrapped { seg } else { 0 });
+        let shown = if code_row { self.span_of(r, seg) } else { None };
         if wrapped && seg > 0 {
             let w = spans[0].width();
             let mark = if shown.is_some() { "↪" } else { "" };
             spans[0].content = format!("{mark:>w$} ", w = w.saturating_sub(1)).into();
         }
-        let left = shown.as_ref().map_or(0, |s| s.left);
-        let (skip, end) = match (&shown, wrapped) {
-            (Some(s), true) => (s.chars.start, s.chars.end),
-            (None, _) => (self.len(r), self.len(r)), // (a short side's row past its end)
-            (Some(_), false) => (self.char_from(r, left), self.char_at(r, left + text_w)),
+        let len = self.len(r);
+        let (skip, end, left) = match (&shown, code_row) {
+            (Some(s), true) => (s.chars.start, s.chars.end, s.left),
+            (None, true) => (len, len, self.col_of(r, len)),
+            (_, false) => {
+                let left = self.hscroll(r);
+                (self.char_from(r, left), self.char_at(r, left + text_w), left)
+            }
         };
         let cut = self.col_of(r, skip) - left;
         if cut > 0 {
@@ -338,7 +344,7 @@ impl App {
             n = i + 1;
         }
         // (Past the line's end: on its last part, wrapped.)
-        let last_part = !wrapped || self.part(r, seg + 1).is_none();
+        let last_part = !wrapped || shown.as_ref().is_some_and(|s| s.chars.end == len);
         if cursor_here && self.head.col >= n.max(skip) && last_part {
             spans.push(Span::styled(" ", self.cursor_style()));
         }

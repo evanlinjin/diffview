@@ -197,8 +197,9 @@ impl App {
     pub(super) fn scroller(&self, r: usize) -> Option<Scroller> {
         match self.box_part(r) {
             None if r == 0 && self.pin => None,
-            // (Wrapping, nothing's off to the side: no sideways scrolling, by any key or gesture.)
-            None if self.soft_wrap => None,
+            // (A wrapped line has nothing off to the side: no sideways scrolling, by any key or
+            // gesture. What doesn't wrap, a long header, still scrolls.)
+            None if self.wraps(r) => None,
             None => Some(Scroller::Diff),
             Some(_) => self.code_block(r).map(Scroller::Block),
         }
@@ -451,25 +452,41 @@ impl App {
         n(l).max(n(r))
     }
 
-    /// What row `r` shows as part `k`: its chars there, and the column the screen's text starts
-    /// at (a wrapped line's part's; else as it's scrolled sideways). None past its last part.
+    /// What row `r` shows on its `k`-th screen row (a wrapped line's part; what doesn't wrap,
+    /// its one): the chars on screen there (as far as the code's width goes, scrolled), and the
+    /// column the screen's text starts at. None past a wrapped line's last part.
     pub(super) fn span_of(&self, r: usize, k: usize) -> Option<Shown> {
-        let chars = self.part(r, k)?;
-        let left = if self.wraps(r) { self.col_of(r, chars.start) } else { self.hscroll(r) };
-        Some(Shown { row: r, chars, left })
+        if self.wraps(r) {
+            let chars = self.part(r, k)?;
+            return Some(Shown { row: r, left: self.col_of(r, chars.start), chars });
+        }
+        let left = self.hscroll(r);
+        // (The width not known yet, nothing drawn: all of it.)
+        let w = if self.split && self.rows[r].line.kind.is_code() { self.wrap_cols.1 } else { self.wrap_cols.0 };
+        let (from, len) = (self.char_from(r, left), self.len(r));
+        let to = if w == 0 { len } else { self.char_at(r, left + w).min(len) };
+        Some(Shown { row: r, chars: from..to.max(from), left })
     }
 
-    /// Screen row `d`'s code on a side (`right`, in split view; else its one), where it has
-    /// text: not a spacer, a pair's hatch, nor a short side past its last part. What drawing,
-    /// the cursor, motions, the mouse and labels all go by.
+    /// Whether a screen row's lines are a split pair (code, in split view: a side each).
+    pub(super) fn paired(&self, l: Option<usize>, r: Option<usize>) -> bool {
+        self.split && l.or(r).is_some_and(|x| self.rows[x].line.kind.is_code())
+    }
+
+    /// Screen row `d`'s line on a side (`right`, of a split pair; else its one): None for a
+    /// spacer, or a pair's hatch (no line on that side).
+    pub(super) fn side_row(&self, d: usize, right: bool) -> Option<usize> {
+        match *self.drows.get(d)? {
+            DRow::Full(r) => Some(r),
+            DRow::Pair(l, r) | DRow::Margin(l, r, _) if self.paired(l, r) => if right { r } else { l },
+            DRow::Pair(l, r) | DRow::Margin(l, r, _) => l.or(r),
+        }
+    }
+
+    /// What screen row `d` shows of its line on a side: none for a spacer, a hatch, or a short
+    /// side past its last part. What drawing, the cursor, motions, the mouse and labels all go by.
     pub(super) fn span(&self, d: usize, right: bool) -> Option<Shown> {
-        let code = |x: Option<usize>| x.is_some_and(|x| self.rows[x].line.kind.is_code());
-        let r = match *self.drows.get(d)? {
-            DRow::Full(r) => r,
-            DRow::Pair(l, r) | DRow::Margin(l, r, _) if self.split && code(l.or(r)) => if right { r } else { l }?,
-            DRow::Pair(l, r) | DRow::Margin(l, r, _) => l.or(r)?,
-        };
-        self.span_of(r, self.dseg[d])
+        self.span_of(self.side_row(d, right)?, self.dseg[d])
     }
 
     /// The column the cursor's text starts at on screen: its part's, wrapped; else as scrolled.
@@ -614,7 +631,13 @@ impl App {
     /// Lay the rows out again (wrapped otherwise), what's at the top of the screen kept there
     /// (the part of a line, as near as it is now).
     pub(super) fn relayout_keeping_top(&mut self) {
-        let top = self.span(self.top, self.right).or_else(|| self.span(self.top, !self.right)).map(|s| Pos { row: s.row, col: s.chars.start });
+        // (Its code's part; on a spacer, the comment beside it.)
+        let code = self.span(self.top, self.right).or_else(|| self.span(self.top, !self.right)).map(|s| Pos { row: s.row, col: s.chars.start });
+        let note = || match self.drows.get(self.top) {
+            Some(&DRow::Margin(_, _, Some(c))) => Some(Pos { row: c, col: 0 }),
+            _ => None,
+        };
+        let top = code.or_else(note);
         self.layout();
         if let Some(p) = top {
             self.top = self.d_at(p);
@@ -623,7 +646,7 @@ impl App {
 
     pub(super) fn toggle_split(&mut self) {
         self.split = !self.split;
-        self.layout();
+        self.relayout_keeping_top();
         self.msg = if self.split { "split view (Ctrl-h / Ctrl-l switch sides)" } else { "unified view" }.into();
     }
 
@@ -648,14 +671,34 @@ impl App {
         }
         // (The other side only for a hatch: this side has no line there. A short line's own
         // rows past its end aren't stops.)
-        let hatch = match *self.drows.get(d)? {
-            DRow::Pair(l, r) | DRow::Margin(l, r, _) if self.split => if self.right { r.is_none() } else { l.is_none() },
-            _ => false,
+        let s = match self.side_row(d, self.right) {
+            Some(r) => self.span_of(r, self.dseg[d])?,
+            None => self.span(d, !self.right)?,
         };
-        let s = self.span(d, self.right).or_else(|| hatch.then(|| self.span(d, !self.right)).flatten())?;
         let start = self.col_of(s.row, s.chars.start);
         let col = self.char_at(s.row, start + x).min(s.chars.end.saturating_sub(1)).max(s.chars.start);
         Some(Pos { row: s.row, col })
+    }
+
+    /// The nearest screen row from `from` the cursor can stop on (`stop_at`), stepping `step`,
+    /// and its place there; none that way, the nearest back toward `back` (not past it).
+    pub(super) fn stop_near(&self, from: usize, step: isize, back: usize, x: usize) -> Option<Pos> {
+        let last = self.drows.len() as isize - 1;
+        let mut t = from as isize;
+        while (0..=last).contains(&t) {
+            if let Some(p) = self.stop_at(t as usize, x) {
+                return Some(p);
+            }
+            t += step;
+        }
+        let mut t = from as isize - step;
+        while (0..=last).contains(&t) && (t - back as isize).signum() == step.signum() {
+            if let Some(p) = self.stop_at(t as usize, x) {
+                return Some(p);
+            }
+            t -= step;
+        }
+        None
     }
 
     /// The cursor's column into what's on its screen row (its part, wrapped), as vertical

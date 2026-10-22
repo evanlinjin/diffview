@@ -3620,3 +3620,22 @@ fn wrapped_moves_keep_their_column_and_get_past_pairs() {
     assert_eq!(app.rows[app.head.row].line.text, long, "onto the next long line");
     assert_eq!(app.head.col, 70.min(w - 1), "as far into its part");
 }
+
+#[test]
+fn a_short_sides_empty_rows_stay_in_their_half() {
+    // Split, wrapped: a 50-char removed line beside a 110-char added one. The removed side's
+    // rows past its end are blank, its half's width: the divider stays put.
+    let (a, b) = ("x".repeat(50), "y".repeat(110));
+    let text = format!("diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-{a}\n+{b}\n");
+    let mut app = App::with("base".into(), diff::parse(&text));
+    (app.files_pref, app.margin_pref, app.soft_wrap, app.split) = (Some(false), Some(false), true, true);
+    _ = screen(80, 30, |f| app.draw(f));
+    let s = screen(80, 30, |f| app.draw(f));
+    let at: Vec<usize> = s.lines().filter(|l| l.contains('y')).map(|l| l.chars().position(|c| c == '│').unwrap()).collect();
+    assert!(at.len() > 2 && at.iter().all(|&x| x == at[0]), "{s}");
+    // gw: each word once, though its line takes several rows.
+    app.alphabet = vec!['a', 'b', 'c'];
+    app.show_labels();
+    let starts: HashSet<_> = app.labels.iter().map(|l| l.0).collect();
+    assert_eq!(starts.len(), app.labels.len());
+}
