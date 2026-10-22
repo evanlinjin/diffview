@@ -943,11 +943,15 @@ impl App {
         if !self.quit || self.writing.is_none() {
             return;
         }
-        match self.quit_armed.take().filter(|(t, _)| (QUIT_AFTER..QUIT_WITHIN).contains(&t.elapsed())) {
-            Some((_, held)) => self.merge = self.merge.or(held),
-            None => {
-                (self.quit, self.quit_armed) = (false, Some((std::time::Instant::now(), self.merge.take())));
-                self.msg = "you're writing in the editor's pane: save or :cq it first (again: leaves anyway)".into();
+        // Asked again: what's held goes (a merge asked now is that same one, or none). A held
+        // key's repeat keeps what's held; another merge asked is asked anew.
+        match self.quit_armed.take().filter(|(t, _)| t.elapsed() < QUIT_WITHIN) {
+            Some((t, held)) if t.elapsed() >= QUIT_AFTER && self.merge.is_none_or(|m| Some(m) == held) => self.merge = held,
+            armed => {
+                let held = self.merge.take().or(armed.and_then(|a| a.1));
+                (self.quit, self.quit_armed) = (false, Some((std::time::Instant::now(), held)));
+                let leaves = held.map_or("leaves anyway".to_owned(), |n| format!("leaves anyway, merging #{n}"));
+                self.msg = format!("you're writing in the editor's pane: save or :cq it first (again: {leaves})");
             }
         }
     }

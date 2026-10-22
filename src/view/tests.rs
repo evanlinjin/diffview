@@ -3011,6 +3011,19 @@ fn quitting_while_writing_beside_says_so_first() {
     app.quit_armed = app.quit_armed.map(|(_, m)| (ago(1000), m));
     quit(&mut app, KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
     assert!(app.quit_armed.is_none() && app.merge.is_none());
+    // A held key's repeat keeps the merge held; another PR's merge asked is asked anew.
+    (app.merge, app.quit) = (Some(1), true);
+    app.hold_quit();
+    quit(&mut app, q); // (at once: a repeat)
+    assert!(!app.quit && app.quit_armed.is_some_and(|(_, m)| m == Some(1)) && app.msg.ends_with("merging #1)"));
+    app.quit_armed = app.quit_armed.map(|(_, m)| (ago(1000), m));
+    (app.merge, app.quit) = (Some(2), true);
+    app.hold_quit();
+    assert!(!app.quit && app.quit_armed.is_some_and(|(_, m)| m == Some(2)));
+    app.quit_armed = app.quit_armed.map(|(_, m)| (ago(1000), m));
+    quit(&mut app, q);
+    assert!(app.quit && app.merge == Some(2));
+    app.quit = false;
     // The writing over: a quit later is only that.
     (app.merge, app.quit) = (Some(1), true);
     app.hold_quit();
