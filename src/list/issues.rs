@@ -212,22 +212,53 @@ fn triage_run(n: u64, updated: &str, fixes: &[(u64, String, String)], root: &std
     // (Its own word for what went wrong, where it said one.)
     let why = if answer.is_empty() { String::from_utf8_lossy(&out.stderr).lines().last().unwrap_or("").to_owned() } else { answer.lines().next().unwrap_or("").to_owned() };
     anyhow::ensure!(out.status.success() && v["is_error"] == false, "Claude stopped ({}): {why}", out.status);
-    let mut t = crate::claude::json_in(answer, '{').filter(Value::is_object).context("no triage in Claude's answer")?;
-    (t["issue"], t["updated"]) = (n.into(), updated.into());
-    // (The merged fixes it judged: one merging after has it triaged again.)
-    t["fixes_seen"] = fixes.iter().filter(|p| p.1 == "MERGED").map(|p| p.0).collect::<Vec<_>>().into();
-    // A closing comment drafted for it (`X X`), kept when this triage has none of its own.
-    // (Only while this triage still says to close it: one that says keep it open, keeps it.)
+    let t = crate::claude::json_in(answer, '{').filter(Value::is_object).context("no triage in Claude's answer")?;
     let old: Value = std::fs::read_to_string(&file).ok().and_then(|o| serde_json::from_str(&o).ok()).unwrap_or_default();
-    let said = |v: &Value, k: &str| v[k].as_str().is_some_and(|c| !c.trim().is_empty());
-    if said(&t, "close") && !said(&t, "closing") && said(&old, "closing") {
-        for k in ["closing", "reason", "duplicate_of"] {
-            t[k] = old[k].clone();
-        }
-    }
+    let t = merge_triage(&old, t, n, updated, fixes);
     std::fs::create_dir_all(file.parent().context("no dir")?)?;
     crate::claude::write(&file, &t)?;
     Ok(batch::Status::Done(format!("{} turns, ${:.2}", v["num_turns"].as_u64().unwrap_or(0), v["total_cost_usd"].as_f64().unwrap_or(0.0))))
+}
+
+/// What an issue's triage says (Claude's word on it, each triage anew).
+const TRIAGE_KEYS: [&str; 10] = ["kind", "priority", "summary", "next", "labels", "title", "close", "closing", "reason", "duplicate_of"];
+
+/// A new triage `t` of issue `n` (as of `updated`, with the PRs linked as fixing it) in its
+/// file as it was (`old`): what the last triage said goes, the rest stays (the talk with
+/// Claude, its proposals). A closing comment drafted for it (`X X`) stays too while this
+/// triage still says to close it and has none of its own.
+fn merge_triage(old: &Value, t: Value, n: u64, updated: &str, fixes: &[(u64, String, String)]) -> Value {
+    let said = |v: &Value, k: &str| v[k].as_str().is_some_and(|c| !c.trim().is_empty());
+    let keep_closing = said(&t, "close") && !said(&t, "closing") && said(old, "closing");
+    let mut m = old.as_object().cloned().unwrap_or_default();
+    for k in TRIAGE_KEYS {
+        m.remove(k);
+    }
+    m.extend(t.as_object().cloned().unwrap_or_default());
+    if keep_closing {
+        for k in ["closing", "reason", "duplicate_of"] {
+            m.insert(k.into(), old[k].clone());
+        }
+    }
+    m.insert("issue".into(), n.into());
+    m.insert("updated".into(), updated.into());
+    // (The merged fixes it judged: one merging after has it triaged again.)
+    m.insert("fixes_seen".into(), fixes.iter().filter(|p| p.1 == "MERGED").map(|p| p.0).collect::<Vec<_>>().into());
+    Value::Object(m)
+}
+
+#[test]
+fn a_triage_keeps_the_rest_of_the_file() {
+    let old = serde_json::json!({ "summary": "old", "close": "fixed", "closing": "Thanks!", "reason": "completed", "next": "stale",
+        "comments": [{ "conversation": "summary", "body": "why?" }], "description": "proposed" });
+    // A new word: the old one's keys go (`next`), the talk and proposals stay.
+    let t = merge_triage(&old, serde_json::json!({ "summary": "new", "close": "fixed by #9" }), 7, "u", &[(9, "MERGED".into(), String::new())]);
+    assert_eq!((t["summary"].as_str(), t["next"].as_str(), t["description"].as_str()), (Some("new"), None, Some("proposed")));
+    assert_eq!(t["comments"][0]["body"], "why?");
+    // Still to close, with no comment of its own: the drafted one kept.
+    assert_eq!((t["closing"].as_str(), t["reason"].as_str(), t["fixes_seen"][0].as_u64()), (Some("Thanks!"), Some("completed"), Some(9)));
+    // Not to close now: no closing comment.
+    assert!(merge_triage(&old, serde_json::json!({ "summary": "keep it" }), 7, "u", &[])["closing"].is_null());
 }
 
 /// Whether `k` is for moving about, the tabs, the filter, the help (`Nav`) while `pending`
