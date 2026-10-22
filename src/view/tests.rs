@@ -1837,10 +1837,10 @@ fn github_changes_shown_when_idle() {
     tx.send((0, fetched(newer.clone()))).unwrap();
     app.threads_picker(THREADS_ALL);
     assert!(app.picker.is_some());
-    app.watch_github();
+    app.watch();
     assert_eq!(replies(&app), 0);
     app.picker = None;
-    app.watch_github();
+    app.watch();
     assert_eq!(replies(&app), 1);
     assert!(app.threads.iter().any(|t| t.claude.is_some()), "Claude's thread stays");
     assert_eq!(app.msg, "1 new comment(s) on GitHub");
@@ -4637,4 +4637,57 @@ fn a_file_unfolded_from_the_list_keeps_the_anchor() {
     app.goto(at(&app, "gamma"), 0);
     app.goto_spot(super::files::Spot::File(0)); // a click on a.rs in the files' list
     assert_eq!(app.rows[app.anchor.row].line.text, "alpha", "anchor now on another line");
+}
+
+#[test]
+fn ctrl_o_survives_rebuilds() {
+    // The comment seen meanwhile (a rebuild without its [new]): Ctrl-o still goes back.
+    let mut app = margin_app();
+    for t in &mut app.threads {
+        for c in &mut t.comments {
+            c.node_id = format!("n{}", c.id);
+        }
+    }
+    app.build();
+    app.seen.path = Some(std::env::temp_dir().join(format!("dv-seen-jumps-{}.json", std::process::id())));
+    let four = |app: &App| app.rows.iter().position(|r| r.line.text == "four!").unwrap();
+    app.goto(four(&app), 0);
+    let _ = screen(120, 30, |f| app.draw(f));
+    press(&mut app, "[c");
+    app.watch();
+    app.seen.since = app.seen.since.map(|t| t - std::time::Duration::from_secs(5));
+    app.watch();
+    ctrl(&mut app, 'o');
+    let _ = std::fs::remove_file(app.seen.path.as_ref().unwrap());
+    assert_eq!(app.rows[app.head.row].line.text, "four!");
+    // A folded thread unfolded to get there: Ctrl-o back to the line, not its old row.
+    let mut app = margin_app();
+    let id = app.root_id(1).unwrap();
+    app.toggled.insert(id);
+    app.build();
+    app.goto(four(&app), 0);
+    press(&mut app, "[c");
+    ctrl(&mut app, 'o');
+    assert_eq!(app.rows[app.head.row].line.text, "four!");
+}
+
+#[test]
+fn a_picker_open_holds_back_what_changed() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let p = std::env::temp_dir().join(format!("dv-claude-picker-{}.json", std::process::id()));
+    std::fs::write(&p, r#"{ "summary": "", "comments": [] }"#).unwrap();
+    app.claude.path = Some(p.clone());
+    app.load_claude();
+    app.build();
+    press(&mut app, " f");
+    let want = app.picker.as_ref().unwrap().items.last().map(|i| i.label.clone()).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::write(&p, r#"{ "summary": "Looks fine.\n\nmore\n\nmore", "comments": [] }"#).unwrap();
+    app.watch();
+    for _ in 0..10 {
+        app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    }
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let _ = std::fs::remove_file(&p);
+    assert_eq!(app.rows[app.head.row].line.text, want);
 }
