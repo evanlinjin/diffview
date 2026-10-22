@@ -268,6 +268,12 @@ pub struct CiNote {
     pub rerun: bool,
 }
 
+/// A run fixing PR `n`'s CI started (its claim taken): Claude's last word that it isn't the PR's
+/// doing goes (it says so again, if it still finds that).
+pub fn fixing_ci_afresh(n: u64) {
+    ci_note_path(n).map(std::fs::remove_file).ok();
+}
+
 pub fn ci_note_path(n: u64) -> Result<PathBuf> {
     Ok(dv_dir()?.join("ci").join(format!("pr-{n}.json")))
 }
@@ -336,19 +342,37 @@ pub fn looked(n: u64) -> Option<i64> {
 }
 
 /// Claude in a pane on PR (or issue) `n`, for `dv list` and any dv: its marker,
-/// `running/pane-N.json`, with what it's doing and its session (the pane's command line has
-/// it: at it while Claude Code works there, `pane::run_live`), and when it started.
+/// `running/pane-N-<session>.json` (a checkout's pane each), with what it's doing and its
+/// session (the pane's command line has it: at it while Claude Code works there,
+/// `pane::run_live`), and when it started.
 pub fn mark_pane(n: u64, what: &str, session: &str) {
     let Ok(dir) = running_dir() else { return };
     let v = serde_json::json!({ "what": what, "session": session, "started": now_secs() });
-    _ = std::fs::write(dir.join(format!("pane-{n}.json")), v.to_string());
+    _ = std::fs::write(dir.join(format!("pane-{n}-{session}.json")), v.to_string());
 }
 
-/// Claude's done in its pane on `n` (or it's closed).
-pub fn clear_pane(n: u64) {
+/// Claude's done in its pane (of `session`) on `n` (or it's closed).
+pub fn clear_pane(n: u64, session: &str) {
     if let Ok(d) = running_dir() {
-        _ = std::fs::remove_file(d.join(format!("pane-{n}.json")));
+        _ = std::fs::remove_file(d.join(format!("pane-{n}-{session}.json")));
     }
+}
+
+/// The markers in `dir` (`running/`), each with the PR (or issue) it's on: runs' claims
+/// (`pr-N.json`) and panes' (`pane-N-<session>.json`).
+fn markers(dir: &std::path::Path) -> Vec<(u64, PathBuf)> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return vec![] };
+    entries
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().to_str()?.strip_suffix(".json")?.to_owned();
+            let n = match name.strip_prefix("pane-") {
+                Some(rest) => rest.split_once('-').map_or(rest, |(n, _)| n).parse().ok()?,
+                None => name.strip_prefix("pr-")?.parse().ok()?,
+            };
+            Some((n, e.path()))
+        })
+        .collect()
 }
 
 fn running_dir() -> Result<PathBuf> {
@@ -361,9 +385,8 @@ fn running_dir() -> Result<PathBuf> {
 /// (`running/pr-N.json`, its process still there) or its pane (working, or asking you). `own`:
 /// the asker's own session, whose pane isn't another's at work (what's sent there waits in it).
 pub fn at_work(n: u64, own: Option<&str>) -> Option<String> {
-    let dir = running_dir().ok()?;
     let panes = std::cell::OnceCell::new();
-    [format!("pr-{n}.json"), format!("pane-{n}.json")].into_iter().find_map(|f| live_marker(&dir.join(f), &panes, own))
+    markers(&running_dir().ok()?).into_iter().filter(|m| m.0 == n).find_map(|m| live_marker(&m.1, &panes, own))
 }
 
 /// What the marker at `path` says Claude's doing, if it's still at it (and not in the pane of
@@ -434,7 +457,9 @@ impl Drop for Claimed {
 /// (a pane's working on it too, but `own`'s: the asker's session's); else what holds it now.
 pub fn claim(n: u64, what: &str, own: Option<&str>) -> std::result::Result<Claimed, String> {
     let dir = running_dir().map_err(|e| format!("{e:#}"))?;
-    if let Some(pane) = live_marker(&dir.join(format!("pane-{n}.json")), &std::cell::OnceCell::new(), own) {
+    let panes = std::cell::OnceCell::new();
+    let pane = markers(&dir).into_iter().filter(|m| m.0 == n && m.1.file_name().is_some_and(|f| f.to_string_lossy().starts_with("pane-")));
+    if let Some(pane) = pane.into_iter().find_map(|m| live_marker(&m.1, &panes, own)) {
         return Err(pane);
     }
     claim_at(dir.join(format!("pr-{n}.json")), what)
@@ -476,15 +501,7 @@ fn one_claim_at_a_time() {
 /// What Claude is doing, by PR (or issue), from the markers in `dir` (`running/`): a run's, or
 /// a pane's (among `panes`), still at it, as `at_work` has them.
 pub fn running(dir: &std::path::Path, panes: &std::cell::OnceCell<Vec<crate::pane::Pane>>) -> std::collections::HashMap<u64, String> {
-    let Ok(entries) = std::fs::read_dir(dir) else { return Default::default() };
-    entries
-        .flatten()
-        .filter_map(|e| {
-            let name = e.file_name().to_str()?.strip_suffix(".json")?.to_owned();
-            let n: u64 = name.strip_prefix("pr-").or(name.strip_prefix("pane-"))?.parse().ok()?;
-            Some((n, live_marker(&e.path(), panes, None)?))
-        })
-        .collect()
+    markers(dir).into_iter().filter_map(|(n, p)| Some((n, live_marker(&p, panes, None)?))).collect()
 }
 
 /// Seconds since the epoch, now.
@@ -704,9 +721,9 @@ fn turn_ended_in(tail: &str, since: i64) -> Option<String> {
     Some(text.into_iter().rev().collect::<Vec<_>>().join("\n"))
 }
 
-/// PR `n`'s run in a pane, from its marker (`mark_pane`): its session, and when it started.
-pub fn pane_run(n: u64) -> Option<(String, i64)> {
-    pane_run_in(&running_dir().ok()?.join(format!("pane-{n}.json")))
+/// When PR `n`'s run in the pane of `session` started, from its marker (`mark_pane`).
+pub fn pane_run(n: u64, session: &str) -> Option<i64> {
+    pane_run_in(&running_dir().ok()?.join(format!("pane-{n}-{session}.json"))).map(|r| r.1)
 }
 
 fn pane_run_in(marker: &std::path::Path) -> Option<(String, i64)> {
@@ -716,15 +733,7 @@ fn pane_run_in(marker: &std::path::Path) -> Option<(String, i64)> {
 
 /// Every run in a pane, from the markers in `dir` (`running/`): (PR, session, started).
 pub fn pane_runs(dir: &std::path::Path) -> Vec<(u64, String, i64)> {
-    let Ok(entries) = std::fs::read_dir(dir) else { return vec![] };
-    entries
-        .flatten()
-        .filter_map(|e| {
-            let n = e.file_name().to_str()?.strip_prefix("pane-")?.strip_suffix(".json")?.parse().ok()?;
-            let (s, t) = pane_run_in(&e.path())?;
-            Some((n, s, t))
-        })
-        .collect()
+    markers(dir).into_iter().filter_map(|(n, p)| pane_run_in(&p).map(|(s, t)| (n, s, t))).collect()
 }
 
 /// The text of lines `first..=last` on one side of `f`, or `None` if any of them doesn't exist
@@ -1420,7 +1429,7 @@ fn running_markers() {
     _ = gone.wait();
     let marker = |pid: Option<u32>, what: &str, session: Option<&str>| serde_json::json!({ "what": what, "pid": pid, "session": session }).to_string();
     std::fs::write(dir.join("pr-7.json"), marker(Some(std::process::id()), "making the changes", None)).unwrap();
-    std::fs::write(dir.join("pane-8.json"), marker(None, "reviewing (in its pane)", Some("abc"))).unwrap();
+    std::fs::write(dir.join("pane-8-abc.json"), marker(None, "reviewing (in its pane)", Some("abc"))).unwrap();
     std::fs::write(dir.join("pr-9.json"), marker(Some(gone.id()), "answering", None)).unwrap();
     // Only the ones still at it: this process is, the one gone isn't; no pane has abc's session.
     let r = running(&dir, &std::cell::OnceCell::from(vec![]));

@@ -850,10 +850,10 @@ impl Issues {
 
     /// Claude triages `ns` (`extra`: your instructions), each as listed now (`Ask`).
     fn triage(&mut self, ns: Vec<u64>, extra: String) {
-        // (Not one Claude's at already, from an issue's view, say: its triage is on its way.)
+        // (One Claude's at already, from an issue's view, say: its claim says so, as its run's
+        // failure.)
         let asks = ns
             .into_iter()
-            .filter(|&n| crate::claude::at_work(n, None).is_none())
             .map(|n| match self.items.iter().find(|i| i.number == n) {
                 Some(i) => Ask { n, updated: i.updated.clone(), fixes: i.fixed_by.clone() },
                 None => Ask { n, updated: String::new(), fixes: vec![] },

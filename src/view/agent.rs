@@ -688,11 +688,6 @@ impl App {
                 return self.claude.job.is_some();
             }
         };
-        // Fixing CI afresh: Claude's last word that it isn't the PR's doing goes (it says so
-        // again, if it still finds that).
-        if let (Ask::FixChecks, Some(p)) = (ask, &self.pr) {
-            crate::claude::ci_note_path(p.number).map(std::fs::remove_file).ok();
-        }
         let prompt = self.claude_prompt(ask, extra);
         // Claude already open on this PR in a pane: put the request there, rather than open
         // another. Pasted, not sent: what the pane is showing (a permission prompt, your own
@@ -732,6 +727,9 @@ impl App {
             false => match self.spawn_claude(&prompt, label, ask.work(), false, &more.iter().map(String::as_str).collect::<Vec<_>>()) {
                 Ok(job) => {
                     self.claude.job = Some(job);
+                    if let (Ask::FixChecks, Some(p)) = (ask, &self.pr) {
+                        crate::claude::fixing_ci_afresh(p.number);
+                    }
                     (format!("Claude is {label} in the background…"), true)
                 }
                 Err(e) => (format!("starting claude: {e:#}"), false),
@@ -850,11 +848,12 @@ impl App {
         // Claude Code says how to stop it while it's working.
         self.claude.pane_busy = screen.as_deref().is_some_and(crate::pane::working);
         // Done there: its pane closes (`close_if_done`); the session stays, for the next ask.
-        // (The PR's marker may be another checkout's run: only this one's session counts.)
+        // (Its marker: this checkout's session's, not another's run.)
         let (Some(pr), Some(pane)) = (self.subject().map(|s| s.n()), pane) else { return };
-        let Some((session, since)) = crate::claude::pane_run(pr).filter(|r| Some(&r.0) == self.claude.session.as_ref()) else { return };
+        let Some(session) = self.claude.session.clone() else { return };
+        let Some(since) = crate::claude::pane_run(pr, &session) else { return };
         if crate::pane::close_if_done(pane, &session, since) {
-            crate::claude::clear_pane(pr);
+            crate::claude::clear_pane(pr, &session);
             self.msg = "Claude's done: its pane closed (Space a asks it more, in the same session)".into();
         }
     }

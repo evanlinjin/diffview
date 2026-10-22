@@ -684,7 +684,7 @@ impl List {
             if let Some(p) = panes.get_or_init(crate::pane::open).iter().find(|p| p.1.contains(&session))
                 && crate::pane::close_if_done(p.0, &session, since)
             {
-                crate::claude::clear_pane(n);
+                crate::claude::clear_pane(n, &session);
             }
         }
         let changed = now != self.running || reps != self.running_reps;

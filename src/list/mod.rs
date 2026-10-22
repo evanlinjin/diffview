@@ -395,11 +395,6 @@ impl List {
             self.batch_task.insert(*n, t.clone());
             // Queued now, not once its news comes: what looks at it next sees it under way.
             self.batch.insert(*n, batch::Status::Queued);
-            // Fixing CI afresh: its last word that it isn't the PR's doing goes (it says so
-            // again, if it still finds that).
-            if *t == batch::Task::FixChecks {
-                crate::claude::ci_note_path(*n).map(std::fs::remove_file).ok();
-            }
         }
         self.batch_rx.push(batch::start(prs, self.root.clone(), extra));
         doing.join(", ")
