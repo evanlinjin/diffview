@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.91.2] - 2026-10-22
+
+### Fixed
+- Scrolled sideways, `j`/`k`, counts and the wheel keep the column the cursor's on (they
+  added the scroll to it); `Ctrl-h`/`Ctrl-l` from a long line's later part goes to the short
+  line beside it (its end), not nowhere; the wheel gets past a tall split pair.
+- What's on screen goes by the width each row is drawn at (code, a comment's box, the pane):
+  `gw` labels no words past a box's edge, and `j`/`k` reach a header's last column. Back onto
+  wrapped code, headers scrolled sideways scroll back.
+
 ## [0.91.1] - 2026-10-22
 
 ### Fixed
