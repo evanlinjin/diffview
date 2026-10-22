@@ -5,6 +5,19 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.95.15] - 2026-10-22
+
+### Fixed
+- What isn't committed is one rule: each new file, whatever `status.showUntrackedFiles` says,
+  as the diff lists them. A second new file in a new folder now shows; taking the PR as it is
+  on GitHub can't overwrite an untracked file; the menus and the title count new files.
+- `Space g`: what changes the checkout (update, take theirs, drop, rebase, abort, merge) waits
+  while Claude's at work here; Merge says to push first while anything isn't on GitHub, and is
+  refused before the review ends (an open Claude pane on it counts); GitHub's head of the PR is
+  fetched when it isn't here, so what's unpushed is known.
+- The diff follows the base whichever way it moved: a rebase here GitHub doesn't know of yet,
+  or newer base commits merged into the PR.
+
 ## [0.95.14] - 2026-10-22
 
 ### Fixed
