@@ -648,6 +648,22 @@ pub fn remove(id: u64, root: &Path) -> Result<String> {
     Ok(format!("removed {}; kept branch {b} (`git branch -D {b}` deletes it)", label(id)))
 }
 
+/// The issues and PRs `text` names (`#N`), once each, in order.
+fn mentioned(text: &str) -> Vec<u64> {
+    let mut out = vec![];
+    for w in text.split(|c: char| !c.is_ascii_alphanumeric() && c != '#') {
+        if let Some(n) = w.strip_prefix('#').and_then(|n| n.parse().ok()).filter(|n| !out.contains(n)) {
+            out.push(n);
+        }
+    }
+    out
+}
+
+#[test]
+fn issues_mentioned() {
+    assert_eq!(mentioned("Fix #9: the panic (see #12, #9 and x#3; not #a)"), [9, 12]);
+}
+
 /// `dv replace-info`: what Claude needs to draft the replacement checked out here.
 pub fn info() -> Result<()> {
     let id = current().context("not on a replacement's branch (dv/replace-N) or a new PR's (dv/new-K)")?;
@@ -657,6 +673,14 @@ pub fn info() -> Result<()> {
         true => {
             println!("record: {}    (write title and body here)", path(id)?.display());
             println!("task: {}", r.task.replace('\n', "\n      "));
+            // dv's triage of the issues it names (`gh issue view N --comments` has the rest).
+            let dir = crate::claude::dv_dir()?.join("reviews");
+            for n in mentioned(&r.task) {
+                let f = dir.join(format!("issue-{n}.json"));
+                if f.exists() {
+                    println!("triage of #{n}: {}    (yours, from triaging it earlier)", f.display());
+                }
+            }
         }
         false => println!("record: {}    (write title, body and closing_note here)", path(id)?.display()),
     }

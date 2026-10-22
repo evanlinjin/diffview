@@ -250,13 +250,10 @@ impl IssueView {
     }
 
     /// What a PR fixing it is for Claude to do (`N N`): the issue, and what its triage found.
+    /// (Only what's asked: Claude reads the issue, its conversation and its triage itself,
+    /// `dv replace-info` saying where.)
     pub fn fix_task(&self) -> String {
-        let summary = self.t("summary");
-        let mut task = format!("Fix #{}: {}", self.number, self.title);
-        if !summary.is_empty() {
-            task += &format!("\n\nFrom triaging it:\n{summary}");
-        }
-        task
+        format!("Fix #{}: {}", self.number, self.title)
     }
 
     /// The issue as the PR view shows a PR: its description on the left (as the PR's text), and
@@ -959,7 +956,7 @@ fn an_issue_and_its_triage() {
     v.triage["reason"] = "duplicate".into();
     v.triage["duplicate_of"] = 3.into();
     assert_eq!(v.close_reason(), ("duplicate".into(), Some(3)));
-    assert!(v.fix_task().starts_with("Fix #7: panic\n\nFrom triaging it:\nStill on master"));
+    assert_eq!(v.fix_task(), "Fix #7: panic"); // (Claude reads the rest itself)
     let ui = Theme::load().ui();
     snapshot("issue_view", &screen(80, 22, |f| {
         let a = f.area();

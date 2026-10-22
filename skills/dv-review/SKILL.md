@@ -339,8 +339,9 @@ Then:
    problem they were after, and what they got wrong or left out: a fix of the symptom rather
    than the cause, missing tests, unrelated changes, APIs that don't exist, ignoring the repo's
    conventions (the notes in your prompt, and the code around it). For a new PR, read the issues
-   it mentions (`gh issue view N --comments`) and the code it touches; if it's unclear, make the
-   smallest reasonable reading of it and say so in your summary.
+   it mentions (`gh issue view N --comments`; your triage of one, where `dv replace-info` lists it)
+   and the code it touches; if it's unclear, make the smallest reasonable reading of it and say
+   so in your summary.
 2. **Write the change** on this branch: the real fix, in the repo's style, with tests where the
    repo has them, as small as the problem allows. Build and test it. Commit (`git add`, `git
    commit`) with a message in the repo's style; several commits if that reads better. Don't
