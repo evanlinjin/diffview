@@ -185,6 +185,13 @@ struct CursorKey {
     goes: Option<((u64, u64), usize)>,
 }
 
+/// Where the cursor and a selection's anchor (and its column) are, taken before what a rebuild
+/// follows changes the rows' threads.
+struct Kept {
+    head: CursorKey,
+    anchor: Option<(CursorKey, usize)>,
+}
+
 /// Network work that doesn't need the terminal; run after a frame shows its "…" message.
 enum Job {
     /// This repo's #N, from a link (its URL): an issue's in dv's issue view, a PR's in the browser.

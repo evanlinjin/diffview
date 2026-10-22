@@ -121,8 +121,9 @@ impl App {
         view_windows(&ts, f, |k| *self.extra.get(k).unwrap_or(&0), whole)
     }
 
-    pub(super) fn cursor_key(&self) -> CursorKey {
-        self.key_at(self.head.row)
+    pub(super) fn cursor_key(&self) -> Kept {
+        let anchor = (self.anchor != self.head).then(|| (self.key_at(self.anchor.row), self.anchor.col));
+        Kept { head: self.key_at(self.head.row), anchor }
     }
 
     fn key_at(&self, row: usize) -> CursorKey {
@@ -202,14 +203,13 @@ impl App {
 
     /// Rebuild rows, keeping the cursor on the same code line, thread or PR info row, and a
     /// selection's anchor on its own (gone, or now on the other side: none).
-    pub(super) fn rebuild(&mut self, keep: CursorKey) {
-        let anchor = (self.anchor != self.head).then(|| (self.key_at(self.anchor.row), self.anchor.col));
+    pub(super) fn rebuild(&mut self, keep: Kept) {
         let (select, lines) = (self.select, self.lines == Some((self.anchor, self.head)));
         self.build();
-        let row = self.find_key(keep).unwrap_or(0);
+        let row = self.find_key(keep.head).unwrap_or(0);
         self.select = false;
         self.goto(row, self.head.col);
-        let anchor = anchor.and_then(|(k, col)| Some((self.find_key(k)?, col))).filter(|&(r, _)| self.side_of(r) == self.side_of(row));
+        let anchor = keep.anchor.and_then(|(k, col)| Some((self.find_key(k)?, col))).filter(|&(r, _)| self.side_of(r) == self.side_of(row));
         if let Some((r, col)) = anchor {
             self.anchor = Pos { row: r, col: col.min(self.len(r).saturating_sub(1)) };
         }
