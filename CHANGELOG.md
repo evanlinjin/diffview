@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.95.7] - 2026-10-22
+
+### Fixed
+- Claude's comment on a file GitHub hasn't got (untracked) or before the PR's head doesn't
+  offer `c` / `C`; `s` refuses in the same order as `c` (no PR first, then the lines).
+
 ## [0.95.6] - 2026-10-22
 
 ### Fixed
