@@ -167,7 +167,7 @@ fn run(s: Subject, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sen
     let n = s.n();
     // Its hold on it: one run on it at a time, from any dv (an issue's view, a PR's); let go as
     // this ends, however.
-    let mut claim = match crate::claude::claim(n, task.doing(), None) {
+    let mut claim = match crate::claude::claim(&crate::claude::pr_key(n), task.doing(), None) {
         Ok(c) => c,
         Err(w) => return Ok(Status::Busy(w)),
     };

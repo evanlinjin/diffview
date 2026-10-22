@@ -4272,16 +4272,17 @@ fn a_runs_claim_goes_with_it() {
     let n = 990_000_000 + u64::from(std::process::id() % 1000);
     app.pr = Some(gh::Pr { number: n, ..Default::default() });
     let mut child = std::process::Command::new("sleep").arg("0.2").spawn().unwrap();
-    let mut claim = crate::claude::claim(n, "answering", None).unwrap();
+    let key = crate::claude::pr_key(n);
+    let mut claim = crate::claude::claim(&key, "answering", None).unwrap();
     claim.set_pid(child.id());
-    assert_eq!(crate::claude::at_work(n, None, None).as_deref(), Some("answering"));
+    assert_eq!(crate::claude::at_work(&key, None, None).as_deref(), Some("answering"));
     assert!(app.claude_blocked(Some(agent::Ask::Answer)).is_some_and(|w| w.contains("already")));
     _ = child.wait();
     let child = std::process::Command::new("true").spawn().unwrap();
     app.claude.job = Some(agent::ClaudeJob { _claim: Some(claim), ..agent::ClaudeJob::new(child, std::env::temp_dir().join("dv-test-claim.log"), "answering", false) });
     std::thread::sleep(std::time::Duration::from_millis(100));
     app.poll_claude();
-    assert!(app.claude.job.is_none() && crate::claude::at_work(n, None, None).is_none());
+    assert!(app.claude.job.is_none() && crate::claude::at_work(&key, None, None).is_none());
 }
 
 #[test]
@@ -5525,4 +5526,18 @@ fn a_reply_on_a_resolved_claude_comment_waits_for_an_answer() {
     app.load_claude();
     _ = std::fs::remove_dir_all(&dir);
     assert_eq!((app.threads[0].resolved, app.waiting_replies()), (false, 1));
+}
+
+#[test]
+fn a_drafts_view_claims_its_runs_too() {
+    // A replacement's or new PR's draft (no PR yet): its runs and panes go by its own key, so a
+    // redraft (dv list's) sees one at work, as a PR's does.
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    let id = 980_000_000 + u64::from(std::process::id() % 1000);
+    app.replacement = Some(crate::replace::Record { id, ..Default::default() });
+    assert_eq!(app.run_key(), Some(crate::claude::rep_key(id)));
+    let claim = crate::claude::claim(&app.run_key().unwrap(), "answering", None).unwrap();
+    assert!(crate::replace::Record { id, ..Default::default() }.drafting_now());
+    drop(claim);
+    assert!(!crate::replace::Record { id, ..Default::default() }.drafting_now());
 }

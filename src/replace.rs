@@ -85,7 +85,8 @@ impl Record {
 
     /// Claude is drafting it now (from any dv): its process is still running.
     pub fn drafting_now(&self) -> bool {
-        self.drafting.is_some_and(crate::alive)
+        // (Or a run or pane on it from its view: its claim, `claude::rep_key`.)
+        self.drafting.is_some_and(crate::alive) || crate::claude::at_work(&crate::claude::rep_key(self.id), None, None).is_some()
     }
 }
 

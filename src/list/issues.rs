@@ -226,7 +226,7 @@ pub(crate) fn save_triage(n: u64, updated: &str, fixes: &[(u64, String, String)]
 /// Claude triages issue `n` here (dv issues'): its hold on it meanwhile (`claude::claim`), for
 /// the issue's view (and any dv) to see.
 fn triage_run(n: u64, updated: &str, fixes: &[(u64, String, String)], root: &std::path::Path, extra: &str) -> Result<batch::Status> {
-    let mut claim = match crate::claude::claim(n, "triaging", None) {
+    let mut claim = match crate::claude::claim(&crate::claude::pr_key(n), "triaging", None) {
         Ok(c) => c,
         Err(w) => return Ok(batch::Status::Busy(w)),
     };
@@ -469,7 +469,7 @@ impl Issues {
             // (Not what you've put aside.)
             let deferred: HashSet<u64> = self.todos.items.iter().filter(|it| it.deferred.is_some()).map(|it| it.number).collect();
             let next = self.items.iter().map(|i| (i.number, i.updated.clone())).find(|(n, u)| {
-                !deferred.contains(n) && self.close_why(*n).is_some() && !drafted(*n) && !self.auto_done.contains(&(*n, format!("closing@{u}"))) && crate::claude::at_work(*n, None, None).is_none()
+                !deferred.contains(n) && self.close_why(*n).is_some() && !drafted(*n) && !self.auto_done.contains(&(*n, format!("closing@{u}"))) && crate::claude::at_work(&crate::claude::pr_key(*n), None, None).is_none()
             });
             if let Some((n, u)) = next {
                 self.auto_done.insert((n, format!("closing@{u}")));
@@ -494,7 +494,7 @@ impl Issues {
             // move the issue's time).
             let merged: Vec<u64> = i.fixed_by.iter().filter(|p| p.1 == "MERGED").map(|p| p.0).collect();
             // (Not one Claude's at elsewhere just now: on a later look, once it's done.)
-            let free = || crate::claude::at_work(i.number, None, None).is_none();
+            let free = || crate::claude::at_work(&crate::claude::pr_key(i.number), None, None).is_none();
             if due && run.len() < batch::AT_ONCE && free() && self.auto_done.insert((i.number, format!("{}{merged:?}", i.updated))) {
                 run.push(i.number);
             }

@@ -229,14 +229,14 @@ impl App {
     /// it meanwhile.
     /// (Another dv's run in this checkout too, dv list's say: looked at now.)
     pub(super) fn claude_busy(&self) -> bool {
-        let here = || self.subject().and_then(|s| crate::claude::at_work(s.n(), self.claude.session.as_deref(), Some(&self.root))).is_some();
+        let here = || self.run_key().and_then(|k| crate::claude::at_work(&k, self.claude.session.as_deref(), Some(&self.root))).is_some();
         self.claude.job.is_some() || self.claude.pane_busy || self.replacement.as_ref().is_some_and(|r| r.drafting_now()) || here()
     }
 
     /// What another run holds this PR (or issue) for, from any dv, any checkout (one at a time
     /// on it: a new one waits, a pane opened forks).
     pub(super) fn held(&self) -> Option<String> {
-        self.subject().and_then(|s| crate::claude::at_work(s.n(), self.claude.session.as_deref(), None))
+        self.run_key().and_then(|k| crate::claude::at_work(&k, self.claude.session.as_deref(), None))
     }
 
     /// Another dv's Claude at work in this checkout on it (dv list's run, a pane of another
@@ -248,7 +248,7 @@ impl App {
         self.claude.elsewhere_check = Some(std::time::Instant::now());
         // (Not a run of this view's own: its job's claim.)
         let mine = self.claude.job.is_some();
-        self.claude.elsewhere = self.subject().filter(|_| !mine).and_then(|s| crate::claude::at_work(s.n(), self.claude.session.as_deref(), Some(&self.root)));
+        self.claude.elsewhere = self.run_key().filter(|_| !mine).and_then(|k| crate::claude::at_work(&k, self.claude.session.as_deref(), Some(&self.root)));
     }
 
     /// Why `ask` can't go to the PR's Claude pane, where it would (one is open): the pane is
@@ -312,7 +312,7 @@ impl App {
         if self.claude_pane().is_some() {
             items.insert(0, Item::new(format!("Show Claude's pane (its session on {})", self.what()), Target::ClaudePane));
         } else if in_zellij() {
-            let held = self.subject().and_then(|s| crate::claude::run_held(s.n()));
+            let held = self.run_key().and_then(|k| crate::claude::run_held(&k));
             let what = match self.claude_busy() || held.is_some() {
                 // (Its own session's at work: a copy of it, for you; what's said there stays there.)
                 true => "a copy of its conversation to talk in: the original's at work, and won't hear it",
@@ -809,19 +809,19 @@ impl App {
         // to talk in forks (that run's at the session), a request's refused.
         // (Its session settled first: what it runs on, its marker names.)
         let mut session = self.session_args(fork);
-        let marked = match (fork, self.subject(), session[1].clone()) {
-            (false, Some(s), id) => {
+        let marked = match (fork, self.run_key(), session[1].clone()) {
+            (false, Some(k), id) => {
                 let what = match prompt {
                     Some(_) => format!("{} (in its pane)", name.trim_start_matches("claude: ")),
                     None => "talking with you (in its pane)".into(),
                 };
-                match crate::claude::mark_pane(s.n(), &what, &id, prompt.is_none(), &self.root) {
-                    Ok(()) => Some((s.n(), id)),
+                match crate::claude::mark_pane(&k, &what, &id, prompt.is_none(), &self.root) {
+                    Ok(()) => Some((k, id)),
                     Err(_) if prompt.is_none() => {
                         session = self.session_args(true);
                         None
                     }
-                    Err(w) => anyhow::bail!("Claude is {w} on {} already (elsewhere): ask again once it's done", s.what()),
+                    Err(w) => anyhow::bail!("Claude is {w} on {} already (elsewhere): ask again once it's done", self.what()),
                 }
             }
             _ => None,
@@ -845,8 +845,8 @@ impl App {
             // (A checkout of its own to try things in, as the skill has it: not asked each time.)
             .args(["--allowedTools", "Bash(dv scratch:*)"]);
         let s = cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
-        if let (false, Some((n, id))) = (s.as_ref().is_ok_and(|s| s.success()), &marked) {
-            crate::claude::clear_pane(*n, id);
+        if let (false, Some((k, id))) = (s.as_ref().is_ok_and(|s| s.success()), &marked) {
+            crate::claude::clear_pane(k, id);
         }
         let s = s.context("running zellij")?;
         anyhow::ensure!(s.success(), "zellij run failed ({s})");
@@ -892,11 +892,11 @@ impl App {
         self.claude.pane_busy = screen.as_deref().is_some_and(crate::pane::working);
         // Done there: its pane closes (`close_if_done`); the session stays, for the next ask.
         // (Its marker: this checkout's session's, not another's run.)
-        let (Some(pr), Some(pane)) = (self.subject().map(|s| s.n()), pane) else { return };
+        let (Some(key), Some(pane)) = (self.run_key(), pane) else { return };
         let Some(session) = self.claude.session.clone() else { return };
-        let Some(since) = crate::claude::pane_run(pr, &session) else { return };
+        let Some(since) = crate::claude::pane_run(&key, &session) else { return };
         if crate::pane::close_if_done(pane, &session, since) {
-            crate::claude::clear_pane(pr, &session);
+            crate::claude::clear_pane(&key, &session);
             self.msg = "Claude's done: its pane closed (Space a asks it more, in the same session)".into();
         }
     }
@@ -977,8 +977,8 @@ impl App {
     pub(super) fn spawn_job(&mut self, mut cmd: std::process::Command, label: &'static str, forked: bool) -> Result<ClaudeJob> {
         use std::os::unix::process::CommandExt;
         // Its hold on it: one run at a time on it, a fork's too (its pane working: that run's).
-        let mut claim = match self.subject() {
-            Some(s) => Some(crate::claude::claim(s.n(), label, self.claude.session.as_deref()).map_err(|w| anyhow!("Claude is {w} on {} already (elsewhere): ask again once it's done", s.what()))?),
+        let mut claim = match self.run_key() {
+            Some(k) => Some(crate::claude::claim(&k, label, self.claude.session.as_deref()).map_err(|w| anyhow!("Claude is {w} on {} already (elsewhere): ask again once it's done", self.what()))?),
             None => None,
         };
         // One log per run, so a follow-up run doesn't wipe the one a message points to.

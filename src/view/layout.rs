@@ -215,6 +215,15 @@ impl App {
         self.subject().map_or("this branch".into(), |s| s.what())
     }
 
+    /// What Claude's runs and panes here go by (`claude::claim`, `mark_pane`): the PR's or
+    /// issue's, else a replacement's or new PR's draft's; a bare branch, none.
+    pub(super) fn run_key(&self) -> Option<String> {
+        match self.subject() {
+            Some(s) => Some(crate::claude::pr_key(s.n())),
+            None => self.replacement.as_ref().map(|r| crate::claude::rep_key(r.id)),
+        }
+    }
+
     /// Its page on GitHub.
     pub(super) fn subject_url(&self) -> Option<String> {
         self.pr.as_ref().map(|p| p.url.clone()).or(self.issue.as_ref().map(|i| i.url.clone()))

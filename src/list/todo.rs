@@ -690,11 +690,11 @@ impl List {
         // session stays, for the next ask to resume). Every marker of a pane run is looked at
         // (a cheap read of its transcript's end), so one not closed at first (you were on it)
         // is later.
-        for (n, session, since) in crate::claude::pane_runs(&dir) {
+        for (key, session, since) in crate::claude::pane_runs(&dir) {
             if let Some(p) = crate::pane::of_session(panes.get_or_init(crate::pane::open), &session)
                 && crate::pane::close_if_done(p.0, &session, since)
             {
-                crate::claude::clear_pane(n, &session);
+                crate::claude::clear_pane(&key, &session);
             }
         }
         let changed = now != self.running || reps != self.running_reps;
