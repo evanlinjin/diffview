@@ -5,6 +5,24 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.95.1] - 2026-10-22
+
+### Fixed
+- An issue in the PR view: `Space l` (labels, assignees; Claude's suggested labels marked `◆`
+  and listed in its triage), `Space o` (the whole conversation) and `C` on Claude's triage
+  work; `c` says an issue has no review to add to; "Draft a PR fixing #N" starts as it is.
+- One triage of an issue (dv issues' run, the view's too), one closing-comment draft (as a
+  PR's), merged into the issue's file; a title you asked Claude for survives a re-triage.
+- Claude's runs on a PR or issue, one at a time from any dv: each run holds a claim (its own
+  process, its checkout) that dv list, dv issues and every view respect; a run refused for
+  that is asked again later, not failed; quitting dv list or dv issues asks while one is held;
+  a triage's answer is kept however its view closes.
+- Claude's panes: every pane dv opens is marked (per session, before it starts), a pane to
+  talk in counts while open, a view's own pane never blocks it, copies of a session (forks)
+  never take over the PR's saved session, and panes close when Claude's done as before.
+- Claude's CI note: Claude keeps it (a cause fixed here: its why emptied, its rerun kept); dv
+  list and the view read it by one rule.
+
 ## [0.95.0] - 2026-10-22
 
 ### Changed
