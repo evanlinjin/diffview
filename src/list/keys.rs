@@ -232,13 +232,14 @@ impl List {
                     false => self.marked.iter().copied().collect(),
                 };
                 prs.sort();
-                let prs = crate::replace::target(&prs);
-                // (What's busy or published is said per draft, once grouped: `draft_groups`.)
-                let id = *prs.first()?;
-                let which = prs.iter().map(|&n| crate::replace::shown(n)).collect::<Vec<_>>().join(" ");
+                // (What's busy or published is said per draft, once grouped: `draft_groups`,
+                // which drafts what's asked as `replace::target` has it; said so here.)
+                let drafts = crate::replace::target(&prs);
+                let id = *drafts.first()?;
+                let which = drafts.iter().map(|&n| crate::replace::shown(n)).collect::<Vec<_>>().join(" ");
                 let again = if self.rep_of.contains_key(&id) { " (again: it has one, which Claude carries on from)" } else { "" };
                 let ask = match prs.len() {
-                    1 => format!("A again: Claude drafts a replacement for {which}{again}, unpublished; your editor opens first, for instructions"),
+                    1 => format!("A again: Claude drafts {}{again}, unpublished; your editor opens first, for instructions", crate::replace::label(id)),
                     _ => format!("A again: Claude suggests how to group {which} into replacements (you decide, in your editor), then drafts them, unpublished"),
                 };
                 if self.again(armed, ('A', 0), ask) {

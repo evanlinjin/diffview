@@ -159,10 +159,16 @@ pub fn target(prs: &[u64]) -> Vec<u64> {
     }
 }
 
-/// Why draft `id` isn't drafted again: published, it's a PR like any (Claude asked there).
-pub fn refused(id: u64) -> Option<String> {
-    let n = load(id).ok()?.published?;
-    Some(format!("{} is published as #{n}: ask Claude on that PR", label(id)))
+/// Why the draft of `prs` (as `target` has them, its id first) isn't drafted: published, it's
+/// a PR like any (Claude asked there); a PR in it is another draft's (one draft each: what it
+/// replaces is closed once, by one).
+pub fn refused(prs: &[u64]) -> Option<String> {
+    let id = *prs.first()?;
+    if let Some(n) = load(id).ok().and_then(|r| r.published) {
+        return Some(format!("{} is published as #{n}: ask Claude on that PR", label(id)));
+    }
+    let others = all().into_iter().filter(|r| r.id != id);
+    others.into_iter().find_map(|o| prs.iter().find(|n| o.ids().contains(n)).map(|n| format!("#{n} is in {} already: one draft each", label(o.id))))
 }
 
 /// Published as PR `n`: Claude's review of the draft (and its session) moved to the PR's, for
@@ -285,12 +291,6 @@ fn prepare(asked: &[u64], root: &Path) -> Result<PathBuf> {
     // asked from one of them doesn't drop the others).
     let mut prs = load(id).ok().map_or(vec![], |r| r.ids());
     prs.extend(asked.iter().filter(|n| !prs.contains(n)).collect::<Vec<_>>());
-    // A PR is in one draft at most: what it replaces is closed once, by one.
-    for other in all().into_iter().filter(|r| r.id != id) {
-        if let Some(n) = prs.iter().find(|n| other.ids().contains(n)) {
-            anyhow::bail!("#{n} is in {} already: one draft each", label(other.id));
-        }
-    }
     let mut originals = vec![];
     let mut bases: Vec<(u64, String)> = vec![];
     for &n in &prs {
@@ -501,11 +501,18 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
     let last = std::fs::metadata(path(id)?).and_then(|m| m.modified()).ok();
     // Its claim, held while it drafts (this process's: let go as it ends, however).
     let _claim = crate::claude::claim(&crate::claude::rep_key(id), "drafting", None).map_err(|w| anyhow::anyhow!("Claude is {w} on {} already", label(id)))?;
-    // Published, it's a PR like any (its PR's view, Claude there): not redrafted under it.
-    if let Some(why) = refused(id) {
-        anyhow::bail!(why);
-    }
     let (first, _) = update(id, |r| {
+        // (Checked as it's marked: nothing written for one refused.)
+        if let Some(why) = refused(prs) {
+            anyhow::bail!(why);
+        }
+        // What it replaces, said at once (`prepare` fills them in): another draft asked
+        // meanwhile sees them.
+        for &n in prs.iter().filter(|_| !is_new(id)) {
+            if !r.replaces.iter().any(|o| o.number == n) {
+                r.replaces.push(Original { number: n, ..Original::default() });
+            }
+        }
         if r.drafted() && !extra.trim().is_empty() {
             r.asks.push(Request { text: extra.trim().to_owned(), ..Request::default() });
         }

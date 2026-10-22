@@ -259,7 +259,7 @@ impl App {
                 let prs = crate::replace::target(&prs);
                 // Claude at work on it, or its pane open here (`redraft_waits`).
                 let waits = || self.redraft_waits(prs[0]);
-                if let Some(why) = crate::replace::refused(prs[0]) {
+                if let Some(why) = crate::replace::refused(&prs) {
                     return Ok(why);
                 }
                 // (What it is, said: a new PR's id is no PR number.)

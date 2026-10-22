@@ -472,7 +472,8 @@ impl List {
         // not one Claude's at, nor one published.
         let mut merged: Vec<Vec<u64>> = vec![];
         for g in groups.iter().filter(|g| !g.is_empty()).map(|g| crate::replace::target(g)) {
-            match merged.iter_mut().find(|m| m[0] == g[0]) {
+            // (Sharing a draft, or any PR: one draft.)
+            match merged.iter_mut().find(|m| m[0] == g[0] || m.iter().any(|n| g.contains(n))) {
                 Some(m) => m.extend(g.into_iter().filter(|n| !m.contains(n)).collect::<Vec<_>>()),
                 None => merged.push(g),
             }
@@ -480,7 +481,7 @@ impl List {
         let mut not = vec![];
         let mut groups = vec![];
         for g in merged {
-            match crate::replace::refused(g[0]) {
+            match crate::replace::refused(&g) {
                 _ if self.rep_busy(g[0]) => not.push(format!("Claude is already at work on {}", crate::replace::label(g[0]))),
                 Some(why) => not.push(why),
                 None => groups.push(g),
