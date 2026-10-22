@@ -115,11 +115,15 @@ fn pane_argv(argv: &[String], n: u64) -> Vec<String> {
 /// beside this one when `pane` (it closes when the script succeeds; failing, it waits for Enter,
 /// for you to read why), else in this terminal (dv waits for Enter after it). Returns what to
 /// tell you.
+/// Why PR `n` can't be merged now: Claude at work on it, from any dv (a pane open on it too:
+/// its checkout's switched or removed under it). Asked before a review ends for it, as here.
+pub fn waits(n: u64) -> Option<String> {
+    crate::claude::at_work(&crate::claude::pr_key(n), None, None).map(|w| format!("Claude is {w} on #{n}: merge it once it's done (a pane: closed)"))
+}
+
 pub fn merge(n: u64, pane: bool) -> Result<String> {
-    // Not while Claude's at work on it (its checkout's switched or removed under it), from
-    // any dv.
-    if let Some(w) = crate::claude::at_work(&crate::claude::pr_key(n), None, None) {
-        anyhow::bail!("Claude is {w} on #{n}: merge it once it's done");
+    if let Some(why) = waits(n) {
+        anyhow::bail!(why);
     }
     // As GitHub has it now (the list may be older): merged or closed, there's nothing to merge,
     // and the script would only fail on the merge ref GitHub has dropped.

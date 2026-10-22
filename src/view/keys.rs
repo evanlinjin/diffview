@@ -700,7 +700,11 @@ impl App {
                             (self.commit_cur, self.commit_anchor) = (r, None);
                             self.pick_commits();
                         }
-                        Target::GitMerge => (self.merge, self.quit) = (true, true),
+                        // (Refused here if it would be, not after the review's ended.)
+                        Target::GitMerge => match self.pr.as_ref().and_then(|p| crate::merge::waits(p.number)) {
+                            Some(why) => self.msg = why,
+                            None => (self.merge, self.quit) = (true, true),
+                        },
                         Target::GitTakeTheirs(sure) => self.take_theirs(sure),
                         Target::GitDrop(path, sure) => self.msg = self.drop_uncommitted(path, sure).unwrap_or_else(|e| format!("not dropped: {e:#}")),
                         Target::GitReady => self.mark_ready(),
