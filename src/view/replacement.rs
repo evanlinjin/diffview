@@ -29,9 +29,9 @@ impl App {
             Some(n) => vec![item(format!("Published as PR #{n}"), Target::Note(""))],
         };
         match (r.published, open.is_empty()) {
-            (_, true) => items.push(item("The PRs it replaces are closed".into(), Target::Note(""))),
+            (_, true) if !r.replaces.is_empty() => items.push(item("The PRs it replaces are closed".into(), Target::Note(""))),
             (Some(_), false) => items.push(item(format!("Close {} with the closing note (now)…", open.join(", ")), Target::Do(Action::CloseOriginals))),
-            (None, false) => {}
+            (None, false) | (_, true) => {} // (a new PR replaces nothing)
         }
         self.picker = Some(Picker::new(" replacement ", items));
     }
