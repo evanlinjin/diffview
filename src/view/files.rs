@@ -52,8 +52,6 @@ pub(super) struct Commit {
     pub(super) subject: String,
     /// When it was authored (seconds), which a rebase or an amend keeps.
     pub(super) at: String,
-    /// GitHub verifies a signature on it (as the PR's info says; no PR: taken as signed).
-    pub(super) signed: bool,
 }
 
 /// What a line of the scrolling list is, for clicks: an entry (a file or a section), commit row
@@ -297,7 +295,8 @@ impl App {
                 r => (format!("{} ", self.commits[r - 1].short), self.commits[r - 1].subject.clone()),
             };
             // An unsigned commit: marked (a repo may refuse it on its base).
-            let unsigned = if r > 0 && r <= n && !self.commits[r - 1].signed { "✗ " } else { "" };
+            // (GitHub's word on its signature, as the PR's info says; none: taken as signed.)
+            let unsigned = if r > 0 && r <= n && self.unsigned.contains(&self.commits[r - 1].sha) { "✗ " } else { "" };
             let text = cut(&text, w.saturating_sub(2 + hash.chars().count() + unsigned.chars().count()));
             let pad = w.saturating_sub(2 + hash.chars().count() + unsigned.chars().count() + text.chars().count());
             let line = Line::from(vec![
@@ -341,8 +340,7 @@ impl App {
             .filter_map(|l| {
                 let mut p = l.splitn(4, '\t');
                 let (sha, short, at) = (p.next()?, p.next()?, p.next()?);
-                let signed = !self.unsigned.iter().any(|u| u == sha);
-                Some(Commit { sha: sha.into(), short: short.into(), at: at.into(), signed, subject: p.next().unwrap_or("").into() })
+                Some(Commit { sha: sha.into(), short: short.into(), at: at.into(), subject: p.next().unwrap_or("").into() })
             })
             .collect();
         self.dirty = Dirty::of(&diff::git(&["status", "--porcelain"]).unwrap_or_default());
@@ -643,27 +641,23 @@ impl App {
         }
     }
 
-    /// `Ctrl-w e`: the files' list on / off, kept for next time (shown, the code un-maximized;
-    /// no room for it, said).
+    /// `Ctrl-w e`: the files' list on / off, kept for next time (no room for it, said). (Any
+    /// Ctrl-w key but o, h, l un-maximizes first.)
     pub(super) fn toggle_files(&mut self) {
         let on = self.files_w == 0;
         if on && !list_room(self.width as usize) {
             return self.msg = self.list_hidden_why().into();
         }
         self.files_pref = Some(on);
-        if on && self.zoom.take().is_some() {
-            self.relayout();
-        }
         self.save_pane("files", on.into());
         self.msg = if on { "the files' list (Ctrl-w e hides it)" } else { "files' list hidden (Ctrl-w e shows it)" }.into();
     }
 
-    /// Why the list isn't shown: no room, the code maximized, or hidden.
+    /// Why the list isn't shown: no room, or hidden.
     fn list_hidden_why(&self) -> &'static str {
-        match () {
-            _ if !list_room(self.width as usize) => "too narrow for the files' list",
-            _ if self.zoom.is_some() => "maximized: no files' list (Ctrl-w o, or Ctrl-w e shows it)",
-            _ => "the files' list is hidden (Ctrl-w e shows it)",
+        match list_room(self.width as usize) {
+            false => "too narrow for the files' list",
+            true => "the files' list is hidden (Ctrl-w e shows it)",
         }
     }
 }

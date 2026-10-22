@@ -1124,7 +1124,7 @@ fn ask_claude_about_a_commit() {
     let dir = std::env::temp_dir().join(format!("dv-ask-commit-{}", std::process::id()));
     app.claude.path = Some(dir.join("pr-1.json"));
     app.pr = Some(gh::Pr { number: 1, url: "https://github.com/o/r/pull/1".into(), ..Default::default() });
-    app.commits = vec![files::Commit { sha: "abcdef1234".into(), short: "abcdef1".into(), subject: "add parse".into(), at: "1".into(), signed: true }];
+    app.commits = vec![files::Commit { sha: "abcdef1234".into(), short: "abcdef1".into(), subject: "add parse".into(), at: "1".into() }];
     // `a` on it: what you want, then the editor, starting from which commit.
     app.ask_commit(0);
     // On no lines, no suggestion to post: ask (preselected), change, amend or commit.
@@ -2346,7 +2346,7 @@ fn commits_under_the_files() {
     let draw = |app: &mut App| screen(220, 24, |f| app.draw(f));
     let mut app = fixture();
     app.files_pref = Some(true);
-    app.commits = (1..=3).map(|n| files::Commit { sha: format!("{n}{}", "0".repeat(39)), short: format!("c{n}"), at: String::new(), signed: true, subject: format!("commit {n}") }).collect();
+    app.commits = (1..=3).map(|n| files::Commit { sha: format!("{n}{}", "0".repeat(39)), short: format!("c{n}"), at: String::new(), subject: format!("commit {n}") }).collect();
     let s = draw(&mut app);
     // Under the files: the heading, "all commits" (shown), then each, oldest first.
     let list: Vec<String> = s.lines().map(|l| l.chars().take(app.files_w - 1).collect::<String>().trim_end().to_owned()).collect();
@@ -2354,10 +2354,10 @@ fn commits_under_the_files() {
     assert_eq!(list[at + 1].trim_start_matches('▌').trim(), "all commits");
     assert!(list[at + 2].contains("c1 commit 1") && list[at + 4].contains("c3 commit 3"), "{list:?}");
     // An unsigned commit is marked.
-    app.commits[1].signed = false;
+    app.unsigned = vec![app.commits[1].sha.clone()];
     let s = draw(&mut app);
     assert!(s.contains("c2 ✗ commit 2"), "{s}");
-    app.commits[1].signed = true;
+    app.unsigned.clear();
     // From the code into the list, down past the last file into the commits; Enter on one shows
     // it alone: the diff from its parent (the previous commit) to it.
     app.key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL));
@@ -2520,7 +2520,7 @@ fn commit_picker_lists_the_commits() {
     app.commits.clear();
     app.commit_picker();
     assert_eq!(app.msg, "no commits here to pick from");
-    let c = |sha: &str, subject: &str| super::files::Commit { sha: sha.into(), short: sha.into(), subject: subject.into(), at: String::new(), signed: true };
+    let c = |sha: &str, subject: &str| super::files::Commit { sha: sha.into(), short: sha.into(), subject: subject.into(), at: String::new() };
     app.commits = vec![c("aaa", "first"), c("bbb", "second")];
     app.commit_picker();
     let p = app.picker.as_ref().unwrap();
@@ -2720,7 +2720,7 @@ fn reply_to_claudes_summary() {
 fn key_hints_at_the_bottom_of_the_contents() {
     let mut app = fixture();
     app.files_pref = Some(true);
-    app.commits = (1..=2).map(|n| files::Commit { sha: format!("{n}{}", "0".repeat(39)), short: format!("c{n}"), at: String::new(), signed: true, subject: format!("commit {n}") }).collect();
+    app.commits = (1..=2).map(|n| files::Commit { sha: format!("{n}{}", "0".repeat(39)), short: format!("c{n}"), at: String::new(), subject: format!("commit {n}") }).collect();
     let list = |app: &mut App| -> Vec<String> {
         let s = screen(220, 30, |f| app.draw(f));
         s.lines().map(|l| l.chars().take(app.files_w - 1).collect::<String>().trim_end().to_owned()).collect()
@@ -2748,7 +2748,7 @@ fn contents_and_commits_scroll_together() {
     // the list's cursor; its heading stays at the top, and the key hints at the bottom.
     let mut app = fixture();
     app.files_pref = Some(true);
-    app.commits = (1..=40).map(|n| files::Commit { sha: format!("{n:040}"), short: format!("c{n}"), at: String::new(), signed: true, subject: format!("commit {n}") }).collect();
+    app.commits = (1..=40).map(|n| files::Commit { sha: format!("{n:040}"), short: format!("c{n}"), at: String::new(), subject: format!("commit {n}") }).collect();
     let list = |app: &mut App| -> Vec<String> {
         let s = screen(220, 20, |f| app.draw(f));
         s.lines().map(|l| l.chars().take(app.files_w - 1).collect::<String>().trim_end().to_owned()).collect()
@@ -3995,7 +3995,7 @@ fn commits_followed_through_amends_either_way() {
             .lines()
             .map(|l| {
                 let p: Vec<&str> = l.splitn(3, '\t').collect();
-                files::Commit { sha: p[0].into(), short: p[0][..7].into(), at: p[1].into(), signed: true, subject: p[2].into() }
+                files::Commit { sha: p[0].into(), short: p[0][..7].into(), at: p[1].into(), subject: p[2].into() }
             })
             .collect();
     };
@@ -4861,7 +4861,7 @@ fn the_lists_cursor_stays_on_its_file_as_files_come() {
 #[test]
 fn the_list_is_entered_fresh_every_way() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
-    app.commits = (1..=3).map(|n| files::Commit { sha: format!("{n}{}", "0".repeat(39)), short: format!("c{n}"), at: String::new(), signed: true, subject: format!("commit {n}") }).collect();
+    app.commits = (1..=3).map(|n| files::Commit { sha: format!("{n}{}", "0".repeat(39)), short: format!("c{n}"), at: String::new(), subject: format!("commit {n}") }).collect();
     app.files_pref = Some(true);
     _ = screen(220, 30, |f| app.draw(f));
     let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
@@ -5100,7 +5100,7 @@ fn the_commits_list_knows_uncommitted_is_shown_and_k_goes_up_one() {
     let mut app = fixture();
     app.files_pref = Some(true);
     _ = screen(220, 30, |f| app.draw(f));
-    let c = |sha: &str| files::Commit { sha: sha.into(), short: sha.into(), subject: String::new(), at: String::new(), signed: true };
+    let c = |sha: &str| files::Commit { sha: sha.into(), short: sha.into(), subject: String::new(), at: String::new() };
     app.commits = vec![c("aaa"), c("bbb")];
     app.base = "HEAD".into(); // showing what isn't committed
     app.dirty = files::Dirty { changed: 1, ..Default::default() };

@@ -89,11 +89,11 @@ impl App {
     /// as set; the rows rebuilt when what they wrap to changes.
     fn frame_cols(&mut self, full: Rect) -> Cols {
         self.full = full;
-        // Maximized till you leave it: the code (into the files' list, or onto a comment: `]c`,
-        // say), the pane (back to the code).
+        // Maximized till you leave it: the code (onto a comment: `]c`, say), the pane (back to
+        // the code). (Into the files' list un-maximizes first: `side`, Ctrl-w keys.)
         let left = match self.zoom {
-            Some(false) => self.files_focus || self.rows[self.head.row].thread.is_some(),
-            Some(true) => self.files_focus || !self.margin_side(),
+            Some(false) => self.rows[self.head.row].thread.is_some(),
+            Some(true) => !self.margin_side(),
             None => false,
         };
         if left {

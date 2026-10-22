@@ -239,9 +239,6 @@ impl App {
                 // GitHub's word on its commits' signatures, for the contents' commits (none this
                 // time: what was known stands).
                 if let Some(unsigned) = unsigned {
-                    for c in &mut self.commits {
-                        c.signed = !unsigned.contains(&c.sha);
-                    }
                     self.unsigned = unsigned;
                 }
                 if let Some(pr) = &mut self.pr {
