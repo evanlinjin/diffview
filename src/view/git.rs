@@ -568,6 +568,7 @@ impl App {
             self.note_diff();
             let files = diff::load(&self.base, self.to.as_deref(), DEFAULT_CONTEXT)?;
             self.set_files(files);
+            self.map_head();
         }
         // After the diff: Claude's comments follow their code, which may have just been edited.
         match threads {

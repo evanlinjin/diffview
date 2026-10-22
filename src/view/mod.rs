@@ -604,6 +604,10 @@ pub struct App {
     /// Done on the next loop, so its "…" message is drawn first.
     job: Option<Job>,
     /// The viewer's pending review on the PR, if any.
+    /// How lines at the PR's head moved in what's shown here (local edits, unpushed commits,
+    /// a commit before it): per file, its hunks (old start, old count, new start, new count).
+    /// GitHub's line numbers are the head's; `here` maps them.
+    head_moves: HashMap<String, Vec<(u32, u32, u32, u32)>>,
     review: Option<String>,
     /// The commit the pending review is on (`review`'s).
     review_on: String,

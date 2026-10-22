@@ -255,6 +255,7 @@ impl App {
                     (i.title, i.url, i.updated, i.fixes) = (title, url, updated, fixes);
                 }
                 self.refresh_sync(); // the PR's head may have moved
+                self.map_head();
             }
             Err(e) => self.msg = format!("loading PR info: {e:#}"),
         }

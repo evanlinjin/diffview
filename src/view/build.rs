@@ -73,11 +73,10 @@ fn line_on(left: bool, lines: &[DLine], n: u32) -> Option<usize> {
     lines.iter().position(|l| side(l) && if left { l.old } else { l.new } == Some(n))
 }
 
-/// The diff line a thread belongs under, one rule for all: its line while that's still the
-/// commented line's text (GitHub's, at the PR's head; the diff here may have lines added above
-/// it, uncommitted or not pushed); else that text where it's distinctive, nearest its line
-/// (a current thread's, within a few lines: its own line edited here, a copy far off isn't
-/// it, and it stays on its line); else the nearest line by number.
+/// The diff line a thread belongs under (its lines as here: `App::here`), one rule for all: its
+/// line while that's still the commented line's text; else that text where it's distinctive,
+/// nearest its line (a current thread's within a few lines: its own line edited here, a copy
+/// far off isn't it, and it stays on its line); else the nearest line by number.
 pub(super) fn anchor_line(t: &Thread, lines: &[DLine]) -> Option<usize> {
     let side = |l: &DLine| match t.left {
         true => matches!(l.kind, Kind::Ctx | Kind::Del),
@@ -99,6 +98,45 @@ pub(super) fn anchor_line(t: &Thread, lines: &[DLine]) -> Option<usize> {
         .filter(|&i| t.outdated || dist(i) <= OUTDATED_SLACK)
         .min_by_key(|&i| dist(i));
     by_text.or(at).or_else(|| (0..lines.len()).filter(|&i| side(&lines[i])).min_by_key(|&i| dist(i)).filter(|&i| dist(i) <= OUTDATED_SLACK))
+}
+
+/// Line `n` at the PR's head, here: past the `moves` above it (their lines added less
+/// removed); in one (edited here), that hunk's first line.
+pub(super) fn moved(moves: &[(u32, u32, u32, u32)], n: u32) -> u32 {
+    let mut shift: i64 = 0;
+    for &(os, ol, ns, nl) in moves {
+        // (No lines removed: lines added after line `os`.)
+        let end = if ol == 0 { os + 1 } else { os + ol };
+        if n >= end {
+            shift += nl as i64 - ol as i64;
+        } else if ol > 0 && n >= os {
+            return ns.max(1);
+        } else {
+            break;
+        }
+    }
+    (n as i64 + shift).max(1) as u32
+}
+
+/// `git diff -U0`'s hunks, by file (its new path).
+pub(super) fn hunks_by_file(out: &str) -> HashMap<String, Vec<(u32, u32, u32, u32)>> {
+    let mut m: HashMap<String, Vec<(u32, u32, u32, u32)>> = HashMap::new();
+    let mut path = String::new();
+    let range = |s: &str| -> Option<(u32, u32)> {
+        let (a, b) = s.split_once(',').unwrap_or((s, "1"));
+        Some((a.parse().ok()?, b.parse().ok()?))
+    };
+    for l in out.lines() {
+        if let Some(p) = l.strip_prefix("+++ b/") {
+            path = p.to_owned();
+        } else if let Some(h) = l.strip_prefix("@@ -") {
+            let mut parts = h.split(' ');
+            if let (Some((os, ol)), Some((ns, nl))) = (parts.next().and_then(range), parts.next().and_then(|s| range(s.strip_prefix('+')?))) {
+                m.entry(path.clone()).or_default().push((os, ol, ns, nl));
+            }
+        }
+    }
+    m
 }
 
 /// First row of a run of added/removed lines, as drawn: the row before it on its side (not a
@@ -127,8 +165,34 @@ impl App {
         if self.view == View::All {
             return hunk_windows(f, &self.extra, whole);
         }
-        let ts: Vec<&Thread> = self.threads.iter().filter(|t| self.in_view(t)).collect();
+        let here: Vec<_> = self.threads.iter().filter(|t| self.in_view(t)).map(|t| self.here(t)).collect();
+        let ts: Vec<&Thread> = here.iter().map(|t| t.as_ref()).collect();
         view_windows(&ts, f, |k| *self.extra.get(k).unwrap_or(&0), whole)
+    }
+
+    /// Thread `t` as placed here: a current GitHub thread's new-side lines moved as the PR's
+    /// head's lines have here (`head_moves`); else as it is (Claude's follow their code
+    /// already; the old side's lines are the base's). What's sent to GitHub keeps its own.
+    pub(super) fn here<'a>(&self, t: &'a Thread) -> std::borrow::Cow<'a, Thread> {
+        let Some(moves) = self.head_moves.get(&t.path).filter(|_| t.claude.is_none() && !t.outdated) else {
+            return std::borrow::Cow::Borrowed(t);
+        };
+        let mv = |n: u32, left: bool| if left { n } else { moved(moves, n) };
+        let mut m = t.clone();
+        m.line = t.line.map(|n| mv(n, t.left));
+        m.start_line = t.start_line.map(|s| mv(s, t.start_left.unwrap_or(t.left)));
+        std::borrow::Cow::Owned(m)
+    }
+
+    /// `head_moves` worked out anew (the diff shown, or the PR's head, changed).
+    pub(super) fn map_head(&mut self) {
+        let head = self.pr.as_ref().map(|p| p.head_oid.clone()).filter(|h| !h.is_empty());
+        let moves = head.and_then(|h| {
+            let mut args = vec!["diff", "-U0", "--no-color", "--no-ext-diff", h.as_str()];
+            args.extend(self.to.as_deref());
+            diff::git(&args).ok().map(|o| hunks_by_file(&o))
+        });
+        self.head_moves = moves.unwrap_or_default();
     }
 
     pub(super) fn cursor_key(&self) -> Kept {
@@ -465,7 +529,7 @@ impl App {
     /// whole diff (as the views' windows are), so an outdated comment's line is the same however
     /// much context shows; not shown (hidden context) or not placeable, none: under the header.
     pub(super) fn place_in(&self, t: usize, f: &FileDiff, lines: &[DLine]) -> Option<usize> {
-        let k = anchor_line(&self.threads[t], &f.full)?;
+        let k = anchor_line(&self.here(&self.threads[t]), &f.full)?;
         let at = (f.full[k].old, f.full[k].new);
         lines.iter().position(|l| l.kind != Kind::Hunk && (l.old, l.new) == at)
     }
@@ -628,7 +692,7 @@ impl App {
         // The line the cursor's at in the whole diff: a comment's, its own (shown or not);
         // else the next code line's.
         let idx = match row.thread {
-            Some(t) => anchor_line(&self.threads[t], &f.full),
+            Some(t) => anchor_line(&self.here(&self.threads[t]), &f.full),
             None => self.rows[self.head.row..]
                 .iter()
                 .take_while(|r| r.file == fi)

@@ -5381,3 +5381,35 @@ fn a_thread_on_a_line_edited_here_stays_on_it() {
     let above = app.rows[..r].iter().rev().find(|r| r.line.kind.is_code()).unwrap();
     assert_eq!(above.line.new, Some(2), "moved to a copy of its old text: {:?}", above.line.text);
 }
+
+#[test]
+fn a_head_line_maps_through_the_moves_here() {
+    use super::build::{hunks_by_file, moved};
+    // 3 lines added after line 1; line 5 edited; 2 removed at 8-9.
+    let m = hunks_by_file("diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1,0 +2,3 @@\n+a\n+b\n+c\n@@ -5 +8 @@\n-x\n+y\n@@ -8,2 +10,0 @@\n-p\n-q\n");
+    let a = &m["a.rs"];
+    assert_eq!([1, 2, 4, 5, 7, 10].map(|n| moved(a, n)), [1, 5, 7, 8, 10, 11]);
+}
+
+#[test]
+fn a_github_thread_follows_its_lines_however_far_they_moved_here() {
+    // 15 lines added above its line here (the head's line 2): it's on line 17, and a range's
+    // start moves with its end.
+    let mut text = String::from("diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1,4 +1,19 @@\n fn main() {\n");
+    for i in 0..15 {
+        text.push_str(&format!("+    added_{i}();\n"));
+    }
+    text.push_str("     foo_bar(x);\n     baz(y);\n }\n");
+    let mut app = App::with("base".into(), diff::parse(&text));
+    app.head_moves = HashMap::from([("a.rs".to_owned(), vec![(1, 0, 2, 15)])]);
+    let c = gh::Comment { id: 1, node_id: "n".into(), author: "amy".into(), body: "these".into(), ..Default::default() };
+    app.threads = vec![gh::Thread { id: "T".into(), path: "a.rs".into(), line: Some(3), start_line: Some(2), original_line: Some(3), hunk: vec![" fn main() {".into(), " foo_bar(x);".into(), " baz(y);".into()], comments: vec![c], ..Default::default() }];
+    app.margin_active = true;
+    app.build();
+    let r = app.rows.iter().position(|r| r.thread == Some(0)).unwrap();
+    let above = app.rows[..r].iter().rev().find(|r| r.line.kind.is_code()).unwrap();
+    assert_eq!(above.line.text.trim(), "baz(y);");
+    let (a, b) = app.code_span(0).unwrap();
+    let lit: Vec<_> = (a..=b).map(|r| app.rows[r].line.text.trim().to_owned()).collect();
+    assert_eq!(lit, ["foo_bar(x);", "baz(y);"]);
+}

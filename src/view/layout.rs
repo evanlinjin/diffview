@@ -743,7 +743,7 @@ impl App {
     /// comment (`start_line`) covers the lines from there, as far as they're shown.
     pub(super) fn code_span(&self, t: usize) -> Option<(usize, usize)> {
         let last = *self.margin_anchor.get(&t)?;
-        let th = &self.threads[t];
+        let th = self.here(&self.threads[t]);
         let Some((start, left)) = th.range_start() else { return Some((last, last)) };
         // (Its start's side's numbers: a range can start on the old side and end on the new.)
         let no = |r: &Row| if left { r.line.old } else { r.line.new };
