@@ -111,12 +111,29 @@ fn pane_argv(argv: &[String], n: u64) -> Vec<String> {
     ["sh".to_owned(), "-c".to_owned(), wait, "sh".to_owned()].into_iter().chain(argv.iter().cloned()).collect()
 }
 
-/// Why PR `n` can't be merged now: Claude at work on it, from any dv (a pane open on it too:
-/// its checkout's switched or removed under it). Asked before a review ends for it, as here.
+/// Why PR `n` can't be merged now, as far as what's here goes: Claude at work on it, from any
+/// dv (a pane open on it too: its checkout's switched or removed under it), or in the main
+/// checkout, or changes there (the script's checkouts switch it). Asked before a review ends
+/// for it, as here.
 pub fn waits(n: u64) -> Option<String> {
     // Its work under its own key, or its draft's (a pane opened before it was published keeps it).
     let draft = || crate::replace::all().into_iter().find(|r| r.published == Some(n))?.at_work();
-    crate::claude::at_work(&crate::claude::pr_key(n), None, None).or_else(draft).map(|w| format!("Claude is {w} on #{n}: merge it once it's done (a pane: closed)"))
+    if let Some(w) = crate::claude::at_work(&crate::claude::pr_key(n), None, None).or_else(draft) {
+        return Some(format!("Claude is {w} on #{n}: merge it once it's done (a pane: closed)"));
+    }
+    let main = match crate::worktree_dir(n) {
+        Ok((main, _)) => main,
+        Err(e) => return Some(format!("{e:#}")),
+    };
+    // Nor under Claude at work there, on whatever PR (its edits would land on the base branch).
+    if let Some(w) = crate::claude::at_work_in(&main) {
+        return Some(format!("Claude is {w} in {}, which the merge script's checkouts would switch under it: merge once it's done", main.display()));
+    }
+    match crate::diff::git(&["-C", &main.to_string_lossy(), "status", "--porcelain", "--untracked-files=no"]) {
+        Ok(d) if d.trim().is_empty() => None,
+        Ok(_) => Some(format!("{} has local changes, which the merge script's checkouts would trip over: commit or stash them first", main.display())),
+        Err(e) => Some(format!("{e:#}")),
+    }
 }
 
 /// Merge PR `n`: its worktree removed first (if it's safe to), then the script, in a zellij pane
@@ -131,14 +148,6 @@ pub fn merge(n: u64, pane: bool) -> Result<String> {
     // and the script would only fail on the merge ref GitHub has dropped.
     if let Some(state) = crate::gh::pr_state(n)?.filter(|s| s != "OPEN") {
         anyhow::bail!("#{n} is {} already, on GitHub (R refreshes the list)", state.to_lowercase());
-    }
-    // The script switches branches in the main checkout: changes there would stop it partway.
-    let (main, _) = crate::worktree_dir(n)?;
-    let dirty = crate::diff::git(&["-C", &main.to_string_lossy(), "status", "--porcelain", "--untracked-files=no"])?;
-    anyhow::ensure!(dirty.trim().is_empty(), "{} has local changes, which the merge script's checkouts would trip over: commit or stash them first", main.display());
-    // Nor under Claude at work there, on whatever PR (its edits would land on the base branch).
-    if let Some(w) = crate::claude::at_work_in(&main) {
-        anyhow::bail!("Claude is {w} in {}, which the merge script's checkouts would switch under it: merge once it's done", main.display());
     }
     // GitHub would refuse the push: say so now, before any of it (the script fails at its end).
     // Can't tell (a GitHub hiccup)? The script goes ahead, as it would have.
