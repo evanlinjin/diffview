@@ -247,7 +247,7 @@ impl App {
     fn diff_against(&mut self, base: String) {
         self.base = base;
         (self.to, self.commit_shown, self.commit_anchor) = (None, None, None);
-        self.extra.clear(); // per-hunk context: the hunks are different ones now
+        self.new_hunks();
     }
 
     /// Between the whole diff and only what isn't committed.

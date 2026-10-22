@@ -10,34 +10,34 @@ pub(super) const OUTDATED_SLACK: i64 = 10;
 /// with its lines and a few around them (± its `extra`, by its line's index), merged where they
 /// meet, each with the comment lines it covers. `whole` shows the entire file.
 pub(super) fn view_windows(threads: &[&Thread], f: &FileDiff, extra: impl Fn(usize) -> i64, whole: bool) -> Vec<(usize, usize, Vec<usize>)> {
-    let mut spans: Vec<(usize, usize, usize)> = threads
-        .iter()
-        .filter(|t| t.path == f.path)
-        .filter_map(|t| {
-            let at = anchor_line(t, &f.full)?;
-            let more = match (t.start_line, t.line) {
-                (Some(s), Some(e)) if e > s => (e - s) as usize,
-                _ => 0,
-            };
-            let x = (DEFAULT_CONTEXT as i64 + extra(at)).max(0) as usize;
-            Some((at.saturating_sub(more + x), (at + x).min(f.full.len() - 1), at))
-        })
-        .collect();
-    if whole && !f.full.is_empty() {
-        return vec![(0, f.full.len() - 1, spans.into_iter().map(|s| s.2).collect())];
-    }
-    spans.sort();
-    let mut ws: Vec<(usize, usize, Vec<usize>)> = vec![];
-    for (lo, hi, at) in spans {
-        match ws.last_mut() {
-            Some(w) if lo <= w.1 + 1 => {
-                w.1 = w.1.max(hi);
-                w.2.push(at);
-            }
-            _ => ws.push((lo, hi, vec![at])),
-        }
-    }
-    ws
+    let spans = threads.iter().filter(|t| t.path == f.path).filter_map(|t| {
+        let at = anchor_line(t, &f.full)?;
+        // (A range: from its first line, wherever that is in the diff; removed lines between
+        // don't count toward it.)
+        let first = t.start_line.and_then(|s| line_of(t, &f.full, s)).filter(|&s| s <= at).unwrap_or(at);
+        let x = (DEFAULT_CONTEXT as i64 + extra(at)).max(0) as usize;
+        Some((first.saturating_sub(x), at + x, at))
+    });
+    diff::merge_windows(spans.collect(), f.full.len(), whole)
+}
+
+/// What per-hunk context (`extra`, `view_extra`) is kept by: its file, and its first line's
+/// numbers (each side's): the same hunk across reloads, not whatever's at its index then.
+pub(super) type HunkKey = (String, Option<u32>, Option<u32>);
+
+/// The key for the hunk (or comment's window) of `f` at index `a` of its whole diff.
+pub(super) fn hunk_key(f: &FileDiff, a: usize) -> HunkKey {
+    let l = &f.full[a];
+    (f.path.clone(), l.old, l.new)
+}
+
+/// The diff line of thread `t`'s line `n` on its side.
+fn line_of(t: &Thread, lines: &[DLine], n: u32) -> Option<usize> {
+    let side = |l: &DLine| match t.left {
+        true => matches!(l.kind, Kind::Ctx | Kind::Del),
+        false => matches!(l.kind, Kind::Ctx | Kind::Add),
+    };
+    lines.iter().position(|l| side(l) && if t.left { l.old } else { l.new } == Some(n))
 }
 
 /// The diff line a thread belongs under. Current threads use their line. Outdated ones are found
@@ -49,8 +49,7 @@ pub(super) fn anchor_line(t: &Thread, lines: &[DLine]) -> Option<usize> {
     };
     let no = |l: &DLine| if t.left { l.old } else { l.new };
     if !t.outdated {
-        let n = t.line?;
-        return lines.iter().position(|l| side(l) && no(l) == Some(n));
+        return line_of(t, lines, t.line?);
     }
     let want = t.original_line? as i64;
     let dist = |i: usize| (no(&lines[i]).unwrap_or(0) as i64 - want).abs();
@@ -73,10 +72,7 @@ impl App {
     pub(super) fn shape(&mut self) {
         let (extra, whole) = (&self.extra, &self.whole);
         for f in &mut self.files {
-            if f.full.is_empty() {
-                f.prepare(); // parsed directly (tests)
-            }
-            let e = |a| *extra.get(&(f.path.clone(), a)).unwrap_or(&0);
+            let e = |a| *extra.get(&hunk_key(f, a)).unwrap_or(&0);
             let w = diff::windows(&f.full, DEFAULT_CONTEXT as usize, e, whole.contains(&f.path));
             f.lines = diff::shown(&f.full, &w, &f.headers);
         }
@@ -387,7 +383,7 @@ impl App {
         let lines = match self.view != View::All {
             true if !shown.iter().any(|t| t.path == f.path) => return vec![],
             true => {
-                let e = |a| *self.view_extra.get(&(f.path.clone(), a)).unwrap_or(&0);
+                let e = |a| *self.view_extra.get(&hunk_key(f, a)).unwrap_or(&0);
                 around = diff::shown(&f.full, &view_windows(shown, f, e, self.whole.contains(&f.path)), &f.headers);
                 &around
             }
@@ -404,7 +400,16 @@ impl App {
             return rows;
         }
         // (thread, index into its lines it sits under); unplaceable ones under the header.
-        let placed: Vec<(usize, Option<usize>)> = theirs.map(|t| (t, anchor_line(&self.threads[t], lines))).collect();
+        // Found in the whole diff (as the views' windows are), not just what's shown: an
+        // outdated comment's line is then the same however much context shows. Under it if it's
+        // shown; else (hidden context) under the header.
+        let shown_at: HashMap<(Option<u32>, Option<u32>), usize> =
+            lines.iter().enumerate().filter(|(_, l)| l.kind != Kind::Hunk).map(|(i, l)| ((l.old, l.new), i)).collect();
+        let at = |t: usize| {
+            let k = anchor_line(&self.threads[t], &f.full)?;
+            shown_at.get(&(f.full[k].old, f.full[k].new)).copied()
+        };
+        let placed: Vec<(usize, Option<usize>)> = theirs.map(|t| (t, at(t))).collect();
         for &(t, _) in placed.iter().filter(|p| p.1.is_none()) {
             rows.extend(self.thread_rows(t, i));
         }
@@ -459,9 +464,10 @@ impl App {
     /// Pair each run of removed rows with the added rows after it (as split view does) and
     /// find the changed words in each pair.
     pub(super) fn word_spans(&self) -> HashMap<usize, Vec<(usize, usize)>> {
-        let (n, kind) = (self.rows.len(), |i: usize| self.rows[i].line.kind);
-        let mut out = HashMap::new();
-        let mut i = 0;
+        // (Over the code alone, comments between its lines aside: as split view pairs them.)
+        let code: Vec<usize> = (0..self.rows.len()).filter(|&i| self.rows[i].thread.is_none()).collect();
+        let kind = |k: usize| self.rows[code[k]].line.kind;
+        let (n, mut out, mut i) = (code.len(), HashMap::new(), 0);
         while i < n {
             if kind(i) != Kind::Del {
                 i += 1;
@@ -470,7 +476,7 @@ impl App {
             let dels = (i..n).take_while(|&j| kind(j) == Kind::Del).count();
             let adds = (i + dels..n).take_while(|&j| kind(j) == Kind::Add).count();
             for k in 0..dels.min(adds) {
-                let (d, a) = (i + k, i + dels + k);
+                let (d, a) = (code[i + k], code[i + dels + k]);
                 if let Some((x, y)) = diff::word_diff(&self.rows[d].line.text, &self.rows[a].line.text) {
                     out.insert(d, x);
                     out.insert(a, y);
@@ -539,28 +545,36 @@ impl App {
         if d < 0 && self.whole.remove(&path) {
             return self.reshape();
         }
-        let code = self.rows[self.head.row..]
-            .iter()
-            .take_while(|r| r.file == row.file)
-            .find(|r| r.line.kind.is_code());
+        // The hunk the cursor's in: its line's; on a comment, the line it's under (as `key_at`).
+        let code = match row.thread {
+            Some(_) => self.rows[..=self.head.row].iter().rev().take_while(|r| r.file == row.file).find(|r| r.line.kind.is_code()),
+            None => self.rows[self.head.row..].iter().take_while(|r| r.file == row.file).find(|r| r.line.kind.is_code()),
+        };
         let Some(idx) = code.and_then(|c| f.full.iter().position(|x| x.old == c.line.old && x.new == c.line.new)) else {
             return;
         };
         // The Claude / pending view keeps its own, per comment.
         let view = self.view != View::All;
         let extra = if view { &self.view_extra } else { &self.extra };
-        let e = |a| *extra.get(&(path.clone(), a)).unwrap_or(&0);
+        let e = |a| *extra.get(&hunk_key(f, a)).unwrap_or(&0);
         let ws = match view {
             true => view_windows(&self.threads.iter().filter(|t| self.in_view(t)).collect::<Vec<_>>(), f, e, self.whole.contains(&f.path)),
             false => diff::windows(&f.full, DEFAULT_CONTEXT as usize, e, self.whole.contains(&path)),
         };
         let Some((_, _, hunks)) = ws.into_iter().find(|w| w.0 <= idx && idx <= w.1) else { return };
+        let keys: Vec<HunkKey> = hunks.into_iter().map(|a| hunk_key(f, a)).collect();
         let extra = if view { &mut self.view_extra } else { &mut self.extra };
-        for a in hunks {
-            let x = extra.entry((path.clone(), a)).or_insert(0);
+        for k in keys {
+            let x = extra.entry(k).or_insert(0);
             *x = (*x + d).max(-(DEFAULT_CONTEXT as i64));
         }
         self.reshape();
+    }
+
+    /// The diff's hunks are other ones now (another base, a commit's): their context afresh.
+    pub(super) fn new_hunks(&mut self) {
+        self.extra.clear();
+        self.view_extra.clear();
     }
 
     pub(super) fn toggle_whole(&mut self) {
@@ -595,9 +609,7 @@ impl App {
             return self.rebuild_at(move |r| r.main == Some(id) && r.line.kind == Kind::File);
         }
         if let Some(id) = self.section_of(self.head.row) {
-            if !self.sections_folded.remove(&id) {
-                self.sections_folded.insert(id);
-            }
+            flip(&mut self.sections_folded, id);
             return self.rebuild_at(move |r| r.main == Some(id) && r.line.kind == Kind::File);
         }
         if fi == INFO && self.claude_side() {
@@ -635,29 +647,25 @@ impl App {
 }
 
 /// A line diff of `old` → `new`: (Ctx | Del | Add, line), from their longest common subsequence.
-// ponytail: O(n·m) table, capped as `word_diff` is (beyond it: all old out, all new in).
+// ponytail: O(n·m) (`diff::lcs`), capped as `word_diff` is (beyond it: all old out, all new in).
 fn line_diff(old: &[String], new: &[String]) -> Vec<(Kind, String)> {
     let (n, m) = (old.len(), new.len());
-    if n * m > 250_000 {
-        return old.iter().map(|l| (Kind::Del, l.clone())).chain(new.iter().map(|l| (Kind::Add, l.clone()))).collect();
-    }
-    let mut lcs = vec![vec![0u32; m + 1]; n + 1];
-    for i in (0..n).rev() {
-        for j in (0..m).rev() {
-            lcs[i][j] = if old[i] == new[j] { lcs[i + 1][j + 1] + 1 } else { lcs[i + 1][j].max(lcs[i][j + 1]) };
-        }
-    }
+    let (ko, kn) = match n * m > 250_000 {
+        true => (vec![false; n], vec![false; m]),
+        false => diff::lcs(old, new, |a, b| a == b),
+    };
+    // Kept lines in step; between them, what goes before what comes instead.
     let (mut i, mut j, mut out) = (0, 0, vec![]);
     while i < n || j < m {
-        if i < n && j < m && old[i] == new[j] {
-            out.push((Kind::Ctx, old[i].clone()));
-            (i, j) = (i + 1, j + 1);
-        } else if i < n && (j == m || lcs[i + 1][j] >= lcs[i][j + 1]) {
-            out.push((Kind::Del, old[i].clone())); // what goes, before what comes instead
+        if i < n && !ko[i] {
+            out.push((Kind::Del, old[i].clone()));
             i += 1;
-        } else {
+        } else if j < m && !kn[j] {
             out.push((Kind::Add, new[j].clone()));
             j += 1;
+        } else {
+            out.push((Kind::Ctx, old[i].clone()));
+            (i, j) = (i + 1, j + 1);
         }
     }
     out

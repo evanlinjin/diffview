@@ -3883,3 +3883,26 @@ fn a_ranges_bar_passes_a_dot_on_a_wrapped_line() {
     app.build();
     assert_eq!(app.comment_bar(r, None), Some(('╎', app.ui.stale)));
 }
+
+#[test]
+fn words_pair_past_comments_and_a_range_window_starts_at_its_first_line() {
+    // A comment between two removed lines: the word emphasis pairs them with the added lines
+    // as split view does (1st with 1st, 2nd with 2nd).
+    let text = "diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1,2 +1,2 @@\n-let a = 1;\n-let b = 2;\n+let a = 10;\n+let b = 20;\n";
+    let mut app = App::with("base".into(), diff::parse(text));
+    app.threads = vec![gh::Thread { path: "a.rs".into(), line: Some(1), left: true, comments: vec![gh::Comment { author: "amy".into(), body: "hm".into(), ..Default::default() }], ..Default::default() }];
+    app.build();
+    let at = |t: &str| app.rows.iter().position(|r| r.line.text == t).unwrap();
+    let emph = |r: usize| app.emph.get(&r).cloned().unwrap_or_default();
+    let changed = |r: usize| emph(r).iter().map(|&(a, b)| app.rows[r].line.text.chars().skip(a).take(b - a).collect::<String>()).collect::<Vec<_>>();
+    assert_eq!(changed(at("let b = 20;")), ["20"]);
+    assert_eq!(changed(at("let b = 2;")), ["2"]);
+    // A range comment (new lines 1–4) with removed lines inside it: its view's window starts at
+    // its first line.
+    let dels: String = (0..6).map(|i| format!("-gone{i}\n")).collect();
+    let text = format!("diff --git a/b.rs b/b.rs\nindex 1..2 100644\n--- a/b.rs\n+++ b/b.rs\n@@ -1,9 +1,4 @@\n one\n{dels} two\n three\n four\n");
+    let f = &diff::parse(&text)[0];
+    let t = gh::Thread { path: "b.rs".into(), start_line: Some(1), line: Some(4), ..Default::default() };
+    let w = view_windows(&[&t], f, |_| -(DEFAULT_CONTEXT as i64), false);
+    assert_eq!(w[0].0, 0, "from `one`: {w:?}");
+}

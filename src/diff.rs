@@ -62,24 +62,20 @@ pub type Spans = Vec<(usize, usize)>;
 
 /// Changed spans between a removed line and the added line it pairs with, as char ranges in
 /// each. `None` when they're too different for word-level highlighting to help.
-pub fn word_diff(a: &str, b: &str) -> Option<(Spans, Spans)> {
-    let (ac, bc): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
-    let (at, bt) = (tokens(&ac), tokens(&bc));
-    if at.len() * bt.len() > 250_000 {
-        return None; // ponytail: quadratic LCS; skip very long lines.
-    }
-    // LCS over tokens.
-    let (n, m) = (at.len(), bt.len());
-    let mut dp = vec![vec![0u16; m + 1]; n + 1];
+/// Which items of `a` and of `b` are in their longest common subsequence (`same`), in order:
+/// the kept ones pair up. O(n·m): callers cap their input.
+pub fn lcs<T>(a: &[T], b: &[T], same: impl Fn(&T, &T) -> bool) -> (Vec<bool>, Vec<bool>) {
+    let (n, m) = (a.len(), b.len());
+    let mut dp = vec![vec![0u32; m + 1]; n + 1];
     for i in (0..n).rev() {
         for j in (0..m).rev() {
-            dp[i][j] = if tok(&ac, at[i]) == tok(&bc, bt[j]) { dp[i + 1][j + 1] + 1 } else { dp[i + 1][j].max(dp[i][j + 1]) };
+            dp[i][j] = if same(&a[i], &b[j]) { dp[i + 1][j + 1] + 1 } else { dp[i + 1][j].max(dp[i][j + 1]) };
         }
     }
     let (mut ka, mut kb) = (vec![false; n], vec![false; m]);
     let (mut i, mut j) = (0, 0);
     while i < n && j < m {
-        if tok(&ac, at[i]) == tok(&bc, bt[j]) {
+        if same(&a[i], &b[j]) {
             (ka[i], kb[j]) = (true, true);
             (i, j) = (i + 1, j + 1);
         } else if dp[i + 1][j] >= dp[i][j + 1] {
@@ -88,6 +84,17 @@ pub fn word_diff(a: &str, b: &str) -> Option<(Spans, Spans)> {
             j += 1;
         }
     }
+    (ka, kb)
+}
+
+pub fn word_diff(a: &str, b: &str) -> Option<(Spans, Spans)> {
+    let (ac, bc): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    let (at, bt) = (tokens(&ac), tokens(&bc));
+    if at.len() * bt.len() > 250_000 {
+        return None; // ponytail: quadratic LCS; skip very long lines.
+    }
+    let same = |x: &(usize, usize), y: &(usize, usize)| tok(&ac, *x) == tok(&bc, *y);
+    let (ka, kb) = lcs(&at, &bt, same);
     // Too little in common: the whole line changed, so word emphasis would just be noise.
     let solid = |c: &[char], t: &[(usize, usize)], keep: &[bool], kept: bool| -> usize {
         t.iter().zip(keep).filter(|(_, k)| **k == kept).map(|(t, _)| c[t.0..t.1].iter().filter(|c| !c.is_whitespace()).count()).sum()
@@ -148,11 +155,10 @@ fn header(h: &str) -> Option<(u32, String)> {
 /// `to`: a commit to diff up to, else the working tree.
 pub fn load(base: &str, to: Option<&str>, ctx: u32) -> Result<Vec<FileDiff>> {
     let mut files = diff(base, to, 1_000_000, &[])?;
-    let mut normal = diff(base, to, ctx, &[])?;
+    // (Only for its headers: untracked files have no function context, so not them again.)
+    let mut normal = tracked_diff(base, to, ctx, &[])?;
     for f in &mut files {
-        f.prepare();
         if let Some(g) = normal.iter_mut().find(|g| g.path == f.path) {
-            g.prepare();
             f.headers = std::mem::take(&mut g.headers);
         }
     }
@@ -175,23 +181,32 @@ pub fn hunks(full: &[Line], ctx: usize) -> Vec<(usize, usize)> {
 /// Shown ranges of `full`: each hunk ± (ctx + its extra), merged where they meet, each with
 /// the hunks it covers. `whole` shows the entire file.
 pub fn windows(full: &[Line], ctx: usize, extra: impl Fn(usize) -> i64, whole: bool) -> Vec<(usize, usize, Vec<usize>)> {
-    let hs = hunks(full, ctx);
-    if full.is_empty() {
+    let spans = hunks(full, ctx).into_iter().map(|(a, b)| {
+        let x = (ctx as i64 + extra(a)).max(0) as usize;
+        (a.saturating_sub(x), b + x, a)
+    });
+    merge_windows(spans.collect(), full.len(), whole)
+}
+
+/// Spans of `full` (`len` lines: first, last, and what each's for), as windows: merged where
+/// they meet, each with what it covers; `whole`, the entire file, covering them all.
+pub fn merge_windows(mut spans: Vec<(usize, usize, usize)>, len: usize, whole: bool) -> Vec<(usize, usize, Vec<usize>)> {
+    if len == 0 {
         return vec![];
     }
     if whole {
-        return vec![(0, full.len() - 1, hs.iter().map(|h| h.0).collect())];
+        return vec![(0, len - 1, spans.into_iter().map(|s| s.2).collect())];
     }
+    spans.sort();
     let mut out: Vec<(usize, usize, Vec<usize>)> = vec![];
-    for (a, b) in hs {
-        let x = (ctx as i64 + extra(a)).max(0) as usize;
-        let (lo, hi) = (a.saturating_sub(x), (b + x).min(full.len() - 1));
+    for (lo, hi, at) in spans {
+        let hi = hi.min(len - 1);
         match out.last_mut() {
             Some(w) if lo <= w.1 + 1 => {
                 w.1 = w.1.max(hi);
-                w.2.push(a);
+                w.2.push(at);
             }
-            _ => out.push((lo, hi, vec![a])),
+            _ => out.push((lo, hi, vec![at])),
         }
     }
     out
@@ -221,7 +236,11 @@ pub fn push_target(dir: &std::path::Path, here: &str) -> Option<(String, String)
     let remote = config(&format!("branch.{here}.pushRemote"))
         .or_else(|| config("remote.pushDefault"))
         .or_else(|| config(&format!("branch.{here}.remote")))?;
-    let branch = config(&format!("branch.{here}.merge")).map_or(here.to_owned(), |m| m.trim_start_matches("refs/heads/").to_owned());
+    // The branch it tracks there, when that's its own (by name, or `<owner>-<branch>` as `gh pr
+    // checkout` names a fork's): else its own name, as git's `push.default=simple` would (one
+    // started from `origin/main` tracks `main`, but isn't it).
+    let merge = config(&format!("branch.{here}.merge")).map(|m| m.trim_start_matches("refs/heads/").to_owned());
+    let branch = merge.filter(|m| m == here || here.ends_with(&format!("-{m}"))).unwrap_or_else(|| here.to_owned());
     Some((remote, branch))
 }
 
@@ -379,7 +398,8 @@ pub fn merge_base(base: Option<&str>) -> Result<String> {
 }
 
 /// Diff `base` against commit `to` (else the working tree), optionally limited to `paths`.
-pub fn diff(base: &str, to: Option<&str>, context: u32, paths: &[&str]) -> Result<Vec<FileDiff>> {
+/// Git's diff of what's tracked (`paths`: those only), parsed.
+fn tracked_diff(base: &str, to: Option<&str>, context: u32, paths: &[&str]) -> Result<Vec<FileDiff>> {
     let u = format!("-U{context}");
     let specs: Vec<String> = paths.iter().map(|p| format!(":(literal){p}")).collect();
     let mut args = vec![
@@ -389,7 +409,13 @@ pub fn diff(base: &str, to: Option<&str>, context: u32, paths: &[&str]) -> Resul
     args.extend(to);
     args.push("--");
     args.extend(specs.iter().map(String::as_str));
-    let mut files = parse(&git(&args)?);
+    Ok(parse(&git(&args)?))
+}
+
+pub fn diff(base: &str, to: Option<&str>, context: u32, paths: &[&str]) -> Result<Vec<FileDiff>> {
+    let u = format!("-U{context}");
+    let specs: Vec<String> = paths.iter().map(|p| format!(":(literal){p}")).collect();
+    let mut files = tracked_diff(base, to, context, paths)?;
     if to.is_some() {
         return Ok(files); // commits only: untracked files aren't in them
     }
@@ -463,6 +489,8 @@ pub fn parse(s: &str) -> Vec<FileDiff> {
         new += n.is_some() as u32;
         f.lines.push(Line { kind, old: o, new: n, text: l.get(1..).unwrap_or("").to_owned() });
     }
+    // (Each file's whole diff, and its hunks' function context, from its lines as parsed.)
+    files.iter_mut().for_each(FileDiff::prepare);
     files
 }
 
@@ -570,4 +598,20 @@ fn gits_reason_first() {
     let first = e.lines().next().unwrap_or("");
     assert!(first.contains("fatal: a branch named 'taken' already exists"), "{e}");
     _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_branch_pushes_to_its_own_name() {
+    // Started from origin/main, it tracks `main`, but pushes as itself; a PR checked out by gh
+    // (`<owner>-<branch>`, tracking `<branch>`) pushes to the PR's.
+    let d = std::env::temp_dir().join(format!("dv-push-target-{}", std::process::id()));
+    _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(&d).unwrap();
+    git_in(&d, &["init", "-q"]).unwrap();
+    for (k, v) in [("branch.feat.remote", "origin"), ("branch.feat.merge", "refs/heads/main"), ("branch.amy-fix.remote", "origin"), ("branch.amy-fix.merge", "refs/heads/fix")] {
+        git_in(&d, &["config", k, v]).unwrap();
+    }
+    assert_eq!(push_target(&d, "feat"), Some(("origin".into(), "feat".into())));
+    assert_eq!(push_target(&d, "amy-fix"), Some(("origin".into(), "fix".into())));
+    _ = std::fs::remove_dir_all(&d);
 }

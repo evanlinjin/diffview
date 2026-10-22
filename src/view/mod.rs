@@ -527,10 +527,10 @@ pub struct App {
     commit_anchor: Option<usize>,
     in_commits: bool,
     files: Vec<FileDiff>,
-    /// Extra context lines per hunk: (path, hunk's first full index) → lines (can be negative).
-    extra: HashMap<(String, usize), i64>,
-    /// The same in the Claude / pending view, per comment: (path, its line's full index).
-    view_extra: HashMap<(String, usize), i64>,
+    /// Extra context lines per hunk (`HunkKey`: by its first line) → lines (can be negative).
+    extra: HashMap<HunkKey, i64>,
+    /// The same in the Claude / pending view, per comment (by its line).
+    view_extra: HashMap<HunkKey, i64>,
     /// Files shown whole (`Z`).
     whole: HashSet<String>,
     collapsed: HashSet<String>,

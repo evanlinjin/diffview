@@ -297,13 +297,14 @@ impl App {
         };
         if find(self).is_none() {
             // Hidden in a gap: grow the cursor's hunk until it reaches the match.
-            let e = |a| *self.extra.get(&(path.clone(), a)).unwrap_or(&0);
             let f = &self.files[fi];
+            let e = |a| *self.extra.get(&hunk_key(f, a)).unwrap_or(&0);
             let ws = diff::windows(&f.full, DEFAULT_CONTEXT as usize, e, self.whole.contains(&path));
             if let Some((lo, hi, hunks)) = ws.into_iter().find(|w| w.0 <= start && start <= w.1) {
                 let grow = if j > hi { j - hi } else { lo.saturating_sub(j) } as i64;
-                for a in hunks {
-                    *self.extra.entry((path.clone(), a)).or_insert(0) += grow;
+                let keys: Vec<HunkKey> = hunks.into_iter().map(|a| hunk_key(f, a)).collect();
+                for k in keys {
+                    *self.extra.entry(k).or_insert(0) += grow;
                 }
                 self.reshape();
                 self.msg = "expanded the hunk to reach the match".into();

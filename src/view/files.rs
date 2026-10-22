@@ -455,7 +455,7 @@ impl App {
             let out = diff::git(&args).unwrap_or_default();
             out.split('\0').map(|m| m.trim_matches('\n').to_owned()).take(b + 1 - a).collect()
         });
-        self.extra.clear(); // per-hunk context: the hunks are different ones now
+        self.new_hunks();
         self.msg = match (self.reload(false), self.commits_label()) {
             (Err(e), _) => format!("{e:#}"),
             (Ok(()), None) => "all commits: the whole diff".into(),
