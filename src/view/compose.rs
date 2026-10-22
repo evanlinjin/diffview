@@ -312,7 +312,7 @@ impl App {
                 if title.is_empty() {
                     return Ok("not published: it needs a title (the first line)".into());
                 }
-                let res = crate::replace::publish(&mut r, &self.root, title, body);
+                let res = crate::replace::publish(&mut r, &self.root, title, body, self.claude.session.as_deref());
                 keep_on_error(res.as_ref().map(drop).map_err(|e| anyhow!("{e:#}")), &text)?;
                 let originals = !r.replaces.is_empty(); // a new PR replaces nothing
                 self.show_replacement(r);

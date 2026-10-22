@@ -574,7 +574,11 @@ fn owner(url: &str) -> Option<&str> {
 /// passes), with `title` and `body` (what
 /// you made of Claude's drafts): rebase it onto its base as it is on origin now, push it to
 /// your replacements remote, then open the PR (from there, into origin's repo). Its number.
-pub fn publish(r: &mut Record, dir: &Path, title: &str, body: &str) -> Result<u64> {
+pub fn publish(r: &mut Record, dir: &Path, title: &str, body: &str, own: Option<&str>) -> Result<u64> {
+    // Not under Claude at it (a redraft from another dv, since you asked; a pane, but `own`'s
+    // session's, the asker's to mind): its claim, held while publishing; the record as it is now.
+    let _claim = crate::claude::claim(&crate::claude::rep_key(r.id), "publishing it", own).map_err(|w| anyhow::anyhow!("Claude is {w} on {}: publish it once it's done", label(r.id)))?;
+    *r = load(r.id)?;
     anyhow::ensure!(r.published.is_none(), "already published, as #{}", r.published.unwrap_or(0));
     let remote = remote().context("no remote for replacement branches (dv.replaceRemote)")?;
     rebase(r, dir)?;
@@ -583,8 +587,11 @@ pub fn publish(r: &mut Record, dir: &Path, title: &str, body: &str) -> Result<u6
     let owner = owner(url.trim()).with_context(|| format!("{remote} ({}) isn't a GitHub repo", url.trim()))?;
     crate::diff::git(&["-C", &dir.to_string_lossy(), "push", "-q", "-f", "-u", &remote, &format!("{b}:refs/heads/{b}")])?;
     let n = crate::gh::create_pr(&r.base, &format!("{owner}:{b}"), title, body)?;
-    (r.published, r.title, r.body) = (Some(n), title.to_owned(), body.to_owned());
-    save(r)?;
+    *r = update(r.id, |r| {
+        (r.published, r.title, r.body) = (Some(n), title.to_owned(), body.to_owned());
+        Ok(())
+    })?
+    .1;
     Ok(n)
 }
 
@@ -604,18 +611,22 @@ pub fn close_originals(r: &mut Record, note: &str) -> Result<Vec<u64>> {
     let mut done = vec![];
     for n in r.replaces.iter().map(|o| o.number).filter(|n| !r.closed.contains(n)).collect::<Vec<_>>() {
         let res = crate::gh::close(n, Some(note)).with_context(|| format!("closing #{n}"));
-        if res.is_ok() {
-            r.closed.push(n);
-            done.push(n);
-        }
-        save(r)?;
         res?;
+        // (Into the record as it is now: what's been written to it meanwhile stays.)
+        *r = update(r.id, |r| {
+            if !r.closed.contains(&n) {
+                r.closed.push(n);
+            }
+            Ok(())
+        })?
+        .1;
+        done.push(n);
     }
     Ok(done)
 }
 
 /// Remove replacement `id`: its worktree (not with local changes) and its record. Its branch
-/// stays, in case there's something on it you want.
+/// stays, renamed, in case there's something on it you want.
 pub fn remove(id: u64, root: &Path) -> Result<String> {
     // Not while Claude's at it (a draft, a run, a pane): its claim, held while removing.
     let _claim = crate::claude::claim(&crate::claude::rep_key(id), "removing it", None).map_err(|w| anyhow::anyhow!("Claude is {w} on {}: remove it once it's done", label(id)))?;
