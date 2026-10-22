@@ -145,7 +145,7 @@ impl App {
         // (`C` posts now only where `posts_now` lets it: a pending review holds it off; Claude's
         // comment goes to GitHub, `c` or `C`, only where a line comment can.)
         if let Some((what, keys)) = self.row_keys() {
-            let claude = self.claude_at_cursor().map(|(t, _)| self.on_head().and_then(|_| self.on_github(self.claude_anchor(t))).is_ok());
+            let claude = self.claude_at_cursor().map(|(t, _)| self.github_anchor(Ok(self.claude_anchor(t))).is_ok());
             let acts = |k: &str| (k != "C" || self.posts_now().is_ok()) && (!matches!(k, "c" | "C") || claude != Some(false));
             return Some((what, keys.iter().filter(|k| acts(k.0)).copied().collect()));
         }
@@ -162,12 +162,12 @@ impl App {
         }
         // (Each its handler's own rule: commenting on GitHub, suggesting, asking Claude.)
         let lines = self.selection_anchor().is_ok();
-        let comment = self.on_head().and_then(|_| self.selection_anchor()).and_then(|a| self.on_github(a)).is_ok();
+        let comment = self.github_anchor(self.selection_anchor()).is_ok();
         let keys = [
             ("Enter", "open the file in your editor, at this line", !selecting),
             ("c", "comment (review)", comment),
             ("C", "comment now", comment && self.posts_now().is_ok()),
-            ("s", "suggest a change", self.on_head().and_then(|_| self.suggestion()).and_then(|s| self.on_github(s.0)).is_ok()),
+            ("s", "suggest a change", self.github_anchor(self.suggestion().map(|s| s.0)).is_ok()),
             ("a", "a comment for Claude", lines),
             ("v x", "select (to comment on lines)", !selecting),
             ("y", "copy", selecting),

@@ -582,7 +582,7 @@ impl App {
         if !th.severity.is_empty() && !body.starts_with("**") {
             body = format!("**{}:** {body}", th.severity);
         }
-        match self.line_comment(anchor) {
+        match self.line_comment(Ok(anchor)) {
             Ok(anchor) => self.action = Some(Action::Comment { anchor, review, prefill: body, claude: Some(key) }),
             Err(e) => self.msg = format!("{e:#}"),
         }
@@ -767,11 +767,18 @@ impl App {
         Ok(pr)
     }
 
-    /// Where a line comment on `a` is posted from (`on_head` first), as it is here: the
-    /// checkout at the PR's head, its tree clean; else the lines would shift.
-    pub(super) fn line_comment(&self, a: Anchor) -> Result<Anchor> {
+    /// What GitHub takes a line comment on: the PR at its head (`on_head`), then the `lines`,
+    /// then a file it has (`on_github`). Without git: the key hints' rule too.
+    pub(super) fn github_anchor(&self, lines: Result<Anchor>) -> Result<Anchor> {
+        self.on_head()?;
+        self.on_github(lines?)
+    }
+
+    /// A line comment on `lines` (`github_anchor`), as it's posted from here: the checkout at
+    /// the PR's head, its tree clean; else the lines would shift.
+    pub(super) fn line_comment(&self, lines: Result<Anchor>) -> Result<Anchor> {
+        let a = self.github_anchor(lines)?;
         let pr = self.on_head()?;
-        let a = self.on_github(a)?;
         if diff::git(&["rev-parse", "HEAD"])?.trim() != pr.head_oid {
             bail!("HEAD isn't the PR head (pull, or `gh pr checkout {}`)", pr.number);
         }
@@ -796,7 +803,7 @@ impl App {
     }
 
     pub(super) fn start_comment(&mut self, review: bool) {
-        match self.on_head().and_then(|_| self.selection_anchor()).and_then(|a| self.line_comment(a)) {
+        match self.line_comment(self.selection_anchor()) {
             Ok(anchor) => self.action = Some(Action::Comment { anchor, review, prefill: String::new(), claude: None }),
             Err(e) => self.msg = format!("{e:#}"),
         }
@@ -804,8 +811,9 @@ impl App {
 
     /// `s`: a GitHub suggestion for the selected new-side lines, pre-filled with their code.
     pub(super) fn start_suggest(&mut self) {
-        match self.on_head().and_then(|_| self.suggestion()).and_then(|(a, p)| Ok((self.line_comment(a)?, p))) {
-            Ok((anchor, prefill)) => self.action = Some(Action::Comment { anchor, review: true, prefill, claude: None }),
+        let s = self.suggestion();
+        match self.line_comment(s.as_ref().map(|s| s.0.clone()).map_err(|e| anyhow!("{e:#}"))) {
+            Ok(anchor) => self.action = Some(Action::Comment { anchor, review: true, prefill: s.map(|s| s.1).unwrap_or_default(), claude: None }),
             Err(e) => self.msg = format!("{e:#}"),
         }
     }
