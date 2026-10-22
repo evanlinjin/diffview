@@ -72,6 +72,7 @@ impl Thread {
 pub const AUTHOR: &str = "claude";
 const USER: &str = "user";
 
+#[derive(Default)]
 pub struct Review {
     pub head: String,
     /// When Claude wrote it (its file's `"created"`).
@@ -88,6 +89,22 @@ pub struct Review {
     /// worth keeping); empty: it wouldn't. Auto drafts that replacement.
     pub replace: String,
     pub threads: Vec<Thread>,
+}
+
+/// Claude's review `r` as text for a prompt (a replacement's: what was found wrong): its
+/// summary, then each comment on code with its replies (yours and Claude's), where it is.
+pub fn review_brief(r: &Review) -> String {
+    let mut out = vec![r.summary.trim().to_owned()];
+    for t in r.threads.iter().filter(|t| t.conversation.is_empty()) {
+        let at = format!("`{}:{}`", t.path, t.line.or(t.original_line).unwrap_or(0));
+        let state = [(t.resolved, "resolved"), (t.outdated, "outdated")].iter().filter(|s| s.0).map(|s| s.1).collect::<Vec<_>>().join(", ");
+        let tag = [t.severity.as_str(), state.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(", ");
+        let tag = if tag.is_empty() { String::new() } else { format!(" ({tag})") };
+        let talk: Vec<String> = t.comments.iter().map(|c| format!("  {}: {}", if c.author == AUTHOR { "Claude" } else { "the user" }, c.body.trim().replace('\n', "\n  "))).collect();
+        out.push(format!("- {at}{tag}\n{}", talk.join("\n")));
+    }
+    out.retain(|s| !s.is_empty());
+    out.join("\n\n")
 }
 
 /// dv's directory for this repo: `$XDG_DATA_HOME/dv/<repo>/` (`~/.local/share/dv/...`), named
@@ -1228,4 +1245,23 @@ fn long_prose_is_flagged_when_new() {
     assert_eq!(rep.warnings.len(), 2, "{:?}", rep.warnings);
     assert!(rep.warnings[0].starts_with("comment 1 (a.rs:1): 902 characters"), "{}", rep.warnings[0]);
     assert!(rep.warnings[1].starts_with("comment 4 (a.rs:4), your reply: "));
+}
+
+#[test]
+fn a_review_as_a_replacement_reads_it() {
+    let c = |who: &str, body: &str| crate::gh::Comment { author: who.into(), body: body.into(), ..Default::default() };
+    let t = |path: &str, line, sev: &str, comments| crate::gh::Thread { path: path.into(), line: Some(line), severity: sev.into(), comments, ..Default::default() };
+    let r = Review {
+        summary: "Fixes the symptom.".into(),
+        threads: vec![
+            t("src/a.rs", 12, "bug", vec![c(AUTHOR, "This drops the error."), c("you", "Agreed:\nmake it return it")]),
+            crate::gh::Thread { resolved: true, ..t("src/b.rs", 3, "", vec![c("you", "rename it")]) },
+            crate::gh::Thread { conversation: "summary".into(), ..t("", 0, "", vec![c("you", "why?")]) }, // about the summary: not code
+        ],
+        ..Default::default()
+    };
+    assert_eq!(
+        review_brief(&r),
+        "Fixes the symptom.\n\n- `src/a.rs:12` (bug)\n  Claude: This drops the error.\n  the user: Agreed:\n  make it return it\n\n- `src/b.rs:3` (resolved)\n  the user: rename it"
+    );
 }

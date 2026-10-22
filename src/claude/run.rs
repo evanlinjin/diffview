@@ -58,6 +58,7 @@ pub(crate) const COMMIT_TOOLS: &[&str] = &["Bash(git status:*)", "Bash(git add:*
 /// its own local branch; dv never pushes it without you).
 pub(crate) const REPLACE_TOOLS: &[&str] = &[
     "Bash(dv replace-info:*)",
+    "Bash(dv review-comments:*)",
     "Bash(gh pr view:*)",
     "Bash(gh pr diff:*)",
     "Bash(gh issue view:*)",

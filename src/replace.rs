@@ -335,6 +335,28 @@ pub fn rebase(r: &Record, dir: &Path) -> Result<()> {
 /// What Claude is asked, to draft (or redraft) replacement `r`. Your notes on the repo come
 /// with it, to read: a draft reads untrusted PRs, so it gets no access to them (nor to dv's
 /// other files), only to its record.
+/// Claude's reviews of the PRs `r` replaces, from dv (its own and the user's words, not the
+/// PRs'), for a replacement to start from what they found.
+fn reviews_of(r: &Record) -> String {
+    let reviews: Vec<String> = r
+        .replaces
+        .iter()
+        .filter_map(|o| {
+            let review = crate::claude::load(&crate::claude::path(Some(o.number)).ok()?).ok()??;
+            let text = crate::claude::review_brief(&review);
+            (!text.is_empty()).then(|| format!("<review pr=\"{}\">\n{text}\n</review>", o.number))
+        })
+        .collect();
+    match reviews.is_empty() {
+        true => String::new(),
+        false => format!(
+            "\n\nYour review of it in dv, with the user's replies (what you and the user found wrong with it: \
+             start from that, and do what the user asked there):\n{}",
+            reviews.join("\n")
+        ),
+    }
+}
+
 pub fn prompt(r: &Record, extra: &str) -> String {
     let prs: Vec<String> = r.replaces.iter().map(|o| format!("#{}", o.number)).collect();
     let now = crate::claude::now();
@@ -353,8 +375,9 @@ pub fn prompt(r: &Record, extra: &str) -> String {
         ),
         false => format!(
             "Use the dv-review skill to draft a replacement for PR {} (its section 6: \"Draft a replacement or a new PR\"). \
-             First run `dv replace-info`. (It's {now} now.){notes}",
-            prs.join(", ")
+             First run `dv replace-info`. (It's {now} now.){notes}{}",
+            prs.join(", "),
+            reviews_of(r)
         ),
     };
     // What you asked of its drafts that no redraft has taken in yet: in the record, to answer.
