@@ -218,6 +218,20 @@ impl App {
         }
     }
 
+    /// How far row `r` (`w` wide) can be scrolled sideways with the cursor on it: to its last
+    /// char (where the cursor follows), and a block no further than its widest line's end at
+    /// the right edge (nothing that fits scrolled).
+    pub(super) fn hmost(&self, r: usize, w: usize) -> usize {
+        let own = self.col_of(r, self.len(r)).saturating_sub(1);
+        match self.scroller(r) {
+            Some(Scroller::Block(b)) => {
+                let rows = (b..self.rows.len()).take_while(|&x| x == b || self.code_block(x) == Some(b));
+                rows.map(|x| self.col_of(x, self.len(x))).max().unwrap_or(0).saturating_sub(w).min(own)
+            }
+            _ => own,
+        }
+    }
+
     /// How far row `r`'s text is scrolled sideways: a code block only while the cursor's in
     /// it (`code_at`).
     pub(super) fn hscroll(&self, r: usize) -> usize {

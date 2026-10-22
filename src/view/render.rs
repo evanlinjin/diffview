@@ -242,16 +242,7 @@ impl App {
         // (In columns, as `render_row` draws it: a tab's 4, a wide character's 2.)
         let (row, mut left) = (self.head.row, self.hscroll(self.head.row));
         if nudge != 0 {
-            // (The diff: as far as this line's last char, `left` the diff's; a block: as far as
-            // its widest line's end at the right edge, nothing that fits scrolled.)
-            let most = match scroller {
-                Scroller::Diff => self.col_of(row, len).saturating_sub(1),
-                Scroller::Block(b) => {
-                    let rows = (b..self.rows.len()).take_while(|&r| r == b || self.code_block(r) == Some(b));
-                    rows.map(|r| self.col_of(r, self.len(r))).max().unwrap_or(0).saturating_sub(w)
-                }
-            };
-            left = (left as isize + nudge).clamp(0, most as isize) as usize;
+            left = (left as isize + nudge).clamp(0, self.hmost(row, w) as isize) as usize;
             let first = self.char_from(row, left);
             let last = self.char_at(row, left + w).saturating_sub(1).max(first);
             self.head.col = self.head.col.clamp(first, last).min(len.saturating_sub(1));

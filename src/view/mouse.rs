@@ -54,12 +54,17 @@ impl App {
         let kind = if code { sideways(&m) } else { m.kind };
         match kind {
             // Sideways: what's under it (a comment's code block or table, the pinned title, or
-            // the diff), the cursor to it first, as a click. Not what doesn't scroll (a
-            // comment's prose: the cursor stays), nor a line too short to show where it's
-            // scrolled to (the cursor there would take it back).
+            // the diff), the cursor to it first, as a click. Not where nothing would scroll
+            // (a comment's prose; already as far as it goes, `hmost`, or back at its start; a
+            // line too short to show where it's scrolled to): the cursor stays.
             MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight if code => {
                 let Some((row, col, _, side)) = self.at_screen(x, y) else { return };
-                if self.scroller(row).is_none() || self.hscroll(row) > 0 && self.col_of(row, self.len(row)) <= self.hscroll(row) + usize::from(kind == MouseEventKind::ScrollRight) {
+                let h = self.hscroll(row);
+                let stuck = match kind == MouseEventKind::ScrollRight {
+                    true => h >= self.hmost(row, self.row_w(row)),
+                    false => h == 0 || self.col_of(row, self.len(row)) <= h,
+                };
+                if self.scroller(row).is_none() || stuck {
                     return;
                 }
                 self.select = false;

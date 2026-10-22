@@ -4108,9 +4108,10 @@ fn the_wheel_scrolls_the_title_only_where_its_cut() {
     let g = app.geom;
     wheel(&mut app, g.relw + g.gw + g.ctw + 5);
     assert_eq!(app.head.row, 3);
-    // On a title that fits: nothing to scroll to.
+    // On a title that fits: nothing to scroll to, the cursor left where it is.
     let s = wheel(&mut app, 20);
     assert!(s.lines().next().unwrap().contains("PR #7 · Fix the thing") && app.hscroll(0) == 0, "{s}");
+    assert_eq!(app.head.row, 3);
 }
 
 #[test]
@@ -4142,4 +4143,27 @@ fn the_wheel_over_a_short_line_leaves_the_scroll() {
     let left = app.left;
     wheel(&mut app, MouseEventKind::ScrollLeft, long_r);
     assert!(app.left < left, "{} → {}", left, app.left);
+}
+
+#[test]
+fn the_wheel_at_a_blocks_end_leaves_the_cursor() {
+    use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
+    let mut app = fixture();
+    (app.summary_draft, app.claude.summary) = (String::new(), String::new());
+    app.threads[1].comments[0].body = format!("```\n{}\n```", "x".repeat(300));
+    app.build();
+    let s = screen(220, 45, |f| app.draw(f));
+    let (y, line) = s.lines().enumerate().find(|(_, l)| l.contains("xxx")).unwrap();
+    let x = line.chars().position(|c| c == 'x').unwrap() as u16;
+    let wheel = |app: &mut App, x: u16| {
+        app.mouse(MouseEvent { kind: MouseEventKind::ScrollDown, column: x, row: y as u16, modifiers: KeyModifiers::SHIFT });
+        _ = screen(220, 45, |f| app.draw(f));
+    };
+    for _ in 0..80 {
+        wheel(&mut app, x + 5);
+    }
+    // At its end: another notch elsewhere on it scrolls nothing, and moves nothing.
+    let (left, col) = (app.code_left, app.head.col);
+    wheel(&mut app, x + 20);
+    assert_eq!((app.code_left, app.head.col), (left, col));
 }
