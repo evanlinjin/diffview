@@ -143,8 +143,8 @@ impl Numbered for (u64, bool, Task) {
     }
 }
 
-/// One of the `AT_ONCE` Claude runs this dv may have going, across all its pools (a batch
-/// asked while another runs waits for it): held while a run's at work, given back as it ends.
+/// One of the `AT_ONCE` Claude runs this dv may have going from its lists, across all its
+/// pools, drafts and groupings (one asked while others run waits for them): held while a run's at work, given back as it ends.
 struct Slot;
 
 static SLOTS: (Mutex<usize>, std::sync::Condvar) = (Mutex::new(0), std::sync::Condvar::new());
@@ -292,6 +292,7 @@ pub fn replace(prs: Vec<u64>, root: PathBuf, extra: String) -> Receiver<(u64, St
     let id = prs[0];
     _ = tx.send((id, Status::Preparing));
     std::thread::spawn(move || {
+        let _slot = Slot::take(); // (a Claude run as any: two at a time)
         let ready = tx.clone();
         // (Its run guarded inside, the record's mark coming off; and all of it, here.)
         let st = guarded(|| crate::replace::draft(&prs, &root, &extra, move || _ = ready.send((id, Status::Reviewing))));
@@ -308,7 +309,10 @@ pub type Groups = Vec<(Vec<u64>, String)>;
 /// reads them.
 pub fn group(prs: Vec<(u64, String, String, String)>, root: PathBuf) -> Receiver<anyhow::Result<Groups>> {
     let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || _ = tx.send(guarded(|| suggest_groups(&prs, &root))));
+    std::thread::spawn(move || {
+        let _slot = Slot::take();
+        _ = tx.send(guarded(|| suggest_groups(&prs, &root)));
+    });
     rx
 }
 
