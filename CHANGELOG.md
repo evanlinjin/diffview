@@ -5,6 +5,15 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.91.4] - 2026-10-22
+
+### Fixed
+- The cursor only lands where it can be seen: on a line the screen scrolls sideways to
+  follow, anywhere along it; else (the pinned title, wrapped code beside a floating comment)
+  on what's shown. A floating comment covers each split side from where it starts on that
+  side; `gw` labels the pane's comment beside the pinned file header (only the code under it
+  is covered); a click on the pinned header goes to it, not the line under it.
+
 ## [0.91.3] - 2026-10-22
 
 ### Fixed
