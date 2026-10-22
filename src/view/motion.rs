@@ -107,12 +107,16 @@ impl App {
     /// comments pane (they're interleaved in `rows`, but not on screen), for word motions to
     /// carry on along a line of text rather than jump across.
     fn next_row_here(&self, row: usize, fwd: bool) -> Option<usize> {
-        // (in the pane); a file's comments with the pane hidden aren't on any side (PR text is:
-        // after the description).
-        let side = |r: usize| (!(self.rows[r].thread.is_some() && !self.rows[r].attached && !self.in_pane(r))).then(|| self.in_pane(r));
-        let here = side(row);
+        let here = self.side_of(row);
         let mut rs: Box<dyn Iterator<Item = usize>> = if fwd { Box::new(row + 1..self.rows.len()) } else { Box::new((0..row).rev()) };
-        rs.find(|&r| side(r).is_some() && side(r) == here)
+        rs.find(|&r| self.side_of(r).is_some() && self.side_of(r) == here)
+    }
+
+    /// The side row `r` is on: the comments pane (`true`) or the code; none, a file's comment
+    /// with the pane hidden (not drawn; PR text is, after the description). What word motions,
+    /// `x` and copying stay on.
+    pub(super) fn side_of(&self, r: usize) -> Option<bool> {
+        (!(self.rows[r].thread.is_some() && !self.rows[r].attached && !self.in_pane(r))).then(|| self.in_pane(r))
     }
 
     /// Move the head; outside select mode the anchor follows.
@@ -183,7 +187,7 @@ impl App {
 
     pub(super) fn word(&mut self, m: char) {
         let big = m.is_ascii_uppercase();
-        let class = |c: char| if c.is_whitespace() { 0 } else if big || c.is_alphanumeric() || c == '_' { 1 } else { 2 };
+        let class = |c: char| class(c, big);
         let Pos { row, col: i } = self.head;
         let chars = self.chars(row);
         let n = chars.len();
@@ -322,7 +326,8 @@ impl App {
         let (s, e) = self.ordered();
         let end = self.len(e.row).saturating_sub(1);
         if s.col == 0 && e.col >= end && self.head == e && s != e {
-            let r = (e.row + 1).min(self.rows.len() - 1);
+            // (The next line on its side: not into a comment beside the code; none, it stays.)
+            let r = self.next_row_here(e.row, true).unwrap_or(e.row);
             self.anchor = s;
             self.set_head(Pos { row: r, col: self.len(r).saturating_sub(1) });
         } else {
@@ -351,16 +356,18 @@ impl App {
         let q = if smart { self.search.to_ascii_lowercase() } else { self.search.clone() };
         let qlen = q.chars().count();
         let n = self.rows.len();
-        let (s, _) = self.ordered();
+        // From the selection's end going on, its start going back (Helix's): past it.
+        let (s, e) = self.ordered();
+        let from = if fwd { e } else { s };
         for k in 0..=n {
-            let r = if fwd { (self.head.row + k) % n } else { (self.head.row + n - k) % n };
+            let r = if fwd { (from.row + k) % n } else { (from.row + n - k) % n };
             let raw = &self.rows[r].line.text;
             let t = if smart { raw.to_ascii_lowercase() } else { raw.clone() };
             let mut hits = t.match_indices(q.as_str()).map(|(b, _)| t[..b].chars().count());
             let hit = if fwd {
-                hits.find(|&c| k > 0 || c > self.head.col)
+                hits.find(|&c| k > 0 || c > from.col)
             } else {
-                hits.filter(|&c| k > 0 || c < s.col).last()
+                hits.filter(|&c| k > 0 || c < from.col).last()
             };
             if let Some(c) = hit {
                 self.anchor = Pos { row: r, col: c };
@@ -434,7 +441,7 @@ impl App {
                 continue;
             }
             let chars = texts.entry(row).or_insert_with(|| self.chars(row));
-            let class = |c: char| if c.is_whitespace() { 0 } else if c.is_alphanumeric() || c == '_' { 1 } else { 2 };
+            let class = |c: char| class(c, false);
             let mut i = on.start;
             while i < on.end.min(chars.len()) {
                 let (c, start) = (class(chars[i]), i);
@@ -479,5 +486,17 @@ impl App {
         self.jumps.push(self.head);
         self.select = false;
         self.goto(row, col);
+    }
+}
+
+/// A char's class for word motions (and jump labels' words): space, a word's (`big`: anything
+/// not space), punctuation.
+fn class(c: char, big: bool) -> u8 {
+    if c.is_whitespace() {
+        0
+    } else if big || c.is_alphanumeric() || c == '_' {
+        1
+    } else {
+        2
     }
 }

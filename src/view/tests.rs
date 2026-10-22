@@ -4370,3 +4370,77 @@ fn a_selections_keys_are_those_that_act() {
     app.goto(r, 0);
     assert!(keys(&app).is_some_and(|(_, k)| !k.contains(&"c") && !k.contains(&"C") && k.contains(&"r")), "{:?}", keys(&app));
 }
+
+fn press(app: &mut App, s: &str) { s.chars().for_each(|c| app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE))); }
+fn ctrl(app: &mut App, c: char) { app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)); }
+
+/// a.rs with comments under lines 1 and 3, shown in the margin pane.
+fn margin_app() -> App {
+    let sample = "diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1,4 +1,4 @@\n one\n two\n three\n-four\n+four!\n";
+    let mut app = App::with("base".into(), diff::parse(sample));
+    let c = |id, body: &str| gh::Comment { id, node_id: String::new(), can_edit: false, can_delete: false, author: "amy".into(), body: body.into(), created: String::new(), pending: false, reactions: vec![], hidden: String::new() };
+    let t = |line, comments| gh::Thread {
+        id: String::new(), path: "a.rs".into(), left: false, line: Some(line), start_line: None, start_left: None, original_line: Some(line),
+        resolved: false, outdated: false, hunk: vec![], comments, claude: None, severity: String::new(), about: None, conversation: String::new(),
+        talk_resolved: false, want: String::new(),
+    };
+    app.threads = vec![t(1, vec![c(1, "first")]), t(3, vec![c(2, "second")])];
+    app.margin_active = true;
+    app.build();
+    app
+}
+
+#[test]
+fn x_skips_pane_comments() {
+    let mut app = margin_app();
+    app.goto(2, 0);
+    press(&mut app, "xx");
+    assert!(app.rows[app.head.row].thread.is_none(), "x x landed on a comment row {}", app.head.row);
+}
+
+#[test]
+fn copy_across_pane_comments_keeps_to_the_pane() {
+    let mut app = margin_app();
+    let at = |app: &App, s| app.rows.iter().position(|r| r.line.text.contains(s)).unwrap();
+    app.goto(at(&app, "first"), 0);
+    app.select = true;
+    app.goto(at(&app, "second"), usize::MAX);
+    let t = app.selection_text(false);
+    assert!(!t.contains("two"), "code between the comments copied: {t:?}");
+}
+
+#[test]
+fn ctrl_keys_end_prefix_and_count() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    app.goto(4, 0);
+    ctrl(&mut app, 'w');
+    ctrl(&mut app, 'l');
+    assert_eq!(app.pending, None, "Ctrl-w still pending");
+    press(&mut app, "3");
+    ctrl(&mut app, 'e');
+    assert_eq!(app.count, 0, "count kept after Ctrl-e");
+}
+
+#[test]
+fn search_back_from_selection_start() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    app.goto(3, 0); // "    old();" through "    new_call(x);"
+    app.select = true;
+    app.goto(4, 15);
+    app.search = "(".into();
+    press(&mut app, "N"); // back from the selection's start: main's, not new_call's
+    assert_eq!(app.anchor, Pos { row: 2, col: 7 });
+}
+
+#[test]
+fn click_in_code_takes_focus_from_list() {
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    app.build();
+    app.height = 20;
+    app.files_w = 20;
+    app.files_focus = true;
+    app.geom = mouse::Geom { relw: 0, gw: 10, ghw: 6, half: 40, ctw: 60, picker: None };
+    app.mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column: 34, row: 2, modifiers: KeyModifiers::NONE });
+    assert!(!app.files_focus, "list still focused after a click in the code");
+}

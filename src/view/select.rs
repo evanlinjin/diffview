@@ -4,14 +4,15 @@ use super::*;
 impl App {
     pub(super) fn selection_text(&self, patch: bool) -> String {
         let (s, e) = self.ordered();
-        // Comment text is copied only when the selection starts in a comment.
-        let in_comment = matches!(self.rows[s.row].line.kind, Kind::Thread | Kind::Comment);
+        // What's on the side it starts on: the code, or the comments (they're interleaved in
+        // `rows`, not on screen).
+        let side = self.side_of(s.row);
         let mut out = vec![];
-        for r in s.row..=e.row {
+        for r in (s.row..=e.row).filter(|&r| self.side_of(r) == side) {
             let l = &self.rows[r].line;
             let marker = match l.kind {
                 Kind::File => continue,
-                Kind::Thread | Kind::Comment if patch || !in_comment => continue,
+                Kind::Thread | Kind::Comment if patch => continue,
                 Kind::Thread | Kind::Comment => ' ',
                 Kind::Hunk if !patch => continue,
                 Kind::Hunk => {
