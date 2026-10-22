@@ -149,27 +149,23 @@ fn rewritten_file(dir: &Path) -> Option<std::path::PathBuf> {
     git_in(dir, &["rev-parse", "--path-format=absolute", "--git-common-dir"]).ok().map(|d| std::path::PathBuf::from(d.trim()).join("dv-rewritten"))
 }
 
-/// What amends here made of commits: each one's SHA, what it became (none: dropped, its changes
-/// all undone). (Whole lines of whole SHAs only: one being appended meanwhile may be read half
-/// written.)
-pub(super) fn rewritten_in(dir: &Path) -> HashMap<String, Option<String>> {
+/// What amends here made of commits: each one's SHA and what it became. (Whole lines of whole
+/// SHAs only: one being appended meanwhile may be read half written.)
+pub(super) fn rewritten_in(dir: &Path) -> Vec<(String, String)> {
     let text = rewritten_file(dir).and_then(|f| std::fs::read_to_string(f).ok()).unwrap_or_default();
     let sha = |s: &str| matches!(s.len(), 40 | 64) && s.bytes().all(|b| b.is_ascii_hexdigit());
     text.split_inclusive('\n')
-        .filter_map(|l| {
-            let mut w = l.strip_suffix('\n')?.split(' ');
-            let (old, new) = (w.next().filter(|o| sha(o))?, w.next());
-            (w.next().is_none() && new.is_none_or(sha)).then(|| (old.to_owned(), new.map(str::to_owned)))
-        })
+        .filter_map(|l| l.strip_suffix('\n')?.split_once(' ').filter(|(o, n)| sha(o) && sha(n)))
+        .map(|(o, n)| (o.to_owned(), n.to_owned()))
         .collect()
 }
 
 /// Record what an amend made of commits, after what those before did. Appended, a line each in
 /// one write: amends in two dvs at once both kept.
-fn record_rewritten(dir: &Path, made: &[(String, Option<String>)]) {
+fn record_rewritten(dir: &Path, made: &[(String, String)]) {
     use std::io::Write;
     let Some(f) = rewritten_file(dir) else { return };
-    let lines: String = made.iter().map(|(o, n)| format!("\n{o}{}\n", n.as_ref().map_or(String::new(), |n| format!(" {n}")))).collect();
+    let lines: String = made.iter().map(|(o, n)| format!("\n{o} {n}\n")).collect();
     _ = std::fs::OpenOptions::new().create(true).append(true).open(f).and_then(|mut f| f.write_all(lines.as_bytes()));
 }
 
@@ -316,14 +312,13 @@ pub(super) fn amend(dir: &Path, base: &str, hunks: &[Hunk], rewords: &[(&str, &s
     _ = std::fs::remove_file(&patch);
     _ = std::fs::remove_file(&index);
     // What became of each commit, kept beside the repo: any dv (a view, `dv amend` from Claude)
-    // follows one by it, not by guessing (reworded and changed, it has nothing left the same); a
-    // commit dropped, gone for good (its questions don't follow it anywhere). The rest kept
-    // their order: the branch's commits now, each in its old one's place.
+    // follows one by it, not by guessing (reworded and changed, it has nothing left the same).
+    // Those not dropped kept their order: the branch's commits now, each in its old one's place.
     let now = git_in(dir, &["rev-list", "--first-parent", &format!("{mb}..HEAD")]).unwrap_or_default();
     let kept: Vec<&str> = order.lines().filter(|o| !dropped.iter().any(|d| d == o)).collect();
-    let mut made: Vec<(String, Option<String>)> = dropped.iter().map(|d| (d.clone(), None)).collect();
+    let mut made: Vec<(String, String)> = vec![];
     if kept.len() == now.lines().count() {
-        made.extend(kept.into_iter().zip(now.lines()).filter(|(o, n)| o != n).map(|(o, n)| (o.to_owned(), Some(n.to_owned()))));
+        made.extend(kept.into_iter().zip(now.lines()).filter(|(o, n)| o != n).map(|(o, n)| (o.to_owned(), n.to_owned())));
     }
     if !made.is_empty() {
         record_rewritten(dir, &made);
@@ -462,10 +457,10 @@ impl App {
             .collect();
         lost.sort();
         lost.dedup();
-        let rewritten = rewritten_in(&self.root);
         if lost.is_empty() {
             return;
         }
+        let rewritten = std::cell::OnceCell::new();
         let moves: Vec<(String, String)> = lost
             .into_iter()
             .filter_map(|(url, sha)| Some((url.clone(), url.replace(&sha, &self.now_as(&sha, &rewritten)?))))
@@ -477,23 +472,34 @@ impl App {
         }
     }
 
-    /// The commit `sha` of the list is now: itself, still here; what dv's amends made of it
-    /// (`rewritten`, from `rewritten_in`), followed on: none, dropped; else (rebased, amended
-    /// outside dv) the one with its subject and author date (both kept by a rebase or an amend),
-    /// or, reworded, its date, author and change: the only one.
-    pub(super) fn now_as(&self, sha: &str, rewritten: &HashMap<String, Option<String>>) -> Option<String> {
-        let mut sha = sha.to_owned();
-        for _ in 0..=rewritten.len() {
-            if self.commits.iter().any(|c| c.sha == sha) {
-                return Some(sha);
-            }
-            match rewritten.get(&sha) {
-                Some(Some(new)) => sha = new.clone(),
-                Some(None) => return None,
-                None => break,
+    /// The commit `sha` of the list is now: itself, still here; else one dv's amends linked it to
+    /// (`rewritten`, read the first time it's needed): what it became, or what it was (reset back
+    /// to the backup), any steps on; else (rebased, amended outside dv) what one of those is now,
+    /// by `guess`. Dropped (its changes all undone): none.
+    pub(super) fn now_as(&self, sha: &str, rewritten: &std::cell::OnceCell<Vec<(String, String)>>) -> Option<String> {
+        let here = |s: &String| self.commits.iter().any(|c| &c.sha == s);
+        let mut linked = vec![sha.to_owned()];
+        if !here(&linked[0]) {
+            let links = rewritten.get_or_init(|| rewritten_in(&self.root));
+            let mut i = 0;
+            while let Some(s) = linked.get(i).cloned() {
+                for (o, n) in links {
+                    let other = if *o == s { n } else if *n == s { o } else { continue };
+                    if !linked.contains(other) {
+                        linked.push(other.clone());
+                    }
+                }
+                i += 1;
             }
         }
-        let was = git_in(&self.root, &["log", "-1", "--format=%at%x09%ae%x09%s", &sha]).ok()?;
+        linked.iter().find(|s| here(s)).cloned().or_else(|| linked.iter().find_map(|s| self.guess(s)))
+    }
+
+    /// The one commit of the list with `sha`'s subject and author date (both kept by a rebase or
+    /// an amend), or, reworded, its date, author and change. (A dropped one's: none, its change
+    /// nowhere.)
+    fn guess(&self, sha: &str) -> Option<String> {
+        let was = git_in(&self.root, &["log", "-1", "--format=%at%x09%ae%x09%s", sha]).ok()?;
         let mut f = was.trim_end_matches('\n').splitn(3, '\t');
         let (at, email, subject) = (f.next()?, f.next()?, f.next()?);
         let one = |v: Vec<&String>| (v.len() == 1).then(|| v[0].clone());
@@ -502,7 +508,7 @@ impl App {
         // (Reworded: its change the same too, its patch's id; not another made the same second.)
         let email_of = |sha: &str| git_in(&self.root, &["log", "-1", "--format=%ae", sha]).is_ok_and(|e| e.trim() == email);
         by_subject.or_else(|| {
-            let patch = patch_id(&self.root, &sha)?;
+            let patch = patch_id(&self.root, sha)?;
             one(dated().filter(|c| email_of(&c.sha) && patch_id(&self.root, &c.sha).as_ref() == Some(&patch)).map(|c| &c.sha).collect())
         })
     }
@@ -714,14 +720,12 @@ fn amend_undoing_a_whole_commit() {
     assert_eq!((git(&["show", "HEAD:a.rs"]).as_str(), git(&["status", "--porcelain"]).as_str()), ("base\n", ""));
     assert_eq!(git(&["log", "-1", "--format=%s", "dv-backup/undo~1"]).trim(), "first");
     assert!(git_in(&dir, &["merge-base", "--is-ancestor", &base, "HEAD"]).is_ok()); // (the base as it was)
-    // Recorded: "first" gone (its questions with it), "second" rewritten (followed).
+    // Recorded: "second" rewritten (followed); "first" gone, nothing.
     let second = git(&["rev-parse", "HEAD"]).trim().to_owned();
-    let made = rewritten_in(&dir);
-    assert_eq!((made.len(), &made[&first], &made[&was_second]), (2, &None, &Some(second.clone())));
+    assert_eq!(rewritten_in(&dir), [(was_second, second.clone())]);
     // `f` / `dv amend`: says it dropped it.
     write("b.rs", "b\n");
     assert!(fold(&dir, &base, &second, &[], None, "dv-backup/undo2").unwrap());
-    assert_eq!(rewritten_in(&dir)[&second], None); // (each recorded, in turn)
 }
 
 #[test]

@@ -3966,3 +3966,51 @@ fn a_range_from_the_old_side_reads_as_the_new_sides() {
     let t = gh::Thread { path: "a.rs".into(), start_line: Some(20), start_left: Some(true), line: Some(6), ..Default::default() };
     assert_eq!(t.range_start(), Some((20, true)));
 }
+
+#[test]
+fn commits_followed_through_amends_either_way() {
+    let dir = diff::scratch_repo("follow-amends");
+    let git = |args: &[&str]| diff::git_in(&dir, args).unwrap().trim().to_owned();
+    let write = |f: &str, s: &str| std::fs::write(dir.join(f), s).unwrap();
+    write("a.rs", "a\n");
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "base"]);
+    let base = git(&["rev-parse", "HEAD"]);
+    write("a.rs", "a\nfirst\n");
+    git(&["commit", "-q", "-am", "first"]);
+    write("b.rs", "b\n");
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "second"]);
+    let (first, second) = (git(&["rev-parse", "HEAD~1"]), git(&["rev-parse", "HEAD"]));
+    let mut app = fixture();
+    app.root = dir.clone();
+    let list = |app: &mut App| {
+        let out = git(&["log", "--format=%H%x09%at%x09%s", &format!("{base}..HEAD")]);
+        app.commits = out
+            .lines()
+            .map(|l| {
+                let p: Vec<&str> = l.splitn(3, '\t').collect();
+                files::Commit { sha: p[0].into(), short: p[0][..7].into(), at: p[1].into(), signed: true, subject: p[2].into() }
+            })
+            .collect();
+    };
+    // "second" changed and reworded by an amend: nothing the same but its date, yet followed.
+    write("b.rs", "b\nmore\n");
+    let (hunks, _) = amend::plan(&dir, &base, true).unwrap();
+    amend::amend(&dir, &base, &hunks, &[(second.as_str(), "second, reworded")], "dv-backup/f").unwrap();
+    let now = git(&["rev-parse", "HEAD"]);
+    list(&mut app);
+    let cell = || std::cell::OnceCell::new();
+    assert_eq!(app.now_as(&second, &cell()).as_deref(), Some(now.as_str()));
+    // Reset back to the backup: the new one followed back to what it was.
+    git(&["reset", "-q", "--hard", "dv-backup/f"]);
+    list(&mut app);
+    assert_eq!(app.now_as(&now, &cell()).as_deref(), Some(second.as_str()));
+    // "first" dropped (its change undone): followed nowhere.
+    write("a.rs", "a\n");
+    let (hunks, _) = amend::plan(&dir, &base, true).unwrap();
+    amend::amend(&dir, &base, &hunks, &[], "dv-backup/g").unwrap();
+    list(&mut app);
+    assert_eq!(app.now_as(&first, &cell()), None);
+    std::fs::remove_dir_all(dir).unwrap();
+}

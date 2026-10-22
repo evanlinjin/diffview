@@ -353,7 +353,7 @@ impl App {
         // What's kept by a commit (the commits shown, the list's cursor and range's start) follows
         // it by what it was (`now_as`: amended, rebased, other SHAs), not where it sat (one dropped
         // before it moves the rest); gone (dropped), the whole diff again.
-        let rewritten = super::amend::rewritten_in(&self.root);
+        let rewritten = std::cell::OnceCell::new();
         let at = |sha: &str| self.now_as(sha, &rewritten).and_then(|s| self.commits.iter().position(|c| c.sha == s));
         // (The list's spots: 0 the whole diff, then each commit, then what isn't committed.)
         let spot = |k: usize| match k {
