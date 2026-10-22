@@ -121,11 +121,17 @@ impl App {
     pub(super) fn next_comment(&mut self, fwd: bool, items: Vec<(usize, usize)>, none: &str) {
         // Threads on files no longer in the diff are listed above the files, so they come first.
         let file = |path: &str| self.files.iter().position(|f| f.path == path).map_or(Some(0), |i| Some(i + 1));
-        // (file, line, thread, comment); a code line counts as thread -1, before the threads
-        // shown under it.
-        let key = |t: usize, c: usize| -> Option<(usize, u32, i64, usize)> {
+        // (file, place in its diff, thread, comment): the place a line's (1 on), as `build` puts
+        // threads under them (both sides' numbers, not one's); a code line counts as thread -1,
+        // before the threads under it. (A file's comment, or a file gone: by its line.)
+        let place = |path: &str, at: Option<usize>, line: Option<u32>| match self.files.iter().find(|f| f.path == path) {
+            Some(_) => at.map_or(0, |i| i + 1),
+            None => line.unwrap_or(0) as usize,
+        };
+        let key = |t: usize, c: usize| -> Option<(usize, usize, i64, usize)> {
             let th = &self.threads[t];
-            Some((file(&th.path)?, th.line.or(th.original_line).unwrap_or(0), t as i64, c))
+            let at = self.files.iter().find(|f| f.path == th.path).and_then(|f| anchor_line(th, &f.full));
+            Some((file(&th.path)?, place(&th.path, at, th.line.or(th.original_line)), t as i64, c))
         };
         // In the Claude / pending view, those in it; if none are, all (going to one leaves it).
         let any_here = items.iter().any(|&(t, _)| self.in_view(&self.threads[t]));
@@ -139,7 +145,11 @@ impl App {
         let here = match row.thread {
             Some(t) => key(t, self.comment_index_under_cursor(t)),
             None if row.file == INFO => None,
-            None => self.files.get(row.file).map(|_| (row.file + 1, row.line.new.or(row.line.old).unwrap_or(0), -1, 0)),
+            // (A code line, or a hunk's header: its first line's, as `key_at` has it.)
+            None => self.files.get(row.file).map(|f| {
+                let at = self.key_at(self.head.row).line.and_then(|(_, old, new)| f.full.iter().position(|l| (l.old, l.new) == (old, new) && (old, new) != (None, None)));
+                (row.file + 1, place(&f.path, at, None), -1, 0)
+            }),
         };
         let pick = match (fwd, here) {
             (true, Some(h)) => order.iter().find(|&&o| o > h).or(order.first()),
