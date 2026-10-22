@@ -163,7 +163,7 @@ impl App {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn render_row(
         &self, r: usize, s: Pos, e: Pos, (lw, gw, tw): (usize, usize, usize), side: Option<bool>, cursor_row: bool,
-        overlay: &HashMap<Pos, char>,
+        overlay: &HashMap<Pos, char>, seg: usize,
     ) -> Vec<Span<'static>> {
         let row = &self.rows[r];
         let l = &row.line;
@@ -249,6 +249,11 @@ impl App {
                     None => format!("{:>lw$} {:>lw$} {m} ", num(l.old), num(l.new)),
                     Some(right) => format!("{:>lw$} {m} ", num(if right { l.new } else { l.old })),
                 };
+                // A wrapped line's part after its first: no numbers, `↪` where its mark is.
+                let gutter = match seg {
+                    0 => gutter,
+                    _ => format!("{:>w$} ", "↪", w = gutter.chars().count() - 1),
+                };
                 (gutter, Style::new())
             }
         };
@@ -294,7 +299,9 @@ impl App {
         let tw = tw.saturating_sub(row.guide_w());
         // Scrolled by columns, every row alike (a tab's 4, a wide character's 2): the chars
         // wholly in `left..left + text_w`, after the part of one cut at the left.
-        let left = self.hscroll(r);
+        // Wrapped (`soft_wrap`), a part of the line: from where the part before it ended.
+        let wrapped = self.soft_wrap && code_row;
+        let left = if wrapped { seg * text_w } else { self.hscroll(r) };
         let (skip, end) = (self.char_from(r, left), self.char_at(r, left + text_w));
         let cut = self.col_of(r, skip) - left;
         if cut > 0 {
@@ -323,12 +330,14 @@ impl App {
             spans.push(Span::styled(if c == '\t' { "    ".into() } else { c.to_string() }, st));
             n = i + 1;
         }
-        if cursor_here && self.head.col >= n.max(skip) {
+        // (Past the line's end: on its last part, wrapped.)
+        let last_part = !wrapped || self.col_of(r, self.len(r)) <= left + text_w;
+        if cursor_here && self.head.col >= n.max(skip) && last_part {
             spans.push(Span::styled(" ", self.cursor_style()));
         }
         // A line cut, a diff's by the window or code by its box: `‹` / `›` where there's more,
         // to scroll to (not over the cursor).
-        if self.scroller(r).is_some() && spans.len() > g {
+        if self.scroller(r).is_some() && spans.len() > g && !wrapped {
             let more = Style::new().fg(ui.linenr.fg.unwrap_or(Color::DarkGray));
             // (Not over a jump label; over a wide character, a space after it: the rest stays put.)
             let mark = |sp: &mut Span<'static>, c: &str, at: usize| {

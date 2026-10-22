@@ -611,6 +611,13 @@ pub struct App {
     /// Screen rows, and the screen row of each row (`top` and scrolling count screen rows).
     drows: Vec<DRow>,
     d_of: Vec<usize>,
+    /// Each screen row's part of its line, wrapped (`soft_wrap`): 0, or the n-th continuation.
+    dseg: Vec<usize>,
+    /// Long code lines wrap (`Ctrl-w r`) instead of scrolling sideways; and the code's text
+    /// widths they wrap to: one column (the whole width, or beside the pane), split view's
+    /// left and right halves.
+    soft_wrap: bool,
+    wrap_cols: (usize, usize, usize),
     /// Changed-word spans (char ranges) for paired removed/added rows.
     emph: HashMap<usize, Vec<(usize, usize)>>,
     /// Helix `cursorline` / relative `line-number`.

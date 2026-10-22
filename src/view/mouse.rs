@@ -165,23 +165,30 @@ impl App {
             return None; // the status bar
         }
         let d = self.top + y;
-        let (row, start) = match *self.drows.get(d)? {
-            DRow::Full(r) => (r, g.relw + g.gw),
+        // (Where, and the text width it wraps to there: `wrap_cols`'.)
+        let (one, lw, rw) = self.wrap_cols;
+        let (row, start, w) = match *self.drows.get(d)? {
+            DRow::Full(r) => (r, g.relw + g.gw, one),
             // Split view: the old side, the divider, the new side.
-            DRow::Pair(l, r) if x < g.relw + g.half => (l.or(r)?, g.relw + g.ghw),
-            DRow::Pair(l, r) => (r.or(l)?, self.right_x()),
-            DRow::Margin(_, _, Some(note)) if x > g.relw + g.gw + g.ctw => (note, self.pane_x()),
+            DRow::Pair(l, r) if x < g.relw + g.half => (l.or(r)?, g.relw + g.ghw, lw),
+            DRow::Pair(l, r) => (r.or(l)?, self.right_x(), rw),
+            DRow::Margin(_, _, Some(note)) if x > g.relw + g.gw + g.ctw => (note, self.pane_x(), 0),
             // Split view's code beside it: as a pair, but a hunk header spans both sides.
             DRow::Margin(l, r, _) if self.split && l.or(r).is_some_and(|c| self.rows[c].line.kind.is_code()) => {
                 match x < g.relw + g.half {
-                    true => (l.or(r)?, g.relw + g.ghw),
-                    false => (r.or(l)?, self.right_x()),
+                    true => (l.or(r)?, g.relw + g.ghw, lw),
+                    false => (r.or(l)?, self.right_x(), rw),
                 }
             }
-            DRow::Margin(l, r, note) => (l.or(r).or(note)?, g.relw + g.gw),
+            DRow::Margin(l, r, note) => (l.or(r).or(note)?, g.relw + g.gw, one),
+        };
+        // Wrapped, the part of its line this screen row has; else as it's scrolled.
+        let left = match self.soft_wrap && self.rows[row].line.kind.is_code() {
+            true => self.dseg.get(d).copied().unwrap_or(0) * w,
+            false => self.hscroll(row),
         };
         // (A reply's guide is before its text.)
-        Some((row, self.char_at(row, self.hscroll(row) + x.saturating_sub(start + self.rows[row].guide_w())), x < start))
+        Some((row, self.char_at(row, left + x.saturating_sub(start + self.rows[row].guide_w())), x < start))
     }
 
 }

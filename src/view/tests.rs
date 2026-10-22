@@ -3506,3 +3506,44 @@ fn a_prs_replacement_being_drafted_shows_and_opens() {
     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(app.hand_off, Some(HandOff::Replacement(87)));
 }
+
+#[test]
+fn long_lines_wrap() {
+    let long = "x".repeat(150);
+    // (The code's, not the keys' hints over it: up to the line after it.)
+    let xs = |s: &str| s.lines().take_while(|l| !l.contains("end")).map(|l| l.matches('x').count()).sum::<usize>();
+    let text = format!("diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1,2 +1,2 @@\n-old\n+{long}\n end\n");
+    let mut app = App::with("base".into(), diff::parse(&text));
+    app.files_pref = Some(false);
+    app.margin_pref = Some(false);
+    _ = screen(80, 20, |f| app.draw(f));
+    let row = app.rows.iter().position(|r| r.line.text == long).unwrap();
+    let rows_before = app.drows.len();
+    app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
+    app.key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+    assert!(app.soft_wrap, "{}", app.msg);
+    let s = screen(80, 20, |f| app.draw(f));
+    // The long line takes more screen rows, its parts marked, its numbers on the first only.
+    let w = app.wrap_cols.0;
+    assert_eq!(app.drows.len(), rows_before + long.len().div_ceil(w) - 1, "{s}");
+    assert!(s.contains('↪'), "{s}");
+    assert_eq!(xs(&s), long.len(), "{s}"); // all of it, nothing cut
+    // The cursor at its end: on its last part.
+    app.goto(row, long.len() - 1);
+    assert_eq!(app.hd(), app.d_of[row] + long.len().div_ceil(w) - 1);
+    // Split view, and beside the pane: all of it there too, each side wrapped to its half.
+    app.toggle_split();
+    let s = screen(80, 20, |f| app.draw(f));
+    assert_eq!(xs(&s), long.len(), "{s}");
+    app.margin_pref = Some(true);
+    let s = screen(200, 20, |f| app.draw(f));
+    assert_eq!(xs(&s), long.len(), "{s}");
+    app.toggle_split();
+    let s = screen(200, 20, |f| app.draw(f));
+    assert_eq!(xs(&s), long.len(), "{s}");
+    (app.margin_pref, app.split) = (Some(false), false);
+    // Off again: one row, scrolled.
+    app.toggle_wrap();
+    _ = screen(80, 20, |f| app.draw(f));
+    assert_eq!(app.drows.len(), rows_before);
+}

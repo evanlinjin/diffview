@@ -42,6 +42,7 @@ VIEW
   Shift-Tab            fold / unfold all files
   Ctrl-w v             toggle split (side-by-side) view
   Ctrl-w n             relative line numbers on / off (kept for next time)
+  Ctrl-w r             long code lines wrap / scroll sideways (kept for next time)
   Ctrl-w e             the contents on the left (description, messages, files), on / off
                        and the PR's commits under it: Enter shows one, v … Enter a range,
                        m its whole message, a asks Claude about it (or for a change),
@@ -363,6 +364,7 @@ impl App {
             CTRL_W => ("window", &[
                 ("v", "toggle split view"),
                 ("n", "relative line numbers on / off"),
+                ("r", "wrap long lines / scroll sideways"),
                 ("e", "the files' list on / off"),
                 ("c", "show / hide the comments pane"),
                 ("f", "comments pane: a column / floating over the code"),
@@ -444,6 +446,7 @@ impl App {
             }
             ('g', 'n') | ('g', 'p') => self.cycle_bar(c == 'n'),
             (CTRL_W, 'e') => self.toggle_files(),
+            (CTRL_W, 'r') => self.toggle_wrap(),
             (CTRL_W, 'n') => {
                 let on = !self.settings.relative;
                 self.settings.relative = on;

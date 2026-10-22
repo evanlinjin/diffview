@@ -162,6 +162,15 @@ impl App {
             let keep = self.cursor_key();
             self.rebuild(keep);
         }
+        // What long code lines wrap to (`soft_wrap`): the code's text widths, as `render_row`
+        // draws them (less the last column, the comment marks').
+        let cols = (if margin && !float { ctw } else { tw }.saturating_sub(1).max(1), htw_l.saturating_sub(1).max(1), htw_r.saturating_sub(1).max(1));
+        if cols != self.wrap_cols {
+            self.wrap_cols = cols;
+            if self.soft_wrap {
+                self.layout();
+            }
+        }
         let mtw = mw - self.pane_gw();
         if !self.margin_side() {
             self.code_head = self.head;
@@ -228,6 +237,9 @@ impl App {
         let len = self.len(self.head.row);
         let w = self.text_w(self.head.row, cur_w).max(1);
         let Some(scroller) = scroller else { return };
+        if self.soft_wrap && matches!(scroller, Scroller::Diff) {
+            return; // (wrapped: nothing of it off to the side)
+        }
         // (In columns, as `render_row` draws it: a tab's 4, a wide character's 2.)
         let (row, mut left) = (self.head.row, self.hscroll(self.head.row));
         if nudge != 0 {
@@ -258,9 +270,9 @@ impl App {
         self.highlight_visible();
         let divider = Span::styled("│", self.ui.linenr);
         let lit_code = self.lit_code();
-        let pair = |l: Option<usize>, rr: Option<usize>, cur: bool| {
+        let pair = |l: Option<usize>, rr: Option<usize>, cur: bool, seg: usize| {
             let half = |row: Option<usize>, right: bool, w: usize| match row {
-                Some(row) => self.render_row(row, s, e, (lw, ghw, w), Some(right), cur, &overlay),
+                Some(row) => self.render_row(row, s, e, (lw, ghw, w), Some(right), cur, &overlay, seg),
                 // Like delta: a quiet hatch where the other side has no line.
                 None => vec![Span::styled("╱".repeat(ghw + w), self.ui.linenr)],
             };
@@ -317,6 +329,8 @@ impl App {
             .map(|y| {
                 let d = self.top + y;
                 let cur = d == hd;
+                // (A wrapped line's part: drawn on from where the last left off.)
+                let seg = self.dseg.get(d).copied().unwrap_or(0);
                 // The cursor line's tint: on the side with focus only (none with the list's).
                 let tint = cur && !self.files_focus;
                 let rel = match (relw, cur) {
@@ -331,14 +345,14 @@ impl App {
                 let fw = if column { ctw } else { tw };
                 match self.drows[d] {
                     DRow::Full(r) => {
-                        spans.extend(self.render_row(r, s, e, (lw, gw, fw), None, tint, &overlay));
+                        spans.extend(self.render_row(r, s, e, (lw, gw, fw), None, tint, &overlay, seg));
                         if column {
                             spans = clip(spans, code_cols);
                             spans.push(sep.clone());
                             spans.push(Span::raw(" ".repeat(mw)));
                         }
                     }
-                    DRow::Pair(l, rr) => spans.extend(pair(l, rr, tint)),
+                    DRow::Pair(l, rr) => spans.extend(pair(l, rr, tint, seg)),
                     DRow::Margin(l, rr, comment) => {
                         // Code on the left (blank on a spacer row), a gap, then the comment
                         // column; floating, the code runs full width under it, and is covered
@@ -349,8 +363,8 @@ impl App {
                         let cw = if float { tw } else { ctw };
                         let code = match (l, rr) {
                             (None, None) => vec![],
-                            (l, rr) if self.split && l.or(rr).is_some_and(diff_line) => pair(l, rr, lit),
-                            (Some(r), _) | (None, Some(r)) => self.render_row(r, s, e, (lw, gw, cw), None, lit, &overlay),
+                            (l, rr) if self.split && l.or(rr).is_some_and(diff_line) => pair(l, rr, lit, seg),
+                            (Some(r), _) | (None, Some(r)) => self.render_row(r, s, e, (lw, gw, cw), None, lit, &overlay, seg),
                         };
                         let code = match l.or(rr).is_some_and(related) && self.settings.cursorline {
                             true => self.related_tint(code),
@@ -378,7 +392,7 @@ impl App {
                                         (self.pane_gw(), mw - pad)
                                     }
                                 };
-                                spans.extend(raise(clip(head_tint(r, self.render_row(r, s, e, (lw, gutter, ptw), None, tint && pane_cur, &overlay)), w)));
+                                spans.extend(raise(clip(head_tint(r, self.render_row(r, s, e, (lw, gutter, ptw), None, tint && pane_cur, &overlay, 0)), w)));
                                 } else {
                                     spans.push(Span::raw(" ".repeat(mw)));
                                 }
@@ -389,7 +403,7 @@ impl App {
                 // The top line: the pinned file header over the code (the pane's part kept).
                 if let (0, Some(hr)) = (y, sticky) {
                     let mut head = vec![Span::styled(" ".repeat(relw), self.ui.header)];
-                    head.extend(self.render_row(hr, s, e, (lw, gw, code_cols - relw - gw), None, false, &overlay));
+                    head.extend(self.render_row(hr, s, e, (lw, gw, code_cols - relw - gw), None, false, &overlay, 0));
                     let mut out = clip(head, code_cols);
                     out.extend(skip_cols(spans, code_cols));
                     spans = out;
@@ -453,7 +467,7 @@ impl App {
         let bar = Style { bg: self.ui.bar, ..self.ui.header };
         let mut spans = vec![Span::styled(" ".repeat(relw), bar)];
         // With the pane: the title over the code, and the pane's tabs over the pane.
-        spans.extend(self.render_row(0, s, e, (lw, gw, code_tw), None, self.head.row == 0, &overlay));
+        spans.extend(self.render_row(0, s, e, (lw, gw, code_tw), None, self.head.row == 0, &overlay, 0));
         if margin {
             let dim = bar.remove_modifier(ratatui::style::Modifier::BOLD).patch(Style { fg: self.ui.linenr.fg, ..Style::new() });
             let mut used = 0;

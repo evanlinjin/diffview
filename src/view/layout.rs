@@ -206,6 +206,7 @@ impl App {
     /// it (`code_at`).
     pub(super) fn hscroll(&self, r: usize) -> usize {
         match self.scroller(r) {
+            Some(Scroller::Diff) if self.soft_wrap => 0,
             Some(Scroller::Diff) => self.left,
             Some(Scroller::Block(b)) if self.code_at == Some(b) => self.code_left,
             _ => 0,
@@ -230,6 +231,7 @@ impl App {
             self.settings.relative = r;
         }
         self.files_pref = v["files"].as_bool();
+        self.soft_wrap = v["wrap"].as_bool().unwrap_or(false);
         self.files_w_pref = v["files_width"].as_u64().map(|w| w as usize);
     }
 
@@ -337,7 +339,11 @@ impl App {
         if !self.comments_in_pane() {
             for (u, _) in units {
                 if u != DRow::Margin(None, None, None) {
-                    d.push(u);
+                    let n = match u {
+                        DRow::Full(r) => self.segs(Some(r), None),
+                        DRow::Pair(l, r) | DRow::Margin(l, r, _) => self.segs(l, r),
+                    };
+                    d.extend(std::iter::repeat_n(u, n));
                 }
             }
             return self.set_drows(d);
@@ -365,7 +371,9 @@ impl App {
                     (None, None)
                 }
             };
-            if l.is_some() || r.is_some() {
+            // (A long line wrapped: a row for each part, comments beside them as beside any.)
+            let line_at = d.len();
+            for _ in 0..if l.is_some() || r.is_some() { self.segs(l, r) } else { 0 } {
                 let c = if d.len() >= free { pending.pop_front() } else { None };
                 d.push(DRow::Margin(l, r, c));
                 if c.is_some() {
@@ -375,7 +383,7 @@ impl App {
             for i in comments {
                 // A box starts beside its line (the row just laid out) when that's free.
                 let first = i == 0 || self.rows[i - 1].thread != self.rows[i].thread;
-                let at = if first { d.len().saturating_sub(1).max(free) } else { free };
+                let at = if first { line_at.min(d.len().saturating_sub(1)).max(free) } else { free };
                 match d.get(at) {
                     Some(&DRow::Margin(l, r, None)) if pending.is_empty() && (l.is_some() || r.is_some()) => {
                         d[at] = DRow::Margin(l, r, Some(i));
@@ -389,16 +397,61 @@ impl App {
         self.set_drows(d);
     }
 
-    /// Screen rows, and each row's screen row (a hidden comment's: the line it's on).
+    /// How many screen rows a line takes, wrapped (`soft_wrap`), on its side or sides: code
+    /// wraps at the width it's drawn to; everything else, one.
+    pub(super) fn segs(&self, l: Option<usize>, r: Option<usize>) -> usize {
+        let paired = self.split && l.or(r).is_some_and(|x| self.rows[x].line.kind.is_code());
+        let (one, left, right) = self.wrap_cols;
+        let n = |x: Option<usize>, w: usize| x.map_or(1, |x| self.segs_at(x, w));
+        match paired {
+            true => n(l, left).max(n(r, right)),
+            false => n(l.or(r), one),
+        }
+    }
+
+    /// Row `r`'s screen rows at text width `w`.
+    fn segs_at(&self, r: usize, w: usize) -> usize {
+        match self.soft_wrap && self.rows[r].line.kind.is_code() {
+            true => self.col_of(r, self.len(r)).div_ceil(w.max(1)).max(1),
+            false => 1,
+        }
+    }
+
+    /// The part of row `r` (wrapped) that column `col` is in: on the side it's drawn (`right`,
+    /// in split view).
+    pub(super) fn seg_of(&self, r: usize, col: usize, right: bool) -> usize {
+        let (one, left, rw) = self.wrap_cols;
+        let w = match self.split { true if right => rw, true => left, false => one };
+        match self.soft_wrap && self.rows[r].line.kind.is_code() {
+            true => (self.col_of(r, col) / w.max(1)).min(self.segs_at(r, w) - 1),
+            false => 0,
+        }
+    }
+
+    /// Screen rows, and each row's screen row (its first, wrapped; a hidden comment's: the line
+    /// it's on); and each screen row's part of its line (a row repeated: the next part).
     pub(super) fn set_drows(&mut self, d: Vec<DRow>) {
         let mut d_of = vec![usize::MAX; self.rows.len()];
+        let mut first = |x: usize, di: usize| {
+            if d_of[x] == usize::MAX {
+                d_of[x] = di;
+            }
+        };
+        let code = |a: DRow| match a {
+            DRow::Full(r) => Some((Some(r), None)),
+            DRow::Pair(l, r) | DRow::Margin(l, r, _) => (l.is_some() || r.is_some()).then_some((l, r)),
+        };
+        let mut dseg = Vec::with_capacity(d.len());
         for (di, dr) in d.iter().enumerate() {
             match *dr {
-                DRow::Full(r) => d_of[r] = di,
-                DRow::Pair(l, r) => l.into_iter().chain(r).for_each(|x| d_of[x] = di),
-                DRow::Margin(l, r, c) => l.into_iter().chain(r).chain(c).for_each(|x| d_of[x] = di),
+                DRow::Full(r) => first(r, di),
+                DRow::Pair(l, r) => l.into_iter().chain(r).for_each(|x| first(x, di)),
+                DRow::Margin(l, r, c) => l.into_iter().chain(r).chain(c).for_each(|x| first(x, di)),
             }
+            let again = di > 0 && code(*dr).is_some() && code(*dr) == code(d[di - 1]);
+            dseg.push(if again { dseg[di - 1] + 1 } else { 0 });
         }
+        self.dseg = dseg;
         let mut prev = 0;
         for x in &mut d_of {
             if *x == usize::MAX {
@@ -518,6 +571,15 @@ impl App {
         }
     }
 
+    /// `Ctrl-w r`: long code lines wrap, or scroll sideways (again).
+    pub(super) fn toggle_wrap(&mut self) {
+        self.soft_wrap = !self.soft_wrap;
+        self.left = 0;
+        self.save_pane("wrap", self.soft_wrap.into());
+        self.layout();
+        self.msg = if self.soft_wrap { "long lines wrap (Ctrl-w r: scroll sideways)" } else { "long lines scroll sideways (Ctrl-w r: wrap)" }.into();
+    }
+
     pub(super) fn toggle_split(&mut self) {
         self.split = !self.split;
         self.layout();
@@ -526,7 +588,15 @@ impl App {
 
     /// Screen row of the cursor.
     pub(super) fn hd(&self) -> usize {
-        self.d_of[self.head.row]
+        // (Wrapped: the part of its line the cursor's in.)
+        let (r, d) = (self.head.row, self.d_of[self.head.row]);
+        let right = match self.rows[r].line.kind {
+            Kind::Del => false,
+            Kind::Add => true,
+            _ => self.right,
+        };
+        let seg = self.seg_of(r, self.head.col, right);
+        (d..d + seg + 1).take_while(|&x| x == d || self.dseg.get(x).is_some_and(|&s| s > 0)).last().unwrap_or(d)
     }
     /// The width comments and PR text wrap to: the pane's, when it's shown (they're there).
     pub(super) fn info_w(&self) -> usize {
