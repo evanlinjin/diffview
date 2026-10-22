@@ -256,9 +256,8 @@ impl App {
                 Ok(keep_on_error::<()>(Err(anyhow::anyhow!(why)), &extra).err().map_or(String::new(), |e| format!("{e:#}")))
             }
             Action::Replace(prs, about) => {
-                // Claude at work on it: drafting it, or a run or pane on it from any view
-                // (`drafting_now`).
-                let drafting = || crate::replace::load(prs[0]).is_ok_and(|r| r.drafting_now());
+                // Claude at work on it, or its pane open here (`redraft_waits`).
+                let waits = || self.redraft_waits(prs[0]);
                 let which = prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(", ");
                 // Drafted already: what you want is asked of its drafts (kept with them, shown
                 // there), for the redraft to take in.
@@ -273,21 +272,21 @@ impl App {
                     if !ask.trim().is_empty() {
                         crate::replace::ask(prs[0], &ask, on, want)?;
                     }
-                    if drafting() {
+                    if let Some(why) = waits() {
                         return Ok(match ask.trim() {
-                            "" => format!("Claude is already drafting the replacement of #{}", prs[0]),
-                            _ => "kept with the drafts, for Claude's redraft: shown as it takes it in (else Space a → Redraft once it's done)".into(),
+                            "" => why,
+                            _ => format!("kept with the drafts, for Claude's redraft ({why})"),
                         });
                     }
                 } else {
-                    if drafting() {
-                        return Ok(format!("Claude is already drafting the replacement of #{}", prs[0]));
+                    if let Some(why) = waits() {
+                        return Ok(why);
                     }
                     let what = format!("instructions for Claude's replacement of {which} (optional)");
                     let Some(extra) = compose_with(&what, true, crate::claude::instructions("replace").trim_end(), true)? else { return Ok("not asked".into()) };
                     crate::claude::save_instructions("replace", &extra)?; // `dv replace` reads them
-                    if drafting() {
-                        return Ok(format!("Claude started drafting the replacement of #{} meanwhile", prs[0]));
+                    if let Some(why) = waits() {
+                        return Ok(format!("not drafted: {why}"));
                     }
                 }
                 crate::replace::spawn(&prs)?;

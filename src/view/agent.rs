@@ -235,6 +235,15 @@ impl App {
         self.claude.job.is_some() || self.claude.pane_busy || here()
     }
 
+    /// Why a redraft of draft `id` waits: Claude at work on it (from any dv), or its pane open
+    /// here (a redraft resumes the draft's session, the pane's: not two Claudes on it).
+    pub(super) fn redraft_waits(&self, id: u64) -> Option<String> {
+        if self.replacement.as_ref().is_some_and(|r| r.id == id) && self.claude_pane().is_some() {
+            return Some("Claude's pane is open on it: close it, then redraft (a redraft carries on in its session)".into());
+        }
+        crate::replace::load(id).is_ok_and(|r| r.drafting_now()).then(|| format!("Claude is already drafting {}", crate::replace::label(id)))
+    }
+
     /// Claude at work on it (a run of this view's, or another's from any dv: a redraft, a pane
     /// of another session); its own pane, idle or not, isn't: what's sent there waits in it.
     pub(super) fn at_it(&self) -> bool {
@@ -372,7 +381,7 @@ impl App {
                 format!("Draft a replacement for #{} (Claude writes it properly, unpublished, in the background)", p.number),
                 Target::Do(Action::Replace(vec![p.number], None)),
             )),
-            (None, Some(_)) if self.at_it() => items.push(Item::new("Claude is at work on this replacement (dv shows it as it goes)", Target::Note(""))),
+            (None, Some(r)) if let Some(why) = self.redraft_waits(r.id) => items.push(Item::new(why, Target::Note(""))),
             (None, Some(r)) => items.push(Item::new(
                 "Redraft this (Claude carries on, with your instructions)",
                 Target::Do(Action::Replace(r.ids(), None)),
