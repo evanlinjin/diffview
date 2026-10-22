@@ -407,8 +407,8 @@ impl App {
         }
         match (p, c) {
             // In the pane, its own top / end (the first and last comment, or the PR's text).
-            ('g', 'g') => self.goto(self.pane_rows().first().copied().unwrap_or(0), 0),
-            ('g', 'e') => self.goto(self.pane_rows().last().copied().unwrap_or(self.rows.len() - 1), 0),
+            ('g', 'g') => self.goto(self.rows_here().first().copied().unwrap_or(self.head.row), 0),
+            ('g', 'e') => self.goto(self.rows_here().last().copied().unwrap_or(self.head.row), 0),
             ('g', 'h') => self.goto(self.head.row, 0),
             ('g', 'l') => self.goto(self.head.row, usize::MAX),
             ('m', 'm') => self.match_bracket(),

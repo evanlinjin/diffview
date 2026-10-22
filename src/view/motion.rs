@@ -335,6 +335,7 @@ impl App {
             self.anchor = Pos { row: s.row, col: 0 };
             self.set_head(Pos { row: e.row, col: end });
         }
+        self.lines = Some((self.anchor, self.head));
     }
 
     pub(super) fn next_kind(&mut self, fwd: bool, is_start: impl Fn(&[Row], usize) -> bool) {
@@ -362,6 +363,9 @@ impl App {
         let from = if fwd { e } else { s };
         for k in 0..=n {
             let r = if fwd { (from.row + k) % n } else { (from.row + n - k) % n };
+            if self.side_of(r).is_none() {
+                continue; // (not drawn: a file's comment, the pane hidden)
+            }
             let raw = &self.rows[r].line.text;
             let t = if smart { raw.to_ascii_lowercase() } else { raw.clone() };
             let mut hits = t.match_indices(q.as_str()).map(|(b, _)| t[..b].chars().count());

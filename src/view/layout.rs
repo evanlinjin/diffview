@@ -76,13 +76,9 @@ impl App {
         }
     }
 
-    /// The rows the pane has, in order, when the cursor's in it (the comments); nothing when
-    /// it's in the code.
-    pub(super) fn pane_rows(&self) -> Vec<usize> {
-        match self.margin_side() {
-            true => (0..self.rows.len()).filter(|&r| self.in_margin(r)).collect(),
-            false => vec![],
-        }
+    /// The rows on the cursor's side (the pane's, or the code's), in order.
+    pub(super) fn rows_here(&self) -> Vec<usize> {
+        (0..self.rows.len()).filter(|&r| self.side_of(r) == Some(self.margin_side())).collect()
     }
 
     /// Comments further down (`down`) or up than what's on screen, beside the code.
