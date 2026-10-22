@@ -275,7 +275,7 @@ impl App {
         };
         let mut lines = vec![(Line::from(Span::styled(format!("{title:<w$}"), Style { bg: ui.bar, ..ui.header })), Hit::Nothing)];
         // Rows: 0 "all commits", r the commit r - 1; then, if anything isn't, "uncommitted".
-        let last = n + usize::from(self.dirty.has());
+        let last = self.last_commit_row();
         let (sa, sb) = self.shown_rows();
         let shown = |r: usize| r >= sa && r <= sb;
         let focus = self.files_focus && self.in_commits;
@@ -343,7 +343,8 @@ impl App {
                 Some(Commit { sha: sha.into(), short: short.into(), at: at.into(), subject: p.next().unwrap_or("").into() })
             })
             .collect();
-        self.dirty = Dirty::of(&diff::git(&["status", "--porcelain"]).unwrap_or_default());
+        // (Each new file, whatever the config: as the diff lists them, `ls-files --others`.)
+        self.dirty = Dirty::of(&diff::git(&["status", "--porcelain", "--untracked-files=all"]).unwrap_or_default());
         let n = self.commits.len();
         // What's kept by a commit (the commits shown, the list's cursor and range's start) follows
         // it by what it was (`now_as`: amended, rebased, other SHAs), not where it sat (one dropped
@@ -359,7 +360,7 @@ impl App {
         let (cur, anchor) = (spot(self.commit_cur).unwrap_or(self.commit_cur), self.commit_anchor.and_then(spot));
         let shown = |sha: &Option<String>| sha.as_deref().and_then(at);
         let (first, last) = (shown(&self.shown_first), shown(&self.to));
-        self.commit_cur = cur.min(n + usize::from(self.dirty.has()));
+        self.commit_cur = cur.min(self.last_commit_row());
         self.commit_anchor = anchor;
         if self.commit_shown.is_some() {
             match (first, last) {
@@ -451,6 +452,11 @@ impl App {
         }
     }
 
+    /// The commits list's last row: "uncommitted" when anything is, else the newest commit.
+    pub(super) fn last_commit_row(&self) -> usize {
+        self.commits.len() + usize::from(self.dirty.has())
+    }
+
     /// `Space C`: the commits list's rows to pick one of, as Enter on it there (newest first;
     /// those shown marked).
     pub(super) fn commit_picker(&mut self) {
@@ -462,7 +468,7 @@ impl App {
         let n = self.commits.len();
         let mut items = vec![Item::new(format!("{} all commits: the whole diff", mark(0)), Target::CommitRow(0))];
         items.extend(self.commits.iter().enumerate().rev().map(|(i, c)| Item::new(format!("{} {} {}", mark(i + 1), c.short, c.subject), Target::CommitRow(i + 1))));
-        if self.dirty.has() {
+        if self.last_commit_row() > n {
             items.insert(1, Item::new(format!("{} uncommitted", mark(n + 1)), Target::CommitRow(n + 1))); // (newest of all)
         }
         self.picker = Some(Picker::new(" commits ", items));
@@ -519,7 +525,7 @@ impl App {
         let last_file = at.is_some_and(|i| i + 1 == spots.len()) || spots.is_empty();
         match k.code {
             // In the commits: j / k move, v marks a range's start, Enter shows it.
-            KeyCode::Char('j') | KeyCode::Down if !ctrl && self.in_commits => self.commit_cur = (self.commit_cur + 1).min(self.commits.len() + usize::from(self.dirty.has())),
+            KeyCode::Char('j') | KeyCode::Down if !ctrl && self.in_commits => self.commit_cur = (self.commit_cur + 1).min(self.last_commit_row()),
             KeyCode::Char('k') | KeyCode::Up if !ctrl && self.in_commits && self.commit_cur == 0 => (self.in_commits, self.files_sel) = (false, spots.last().copied()),
             KeyCode::Char('k') | KeyCode::Up if !ctrl && self.in_commits => self.commit_cur -= 1,
             KeyCode::Char('v') if self.in_commits && self.commit_cur > self.commits.len() && self.commit_anchor.is_none() => {} // (no range from "uncommitted")
