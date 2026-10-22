@@ -332,14 +332,28 @@ pub fn rebase(r: &Record, dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Which of Claude's reviews of the originals a draft's prompt carries: all (a first draft: a
+/// new session), or those changed since its last draft ended (a redraft: its session has the
+/// rest), none if that's not known.
+#[derive(Clone, Copy)]
+pub enum Reviews {
+    All,
+    Since(Option<std::time::SystemTime>),
+}
+
 /// Claude's reviews of the PRs `r` replaces, from dv (its own and the user's words, not the
 /// PRs'), for a replacement to start from what they found: each as of the commit it reviewed.
-fn reviews_of(r: &Record) -> String {
+fn reviews_of(r: &Record, which: Reviews) -> String {
+    let changed = |p: &std::path::Path| match which {
+        Reviews::All => true,
+        Reviews::Since(t) => t.zip(std::fs::metadata(p).and_then(|m| m.modified()).ok()).is_some_and(|(t, m)| m > t),
+    };
     let reviews: Vec<String> = r
         .replaces
         .iter()
         .filter_map(|o| {
-            let review = crate::claude::load(&crate::claude::path(Some(o.number)).ok()?).ok()??;
+            let path = crate::claude::path(Some(o.number)).ok().filter(|p| changed(p))?;
+            let review = crate::claude::load(&path).ok()??;
             let text = crate::claude::review_brief(&review);
             let head = review.head.get(..8).unwrap_or(&review.head);
             (!text.is_empty()).then(|| format!("<review pr=\"{}\" of=\"{head}\">\n{text}\n</review>", o.number))
@@ -348,9 +362,11 @@ fn reviews_of(r: &Record) -> String {
     match reviews.is_empty() {
         true => String::new(),
         false => format!(
-            "\n\nYour reviews in dv of what it replaces, with the user's replies (what you and the user found wrong: \
-             start from that, and do what the user asked there; each of the commit it names, which may have moved on \
-             since, so check its lines against `gh pr diff`):\n{}",
+            "\n\nYour reviews in dv of what it replaces{}, with the user's replies (what you and the user found wrong: \
+             start from that, and make the changes the user asked for there; their questions were answered there, \
+             not asks of the draft; each review is of the commit it names, which may have moved on since, so check \
+             its lines against `gh pr diff`):\n{}",
+            if matches!(which, Reviews::All) { "" } else { " (changed since your last draft: as they are now)" },
             reviews.join("\n")
         ),
     }
@@ -359,7 +375,7 @@ fn reviews_of(r: &Record) -> String {
 /// What Claude is asked, to draft (or redraft) replacement `r`. Your notes on the repo come
 /// with it, to read: a draft reads untrusted PRs, so it gets no access to them (nor to dv's
 /// other files), only to its record.
-pub fn prompt(r: &Record, extra: &str) -> String {
+pub fn prompt(r: &Record, extra: &str, reviews: Reviews) -> String {
     let prs: Vec<String> = r.replaces.iter().map(|o| format!("#{}", o.number)).collect();
     let now = crate::claude::now();
     let notes = crate::claude::notes_path().ok().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
@@ -379,8 +395,7 @@ pub fn prompt(r: &Record, extra: &str) -> String {
             "Use the dv-review skill to draft a replacement for PR {} (its section 6: \"Draft a replacement or a new PR\"). \
              First run `dv replace-info`. (It's {now} now.){notes}{}",
             prs.join(", "),
-            // (A redraft carries on in its session, which has them; what's asked since is in `asks`.)
-            if r.drafted() { String::new() } else { reviews_of(r) }
+            reviews_of(r, reviews)
         ),
     };
     // What you asked of its drafts that no redraft has taken in yet: in the record, to answer.
@@ -462,6 +477,9 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
     // don't start another.
     let existed = path(id)?.exists();
     anyhow::ensure!(existed || !is_new(id), "no new PR {}", label(id));
+    // When its last draft ended (the record as it left it): reviews of the originals changed
+    // since go to a redraft.
+    let last = std::fs::metadata(path(id)?).and_then(|m| m.modified()).ok();
     let (first, _) = update(id, |r| {
         anyhow::ensure!(!r.drafting_now(), "Claude is already drafting {}", label(id));
         r.drafting = Some(std::process::id());
@@ -500,7 +518,7 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
             Ok(r.clone())
         })?;
         given = r.asks.iter().filter(|a| !a.done()).map(|a| (a.text.clone(), a.on.clone())).collect();
-        run_claude(&r, &dir, first, if first { extra } else { "" }, prepared)
+        run_claude(&r, &dir, first, if first { extra } else { "" }, last, prepared)
     });
     // Claude has written to the record meanwhile (its answers): the mark comes off; a change
     // it was given and made (it finished) without saying so is done all the same, not asked
@@ -521,14 +539,14 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
 }
 
 /// `first`: its first draft (a new session; else it carries on in its own).
-fn run_claude(r: &Record, dir: &Path, first: bool, extra: &str, prepared: impl FnOnce()) -> Result<String> {
+fn run_claude(r: &Record, dir: &Path, first: bool, extra: &str, last: Option<std::time::SystemTime>, prepared: impl FnOnce()) -> Result<String> {
     prepared();
     let session = match first {
         true => ["--session-id".to_owned(), r.session.clone()],
         false => ["--resume".to_owned(), r.session.clone()],
     };
     let log = std::env::temp_dir().join(format!("dv-claude-replace-{}-{}.log", std::process::id(), r.id));
-    let st = crate::claude::claude_command(crate::claude::Work::Replace, &prompt(r, extra), dir, &session, crate::claude::REPLACE_TOOLS, Some(&writable()?))
+    let st = crate::claude::claude_command(crate::claude::Work::Replace, &prompt(r, extra, if first { Reviews::All } else { Reviews::Since(last) }), dir, &session, crate::claude::REPLACE_TOOLS, Some(&writable()?))
         .stdin(std::process::Stdio::null())
         .stdout(std::fs::File::create(&log)?)
         .stderr(std::fs::File::create(log.with_extension("err"))?)
@@ -673,11 +691,11 @@ fn records_round_trip() {
     };
     assert_eq!(parse(12, &to_json(&r)).unwrap(), r);
     // Only what no redraft has taken in yet is asked again.
-    assert!(prompt(&r, "").ends_with("`asks[1]`: mention #9") && !prompt(&r, "").contains("asks[0]"));
+    assert!(prompt(&r, "", Reviews::All).ends_with("`asks[1]`: mention #9") && !prompt(&r, "", Reviews::All).contains("asks[0]"));
     // As Claude may leave it: fields missing are empty.
     let bare = parse(3, r#"{ "replaces": [{ "number": 3 }], "base": "main" }"#).unwrap();
     assert_eq!((bare.replaces[0].number, bare.title.as_str(), bare.base.as_str()), (3, "", "main"));
-    assert!(prompt(&r, "keep the old API").contains("PR #12, #15") && prompt(&r, "keep the old API").ends_with("The user adds:\nkeep the old API"));
+    assert!(prompt(&r, "keep the old API", Reviews::All).contains("PR #12, #15") && prompt(&r, "keep the old API", Reviews::All).ends_with("The user adds:\nkeep the old API"));
     let r = Record { closing_note: "Thanks! See {replacement}.".into(), ..r };
     assert_eq!(note(&r), "Thanks! See #20.");
     assert_eq!(note(&Record { published: None, ..r.clone() }), "Thanks! See the replacement.");
@@ -701,6 +719,6 @@ fn new_prs() {
     let r = parse(id, r#"{ "base": "master", "task": "Fix #9: the panic on empty input" }"#).unwrap();
     assert!(r.replaces.is_empty() && r.task.starts_with("Fix #9"));
     assert_eq!(parse(id, &to_json(&r)).unwrap(), r);
-    let p = prompt(&r, "");
+    let p = prompt(&r, "", Reviews::All);
     assert!(p.contains("draft a new PR") && p.ends_with("Fix #9: the panic on empty input"), "{p}");
 }

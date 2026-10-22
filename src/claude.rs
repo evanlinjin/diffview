@@ -92,7 +92,8 @@ pub struct Review {
 }
 
 /// Claude's review `r` as text for a prompt (a replacement's: what was found wrong): its
-/// summary, then each comment on code with its replies (yours and Claude's), where it is.
+/// summary, then each thread with its replies (yours and Claude's), where it is: on code, on
+/// the summary, on a conversation comment.
 pub fn review_brief(r: &Review) -> String {
     let mut out = vec![r.summary.trim().to_owned()];
     for t in &r.threads {
