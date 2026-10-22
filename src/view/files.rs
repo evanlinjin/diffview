@@ -577,9 +577,19 @@ impl App {
         true
     }
 
-    /// The diff's files anew; the list's cursor kept on its file by path (files come and go
-    /// before it), gone with it.
-    pub(super) fn set_files(&mut self, files: Vec<diff::FileDiff>) {
+    /// The diff's files anew, each folder's together where it first comes (as the list shows
+    /// them: git's order puts `src/foo.rs` before `src/foo/`, and new files last); the list's cursor kept on its file by
+    /// path (files come and go before it), gone with it.
+    pub(super) fn set_files(&mut self, mut files: Vec<diff::FileDiff>) {
+        // (Each folder where it first comes; git's order otherwise kept: a stable sort.)
+        let dir = |p: &str| p.rsplit_once('/').map_or("", |(d, _)| d).to_owned();
+        let mut first: Vec<String> = vec![];
+        for f in &files {
+            if !first.contains(&dir(&f.path)) {
+                first.push(dir(&f.path));
+            }
+        }
+        files.sort_by_key(|f| first.iter().position(|d| *d == dir(&f.path)));
         let sel = match self.files_sel {
             Some(Spot::File(i)) => self.files.get(i).map(|f| f.path.clone()),
             _ => None,

@@ -5206,3 +5206,13 @@ fn a_tab_is_four_columns() {
     assert_eq!(row::cols("\t"), 4);
     assert_eq!(row::cols("a\tb"), 6);
 }
+
+#[test]
+fn a_folder_is_listed_once() {
+    let d = |p: &str| format!("diff --git a/{p} b/{p}\nindex 1..2 100644\n--- a/{p}\n+++ b/{p}\n@@ -1 +1 @@\n-a\n+b\n");
+    let app = App::with("base".into(), diff::parse(&[d("src/foo.rs"), d("src/foo/bar.rs"), d("src/main.rs")].concat()));
+    let paths: Vec<&str> = app.files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(paths, ["src/foo.rs", "src/main.rs", "src/foo/bar.rs"]);
+    let folders = app.file_entries().iter().filter(|e| e.spot == files::Spot::Folder).count();
+    assert_eq!(folders, 2);
+}

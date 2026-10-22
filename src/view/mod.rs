@@ -901,7 +901,6 @@ impl App {
         let mut app = App {
             full_base: base.clone(),
             base,
-            files,
             height: 1,
             width: 80,
             right: true,
@@ -911,6 +910,7 @@ impl App {
             alphabet: jump_alphabet(),
             ..Default::default()
         };
+        app.set_files(files);
         app.shape();
         app.build();
         app
