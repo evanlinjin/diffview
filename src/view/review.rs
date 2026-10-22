@@ -23,15 +23,16 @@ enum Mark {
 }
 
 impl App {
-    /// The pending review to add to, starting one on the PR head if there isn't one yet, with
-    /// `body` (your review text, as GitHub can't add any later to one started without). The
-    /// caller's text, as it was when posted: a refresh meanwhile can't swap it out.
-    pub(super) fn ensure_review(&mut self, body: &str) -> Result<String> {
+    /// The pending review to add to, starting one on `commit` (a comment's lines' own; else the
+    /// PR's head) if there isn't one yet, with `body` (your review text, as GitHub can't add any
+    /// later to one started without). The caller's, as when posted: a refresh meanwhile can't
+    /// swap them out.
+    pub(super) fn ensure_review(&mut self, body: &str, commit: Option<&str>) -> Result<String> {
         if let Some(r) = &self.review {
             return Ok(r.clone());
         }
         let pr = self.pr.as_ref().context("no PR")?;
-        let id = gh::start_review(&pr.node_id, &pr.head_oid, body)?;
+        let id = gh::start_review(&pr.node_id, commit.unwrap_or(&pr.head_oid), body)?;
         self.review = Some(id.clone());
         Ok(id)
     }
@@ -169,7 +170,7 @@ impl App {
                 let res = match review {
                     true => {
                         let draft = self.summary_draft.clone();
-                        self.ensure_review(&draft).and_then(|r| gh::add_thread(&r, &anchor, &body))
+                        self.ensure_review(&draft, Some(&anchor.commit)).and_then(|r| gh::add_thread(&r, &anchor, &body))
                     }
                     false => pr().and_then(|pr| gh::comment(&pr, &anchor, &body)),
                 };
@@ -184,7 +185,7 @@ impl App {
                 let res = match review {
                     true => {
                         let draft = self.summary_draft.clone();
-                        self.ensure_review(&draft).and_then(|r| gh::add_reply(&r, &thread, &body))
+                        self.ensure_review(&draft, None).and_then(|r| gh::add_reply(&r, &thread, &body))
                     }
                     false => pr().and_then(|pr| gh::reply(&pr, comment, &body)),
                 };
@@ -198,7 +199,7 @@ impl App {
                 // A new review starts with it; one started without text can't take any yet, so
                 // it stays here (S submits it with the review).
                 let fresh = self.review.is_none();
-                let res = self.ensure_review(&body).and_then(|r| if fresh { Ok(()) } else { gh::set_review_body(&r, &body) });
+                let res = self.ensure_review(&body, None).and_then(|r| if fresh { Ok(()) } else { gh::set_review_body(&r, &body) });
                 match res {
                     Err(e) if format!("{e:#}").contains("missing body") => Ok(
                         "in your review summary till you quit (GitHub won't hold it yet): S submits it",
@@ -207,7 +208,7 @@ impl App {
                 }
             }
             Post::Edit { comment, body } => keep_on_error(gh::edit_comment(&comment, &body), &body).map(|_| "comment updated"),
-            Post::Submit(event, body) => {
+            Post::Submit(event, body, on) => {
                 // Closing comments; with nothing to say (and no pending comments) it only closes.
                 let pr = pr()?;
                 let close = event == CLOSE;
@@ -215,7 +216,8 @@ impl App {
                 if !close || self.review.is_some() || !body.trim().is_empty() {
                     let res = match &self.review {
                         Some(r) => gh::submit_review(r, event, &body),
-                        None => gh::review_now(&pr.node_id, &pr.head_oid, event, &body),
+                        // (On the head its summary was written on: an ACK names it.)
+                        None => gh::review_now(&pr.node_id, &on, event, &body),
                     };
                     keep_on_error(res, &body)?;
                     self.review = None;
@@ -715,6 +717,7 @@ impl App {
             line,
             left,
             start: (a != b).then_some((sl, sleft)),
+            ..Default::default()
         })
     }
 
@@ -790,13 +793,14 @@ impl App {
         if !diff::git(&["status", "--porcelain", "--untracked-files=no"])?.trim().is_empty() {
             bail!("working tree has local changes; stash them to comment");
         }
-        Ok(a)
+        // (Posted on this head, the lines' own, however the PR moves meanwhile.)
+        Ok(Anchor { commit: pr.head_oid.clone(), ..a })
     }
 
     /// Where Claude's comment `t` is, for posting it.
     pub(super) fn claude_anchor(&self, t: usize) -> Anchor {
         let th = &self.threads[t];
-        Anchor { path: th.path.clone(), line: th.line.unwrap_or(0), left: th.left, start: th.range_start() }
+        Anchor { path: th.path.clone(), line: th.line.unwrap_or(0), left: th.left, start: th.range_start(), ..Default::default() }
     }
 
     /// GitHub only takes comments on files the PR has: not on one that's untracked here.
@@ -842,7 +846,7 @@ impl App {
             fence.push('`');
         }
         let anchor =
-            Anchor { path: self.files[first.file].path.clone(), line: b, left: false, start: (a != b).then_some((a, false)) };
+            Anchor { path: self.files[first.file].path.clone(), line: b, left: false, start: (a != b).then_some((a, false)), ..Default::default() };
         Ok((anchor, format!("\n{fence}suggestion\n{code}\n{fence}\n")))
     }
 

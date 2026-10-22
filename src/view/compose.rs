@@ -68,7 +68,8 @@ pub(super) enum Post {
     /// Your pending review's new text (`c` in the PR section, or on Claude's summary).
     Summary(String),
     Edit { comment: String, body: String },
-    Submit(&'static str, String),
+    /// (The event, the summary, the PR's head it was written on.)
+    Submit(&'static str, String, String),
 }
 
 /// How dv's hint lines in the editor start; they're dropped from what's posted.
@@ -364,6 +365,7 @@ impl App {
                     e => format!("review summary ({})", e.to_lowercase().replace('_', " ")),
                 };
                 let head = diff::git(&["rev-parse", "HEAD"]).unwrap_or_default();
+                let on = self.pr.as_ref().map(|p| p.head_oid.clone()).unwrap_or_default();
                 let mut prefill = ack(event, self.pr.as_ref(), head.trim());
                 if !self.summary_draft.is_empty() {
                     prefill = format!("{}\n\n{prefill}", self.summary_draft.trim_end());
@@ -378,7 +380,7 @@ impl App {
                     return Ok("review not submitted".into());
                 };
                 self.summary_draft.clear();
-                self.post_later(Post::Submit(event, body))
+                self.post_later(Post::Submit(event, body, on))
             }
             Action::Commit => {
                 anyhow::ensure!(!self.claude_busy(), "{}", App::busy_edit("commit"));

@@ -1357,7 +1357,7 @@ fn parse_and_dismiss() {
 #[test]
 fn comments_for_claude() {
     let p = std::env::temp_dir().join(format!("dv-claude-ask-{}", std::process::id())).join("pr-1.json");
-    let a = crate::gh::Anchor { path: "src/a.rs".into(), line: 3, left: false, start: Some((2, false)) };
+    let a = crate::gh::Anchor { path: "src/a.rs".into(), line: 3, left: false, start: Some((2, false)), ..Default::default() };
     let id = add_comment(&p, &a, vec!["x".into(), "y".into()], "why?", None, "").unwrap(); // no file yet: started
     let r = load(&p).unwrap().unwrap();
     _ = std::fs::remove_dir_all(p.parent().unwrap());

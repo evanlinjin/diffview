@@ -101,13 +101,15 @@ pub struct Comment {
     pub hidden: String,
 }
 
-/// Where a new comment goes. Lines are file line numbers on the given side.
-#[derive(Clone)]
+/// Where a new comment goes. Lines are file line numbers on the given side, of `commit` (the
+/// PR's head they were read from: posted on it, not on a head that's moved since).
+#[derive(Clone, Default)]
 pub struct Anchor {
     pub path: String,
     pub line: u32,
     pub left: bool,
     pub start: Option<(u32, bool)>,
+    pub commit: String,
 }
 
 /// Who `v` (GitHub's author, actor: `{login}`) is: a deleted account's, GitHub's "ghost".
@@ -834,7 +836,7 @@ fn post(ep: &str, body: &Value) -> Result<()> {
 /// A single comment, posted immediately (outside any review).
 pub fn comment(pr: &Pr, a: &Anchor, body: &str) -> Result<()> {
     let ep = format!("repos/{{owner}}/{{repo}}/pulls/{}/comments", pr.number);
-    let mut v = json!({ "body": body, "commit_id": pr.head_oid, "path": a.path, "line": a.line, "side": side(a.left) });
+    let mut v = json!({ "body": body, "commit_id": a.commit, "path": a.path, "line": a.line, "side": side(a.left) });
     if let Some((l, left)) = a.start {
         (v["start_line"], v["start_side"]) = (json!(l), json!(side(left)));
     }
