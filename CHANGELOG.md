@@ -5,6 +5,21 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.95.9] - 2026-10-22
+
+### Fixed
+- Split view: `x`, word motions, copying, the highlight, comments (`c` / `C` / `a`),
+  suggestions and file:line refs keep to the cursor's half (the left: the old side's lines).
+- `]c` and the other comment motions go in the order comments are drawn (a removed line's,
+  one under the file's header), and fast in the Claude / pending views; `]g` takes a change
+  with a comment in it as one.
+- Text inputs (help's search, pickers, the prompt): Ctrl-c closes them, Ctrl and Alt keys type
+  nothing; an empty search repeats the last.
+- Search in select mode extends the selection; `gg` / `ge` are jumps; a jump that doesn't
+  move isn't kept for Ctrl-o.
+- The files list: focus leaves it once hidden; its cursor stays on its file as files come and
+  go; entered fresh every way (Ctrl-h into the contents, no commit range left begun).
+
 ## [0.95.8] - 2026-10-22
 
 ### Fixed
