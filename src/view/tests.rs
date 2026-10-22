@@ -2367,7 +2367,7 @@ fn commits_under_the_files() {
     assert_eq!((app.commit_shown, app.base.as_str(), app.to.as_deref()), (Some((1, 1)), app.commits[0].sha.as_str(), Some(app.commits[1].sha.as_str())));
     // Before the PR's last commit: its comments (on the head's lines) are hidden, and can't be made.
     assert!(app.before_head() && !app.threads.iter().any(|t| app.in_view(t)));
-    assert!(app.github_anchor(app.selection_anchor()).err().is_some_and(|e| e.to_string().starts_with("comments go on the PR's head")));
+    assert!(app.on_head().err().is_some_and(|e| e.to_string().starts_with("comments go on the PR's head")));
     // v, then down: the range from the first to the last; comments again (it ends at the head).
     app.commit_cur = 1;
     k(&mut app, KeyCode::Char('v'));
@@ -4360,4 +4360,13 @@ fn a_selections_keys_are_those_that_act() {
     let thread = app.rows.iter().position(|r| r.thread.is_some_and(|t| app.threads[t].claude.is_none())).unwrap();
     app.goto(thread, 0);
     assert!(keys(&app).is_some_and(|(_, k)| !k.contains(&"C")), "{:?}", keys(&app));
+    // Claude's comment on a file GitHub hasn't got (untracked): nothing to copy or post.
+    let mut app = fixture();
+    let t = app.threads.iter().position(|t| t.by_claude() && !t.outdated && t.conversation.is_empty()).unwrap();
+    let path = app.threads[t].path.clone();
+    app.files.iter_mut().filter(|f| f.path == path).for_each(|f| f.meta = "untracked".into());
+    app.build();
+    let r = app.rows.iter().position(|r| r.thread == Some(t)).unwrap();
+    app.goto(r, 0);
+    assert!(keys(&app).is_some_and(|(_, k)| !k.contains(&"c") && !k.contains(&"C") && k.contains(&"r")), "{:?}", keys(&app));
 }

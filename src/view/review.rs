@@ -574,7 +574,7 @@ impl App {
         if !th.conversation.is_empty() {
             return self.msg = "Claude's answer here is for you, on no lines: C on the comment above quotes it in a new conversation comment".into();
         }
-        let anchor = Anchor { path: th.path.clone(), line: th.line.unwrap_or(0), left: th.left, start: th.range_start() };
+        let anchor = self.claude_anchor(t);
         // Claude's comment, wherever in its thread the cursor is: the talk under it is about it,
         // not what's posted.
         let mut body = th.comments.first().map(|c| c.body.clone()).unwrap_or_default();
@@ -582,7 +582,7 @@ impl App {
         if !th.severity.is_empty() && !body.starts_with("**") {
             body = format!("**{}:** {body}", th.severity);
         }
-        match self.github_anchor(Ok(anchor)).and_then(|a| self.check_synced().map(|_| a)) {
+        match self.line_comment(anchor) {
             Ok(anchor) => self.action = Some(Action::Comment { anchor, review, prefill: body, claude: Some(key) }),
             Err(e) => self.msg = format!("{e:#}"),
         }
@@ -754,32 +754,37 @@ impl App {
         Ok(())
     }
 
-    /// What GitHub takes a line comment on (`a`, the lines): the PR's head, a file it has.
-    /// Without asking git: the key hints go by it too (`check_synced` asks git, as it posts).
-    pub(super) fn github_anchor(&self, a: Result<Anchor>) -> Result<Anchor> {
-        if self.unpublished() {
-            bail!("it's a draft: nothing on GitHub to comment on yet (a comments for Claude; S publishes it)");
-        }
-        self.pr.as_ref().context("no PR for this branch")?;
-        if self.before_head() {
-            bail!("comments go on the PR's head: show commits up to the last one (or all) to comment");
-        }
-        self.on_github(a?)
-    }
-
-    /// Line comments are posted against the PR head; local edits would shift the lines.
-    pub(super) fn check_synced(&self) -> Result<()> {
+    /// The PR line comments go on, at its head as shown (a draft has none yet; nor before its
+    /// last commit). Without asking git: the key hints go by it too, with `on_github`.
+    pub(super) fn on_head(&self) -> Result<&Pr> {
         if self.unpublished() {
             bail!("it's a draft: nothing on GitHub to comment on yet (a comments for Claude; S publishes it)");
         }
         let pr = self.pr.as_ref().context("no PR for this branch")?;
+        if self.before_head() {
+            bail!("comments go on the PR's head: show commits up to the last one (or all) to comment");
+        }
+        Ok(pr)
+    }
+
+    /// Where a line comment on `a` is posted from (`on_head` first), as it is here: the
+    /// checkout at the PR's head, its tree clean; else the lines would shift.
+    pub(super) fn line_comment(&self, a: Anchor) -> Result<Anchor> {
+        let pr = self.on_head()?;
+        let a = self.on_github(a)?;
         if diff::git(&["rev-parse", "HEAD"])?.trim() != pr.head_oid {
             bail!("HEAD isn't the PR head (pull, or `gh pr checkout {}`)", pr.number);
         }
         if !diff::git(&["status", "--porcelain", "--untracked-files=no"])?.trim().is_empty() {
             bail!("working tree has local changes; stash them to comment");
         }
-        Ok(())
+        Ok(a)
+    }
+
+    /// Where Claude's comment `t` is, for posting it.
+    pub(super) fn claude_anchor(&self, t: usize) -> Anchor {
+        let th = &self.threads[t];
+        Anchor { path: th.path.clone(), line: th.line.unwrap_or(0), left: th.left, start: th.range_start() }
     }
 
     /// GitHub only takes comments on files the PR has: not on one that's untracked here.
@@ -791,7 +796,7 @@ impl App {
     }
 
     pub(super) fn start_comment(&mut self, review: bool) {
-        match self.github_anchor(self.selection_anchor()).and_then(|a| self.check_synced().map(|_| a)) {
+        match self.on_head().and_then(|_| self.selection_anchor()).and_then(|a| self.line_comment(a)) {
             Ok(anchor) => self.action = Some(Action::Comment { anchor, review, prefill: String::new(), claude: None }),
             Err(e) => self.msg = format!("{e:#}"),
         }
@@ -799,7 +804,7 @@ impl App {
 
     /// `s`: a GitHub suggestion for the selected new-side lines, pre-filled with their code.
     pub(super) fn start_suggest(&mut self) {
-        match self.suggestion().and_then(|(a, p)| Ok((self.github_anchor(Ok(a))?, p))).and_then(|r| self.check_synced().map(|_| r)) {
+        match self.on_head().and_then(|_| self.suggestion()).and_then(|(a, p)| Ok((self.line_comment(a)?, p))) {
             Ok((anchor, prefill)) => self.action = Some(Action::Comment { anchor, review: true, prefill, claude: None }),
             Err(e) => self.msg = format!("{e:#}"),
         }
