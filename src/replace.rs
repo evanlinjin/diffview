@@ -65,6 +65,9 @@ pub struct Record {
     pub asks: Vec<Request>,
     /// How many of `asks` the draft under way was given (the rest wait for the next).
     pub taking: usize,
+    /// When its last draft ended (unix seconds; 0: not known): reviews of the originals changed
+    /// since go to a redraft.
+    pub drafted_at: u64,
 }
 
 impl Record {
@@ -237,6 +240,7 @@ fn parse(id: u64, text: &str) -> Result<Record> {
                     },
                 }).collect(),
         taking: v["taking"].as_u64().unwrap_or(0) as usize,
+        drafted_at: v["drafted_at"].as_u64().unwrap_or(0),
     })
 }
 
@@ -247,7 +251,7 @@ fn to_json(r: &Record) -> String {
         "replaces": replaces, "base": r.base, "title": r.title, "body": r.body,
         "closing_note": r.closing_note, "session": r.session, "published": r.published, "closed": r.closed,
         "task": r.task,
-        "asks": r.asks.iter().map(|a| json!({ "text": a.text, "want": a.want, "on": a.on, "answer": a.answer })).collect::<Vec<_>>(), "taking": r.taking,
+        "asks": r.asks.iter().map(|a| json!({ "text": a.text, "want": a.want, "on": a.on, "answer": a.answer })).collect::<Vec<_>>(), "taking": r.taking, "drafted_at": r.drafted_at,
     });
     serde_json::to_string_pretty(&v).unwrap_or_default() + "\n"
 }
@@ -507,9 +511,12 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
     let _claim = crate::claude::claim(&crate::claude::rep_key(id), "drafting", None).map_err(|w| anyhow::anyhow!("Claude is {w} on {} already", label(id)))?;
     let existed = path(id)?.exists();
     anyhow::ensure!(existed || !is_new(id), "no new PR {}", label(id));
-    // When its last draft ended (the record as it left it): reviews of the originals changed
-    // since go to a redraft.
-    let last = std::fs::metadata(path(id)?).and_then(|m| m.modified()).ok();
+    // When its last draft ended: reviews of the originals changed since go to a redraft. (Not
+    // said, a record from before: the last time it was written.)
+    let last = match load(id).map(|r| r.drafted_at).unwrap_or(0) {
+        0 => std::fs::metadata(path(id)?).and_then(|m| m.modified()).ok(),
+        s => Some(std::time::UNIX_EPOCH + std::time::Duration::from_secs(s)),
+    };
     let mut added = vec![];
     let (first, _) = update(id, |r| {
         // (Checked as it's marked: nothing written for one refused.)
@@ -566,6 +573,9 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
     // again and again.
     _ = update(id, |now| {
         now.taking = 0;
+        if res.is_ok() {
+            now.drafted_at = crate::claude::now_secs() as u64;
+        }
         // Not set up (a PR not there, or on another base): what it was to take in, not.
         if !set_up {
             now.replaces.retain(|o| !added.contains(&o.number));
@@ -798,6 +808,7 @@ fn records_round_trip() {
             Request { text: "mention #9".into(), ..Request::default() },
         ],
         taking: 1,
+        drafted_at: 1_800_000_000,
     };
     assert_eq!(parse(12, &to_json(&r)).unwrap(), r);
     // Only what no redraft has taken in yet is asked again.
