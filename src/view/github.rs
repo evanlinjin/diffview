@@ -12,17 +12,19 @@ pub(super) const GITHUB_POLL: std::time::Duration = std::time::Duration::from_se
 /// The PR's review threads and its info, as `fetch_github` got them.
 pub(super) type Fetched = (Result<gh::Review>, Result<Info>);
 
-/// Both at once (each is a ~1s GitHub round-trip), kept in `cache` when both came. An issue
-/// has no review threads: its info, and who you are (its "threads" as a PR's would say it).
 /// PR `n`'s head `oid` here, fetched (`refs/pull/N/head`: a fork's too) if it isn't: what's
-/// pushed or not, a force-push's lease and taking theirs go by it.
+/// pushed or not, a force-push's lease and taking theirs go by it. (Its objects only: not
+/// FETCH_HEAD, which another fetch here may be about to read.)
 pub(super) fn have_head(n: u64, oid: &str) -> anyhow::Result<()> {
     if oid.is_empty() || diff::git(&["cat-file", "-e", &format!("{oid}^{{commit}}")]).is_ok() {
         return Ok(());
     }
-    diff::git(&["fetch", "-q", &crate::diff::remote(), &format!("refs/pull/{n}/head")]).map(drop)
+    diff::git(&["fetch", "-q", "--no-write-fetch-head", &crate::diff::remote(), &format!("refs/pull/{n}/head")]).map(drop)
 }
 
+/// Both at once (each is a ~1s GitHub round-trip), kept in `cache` when both came. An issue
+/// has no review threads: its info, and who you are (its "threads" as a PR's would say it).
+/// A PR's head, fetched here too (`have_head`), however it's loaded.
 pub(super) fn fetch_github(s: Subject, cache: Option<&Path>) -> Fetched {
     let (threads, mut info) = match s {
         Subject::Pr(n) => std::thread::scope(|s| {
@@ -35,6 +37,9 @@ pub(super) fn fetch_github(s: Subject, cache: Option<&Path>) -> Fetched {
             (threads, info)
         }
     };
+    if let (Subject::Pr(n), Ok(i)) = (s, &info) {
+        _ = have_head(n, i["headRefOid"].as_str().unwrap_or(""));
+    }
     // What GitHub couldn't give this time: the last it gave, kept.
     if let (Some(p), Ok(i)) = (cache, &mut info)
         && let Some(old) = std::fs::read_to_string(p).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok())
@@ -150,10 +155,6 @@ impl App {
                 {
                     head.clone_from(&i.head);
                     *checks = checks_of(head);
-                }
-                // Its head here (what's pushed or not is known from it), off dv's thread.
-                if let (Subject::Pr(n), Ok(i)) = (s, &f.1) {
-                    _ = have_head(n, &i.head);
                 }
                 f
             };
