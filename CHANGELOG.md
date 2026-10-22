@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.93.1] - 2026-10-22
+
+### Fixed
+- The wheel scrolls back left over a line scrolled to its end (0.93.0 stopped it there).
+
 ## [0.93.0] - 2026-10-22
 
 ### Added
