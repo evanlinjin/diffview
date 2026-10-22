@@ -309,6 +309,21 @@ pub fn no_prompt(cmd: &mut Command) -> &mut Command {
     cmd.env("GIT_TERMINAL_PROMPT", "0")
 }
 
+/// Why `cmd` (git's or gh's) failed when it's ssh that `no_prompt` kept from asking: first in
+/// what it says, as git's "fatal:" doesn't say it.
+pub fn unasked(cmd: &Command, err: &str) -> Option<&'static str> {
+    if !cmd.get_envs().any(|(k, _)| k == "GIT_TERMINAL_PROMPT") {
+        return None;
+    }
+    if err.contains("Host key verification failed") {
+        Some("ssh isn't let ask whether to trust a new host over dv (do this from a terminal)")
+    } else if err.contains("Permission denied (publickey") {
+        Some("ssh isn't let ask for your passphrase over dv (ssh-add your key, or do this from a terminal)")
+    } else {
+        None
+    }
+}
+
 pub fn git(args: &[&str]) -> Result<String> {
     // Never an editor (a rebase's, a commit's): dv holds the terminal. These beat git's config.
     // And no signature lines in `git log`'s output (`log.showSignature`): dv parses it. What
@@ -317,9 +332,7 @@ pub fn git(args: &[&str]) -> Result<String> {
     // `--untracked-files=no`. No prompt over the view (`no_prompt`).
     let mut cmd = Command::new("git");
     cmd.args(["-c", "log.showSignature=false", "-c", "status.showUntrackedFiles=all"]);
-    no_prompt(&mut cmd);
-    let asks = !cmd.get_envs().any(|(k, _)| k == "GIT_TERMINAL_PROMPT");
-    let out = cmd
+    let out = no_prompt(&mut cmd)
         .args(args)
         .env("GIT_EDITOR", "true")
         .env("GIT_SEQUENCE_EDITOR", "true")
@@ -332,11 +345,8 @@ pub fn git(args: &[&str]) -> Result<String> {
         // Why first (git's "fatal:" / "error:" lines, before what it was doing: "Preparing
         // worktree"), as a message shows its first line.
         let err = String::from_utf8_lossy(&out.stderr);
-        // ssh refused, not asked (`no_prompt`): that first, as git's "fatal:" doesn't say it.
         let (mut why, rest): (Vec<&str>, Vec<&str>) = err.lines().filter(|l| !l.trim().is_empty()).partition(|l| l.starts_with("fatal:") || l.starts_with("error:"));
-        if !asks && ["Permission denied (publickey", "Host key verification failed"].iter().any(|s| err.contains(s)) {
-            why.insert(0, "ssh isn't let ask for your passphrase over dv (ssh-add your key, or do this from a terminal)");
-        }
+        why.splice(0..0, unasked(&cmd, &err));
         bail!("git {}: {}", args.join(" "), why.into_iter().chain(rest).collect::<Vec<_>>().join("\n"));
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())

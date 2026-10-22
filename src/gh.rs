@@ -244,7 +244,8 @@ pub fn set_text(n: u64, title: Option<&str>, body: &str) -> Result<()> {
 
 /// Run gh, optionally feeding `input` on stdin (for `--input -` JSON bodies).
 fn gh_input(args: &[&str], input: Option<&str>) -> Result<String> {
-    let mut child = crate::diff::no_prompt(&mut Command::new("gh"))
+    let mut cmd = Command::new("gh");
+    let mut child = crate::diff::no_prompt(&mut cmd)
         .args(args)
         .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
@@ -266,7 +267,10 @@ fn gh_input(args: &[&str], input: Option<&str>) -> Result<String> {
         let why = body["errors"].as_array().into_iter().flatten().filter_map(|e| e["message"].as_str());
         let why: Vec<&str> = why.filter(|w| !err.contains(w)).collect(); // GraphQL's are on stderr already
         match why.is_empty() {
-            true => bail!("gh {}: {}", args.first().unwrap_or(&""), err.trim()),
+            true => match crate::diff::unasked(&cmd, &err) {
+                Some(u) => bail!("gh {}: {u}: {}", args.first().unwrap_or(&""), err.trim()),
+                None => bail!("gh {}: {}", args.first().unwrap_or(&""), err.trim()),
+            },
             false => bail!("gh {}: {}: {}", args.first().unwrap_or(&""), err.trim(), why.join("; ")),
         }
     }
