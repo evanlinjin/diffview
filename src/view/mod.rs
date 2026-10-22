@@ -554,6 +554,9 @@ pub struct App {
     /// The column a vertical move keeps (into a wrapped line's part, or the line), while moves
     /// are vertical (`j`/`k`, the wheel); any other move lets it go.
     want_x: Option<usize>,
+    /// The selection `x` made (anchor, head), while it stands: another `x` takes the next line
+    /// too. (Its shape can't say: on an empty or one-char line, it's a cursor's.)
+    lines: Option<(Pos, Pos)>,
     select: bool,
     count: usize,
     pending: Option<char>,

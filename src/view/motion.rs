@@ -133,7 +133,7 @@ impl App {
     /// `head_right`.)
     pub(super) fn set_head(&mut self, p: Pos) {
         self.head = p;
-        self.want_x = None;
+        (self.want_x, self.lines) = (None, None);
     }
 
     /// Whether the cursor's at the code's edge toward `right` (the pane's side, else the files'
@@ -325,7 +325,8 @@ impl App {
     pub(super) fn line_select(&mut self) {
         let (s, e) = self.ordered();
         let end = self.len(e.row).saturating_sub(1);
-        if s.col == 0 && e.col >= end && self.head == e && s != e {
+        // Whole lines already (x's, or by its shape): the next one too.
+        if self.lines == Some((self.anchor, self.head)) || (s.col == 0 && e.col >= end && self.head == e && s != e) {
             // (The next line on its side: not into a comment beside the code; none, it stays.)
             let r = self.next_row_here(e.row, true).unwrap_or(e.row);
             self.anchor = s;
