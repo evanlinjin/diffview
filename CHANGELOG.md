@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.91.15] - 2026-10-22
+
+### Fixed
+- A range comment's bar runs on down a wrapped line's later parts even where another
+  comment's dot is on that line (the dot shows once, the bar apart from it), and not beside a
+  short side's empty rows in split view.
+
 ## [0.91.14] - 2026-10-22
 
 ### Fixed
