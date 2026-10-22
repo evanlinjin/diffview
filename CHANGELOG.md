@@ -5,6 +5,22 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.92.3] - 2026-10-22
+
+### Fixed
+- Asking Claude about a GitHub range comment from the old side to the new quotes its lines
+  (its start taken as the new side's); `dv review-comments` says a range's start side; its
+  label reads `L−20–+6`.
+- A commit or range shown follows its commits by what they are, through amends and rebases,
+  not by where they sat (a commit dropped before them showed another's diff); its messages are
+  read again only when the commits changed. Every change of the diff's base lets its widened
+  context go.
+- Copying an outdated Claude range comment's reference keeps its range.
+
+### Changed
+- Windows carry what widens them (no mapping back from indexes); one helper for a branch's push
+  remote.
+
 ## [0.92.2] - 2026-10-22
 
 ### Fixed
