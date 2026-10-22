@@ -5,6 +5,17 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.94.0] - 2026-10-22
+
+### Changed
+- An issue a PR's view links to opens in the PR view itself (not the separate issue view):
+  its text, facts and conversation, with Claude's triage of it first. Everything works as
+  on a PR: `Space a` (triage it again, ask a question, have Claude propose a new title and
+  text and approve it, draft and close with a closing comment, draft a PR fixing it),
+  `C` to comment, `Space l` for labels (Claude's suggested ones marked `◆`) and assignees,
+  reactions and links. Nothing there touches code: `Space g` and `S` say so.
+- v0.93.0's issue questions and edits are taken into the issue's review file.
+
 ## [0.93.3] - 2026-10-22
 
 ### Fixed
