@@ -55,14 +55,14 @@ impl App {
         // the cursor is (when no other popup is up). At the bottom of the contents list when it's
         // shown; else a popup (below).
         let keys = match self.pending {
-            Some(p) => App::which(p),
+            Some(p) => App::which(p).map(|(t, k)| (t, k.to_vec())),
             // The list has focus: its keys.
-            None if self.files_focus && self.files_w > 0 && self.picker.is_none() && self.popup.is_none() => Some(self.list_keys()),
+            None if self.files_focus && self.files_w > 0 && self.picker.is_none() && self.popup.is_none() => Some(self.list_keys()).map(|(t, k)| (t, k.to_vec())),
             None if self.picker.is_none() && self.popup.is_none() && self.prompt.is_none() => self.context_keys(),
             None => None,
         };
         if sw > 0 {
-            self.draw_files(f, Rect { x: full.x, y: full.y, width: sw as u16, height: (h + pin) as u16 }, keys);
+            self.draw_files(f, Rect { x: full.x, y: full.y, width: sw as u16, height: (h + pin) as u16 }, keys.as_ref().map(|(t, k)| (*t, k.as_slice())));
         }
         self.draw_title(f, &c);
         self.draw_link_tip(f, &c);
@@ -72,7 +72,7 @@ impl App {
 
         // The key hints, without the contents list: off the cursor, where they cover the least.
         if let Some((title, keys)) = keys.filter(|_| sw == 0) {
-            draw_hints(f, &self.ui, Rect { y: area.y + pin as u16, height: h as u16, ..area }, title, keys, Some(self.keep_clear(&c)));
+            draw_hints(f, &self.ui, Rect { y: area.y + pin as u16, height: h as u16, ..area }, title, &keys, Some(self.keep_clear(&c)));
         }
 
         self.draw_popup(f, full);

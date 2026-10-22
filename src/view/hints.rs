@@ -141,7 +141,45 @@ impl App {
     /// What the overloaded keys do where the cursor is, for the bottom-right key popup: on a
     /// selection, a review thread, Claude's comment, the PR header or PR text. Nothing elsewhere,
     /// to keep it quiet.
-    pub(super) fn context_keys(&self) -> Option<(&'static str, &'static [(&'static str, &'static str)])> {
+    pub(super) fn context_keys(&self) -> Option<(&'static str, Vec<(&'static str, &'static str)>)> {
+        if let Some((what, keys)) = self.row_keys() {
+            return Some((what, keys.to_vec()));
+        }
+        // In a diff's file: a selection's keys (what they do with it), else a code line's; each
+        // key only where it acts, as its own check has it.
+        let row = &self.rows[self.head.row];
+        if row.file == INFO {
+            return None;
+        }
+        let selecting = self.select || self.anchor.row != self.head.row;
+        let code = matches!(row.line.kind, Kind::Add | Kind::Del | Kind::Ctx);
+        let on_github = !self.unpublished();
+        let lines = self.selection_anchor().is_ok();
+        let keys: Vec<(&str, &str, bool)> = match selecting {
+            true => vec![
+                ("c", "comment (review)", lines && on_github),
+                ("C", "comment now", lines && on_github && self.review.is_none()),
+                ("s", "suggest a change", on_github && self.suggestion().is_ok()),
+                ("a", "a comment for Claude", lines),
+                ("y", "copy", true),
+                ("Space c", "copy file:line ref", true),
+            ],
+            false if code => vec![
+                ("Enter", "open the file in your editor, at this line", true),
+                ("c", "comment (review)", on_github),
+                ("s", "suggest a change", on_github && self.suggestion().is_ok()),
+                ("a", "a comment for Claude", true),
+                ("v x", "select (to comment on lines)", true),
+                ("Space c", "copy file:line ref", true),
+            ],
+            false => return None,
+        };
+        Some((if selecting { "selection" } else { "code" }, keys.into_iter().filter(|k| k.2).map(|k| (k.0, k.1)).collect()))
+    }
+
+    /// The keys of the row the cursor's on, where it has its own (a thread, Claude's comment,
+    /// a link, the PR's text…): first, whatever's selected.
+    fn row_keys(&self) -> Option<(&'static str, &'static [(&'static str, &'static str)])> {
         let row = &self.rows[self.head.row];
         // (What it's of: an issue has no review, nor code; `c` queues into a review.)
         let what = if self.has_code() { "PR" } else { "issue" };
@@ -217,34 +255,6 @@ impl App {
         }
         if row.info == Some(CLAUDE_ACTIVITY) {
             return Some(("Claude's activity", &[("Enter", "go to it")]));
-        }
-        // A line of code: Enter opens it in your editor, there.
-        let code = row.file != INFO && matches!(row.line.kind, Kind::Add | Kind::Del | Kind::Ctx);
-        // A selection the keys act on (`selection_anchor`'s: code lines of one file, wherever
-        // the cursor's in its diff; threads returned above).
-        if row.file != INFO && (self.select || self.anchor.row != self.head.row) && self.selection_anchor().is_ok() {
-            return Some(match self.unpublished() {
-                true => ("selection", &[("a", "a comment for Claude"), ("y", "copy"), ("Space c", "copy file:line ref")][..]),
-                false => ("selection", &[("c", "comment (review)"), ("C", "comment now"), ("s", "suggest a change"), ("a", "a comment for Claude"), ("y", "copy"), ("Space c", "copy file:line ref")][..]),
-            });
-        }
-        if code && self.unpublished() {
-            return Some(("code", &[
-                ("Enter", "open the file in your editor, at this line"),
-                ("a", "a comment for Claude"),
-                ("v x", "select (to comment on lines)"),
-                ("Space c", "copy file:line ref"),
-            ]));
-        }
-        if code {
-            return Some(("code", &[
-                ("Enter", "open the file in your editor, at this line"),
-                ("c", "comment (review)"),
-                ("s", "suggest a change"),
-                ("a", "a comment for Claude"),
-                ("v x", "select (to comment on lines)"),
-                ("Space c", "copy file:line ref"),
-            ]));
         }
         // (A line of the PR's (or issue's) own text: not one of dv's boxes.)
         let text = row.file == INFO && row.info.is_some_and(|i| i < self.info.len()) && self.subject().is_some();

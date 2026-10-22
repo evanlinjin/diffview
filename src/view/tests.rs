@@ -4333,11 +4333,25 @@ fn a_selection_onto_a_hunks_rule_hints_the_selection() {
 }
 
 #[test]
-fn a_selection_of_no_code_hints_nothing_of_it() {
-    // `v` on a file's header: no code selected, so not the comment keys (they'd refuse).
+fn a_selections_keys_are_those_that_act() {
+    let keys = |app: &App| app.context_keys().map(|(t, k)| (t, k.iter().map(|e| e.0).collect::<Vec<_>>()));
+    // `v` on a file's header: no code selected, so only copying (the comment keys would refuse).
     let mut app = fixture();
     let header = app.rows.iter().position(|r| r.file != INFO && r.line.kind == Kind::File).unwrap();
     app.goto(header, 0);
     app.key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE));
-    assert_ne!(app.context_keys().map(|k| k.0), Some("selection"));
+    assert_eq!(keys(&app), Some(("selection", vec!["y", "Space c"])));
+    // Across two files: the same.
+    let mut app = fixture();
+    let first = app.rows.iter().position(|r| r.file != INFO && r.line.kind.is_code()).unwrap();
+    let other = app.rows.iter().position(|r| r.file != INFO && r.file != app.rows[first].file && r.line.kind.is_code()).unwrap();
+    app.goto(first, 0);
+    app.key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE));
+    app.goto(other, 0);
+    assert_eq!(keys(&app), Some(("selection", vec!["y", "Space c"])));
+    // On a removed line: no suggestion (it replaces new lines only).
+    let mut app = fixture();
+    let del = app.rows.iter().position(|r| r.line.kind == Kind::Del).unwrap();
+    app.goto(del, 0);
+    assert!(keys(&app).is_some_and(|(t, k)| t == "code" && !k.contains(&"s") && k.contains(&"c")));
 }
