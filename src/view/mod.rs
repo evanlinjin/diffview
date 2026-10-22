@@ -700,8 +700,9 @@ pub struct App {
     quit: bool,
     /// The window (or zellij pane) isn't focused: no cursor drawn.
     unfocused: bool,
-    /// `Space g` → merge: the review ends, then dv merges the PR (`merge.rs`).
-    pub merge: bool,
+    /// `Space g` → merge: the review ends, then dv merges this PR (`merge.rs`), the one the
+    /// view had then (a replacement published in it too).
+    pub merge: Option<u64>,
     pr: Option<Pr>,
     threads: Vec<Thread>,
     info: Vec<InfoLine>,
@@ -937,7 +938,7 @@ impl App {
         }
         let again = self.quit_armed.take().is_some_and(|t| (QUIT_AFTER..QUIT_WITHIN).contains(&t.elapsed()));
         if !again {
-            (self.quit, self.merge, self.quit_armed) = (false, false, Some(std::time::Instant::now()));
+            (self.quit, self.merge, self.quit_armed) = (false, None, Some(std::time::Instant::now()));
             self.msg = "you're writing in the editor's pane: save or :cq it first (again: leaves anyway)".into();
         }
     }

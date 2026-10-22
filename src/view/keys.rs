@@ -701,9 +701,10 @@ impl App {
                             self.pick_commits();
                         }
                         // (Refused here if it would be, not after the review's ended.)
-                        Target::GitMerge => match self.pr.as_ref().and_then(|p| crate::merge::waits(p.number)) {
-                            Some(why) => self.msg = why,
-                            None => (self.merge, self.quit) = (true, true),
+                        Target::GitMerge => match self.pr.as_ref().map(|p| (p.number, crate::merge::waits(p.number))) {
+                            Some((_, Some(why))) => self.msg = why,
+                            Some((n, None)) => (self.merge, self.quit) = (Some(n), true),
+                            None => {}
                         },
                         Target::GitTakeTheirs(sure) => self.take_theirs(sure),
                         Target::GitDrop(path, sure) => self.msg = self.drop_uncommitted(path, sure).unwrap_or_else(|e| format!("not dropped: {e:#}")),

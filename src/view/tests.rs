@@ -2994,9 +2994,9 @@ fn quitting_while_writing_beside_says_so_first() {
     quit(&mut app, q);
     assert!(!app.quit);
     // Merging is held the same way.
-    (app.merge, app.quit) = (true, true);
+    (app.merge, app.quit) = (Some(1), true);
     app.hold_quit();
-    assert!(!app.quit && !app.merge);
+    assert!(!app.quit && app.merge.is_none());
     // Said a moment ago: leaves.
     app.quit_armed = Some(ago(1000));
     quit(&mut app, ctrl_c);

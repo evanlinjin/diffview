@@ -358,7 +358,7 @@ fn review_back(o: &Opts, n: u64, known: Option<gh::Pr>, root: &Path) -> anyhow::
     std::env::set_current_dir(root)?; // a worktree review leaves us in the worktree
     Ok(match res {
         Err(e) => Some(format!("PR #{n}: {e:#}")),
-        Ok(true) => Some(merge::merge(n, view::in_zellij()).unwrap_or_else(|e| format!("not merged: {e:#}"))),
+        Ok(true) => Some(merge_from(n, root)),
         Ok(false) => None,
     })
 }
@@ -389,7 +389,15 @@ fn review_replacement(id: u64, root: &Path) -> anyhow::Result<Option<String>> {
     let mut term = view::init_terminal();
     let res = replacement_view(id, root, &mut term);
     view::restore_terminal();
-    res
+    Ok(res?.map(|n| merge_from(n, root)))
+}
+
+/// Merge PR `n` (`Space g`), from the main checkout `root`, as `dv list` merges: what it came to.
+fn merge_from(n: u64, root: &Path) -> String {
+    match std::env::set_current_dir(root) {
+        Ok(()) => merge::merge(n, view::in_zellij()).unwrap_or_else(|e| format!("not merged: {e:#}")),
+        Err(e) => format!("not merged: back to {}: {e}", root.display()),
+    }
 }
 
 /// `app` on `term`, and what it hands over meanwhile (an issue a link goes to, in a view of its
@@ -423,7 +431,16 @@ fn run_view(app: &mut view::App, term: &mut ratatui::DefaultTerminal) -> anyhow:
             },
             view::HandOff::Replacement(id) => {
                 let here = std::env::current_dir()?;
-                let shown = main_checkout(&here).and_then(|root| replacement_view(id, &root, term));
+                // A merge asked for there: with the terminal let go, as every merge is (its
+                // prompts, git's, are yours), then retaken.
+                let shown = main_checkout(&here).and_then(|root| {
+                    Ok(replacement_view(id, &root, term)?.map(|n| {
+                        view::restore_terminal();
+                        let said = merge_from(n, &root);
+                        *term = view::init_terminal();
+                        said
+                    }))
+                });
                 // (Back where this view is, or not on: it'd work in another's checkout.)
                 std::env::set_current_dir(&here).with_context(|| format!("back to {}", here.display()))?;
                 shown.with_context(|| replace::label(id))
@@ -437,9 +454,9 @@ fn run_view(app: &mut view::App, term: &mut ratatui::DefaultTerminal) -> anyhow:
     }
 }
 
-/// A replacement's view, in its worktree (left there), on `term`; what merging it came to,
-/// if you asked to (published, `Space g`).
-fn replacement_view(id: u64, root: &Path, term: &mut ratatui::DefaultTerminal) -> anyhow::Result<Option<String>> {
+/// A replacement's view, in its worktree (left there), on `term`; the PR it ended as, if you
+/// asked to merge it (`Space g`, published before or in the view), for the caller to merge.
+fn replacement_view(id: u64, root: &Path, term: &mut ratatui::DefaultTerminal) -> anyhow::Result<Option<u64>> {
     let r = replace::load(id)?;
     let dir = worktree_dir_named(root, &replace::name(id))?;
     // (Its drafting marked before its checkout's made: a moment.)
@@ -455,18 +472,7 @@ fn replacement_view(id: u64, root: &Path, term: &mut ratatui::DefaultTerminal) -
     app.follow_base = Some(crate::diff::remote_branch(&r.base));
     progress(None);
     run_view(&mut app, term)?;
-    // Merging it (its PR): from the main checkout, as `dv list` merges, and as every merge
-    // does, with the terminal let go (its prompts, git's, are yours), then retaken.
-    match r.published.filter(|_| app.merge) {
-        Some(n) => {
-            std::env::set_current_dir(root)?;
-            view::restore_terminal();
-            let said = merge::merge(n, view::in_zellij()).unwrap_or_else(|e| format!("not merged: {e:#}"));
-            *term = view::init_terminal();
-            Ok(Some(said))
-        }
-        None => Ok(None),
-    }
+    Ok(app.merge)
 }
 
 /// Check PR `n` out as `o` says and review it. The outer error is setup (checkout, diff); the
@@ -529,7 +535,7 @@ fn review(o: &Opts, pr_num: Option<u64>, known: Option<gh::Pr>) -> anyhow::Resul
     let mut term = view::init_terminal();
     let res = run_view(&mut app, &mut term);
     view::restore_terminal();
-    Ok((wt, res.map(|_| app.merge)))
+    Ok((wt, res.map(|_| app.merge.is_some())))
 }
 
 /// The commit the diff starts from: the merge-base with the given base, else the PR's base
