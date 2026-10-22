@@ -57,7 +57,7 @@ impl App {
         let keys = match self.pending {
             Some(p) => App::which(p).map(|(t, k)| (t, k.to_vec())),
             // The list has focus: its keys.
-            None if self.files_focus && self.files_w > 0 && self.picker.is_none() && self.popup.is_none() => Some(self.list_keys()).map(|(t, k)| (t, k.to_vec())),
+            None if self.files_focus && self.picker.is_none() && self.popup.is_none() => Some(self.list_keys()).map(|(t, k)| (t, k.to_vec())),
             None if self.picker.is_none() && self.popup.is_none() && self.prompt.is_none() => self.context_keys(),
             None => None,
         };
@@ -102,6 +102,7 @@ impl App {
         // The changed files' list on the left (`Ctrl-w e`), the rest beside it.
         let sw = if self.zoom.is_some() { 0 } else { self.files_width(full.width as usize) };
         self.files_w = sw;
+        self.files_focus &= sw > 0; // (not in a list that isn't shown)
         let area = Rect { x: full.x + sw as u16, width: full.width - sw as u16, ..full };
         // The PR's title line pinned at the top, as a panel over the code and the pane.
         self.pin = self.rows.first().is_some_and(|r| r.file == INFO && r.line.kind == Kind::File) && area.height > 4;

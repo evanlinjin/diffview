@@ -627,7 +627,6 @@ impl App {
     pub(super) fn toggle_files(&mut self) {
         let on = self.files_w == 0;
         self.files_pref = Some(on);
-        self.files_focus &= on;
         self.save_pane("files", on.into());
         self.msg = if on { "the files' list (Ctrl-w e hides it)" } else { "files' list hidden (Ctrl-w e shows it)" }.into();
     }

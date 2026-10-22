@@ -219,7 +219,7 @@ impl App {
             }
             return;
         }
-        if self.files_focus && self.files_w > 0 && self.pending.is_none() && self.files_key(k) {
+        if self.files_focus && self.pending.is_none() && self.files_key(k) {
             return;
         }
         let ch = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
