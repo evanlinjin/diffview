@@ -71,7 +71,8 @@ impl App {
     /// A thread's comments are seen once the cursor leaves it (as they were when it got
     /// there), or has been on it for `SEEN_AFTER`.
     pub(super) fn watch_seen(&mut self) {
-        let here = self.rows.get(self.head.row).and_then(|r| r.thread).map(|ti| {
+        // (A folded thread's comments aren't seen by passing over it: they aren't shown.)
+        let here = self.rows.get(self.head.row).and_then(|r| r.thread).filter(|&ti| self.thread_open(ti)).map(|ti| {
             let t = &self.threads[ti];
             (0..t.comments.len()).map(|ci| comment_key(t, ci)).collect::<Vec<_>>()
         });
