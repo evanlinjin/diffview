@@ -301,7 +301,13 @@ fn suggest_groups(prs: &[(u64, String, String, String)], root: &Path) -> anyhow:
     let out = crate::claude::claude_reader(crate::claude::Work::Group, &prompt, root, &tools).stdin(std::process::Stdio::null()).output()?;
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
     anyhow::ensure!(v["is_error"] == false, "Claude couldn't group them ({})", out.status);
-    parse_groups(v["result"].as_str().unwrap_or(""))
+    let groups = parse_groups(v["result"].as_str().unwrap_or(""))?;
+    // Each PR asked of once, no other: else it's yours to group (none left out unsaid).
+    let (mut got, mut asked): (Vec<u64>, Vec<u64>) = (groups.iter().flat_map(|g| g.0.iter().copied()).collect(), prs.iter().map(|p| p.0).collect());
+    got.sort();
+    asked.sort();
+    anyhow::ensure!(got == asked, "Claude's groups didn't have each PR once");
+    Ok(groups)
 }
 
 /// The groups in Claude's answer (a JSON array, maybe with words around it).
