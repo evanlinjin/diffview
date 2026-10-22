@@ -64,7 +64,7 @@ impl App {
     /// most): Claude drafting it shows on the status bar, and Space a goes to it. Its own (of
     /// this PR first) over one of several it's in.
     pub(super) fn watch_replaced_by(&mut self) {
-        let Some(n) = self.pr.as_ref().map(|p| p.number).filter(|_| self.replacement.is_none()) else { return };
+        let Some(n) = self.pr.as_ref().map(|p| p.number) else { return };
         if self.replaced_at.is_some_and(|(t, _)| t.elapsed() < std::time::Duration::from_secs(3)) {
             return;
         }
@@ -72,8 +72,7 @@ impl App {
         let seen = self.replaced_at.is_some_and(|(_, c)| c == changed);
         self.replaced_at = Some((std::time::Instant::now(), changed));
         if !seen {
-            let all: Vec<_> = crate::replace::all().into_iter().filter(|r| r.ids().contains(&n)).collect();
-            self.replaced_by = all.iter().find(|r| r.id == n).or(all.first()).cloned();
+            self.replaced_by = crate::replace::of(n);
         }
     }
 

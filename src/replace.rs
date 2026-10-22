@@ -143,6 +143,12 @@ pub fn here(pr: Option<u64>) -> Option<Record> {
     }
 }
 
+/// PR `n`'s replacement: its own (of `n` first), else one of several it's in.
+pub fn of(n: u64) -> Option<Record> {
+    let all: Vec<_> = all().into_iter().filter(|r| r.ids().contains(&n)).collect();
+    all.iter().find(|r| r.id == n).or(all.first()).cloned()
+}
+
 /// Published as PR `n`: Claude's review of the draft (and its session) moved to the PR's, for
 /// dv on the PR to carry on with. Once: not over one the PR has.
 pub fn adopt_review(n: u64) {
@@ -259,9 +265,9 @@ pub fn all() -> Vec<Record> {
 fn prepare(asked: &[u64], root: &Path) -> Result<PathBuf> {
     let id = *asked.first().context("no PR to replace")?;
     let git = |args: &[&str]| crate::diff::git(&[&["-C", &root.to_string_lossy()], args].concat());
-    // Drafted already: still all it replaces, and what's asked now with them (a redraft asked
-    // from one of them doesn't drop the others).
-    let mut prs = load(id).ok().filter(Record::drafted).map_or(vec![], |r| r.ids());
+    // All it replaces already (drafted or not), and what's asked now with them (a redraft
+    // asked from one of them doesn't drop the others).
+    let mut prs = load(id).ok().map_or(vec![], |r| r.ids());
     prs.extend(asked.iter().filter(|n| !prs.contains(n)).collect::<Vec<_>>());
     let mut originals = vec![];
     let mut bases: Vec<(u64, String)> = vec![];
@@ -462,7 +468,16 @@ pub fn writable() -> Result<PathBuf> {
 /// instructions for a first draft (none: your last ones for replacements); for one drafted
 /// already, asked of its drafts (as `ask`).
 pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> Result<String> {
-    let id = *prs.first().context("no PR to replace")?;
+    // A PR another's replacement replaces too: that one, redrafted (what it replaces, and these).
+    let joined;
+    let prs = match of(*prs.first().context("no PR to replace")?) {
+        Some(r) if r.id != prs[0] && !is_new(prs[0]) => {
+            joined = std::iter::once(r.id).chain(prs.iter().copied()).collect::<Vec<_>>();
+            &joined[..]
+        }
+        _ => prs,
+    };
+    let id = prs[0];
     // Under way first, before the slow setting up: others (dv list, another dv) see it, and
     // don't start another.
     let existed = path(id)?.exists();
