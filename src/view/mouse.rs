@@ -59,9 +59,7 @@ impl App {
             // to (the cursor there would take it back).
             MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight if code => {
                 let Some((row, col, _)) = self.at_screen(x, y) else { return };
-                // (Wrapped, the diff has nothing off to the side.)
-                let wrapped = self.wraps(row) && matches!(self.scroller(row), Some(Scroller::Diff));
-                if wrapped || self.scroller(row).is_none() || kind == MouseEventKind::ScrollRight && self.col_of(row, self.len(row)) <= self.hscroll(row) + 1 && self.hscroll(row) > 0 {
+                if self.scroller(row).is_none() || kind == MouseEventKind::ScrollRight && self.col_of(row, self.len(row)) <= self.hscroll(row) + 1 && self.hscroll(row) > 0 {
                     return;
                 }
                 self.select = false;
@@ -118,7 +116,7 @@ impl App {
             MouseEventKind::Drag(MouseButton::Left) if self.picker.is_none() && self.popup.is_none() => {
                 if let Some((row, col, _)) = self.at_screen(x, y) {
                     self.head = Pos { row, col: col.min(self.len(row).saturating_sub(1)) };
-                    self.want_col = self.head.col;
+                    self.want_x = None;
                 }
             }
             _ => {}
@@ -167,32 +165,25 @@ impl App {
             return None; // the status bar
         }
         let d = self.top + y;
-        // (Where, and the text width it wraps to there: `wrap_cols`'.)
-        let (one, lw, rw) = self.wrap_cols;
-        let (row, start, w) = match *self.drows.get(d)? {
-            DRow::Full(r) => (r, g.relw + g.gw, one),
+        let (row, start) = match *self.drows.get(d)? {
+            DRow::Full(r) => (r, g.relw + g.gw),
             // Split view: the old side, the divider, the new side.
-            DRow::Pair(l, r) if x < g.relw + g.half => (l.or(r)?, g.relw + g.ghw, lw),
-            DRow::Pair(l, r) => (r.or(l)?, self.right_x(), rw),
-            DRow::Margin(_, _, Some(note)) if x > g.relw + g.gw + g.ctw => (note, self.pane_x(), 0),
+            DRow::Pair(l, r) if x < g.relw + g.half => (l.or(r)?, g.relw + g.ghw),
+            DRow::Pair(l, r) => (r.or(l)?, self.right_x()),
+            DRow::Margin(_, _, Some(note)) if x > g.relw + g.gw + g.ctw => (note, self.pane_x()),
             // Split view's code beside it: as a pair, but a hunk header spans both sides.
             DRow::Margin(l, r, _) if self.split && l.or(r).is_some_and(|c| self.rows[c].line.kind.is_code()) => {
                 match x < g.relw + g.half {
-                    true => (l.or(r)?, g.relw + g.ghw, lw),
-                    false => (r.or(l)?, self.right_x(), rw),
+                    true => (l.or(r)?, g.relw + g.ghw),
+                    false => (r.or(l)?, self.right_x()),
                 }
             }
-            DRow::Margin(l, r, note) => (l.or(r).or(note)?, g.relw + g.gw, one),
+            DRow::Margin(l, r, note) => (l.or(r).or(note)?, g.relw + g.gw),
         };
-        // Wrapped, the part of its line this screen row has (past a short side's end: its end);
-        // else as it's scrolled.
-        let left = match self.wraps(row) {
-            true => {
-                let starts = self.parts(row, w);
-                self.col_of(row, starts.get(self.dseg.get(d).copied().unwrap_or(0)).copied().unwrap_or(self.len(row)))
-            }
-            false => self.hscroll(row),
-        };
+        // What that screen row shows of it (a wrapped line's part); past a short side's last
+        // part, its end.
+        let k = if self.wraps(row) { self.dseg[d] } else { 0 };
+        let left = self.span_of(row, k).map_or_else(|| self.col_of(row, self.len(row)), |s| s.left);
         // (A reply's guide is before its text.)
         Some((row, self.char_at(row, left + x.saturating_sub(start + self.rows[row].guide_w())), x < start))
     }

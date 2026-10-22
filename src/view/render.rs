@@ -154,22 +154,24 @@ impl App {
         let code_w = if margin && !float { width.saturating_sub(1 + mw) } else { width };
         let ctw = code_w.saturating_sub(gw).max(1);
         let half = code_w.saturating_sub(1) / 2;
-        let (htw_l, htw_r) = (half.saturating_sub(ghw).max(1), code_w.saturating_sub(1 + half).saturating_sub(ghw).max(1));
+        // (Both halves as wide: the left one; a spare column, the right's, left blank. A line on
+        // both sides then wraps the same on each.)
+        let htw_l = half.saturating_sub(ghw).max(1);
+        let htw_r = htw_l;
         // PR text wraps to the code column's width (narrower beside the margin).
         let ww = if margin { ctw } else { tw }.saturating_sub(1).clamp(40, 100);
+        // What long code lines wrap to (`soft_wrap`): the code's text widths, as `render_row`
+        // draws them (less the last column, the comment marks'); split halves alike. Changed,
+        // laid out again (once: with a rebuild, by it).
+        let cols = (if margin && !float { ctw } else { tw }.saturating_sub(1).max(1), htw_l.saturating_sub(1).max(1));
+        let rewrap = cols != self.wrap_cols && self.soft_wrap;
+        self.wrap_cols = cols;
         if ww != self.wrap_w || margin != self.margin_active || (margin && mw != self.margin_w) || float != self.margin_float {
             (self.wrap_w, self.margin_active, self.margin_w, self.margin_float) = (ww, margin, mw, float);
             let keep = self.cursor_key();
             self.rebuild(keep);
-        }
-        // What long code lines wrap to (`soft_wrap`): the code's text widths, as `render_row`
-        // draws them (less the last column, the comment marks').
-        let cols = (if margin && !float { ctw } else { tw }.saturating_sub(1).max(1), htw_l.saturating_sub(1).max(1), htw_r.saturating_sub(1).max(1));
-        if cols != self.wrap_cols {
-            self.wrap_cols = cols;
-            if self.soft_wrap {
-                self.relayout_keeping_top();
-            }
+        } else if rewrap {
+            self.relayout_keeping_top();
         }
         let mtw = mw - self.pane_gw();
         if !self.margin_side() {
@@ -237,9 +239,6 @@ impl App {
         let len = self.len(self.head.row);
         let w = self.text_w(self.head.row, cur_w).max(1);
         let Some(scroller) = scroller else { return };
-        if self.soft_wrap && matches!(scroller, Scroller::Diff) {
-            return; // (wrapped: nothing of it off to the side)
-        }
         // (In columns, as `render_row` draws it: a tab's 4, a wide character's 2.)
         let (row, mut left) = (self.head.row, self.hscroll(self.head.row));
         if nudge != 0 {
@@ -247,7 +246,7 @@ impl App {
             let first = self.char_from(row, left);
             let last = self.char_at(row, left + w).saturating_sub(1).max(first);
             self.head.col = self.head.col.clamp(first, last).min(len.saturating_sub(1));
-            (self.anchor, self.want_col) = (self.head, self.head.col); // (the mouse: no selection)
+            (self.anchor, self.want_x) = (self.head, None); // (the mouse: no selection)
         }
         let (start, end) = (self.col_of(row, self.head.col), self.col_of(row, self.head.col + 1));
         left = left.min(start);
@@ -330,8 +329,8 @@ impl App {
                 let d = self.top + y;
                 // (A wrapped line's part: drawn on from where the last left off. Its parts are
                 // the cursor's line, all of them; its relative number is lines', on its first.)
-                let seg = self.dseg.get(d).copied().unwrap_or(0);
-                let line = |d: usize| d - self.dseg.get(d).copied().unwrap_or(0);
+                let seg = self.dseg[d];
+                let line = |d: usize| d - self.dseg[d];
                 let cur = line(d) == line(hd);
                 // The cursor line's tint: on the side with focus only (none with the list's).
                 let tint = cur && !self.files_focus;
@@ -339,12 +338,8 @@ impl App {
                     (0, _) => vec![],
                     // (Lit as the code's line is: when it has focus.)
                     (_, true) => vec![Span::styled(format!("{:>w$} ", "", w = relw - 1), if tint && !self.margin_side() { self.ui.linenr_selected } else { self.ui.linenr })],
-                    _ if seg > 0 => vec![Span::styled(" ".repeat(relw), self.ui.linenr)],
-                    _ => {
-                        let (a, b) = (line(d).min(line(hd)), line(d).max(line(hd)));
-                        let lines = (a + 1..=b).filter(|&x| self.dseg.get(x).is_some_and(|&s| s == 0)).count();
-                        vec![Span::styled(format!("{:>w$} ", lines, w = relw - 1), self.ui.linenr)]
-                    }
+                    // (Screen rows, as counts move: `5j` goes to the row marked 5.)
+                    _ => vec![Span::styled(format!("{:>w$} ", d.abs_diff(hd), w = relw - 1), self.ui.linenr)],
                 };
                 let mut spans = rel;
                 // Beside the pane (as a column), full-width rows are as wide as the code.

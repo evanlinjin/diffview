@@ -110,7 +110,7 @@ impl App {
         if !self.select {
             self.anchor = self.head;
         }
-        self.want_col = self.head.col;
+        self.want_x = None;
     }
 
     /// Set a selection (motions like `w` select); in select mode only the head moves.
@@ -119,41 +119,27 @@ impl App {
         if !self.select {
             self.anchor = anchor;
         }
-        self.want_col = head.col;
+        self.want_x = None;
     }
 
     pub(super) fn vmove(&mut self, d: isize) {
-        let w = self.want_col;
+        // By screen rows (a wrapped line's parts too, as Helix moves), over those the cursor
+        // can't stop on (`stop_at`), keeping its column.
+        let x = self.cursor_x();
         let last = self.drows.len() as isize - 1;
-        let mut target = (self.hd() as isize + d).clamp(0, last) as usize;
-        // On the code side, step over spacer rows (margin only, no code); in the margin, over
-        // every row with no comment beside the code (headers too: j / k stay in the pane).
-        let margin = self.margin_side();
-        let skip = |t: usize| match self.drows[t] {
-            DRow::Margin(None, None, _) => !margin,
-            DRow::Margin(_, _, Some(_)) => false,
-            _ => margin,
-        };
         let step = if d < 0 { -1 } else { 1 };
-        while skip(target) && (0..=last).contains(&(target as isize + step)) {
-            target = (target as isize + step) as usize;
-        }
-        if skip(target) {
-            return;
-        }
-        // (Wrapped lines: by their parts, as Helix moves, as far into the part as you were.)
-        let (row, col) = self.pick_at(target, self.within(w));
-        self.goto(row, col);
-        self.want_col = w;
-    }
-
-    /// How far into its part column `w` of the cursor's line is (wrapped; else `w`).
-    fn within(&self, w: usize) -> usize {
-        let r = self.head.row;
-        if !self.wraps(r) {
-            return w;
-        }
-        w - self.part_of(r, w).1
+        let mut t = (self.hd() as isize + d).clamp(0, last);
+        let p = loop {
+            if let Some(p) = self.stop_at(t as usize, x) {
+                break p;
+            }
+            t += step;
+            if !(0..=last).contains(&t) {
+                return;
+            }
+        };
+        self.goto(p.row, p.col);
+        self.want_x = Some(x);
     }
 
     pub(super) fn ordered(&self) -> (Pos, Pos) {
@@ -318,7 +304,7 @@ impl App {
             self.anchor = Pos { row: s.row, col: 0 };
             self.head = Pos { row: e.row, col: end };
         }
-        self.want_col = self.head.col;
+        self.want_x = None;
     }
 
     pub(super) fn next_kind(&mut self, fwd: bool, is_start: impl Fn(&[Row], usize) -> bool) {
@@ -355,7 +341,7 @@ impl App {
             if let Some(c) = hit {
                 self.anchor = Pos { row: r, col: c };
                 self.head = Pos { row: r, col: c + qlen - 1 };
-                self.want_col = self.head.col;
+                self.want_x = None;
                 return;
             }
         }
@@ -381,10 +367,18 @@ impl App {
         let into = |hd: usize| hd.clamp(lo, hi.max(lo)).min(last as usize);
         let hd = self.hd();
         if hd < lo || hd > hi {
-            let w = self.want_col;
-            let (row, col) = self.pick_at(into(hd), self.within(w));
-            self.goto(row, col);
-            self.want_col = w;
+            // Onto the screen: the nearest row it can stop on, toward the screen's middle.
+            let x = self.cursor_x();
+            let step: isize = if hd < lo { 1 } else { -1 };
+            let mut t = into(hd) as isize;
+            while (0..=last).contains(&t) {
+                if let Some(p) = self.stop_at(t as usize, x) {
+                    self.goto(p.row, p.col);
+                    self.want_x = Some(x);
+                    break;
+                }
+                t += step;
+            }
         }
         true
     }
@@ -398,7 +392,7 @@ impl App {
             }
             let chars = self.chars(row);
             let class = |c: char| if c.is_whitespace() { 0 } else if c.is_alphanumeric() || c == '_' { 1 } else { 2 };
-            let mut i = if self.wraps(row) { 0 } else { self.char_from(row, self.hscroll(row)) }; // where its text starts on screen
+            let mut i = self.char_from(row, self.hscroll(row)); // where its text starts on screen
             while i < chars.len() {
                 let (c, start) = (class(chars[i]), i);
                 while i < chars.len() && class(chars[i]) == c {

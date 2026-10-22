@@ -3558,7 +3558,7 @@ fn wrapped_lines_move_and_draw_whole() {
     _ = screen(80, 20, |f| app.draw(f));
     let first = app.rows.iter().position(|r| r.line.kind == Kind::Add).unwrap();
     app.goto(first, 0);
-    let parts = app.parts(first, app.wrap_cols.0).len();
+    let parts = app.segs(Some(first), None);
     assert!(parts > 1);
     for k in 1..parts {
         app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
@@ -3585,4 +3585,38 @@ fn wrapped_lines_move_and_draw_whole() {
     app.toggle_split();
     let s = screen(80, 20, |f| app.draw(f));
     assert_eq!(s.matches('↪').count(), app.segs(None, app.rows.iter().position(|r| r.line.text == line)) - 1, "{s}");
+}
+
+#[test]
+fn wrapped_moves_keep_their_column_and_get_past_pairs() {
+    // Split: a short removed line beside a long added one. From the short side, j goes on past
+    // the pair (its empty rows aren't stops); k comes back onto it.
+    let long = "y".repeat(200);
+    let text = format!("diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -1,2 +1,2 @@\n-old\n+{long}\n end\n");
+    let mut app = App::with("base".into(), diff::parse(&text));
+    (app.files_pref, app.margin_pref, app.soft_wrap, app.split) = (Some(false), Some(false), true, true);
+    _ = screen(80, 30, |f| app.draw(f));
+    let del = app.rows.iter().position(|r| r.line.text == "old").unwrap();
+    let end = app.rows.iter().position(|r| r.line.text == "end").unwrap();
+    app.goto(del, 0);
+    app.right = false;
+    app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    assert_eq!(app.head.row, end, "j past the pair");
+    // Unified: from column 70 of a long line's second part, through a short line, onto a
+    // long line's first part: still 70 into it.
+    let body = format!("+{long}\n+short\n+{long}\n");
+    let text = format!("diff --git a/b.rs b/b.rs\nindex 1..2 100644\n--- a/b.rs\n+++ b/b.rs\n@@ -0,0 +1,3 @@\n{body}");
+    let mut app = App::with("base".into(), diff::parse(&text));
+    (app.files_pref, app.margin_pref, app.soft_wrap) = (Some(false), Some(false), true);
+    _ = screen(80, 30, |f| app.draw(f));
+    let first = app.rows.iter().position(|r| r.line.text == long).unwrap();
+    let w = app.wrap_cols.0;
+    app.goto(first, w + 70.min(w - 1));
+    let parts = app.segs(Some(first), None);
+    for _ in 0..parts - 1 {
+        app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)); // to the short line
+    }
+    app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    assert_eq!(app.rows[app.head.row].line.text, long, "onto the next long line");
+    assert_eq!(app.head.col, 70.min(w - 1), "as far into its part");
 }

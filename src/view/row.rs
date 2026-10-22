@@ -298,17 +298,18 @@ impl App {
         // Wrapped (`soft_wrap`), a part of the line (`parts`: whole chars each); past its last
         // (a pair's shorter side), nothing; and after its first, no numbers: `↪` for its mark.
         let wrapped = self.wraps(r);
-        let parts = if wrapped { self.parts(r, text_w) } else { vec![] };
+        let shown = self.span_of(r, if wrapped { seg } else { 0 });
         if wrapped && seg > 0 {
             let w = spans[0].width();
-            let mark = if seg < parts.len() { "↪" } else { "" };
+            let mark = if shown.is_some() { "↪" } else { "" };
             spans[0].content = format!("{mark:>w$} ", w = w.saturating_sub(1)).into();
         }
-        let (skip, end) = match wrapped {
-            true => (parts.get(seg).copied().unwrap_or(self.len(r)), parts.get(seg + 1).copied().unwrap_or(self.len(r))),
-            false => (self.char_from(r, self.hscroll(r)), self.char_at(r, self.hscroll(r) + text_w)),
+        let left = shown.as_ref().map_or(0, |s| s.left);
+        let (skip, end) = match (&shown, wrapped) {
+            (Some(s), true) => (s.chars.start, s.chars.end),
+            (None, _) => (self.len(r), self.len(r)), // (a short side's row past its end)
+            (Some(_), false) => (self.char_from(r, left), self.char_at(r, left + text_w)),
         };
-        let left = if wrapped { self.col_of(r, skip) } else { self.hscroll(r) };
         let cut = self.col_of(r, skip) - left;
         if cut > 0 {
             spans.push(Span::styled(" ".repeat(cut), style));
@@ -337,7 +338,7 @@ impl App {
             n = i + 1;
         }
         // (Past the line's end: on its last part, wrapped.)
-        let last_part = !wrapped || seg + 1 == parts.len();
+        let last_part = !wrapped || self.part(r, seg + 1).is_none();
         if cursor_here && self.head.col >= n.max(skip) && last_part {
             spans.push(Span::styled(" ", self.cursor_style()));
         }

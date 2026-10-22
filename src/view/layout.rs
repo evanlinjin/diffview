@@ -197,6 +197,8 @@ impl App {
     pub(super) fn scroller(&self, r: usize) -> Option<Scroller> {
         match self.box_part(r) {
             None if r == 0 && self.pin => None,
+            // (Wrapping, nothing's off to the side: no sideways scrolling, by any key or gesture.)
+            None if self.soft_wrap => None,
             None => Some(Scroller::Diff),
             Some(_) => self.code_block(r).map(Scroller::Block),
         }
@@ -206,7 +208,6 @@ impl App {
     /// it (`code_at`).
     pub(super) fn hscroll(&self, r: usize) -> usize {
         match self.scroller(r) {
-            Some(Scroller::Diff) if self.soft_wrap => 0,
             Some(Scroller::Diff) => self.left,
             Some(Scroller::Block(b)) if self.code_at == Some(b) => self.code_left,
             _ => 0,
@@ -258,6 +259,7 @@ impl App {
     /// never spill into the next file). With the margin hidden, they aren't shown, and the
     /// lines they're on have a mark in the gutter.
     pub(super) fn layout(&mut self) {
+        self.wrap_rows();
         let n = self.rows.len();
         let kind = |i: usize| self.rows[i].line.kind;
         // Code that a comment can sit beside: a diff line or a hunk header.
@@ -407,71 +409,72 @@ impl App {
         self.soft_wrap && self.rows[r].line.kind.is_code()
     }
 
-    /// Which side row `r` is drawn on in split view: removed lines left, added right, an
-    /// unchanged line (both) the cursor's.
-    pub(super) fn side_of(&self, r: usize) -> bool {
-        match self.rows[r].line.kind {
-            Kind::Del => false,
-            Kind::Add => true,
-            _ => self.right,
-        }
-    }
-
-    /// The text width row `r` wraps to, on `right`'s side (one column: the only width).
-    fn wrap_w(&self, r: usize, right: bool) -> usize {
-        let (one, left, rw) = self.wrap_cols;
-        match self.split && self.rows[r].line.kind.is_code() {
-            true if right => rw,
-            true => left,
-            false => one,
-        }
-    }
-
-    /// Where row `r`'s parts start, wrapped at text width `w` (char indices): each as much as
-    /// fits, never a char cut in two (a tab, a wide character, goes on whole to the next).
-    /// One part, not wrapping, or the width not known yet (nothing drawn).
-    pub(super) fn parts(&self, r: usize, w: usize) -> Vec<usize> {
-        let mut starts = vec![0];
-        if !self.wraps(r) || w == 0 {
-            return starts;
-        }
+    /// Where row `r`'s parts after its first start (char indices), wrapped at text width `w`:
+    /// each as much as fits, never a char cut in two (a tab, a wide character, goes on whole).
+    fn breaks(&self, r: usize, w: usize) -> Vec<usize> {
+        let mut out = vec![];
         let mut used = 0;
         for (i, c) in self.rows[r].line.text.chars().enumerate() {
             let cw = super::row::char_w(c);
             if used > 0 && used + cw > w {
-                starts.push(i);
+                out.push(i);
                 used = 0;
             }
             used += cw;
         }
-        starts
+        out
     }
 
-    /// The part of row `r` char `col` is in (past the end: the last), on the side it's drawn,
-    /// and where that part starts.
-    pub(super) fn part_of(&self, r: usize, col: usize) -> (usize, usize) {
-        let starts = self.parts(r, self.wrap_w(r, self.side_of(r)));
-        let k = starts.partition_point(|&s| s <= col).saturating_sub(1);
-        (k, starts[k])
+    /// Each row's breaks, for this layout, at the code's text width (the one column's, or a
+    /// split half's: both halves alike); none for what doesn't wrap, nor before a width's known
+    /// (nothing drawn yet).
+    fn wrap_rows(&mut self) {
+        let w = if self.split { self.wrap_cols.1 } else { self.wrap_cols.0 };
+        self.wrap = (0..self.rows.len()).map(|r| if self.wraps(r) && w > 0 { self.breaks(r, w) } else { vec![] }).collect();
     }
 
-    /// The column row `r`'s text is drawn from where `col` is: its part's start, wrapped; else
-    /// as it's scrolled sideways.
-    pub(super) fn text_left(&self, r: usize, col: usize) -> usize {
-        match self.wraps(r) {
-            true => self.col_of(r, self.part_of(r, col).1),
-            false => self.hscroll(r),
-        }
+    /// Row `r`'s part `k` (chars), if it has one: a wrapped line's; else all of it, as part 0.
+    pub(super) fn part(&self, r: usize, k: usize) -> Option<std::ops::Range<usize>> {
+        let b = self.wrap.get(r).map_or(&[][..], Vec::as_slice);
+        let start = if k == 0 { 0 } else { *b.get(k - 1)? };
+        Some(start..b.get(k).copied().unwrap_or_else(|| self.len(r)))
     }
 
-    /// How many screen rows a line takes, wrapped, on its side or sides (a pair: the longer).
+    /// The part of row `r` char `col` is in (past its end: the last).
+    pub(super) fn part_at(&self, r: usize, col: usize) -> usize {
+        self.wrap.get(r).map_or(0, |b| b.partition_point(|&s| s <= col))
+    }
+
+    /// How many screen rows a line takes: its parts (a pair: the longer side's).
     pub(super) fn segs(&self, l: Option<usize>, r: Option<usize>) -> usize {
-        let paired = self.split && l.or(r).is_some_and(|x| self.rows[x].line.kind.is_code());
-        let n = |x: Option<usize>, right: bool| x.map_or(1, |x| self.parts(x, self.wrap_w(x, right)).len());
-        match paired {
-            true => n(l, false).max(n(r, true)),
-            false => n(l.or(r), false),
-        }
+        let n = |x: Option<usize>| x.map_or(1, |x| self.wrap.get(x).map_or(1, |b| b.len() + 1));
+        n(l).max(n(r))
+    }
+
+    /// What row `r` shows as part `k`: its chars there, and the column the screen's text starts
+    /// at (a wrapped line's part's; else as it's scrolled sideways). None past its last part.
+    pub(super) fn span_of(&self, r: usize, k: usize) -> Option<Shown> {
+        let chars = self.part(r, k)?;
+        let left = if self.wraps(r) { self.col_of(r, chars.start) } else { self.hscroll(r) };
+        Some(Shown { row: r, chars, left })
+    }
+
+    /// Screen row `d`'s code on a side (`right`, in split view; else its one), where it has
+    /// text: not a spacer, a pair's hatch, nor a short side past its last part. What drawing,
+    /// the cursor, motions, the mouse and labels all go by.
+    pub(super) fn span(&self, d: usize, right: bool) -> Option<Shown> {
+        let code = |x: Option<usize>| x.is_some_and(|x| self.rows[x].line.kind.is_code());
+        let r = match *self.drows.get(d)? {
+            DRow::Full(r) => r,
+            DRow::Pair(l, r) | DRow::Margin(l, r, _) if self.split && code(l.or(r)) => if right { r } else { l }?,
+            DRow::Pair(l, r) | DRow::Margin(l, r, _) => l.or(r)?,
+        };
+        self.span_of(r, self.dseg[d])
+    }
+
+    /// The column the cursor's text starts at on screen: its part's, wrapped; else as scrolled.
+    pub(super) fn text_left(&self, r: usize, col: usize) -> usize {
+        self.span_of(r, self.part_at(r, col)).map_or(0, |s| s.left)
     }
 
     /// Screen rows and each one's part of its line (wrapped: 0, 1, …); and each row's screen
@@ -599,18 +602,6 @@ impl App {
         marks
     }
 
-    /// The row to put the cursor on for screen row `d`, preferring the current side.
-    pub(super) fn pick(&self, d: usize) -> usize {
-        match self.drows[d] {
-            DRow::Full(r) => r,
-            DRow::Pair(l, r) => if self.right { r.or(l) } else { l.or(r) }.unwrap_or(0),
-            DRow::Margin(l, r, c) => {
-                let code = if self.right { r.or(l) } else { l.or(r) };
-                if self.margin_side() { c.or(code) } else { code.or(c) }.unwrap_or(0)
-            }
-        }
-    }
-
     /// `Ctrl-w r`: long code lines wrap, or scroll sideways (again).
     pub(super) fn toggle_wrap(&mut self) {
         self.soft_wrap = !self.soft_wrap;
@@ -620,12 +611,13 @@ impl App {
         self.msg = if self.soft_wrap { "long lines wrap (Ctrl-w r: scroll sideways)" } else { "long lines scroll sideways (Ctrl-w r: wrap)" }.into();
     }
 
-    /// Lay the rows out again (wrapped otherwise), the line at the top of the screen kept there.
+    /// Lay the rows out again (wrapped otherwise), what's at the top of the screen kept there
+    /// (the part of a line, as near as it is now).
     pub(super) fn relayout_keeping_top(&mut self) {
-        let top = (self.top < self.drows.len()).then(|| self.pick(self.top));
+        let top = self.span(self.top, self.right).or_else(|| self.span(self.top, !self.right)).map(|s| Pos { row: s.row, col: s.chars.start });
         self.layout();
-        if let Some(r) = top {
-            self.top = self.d_of[r];
+        if let Some(p) = top {
+            self.top = self.d_at(p);
         }
     }
 
@@ -635,26 +627,45 @@ impl App {
         self.msg = if self.split { "split view (Ctrl-h / Ctrl-l switch sides)" } else { "unified view" }.into();
     }
 
-    /// Screen row of the cursor.
-    pub(super) fn hd(&self) -> usize {
-        // (Wrapped: the part of its line the cursor's in.)
-        self.d_of[self.head.row] + self.part_of(self.head.row, self.head.col).0
+    /// The screen row of position `p`: its row's, and on a wrapped line, its part's.
+    pub(super) fn d_at(&self, p: Pos) -> usize {
+        self.d_of[p.row] + self.part_at(p.row, p.col)
     }
 
-    /// The cursor's place for screen row `d`, keeping its column within a wrapped line's part
-    /// (`within`: how far into its part it is): the row, and the column there.
-    pub(super) fn pick_at(&self, d: usize, within: usize) -> (usize, usize) {
-        let r = self.pick(d);
-        let k = self.dseg.get(d).copied().unwrap_or(0);
-        if !self.wraps(r) {
-            return (r, within);
+    /// Screen row of the cursor.
+    pub(super) fn hd(&self) -> usize {
+        self.d_at(self.head)
+    }
+
+    /// Where the cursor stops on screen row `d`, `x` columns into what's there (`want_x`): on
+    /// the code side, code with text on that row (its side's, else the other's, past a pair's
+    /// hatch); in the pane, a comment. None where it can't stop: a spacer, a short side's
+    /// empty row, a row with nothing in the pane.
+    pub(super) fn stop_at(&self, d: usize, x: usize) -> Option<Pos> {
+        if self.margin_side() {
+            let DRow::Margin(_, _, Some(c)) = *self.drows.get(d)? else { return None };
+            return Some(Pos { row: c, col: self.char_at(c, x) });
         }
-        let starts = self.parts(r, self.wrap_w(r, self.side_of(r)));
-        match starts.get(k) {
-            // (A pair's shorter side, past its last part: its end.)
-            None => (r, self.len(r)),
-            Some(&s) => (r, (s + within).min(starts.get(k + 1).map_or(usize::MAX, |&e| e.saturating_sub(1)))),
-        }
+        // (The other side only for a hatch: this side has no line there. A short line's own
+        // rows past its end aren't stops.)
+        let hatch = match *self.drows.get(d)? {
+            DRow::Pair(l, r) | DRow::Margin(l, r, _) if self.split => if self.right { r.is_none() } else { l.is_none() },
+            _ => false,
+        };
+        let s = self.span(d, self.right).or_else(|| hatch.then(|| self.span(d, !self.right)).flatten())?;
+        let start = self.col_of(s.row, s.chars.start);
+        let col = self.char_at(s.row, start + x).min(s.chars.end.saturating_sub(1)).max(s.chars.start);
+        Some(Pos { row: s.row, col })
+    }
+
+    /// The cursor's column into what's on its screen row (its part, wrapped), as vertical
+    /// moves keep it: as last kept, else where it is.
+    pub(super) fn cursor_x(&self) -> usize {
+        let (r, col) = (self.head.row, self.head.col);
+        self.want_x.unwrap_or_else(|| {
+            let start = self.part(r, self.part_at(r, col)).map_or(0, |p| p.start);
+            self.col_of(r, col) - self.col_of(r, start)
+        })
     }
     /// The width comments and PR text wrap to: the pane's, when it's shown (they're there).
     pub(super) fn info_w(&self) -> usize {

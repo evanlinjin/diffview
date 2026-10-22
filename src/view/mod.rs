@@ -311,6 +311,15 @@ enum Target {
     Warn,
 }
 
+/// What a screen row shows of a line (`App::span`): its row, the chars of it there (a wrapped
+/// line's part, else all of it), and the column the screen's text starts at.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct Shown {
+    pub row: usize,
+    pub chars: std::ops::Range<usize>,
+    pub left: usize,
+}
+
 /// What a view hands over to show instead, and comes back to after.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum HandOff {
@@ -509,7 +518,9 @@ pub struct App {
     rows: Vec<Row>,
     anchor: Pos,
     head: Pos,
-    want_col: usize,
+    /// The column a vertical move keeps (into a wrapped line's part, or the line), while moves
+    /// are vertical (`j`/`k`, the wheel); any other move lets it go.
+    want_x: Option<usize>,
     select: bool,
     count: usize,
     pending: Option<char>,
@@ -613,11 +624,12 @@ pub struct App {
     d_of: Vec<usize>,
     /// Each screen row's part of its line, wrapped (`soft_wrap`): 0, or the n-th continuation.
     dseg: Vec<usize>,
-    /// Long code lines wrap (`Ctrl-w r`) instead of scrolling sideways; and the code's text
-    /// widths they wrap to: one column (the whole width, or beside the pane), split view's
-    /// left and right halves.
+    /// Long code lines wrap (`Ctrl-w r`) instead of scrolling sideways; the code's text widths
+    /// they wrap to (one column: the whole width or beside the pane; a split half: both halves
+    /// alike); and, for this layout, where each row's parts after its first start (`wrap_rows`).
     soft_wrap: bool,
-    wrap_cols: (usize, usize, usize),
+    wrap_cols: (usize, usize),
+    wrap: Vec<Vec<usize>>,
     /// Changed-word spans (char ranges) for paired removed/added rows.
     emph: HashMap<usize, Vec<(usize, usize)>>,
     /// Helix `cursorline` / relative `line-number`.
