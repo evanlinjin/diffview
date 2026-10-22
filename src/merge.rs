@@ -44,11 +44,12 @@ fn clear_worktree(n: u64) -> Result<Option<String>> {
 /// count), and no commits beyond the PR's head there.
 pub(crate) fn nothing_to_lose(dir: &std::path::Path, n: u64) -> Result<()> {
     let d = dir.to_string_lossy().into_owned();
-    let git = |args: &[&str]| crate::diff::git(&[&["-C", d.as_str()], args].concat());
-    anyhow::ensure!(git(&["status", "--porcelain"])?.trim().is_empty(), "{d} has local changes: commit and push them (or drop them) first");
-    git(&["fetch", "-q", &crate::diff::remote(), &format!("refs/pull/{n}/head")]).context("fetching the PR's head")?;
-    let ahead: usize = git(&["rev-list", "--count", "HEAD", "^FETCH_HEAD"])?.trim().parse().unwrap_or(0);
-    anyhow::ensure!(ahead == 0, "{d} has {ahead} commit(s) that aren't on the PR: push them (or drop them) first");
+    anyhow::ensure!(crate::diff::git(&["-C", &d, "status", "--porcelain"])?.trim().is_empty(), "{d} has local changes: commit and push them (or drop them) first");
+    // (Work only here, as updating the checkout has it: not the PR's own old head after a
+    // force-push, nor its base's commits.)
+    if let Some(why) = crate::local_work(n, dir) {
+        anyhow::bail!("{d}: {why}");
+    }
     Ok(())
 }
 
@@ -220,7 +221,7 @@ fn worktree_only_goes_when_nothing_would_be_lost() {
     // Committed, so not on the PR: not either.
     git(&wt, &["add", "x"]);
     git(&wt, &["commit", "-q", "-m", "mine"]);
-    assert!(format!("{:#}", nothing_to_lose(&wt, 7).unwrap_err()).contains("1 commit(s) that aren't on the PR"));
+    assert!(format!("{:#}", nothing_to_lose(&wt, 7).unwrap_err()).contains("1 commit here isn't on PR #7"));
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_dir_all(&repo);
 }

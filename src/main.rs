@@ -515,7 +515,7 @@ fn review(o: &Opts, pr_num: Option<u64>, known: Option<gh::Pr>) -> anyhow::Resul
                 let here = here.trim();
                 here == p.head_branch || here == format!("{}-{}", p.head_owner, p.head_branch)
             });
-            match on_it.then(|| local_work(n)).flatten() {
+            match on_it.then(|| local_work(n, Path::new("."))).flatten() {
                 Some(note) => (None, Some(note)),
                 None => {
                     progress(Some(&format!("checking out PR #{n}")));
@@ -725,14 +725,16 @@ pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool) -> anyhow::Res
 /// updating to the PR is safe). Updating never drops them, `-f` or not: dv records the commit
 /// it last checked out (`checkouts/pr-N` in its directory), so a PR its author force-pushed
 /// still updates, while work done here since stays until you push it or drop it yourself.
-fn local_work(n: u64) -> Option<String> {
-    let head = diff::git(&["rev-parse", "HEAD"]).ok()?.trim().to_owned();
+pub(crate) fn local_work(n: u64, dir: &Path) -> Option<String> {
+    let d = dir.to_string_lossy().into_owned();
+    let git = |args: &[&str]| diff::git(&[&["-C", d.as_str()], args].concat());
+    let head = git(&["rev-parse", "HEAD"]).ok()?.trim().to_owned();
     // (Can't tell, GitHub out of reach: kept as it is, not updated over what may be work.)
-    if let Err(e) = diff::git(&["fetch", "-q", &crate::diff::remote(), &format!("refs/pull/{n}/head")]) {
+    if let Err(e) = git(&["fetch", "-q", &crate::diff::remote(), &format!("refs/pull/{n}/head")]) {
         return Some(format!("couldn't fetch #{n} to see what's only here ({e:#}): kept as it is"));
     }
-    let pr = diff::git(&["rev-parse", "FETCH_HEAD"]).ok()?.trim().to_owned();
-    let behind = head == pr || diff::git(&["merge-base", "--is-ancestor", &head, &pr]).is_ok();
+    let pr = git(&["rev-parse", "FETCH_HEAD"]).ok()?.trim().to_owned();
+    let behind = head == pr || git(&["merge-base", "--is-ancestor", &head, &pr]).is_ok();
     if behind || last_checkout(n).as_deref() == Some(head.as_str()) {
         return None;
     }
@@ -743,7 +745,7 @@ fn local_work(n: u64) -> Option<String> {
     if !base.is_empty() {
         count.extend(["--not".to_owned(), base]);
     }
-    let ahead = diff::git(&count.iter().map(String::as_str).collect::<Vec<_>>()).unwrap_or_default();
+    let ahead = git(&count.iter().map(String::as_str).collect::<Vec<_>>()).unwrap_or_default();
     let ahead = ahead.trim();
     if ahead == "0" {
         return None;
@@ -866,7 +868,7 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
         return Ok((dir, None));
     }
     // Work done here since (yours, Claude's) stays: not updated to the PR over it.
-    if existed && let Some(note) = local_work(n) {
+    if existed && let Some(note) = local_work(n, Path::new(".")) {
         return Ok((dir, Some(note)));
     }
     progress(Some(&format!("checking out PR #{n} in {}", dir.display())));
