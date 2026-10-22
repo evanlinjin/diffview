@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.95.10] - 2026-10-22
+
+### Fixed
+- Split view: a selection keeps to the half its head is on through select mode's motions,
+  the wheel and a removed line across a hatch; the wheel in select mode still moves on over a
+  removed block taller than the screen.
+
 ## [0.95.9] - 2026-10-22
 
 ### Fixed
