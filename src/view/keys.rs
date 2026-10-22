@@ -208,10 +208,16 @@ impl App {
             return;
         }
         let ch = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
-        // A key that isn't a char (Enter, Tab…; an arrow's a char's): a prefix or count waiting
-        // goes, as Helix's.
-        if !matches!(k.code, KeyCode::Char(_) | KeyCode::Left | KeyCode::Down | KeyCode::Up | KeyCode::Right) {
-            (self.pending, self.count) = (None, 0);
+        // A key that isn't a char (Enter, Tab, an arrow): a prefix waiting goes, as Helix's
+        // (but Ctrl-w's: its window keys take arrows); a count too, but before an arrow (a move).
+        let arrow = matches!(k.code, KeyCode::Left | KeyCode::Down | KeyCode::Up | KeyCode::Right);
+        if !matches!(k.code, KeyCode::Char(_)) {
+            if !(arrow && self.pending == Some(CTRL_W)) {
+                self.pending = None;
+            }
+            if !arrow {
+                self.count = 0;
+            }
         }
         let c = match k.code {
             KeyCode::Char(c) => c,
@@ -248,8 +254,10 @@ impl App {
         };
         // What a prefix and a count come to: settled here, for every key (a Ctrl key's too).
         let pending = self.pending.take();
-        if k.modifiers.contains(KeyModifiers::CONTROL) {
+        if k.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) {
             self.count = 0;
+        }
+        if k.modifiers.contains(KeyModifiers::CONTROL) {
             // Ctrl-w, then Ctrl-l (Helix's window keys take either): as Ctrl-w l. Another
             // prefix: called off.
             if pending == Some(CTRL_W) {

@@ -37,6 +37,10 @@ pub(crate) fn sideways(m: &MouseEvent) -> MouseEventKind {
 impl App {
     pub(super) fn mouse(&mut self, m: MouseEvent) {
         let (x, y) = (m.column as usize, m.row as usize);
+        // A click or drag: a prefix or count waiting gone, as any key that isn't theirs.
+        if matches!(m.kind, MouseEventKind::Down(_) | MouseEventKind::Drag(_)) {
+            (self.pending, self.count) = (None, 0);
+        }
         // The files' list on the left: a click goes to a file, the wheel scrolls it; the rest is
         // laid out beside it.
         if x < self.files_w && self.picker.is_none() && self.popup.is_none() {
@@ -52,10 +56,9 @@ impl App {
         // Sideways over the code (a popup or a picker scrolls as with the wheel).
         let code = self.picker.is_none() && self.popup.is_none();
         let kind = if code { sideways(&m) } else { m.kind };
-        // A click or drag in the code: the focus there (not the files' list), and a prefix or
-        // count waiting gone, as any key that isn't theirs.
+        // A click or drag in the code: the focus there (not the files' list).
         if code && matches!(kind, MouseEventKind::Down(_) | MouseEventKind::Drag(_)) {
-            (self.files_focus, self.pending, self.count) = (false, None, 0);
+            self.files_focus = false;
         }
         match kind {
             // Sideways: what's under it (a comment's code block or table, the pinned title, or
