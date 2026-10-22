@@ -1604,7 +1604,7 @@ fn replacement_in_the_pr_section() {
     app.git_menu();
     let items = app.picker.take().unwrap().items;
     assert!(!items.iter().any(|i| matches!(i.target, Target::Run(Job::Push(_) | Job::Pull))), "{:?}", items.iter().map(|i| &i.label).collect::<Vec<_>>());
-    assert!(items.iter().any(|i| i.label.starts_with("Publish it as a draft PR: S")));
+    assert!(items.iter().any(|i| i.label == "Can't push: it's a draft: S publishes it"));
     assert_eq!(app.next_step(true), "S publishes it");
     // Nor does Claude's review there offer what goes to a PR (there's none).
     let review = app.rows.iter().position(|r| r.info == Some(SUMMARY)).unwrap_or(0);

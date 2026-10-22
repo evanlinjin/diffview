@@ -96,12 +96,10 @@ impl App {
             }
             items.push(Item::new(format!("Drop everything that isn't committed ({changed} file(s))… (stashed)"), Target::GitDrop(None, false)));
         }
-        // A draft no one has seen: published (S), not pushed.
-        let push = if self.unpublished() { Err(anyhow!("it's a draft: S publishes it")) } else { self.push_target() };
+        let push = self.push_target();
         // What merging would leave out (it merges GitHub's head): said, not merged without.
         let mut left_out = self.dirty.has().then(|| "what isn't committed".to_owned());
         match push {
-            Err(_) if self.unpublished() => items.push(Item::new("Publish it as a draft PR: S (nothing to push to before)", Target::Note(""))),
             Ok((remote, branch, name)) => match self.unpushed(&remote, &branch) {
                 Push::Nothing => {}
                 Push::Ahead(n) => {
@@ -346,9 +344,9 @@ impl App {
         if !self.has_code() {
             return self.sync.clear();
         }
-        // (A draft not published yet: its commits are all unpushed, as they should be; what
-        // isn't committed is said as anywhere.)
-        if let Some((remote, branch, _)) = self.push_target().ok().filter(|_| !self.unpublished()) {
+        // (A draft not published yet: nowhere to push, so nothing unpushed said; what isn't
+        // committed is said as anywhere.)
+        if let Ok((remote, branch, _)) = self.push_target() {
             let theirs = self.their_head(&remote, &branch);
             match self.unpushed(&remote, &branch) {
                 Push::Ahead(n) => parts.push(format!("↑{n} unpushed")),
@@ -383,6 +381,8 @@ impl App {
     /// branch in its repo (a fork's too: maintainers can push there when the author allows it),
     /// over SSH or HTTPS as `origin` is.
     fn push_target(&self) -> Result<(String, String, String)> {
+        // A draft no one has seen: published (S), not pushed (its branch tracks its base).
+        anyhow::ensure!(!self.unpublished(), "it's a draft: S publishes it");
         let here = diff::git(&["branch", "--show-current"])?.trim().to_owned();
         if !here.is_empty() {
             let pr = self.pr.as_ref().map(|p| (p.head_branch.as_str(), p.head_repo.as_str()));
