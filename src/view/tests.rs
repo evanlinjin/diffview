@@ -5179,3 +5179,16 @@ fn a_viewed_files_row_is_as_wide_as_the_others() {
     let ends: Vec<usize> = s.lines().map(|l| l.split('│').next().unwrap()).filter(|l| l.contains('·') && (l.contains("a.rs") || l.contains("big.rs"))).map(|l| l.trim_end().chars().count()).collect();
     assert!(ends.len() >= 2 && ends.windows(2).all(|w| w[0] == w[1]), "{ends:?}\n{s}");
 }
+
+#[test]
+fn the_list_measures_wide_chars_in_columns() {
+    assert_eq!(files::cut("说明书很长", 6), "说明…");
+    assert_eq!(files::cut("ab", 2), "ab");
+    let sample = "diff --git a/文档/说明书很长的名字测试.md b/文档/说明书很长的名字测试.md\nindex 1..2 100644\n--- a/文档/说明书很长的名字测试.md\n+++ b/文档/说明书很长的名字测试.md\n@@ -1 +1 @@\n-a\n+b\n";
+    let mut app = App::with("base".into(), diff::parse(sample));
+    app.files_pref = Some(true);
+    app.files_w_pref = Some(20);
+    let s = screen(120, 20, |f| app.draw(f));
+    let row = s.lines().map(|l| l.split('│').next().unwrap()).find(|l| l.contains('说')).expect(&s);
+    assert!(row.contains('…'), "a wide name not cut to the list: {row}");
+}

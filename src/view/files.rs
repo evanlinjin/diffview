@@ -92,7 +92,7 @@ impl App {
         if !shown {
             return 0;
         }
-        let longest = self.files.iter().map(|f| f.path.rsplit('/').next().unwrap_or(&f.path).chars().count()).max().unwrap_or(10);
+        let longest = self.files.iter().map(|f| super::row::cols(f.path.rsplit('/').next().unwrap_or(&f.path))).max().unwrap_or(10);
         self.files_w_pref.unwrap_or((longest + 9).clamp(24, 36)).clamp(FILES_MIN, full / 3) + 1
     }
 
@@ -195,7 +195,7 @@ impl App {
                     let on = cur == Some(e.spot);
                     let row = lit(on);
                     let name = cut(&e.text, w.saturating_sub(3));
-                    let pad = w.saturating_sub(3 + name.chars().count());
+                    let pad = w.saturating_sub(3 + super::row::cols(&name));
                     Line::from(vec![
                         Span::styled(if on { "▌" } else { " " }, row.patch(Style { fg: ui.key.fg, ..Style::new() })),
                         Span::styled("≡ ", row.patch(Style { fg: ui.stale.fg, ..Style::new() })),
@@ -205,9 +205,9 @@ impl App {
                 }
                 // A folder: dimmed, its start cut when it's long (the end says the most).
                 Spot::Folder => {
-                    let n = e.text.chars().count();
-                    let t = if n + 1 > w { format!("…{}", e.text.chars().skip(n + 2 - w).collect::<String>()) } else { e.text.clone() };
-                    Line::from(Span::styled(format!(" {t:<width$}", width = w - 1), dim))
+                    let t: String = cut(&e.text.chars().rev().collect::<String>(), w - 1).chars().rev().collect();
+                    let pad = (w - 1).saturating_sub(super::row::cols(&t));
+                    Line::from(Span::styled(format!(" {t}{}", " ".repeat(pad)), dim))
                 }
                 Spot::File(i) => {
                     let file = &self.files[i];
@@ -220,9 +220,9 @@ impl App {
                         n => format!(" ·{n}"),
                     };
                     let mark = if viewed { "✓ " } else { "  " };
-                    let room = w.saturating_sub(1 + mark.chars().count() + right.chars().count());
+                    let room = w.saturating_sub(1 + super::row::cols(mark) + super::row::cols(&right));
                     let name = cut(&e.text, room);
-                    let pad = room.saturating_sub(name.chars().count());
+                    let pad = room.saturating_sub(super::row::cols(&name));
                     Line::from(vec![
                         Span::styled(if on { "▌" } else { " " }, row.patch(Style { fg: ui.key.fg, ..Style::new() })),
                         Span::styled(mark, row.patch(Style { fg: ui.plus.fg, ..Style::new() })),
@@ -297,8 +297,9 @@ impl App {
             // An unsigned commit: marked (a repo may refuse it on its base).
             // (GitHub's word on its signature, as the PR's info says; none: taken as signed.)
             let unsigned = if r > 0 && r <= n && self.unsigned.contains(&self.commits[r - 1].sha) { "✗ " } else { "" };
-            let text = cut(&text, w.saturating_sub(2 + hash.chars().count() + unsigned.chars().count()));
-            let pad = w.saturating_sub(2 + hash.chars().count() + unsigned.chars().count() + text.chars().count());
+            let lead = 2 + super::row::cols(&hash) + super::row::cols(unsigned);
+            let text = cut(&text, w.saturating_sub(lead));
+            let pad = w.saturating_sub(lead + super::row::cols(&text));
             let line = Line::from(vec![
                 Span::styled(if on || shown(r) { "▌ " } else { "  " }, row.patch(Style { fg: ui.key.fg, ..Style::new() })),
                 Span::styled(hash, row.patch(Style { fg: ui.stale.fg, ..Style::new() })),
@@ -681,12 +682,18 @@ fn list_room(full: usize) -> bool {
     full / 3 >= FILES_MIN
 }
 
-/// `s` in at most `n` chars, ending in `…` if it was longer (dv list's too).
+/// `s` in at most `n` columns on screen (a wide char's two), ending in `…` if it was longer
+/// (dv list's too).
 pub(crate) fn cut(s: &str, n: usize) -> String {
-    match s.chars().count() > n {
-        true => format!("{}…", s.chars().take(n.saturating_sub(1)).collect::<String>()),
-        false => s.to_owned(),
+    if super::row::cols(s) <= n {
+        return s.to_owned();
     }
+    let mut w = 0;
+    let kept: String = s.chars().take_while(|&c| {
+        w += super::row::char_w(c);
+        w < n
+    }).collect();
+    format!("{kept}…")
 }
 
 #[test]
