@@ -103,7 +103,7 @@ impl App {
         self.save_pane("files_width", w.map_or(Value::Null, Value::from));
     }
 
-    /// The list's lines: the sections (as their headers say), then each folder once, its files
+    /// The list's lines: the sections (as their headers say), then each folder once (the root's `./` among others), its files
     /// under it.
     pub(super) fn file_entries(&self) -> Vec<Entry> {
         let mut out: Vec<Entry> = self
@@ -123,12 +123,15 @@ impl App {
                 Some(Entry { spot: Spot::Section(id), text })
             })
             .collect();
+        // (The root's files under `./` when there are folders too: else they'd read as the
+        // folder's before them.)
+        let folders = self.files.iter().any(|f| f.path.contains('/'));
         let mut dir = None;
         for (i, f) in self.files.iter().enumerate() {
             let (d, name) = f.path.rsplit_once('/').map_or(("", f.path.as_str()), |(d, n)| (d, n));
             if dir != Some(d) {
-                if !d.is_empty() {
-                    out.push(Entry { spot: Spot::Folder, text: format!("{d}/") });
+                if !d.is_empty() || folders {
+                    out.push(Entry { spot: Spot::Folder, text: format!("{}/", if d.is_empty() { "." } else { d }) });
                 }
                 dir = Some(d);
             }

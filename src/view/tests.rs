@@ -2732,9 +2732,9 @@ fn key_hints_at_the_bottom_of_the_contents() {
     assert!(l[keys + 1].trim_start().starts_with('v'), "{l:?}"); // Ctrl-w v: split view
     assert!(l[28].trim().len() > 1 && keys > 14, "pinned at the bottom: {l:?}");
     // The commits right after the files, not at the bottom.
-    let files_end = l.iter().position(|r| r.contains("big.rs")).unwrap();
+    let files_end = l.iter().position(|r| r.contains("img.png")).unwrap();
     let commits = l.iter().position(|r| r.starts_with(" COMMITS 2")).unwrap();
-    assert!(commits <= files_end + 5 && commits < keys, "{l:?}");
+    assert!(commits == files_end + 2 && commits < keys, "{l:?}");
     assert!(l[commits - 1].is_empty() && !l[commits - 2].is_empty(), "a blank line between the files and the commits: {l:?}");
     // Not a popup over the code as well.
     let s = screen(220, 30, |f| app.draw(f));
@@ -5215,4 +5215,15 @@ fn a_folder_is_listed_once() {
     assert_eq!(paths, ["src/foo.rs", "src/main.rs", "src/foo/bar.rs"]);
     let folders = app.file_entries().iter().filter(|e| e.spot == files::Spot::Folder).count();
     assert_eq!(folders, 2);
+}
+
+#[test]
+fn root_files_have_a_heading_among_folders() {
+    let d = |p: &str| format!("diff --git a/{p} b/{p}\nindex 1..2 100644\n--- a/{p}\n+++ b/{p}\n@@ -1 +1 @@\n-a\n+b\n");
+    let app = App::with("base".into(), diff::parse(&[d("benches/x.rs"), d("build.rs")].concat()));
+    let list: Vec<String> = app.file_entries().into_iter().map(|e| e.text).collect();
+    assert_eq!(list, ["benches/", "x.rs", "./", "build.rs"]);
+    // Only root files: no heading.
+    let app = App::with("base".into(), diff::parse(&d("build.rs")));
+    assert_eq!(app.file_entries().into_iter().map(|e| e.text).collect::<Vec<_>>(), ["build.rs"]);
 }
