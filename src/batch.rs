@@ -396,7 +396,8 @@ pub fn groups_text(groups: &Groups) -> String {
 
 pub fn parse_groups_text(text: &str) -> Vec<Vec<u64>> {
     text.lines()
-        .map(|l| l.split('#').next().unwrap_or("").split_whitespace().filter_map(|n| n.trim_start_matches('#').parse().ok()).collect::<Vec<u64>>())
+        // (Its numbers, `#12` or `12`, up to the first word that isn't one: a note.)
+        .map(|l| l.split_whitespace().map_while(|t| t.trim_start_matches('#').parse().ok()).collect::<Vec<u64>>())
         .filter(|g| !g.is_empty())
         .collect()
 }
@@ -407,7 +408,7 @@ fn groups() {
     assert_eq!(g, vec![(vec![12, 15], "same fix".to_owned()), (vec![20], "alone".to_owned())]);
     let text = groups_text(&g);
     assert_eq!(text, "12 15          # same fix\n20             # alone\n");
-    assert_eq!(parse_groups_text(&format!("{text}\n21 22 # mine")), [vec![12, 15], vec![20], vec![21, 22]]);
+    assert_eq!(parse_groups_text(&format!("{text}\n21 22 # mine\n#23 #24")), [vec![12, 15], vec![20], vec![21, 22], vec![23, 24]]);
 }
 
 /// The PRs that have a review from Claude (a review file in dv's directory).
