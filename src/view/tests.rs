@@ -4014,3 +4014,20 @@ fn commits_followed_through_amends_either_way() {
     assert_eq!(app.now_as(&first, &cell()), None);
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn a_draft_has_no_github_comments() {
+    let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
+    app.show_replacement(crate::replace::Record { id: 3, title: "New".into(), ..Default::default() });
+    app.build();
+    let add = app.rows.iter().position(|r| r.line.kind == Kind::Add).unwrap();
+    app.goto(add, 0);
+    // The keys shown are those that do something: `a`, not `c` or `s`…
+    let (_, keys) = app.context_keys().unwrap();
+    assert!(keys.iter().any(|k| k.0 == "a") && !keys.iter().any(|k| matches!(k.0, "c" | "s")));
+    // …and they say why.
+    for c in ['c', 's'] {
+        app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+        assert!(app.action.is_none() && app.msg.starts_with("it's a draft"), "{c}: {}", app.msg);
+    }
+}

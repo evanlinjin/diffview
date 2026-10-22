@@ -147,6 +147,10 @@ impl App {
         if self.selected_claude_threads().is_some() {
             return Some(("Claude's comments, selected", &[("r", "one reply to them all (Claude answers, or makes the changes)"), ("a", "the same"), ("y", "copy")]));
         }
+        // (A draft: nothing on GitHub to comment on yet.)
+        if (self.select || self.anchor.row != self.head.row) && self.unpublished() {
+            return Some(("selection", &[("a", "a comment for Claude"), ("y", "copy"), ("Space c", "copy file:line ref")]));
+        }
         if self.select || self.anchor.row != self.head.row {
             return Some(("selection", &[
                 ("c", "comment (review)"),
@@ -225,7 +229,16 @@ impl App {
             return Some(("Claude's activity", &[("Enter", "go to it")]));
         }
         // A line of code: Enter opens it in your editor, there.
-        if row.file != INFO && matches!(row.line.kind, Kind::Add | Kind::Del | Kind::Ctx) {
+        let code = row.file != INFO && matches!(row.line.kind, Kind::Add | Kind::Del | Kind::Ctx);
+        if code && self.unpublished() {
+            return Some(("code", &[
+                ("Enter", "open the file in your editor, at this line"),
+                ("a", "a comment for Claude"),
+                ("v x", "select (to comment on lines)"),
+                ("Space c", "copy file:line ref"),
+            ]));
+        }
+        if code {
             return Some(("code", &[
                 ("Enter", "open the file in your editor, at this line"),
                 ("c", "comment (review)"),

@@ -723,6 +723,9 @@ impl App {
 
     /// Line comments are posted against the PR head; local edits would shift the lines.
     pub(super) fn check_synced(&self) -> Result<()> {
+        if self.unpublished() {
+            bail!("it's a draft: nothing on GitHub to comment on yet (a comments for Claude; S publishes it)");
+        }
         let pr = self.pr.as_ref().context("no PR for this branch")?;
         if self.before_head() {
             bail!("comments go on the PR's head: show commits up to the last one (or all) to comment");
