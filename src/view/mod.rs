@@ -25,7 +25,6 @@ mod ask;
 mod amend;
 pub(crate) use amend::fold_cli;
 pub(crate) use hints::help_lines;
-pub(crate) use links::open_url;
 mod rebase;
 mod replacement;
 mod seen;
@@ -43,8 +42,6 @@ use info::*;
 #[cfg(test)]
 pub(crate) use info::info_lines_of;
 pub(crate) use files::cut;
-pub(crate) use row::skip_cols;
-pub(crate) use mouse::sideways;
 mod keys;
 mod layout;
 mod mouse;
@@ -355,6 +352,8 @@ pub enum HandOff {
     Issue(u64),
     /// The PR's replacement (its id), in its own view.
     Replacement(u64),
+    /// A PR a link goes to (`App::hands_prs`), reviewed as dv list does.
+    Pr(u64),
 }
 
 /// What the diff shows: all of it, or only the threads of Claude's review / your pending one.
@@ -593,6 +592,9 @@ pub struct App {
     /// What to show instead for a while (an issue a link goes to, this PR's replacement): the
     /// view hands it over, and goes on as it was after.
     pub hand_off: Option<HandOff>,
+    /// A PR a link goes to is handed off to be reviewed (an issue opened from dv's issues),
+    /// rather than opened in the browser.
+    pub hands_prs: bool,
     /// This PR's replacement (one replacing it, among others or not), as last read, and when
     /// that was looked for (every few seconds, as the records change).
     replaced_by: Option<crate::replace::Record>,

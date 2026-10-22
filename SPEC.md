@@ -185,17 +185,18 @@ disk: rust-analyzer can index it and `hx` can open it.
    search`, `gh label list`, the code): the skill's "Triage an issue", to `issue-N.json` beside
    the reviews (kind, priority, a summary, labels, what next, whether to close it and a closing
    comment); the card shows its kind and priority (or `✕ close: why`) and `→ next`. Enter opens
-   the issue in dv, under its own title bar (`Issue #N · title`, who, labels; not the list's tabs),
-   laid out as the PR view: its description on the left, and a pane beside it (a third of the
-   window, 60–80 columns) with Claude's triage in its `◆` box, then the conversation, a bubble a
-   comment; too narrow for both, one column. The triage:
-   (its summary, kind and priority, what next, the labels it would add, a better title, why to
-   close it and the comment to close it with). There: `C` comments, `L L` adds Claude's labels,
-   `T T` gives it Claude's title, `X X` closes it with Claude's closing comment (your editor
-   first; as completed, not planned, or a duplicate of #N, as the triage says), or with none
-   yet, has Claude draft one first (reading only; kept in the triage, then `X X` closes with it), `N N` has Claude draft a PR fixing
-   it (dv list's new PR flow, the issue and its triage as the task; on dv list's drafts tab),
-   `a a` triages it again, `o` opens it in the browser, `q` back.
+   the issue in the PR view (as a PR's view opens an issue it links to): `Issue #N · title`,
+   its description, Claude's triage first (kind, priority, its summary, what next, why close
+   it), its facts (who opened it, labels, assignees, the PRs that would fix it) and its
+   conversation; no code (no files, commits, `Space g` or `S`; one pane tab). Its review file
+   is `issue-N.json`: a triage merges into it, keeping the talk with Claude. `Space a`: triage
+   it again, ask a question (answered under the summary, as a PR's), have Claude propose a new
+   title and text (its clearer title, from the triage, shown as one: a diff, approved, taken
+   further or discarded, as a PR's description), draft a comment closing it and close it with
+   that (as completed, not planned, or a duplicate of #N, as the triage says), open a draft
+   fixing it, or draft a PR fixing it (dv list's new PR flow, on its drafts tab). `C` comments,
+   `Space l` its labels (Claude's marked `◆`) and assignees, Enter on a PR's link reviews it as
+   dv list does (back to the issue after), `q` back to the list.
 5. **Later**:
    - **Reproducible release builds**, so a binary can be rebuilt bit for bit and signed ahead
      of time (signatures, or the signed hashes, in the release notes or beside the archives).
@@ -230,7 +231,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `Ctrl-w h` `Ctrl-w l` (or `Ctrl-h` `Ctrl-l`) | the pane to the left / right, through all of them: the files' list (`Ctrl-w e`), the old and new sides in split view, the comments pane. In the files' list `j` / `k` go to the next / previous file (its header at the top), `Ctrl-l`, `l`, `Enter` or `Esc` back to the code; other keys leave it and act as usual. The pane that has focus has the cursor line's tint, and only it: the code, the comments pane (beside a comment the code isn't tinted as the cursor's line, nor the comment beside the code's line; the code that comment is about has a tint of its own: Helix's `ui.cursorline.secondary`, else half the cursor line's), or the files' list (its selection; the code's line then untinted). Borders don't change color with focus |
 | `Ctrl-w ,` `Ctrl-w .` `Ctrl-w =` `Ctrl-w q` | the pane you're in (the files' list or the comments pane; in the code, the comments pane) narrower / wider (the list by 4 columns, the pane by 6), back to its usual width, hidden (`q`, as `Ctrl-w e` / `Ctrl-w c` do; the code stays). Widths are kept for the next run (`pane.json`) |
 | `Ctrl-w o` | maximize the pane you're in, till you leave it: in the code, the code alone (no files' list, no comments pane: their lines marked at the code's right edge); in the comments pane, the pane over all of the code. Leaving it (`Ctrl-w h` / `l`, `Ctrl-h` / `Ctrl-l`, into the list or the other pane; onto a comment, `]c`) lays it out as it was, then goes there; `Ctrl-w o` again, or any other `Ctrl-w` key, as it was first |
-| `Enter` | open `hx file:line:col` (inside zellij: in a pane below dv, reused for the next file while it is open; dv stays usable); dv reloads whenever the working tree changes; on a link, open the link: an issue of this PR's repo in dv's issue view (as `dv issues` shows it, its keys all there; `q` comes back to the PR as it was; a PR's link from there opens in the browser), anything else in the browser |
+| `Enter` | open `hx file:line:col` (inside zellij: in a pane below dv, reused for the next file while it is open; dv stays usable); dv reloads whenever the working tree changes; on a link, open the link: an issue of this PR's repo in a view of its own (as `dv issues` opens it; `q` comes back to the PR as it was; a PR's link from there opens in the browser), anything else in the browser |
 | (writing) | what you write for dv (a comment, a reply, a commit message, …) opens in `$VISUAL` / `$EDITOR` (`hx`); inside zellij in a pane of its own, dv usable beside it meanwhile: what it was for is done once you save and quit (`:cq` cancels); one at a time. Otherwise in dv's terminal, dv back after |
 | Enter (off code) | open the link under the cursor in the browser (`xdg-open` / `open`); a tooltip shows the URL while the cursor is on a link. On a `path:line` in text (`src/a.rs:12`, `:12-15`, `:12:5`, `#L12`; the path from the repo root, or the end of one if that's unambiguous): go there, in the diff if it's shown (unfolding its file), else in hx; `Ctrl-o` comes back. The skill has Claude cite code that way. On a name (in a `code` span, or one that looks like code: `snake_case`, `camelCase`): where it's defined, by `git grep` for `fn`/`struct`/`class`/`def`/`function`/… name, the diff's files first; a picker of several |
 | `gd gr gy gi`, `Space k` | definition / references / type / impl, hover. On a name in a comment or the PR's text: found by rust-analyzer's `workspace/symbol` (exact matches), then references / implementations from that definition; without rust-analyzer, `gd` searches by text as Enter does |

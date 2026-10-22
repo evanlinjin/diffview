@@ -19,7 +19,6 @@ use std::time::Duration;
 mod card;
 use card::*;
 pub mod issues;
-mod issue_view;
 mod todo;
 pub(crate) mod github;
 mod draw;

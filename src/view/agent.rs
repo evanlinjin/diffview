@@ -301,6 +301,11 @@ impl App {
             // An issue: a PR fixing it, Claude's draft (your editor first, on what it should do).
             _ => {
                 if let Some(i) = &self.issue {
+                    // (Those drafted already, to review: a PR fixing it, unpublished.)
+                    for r in crate::replace::all().into_iter().filter(|r| r.published.is_none() && crate::replace::fixes(&r.task) == Some(i.number)) {
+                        let how = if r.drafting_now() { "Claude's drafting it: dv shows it as it goes" } else { "to review" };
+                        items.push(Item::new(format!("Open its draft fix, {} ({how}; q comes back here)", crate::replace::label(r.id)), Target::OpenReplacement(r.id)));
+                    }
                     let task = format!("Fix #{}: {}", i.number, i.title);
                     items.push(Item::new(format!("Draft a PR fixing #{}… (Claude writes it, unpublished, in the background)", i.number), Target::Do(Action::NewPr(task))));
                 }

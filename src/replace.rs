@@ -648,6 +648,22 @@ pub fn remove(id: u64, root: &Path) -> Result<String> {
     Ok(format!("removed {}; kept branch {b} (`git branch -D {b}` deletes it)", label(id)))
 }
 
+/// The issue a new PR's task is to fix: its first line's "Fix #N" (as an issue's "Draft a PR
+/// fixing it" writes it).
+pub fn fixes(task: &str) -> Option<u64> {
+    let first = task.lines().next()?.trim();
+    let rest = first.get(..5).filter(|p| p.eq_ignore_ascii_case("fix #")).map(|_| &first[5..])?;
+    rest.split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()
+}
+
+#[test]
+fn a_drafts_task_names_the_issue_it_fixes() {
+    assert_eq!(fixes("Fix #2217: KeychainTxOutIndex returns stale entries\n\nFrom triaging it: …"), Some(2217));
+    assert_eq!(fixes("fix #12"), Some(12));
+    assert_eq!(fixes("Refactor the index (see #12)"), None);
+    assert_eq!(fixes(""), None);
+}
+
 /// The issues and PRs `text` names (`#N`), once each, in order.
 fn mentioned(text: &str) -> Vec<u64> {
     let mut out = vec![];

@@ -302,9 +302,9 @@ fn pick_and_review(o: &Opts, root: &Path) -> anyhow::Result<()> {
                 }
                 list::issues::IssuesDo::Quit => return Ok(()),
                 list::issues::IssuesDo::Prs => on_issues = false,
-                // A PR from an issue (Enter on its link): reviewed, then back to the issues.
-                list::issues::IssuesDo::Pr(n) => {
-                    if let Some(m) = review_back(o, n, None, root)? {
+                // An issue (Enter on its card): in the PR view, then back to the issues.
+                list::issues::IssuesDo::Issue(n) => {
+                    if let Some(m) = issue_back(o, n, root)? {
                         issues.msg = m;
                     }
                 }
@@ -363,31 +363,55 @@ fn review_back(o: &Opts, n: u64, known: Option<gh::Pr>, root: &Path) -> anyhow::
     })
 }
 
+/// Issue `n` in the PR view (from dv's issues), a PR a link there goes to reviewed as dv list
+/// does (then back to the issue, as it was); what to say back in the list.
+fn issue_back(o: &Opts, n: u64, root: &Path) -> anyhow::Result<Option<String>> {
+    let mut app = match view::App::open_issue(n) {
+        Ok(a) => a,
+        Err(e) => return Ok(Some(format!("#{n}: {e:#}"))),
+    };
+    app.hands_prs = true;
+    loop {
+        let mut term = view::init_terminal();
+        let res = run_view(&mut app, &mut term);
+        view::restore_terminal();
+        res?;
+        let Some(view::HandOff::Pr(p)) = app.hand_off.take() else { return Ok(None) };
+        if let Some(m) = review_back(o, p, None, root)? {
+            app.notice(m);
+        }
+    }
+}
+
 /// Review replacement `id` in dv, in its worktree: its diff against its base, and in the top
 /// section, what it replaces and Claude's drafts.
 fn review_replacement(id: u64, root: &Path) -> anyhow::Result<Option<String>> {
     let mut term = view::init_terminal();
-    let res = replacement_view(id, root, &mut term, &mut None);
+    let res = replacement_view(id, root, &mut term);
     view::restore_terminal();
     res
 }
 
-/// `app` on `term`, and what it hands over meanwhile (an issue a link goes to, in dv's issue
-/// view; the PR's replacement, in its own): shown, then back to it, as it was. What goes wrong
+/// `app` on `term`, and what it hands over meanwhile (an issue a link goes to, in a view of its
+/// own; the PR's replacement, in its own): shown, then back to it, as it was. What goes wrong
 /// in what it hands over is said there, not an end to it (the terminal's the caller's to
-/// restore). `issues`: the issue view's, kept across them all.
-fn run_view(app: &mut view::App, term: &mut ratatui::DefaultTerminal, issues: &mut Option<list::issues::Issues>) -> anyhow::Result<()> {
+/// restore). A PR to review (`HandOff::Pr`) is left handed off, for the caller.
+fn run_view(app: &mut view::App, term: &mut ratatui::DefaultTerminal) -> anyhow::Result<()> {
     loop {
         // (What was drawn over it meanwhile, and loading lines: all drawn anew.)
         _ = term.clear();
         app.run(term)?;
         let Some(to) = app.hand_off.take() else { return Ok(()) };
         let shown = match to {
+            view::HandOff::Pr(_) => {
+                app.hand_off = Some(to);
+                return Ok(());
+            }
             // An issue: in the PR view too, its own, as it was when it comes back.
-            view::HandOff::Issue(n) => view::App::open_issue(n).and_then(|mut a| run_view(&mut a, term, issues)).with_context(|| format!("#{n}")).map(|_| None),
+            view::HandOff::Issue(n) => view::App::open_issue(n).and_then(|mut a| run_view(&mut a, term)).with_context(|| format!("#{n}")).map(|_| None),
             view::HandOff::Replacement(id) => {
                 let here = std::env::current_dir()?;
-                let shown = main_checkout(&here).and_then(|root| replacement_view(id, &root, term, issues));
+                let shown = main_checkout(&here).and_then(|root| replacement_view(id, &root, term));
                 // (Back where this view is, or not on: it'd work in another's checkout.)
                 std::env::set_current_dir(&here).with_context(|| format!("back to {}", here.display()))?;
                 shown.with_context(|| replace::label(id))
@@ -403,7 +427,7 @@ fn run_view(app: &mut view::App, term: &mut ratatui::DefaultTerminal, issues: &m
 
 /// A replacement's view, in its worktree (left there), on `term`; what merging it came to,
 /// if you asked to (published, `Space g`).
-fn replacement_view(id: u64, root: &Path, term: &mut ratatui::DefaultTerminal, issues: &mut Option<list::issues::Issues>) -> anyhow::Result<Option<String>> {
+fn replacement_view(id: u64, root: &Path, term: &mut ratatui::DefaultTerminal) -> anyhow::Result<Option<String>> {
     let r = replace::load(id)?;
     let dir = worktree_dir_named(root, &replace::name(id))?;
     // (Its drafting marked before its checkout's made: a moment.)
@@ -418,7 +442,7 @@ fn replacement_view(id: u64, root: &Path, term: &mut ratatui::DefaultTerminal, i
     // Its base followed as a PR's is: a rebase (a redraft's, publishing's) moves the diff's base.
     app.follow_base = Some(crate::diff::remote_branch(&r.base));
     progress(None);
-    run_view(&mut app, term, issues)?;
+    run_view(&mut app, term)?;
     // Merging it (its PR): from the main checkout, as `dv list` merges.
     match r.published.filter(|_| app.merge) {
         Some(n) => {
@@ -487,7 +511,7 @@ fn review(o: &Opts, pr_num: Option<u64>, known: Option<gh::Pr>) -> anyhow::Resul
         app.notice(n);
     }
     let mut term = view::init_terminal();
-    let res = run_view(&mut app, &mut term, &mut None);
+    let res = run_view(&mut app, &mut term);
     view::restore_terminal();
     Ok((wt, res.map(|_| app.merge)))
 }

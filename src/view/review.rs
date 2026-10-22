@@ -78,6 +78,7 @@ impl App {
             },
             // (GitHub's links say /issues/ for PRs too: it's asked which.)
             Job::OpenIssue(n, url) => match gh::gh(&["pr", "view", &n.to_string(), "--json", "number"]) {
+                Ok(_) if self.hands_prs => (self.hand_off, self.msg) = (Some(HandOff::Pr(n)), String::new()),
                 Ok(_) => self.open_url(&url),
                 Err(_) => (self.hand_off, self.msg) = (Some(HandOff::Issue(n)), String::new()),
             },
