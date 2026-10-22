@@ -5,6 +5,19 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.95.2] - 2026-10-22
+
+### Changed
+- Split view: a side with no line there is a shade darker than the background (a sparse dot
+  where the theme has no RGB background), not a diagonal hatch; the key hints go over it rather
+  than over code.
+
+### Fixed
+- The wheel beside a floating comments pane, over code (no comment's box there), scrolls the
+  code.
+- An issue's key hints: its text and comments show `C` (quote in a new comment), its facts and
+  title say "issue", and Claude's triage offers `C`.
+
 ## [0.95.1] - 2026-10-22
 
 ### Fixed
