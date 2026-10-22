@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.89.1] - 2026-10-22
+
+### Fixed
+- Wrapped lines: `j`/`k` and the wheel go through their parts (they stuck on a long line);
+  a part never cuts a tab or wide character in two (one at the edge went missing); the
+  short side of a split pair shows no `↪` past its end; relative numbers count lines, the
+  cursor line's tint covers all its parts; `gw` labels each word once; the key hints and a
+  link's tip keep to the cursor's part; a sideways swipe over wrapped code does nothing; and
+  starting with wrapping on, or resizing, keeps the line at the top there.
+
 ## [0.89.0] - 2026-10-22
 
 ### Added
