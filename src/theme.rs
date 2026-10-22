@@ -364,9 +364,8 @@ fn modifier(m: &str) -> Modifier {
 /// can't be told from `bg` (or it isn't RGB).
 fn shade(bg: Color, t: f32) -> Option<Color> {
     let Color::Rgb(r, g, b) = bg else { return None };
-    let luma = 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32;
-    let to = if luma < 48.0 { Color::Rgb(255, 255, 255) } else { Color::Rgb(0, 0, 0) };
-    let s = blend(to, bg, if luma < 48.0 { t / 3.0 } else { t })?;
+    let (to, t) = if luma(bg) < 48.0 { (Color::Rgb(255, 255, 255), t / 3.0) } else { (Color::Rgb(0, 0, 0), t) };
+    let s = blend(to, bg, t)?;
     let Color::Rgb(sr, sg, sb) = s else { return None };
     // (A step or two: not seen.)
     let apart = [(sr, r), (sg, g), (sb, b)].iter().map(|&(x, y)| (x as i32 - y as i32).abs()).max().unwrap_or(0);

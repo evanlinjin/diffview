@@ -149,21 +149,6 @@ impl App {
         if self.selected_claude_threads().is_some() {
             return Some(("Claude's comments, selected", &[("r", "one reply to them all (Claude answers, or makes the changes)"), ("a", "the same"), ("y", "copy")]));
         }
-        // A draft: nothing on GitHub to comment on yet; an issue: no review, no code.
-        if self.select || self.anchor.row != self.head.row {
-            return Some(match (self.unpublished(), self.has_code()) {
-                (true, _) => ("selection", &[("a", "a comment for Claude"), ("y", "copy"), ("Space c", "copy file:line ref")][..]),
-                (_, false) => ("selection", &[("C", "quote in a new comment"), ("a", "a comment for Claude"), ("y", "copy"), ("Space c", "copy file:line ref")][..]),
-                _ => ("selection", &[
-                    ("c", "comment (review)"),
-                    ("C", "comment now"),
-                    ("s", "suggest a change"),
-                    ("a", "a comment for Claude"),
-                    ("y", "copy"),
-                    ("Space c", "copy file:line ref"),
-                ][..]),
-            });
-        }
         // (Shown, its text has the usual hints.)
         if self.hidden_here().is_some_and(|n| !self.revealed.contains(&n)) {
             return Some(match row.thread {
@@ -235,6 +220,12 @@ impl App {
         }
         // A line of code: Enter opens it in your editor, there.
         let code = row.file != INFO && matches!(row.line.kind, Kind::Add | Kind::Del | Kind::Ctx);
+        if code && (self.select || self.anchor.row != self.head.row) {
+            return Some(match self.unpublished() {
+                true => ("selection", &[("a", "a comment for Claude"), ("y", "copy"), ("Space c", "copy file:line ref")][..]),
+                false => ("selection", &[("c", "comment (review)"), ("C", "comment now"), ("s", "suggest a change"), ("a", "a comment for Claude"), ("y", "copy"), ("Space c", "copy file:line ref")][..]),
+            });
+        }
         if code && self.unpublished() {
             return Some(("code", &[
                 ("Enter", "open the file in your editor, at this line"),

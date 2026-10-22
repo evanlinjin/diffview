@@ -86,7 +86,7 @@ impl App {
                     // its own end. The comments with the code (they're beside their lines), while
                     // there are comments that way.
                     let d = if down { 3 } else { -3 };
-                    let over_pane = self.over_pane(x, y);
+                    let over_pane = self.body_row(y).is_some_and(|d| self.over_pane(x, d));
                     if !over_pane || self.comments_beyond(down) {
                         _ = self.scroll_code(d);
                     }
@@ -175,12 +175,15 @@ impl App {
         pinned.map(|h| (h, 0, x < g.relw + g.gw, None)).or_else(|| self.at_screen(x, y))
     }
 
-    /// Whether screen cell (`x`, `y`) is the pane's: in the body (not the pinned title, not the
-    /// status bar), right of the code, and floating, only where a comment's box is (the code's
-    /// at full width elsewhere).
-    pub(super) fn over_pane(&self, x: usize, y: usize) -> bool {
+    /// The screen row of the body at screen row `y` (not the pinned title, not the status bar).
+    pub(super) fn body_row(&self, y: usize) -> Option<usize> {
+        y.checked_sub(self.pin as usize).filter(|&y| y < self.height).map(|y| self.top + y)
+    }
+
+    /// Whether column `x` of screen row `d` is the pane's: right of the code, and floating, only
+    /// where a comment's box is (the code's at full width elsewhere).
+    pub(super) fn over_pane(&self, x: usize, d: usize) -> bool {
         let g = self.geom;
-        let Some(d) = y.checked_sub(self.pin as usize).filter(|&y| y < self.height).map(|y| self.top + y) else { return false };
         self.margin_active && x > g.relw + g.gw + g.ctw && (!self.margin_float || self.note_at(d).is_some())
     }
 
@@ -196,14 +199,9 @@ impl App {
             }
             return Some((0, self.clicked(0, self.span_of(0, 0).as_ref(), x.saturating_sub(start)), x < start, None));
         }
-        let over_pane = self.over_pane(x, y);
-        let y = y - self.pin as usize;
-        if y >= self.height {
-            return None; // the status bar
-        }
-        let d = self.top + y;
+        let d = self.body_row(y)?; // (none: the status bar)
         // In the pane: the comment there.
-        if let Some(note) = self.note_at(d).filter(|_| over_pane) {
+        if let Some(note) = self.note_at(d).filter(|_| self.over_pane(x, d)) {
             let s = self.span_of(note, 0);
             let at = x.saturating_sub(self.pane_x() + self.rows[note].guide_w());
             return Some((note, self.clicked(note, s.as_ref(), at), x < self.pane_x(), None));
