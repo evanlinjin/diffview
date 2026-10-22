@@ -348,9 +348,9 @@ pub fn rep_key(id: u64) -> String {
     format!("rep-{id}")
 }
 
-/// A key's PR (or issue) number, if it's one's (`pr_key`).
-fn key_n(key: &str) -> Option<u64> {
-    key.strip_prefix("pr-")?.parse().ok()
+/// A key's PR (or issue) number, or (`rep`) draft id, if it's one's (`pr_key`, `rep_key`).
+pub fn key_n(key: &str, rep: bool) -> Option<u64> {
+    key.strip_prefix(if rep { "rep-" } else { "pr-" })?.parse().ok()
 }
 
 /// Claude in a pane on `key` (`pr_key`, `rep_key`), for `dv list` and any dv: its marker,
@@ -371,11 +371,17 @@ pub fn mark_pane(key: &str, what: &str, session: &str, talk: bool, dir_in: &std:
     })?
 }
 
-/// Claude's done in its pane (of `session`) on `key` (or it's closed).
-pub fn clear_pane(key: &str, session: &str) {
-    if let Ok(d) = running_dir() {
-        _ = std::fs::remove_file(d.join(format!("pane-{key}@{session}.json")));
+/// Claude's done in its pane of `session` (or it's closed). (By its session, unique: a draft
+/// that became a PR meanwhile has its pane's marker under its draft's key.)
+pub fn clear_pane(session: &str) {
+    if let Some(p) = pane_marker(session) {
+        _ = std::fs::remove_file(p);
     }
+}
+
+/// The marker of the pane of `session`, whatever it's on.
+fn pane_marker(session: &str) -> Option<PathBuf> {
+    markers(&running_dir().ok()?).into_iter().find(|(_, pane, p)| *pane && p.file_stem().and_then(|s| s.to_str()).is_some_and(|s| s.ends_with(&format!("@{session}")))).map(|m| m.2)
 }
 
 /// The markers in `dir` (`running/`), each with its key and whether it's a pane's
@@ -543,8 +549,8 @@ fn one_claim_at_a_time() {
 
 /// What Claude is doing, by PR (or issue), from the markers in `dir` (`running/`): a run's, or
 /// a pane's (among `panes`), still at it, as `at_work` has them.
-pub fn running(dir: &std::path::Path, panes: &std::cell::OnceCell<Vec<crate::pane::Pane>>) -> std::collections::HashMap<u64, String> {
-    markers(dir).into_iter().filter_map(|(k, _, p)| Some((key_n(&k)?, live_marker(&p, panes, None, None)?))).collect()
+pub fn running(dir: &std::path::Path, panes: &std::cell::OnceCell<Vec<crate::pane::Pane>>) -> std::collections::HashMap<String, String> {
+    markers(dir).into_iter().filter_map(|(k, _, p)| Some((k, live_marker(&p, panes, None, None)?))).collect()
 }
 
 /// Seconds since the epoch, now.
@@ -764,9 +770,9 @@ fn turn_ended_in(tail: &str, since: i64) -> Option<String> {
     Some(text.into_iter().rev().collect::<Vec<_>>().join("\n"))
 }
 
-/// When `key`'s run in the pane of `session` started, from its marker (`mark_pane`).
-pub fn pane_run(key: &str, session: &str) -> Option<i64> {
-    pane_run_in(&running_dir().ok()?.join(format!("pane-{key}@{session}.json"))).map(|r| r.1)
+/// When the run in the pane of `session` started, from its marker (`mark_pane`).
+pub fn pane_run(session: &str) -> Option<i64> {
+    pane_run_in(&pane_marker(session)?).map(|r| r.1)
 }
 
 /// A pane run's session and when it started (one opened to talk in: none, it's never closed
@@ -1478,12 +1484,12 @@ fn running_markers() {
     _ = gone.wait();
     let marker = |pid: Option<u32>, what: &str, session: Option<&str>| serde_json::json!({ "what": what, "pid": pid, "session": session }).to_string();
     std::fs::write(dir.join("pr-7.json"), marker(Some(std::process::id()), "making the changes", None)).unwrap();
-    std::fs::write(dir.join("pane-8-abc.json"), marker(None, "reviewing (in its pane)", Some("abc"))).unwrap();
+    std::fs::write(dir.join("pane-pr-8@abc.json"), marker(None, "reviewing (in its pane)", Some("abc"))).unwrap();
     std::fs::write(dir.join("pr-9.json"), marker(Some(gone.id()), "answering", None)).unwrap();
     // Only the ones still at it: this process is, the one gone isn't; no pane has abc's session.
     let r = running(&dir, &std::cell::OnceCell::from(vec![]));
     assert_eq!(r.len(), 1);
-    assert_eq!(r[&7].as_str(), "making the changes");
+    assert_eq!(r["pr-7"].as_str(), "making the changes");
     // A pane of one's own session isn't another's at work.
     assert!(live_marker(&dir.join("pr-7.json"), &Default::default(), Some("abc"), None).is_some());
     let _ = std::fs::remove_dir_all(&dir);

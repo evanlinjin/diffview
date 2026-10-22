@@ -132,6 +132,8 @@ pub(super) struct ClaudeState {
     /// Another dv's Claude at work in this checkout on it (`watch_elsewhere`), and when that
     /// was last looked at.
     pub(super) elsewhere: Option<String>,
+    /// This PR's replacement is being drafted (`watch_elsewhere`'s look).
+    pub(super) replacing: bool,
     pub(super) elsewhere_check: Option<std::time::Instant>,
     /// When Claude's pane was last looked at, and whether it was asking you something then.
     pub(super) pane_check: Option<std::time::Instant>,
@@ -210,7 +212,7 @@ impl App {
         let edits = ask.is_none_or(|a| self.edits(a));
         // (Its pane working is no bar: what you send there waits in its input, as Claude Code
         // has it.)
-        if self.claude.job.is_some() || self.replacement.as_ref().is_some_and(|r| r.drafting_now()) {
+        if self.claude.job.is_some() {
             return Some(if ask.is_none() { App::busy_edit("amend") } else { App::busy_says("ask Claude this") });
         }
         // At it from elsewhere (dv list's, dv issues' runs): one at a time on it, as here.
@@ -224,13 +226,19 @@ impl App {
         None
     }
 
-    /// Claude is at work in this checkout: a run of this dv's, its pane working, or (a
-    /// replacement) its redraft, from any dv. Nothing here rewrites the branch or commits under
+    /// Claude is at work in this checkout: a run of this dv's, its pane working, or another's
+    /// on it (a replacement's redraft too: its claim). Nothing here rewrites the branch or commits under
     /// it meanwhile.
     /// (Another dv's run in this checkout too, dv list's say: looked at now.)
     pub(super) fn claude_busy(&self) -> bool {
         let here = || self.run_key().and_then(|k| crate::claude::at_work(&k, self.claude.session.as_deref(), Some(&self.root))).is_some();
-        self.claude.job.is_some() || self.claude.pane_busy || self.replacement.as_ref().is_some_and(|r| r.drafting_now()) || here()
+        self.claude.job.is_some() || self.claude.pane_busy || here()
+    }
+
+    /// Claude at work on it (a run of this view's, or another's from any dv: a redraft, a pane
+    /// of another session); its own pane, idle or not, isn't: what's sent there waits in it.
+    pub(super) fn at_it(&self) -> bool {
+        self.claude.job.is_some() || self.held().is_some()
     }
 
     /// What another run holds this PR (or issue) for, from any dv, any checkout (one at a time
@@ -249,6 +257,8 @@ impl App {
         // (Not a run of this view's own: its job's claim.)
         let mine = self.claude.job.is_some();
         self.claude.elsewhere = self.run_key().filter(|_| !mine).and_then(|k| crate::claude::at_work(&k, self.claude.session.as_deref(), Some(&self.root)));
+        // (Its replacement's draft, for the badge: not looked up every frame.)
+        self.claude.replacing = self.replaced_by.as_ref().is_some_and(|r| r.drafting_now());
     }
 
     /// Why `ask` can't go to the PR's Claude pane, where it would (one is open): the pane is
@@ -362,7 +372,7 @@ impl App {
                 format!("Draft a replacement for #{} (Claude writes it properly, unpublished, in the background)", p.number),
                 Target::Do(Action::Replace(vec![p.number], None)),
             )),
-            (None, Some(r)) if r.drafting_now() => items.push(Item::new("Claude is at work on this replacement (dv shows it as it goes)", Target::Note(""))),
+            (None, Some(_)) if self.at_it() => items.push(Item::new("Claude is at work on this replacement (dv shows it as it goes)", Target::Note(""))),
             (None, Some(r)) => items.push(Item::new(
                 "Redraft this (Claude carries on, with your instructions)",
                 Target::Do(Action::Replace(r.ids(), None)),
@@ -406,9 +416,6 @@ impl App {
     /// next run resumes where it left off.
     pub(super) fn stop_claude(&mut self) {
         let Some(mut j) = self.claude.job.take() else { return self.msg = "Claude isn't working on anything".into() };
-        if let Some(r) = &self.replacement {
-            crate::replace::mark_at_work(r.id, None, j.child.id());
-        }
         // Its process group: Claude and the commands it's running (a build, the tests).
         let group = format!("-{}", j.child.id());
         _ = std::process::Command::new("kill").args(["-KILL", "--", &group]).stderr(std::process::Stdio::null()).status();
@@ -845,8 +852,8 @@ impl App {
             // (A checkout of its own to try things in, as the skill has it: not asked each time.)
             .args(["--allowedTools", "Bash(dv scratch:*)"]);
         let s = cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
-        if let (false, Some((k, id))) = (s.as_ref().is_ok_and(|s| s.success()), &marked) {
-            crate::claude::clear_pane(k, id);
+        if let (false, Some((_, id))) = (s.as_ref().is_ok_and(|s| s.success()), &marked) {
+            crate::claude::clear_pane(id);
         }
         let s = s.context("running zellij")?;
         anyhow::ensure!(s.success(), "zellij run failed ({s})");
@@ -892,11 +899,11 @@ impl App {
         self.claude.pane_busy = screen.as_deref().is_some_and(crate::pane::working);
         // Done there: its pane closes (`close_if_done`); the session stays, for the next ask.
         // (Its marker: this checkout's session's, not another's run.)
-        let (Some(key), Some(pane)) = (self.run_key(), pane) else { return };
+        let Some(pane) = pane else { return };
         let Some(session) = self.claude.session.clone() else { return };
-        let Some(since) = crate::claude::pane_run(&key, &session) else { return };
+        let Some(since) = crate::claude::pane_run(&session) else { return };
         if crate::pane::close_if_done(pane, &session, since) {
-            crate::claude::clear_pane(&key, &session);
+            crate::claude::clear_pane(&session);
             self.msg = "Claude's done: its pane closed (Space a asks it more, in the same session)".into();
         }
     }
@@ -908,9 +915,7 @@ impl App {
             Some(j) => Some(format!("◐ claude: {} {}", j.label, ago(j.started))),
             None if self.claude.asking => Some("◐ claude is asking you (Space a)".into()),
             None if self.claude.pane_busy => Some("◐ claude working (its pane)".into()),
-            // (A replacement's redraft, from any dv.)
-            None if self.replacement.as_ref().is_some_and(|r| r.drafting_now()) => Some("◐ claude drafting it".into()),
-            None if self.replaced_by.as_ref().is_some_and(|r| r.drafting_now()) => Some("◐ claude drafting its replacement (Space a: open it)".into()),
+            None if self.claude.replacing => Some("◐ claude drafting its replacement (Space a: open it)".into()),
             None => self.claude.elsewhere.as_ref().map(|w| format!("◐ claude {w} (another dv's)")),
         }
     }
@@ -994,11 +999,6 @@ impl App {
             .spawn()
             .context("is Claude Code (`claude`) installed?")?;
         self.claude.log = Some(log.clone());
-        // A replacement's checkout: marked in its record, as a redraft is (dv list, a redraft
-        // from elsewhere, then wait for it).
-        if let Some(r) = self.replacement.as_ref().filter(|_| self.unpublished()) {
-            crate::replace::mark_at_work(r.id, Some(child.id()), 0);
-        }
         if let Some(c) = &mut claim {
             c.set_pid(child.id());
             c.set_dir(&self.root);
@@ -1015,11 +1015,8 @@ impl App {
         // (What it said, a triage's kept, before the file's read again; its hold let go.)
         let (out, triaged) = job.kept();
         // (Its hold let go first: answering what came in meanwhile, below, claims anew.)
-        let ClaudeJob { child, log, label, forked, _claim, .. } = job;
+        let ClaudeJob { log, label, forked, _claim, .. } = job;
         drop(_claim);
-        if let Some(r) = &self.replacement {
-            crate::replace::mark_at_work(r.id, None, child.id());
-        }
         let failed = !st.success() || out.as_ref().is_none_or(|v| v["is_error"] == true);
         self.reload_tree(); // it may have changed code (making changes, or answering a request)
         // A fork's id isn't the PR's session (that one's open in a pane): keep the PR's; a

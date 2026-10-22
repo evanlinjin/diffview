@@ -59,8 +59,6 @@ pub struct Record {
     pub published: Option<u64>,
     /// The originals closed (with the note) since.
     pub closed: Vec<u64>,
-    /// The process drafting it now, if one is (`drafting_now` checks it's still running).
-    pub drafting: Option<u32>,
     /// A new PR's: what you asked it to do (a replacement's is what it replaces).
     pub task: String,
     /// What you've asked of its drafts, oldest first.
@@ -83,10 +81,10 @@ impl Record {
         !self.title.is_empty() || !self.body.is_empty()
     }
 
-    /// Claude is drafting it now (from any dv): its process is still running.
+    /// Claude at work on it, from any dv: its draft (`draft`), a run or pane on it from its
+    /// view; its claim (`claude::rep_key`), the one rule.
     pub fn drafting_now(&self) -> bool {
-        // (Or a run or pane on it from its view: its claim, `claude::rep_key`.)
-        self.drafting.is_some_and(crate::alive) || crate::claude::at_work(&crate::claude::rep_key(self.id), None, None).is_some()
+        crate::claude::at_work(&crate::claude::rep_key(self.id), None, None).is_some()
     }
 }
 
@@ -188,7 +186,6 @@ fn parse(id: u64, text: &str) -> Result<Record> {
         session: s(&v["session"]),
         published: v["published"].as_u64(),
         closed: v["closed"].as_array().into_iter().flatten().filter_map(Value::as_u64).collect(),
-        drafting: v["drafting"].as_u64().map(|p| p as u32),
         task: s(&v["task"]),
         asks: v["asks"].as_array().into_iter().flatten().map(|a| Request {
                     text: s(&a["text"]),
@@ -210,7 +207,7 @@ fn to_json(r: &Record) -> String {
     let v = json!({
         "replaces": replaces, "base": r.base, "title": r.title, "body": r.body,
         "closing_note": r.closing_note, "session": r.session, "published": r.published, "closed": r.closed,
-        "drafting": r.drafting, "task": r.task,
+        "task": r.task,
         "asks": r.asks.iter().map(|a| json!({ "text": a.text, "want": a.want, "on": a.on, "answer": a.answer })).collect::<Vec<_>>(), "taking": r.taking,
     });
     serde_json::to_string_pretty(&v).unwrap_or_default() + "\n"
@@ -423,20 +420,6 @@ pub fn drafted(id: u64) -> bool {
     load(id).is_ok_and(|r| r.drafted())
 }
 
-/// Claude at work on replacement `id` in dv (`pid`: a run of dv's, answering you, making a
-/// change), marked as a redraft is, so nothing else starts one there meanwhile; `None`: done
-/// (its own mark only comes off: not a redraft's that started after).
-pub fn mark_at_work(id: u64, pid: Option<u32>, was: u32) {
-    _ = update(id, |r| {
-        match pid {
-            Some(p) if !r.drafting_now() => r.drafting = Some(p),
-            None if r.drafting == Some(was) => r.drafting = None,
-            _ => {}
-        }
-        Ok(())
-    });
-}
-
 /// Ask Claude about replacement `id`'s drafts (`on`: the one it's about, or ""; `want`: see
 /// `Request`): kept in its record (shown beside it), for its next redraft to take in.
 pub fn ask(id: u64, text: &str, on: &str, want: &str) -> Result<()> {
@@ -481,9 +464,9 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
     // When its last draft ended (the record as it left it): reviews of the originals changed
     // since go to a redraft.
     let last = std::fs::metadata(path(id)?).and_then(|m| m.modified()).ok();
+    // Its claim, held while it drafts (this process's: let go as it ends, however).
+    let _claim = crate::claude::claim(&crate::claude::rep_key(id), "drafting", None).map_err(|w| anyhow::anyhow!("Claude is {w} on {} already", label(id)))?;
     let (first, _) = update(id, |r| {
-        anyhow::ensure!(!r.drafting_now(), "Claude is already drafting {}", label(id));
-        r.drafting = Some(std::process::id());
         if r.drafted() && !extra.trim().is_empty() {
             r.asks.push(Request { text: extra.trim().to_owned(), ..Request::default() });
         }
@@ -525,7 +508,7 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
     // it was given and made (it finished) without saying so is done all the same, not asked
     // again and again.
     _ = update(id, |now| {
-        (now.drafting, now.taking) = (None, 0);
+        now.taking = 0;
         let was_given = |a: &Request| given.iter().any(|(t, on)| *t == a.text && *on == a.on);
         for a in now.asks.iter_mut().filter(|a| res.is_ok() && a.want != "ask" && !a.done() && was_given(a)) {
             a.answer = NO_ANSWER.into();
@@ -722,7 +705,6 @@ fn records_round_trip() {
         session: "s".into(),
         published: Some(20),
         closed: vec![12],
-        drafting: Some(7),
         task: String::new(),
         asks: vec![
             Request { text: "shorter title".into(), want: "change".into(), on: "description".into(), answer: "Done.".into() },
@@ -745,9 +727,6 @@ fn records_round_trip() {
     assert_eq!(owner("git@github.com:evan/diffview.git"), Some("evan"));
     assert_eq!(owner("https://github.com/evan/diffview"), Some("evan"));
     assert_eq!(owner("/srv/git/x.git"), None);
-    // A draft from a process that's gone isn't under way.
-    assert!(Record { drafting: Some(std::process::id()), ..r.clone() }.drafting_now());
-    assert!(!Record { drafting: None, ..r }.drafting_now());
 }
 
 #[test]

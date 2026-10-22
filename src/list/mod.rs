@@ -66,9 +66,8 @@ pub struct List {
     /// Replacements Claude is drafting: how each is going, and the news on its way.
     drafting: HashMap<u64, batch::Status>,
     draft_rx: Vec<Receiver<(u64, batch::Status)>>,
-    /// Replacements being drafted by another dv (`dv replace`, dv's `Space a`), from their
-    /// records; and when the records last changed, to see that.
-    drafting_elsewhere: HashSet<u64>,
+    /// When the replacements' records last changed, to see that. (Those being drafted by
+    /// another dv: their claims, in `running_reps`.)
     reps_changed: Option<std::time::SystemTime>,
     /// Claude's suggestion of how to group marked PRs into replacements, on its way.
     group_rx: Option<Receiver<anyhow::Result<batch::Groups>>>,
@@ -513,7 +512,6 @@ impl List {
     /// The replacements, as cards: what they replace, and their size against their base.
     fn load_reps(&mut self) {
         let records = crate::replace::all();
-        self.drafting_elsewhere = records.iter().filter(|r| r.drafting_now()).map(|r| r.id).collect();
         self.reps = records.iter().map(|r| rep_card(r, &self.root)).collect();
         self.rep_of = records.into_iter().map(|r| (r.id, r)).collect();
     }
@@ -541,7 +539,7 @@ impl List {
     /// approving).
     fn draft_state(&self, id: u64, of: &str) -> Option<(String, bool)> {
         let (what, ok) = match self.drafting.get(&id) {
-            _ if self.drafting_elsewhere.contains(&id) => ("drafting…", true),
+            _ if self.drafting_elsewhere(id) => ("drafting…", true),
             Some(batch::Status::Failed(e)) => return Some((format!("{of}: draft failed: {}", cut(e.lines().next().unwrap_or(""), 60)), false)),
             Some(s) if s.running() => ("drafting…", true),
             _ => match self.rep_of.get(&id)? {

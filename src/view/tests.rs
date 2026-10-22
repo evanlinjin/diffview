@@ -1519,7 +1519,8 @@ fn replacement_in_the_pr_section() {
     let mut r = app.replacement.clone().unwrap();
     r.asks.push(crate::replace::Request { text: "Shorter.".into(), want: "change".into(), ..Default::default() });
     r.asks.push(crate::replace::Request { text: "Why two?".into(), want: "ask".into(), answer: "One per original.".into(), ..Default::default() });
-    (r.drafting, r.taking) = (Some(std::process::id()), 1);
+    r.taking = 1;
+    let claim = crate::claude::claim(&crate::claude::rep_key(r.id), "drafting", None).unwrap();
     app.show_replacement(r);
     let keep = app.cursor_key();
     app.rebuild(keep);
@@ -1546,9 +1547,7 @@ fn replacement_in_the_pr_section() {
     app.picker = None;
     app.want("ask");
     assert!(matches!(app.action.take(), Some(Action::Replace(_, Some(("description", q, "ask")))) if q == "About the description:\n\n"), "the box quoted");
-    let mut r = app.replacement.clone().unwrap();
-    r.drafting = None;
-    app.show_replacement(r);
+    drop(claim);
     // A change taken in without Claude saying so: dv's note, not as Claude's answer.
     let mut r = app.replacement.clone().unwrap();
     r.asks = vec![crate::replace::Request { text: "Tidy it.".into(), want: "change".into(), answer: crate::replace::NO_ANSWER.into(), ..Default::default() }];
@@ -3505,8 +3504,11 @@ fn a_prs_replacement_being_drafted_shows_and_opens() {
     let mut app = App::with("base".into(), diff::parse(diff::SAMPLE));
     app.pr = Some(gh::Pr { number: 87, ..Default::default() });
     // Claude at it (this process stands in for its run): on the status bar.
-    app.replaced_by = Some(crate::replace::Record { id: 87, drafting: Some(std::process::id()), ..Default::default() });
+    app.replaced_by = Some(crate::replace::Record { id: 87, ..Default::default() });
+    let claim = crate::claude::claim(&crate::claude::rep_key(87), "drafting", None).unwrap();
+    app.watch_elsewhere();
     assert_eq!(app.claude_doing().as_deref(), Some("◐ claude drafting its replacement (Space a: open it)"));
+    drop(claim);
     // Space a: open it, which hands the view over (and comes back after).
     app.claude.path = Some(std::env::temp_dir().join("dv-replaced-by-unused.json"));
     app.claude_menu();

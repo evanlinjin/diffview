@@ -230,7 +230,7 @@ impl List {
         }
         // A PR Claude would replace (low effort, worth keeping) with no replacement of it yet:
         // drafted, one at a time, once each at a head (unpublished: the drafts tab has it).
-        let drafting = self.drafting.values().any(batch::Status::running) || !self.drafting_elsewhere.is_empty();
+        let drafting = self.drafting.values().any(batch::Status::running) || self.running_reps.keys().any(|&id| self.drafting_elsewhere(id));
         let replaced = |n: u64| self.rep_of.values().any(|r| r.replaces.iter().any(|o| o.number == n));
         let next = self.replaceable.iter().find_map(|(&n, why)| {
             let head = self.extra.get(&n).map(|e| e.head_oid.clone()).filter(|h| !h.is_empty())?;
@@ -624,13 +624,19 @@ impl List {
     /// Claude at work on replacement `id`'s checkout: drafting it (here, another dv), or in a pane
     /// there (dv's run, or one you started): nothing else starts there meanwhile.
     pub(super) fn rep_busy(&self, id: u64) -> bool {
-        self.drafting.get(&id).is_some_and(batch::Status::running) || self.drafting_elsewhere.contains(&id) || self.running_reps.contains_key(&id)
+        self.drafting.get(&id).is_some_and(batch::Status::running) || self.running_reps.contains_key(&id)
+    }
+
+    /// Replacement `id` being drafted by another dv (`dv replace`): its claim says so (not a
+    /// run or pane in its worktree, making changes: those are `running_reps` too).
+    pub(super) fn drafting_elsewhere(&self, id: u64) -> bool {
+        self.running_reps.get(&id).is_some_and(|w| w == "drafting")
     }
 
     /// Claude is drafting a replacement of PR `n` (here, or in another dv).
     pub(super) fn drafting_replacement(&self, n: u64) -> bool {
         self.rep_of.values().filter(|r| r.id == n || r.replaces.iter().any(|o| o.number == n)).any(|r| {
-            self.drafting.get(&r.id).is_some_and(batch::Status::running) || self.drafting_elsewhere.contains(&r.id)
+            self.drafting.get(&r.id).is_some_and(batch::Status::running) || self.drafting_elsewhere(r.id)
         })
     }
 
@@ -660,8 +666,10 @@ impl List {
         self.running_checked = Some(std::time::Instant::now());
         let Some(dir) = self.reviews_dir.as_ref().and_then(|d| d.parent()).map(|d| d.join("running")) else { return false };
         let panes = std::cell::OnceCell::new(); // zellij's panes, looked up only if a run is in one
-        let mut now = crate::claude::running(&dir, &panes);
-        let mut reps = HashMap::new();
+        // (PRs' and issues' runs; replacements' and new PRs' drafts and runs: their claims.)
+        let all = crate::claude::running(&dir, &panes);
+        let of = |rep| all.iter().filter_map(move |(k, w)| Some((crate::claude::key_n(k, rep)?, w.clone())));
+        let (mut now, mut reps): (HashMap<u64, String>, HashMap<u64, String>) = (of(false).collect(), of(true).collect());
         // Claude Code in a pane in a PR's worktree, or a replacement's (one you started, from a
         // shell even: its screen says): at it there, or asking you something.
         let rep_dirs: Vec<(u64, std::path::PathBuf)> =
@@ -690,11 +698,11 @@ impl List {
         // session stays, for the next ask to resume). Every marker of a pane run is looked at
         // (a cheap read of its transcript's end), so one not closed at first (you were on it)
         // is later.
-        for (key, session, since) in crate::claude::pane_runs(&dir) {
+        for (_, session, since) in crate::claude::pane_runs(&dir) {
             if let Some(p) = crate::pane::of_session(panes.get_or_init(crate::pane::open), &session)
                 && crate::pane::close_if_done(p.0, &session, since)
             {
-                crate::claude::clear_pane(&key, &session);
+                crate::claude::clear_pane(&session);
             }
         }
         let changed = now != self.running || reps != self.running_reps;

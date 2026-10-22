@@ -295,7 +295,7 @@ impl App {
     pub(super) fn request_rows(&self, on: &[&str], draft: usize) -> Vec<Row> {
         let Some(r) = self.replacement.as_ref().filter(|_| self.unpublished()) else { return vec![] };
         let mk = |kind, text| Row { info: Some(draft), ..Row::text(INFO, kind, text) };
-        let drafting = r.drafting_now();
+        let drafting = self.at_it();
         let mut rows = vec![];
         for (i, a) in r.asks.iter().enumerate().filter(|(_, a)| on.contains(&a.on.as_str())) {
             // (A question is answered; anything else, redrafted with.)
