@@ -46,14 +46,21 @@ PR
   D D                  remove its worktree, or the replacement (not with local changes)";
 
 impl List {
+    /// Quit, asked first while Claude's at work here (`busy`): it'd stop with dv.
+    fn quit(&mut self, armed: Option<(char, u64)>) -> Option<Do> {
+        let quits = !self.busy() || self.again(armed, 'q', (), "Claude is still at work here (reviewing, drafting, ranking): q again quits (what's under way is lost; queued reviews don't start)");
+        quits.then_some(Do::Quit)
+    }
+
     pub(super) fn key(&mut self, k: KeyEvent) -> Option<Do> {
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
-        if ctrl && k.code == KeyCode::Char('c') {
-            return Some(Do::Quit);
-        }
         let n = self.shown().len();
         self.msg.clear();
         let armed = self.confirm.take();
+        // (Ctrl-c is q, wherever: asked first while Claude's at work here.)
+        if ctrl && k.code == KeyCode::Char('c') {
+            return self.quit(armed);
+        }
         if std::mem::take(&mut self.nav.help) {
             return None; // any key closes the help
         }
@@ -89,13 +96,9 @@ impl List {
             }
             // Claude at work here (`busy`): it'd stop with dv. q asks first; Esc only says so (a
             // second Esc calls things off, it doesn't quit).
-            KeyCode::Char('q') | KeyCode::Esc if !self.busy() => return Some(Do::Quit),
+            KeyCode::Esc if !self.busy() => return Some(Do::Quit),
             KeyCode::Esc => self.msg = "Claude is still at work here: q, then q again, quits".into(),
-            KeyCode::Char('q') => {
-                if self.again(armed, 'q', (), "Claude is still at work here (reviewing, drafting, ranking): q again quits (what's under way is lost; queued reviews don't start)") {
-                    return Some(Do::Quit);
-                }
-            }
+            KeyCode::Char('q') => return self.quit(armed),
             KeyCode::Char('R') => return Some(Do::Refresh),
             KeyCode::Char('D') if self.nav.tab == Tab::Replacements => {
                 let id = self.shown().get(self.nav.sel).map(|p| p.number)?;
