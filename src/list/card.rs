@@ -69,7 +69,7 @@ impl List {
             Some(batch::Status::Reviewing) => Some((format!("claude: {}…", self.batch_task.get(&n).map_or("reviewing", batch::Task::doing)), true)),
             // A run from another dv (a PR's view, another dv list).
             _ if self.running.contains_key(&n) => Some((format!("claude: {}…", self.running[&n]), true)),
-            Some(batch::Status::Busy(w)) => Some((format!("claude: not now: {w}"), true)),
+            Some(batch::Status::Busy(w, _)) => Some((format!("claude: not now: {w}"), true)),
             // Why, in short (the status bar said it in full): `a a` asks again.
             // All of it (the card cuts it where the window ends).
             Some(batch::Status::Failed(e, _)) => Some((format!("claude failed: {}", e.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" · ")), false)),

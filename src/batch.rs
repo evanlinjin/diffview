@@ -19,9 +19,9 @@ pub enum Status {
     Done(String),
     /// Why, and when (a review of it written since ends it: `List::watch_reviews`).
     Failed(String, std::time::SystemTime),
-    /// Not run, and why (Claude at it already, from another run, `claude::claim`'s holder):
-    /// not a failure, to ask again.
-    Busy(String),
+    /// Not run, and why (Claude at it already, from another run, `claude::claim`'s holder; in
+    /// the checkout it'd work in, that one): not a failure, asked again once that's over.
+    Busy(String, Option<PathBuf>),
     /// Not run: the PR isn't open now (its state: merged or closed meanwhile), nothing to do.
     Gone(String),
 }
@@ -30,6 +30,12 @@ impl Status {
     pub fn failed(why: impl Into<String>) -> Status {
         Status::Failed(why.into(), std::time::SystemTime::now())
     }
+}
+
+/// Whether what held run `n` back (`Busy`) is still there: Claude on it (its claim), or in the
+/// checkout it'd work in (`dir`). The one test, for the run and for asking it again.
+pub fn held(n: u64, dir: Option<&Path>) -> bool {
+    crate::claude::at_work(&crate::claude::pr_key(n), None, None).is_some() || dir.is_some_and(|d| crate::claude::at_work_in(d, None).is_some())
 }
 
 /// What Claude does on a PR: review it (or update the review it has: the prompt says to), update
@@ -203,7 +209,7 @@ fn run(s: Subject, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sen
     // this ends, however.
     let mut claim = match crate::claude::claim(&crate::claude::pr_key(n), task.doing(), None)? {
         Ok(c) => c,
-        Err(w) => return Ok(Status::Busy(format!("Claude is {w} on it"))),
+        Err(w) => return Ok(Status::Busy(format!("Claude is {w} on it"), None)),
     };
     // A PR merged or closed while it waited its turn (queued): nothing to do on it now.
     if let Subject::Pr(_) = s
@@ -239,7 +245,7 @@ fn run(s: Subject, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sen
     // its. An issue's run has no checkout of its own: none said.
     if let Subject::Pr(_) = s {
         if let Some(w) = crate::claude::at_work_in(&dir, None) {
-            return Ok(Status::Busy(format!("Claude is {w} in {}", dir.display())));
+            return Ok(Status::Busy(format!("Claude is {w} in {}", dir.display()), Some(dir)));
         }
         claim.set_dir(&dir);
     }

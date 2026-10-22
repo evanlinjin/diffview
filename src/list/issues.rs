@@ -228,7 +228,7 @@ pub(crate) fn save_triage(n: u64, updated: &str, fixes: &[(u64, String, String)]
 fn triage_run(n: u64, updated: &str, fixes: &[(u64, String, String)], root: &std::path::Path, extra: &str) -> Result<batch::Status> {
     let mut claim = match crate::claude::claim(&crate::claude::pr_key(n), "triaging", None)? {
         Ok(c) => c,
-        Err(w) => return Ok(batch::Status::Busy(format!("Claude is {w} on it"))),
+        Err(w) => return Ok(batch::Status::Busy(format!("Claude is {w} on it"), None)),
     };
     let mut cmd = triage_command(n, fixes, root, extra);
     let child = cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().context("is Claude Code (`claude`) installed?")?;
@@ -664,7 +664,7 @@ impl Issues {
                     }
                     batch::Status::Failed(e, _) => (self.msg, self.claude_rx) = (format!("#{n}: no closing comment: {}", e.lines().next().unwrap_or("")), None),
                     // Claude at it elsewhere: drafted on a later look.
-                    batch::Status::Busy(w) => {
+                    batch::Status::Busy(w, _) => {
                         (self.claude_rx, self.msg) = (None, format!("#{n}: no closing comment drafted now: {w} (on a later look)"));
                         self.auto_done.retain(|d| d.0 != n || !d.1.starts_with("closing@"));
                     }
@@ -676,7 +676,7 @@ impl Issues {
                     match &st {
                         // Claude at it elsewhere: not triaged now, and not done for auto either
                         // (asked again on a later look).
-                        batch::Status::Busy(w) => {
+                        batch::Status::Busy(w, _) => {
                             self.msg = format!("#{n}: not triaged now: {w}");
                             self.running.remove(&n);
                             self.auto_done.retain(|d| d.0 != n || d.1.starts_with("closing@"));
