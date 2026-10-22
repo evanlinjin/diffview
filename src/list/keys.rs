@@ -43,7 +43,7 @@ PR
   W W                  approve its workflow runs (GitHub holds a first-timer's)
   M M                  merge with github-merge.py (dv.mergescript: your own copy)
   I I                  the issues (dv issues opens there)
-  D D                  remove its worktree, or the replacement (not with local changes)";
+  D D                  remove its worktree, or the replacement (not with work only there)";
 
 impl List {
     /// Quit, asked first while Claude's at work here (`busy`): it'd stop with dv.

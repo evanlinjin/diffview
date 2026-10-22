@@ -243,7 +243,7 @@ impl List {
             self.prefetch();
             self.others_news();
             if self.watch_running() {
-                self.scan_unpushed(); // what it finished with may be waiting to be pushed
+                self.worktrees_changed(); // what it finished with may be waiting to be pushed (another dv's: a worktree made)
                 self.find_todo(); // Claude started or finished somewhere: its item moves
             }
             // A replacement drafted, or its draft changed, from anywhere: show it.

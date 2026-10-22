@@ -864,6 +864,10 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
     if !existed {
         record_checkout(n); // what dv put here: nothing here is work done since
     }
+    // Claude at work in it (a run of dv list's, a pane): shown as it is, not moved under it.
+    if existed && let Some(w) = crate::claude::at_work_in(&dir) {
+        return Ok((dir, Some(format!("Claude is {w} here: shown as it is, not updated to the PR"))));
+    }
     if known.is_some_and(|p| at_head(p, !branch)) {
         record_checkout(n);
         return Ok((dir, None));
