@@ -81,8 +81,9 @@ pub struct List {
     /// Claude's reviews from here (`a`): how each is going, and the news on its way.
     batch: HashMap<u64, batch::Status>,
     batch_rx: Vec<Receiver<(u64, batch::Status)>>,
-    /// The instructions each was asked with (`a a`'s), for asking it again.
-    batch_extra: HashMap<u64, String>,
+    /// Who asked each (`Some`: you, `a a`, with your instructions; `None`: auto), for asking it
+    /// again once held back.
+    batch_extra: HashMap<u64, Option<String>>,
     /// What each of those is (a review, an update to one, answers), for the cards.
     batch_task: HashMap<u64, batch::Task>,
     /// The todo tab: you (your login) and what GitHub says beyond the cards (on its way, like
@@ -314,7 +315,7 @@ impl List {
                     let prs: Vec<(u64, batch::Task)> = prs.into_iter().map(|n| (n, if self.nav.tab == Tab::Todo { self.todo_task(n) } else { batch::Task::Review })).collect();
                     let with = if extra.is_empty() { "" } else { ", with your instructions" };
                     let done: Vec<u64> = prs.iter().map(|p| p.0).collect();
-                    self.msg = format!("Claude is {}{with}, {} at a time", self.start_batch(prs, extra), batch::AT_ONCE);
+                    self.msg = format!("Claude is {}{with}, {} at a time", self.start_batch(prs, Some(extra)), batch::AT_ONCE);
                     self.marked.retain(|n| !done.contains(n)); // (what wasn't acted on stays marked)
                 }
                 // One draft's (one PR, or PRs one draft replaces): it. Several: Claude suggests
@@ -385,7 +386,8 @@ impl List {
     }
 
     /// Claude does each task on its PR in the background (`a a`, auto): what it's doing, said.
-    pub(super) fn start_batch(&mut self, prs: Vec<(u64, batch::Task)>, extra: String) -> String {
+    /// `prs`' runs, with your instructions (`Some`: you asked, `a a`), or auto's (`None`).
+    pub(super) fn start_batch(&mut self, prs: Vec<(u64, batch::Task)>, extra: Option<String>) -> String {
         // A worktree as it was made; a new one as dv list's flags say (-b: on the PR's branch).
         // Fixing CI makes changes to push: on the PR's branch, always.
         let on_branch = |n| self.local.get(&n).map_or(self.flags.contains('b'), |w| w.1.is_some());
@@ -393,11 +395,11 @@ impl List {
         let doing: Vec<String> = prs.iter().map(|(n, _, t)| format!("{} #{n}", t.doing())).collect();
         for (n, _, t) in &prs {
             self.batch_task.insert(*n, t.clone());
-            self.batch_extra.insert(*n, extra.clone()); // (asked again with them, held back)
+            self.batch_extra.insert(*n, extra.clone()); // (who asked, and with what: for asking again)
             // Queued now, not once its news comes: what looks at it next sees it under way.
             self.batch.insert(*n, batch::Status::Queued);
         }
-        self.batch_rx.push(batch::start(prs, self.root.clone(), extra));
+        self.batch_rx.push(batch::start(prs, self.root.clone(), extra.unwrap_or_default()));
         doing.join(", ")
     }
 

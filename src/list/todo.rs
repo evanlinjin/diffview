@@ -247,7 +247,7 @@ impl List {
             said.push(format!("Claude is drafting a replacement of #{n} (its review: low effort, worth keeping; the drafts tab has it)"));
         }
         if !run.is_empty() {
-            said.push(format!("Claude is {}", self.start_batch(run, String::new())));
+            said.push(format!("Claude is {}", self.start_batch(run, None)));
         }
         // `mark_ready` and the closing check CI again first. Said either way (not tried again
         // at this head: you'd be told each time).
@@ -690,13 +690,19 @@ impl List {
         }
         let changed = now != self.running || reps != self.running_reps;
         (self.running, self.running_reps) = (now, reps);
-        // Runs that found Claude at it: once it isn't (on the PR, nor where it'd work), asked
-        // again as they were (yours, auto's): a change as any here.
+        // Runs that found Claude at it: once it isn't (on the PR, nor where it'd work), yours
+        // asked again as you asked them; auto's, decided again by auto from how things are now
+        // (off, or done meanwhile: not run): a change as any here.
         let free: Vec<u64> = self.batch.iter().filter(|(n, s)| matches!(s, batch::Status::Busy(_, d) if !batch::held(**n, d.as_deref()))).map(|(&n, _)| n).collect();
         for &n in &free {
             let task = self.batch_task.get(&n).cloned().unwrap_or(batch::Task::Review);
-            let extra = self.batch_extra.get(&n).cloned().unwrap_or_default();
-            self.start_batch(vec![(n, task)], extra);
+            match self.batch_extra.get(&n).cloned().flatten() {
+                Some(extra) => _ = self.start_batch(vec![(n, task)], Some(extra)),
+                None => {
+                    self.batch.remove(&n);
+                    self.auto_done.retain(|d| d.0 != n || d.2 != task.doing());
+                }
+            }
         }
         changed || !free.is_empty()
     }

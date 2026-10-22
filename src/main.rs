@@ -889,7 +889,7 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
     }
     // Work done here since (yours, Claude's) stays: not updated to the PR over it.
     if existed && let Some(note) = local_work(n, Path::new(".")) {
-        return Ok((dir, Some(note)));
+        return Ok((dir, Some(there.map_or(note.clone(), |t| format!("{t}; {note}")))));
     }
     progress(Some(&format!("checking out PR #{n} in {}", dir.display())));
     let note = checkout_or_keep(n, force, !branch, None).map_err(|e| {
