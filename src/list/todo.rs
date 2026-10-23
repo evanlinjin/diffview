@@ -427,12 +427,12 @@ impl List {
                     let git = |args: &[&str]| crate::diff::git(&[&["-C", d.as_str()], args].concat()).ok();
                     let files = git(&["status", "--porcelain"])?.lines().count();
                     // Beyond the PR's head as GitHub has it (fetched if it isn't here), as dv's
-                    // one rule has it (`only_here`). Its head not known yet: asked again once it
-                    // is.
-                    let head = heads.get(&n).filter(|h| !h.is_empty()).filter(|h| {
-                        git(&["cat-file", "-e", &format!("{h}^{{commit}}")]).is_some()
-                            || git(&["fetch", "-q", "--no-write-fetch-head", &crate::diff::remote(), &format!("refs/pull/{n}/head")]).is_some()
-                    });
+                    // one rule has it (`only_here`: a fetch failed, it can't tell, so it's
+                    // counted as work, not none). Its head not known yet: asked again once it is.
+                    let head = heads.get(&n).filter(|h| !h.is_empty());
+                    if head.is_some_and(|h| git(&["cat-file", "-e", &format!("{h}^{{commit}}")]).is_none()) {
+                        _ = git(&["fetch", "-q", "--no-write-fetch-head", &crate::diff::remote(), &format!("refs/pull/{n}/head")]);
+                    }
                     let commits = head.map_or(0, |h| crate::only_here(std::path::Path::new(&d), n, h, bases.get(&n).map(String::as_str)));
                     // When the PR's head was made: Claude's changes after it are what's waiting.
                     let at = head.and_then(|h| git(&["log", "-1", "--format=%ct", h])).and_then(|t| t.trim().parse().ok());
