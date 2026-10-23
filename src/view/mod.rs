@@ -786,9 +786,6 @@ pub struct App {
     /// as it was then (a load since is newer, so that one's dropped).
     github: Option<std::sync::mpsc::Receiver<(u64, github::Fetched)>>,
     github_gen: std::sync::Arc<std::sync::atomic::AtomicU64>,
-    /// dv changed the issue (a label, a comment, its text): its time when it did, so the change
-    /// doesn't count as one since Claude triaged it (`apply_github`).
-    own_change: Option<String>,
     /// Tells the background watch to fetch now, whatever the PR's ETag says.
     github_poke: Option<std::sync::mpsc::Sender<()>>,
     /// The PR's whole conversation attached to the description, not only its latest (`Space o`).

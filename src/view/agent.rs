@@ -354,7 +354,7 @@ impl App {
         }
         if drafted && open {
             items.insert(0, Item::new("Changes to the closing comment…", Target::Claude(Ask::Close)));
-            items.insert(0, Item::new(format!("Close {} with Claude's comment (your editor first)…", self.what()), Target::Do(Action::ClosePr)));
+            items.insert(0, Item::new(format!("Close {}{} with Claude's comment (your editor first)…", self.what(), self.closes_as()), Target::Do(Action::ClosePr)));
         } else if self.subject().is_some() && open {
             items.push(Item::new(format!("Draft a comment closing {}… (you edit it, then close)", self.what()), Target::Claude(Ask::Close)));
         }
@@ -505,12 +505,21 @@ impl App {
         };
     }
 
+    /// How an issue closes, as Claude's triage says (" as a duplicate of #12"); a PR's, nothing.
+    fn closes_as(&self) -> String {
+        let t = &self.claude.triage;
+        match self.issue.is_some() {
+            true => format!(" {}", crate::gh::close_how(&t.reason, t.duplicate_of).1),
+            false => String::new(),
+        }
+    }
+
     /// `Space a` → close the PR with Claude's comment: in your editor first (an empty one, or
     /// `:cq`, closes nothing), then posted, and the PR closed.
     pub(super) fn close_pr(&mut self) -> Result<String> {
         let (Some(s), Some(path)) = (self.subject(), self.claude.path.clone()) else { return Ok(String::new()) };
         let n = s.n();
-        let what = format!("comment closing #{n} (posted on its conversation, then it's closed; empty closes nothing)");
+        let what = format!("comment closing #{n} (posted on its conversation, then it's closed{}; empty closes nothing)", self.closes_as());
         let Some(text) = compose_with(&what, false, self.claude.closing.trim(), true)?.filter(|t| !t.trim().is_empty()) else {
             return Ok(format!("#{n} not closed"));
         };

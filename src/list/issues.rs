@@ -429,7 +429,7 @@ impl Issues {
             self.find_todo();
         }
         // Yours held back: asked again, as you asked, once Claude's done there (`batch::held`).
-        let free: Vec<(u64, String)> = self.running.keys().filter(|&&n| self.held_yours(n) && !batch::held(n, None)).filter_map(|&n| Some((n, self.asked.get(&n).cloned().flatten()?))).collect();
+        let free: Vec<(u64, String)> = self.running.keys().filter(|&&n| self.held_yours(n) && !batch::held(n, None) && self.items.iter().any(|i| i.number == n)).filter_map(|&n| Some((n, self.asked.get(&n).cloned().flatten()?))).collect();
         for (n, extra) in free {
             self.triage(vec![n], Some(extra));
         }
@@ -654,7 +654,10 @@ impl Issues {
                         if first && self.todos.auto && self.untriaged() > 0 {
                             self.msg = format!("auto is on: Claude triages the {} issue(s) not triaged, two at a time (~$0.30 each; C turns it off)", self.untriaged());
                         }
-                        self.nav.sel = keep.and_then(|n| self.shown().iter().position(|i| i.number == n)).unwrap_or(0);
+                        // (Its issue gone (closed): where it was, as dv list's.)
+                        if let Some(i) = keep.and_then(|n| self.shown().iter().position(|i| i.number == n)) {
+                            self.nav.sel = i;
+                        }
                         if self.msg.starts_with("fetching") {
                             self.msg.clear();
                         }

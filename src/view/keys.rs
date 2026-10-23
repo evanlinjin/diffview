@@ -360,6 +360,10 @@ impl App {
         }
     }
 
+    /// What can follow `Space` that's for code alone (an issue's view leaves them out: each says
+    /// `NO_CODE` there).
+    pub(super) const CODE_ONLY: [&str; 6] = ["f", "C", "N", "v", "g", "p"];
+
     /// What can follow prefix key `p`, for the which-key popup (as Helix shows): (title, keys).
     /// Kept next to `pending_key`, which they mirror.
     pub(super) fn which(p: char) -> Option<(&'static str, &'static [(&'static str, &'static str)])> {
@@ -378,10 +382,10 @@ impl App {
                 ("g", "git: uncommitted only / commit / push / update"),
                 ("m", "messages, in full"),
                 ("s", "a shell in the checkout's directory"),
-                ("o", "the PR's whole activity / its latest"),
+                ("o", "the whole activity / its latest"),
                 ("r", "resolve thread"),
                 ("=", "react to the comment (👍 🎉 …)"),
-                ("l", "the PR's labels, assignees, reviewers"),
+                ("l", "labels, assignees (a PR's reviewers)"),
                 ("e", "edit your comment"),
                 ("d", "delete / dismiss comment"),
                 ("y", "copy"),

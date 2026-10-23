@@ -412,10 +412,7 @@ fn run_view(app: &mut view::App, term: &mut ratatui::DefaultTerminal, review: &m
         // (What was drawn over it meanwhile, and loading lines: all drawn anew.)
         _ = term.clear();
         app.run(term)?;
-        let Some(to) = app.hand_off.take() else {
-            app.settle_own_change();
-            return Ok(());
-        };
+        let Some(to) = app.hand_off.take() else { return Ok(()) };
         let shown = match to {
             view::HandOff::Pr(p) => {
                 view::restore_terminal();

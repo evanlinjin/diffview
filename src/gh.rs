@@ -908,23 +908,21 @@ pub fn create_pr(base: &str, head: &str, title: &str, body: &str) -> Result<u64>
 /// of `dup`).
 /// Closes issue `n`, as `reason` says (a duplicate of `dup`, not planned, else done): GitHub's
 /// `stateReason` for it.
+/// How an issue closes for Claude's triage's `reason` (and `dup`): GitHub's state reason, in
+/// words, and `gh issue close`'s arguments. One rule for the close and what's said of it.
+pub fn close_how(reason: &str, dup: Option<u64>) -> (&'static str, String, Vec<String>) {
+    match (reason, dup) {
+        ("duplicate", Some(d)) => ("DUPLICATE", format!("as a duplicate of #{d}"), vec!["--duplicate-of".into(), d.to_string()]),
+        ("not planned", _) => ("NOT_PLANNED", "as not planned".into(), vec!["--reason".into(), "not planned".into()]),
+        _ => ("COMPLETED", "as completed".into(), vec!["--reason".into(), "completed".into()]),
+    }
+}
+
 pub fn close_issue(n: u64, comment: &str, reason: &str, dup: Option<u64>) -> Result<&'static str> {
-    let (n, dup) = (n.to_string(), dup.map(|d| d.to_string()));
+    let (why, _, how) = close_how(reason, dup);
+    let n = n.to_string();
     let mut args = vec!["issue", "close", &n, "--comment", comment];
-    let why = match (reason, &dup) {
-        ("duplicate", Some(d)) => {
-            args.extend(["--duplicate-of", d]);
-            "DUPLICATE"
-        }
-        ("not planned", _) => {
-            args.extend(["--reason", "not planned"]);
-            "NOT_PLANNED"
-        }
-        _ => {
-            args.extend(["--reason", "completed"]);
-            "COMPLETED"
-        }
-    };
+    args.extend(how.iter().map(String::as_str));
     gh(&args).map(|_| why)
 }
 

@@ -55,7 +55,8 @@ impl App {
         // the cursor is (when no other popup is up). At the bottom of the contents list when it's
         // shown; else a popup (below).
         let keys = match self.pending {
-            Some(p) => App::which(p).map(|(t, k)| (t, k.to_vec())),
+            // (An issue's: not what's for code alone.)
+            Some(p) => App::which(p).map(|(t, k)| (t, k.iter().filter(|(k, _)| self.has_code() || !(p == ' ' && App::CODE_ONLY.contains(k))).copied().collect())),
             // The list has focus: its keys.
             None if self.files_focus && self.picker.is_none() && self.popup.is_none() => Some(self.list_keys()).map(|(t, k)| (t, k.to_vec())),
             None if self.picker.is_none() && self.popup.is_none() && self.prompt.is_none() => self.context_keys(),

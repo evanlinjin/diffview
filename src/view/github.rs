@@ -197,35 +197,28 @@ impl App {
     /// under way brings back is from before, and would undo what dv shows now; the watcher's
     /// asked again (it may hold the ETag already), and that answer's current.
     pub(super) fn github_changed(&mut self) {
-        if let Some(i) = &self.issue {
-            self.own_change.get_or_insert_with(|| i.updated.clone());
-        }
+        self.own_change();
         self.github_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         if let Some(p) = &self.github_poke {
             _ = p.send(());
         }
     }
 
-    /// Your own change to the issue since the triage isn't one to triage again for: the
-    /// triage's time moves with it to `updated`, GitHub's (another's since, it doesn't). Taken
-    /// once GitHub's time has moved: an answer from before it did, not.
-    fn own_moved(own_change: &mut Option<String>, review: Option<&std::path::Path>, updated: &str) {
-        let Some(was) = own_change.take_if(|w| w != updated) else { return };
-        let Some(p) = review else { return };
-        let Ok(mut v) = std::fs::read_to_string(p).map_err(anyhow::Error::from).and_then(|t| Ok(serde_json::from_str::<serde_json::Value>(&t)?)) else { return };
-        if v["updated"].as_str() == Some(was.as_str()) {
-            v["updated"] = updated.into();
+    /// Your own change to an issue since Claude triaged it isn't one to triage again for: the
+    /// triage's time moves with the issue's, GitHub's now (one changed by another meanwhile,
+    /// it doesn't).
+    fn own_change(&mut self) {
+        let (Some(i), Some(p)) = (&mut self.issue, &self.claude.path) else { return };
+        let Ok(now) = gh::gh(&["api", &format!("repos/{{owner}}/{{repo}}/issues/{}", i.number), "--jq", ".updated_at"]) else { return };
+        let now = now.trim().to_owned();
+        if let Ok(mut v) = std::fs::read_to_string(p).map_err(anyhow::Error::from).and_then(|t| Ok(serde_json::from_str::<serde_json::Value>(&t)?))
+            && v["updated"].as_str() == Some(i.updated.as_str())
+            && now != i.updated
+        {
+            v["updated"] = now.clone().into();
             _ = crate::claude::write(p, &v);
         }
-    }
-
-    /// Leaving the issue's view with a change of yours not fetched back yet: GitHub's time
-    /// asked now, so it's not one to triage again for (`own_moved`).
-    pub fn settle_own_change(&mut self) {
-        let Some(n) = self.issue.as_ref().map(|i| i.number).filter(|_| self.own_change.is_some()) else { return };
-        if let Ok(u) = gh::gh(&["api", &format!("repos/{{owner}}/{{repo}}/issues/{n}"), "--jq", ".updated_at"]) {
-            Self::own_moved(&mut self.own_change, self.claude.path.as_deref(), u.trim());
-        }
+        i.updated = now;
     }
 
     /// Shows what the background look at GitHub fetched, once nothing's to be done first.
@@ -294,9 +287,6 @@ impl App {
                         self.github_base = Some(base);
                     }
                 } else if let Some(i) = &mut self.issue {
-                    if fresh {
-                        Self::own_moved(&mut self.own_change, self.claude.path.as_deref(), &updated);
-                    }
                     (i.title, i.url, i.updated, i.fixes) = (title, url, updated, fixes);
                 }
                 self.refresh_sync(); // the PR's head may have moved

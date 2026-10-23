@@ -689,7 +689,11 @@ impl App {
         if items.is_empty() {
             return self.msg = "no labels in this repo, nor anyone to assign or ask".into();
         }
-        let p = Picker::new(" reviewers, labels, assignees (✓ on it, ◆ Claude suggests it: Enter adds or takes it off) ", items);
+        let title = match self.has_code() {
+            true => " reviewers, labels, assignees (✓ on it, ◆ Claude suggests it: Enter adds or takes it off) ",
+            false => " labels, assignees (✓ on it, ◆ Claude suggests it: Enter adds or takes it off) ",
+        };
+        let p = Picker::new(title, items);
         self.picker = Some(Picker { query, ..p });
         let picked = |t: &Target| matches!((t, &on), (Target::Run(Job::SetField(f, n, _)), Some((g, m))) if f == g && n == m);
         let sel = self.matches().into_iter().position(|i| self.picker.as_ref().is_some_and(|p| picked(&p.items[i].target))).unwrap_or(0);
