@@ -339,7 +339,6 @@ pub fn worktree(r: &Record, root: &Path) -> Result<PathBuf> {
     }
     // (One whose directory was deleted, not removed: still registered, in the way.)
     _ = git(&["worktree", "prune"]);
-    _ = git(&["fetch", "-q", &crate::diff::remote(), &r.base]);
     let (b, d) = (branch(r.id), dir.to_string_lossy().into_owned());
     if git(&["rev-parse", "--verify", "-q", &format!("refs/heads/{b}")]).is_ok() {
         git(&["worktree", "add", &d, &b])?;
@@ -358,7 +357,10 @@ pub fn worktree(r: &Record, root: &Path) -> Result<PathBuf> {
                 _ = git(&["config", &format!("branch.{b}.merge"), &format!("refs/heads/{b}")]);
             }
         }
-        None => _ = git(&["worktree", "add", "-b", &b, &d, &crate::diff::remote_branch(&r.base)])?,
+        None => {
+            _ = git(&["fetch", "-q", &crate::diff::remote(), &r.base]);
+            git(&["worktree", "add", "-b", &b, &d, &crate::diff::remote_branch(&r.base)])?;
+        }
     }
     Ok(dir)
 }

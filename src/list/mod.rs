@@ -358,16 +358,15 @@ impl List {
                     self.nav.clamp(self.shown().len());
                 }
                 Some(Do::Remove(n)) => {
-                    self.msg = match crate::remove_worktree(n, false) {
-                        Ok(m) => {
-                            self.worktrees_changed();
-                            // Listed only for its worktree (closed, merged): gone with it.
-                            self.prs.retain(|p| p.number != n || p.open());
-                            self.nav.clamp(self.shown().len());
-                            m
-                        }
-                        Err(e) => format!("{e:#}"),
+                    let res = crate::remove_worktree(n, false);
+                    // Git's worktrees as they are now, either way (removed, or deleted by hand and
+                    // let go); one gone, a PR listed only for it (closed, merged) with it.
+                    self.worktrees_changed();
+                    if !self.local.contains_key(&n) {
+                        self.prs.retain(|p| p.number != n || p.open());
+                        self.nav.clamp(self.shown().len());
                     }
+                    self.msg = res.unwrap_or_else(|e| format!("{e:#}"));
                 }
                 None => {}
             }
