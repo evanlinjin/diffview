@@ -277,8 +277,8 @@ fn gh_input(args: &[&str], input: Option<&str>) -> Result<String> {
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-/// `force` resets an existing local branch for the PR to the PR head, dropping its local commits.
-/// `detach` checks out the PR head without a local branch (for worktrees: no branch clashes).
+/// `gh pr checkout`, never forced (its reset --hard would take uncommitted edits: dv resets
+/// with --keep itself). `detach` checks out the PR head without a local branch (for worktrees: no branch clashes).
 pub fn checkout(n: u64, detach: bool) -> Result<()> {
     let n = n.to_string();
     let mut args = vec!["pr", "checkout", &n];
