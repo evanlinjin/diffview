@@ -128,7 +128,7 @@ impl App {
     }
 
     /// The name under the cursor in text (a comment, the PR's): in `code`, or one that looks
-    /// like code (`snake_case`, `CamelCase`, `a::b`).
+    /// like code (`snake_case`, `camelCase`, a digit), not a plain English word.
     pub(super) fn name_at_cursor(&self) -> Option<String> {
         let (text, col) = (&self.rows[self.head.row].line.text, self.word_col());
         // Code's color (it may be bold too, in bold text or a heading).
