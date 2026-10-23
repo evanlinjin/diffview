@@ -65,6 +65,8 @@ pub struct List {
     /// The done tab's merged and closed PRs: fetched the first time it's shown (and on `R`).
     done: Option<Vec<Listed>>,
     done_rx: Option<Receiver<Result<Vec<Listed>>>>,
+    /// How many it asks for: `DONE_MAX` more each time you reach the end.
+    done_limit: usize,
     rep_of: HashMap<u64, crate::replace::Record>,
     /// Replacements Claude is drafting: how each is going, and the news on its way.
     drafting: HashMap<u64, batch::Status>,
@@ -281,20 +283,36 @@ impl List {
                 self.group_rx = None;
                 self.draft_groups(term, res);
             }
-            // The done tab, the first time it's shown: its PRs fetched.
-            if self.nav.tab == Tab::Done && self.done.is_none() && self.done_rx.is_none() {
+            // The done tab, the first time it's shown: its PRs fetched; at its end (unfiltered),
+            // more of them, if there may be.
+            let shown = self.done.as_ref().map(Vec::len);
+            let at_end = self.nav.query.is_empty() && shown.is_some_and(|n| n >= self.done_limit && self.nav.sel + 1 >= n);
+            if self.nav.tab == Tab::Done && (self.done.is_none() || at_end) && self.done_rx.is_none() {
+                self.done_limit = match shown {
+                    Some(_) => self.done_limit.saturating_add(github::DONE_MAX),
+                    None => github::DONE_MAX,
+                };
+                let limit = self.done_limit;
                 let (tx, rx) = mpsc::channel();
-                std::thread::spawn(move || _ = tx.send(github::done()));
+                std::thread::spawn(move || _ = tx.send(github::done(limit)));
                 (self.done_rx, self.msg) = (Some(rx), "fetching the merged and closed PRs…".into());
             }
             if let Some(Ok(res)) = self.done_rx.as_ref().map(Receiver::try_recv) {
                 self.done_rx = None;
-                // (Failed: none, said; R asks again.)
-                self.msg = match &res {
-                    Ok(_) => String::new(),
-                    Err(e) => format!("merged and closed PRs: {e:#} (R tries again)"),
-                };
-                self.done = Some(res.unwrap_or_default());
+                // (Failed: what it had, said; R asks again. Its own message cleared, not others'.)
+                match res {
+                    Ok(prs) => {
+                        self.done = Some(prs);
+                        if self.msg.starts_with("fetching the merged") {
+                            self.msg.clear();
+                        }
+                    }
+                    Err(e) => {
+                        self.msg = format!("merged and closed PRs: {e:#} (R tries again)");
+                        self.done.get_or_insert_default();
+                        self.done_limit = usize::MAX; // (not asked again till R)
+                    }
+                }
             }
             // Quietly: what you're reading stays (an error just waits for the next try).
             if let Some(Ok(Ok(prs))) = self.fresh.as_ref().map(|(_, rx)| rx.try_recv()) {
@@ -629,7 +647,7 @@ impl List {
             _ => match self.rep_of.get(&id)? {
                 r if r.published.is_some() => return Some((format!("{of}: published as #{}", r.published.unwrap_or(0)), true)),
                 // (Its last draft refused a tool it needed: what's in the way, said.)
-                r if !r.refused.is_empty() => (format!("blocked: Claude was refused {} (allow it, then Space a → Redraft)", r.refused), false),
+                r if let Some(b) = r.blocked() => (format!("blocked: Claude was refused {b} (allow it, then Space a → Redraft)"), false),
                 r if !r.drafted() => ("no draft yet".into(), false),
                 _ => ("drafted".into(), true),
             },
@@ -846,8 +864,9 @@ impl List {
             _ => self.prs.iter().filter(in_tab).map(|p| (p, None)).collect(),
         };
         let mut prs: Vec<(&Listed, Option<&crate::todo::Item>)> = all.into_iter().filter(|p| self.nav.query.split_whitespace().all(|t| term(p.0, t))).collect();
-        if self.nav.tab == Tab::Todo {
-            return prs; // in the order of what needs you most
+        // (The todo: in the order of what needs you most; done: most recently closed first.)
+        if matches!(self.nav.tab, Tab::Todo | Tab::Done) {
+            return prs;
         }
         prs.sort_by(|(a, _), (b, _)| {
             let o = match self.order {
@@ -960,6 +979,18 @@ impl Order {
     }
 }
 
+/// The values dv list's keyed filter terms take (`is:` on the done tab: merged, closed).
+const IS: &[&str] = &["draft", "merged", "closed"];
+const REVIEW: &[&str] = &["approved", "changes", "required", "none"];
+const CI: &[&str] = &["pass", "fail", "pending", "none"];
+
+/// `v`, a filter term's value as typed (its start, any case), as the one of `values` it starts;
+/// none, nothing it could be. The one rule for the matching and for saying what's unknown.
+pub(super) fn resolve<'a>(v: &str, values: &[&'a str]) -> Option<&'a str> {
+    let v = v.to_lowercase();
+    values.iter().find(|a| !v.is_empty() && a.starts_with(&v)).copied()
+}
+
 /// One filter term, GitHub-search style: `author:` `label:` `base:` `branch:` (substring),
 /// `is:draft`, `review:approved|changes|required|none`, `ci:pass|fail|pending|none`, else text
 /// in the number, title, author, branch or labels. `-` negates. Smart case.
@@ -973,22 +1004,25 @@ fn term(p: &Listed, t: &str) -> bool {
                 "label" => p.labels.iter().any(|l| has(&l.0, v)),
                 "base" => has(&p.base, v),
                 "branch" => has(&p.branch, v),
-                "is" if v == "draft" => p.draft,
-                "is" if v == "merged" => p.state == "MERGED",
-                "is" if v == "closed" => !p.open(),
-                "review" => match p.decision.as_str() {
-                    "APPROVED" => "approved".starts_with(v),
-                    "CHANGES_REQUESTED" => "changes".starts_with(v),
-                    "REVIEW_REQUIRED" => "required".starts_with(v),
+                // (A value as typed resolved to the one it starts, any case: `Nav::unknown` says
+                // what resolves to none.)
+                "is" => match resolve(v, IS) {
+                    Some("draft") => p.draft,
+                    Some("merged") => p.state == "MERGED",
+                    Some("closed") => !p.open(),
+                    _ => false,
+                },
+                "review" => resolve(v, REVIEW).is_some_and(|v| match p.decision.as_str() {
+                    "APPROVED" => v == "approved",
+                    "CHANGES_REQUESTED" => v == "changes",
+                    "REVIEW_REQUIRED" => v == "required",
                     _ => v == "none",
-                },
+                }),
                 // Unknown until the checks arrive; then a PR can match several (fail and pending).
-                "ci" => match p.checks {
+                "ci" => resolve(v, CI).is_some_and(|v| match p.checks {
                     Some((0, 0, 0)) | None => v == "none",
-                    Some((pass, fail, pending)) => {
-                        ("pass".starts_with(v) && pass > 0 && fail == 0 && pending == 0) || ("fail".starts_with(v) && fail > 0) || ("pending".starts_with(v) && pending > 0)
-                    }
-                },
+                    Some((pass, fail, pending)) => (v == "pass" && pass > 0 && fail == 0 && pending == 0) || (v == "fail" && fail > 0) || (v == "pending" && pending > 0),
+                }),
                 _ => return None,
             })
         },

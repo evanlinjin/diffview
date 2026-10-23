@@ -290,7 +290,7 @@ impl App {
         match (&self.pr, &self.replacement) {
             (Some(pr), _) => Some(format!("PR #{} · {}", pr.number, pr.title)),
             (None, Some(r)) => {
-                let title = if r.title.is_empty() { "(not drafted yet)" } else { r.title.as_str() };
+                let title = if r.title.is_empty() { format!("({})", r.undrafted()) } else { r.title.clone() };
                 Some(match crate::replace::is_new(r.id) {
                     true => format!("{} · {title}", crate::replace::label(r.id).replacen("new PR", "New PR", 1)),
                     false => format!("Replacement of #{} · {title}", r.id),
@@ -367,8 +367,9 @@ impl App {
         let text = self.info_body(h);
         let s = match !self.has_proposal() {
             true => {
+                let undrafted = format!("_({})_", self.replacement.as_ref().map_or("not drafted yet".into(), |r| r.undrafted()));
                 let text = match (text.trim().is_empty(), self.unpublished()) {
-                    (true, true) => "_(not drafted yet)_",
+                    (true, true) => undrafted.as_str(),
                     (true, false) => "_(no description)_",
                     _ => text,
                 };
@@ -406,8 +407,9 @@ impl App {
             return self.section(CLOSING_NOTE, "closing note, for the PRs it replaces (S closes them with it)".into(), &crate::replace::note(r), None);
         }
         let Some(h) = self.heading(Self::is_closing_note) else { return vec![] };
+        let undrafted = format!("_({})_", self.replacement.as_ref().map_or("not drafted yet".into(), |r| r.undrafted()));
         let text = match self.info_body(h) {
-            t if t.trim().is_empty() => "_(not drafted yet)_",
+            t if t.trim().is_empty() => undrafted.as_str(),
             t => t,
         };
         let s = self.section(CLOSING_NOTE, self.info[h].text.clone(), text, Some(h + 1));

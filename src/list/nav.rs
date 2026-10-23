@@ -51,8 +51,8 @@ impl<T: Tabs> Nav<T> {
         self.query.split_whitespace().find_map(|t| {
             let (k, v) = t.trim_start_matches('-').split_once(':')?;
             let (k, values) = keys.iter().find(|(key, _)| key.eq_ignore_ascii_case(k))?;
-            let v = v.to_lowercase();
-            (v.is_empty() || !values.iter().any(|a| a.starts_with(&v))).then(|| format!("{t}: not a filter here ({k}:{})", values.join("|")))
+            // (Still being typed, `review:`: not yet.)
+            (!v.is_empty() && super::resolve(v, values).is_none()).then(|| format!("{t}: not a filter here ({k}:{})", values.join("|")))
         })
     }
 

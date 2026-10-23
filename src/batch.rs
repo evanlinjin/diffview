@@ -315,7 +315,8 @@ fn run(s: Subject, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sen
     let v: serde_json::Value = std::fs::read_to_string(&log).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
     if !st.success() || v["is_error"] != false {
         _ = crate::claude::save_session(&review, &dir, None); // start afresh next time
-        anyhow::bail!("Claude stopped ({st}): see {}", log.display());
+        let why = crate::claude::refusal(&v).map_or(String::new(), |r| format!(", refused {r}"));
+        anyhow::bail!("Claude stopped ({st}{why}): see {}", log.display());
     }
     Ok(Status::Done(crate::claude::took(&v)))
 }

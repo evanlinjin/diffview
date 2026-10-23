@@ -811,6 +811,14 @@ pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool, own: Option<&s
         return Ok(None);
     };
     let msg = format!("{e:#}");
+    // Its branch gone (merged and deleted): its head as GitHub keeps it (refs/pull/N),
+    // detached. (Uncommitted edits carried, or refused.)
+    if msg.contains("couldn't find remote ref") {
+        let pr = fetch_pr(n, Path::new("."))?;
+        diff::git(&["checkout", "-q", "--detach", &pr])?;
+        record_checkout_at(n, &pr);
+        return Ok(Some(format!("#{n}'s branch is gone: shown detached at its head")));
+    }
     // (gh merges --ff-only on a branch of a remote of yours; fetches into it, a fork's.)
     let diverged = ["Not possible to fast-forward", "Diverging branches", "non-fast-forward"].iter().any(|p| msg.contains(p));
     let here = diff::git(&["branch", "--show-current"]).unwrap_or_default().trim().to_owned();

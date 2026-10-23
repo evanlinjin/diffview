@@ -13,8 +13,8 @@ pub(super) fn rep_card(r: &crate::replace::Record, root: &std::path::Path) -> Li
         stat.split(',').find(|p| p.contains(what)).and_then(|p| p.split_whitespace().next()?.parse().ok()).unwrap_or(0)
     };
     let title = match r.title.is_empty() {
-        true if crate::replace::is_new(r.id) => format!("(not drafted yet: {})", r.task.lines().next().unwrap_or("")),
-        true => format!("(replacement of #{}, not drafted yet)", r.id),
+        true if crate::replace::is_new(r.id) => format!("({}: {})", r.undrafted(), r.task.lines().next().unwrap_or("")),
+        true => format!("(replacement of #{}, {})", r.id, r.undrafted()),
         false => r.title.clone(),
     };
     Listed {

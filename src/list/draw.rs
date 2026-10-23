@@ -41,7 +41,7 @@ impl List {
             (Tab::Stalled, format!("stalled {}", self.prs.iter().filter(|p| p.open() && self.stalled(p).is_some()).count())),
             (Tab::Worktrees, format!("worktrees {}", self.local.len())),
             (Tab::Replacements, format!("drafts {}", self.reps.len())),
-            (Tab::Done, self.done.as_ref().map_or("done".into(), |d| format!("done {}{}", d.len(), if d.len() >= github::DONE_MAX { "+" } else { "" }))),
+            (Tab::Done, self.done.as_ref().map_or("done".into(), |d| format!("done {}{}", d.len(), if d.len() >= self.done_limit { "+" } else { "" }))),
         ];
         let tabs: Vec<(String, bool)> = names.iter().map(|(t, n)| (n.clone(), self.nav.tab == *t)).collect();
         let hits = top_bar(f, ui, "PRs", &tabs, "I I the issues", sel, shown.len());
@@ -147,7 +147,9 @@ impl List {
 
         // (The keys: in their popup, but beside the todo tab's word on each.)
         let idle = if self.nav.tab == Tab::Todo && msg_col.is_some() { " ? keys" } else { "" };
-        let keys: &[(&str, &[&str])] = &[("is", &["draft", "merged", "closed"]), ("review", &["approved", "changes", "required", "none"]), ("ci", &["pass", "fail", "pending", "none"])];
+        // (`is:merged`, `is:closed` on the done tab alone: open PRs are neither.)
+        let is: &[&str] = if self.nav.tab == Tab::Done { &["draft", "merged", "closed"] } else { &["draft"] };
+        let keys: &[(&str, &[&str])] = &[("is", is), ("review", REVIEW), ("ci", CI)];
         let left = self.nav.status(&self.msg, "author: label: base: branch: is:draft review: ci:", idle, keys);
         // On the right, how it's ordered (on the todo tab, Claude's ranking: how old, what it
         // cost, what's changed since), and the flags PRs open with.
@@ -207,7 +209,9 @@ impl List {
                 .iter()
                 .filter(|(k, _)| match *k {
                     "D D" => matches!(self.nav.tab, Tab::Worktrees | Tab::Replacements), // (as the key does)
-                    "o O" => self.nav.tab != Tab::Todo, // in the order of what needs you
+                    "o O" => !matches!(self.nav.tab, Tab::Todo | Tab::Done), // (their own order)
+                    // (Done PRs are to read.)
+                    "m" | "a a" | "A A" | "M M" | "W W" | "b b" => self.nav.tab != Tab::Done,
                     "r r" | "s" | "p" => self.nav.tab == Tab::Todo,
                     _ => true,
                 })

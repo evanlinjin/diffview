@@ -81,6 +81,19 @@ impl Record {
         }
     }
 
+    /// What Claude was refused in its last draft, while it's unpublished: what's in the way.
+    pub fn blocked(&self) -> Option<&str> {
+        (self.published.is_none() && !self.refused.is_empty()).then_some(self.refused.as_str())
+    }
+
+    /// What's said where its drafts aren't yet: not drafted, or why not (blocked).
+    pub fn undrafted(&self) -> String {
+        match self.blocked() {
+            Some(r) => format!("not drafted: Claude was refused {r} (allow it, then Space a → Redraft)"),
+            None => "not drafted yet".into(),
+        }
+    }
+
     /// Claude has drafted it (so drafting it again carries on, in the same session).
     pub fn drafted(&self) -> bool {
         !self.title.is_empty() || !self.body.is_empty()
@@ -661,15 +674,17 @@ fn run_claude(r: &Record, dir: &Path, first: bool, extra: &str, which: Reviews, 
         .status()
         .context("is Claude Code (`claude`) installed?")?;
     let v: Value = std::fs::read_to_string(&log).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
-    if !st.success() || v["is_error"] != false {
-        anyhow::bail!("Claude stopped ({st}): see {}", log.display());
-    }
-    // (What it was refused, kept with the draft: its card and view say so till a draft isn't.)
-    let refused = crate::claude::refusal(&v).unwrap_or_default();
+    // (What it was refused, kept with the draft, whether it ended or stopped: its card and view
+    // say so till a draft isn't.)
+    let refused = crate::claude::refusal(&v);
     _ = update(r.id, |r| {
-        r.refused = refused;
+        r.refused = refused.clone().unwrap_or_default();
         Ok(())
     });
+    if !st.success() || v["is_error"] != false {
+        let why = refused.map_or(String::new(), |r| format!(", refused {r}"));
+        anyhow::bail!("Claude stopped ({st}{why}): see {}", log.display());
+    }
     Ok(crate::claude::took(&v))
 }
 

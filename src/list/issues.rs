@@ -639,7 +639,7 @@ impl Issues {
                         "author" => has(&i.author, v),
                         "kind" => t.is_some_and(|t| has(&t.kind, v)),
                         "priority" => t.is_some_and(|t| has(&t.priority, v)),
-                        "is" if v == "triaged" => t.is_some(),
+                        "is" => resolve(v, &["triaged"]).is_some() && t.is_some(),
                         _ => return None,
                     })
                 },
