@@ -231,10 +231,6 @@ impl List {
         self.find_todo(); // and what you did there may have seen to it
         self.select_card(keep);
         loop {
-            // (Counted as dv's work while any is, for the issues list's q too.)
-            if self.holds() != self.held.is_some() {
-                self.held = self.holds().then(batch::Work::new);
-            }
             // (Failed: tried again once the marks change, not every turn of the loop.)
             if self.marked == self.marked_saved {
                 self.marks_failed = None;
@@ -300,6 +296,11 @@ impl List {
                 self.find_todo(); // green checks: ready to merge
             }
             self.select_card(keep);
+            // (Counted as dv's work while any is, for the issues list's q too: after the news,
+            // before a key can leave.)
+            if self.holds() != self.held.is_some() {
+                self.held = self.holds().then(batch::Work::new);
+            }
             if !event::poll(Duration::from_millis(100))? {
                 continue;
             }
