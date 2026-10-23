@@ -5,6 +5,28 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.95.18] - 2026-10-23
+
+### Fixed
+- dv list: Claude's runs are two at a time across every batch, draft and grouping; a run
+  that finds Claude at it (any dv, a pane you started) is held, said, and asked again once
+  that's over (yours as you asked it, auto's decided again), never a second Claude in one
+  checkout; one rule for "Claude is at this PR" (a run, a held one, a draft of its
+  replacement, a published replacement's pane) behind the cards, a a, A A, M M and auto.
+- What's yours in a PR's checkout is one rule (`only_here`), for the cards, updating, D D and
+  merging: a detached worktree's commits aren't hidden or lost, the base's aren't counted, a
+  checkout dv only showed as it was isn't recorded as dv's, and nothing is updated under
+  Claude at work there; a run works only in a worktree dv made.
+- Merging holds a lock for the script's whole run (`dv merge-run`), so a second merge from
+  any dv waits instead of dropping the first's merge.
+- dv list acts only on a PR it knows is open (a a, A A, b b, M M, W W, m); confirmations
+  are keyed on what they act on and called off by a click; Ctrl keys are Ctrl-c/d/u only; a
+  number filter is that PR; card titles line up; Enter opens a PR in its worktree as it was
+  made, a published replacement's PR as its draft.
+- Claude Code's pane is read from what's live on its screen (a numbered menu, its spinner),
+  not words anywhere on it; a description check is noted only once done; two dv lists don't
+  undo each other's notes.
+
 ## [0.95.17] - 2026-10-22
 
 ### Fixed
