@@ -769,9 +769,8 @@ pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool, own: Option<&s
     }
     // On the PR already (its branch, its own worktree) with work of yours (or Claude's) it
     // doesn't have: kept, -f or not, said; not checked out over. The one place it's decided.
-    if on_pr_n(n, p.as_ref())
-        && let Some(note) = local_work(n, Path::new("."))
-    {
+    let was_on = on_pr_n(n, p.as_ref());
+    if was_on && let Some(note) = local_work(n, Path::new(".")) {
         return Ok(Some(note));
     }
     // Detached elsewhere with commits on no branch (not the PR's own worktree): a checkout would
@@ -779,7 +778,7 @@ pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool, own: Option<&s
     let detached_here = diff::git(&["branch", "--show-current"]).is_ok_and(|b| b.trim().is_empty());
     if detached_here
         && !force
-        && !on_pr_n(n, p.as_ref())
+        && !was_on
         && diff::git(&["rev-list", "-1", "HEAD", "--not", "--exclude=HEAD", "--all"]).is_ok_and(|o| !o.trim().is_empty())
     {
         anyhow::bail!("HEAD has commits on no branch: put them on one first (`git switch -c <name>`), or `dv {n} -f` to leave them");
@@ -795,9 +794,18 @@ pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool, own: Option<&s
         let track = remote_for(p).map_or(String::new(), |r| format!("if it is the PR's, `git branch -u {r}/{} {b}`; else ", p.head_branch));
         anyhow::bail!("your branch {b} isn't PR #{n}'s as far as dv can tell, only named like it (it doesn't track the PR, nor hold its head): {track}rename it (`git branch -m {b} <name>`), or `dv {n} -w` to review the PR in a worktree of its own");
     }
-    // Checked out as the PR has it: what dv put here (nothing here is work done since).
-    let Err(e) = gh::checkout(n, force, detach) else {
-        record_checked_out(n);
+    // Checked out as the PR has it: what dv put here (nothing here is work done since). Never
+    // gh's --force: its reset --hard would take your uncommitted edits too. -f (its branch,
+    // not yours to keep: you weren't on it) is dv's reset --keep instead, edits kept or refused.
+    let reset = force && !was_on && !detach;
+    let Err(e) = gh::checkout(n, detach) else {
+        if reset {
+            let pr = fetch_pr(n, Path::new("."))?;
+            diff::git(&["reset", "-q", "--keep", &pr]).map_err(|e| e.context(format!("resetting PR #{n}'s branch to its head (uncommitted edits in the way?)")))?;
+            record_checkout_at(n, &pr);
+        } else {
+            record_checked_out(n);
+        }
         return Ok(None);
     };
     let msg = format!("{e:#}");
@@ -813,7 +821,7 @@ pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool, own: Option<&s
         if b != here {
             diff::git(&["switch", "-q", &b]).map_err(|e| e.context(format!("switching onto {b}, PR #{n}'s branch here")))?;
         }
-        if let Some(note) = local_work(n, Path::new(".")) {
+        if !reset && let Some(note) = local_work(n, Path::new(".")) {
             return Ok(Some(note));
         }
         let pr = fetch_pr(n, Path::new("."))?;
