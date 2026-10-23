@@ -86,12 +86,18 @@ impl Record {
         (self.published.is_none() && !self.refused.is_empty()).then_some(self.refused.as_str())
     }
 
-    /// What's said where its drafts aren't yet: not drafted, or why not (blocked).
+    /// What's said where its drafts aren't yet, and what to do: not drafted, or why not
+    /// (blocked). (A title says only `undrafted_state`.)
     pub fn undrafted(&self) -> String {
         match self.blocked() {
-            Some(r) => format!("not drafted: Claude was refused {r} (allow it, then Space a → Redraft)"),
-            None => "not drafted yet".into(),
+            Some(r) => format!("blocked: Claude was refused {r} (allow it, then Space a → Redraft)"),
+            None => "not drafted yet (Space a → Redraft)".into(),
         }
+    }
+
+    /// Its state, short, for a title: not drafted yet, or blocked.
+    pub fn undrafted_state(&self) -> &'static str {
+        if self.blocked().is_some() { "blocked" } else { "not drafted yet" }
     }
 
     /// Claude has drafted it (so drafting it again carries on, in the same session).

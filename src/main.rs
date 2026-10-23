@@ -780,6 +780,7 @@ pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool, own: Option<&s
         && !force
         && !was_on
         && diff::git(&["rev-list", "-1", "HEAD", "--not", "--exclude=HEAD", "--all"]).is_ok_and(|o| !o.trim().is_empty())
+        && !checked_out_by_dv()
     {
         anyhow::bail!("HEAD has commits on no branch: put them on one first (`git switch -c <name>`), or `dv {n} -f` to leave them");
     }
@@ -967,6 +968,14 @@ fn runnable(p: PathBuf) -> PathBuf {
 }
 
 /// The commit dv last checked PR `n` out at, here or in its worktree.
+/// HEAD is what dv last checked out for some PR (one whose branch is gone, detached at its
+/// head, say): the PR's commits, not yours left on no branch. As `only_here` has it.
+fn checked_out_by_dv() -> bool {
+    let Ok(head) = diff::git(&["rev-parse", "HEAD"]) else { return false };
+    let Some(dir) = checkout_record(0).and_then(|p| p.parent().map(Path::to_path_buf)) else { return false };
+    std::fs::read_dir(dir).into_iter().flatten().flatten().any(|e| std::fs::read_to_string(e.path()).is_ok_and(|t| t.trim() == head.trim()))
+}
+
 pub(crate) fn last_checkout(n: u64) -> Option<String> {
     Some(std::fs::read_to_string(checkout_record(n)?).ok()?.trim().to_owned())
 }

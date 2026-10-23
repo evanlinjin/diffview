@@ -290,7 +290,7 @@ impl App {
         match (&self.pr, &self.replacement) {
             (Some(pr), _) => Some(format!("PR #{} · {}", pr.number, pr.title)),
             (None, Some(r)) => {
-                let title = if r.title.is_empty() { format!("({})", r.undrafted()) } else { r.title.clone() };
+                let title = if r.title.is_empty() { format!("({})", r.undrafted_state()) } else { r.title.clone() };
                 Some(match crate::replace::is_new(r.id) {
                     true => format!("{} · {title}", crate::replace::label(r.id).replacen("new PR", "New PR", 1)),
                     false => format!("Replacement of #{} · {title}", r.id),
