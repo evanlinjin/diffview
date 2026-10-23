@@ -759,6 +759,16 @@ pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool, own: Option<&s
     {
         return Ok(Some(note));
     }
+    // Detached elsewhere with commits on no branch (not the PR's own worktree): a checkout would
+    // leave them behind, git only warning (which gh keeps to itself). Said, not done.
+    let detached_here = diff::git(&["branch", "--show-current"]).is_ok_and(|b| b.trim().is_empty());
+    if detached_here
+        && !force
+        && !on_pr_n(n, p.as_ref())
+        && diff::git(&["rev-list", "-1", "HEAD", "--not", "--branches", "--remotes"]).is_ok_and(|o| !o.trim().is_empty())
+    {
+        anyhow::bail!("HEAD has commits on no branch: put them on one first (`git switch -c <name>`), or `dv {n} -f` to leave them");
+    }
     // Checked out as the PR has it: what dv put here (nothing here is work done since).
     let Err(e) = gh::checkout(n, force, detach) else {
         record_checked_out(n);
@@ -780,6 +790,18 @@ pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool, own: Option<&s
         diff::git(&["reset", "-q", "--keep", &pr]).map_err(|e| e.context(format!("moving {here} to PR #{n}'s head (uncommitted edits in the way?)")))?;
         record_checkout_at(n, &pr);
         return Ok(None);
+    }
+    // Its local branch, a fork's, refused before gh switched onto it (a same-repo PR's is
+    // switched onto first): onto it here, then the same rule as there, gh's order of steps not
+    // deciding. (Uncommitted edits carried, or refused.)
+    if diverged
+        && !on_it
+        && !detach
+        && let Some(b) = p.as_ref().and_then(|p| [p.head_branch.clone(), format!("{}/{}", p.head_owner, p.head_branch)].into_iter().find(|b| on_branch(Path::new("."), b, p)))
+        && b != here
+    {
+        diff::git(&["switch", "-q", &b])?;
+        return checkout_or_keep(n, force, detach, own);
     }
     match diverged && !force && !detach {
         true => Err(e.context(format!(
@@ -850,18 +872,15 @@ pub(crate) fn fetch_pr(n: u64, dir: &Path) -> anyhow::Result<String> {
     pr
 }
 
-/// After a checkout of PR `n`: what dv put here recorded, the PR's head as GitHub has it now
-/// when HEAD holds it (commits of yours above it, gh's ff having nothing to do, stay yours),
-/// else HEAD (pushed again meanwhile). Can't tell: nothing recorded (an older record errs
-/// towards keeping).
+/// After a checkout of PR `n`: what dv put here recorded, the PR's head as GitHub has it now,
+/// when HEAD holds it (commits of yours above it, gh's ff having nothing to do, stay yours).
+/// Not (pushed again meanwhile; HEAD may hold work of yours over an older head): can't tell,
+/// nothing recorded (an older record errs towards keeping). Never HEAD itself.
 fn record_checked_out(n: u64) {
-    let Ok(pr) = fetch_pr(n, Path::new(".")) else { return };
-    let at = match diff::git(&["merge-base", "--is-ancestor", &pr, "HEAD"]) {
-        Ok(_) => pr,
-        Err(_) => diff::git(&["rev-parse", "HEAD"]).map(|h| h.trim().to_owned()).unwrap_or_default(),
-    };
-    if !at.is_empty() {
-        record_checkout_at(n, &at);
+    if let Ok(pr) = fetch_pr(n, Path::new("."))
+        && diff::git(&["merge-base", "--is-ancestor", &pr, "HEAD"]).is_ok()
+    {
+        record_checkout_at(n, &pr);
     }
 }
 
