@@ -650,8 +650,11 @@ impl List {
     /// What Claude is doing on PR `n` now, if anything: a run from here (`a a`), or any dv's
     /// (its marker in dv's directory, `running`).
     pub(super) fn claude_doing(&self, n: u64) -> Option<String> {
+        let doing = || self.batch_task.get(&n).map_or("reviewing", batch::Task::doing);
         match self.batch.get(&n) {
-            Some(s) if s.running() => Some(self.batch_task.get(&n).map_or("reviewing", batch::Task::doing).to_owned()),
+            Some(s) if s.running() => Some(doing().to_owned()),
+            // Held back (Claude at it where it'd work): at it, as far as anything here goes.
+            Some(batch::Status::Busy(..)) => Some(self.running.get(&n).cloned().unwrap_or_else(|| format!("held back from {}", doing()))),
             _ => self.running.get(&n).cloned(),
         }
     }
