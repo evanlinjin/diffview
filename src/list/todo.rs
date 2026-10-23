@@ -174,8 +174,8 @@ impl List {
             .iter()
             .filter(|it| it.busy.is_some() || it.deferred.is_some() || it.waits.is_some())
             .map(|it| it.number)
-            // (Claude at it anywhere, a PR with no item even: from the markers, `claude_doing`'s.)
-            .chain(self.running.keys().copied())
+            // (Claude at it anywhere, a PR with no item even, a run held back too: `claude_doing`.)
+            .chain(self.running.keys().chain(self.batch.keys()).copied().filter(|&n| self.claude_doing(n).is_some()))
             .chain(run.iter().map(|r| r.0))
             .chain(closing.iter().copied())
             .chain(self.prs.iter().filter(|p| p.author == self.me).map(|p| p.number))
@@ -201,7 +201,10 @@ impl List {
             self.described = saved;
         }
         let mut noted = vec![];
-        let busy = |n: u64| self.running.contains_key(&n) || self.todos.items.iter().any(|it| it.number == n && (it.busy.is_some() || it.deferred.is_some()));
+        // (Claude at it, `claude_doing`: a run held back too; or its item put aside.)
+        let busy: HashSet<u64> =
+            self.prs.iter().map(|p| p.number).filter(|&n| self.claude_doing(n).is_some() || self.todos.items.iter().any(|it| it.number == n && (it.busy.is_some() || it.deferred.is_some()))).collect();
+        let busy = |n: u64| busy.contains(&n);
         for p in self.prs.iter().filter(|p| p.open() && p.author == self.me) {
             let Some(head) = self.extra.get(&p.number).map(|e| e.head_oid.clone()).filter(|h| !h.is_empty()) else { continue };
             match self.described.get(&p.number).cloned() {
