@@ -136,7 +136,7 @@ impl App {
         let mut chars = text.chars();
         if self.head.row == r {
             let c = chars.next().unwrap_or(' ');
-            spans.push(Span::styled(c.to_string(), self.ui.hunk.patch(self.cursor_style())));
+            spans.push(Span::styled(c.to_string(), crate::theme::over(self.ui.hunk, self.cursor_style())));
         }
         spans.push(Span::styled(chars.collect::<String>(), self.ui.hunk));
         Some(spans)
@@ -182,8 +182,8 @@ impl App {
                 sp.style.bg = match sp.style.bg {
                     None => Some(rel),
                     b if b == ui.base.bg => Some(rel),
-                    Some(b) if b == ui.add_bg => Some(ui.add_bg_rel),
-                    Some(b) if b == ui.del_bg => Some(ui.del_bg_rel),
+                    Some(b) if Some(b) == ui.add_bg => ui.add_bg_rel.or(Some(b)),
+                    Some(b) if Some(b) == ui.del_bg => ui.del_bg_rel.or(Some(b)),
                     b => b,
                 };
                 sp
@@ -275,11 +275,11 @@ impl App {
             k => {
                 let m = match k {
                     Kind::Add => {
-                        (line_bg, gstyle) = (Some(ui.add_bg), ui.plus);
+                        (line_bg, gstyle) = (ui.add_bg, ui.plus);
                         '+'
                     }
                     Kind::Del => {
-                        (line_bg, gstyle) = (Some(ui.del_bg), ui.minus);
+                        (line_bg, gstyle) = (ui.del_bg, ui.minus);
                         '-'
                     }
                     _ => ' ',
@@ -298,13 +298,13 @@ impl App {
             }
             // Like Helix: the cursor's line is tinted. Added/removed lines keep their color, lifted.
             line_bg = match l.kind {
-                Kind::Add => Some(ui.add_bg_cur),
-                Kind::Del => Some(ui.del_bg_cur),
+                Kind::Add => ui.add_bg_cur.or(ui.cursorline),
+                Kind::Del => ui.del_bg_cur.or(ui.cursorline),
                 Kind::Ctx | Kind::Thread | Kind::Comment => ui.cursorline.or(line_bg),
                 _ => line_bg,
             };
         }
-        let emph_bg = if l.kind == Kind::Add { ui.emph_add } else { ui.emph_del };
+        let emph_st = if l.kind == Kind::Add { ui.emph_add } else { ui.emph_del };
         let emph = self.emph.get(&r);
         let syn = match row.syn.is_empty() {
             false => Some(&row.syn),
@@ -324,6 +324,7 @@ impl App {
         }
         let g = spans.len(); // the gutter's spans (and a reply's guide); the text's follow
         let mut n = 0;
+        let mut on_char = false; // (the last span one of this line's chars: a mark goes on it)
         // A context line shows on both sides of a split row; the cursor goes on the current side.
         let this_side = side.is_none() || side == Some(self.row_right(r));
         let cursor_here = self.head.row == r && this_side;
@@ -373,29 +374,34 @@ impl App {
                 st = st.patch(c);
             }
             if emph.is_some_and(|e| e.iter().any(|&(a, b)| a <= i && i < b)) {
-                st = st.bg(emph_bg);
+                st = st.patch(emph_st);
             }
             if s <= p && p <= e && selected {
-                st = st.patch(ui.selection);
+                st = crate::theme::over(st, ui.selection);
             }
             if p == self.head && cursor_here {
-                st = st.patch(self.cursor_style());
+                st = crate::theme::over(st, self.cursor_style());
             }
             if let Some(&lc) = overlay.get(&p) {
                 spans.push(Span::styled(lc.to_string(), ui.jump_label));
-                n = i + 1;
+                (n, on_char) = (i + 1, false);
                 continue;
             }
-            // (A combining mark on the char before: a zero-wide span of its own isn't drawn.)
-            if Span::raw(c.to_string()).width() == 0
+            // (A combining mark on this line's char before it: a zero-wide span of its own isn't
+            // drawn. The cursor on it, on that char.)
+            if on_char
+                && Span::raw(c.to_string()).width() == 0
                 && let Some(l) = spans.last_mut()
             {
                 l.content.to_mut().push(c);
+                if p == self.head && cursor_here {
+                    l.style = crate::theme::over(l.style, self.cursor_style());
+                }
                 n = i + 1;
                 continue;
             }
             spans.push(Span::styled(if c == '\t' { "    ".into() } else { c.to_string() }, st));
-            n = i + 1;
+            (n, on_char) = (i + 1, true);
         }
         // (Past the line's end: on its last part, wrapped.)
         let last_part = !wrapped || shown.as_ref().is_some_and(|s| s.chars.end == len);

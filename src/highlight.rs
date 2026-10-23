@@ -126,11 +126,6 @@ impl Highlighter {
 
     /// Highlight a whole file; empty if the language isn't known.
     pub fn file(&self, path: &str, text: &str) -> Colors {
-        // Generated, minified (a line of tens of thousands of chars): no colors, not seconds
-        // of the screen frozen for colors no one reads on it.
-        if text.lines().any(|l| l.len() > 20_000) {
-            return vec![];
-        }
         let ext = path.rsplit('.').next().unwrap_or("");
         let first = text.lines().next().unwrap_or("");
         let ss = if ext == "toml" { &self.toml } else { &self.ss };
@@ -200,6 +195,12 @@ impl Highlighter {
     }
 
     fn highlight(&self, ss: &SyntaxSet, syntax: &syntect::parsing::SyntaxReference, text: &str) -> Colors {
+        // Generated, minified (a line of tens of thousands of chars; a file's, or a blob in a
+        // comment's code block): no colors, not seconds of the screen frozen for colors no one
+        // reads on it.
+        if text.lines().any(|l| l.len() > 20_000) {
+            return vec![];
+        }
         let (mut ps, mut stack) = (ParseState::new(syntax), ScopeStack::new());
         let mut out = vec![];
         for line in LinesWithEndings::from(text) {

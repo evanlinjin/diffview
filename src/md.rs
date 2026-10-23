@@ -76,6 +76,10 @@ struct R<'a> {
     heading: Option<HeadingLevel>,
     /// Inside an HTML comment (`<!-- … -->`, a PR template's), across lines: not shown.
     comment: bool,
+    /// Links HTML opened (`<a href>`), for its `</a>` to close: no others.
+    html_links: usize,
+    /// In a `<summary>` (its bold to end at its `</summary>`).
+    summary: bool,
 }
 
 pub fn render(text: &str, width: usize, s: &Styles, hl: &Highlighter, repo: Option<&str>) -> Vec<MdLine> {
@@ -97,6 +101,8 @@ pub fn render(text: &str, width: usize, s: &Styles, hl: &Highlighter, repo: Opti
         table: None,
         heading: None,
         comment: false,
+        html_links: 0,
+        summary: false,
     };
     // (Tabs as the diff draws them, four wide: measured as drawn.)
     let text = text.replace('\t', "    ");
@@ -259,6 +265,8 @@ impl R<'_> {
                 }
             }
             TagEnd::Item => self.flush(),
+            // (An unclosed comment ends with its block.)
+            TagEnd::HtmlBlock => self.comment = false,
             TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough => _ = self.style.pop(),
             TagEnd::Link | TagEnd::Image => {
                 self.style.pop();
@@ -309,39 +317,67 @@ impl R<'_> {
                 }
             }
         }
-        let h = kept.trim();
-        let attr = |k: &str| h.split(&format!("{k}=\"")).nth(1)?.split('"').next().map(str::to_owned);
-        if h.starts_with("<img") {
-            if let Some(src) = attr("src") {
-                self.open_link(src);
-                self.push(&format!("🖼 {}", attr("alt").unwrap_or_default()), None, false);
+        // Each tag where it is, the text between them kept: a line's `<a href><img></a>` as
+        // much as a tag alone on it.
+        let mut rest = kept.as_str();
+        while let Some(a) = rest.find('<') {
+            self.html_text(&rest[..a]);
+            let end = rest[a..].find('>').map_or(rest.len(), |e| a + e + 1);
+            self.html_tag(&rest[a..end]);
+            rest = &rest[end..];
+        }
+        self.html_text(rest);
+    }
+
+    /// Text between HTML tags (not their indentation, nor a line's end).
+    fn html_text(&mut self, t: &str) {
+        let t = t.trim_matches('\n');
+        if !t.trim().is_empty() {
+            self.text(t);
+        }
+    }
+
+    /// One HTML tag: `<img>` a link to the image, `<a href>`…`</a>` a link (only one opened so:
+    /// an anchor's `</a>` closes nothing of markdown's), `<summary>`…`</summary>` a "▸" heading
+    /// line, `<br>` a line break; others dropped.
+    fn html_tag(&mut self, tag: &str) {
+        let name = tag.trim_start_matches('<').split(|c: char| c.is_whitespace() || c == '>' || c == '/').find(|s| !s.is_empty()).unwrap_or("").to_lowercase();
+        let closing = tag.starts_with("</");
+        // (An attribute by its whole name: `data-src=` isn't `src=`.)
+        let attr = |k: &str| tag.split(&format!(" {k}=\"")).nth(1)?.split('"').next().map(str::to_owned);
+        match (name.as_str(), closing) {
+            ("img", false) => {
+                if let Some(src) = attr("src") {
+                    self.open_link(src);
+                    self.push(&format!("🖼 {}", attr("alt").unwrap_or_default()), None, false);
+                    self.style.pop();
+                    self.link.pop();
+                }
+            }
+            ("a", false) => {
+                if let Some(u) = attr("href") {
+                    self.open_link(u);
+                    self.html_links += 1;
+                }
+            }
+            ("a", true) if self.html_links > 0 => {
+                self.html_links -= 1;
                 self.style.pop();
                 self.link.pop();
             }
-            return;
-        }
-        if h.starts_with("<a ") {
-            if let Some(u) = attr("href") {
-                self.open_link(u);
+            ("summary", false) if !self.summary => {
+                self.summary = true;
+                self.flush();
+                self.push("▸ ", None, false);
+                self.style.push(Style::new().add_modifier(Modifier::BOLD));
             }
-            return;
-        }
-        if h.starts_with("</a") {
-            if !self.link.is_empty() {
+            ("summary", true) if self.summary => {
+                self.summary = false;
                 self.style.pop();
-                self.link.pop();
+                self.flush();
             }
-            return;
-        }
-        let text = strip_tags(h);
-        if h.contains("<summary") {
-            self.flush();
-            self.push(&format!("▸ {}", emoji(text.trim())), Some(Style::new().add_modifier(Modifier::BOLD)), false);
-            self.flush();
-        } else if h.contains("<br") {
-            self.flush();
-        } else if !text.trim().is_empty() {
-            self.text(text.trim());
+            ("br", _) => self.flush(),
+            _ => {}
         }
     }
 
@@ -578,19 +614,6 @@ fn width(cells: &[Cell]) -> usize {
     cells.iter().map(|c| ratatui::text::Span::raw(c.ch.to_string()).width()).sum()
 }
 
-fn strip_tags(h: &str) -> String {
-    let mut out = String::new();
-    let mut tag = false;
-    for c in h.chars() {
-        match c {
-            '<' => tag = true,
-            '>' => tag = false,
-            _ if !tag => out.push(c),
-            _ => {}
-        }
-    }
-    out
-}
 
 /// GitHub's `:shortcode:` emoji (`:rocket:`, `:loudspeaker:`) as the emoji; others stay as text.
 fn emoji(t: &str) -> String {
@@ -683,4 +706,12 @@ fn github_html_alerts_and_wide_text() {
     assert_eq!(texts(r("- ```\n  a\n  b\n  ```", 60)).iter().filter(|l| l.contains('•')).count(), 1);
     // An alert's label.
     assert!(r("> [!NOTE]\n> Useful", 60)[0].text.contains("Note"));
+    // A line's link around an image: both, and closed (not the rest of the text as a link).
+    let l = r("<p align=\"center\">\n<a href=\"https://a.b\"><img src=\"https://i.png\" alt=\"logo\"></a>\n</p>\n\nAfter #1", 60);
+    assert_eq!(l[0].text, "🖼 logo");
+    assert!(l.iter().any(|l| l.text == "After #1" && l.links.is_empty()));
+    // An anchor's </a> closes nothing of markdown's link; an attribute by its whole name.
+    let l = r(r#"[x <a name="q"></a> y](https://l.k) after"#, 60);
+    assert!(l[0].links.iter().all(|k| k.2 == "https://l.k" && k.1 <= 4) && l[0].text.ends_with("y after"));
+    assert_eq!(r(r#"<img data-src="bad" src="https://good">"#, 60)[0].links[0].2, "https://good");
 }

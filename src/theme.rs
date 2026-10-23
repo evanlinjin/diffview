@@ -17,11 +17,12 @@ pub struct Ui {
     pub linenr: Style,
     pub plus: Style,
     pub minus: Style,
-    pub add_bg: Color,
-    pub del_bg: Color,
+    /// (`None`: no background to fade into, no tint: the diff's color on the text alone.)
+    pub add_bg: Option<Color>,
+    pub del_bg: Option<Color>,
     /// The same tints on the cursor's line: blended into the cursorline color instead.
-    pub add_bg_cur: Color,
-    pub del_bg_cur: Color,
+    pub add_bg_cur: Option<Color>,
+    pub del_bg_cur: Option<Color>,
     pub hunk: Style,
     pub header: Style,
     pub selection: Style,
@@ -44,15 +45,16 @@ pub struct Ui {
     pub resolved: Style,
     pub pending: Style,
     /// Changed words within a paired removed/added line: a stronger tint than the line's.
-    pub emph_add: Color,
-    pub emph_del: Color,
+    /// (No background to blend in: underlined.)
+    pub emph_add: Style,
+    pub emph_del: Style,
     pub cursorline: Option<Color>,
     /// The code a comment in the pane is about, the cursor there: tinted, but not as the
     /// cursor's line (Helix's `ui.cursorline.secondary`, else half the cursorline's tint);
     /// added/removed lines the same, in their colors.
     pub related: Option<Color>,
-    pub add_bg_rel: Color,
-    pub del_bg_rel: Color,
+    pub add_bg_rel: Option<Color>,
+    pub del_bg_rel: Option<Color>,
     pub linenr_selected: Style,
     /// Where split view's side has no line: the background a shade darker (none: the theme
     /// has no RGB background to shade; a sparse dot pattern then).
@@ -184,17 +186,17 @@ impl Theme {
         let plus = self.get("diff.plus");
         let minus = self.get("diff.minus");
         // Line tints: the diff color faded into the background, like most diff viewers.
-        let tint_on = |s: Style, under: Option<Color>, fallback| match (s.fg, under) {
-            (Some(c), Some(b)) => blend(c, b, 0.18).unwrap_or(fallback),
+        let tint_on = |s: Style, under: Option<Color>, fallback: Option<Color>| match (s.fg, under) {
+            (Some(c), Some(b)) => blend(c, b, 0.18).or(fallback),
             _ => fallback,
         };
-        let tint = |s: Style, fallback| tint_on(s, bg, fallback);
         let cursorline = self.find("ui.cursorline.primary").and_then(|s| s.bg);
         let half = cursorline.zip(bg).and_then(|(c, b)| blend(c, b, 0.5));
         let related = self.find("ui.cursorline.secondary").and_then(|s| s.bg).filter(|&c| Some(c) != cursorline).or(half);
         // (No background to fade into (no theme, a transparent one): no tint, the diff's color
         // on the text alone; a guessed dark one is unreadable on a light terminal.)
-        let (add_bg, del_bg) = (tint(plus, Color::Reset), tint(minus, Color::Reset));
+        let (add_bg, del_bg) = (tint_on(plus, bg, None), tint_on(minus, bg, None));
+        let emph = |s: Style| s.fg.zip(bg).and_then(|(c, b)| blend(c, b, 0.42)).map_or(Style::new().add_modifier(Modifier::UNDERLINED), |c| Style::new().bg(c));
         let or_reversed = |s: Option<Style>| match s {
             Some(s) if s.fg.is_some() || s.bg.is_some() => s,
             _ => Style::new().add_modifier(Modifier::REVERSED),
@@ -236,8 +238,8 @@ impl Theme {
             warning: self.get("warning"),
             resolved: self.get("diff.plus"),
             pending: self.find("hint").unwrap_or(self.get("info")),
-            emph_add: plus.fg.zip(bg).and_then(|(c, b)| blend(c, b, 0.42)).unwrap_or(Color::Reset),
-            emph_del: minus.fg.zip(bg).and_then(|(c, b)| blend(c, b, 0.42)).unwrap_or(Color::Reset),
+            emph_add: emph(plus),
+            emph_del: emph(minus),
             cursorline,
             key: self.find("ui.text.focus").unwrap_or(self.get("function")).add_modifier(Modifier::BOLD),
             md: crate::md::Styles {
@@ -411,4 +413,13 @@ pub(crate) fn luma(c: Color) -> f32 {
         Color::Rgb(r, g, b) => 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32,
         _ => 128.0,
     }
+}
+
+/// `top` (the cursor, a selection) laid over `st`: as `patch`, but one reversed over another
+/// reversed turns back (stacked, it'd be no different: the cursor unseen in a selection or on a
+/// header, with no theme's colors).
+pub fn over(st: Style, top: Style) -> Style {
+    let flip = st.add_modifier.contains(Modifier::REVERSED) && top.add_modifier.contains(Modifier::REVERSED);
+    let s = st.patch(top);
+    if flip { s.remove_modifier(Modifier::REVERSED) } else { s }
 }
