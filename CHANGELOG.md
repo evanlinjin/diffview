@@ -5,6 +5,32 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.95.24] - 2026-10-23
+
+### Added
+- dv list's done tab: the last 100 merged and closed PRs (fetched the first time it's
+  shown, and on `R`), to read; Enter reviews one; `is:merged` / `is:closed` filter them.
+- A filter term whose key the list knows but not its value (`is:foo`) says so, instead of an
+  empty list unexplained.
+- A Claude run that ends refused a tool it needed says so on its own: a review's, a
+  triage's, a draft's end says what it was refused, and a draft's card says it's blocked.
+
+### Fixed
+- Markdown as GitHub shows it: HTML comments across lines (a PR template's) gone; HTML block
+  lines each their own; `<img>` and `<a href>` links wherever they sit (a tag over lines
+  too; values quoted or not); an anchor's `</a>` closes nothing of markdown's; a `<` that
+  starts no tag is text; `<summary>` titles as GitHub writes them (on their own line, as a
+  heading, in a table cell); alerts' labels; a wide word broken by width; tabs measured as
+  drawn; combining marks drawn with their char; quotes and lists as they nest (an item's
+  lines under its text however wide its number, both markers of a list in a list, a quote
+  in an item under it, an empty item kept); long lines linear, not quadratic.
+- No theme: named colors only (no dark tints on a light terminal); no background to tint
+  into: no tint, changed words underlined; the cursor and a selection over a reversed style
+  turn back, not unseen.
+- Minified files and blobs in code blocks aren't highlighted (seconds frozen).
+- A background color's numbers in a pane aren't taken for dim.
+- The issues key on dv list's top bar only where it fits.
+
 ## [0.95.23] - 2026-10-23
 
 ### Fixed
