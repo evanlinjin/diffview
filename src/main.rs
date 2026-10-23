@@ -493,7 +493,11 @@ fn review(o: &Opts, pr_num: Option<u64>, known: Option<gh::Pr>) -> anyhow::Resul
     // A PR with a worktree already (`<repo>-N`) opens there, as it was made: its branch can't
     // be checked out here too, and that's where you were reviewing it. (Not when you ask for
     // one, `dv N -w`: made your way. A list's flags are for one it makes.)
-    let found = pr_num.filter(|_| !o.worktree || o.pr.is_none()).and_then(|n| pr_worktrees().into_iter().find(|w| w.0 == n));
+    let found = pr_num.filter(|_| !o.worktree || o.pr.is_none()).and_then(|n| {
+        // (Or its one checkout, a published replacement's worktree, on its branch.)
+        let rep = pr_checkout(n).ok().filter(|d| worktree_dir(n).is_ok_and(|(_, own)| own != *d)).map(|d| (n, d, Some(String::new())));
+        rep.or_else(|| pr_worktrees().into_iter().find(|w| w.0 == n))
+    });
     let adjusted;
     let o = match found {
         Some((_, dir, branch)) => {
@@ -865,12 +869,13 @@ fn at_head(p: &gh::Pr, detach: bool) -> bool {
 /// `gh pr checkout` sets it up, so pushing updates the PR). Refuses a dir that isn't a worktree
 /// of this repo; git refuses to update one with local changes.
 fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> anyhow::Result<(PathBuf, Option<String>)> {
-    let (main, own) = worktree_dir(n)?;
-    // Its branch checked out in another worktree already: there (git won't check one branch out
-    // twice), brought up to the PR as its own would be. One of dv's (a published replacement's):
-    // always, -b or not (one checkout a PR, where its runs work); one of yours: on -b.
-    let other = known.and_then(worktree_on_branch).filter(|d| *d != own && (branch || dv_worktree(&main, d)));
-    let branch = branch || other.is_some(); // (on its branch there: never detached)
+    // Its one checkout (`pr_checkout`: a published replacement's worktree, on its branch, never
+    // detached); or its branch checked out in one of yours already, on -b: there (git won't
+    // check one branch out twice). Either brought up to the PR as its own would be.
+    let (_, mine) = worktree_dir(n)?;
+    let own = pr_checkout(n)?;
+    let other = known.filter(|_| branch && own == mine).and_then(worktree_on_branch).filter(|d| *d != own);
+    let branch = branch || own != mine || other.is_some();
     let there = other.as_ref().zip(known).map(|(o, p)| format!("#{n}'s branch {} is checked out in {}: opened there", p.head_branch, o.display()));
     let dir = other.unwrap_or(own);
     let existed = dir.exists();
@@ -911,6 +916,15 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
     };
     // (Where it opened, if not its own, with whatever else there is to say.)
     Ok((dir, [there, note].into_iter().flatten().reduce(|a, b| format!("{a}; {b}"))))
+}
+
+/// PR `n`'s one checkout dv works on it in: a published replacement's worktree (it's that
+/// draft's PR: its branch is there), else its own `<repo>-N` (made or not). By dv's records,
+/// not its branch's name (no GitHub lookup; never another PR's worktree).
+pub(crate) fn pr_checkout(n: u64) -> anyhow::Result<PathBuf> {
+    let (main, own) = worktree_dir(n)?;
+    let rep = replace::all().into_iter().find(|r| r.published == Some(n)).and_then(|r| worktree_dir_named(&main, &replace::name(r.id)).ok());
+    Ok(rep.filter(|d| d.exists()).unwrap_or(own))
 }
 
 /// The main checkout's root (found from inside a worktree too) and PR `n`'s worktree next to it.

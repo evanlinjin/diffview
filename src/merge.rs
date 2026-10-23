@@ -32,12 +32,17 @@ fn script() -> Result<PathBuf> {
 /// would be in the way of), only if nothing in it would be lost: no local changes, no commits
 /// that aren't on the PR.
 fn clear_worktree(n: u64) -> Result<Option<String>> {
-    let (_, dir) = crate::worktree_dir(n)?;
+    // Its one checkout (a published replacement's worktree, its runs' too): nothing in it lost.
+    // Removed only if it's its own (`<repo>-N`); a replacement's goes with the draft (`D D`).
+    let (dir, own) = (crate::pr_checkout(n)?, crate::worktree_dir(n)?.1);
     if !dir.exists() {
         return Ok(None);
     }
     nothing_to_lose(&dir, n)?;
-    crate::remove_worktree(n, false).map(Some)
+    match dir == own {
+        true => crate::remove_worktree(n, false).map(Some),
+        false => Ok(None),
+    }
 }
 
 /// Worktree `dir` of PR `n` has nothing that isn't on GitHub: no local changes (untracked files
