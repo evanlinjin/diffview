@@ -544,18 +544,8 @@ fn review(o: &Opts, pr_num: Option<u64>, known: Option<gh::Pr>) -> anyhow::Resul
         }
         (Some(_), false) if known.as_ref().is_some_and(|p| at_head(p, false)) => (None, None),
         (Some(n), false) => {
-            // On its branch already, with work the PR doesn't have: kept, not updated over.
-            let on_it = known.as_ref().is_some_and(|p| {
-                let here = diff::git(&["branch", "--show-current"]).unwrap_or_default();
-                on_branch(Path::new("."), here.trim(), p)
-            });
-            match on_it.then(|| local_work(n, Path::new("."))).flatten() {
-                Some(note) => (None, Some(note)),
-                None => {
-                    progress(Some(&format!("checking out PR #{n}")));
-                    (None, checkout_or_keep(n, o.force, false, None)?)
-                }
-            }
+            progress(Some(&format!("checking out PR #{n}")));
+            (None, checkout_or_keep(n, o.force, false, None)?)
         }
         (None, _) => (None, None),
     };
@@ -756,37 +746,36 @@ fn on_pr_n(n: u64, p: Option<&gh::Pr>) -> bool {
 pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool, own: Option<&str>) -> anyhow::Result<Option<String>> {
     // Not under Claude at work in this checkout (a run, a pane, but `own`'s, the asker's):
     // on the PR already (its branch, its own worktree), shown as it is; else not opened here.
+    let p = gh::pr(Some(n)).ok();
     let top = diff::git(&["rev-parse", "--show-toplevel"]).map(|t| PathBuf::from(t.trim()));
     if let Some((top, w)) = top.ok().and_then(|t| Some((t.clone(), crate::claude::at_work_in(&t, own)?))) {
-        anyhow::ensure!(on_pr_n(n, gh::pr(Some(n)).ok().as_ref()), "Claude is {w} in {}: open #{n} once it's done, or in a worktree of its own (-w)", top.display());
+        anyhow::ensure!(on_pr_n(n, p.as_ref()), "Claude is {w} in {}: open #{n} once it's done, or in a worktree of its own (-w)", top.display());
         return Ok(Some(format!("Claude is {w} here: shown as it is, not updated to PR #{n}")));
     }
-    // Checked out as the PR has it: what dv put here (nothing here is work done since). Kept
-    // as it was (a note): not that.
-    // (What's recorded is the PR's head gh checked out, not HEAD: commits of yours above it,
-    // gh's ff having nothing to do, stay yours.)
+    // On the PR already (its branch, its own worktree) with work of yours (or Claude's) it
+    // doesn't have: kept, -f or not, said; not checked out over. The one place it's decided.
+    if on_pr_n(n, p.as_ref())
+        && let Some(note) = local_work(n, Path::new("."))
+    {
+        return Ok(Some(note));
+    }
+    // Checked out as the PR has it: what dv put here (nothing here is work done since).
     let Err(e) = gh::checkout(n, force, detach) else {
-        match gh::pr(Some(n)) {
-            Ok(p) if !p.head_oid.is_empty() => record_checkout_at(n, &p.head_oid),
-            _ => {}
-        }
+        record_checked_out(n, p.as_ref());
         return Ok(None);
     };
     let msg = format!("{e:#}");
     // (gh merges --ff-only on a branch of a remote of yours; fetches into it, a fork's.)
     let diverged = ["Not possible to fast-forward", "Diverging branches", "non-fast-forward"].iter().any(|p| msg.contains(p));
     let here = diff::git(&["branch", "--show-current"]).unwrap_or_default().trim().to_owned();
-    let on_it = gh::pr(Some(n)).is_ok_and(|p| on_branch(Path::new("."), &here, &p));
-    // On its branch with nothing of yours (the PR force-pushed): moved to the PR, uncommitted
-    // edits kept (or refused, if they'd clash).
+    let on_it = p.as_ref().is_some_and(|p| on_branch(Path::new("."), &here, p));
+    // On its branch with nothing of yours (seen above: the PR force-pushed): moved to the PR,
+    // uncommitted edits kept (or refused, if they'd clash).
     if diverged && on_it && !detach {
         let pr = fetch_pr(n, Path::new("."))?;
-        let base = gh::pr(Some(n)).map(|p| p.base).ok();
-        if only_here(Path::new("."), n, &pr, base.as_deref()) == 0 {
-            diff::git(&["reset", "-q", "--keep", &pr]).map_err(|e| e.context(format!("moving {here} to PR #{n}'s head (uncommitted edits in the way?)")))?;
-            record_checkout_at(n, &pr);
-            return Ok(None);
-        }
+        diff::git(&["reset", "-q", "--keep", &pr]).map_err(|e| e.context(format!("moving {here} to PR #{n}'s head (uncommitted edits in the way?)")))?;
+        record_checkout_at(n, &pr);
+        return Ok(None);
     }
     match (diverged && !force && !detach, on_it) {
         (true, true) => Ok(Some(format!(
@@ -849,14 +838,24 @@ pub(crate) fn local_work(n: u64, dir: &Path) -> Option<String> {
     ))
 }
 
-/// PR `n`'s head as GitHub has it now, fetched into checkout `dir`: its commit. (A ref of its
-/// own, not FETCH_HEAD: another fetch here meanwhile, a view's, would be taken for it.)
-fn fetch_pr(n: u64, dir: &Path) -> anyhow::Result<String> {
-    let at = format!("refs/dv/pull/{n}");
+/// PR `n`'s head as GitHub has it now, fetched into checkout `dir`: its commit. (A ref of this
+/// dv's own, not FETCH_HEAD nor one another dv's fetch of it shares: another fetch meanwhile
+/// would be taken for it, or delete it under this one.)
+pub(crate) fn fetch_pr(n: u64, dir: &Path) -> anyhow::Result<String> {
+    let at = format!("refs/dv/{}/pull/{n}", std::process::id());
     diff::git_in(dir, &["fetch", "-q", "--no-write-fetch-head", &crate::diff::remote(), &format!("+refs/pull/{n}/head:{at}")])?;
     let pr = diff::git_in(dir, &["rev-parse", &at]).map(|s| s.trim().to_owned());
     _ = diff::git_in(dir, &["update-ref", "-d", &at]);
     pr
+}
+
+/// After a checkout of PR `n` (as GitHub has it, `p`): what dv put here recorded, the PR's head
+/// when HEAD holds it (commits of yours above it, gh's ff having nothing to do, stay yours),
+/// else HEAD (the PR pushed meanwhile, `p` stale; detached).
+fn record_checked_out(n: u64, p: Option<&gh::Pr>) {
+    let Ok(head) = diff::git(&["rev-parse", "HEAD"]) else { return };
+    let pr = p.map(|p| p.head_oid.as_str()).filter(|h| !h.is_empty() && diff::git(&["merge-base", "--is-ancestor", h, "HEAD"]).is_ok());
+    record_checkout_at(n, pr.unwrap_or(head.trim()));
 }
 
 fn checkout_record(n: u64) -> Option<PathBuf> {
@@ -966,11 +965,8 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
         // At the PR's head from the start: one left behind half set up (gh failed, dv was
         // killed) is then just behind the PR, never someone else's commits taken for work here.
         progress(Some(&format!("creating the worktree {}", dir.display())));
-        // (Its own ref, not FETCH_HEAD: `dv list` prepares several worktrees at once.)
-        let at = format!("refs/dv/pull/{n}");
-        diff::git(&["fetch", "-q", &crate::diff::remote(), &format!("+refs/pull/{n}/head:{at}")])?;
+        let at = fetch_pr(n, Path::new("."))?; // (its HEAD keeps the commit)
         diff::git(&["worktree", "add", "--detach", &dir.to_string_lossy(), &at])?;
-        _ = diff::git(&["update-ref", "-d", &at]); // (its HEAD keeps the commit)
     }
     std::env::set_current_dir(&dir)?;
     if fresh {
@@ -979,9 +975,6 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
     let note = if known.is_some_and(|p| at_head(p, !branch)) {
         record_checkout(n);
         None
-    } else if !fresh && let Some(note) = local_work(n, Path::new(".")) {
-        // Work done here since (yours, Claude's) stays: not updated to the PR over it.
-        Some(note)
     } else {
         progress(Some(&format!("checking out PR #{n} in {}", dir.display())));
         checkout_or_keep(n, force, !branch, None).map_err(|e| {

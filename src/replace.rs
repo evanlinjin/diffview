@@ -349,10 +349,8 @@ pub fn worktree(r: &Record, root: &Path) -> Result<PathBuf> {
     // publishing set it up), else its base.
     match r.published {
         Some(p) => {
-            let at = format!("refs/dv/pull/{p}");
-            git(&["fetch", "-q", &crate::diff::remote(), &format!("+refs/pull/{p}/head:{at}")])?;
+            let at = crate::fetch_pr(p, root)?;
             git(&["worktree", "add", "-b", &b, &d, &at])?;
-            _ = git(&["update-ref", "-d", &at]);
             if let Some(remote) = remote() {
                 _ = git(&["config", &format!("branch.{b}.remote"), &remote]);
                 _ = git(&["config", &format!("branch.{b}.merge"), &format!("refs/heads/{b}")]);
