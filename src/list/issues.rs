@@ -271,10 +271,12 @@ fn merge_triage(old: &Value, t: Value, n: u64, updated: &str, fixes: &[(u64, Str
         }
     }
     m.insert("issue".into(), n.into());
-    // A triage as of a time your own change moved on from: as of the moved one (`own_change`).
-    let updated = match old["own"]["from"].as_str() == Some(updated) {
-        true => old["own"]["to"].as_str().unwrap_or(updated),
-        false => updated,
+    // A triage as of a time your own changes moved on from (their first's before, or one
+    // between): as of the last's (`own_change`).
+    let own = |k: &str| old["own"][k].as_str().and_then(crate::gh::epoch_secs);
+    let updated = match (own("from"), crate::gh::epoch_secs(updated), own("to")) {
+        (Some(f), Some(u), Some(t)) if f <= u && u < t => old["own"]["to"].as_str().unwrap_or(updated),
+        _ => updated,
     };
     m.insert("updated".into(), updated.into());
     // (When Claude wrote it, as a PR review's: its age, its place among what Claude said.)
@@ -300,9 +302,11 @@ fn a_triage_keeps_the_rest_of_the_file() {
     let old = serde_json::json!({ "title": "Asked for", "description": "proposed" });
     assert_eq!(merge_triage(&old, serde_json::json!({ "title": "Triage's" }), 7, "u", &[])["title"], "Asked for");
     // One as of the time before your own change: as of the change's; one after, its own.
-    let old = serde_json::json!({ "own": { "from": "t0", "to": "t1" } });
-    assert_eq!(merge_triage(&old, serde_json::json!({}), 7, "t0", &[])["updated"], "t1");
-    assert_eq!(merge_triage(&old, serde_json::json!({}), 7, "t2", &[])["updated"], "t2");
+    let (t0, t1, t2, t3) = ("2026-01-01T00:00:00Z", "2026-01-01T00:01:00Z", "2026-01-01T00:02:00Z", "2026-01-01T00:03:00Z");
+    let old = serde_json::json!({ "own": { "from": t0, "to": t2 } });
+    assert_eq!(merge_triage(&old, serde_json::json!({}), 7, t0, &[])["updated"], t2);
+    assert_eq!(merge_triage(&old, serde_json::json!({}), 7, t1, &[])["updated"], t2);
+    assert_eq!(merge_triage(&old, serde_json::json!({}), 7, t3, &[])["updated"], t3);
 }
 
 /// Whether `k` is for moving about, the tabs, the filter, the help (`Nav`) while `pending`

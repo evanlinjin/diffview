@@ -867,7 +867,7 @@ pub fn load_with_ids(path: &std::path::Path) -> Result<Option<Review>> {
     parse(&text).map(Some).with_context(|| format!("in {}", path.display()))
 }
 
-fn read(path: &std::path::Path) -> Result<Option<String>> {
+pub(crate) fn read(path: &std::path::Path) -> Result<Option<String>> {
     match std::fs::read_to_string(path) {
         Ok(t) => Ok(Some(t)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),

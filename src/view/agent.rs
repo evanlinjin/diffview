@@ -423,7 +423,7 @@ impl App {
         self.poll_claude(); // a run that's ended says how (that's the news, then)
         if let Some(j) = &self.claude.job {
             self.msg = format!("Claude is still {} ({} so far); Space a can stop it", j.label, ago(j.started));
-        } else if !ran && !self.claude.path.as_ref().is_some_and(|p| p.exists()) {
+        } else if !ran && self.claude.summary.trim().is_empty() && !self.threads.iter().any(|t| t.claude.is_some()) {
             self.msg = "Claude hasn't written a review yet (Space a → review asks for one)".into();
         }
     }
