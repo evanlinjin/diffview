@@ -879,9 +879,13 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
     let there = other.as_ref().zip(known).map(|(o, p)| format!("#{n}'s branch {} is checked out in {}: opened there", p.head_branch, o.display()));
     let dir = other.unwrap_or(own);
     let existed = dir.exists();
+    // Made just now at the PR's head: nothing in it is work. (A replacement's made again holds
+    // its branch, with whatever's on it: as one that was there.)
+    let remade = published_as(n).filter(|_| !existed && dir != mine);
+    let fresh = !existed && remade.is_none();
     if existed {
         ensure_ours(&dir)?;
-    } else if let Some(r) = published_as(n).filter(|_| dir != mine) {
+    } else if let Some(r) = remade {
         // A published replacement's, gone: made again as a replacement's is, on its branch.
         replace::worktree(&r, &worktree_dir(n)?.0)?;
     } else {
@@ -895,13 +899,13 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
         _ = diff::git(&["update-ref", "-d", &at]); // (its HEAD keeps the commit)
     }
     std::env::set_current_dir(&dir)?;
-    if !existed {
+    if fresh {
         record_checkout(n); // what dv put here: nothing here is work done since
     }
     let note = if known.is_some_and(|p| at_head(p, !branch)) {
         record_checkout(n);
         None
-    } else if existed && let Some(note) = local_work(n, Path::new(".")) {
+    } else if !fresh && let Some(note) = local_work(n, Path::new(".")) {
         // Work done here since (yours, Claude's) stays: not updated to the PR over it.
         Some(note)
     } else {

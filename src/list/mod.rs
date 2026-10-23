@@ -295,11 +295,14 @@ impl List {
             match self.key(k) {
                 Some(Do::Quit) => return Ok(None),
                 Some(Do::Open(n)) => {
+                    // A replacement's card: it, its view; published, its PR (one view a PR: reviewed in
+                    // its one checkout, `pr_checkout`, brought up to the PR, as from its PR's card).
+                    let (n, replacement) = match self.selected() {
+                        Some((m, true)) if m == n => self.rep_of.get(&n).and_then(|r| r.published).map_or((n, true), |p| (p, false)),
+                        _ => (n, false),
+                    };
                     // Used once: after the review it may have moved on (a push), so it's looked up again.
                     let pr = self.pr_cache.lock().ok().and_then(|mut c| c.remove(&n)).filter(|(t, _)| t.elapsed().as_secs() < 120).map(|(_, p)| p);
-                    // A replacement's card: it. (A PR, a published replacement's too: reviewed, in
-                    // its one checkout, `pr_checkout`.)
-                    let replacement = self.selected().is_some_and(|(m, rep)| m == n && rep);
                     return Ok(Some(Pick { number: n, replacement, merge: false, issues: false, pr }));
                 }
                 Some(Do::Merge(n)) => {
