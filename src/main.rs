@@ -44,7 +44,8 @@ const USAGE: &str = "usage: dv [base | PR | list] [-p N] [-f] [-w [-b]]
   dv replace-info  for Claude: the replacement checked out here (its record, what it replaces)
   dv install-skill install the dv-review skill for Claude Code (~/.claude/skills/dv-review)
   dv version       print dv's version (also --version, -V)
-  -f, --force      with a PR: reset the local PR branch to the PR head (drops its local commits)
+  -f, --force      with a PR: reset its local branch to the PR head when you're not on it (drops
+                   its local commits); on it, or in its worktree, commits made there are kept
   -w, --worktree   with a PR: check it out in a worktree next to the repo, <repo>-123
                    (created or updated, detached at the PR head), and review it there
   -b, --branch     with -w: check out the PR's branch there instead (tracking it, so you can
@@ -107,8 +108,10 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Opts> {
             continue;
         }
         theirs = matches!(a.as_str(), "amend" | "cargo" | "scratch" | "repo-file");
+        // (Only `--pr` takes a value: `--no-mouse=1` is no flag, not one and a PR. `-p12` too.)
         match a.split_once('=') {
-            Some((flag, v)) if a.starts_with("--") => expanded.extend([flag.to_owned(), v.to_owned()]),
+            Some(("--pr", v)) => expanded.extend(["--pr".into(), v.to_owned()]),
+            _ if a.len() > 2 && a.starts_with("-p") && a[2..].bytes().all(|b| b.is_ascii_digit()) => expanded.extend(["-p".into(), a[2..].to_owned()]),
             _ if a.starts_with('-') && !a.starts_with("--") && a.len() > 2 => {
                 expanded.extend(a[1..].chars().map(|c| format!("-{c}")));
             }
@@ -119,6 +122,11 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Opts> {
     let mut args = expanded.into_iter();
     let num = |v: Option<String>| -> anyhow::Result<u64> { v.context("--pr needs a number")?.parse().context("--pr needs a number") };
     while let Some(a) = args.next() {
+        // (`#123`, as GitHub writes it: the PR.)
+        let a = match a.strip_prefix('#') {
+            Some(n) if !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) => n.to_owned(),
+            _ => a,
+        };
         match a.as_str() {
             "-h" | "--help" => o.help = true,
             "version" | "--version" | "-V" => o.cmd = Some("version"),
@@ -148,10 +156,19 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Opts> {
             _ if !a.is_empty() && a.bytes().all(|b| b.is_ascii_digit()) && o.pr.is_some() && o.cmd == Some("replace") => {
                 o.more.push(num(Some(a))?)
             }
-            _ if !a.is_empty() && a.bytes().all(|b| b.is_ascii_digit()) => o.pr = Some(num(Some(a))?),
+            _ if !a.is_empty() && a.bytes().all(|b| b.is_ascii_digit()) => {
+                anyhow::ensure!(o.pr.is_none(), "one PR at a time ({} and {a})", o.pr.unwrap_or_default());
+                o.pr = Some(num(Some(a))?)
+            }
             _ => o.base = Some(a),
         }
     }
+    // What goes with what, said before anything's done (a remote asked for, say).
+    // (`prepare-worktree -b`: dv list's run on the PR's branch.)
+    anyhow::ensure!(!o.branch || o.worktree || o.cmd == Some("prepare-worktree"), "--branch goes with --worktree (plain --pr already checks out a branch)\n{USAGE}");
+    anyhow::ensure!(!o.worktree || o.list || (o.pr.is_some() && o.cmd.is_none()), "--worktree needs a PR, e.g. `dv 123 -w`\n{USAGE}");
+    anyhow::ensure!(!o.rm || (o.pr.is_some() && !o.list && o.cmd.is_none()), "--rm goes with a PR number, e.g. `dv 123 --rm`\n{USAGE}");
+    anyhow::ensure!(!o.list || o.pr.is_none(), "dv list picks the PR itself\n{USAGE}");
     Ok(o)
 }
 
@@ -161,9 +178,29 @@ fn main() -> anyhow::Result<()> {
     res
 }
 
+/// Read in part (`dv review-comments | head`): ended as other tools are, quietly, not a panic
+/// on the next print. Only for what just prints: dv's screen and its runs write to children
+/// (rust-analyzer, gh) that may be gone, which is no reason to end.
+fn quiet_on_broken_pipe() {
+    #[cfg(unix)]
+    {
+        unsafe extern "C" {
+            fn signal(sig: i32, handler: usize) -> usize;
+        }
+        const SIGPIPE: i32 = 13;
+        const SIG_DFL: usize = 0;
+        // SAFETY: restores the default action before any thread starts; nothing else here
+        // handles SIGPIPE.
+        unsafe { signal(SIGPIPE, SIG_DFL) };
+    }
+}
+
 fn run() -> anyhow::Result<()> {
     let mut o = parse_args(std::env::args().skip(1))?;
     view::MOUSE.store(!o.no_mouse, std::sync::atomic::Ordering::Relaxed);
+    if o.help || matches!(o.cmd, Some("version" | "review-info" | "review-check" | "review-comments" | "rerun-failed" | "replace-info" | "scratch" | "repo-file")) {
+        quiet_on_broken_pipe();
+    }
     if o.help {
         println!("{USAGE}");
         return Ok(());
@@ -182,22 +219,9 @@ fn run() -> anyhow::Result<()> {
             anyhow::bail!("dv repo-file <owner/repo[@ref]> <path> (a path with spaces: quote it; `.`: the top)")
         };
         let text = gh::repo_file(repo, path)?;
-        // (Read in part, `| head`: done, not a panic.)
-        if let Err(e) = std::io::Write::write_all(&mut std::io::stdout(), text.as_bytes())
-            && e.kind() != std::io::ErrorKind::BrokenPipe
-        {
-            return Err(e.into());
-        }
-        return Ok(());
+        return Ok(std::io::Write::write_all(&mut std::io::stdout(), text.as_bytes())?);
     }
-    if (o.list || o.cmd.is_some()) && o.rm {
-        anyhow::bail!("--rm goes with a PR number, e.g. `dv 123 --rm`\n{USAGE}");
-    }
-    if o.list && o.pr.is_some() {
-        anyhow::bail!("dv list picks the PR itself\n{USAGE}");
-    }
-    if o.rm {
-        let n = o.pr.context("--rm needs a PR, e.g. `dv 123 --rm`")?;
+    if let Some(n) = o.pr.filter(|_| o.rm) {
         return remove_worktree(n, o.force).map(|m| println!("{m}"));
     }
     // `dv amend`'s files as git names them, from the repo's root (where dv goes next): those
@@ -270,19 +294,21 @@ fn run() -> anyhow::Result<()> {
     }
     // Which remote is GitHub's, asked once here if nothing says (several remotes).
     diff::ensure_remote()?;
-    if o.branch && !o.worktree {
-        anyhow::bail!("--branch goes with --worktree (plain --pr already checks out a branch)\n{USAGE}");
-    }
-    // The list's home: where it's started, but never one of dv's own worktrees (`<repo>-…`,
-    // a PR's, a replacement's: removed from the list, by a merge, say): the main checkout then.
+    // Where the list lives and a PR is checked out: where it's started, but never one of dv's
+    // own worktrees (`<repo>-…`, a PR's, a replacement's: removed by a merge, say; another PR
+    // checked out over one, taken for its own): the main checkout then. (A PR with a worktree
+    // of its own opens there still: `review`.)
+    let root = match o.list || o.pr.is_some() {
+        true => {
+            let main = main_checkout(&root)?;
+            let root = if dv_worktree(&main, &root) { main } else { root };
+            std::env::set_current_dir(&root)?;
+            root
+        }
+        false => root,
+    };
     if o.list {
-        let main = main_checkout(&root)?;
-        let root = if dv_worktree(&main, &root) { main } else { root };
-        std::env::set_current_dir(&root)?;
         return pick_and_review(&o, &root);
-    }
-    if o.worktree && o.pr.is_none() {
-        anyhow::bail!("--worktree needs a PR, e.g. `dv 123 -w`\n{USAGE}");
     }
     let (wt, res) = review(&o, o.pr, None)?;
     if let Ok(Some(n)) = res {
@@ -517,8 +543,7 @@ fn review(o: &Opts, pr_num: Option<u64>, known: Option<gh::Pr>) -> anyhow::Resul
             // On its branch already, with work the PR doesn't have: kept, not updated over.
             let on_it = known.as_ref().is_some_and(|p| {
                 let here = diff::git(&["branch", "--show-current"]).unwrap_or_default();
-                let here = here.trim();
-                here == p.head_branch || here == format!("{}-{}", p.head_owner, p.head_branch)
+                on_branch(Path::new("."), here.trim(), p)
             });
             match on_it.then(|| local_work(n, Path::new("."))).flatten() {
                 Some(note) => (None, Some(note)),
@@ -685,10 +710,19 @@ fn install_skill() -> anyhow::Result<()> {
 /// `gh pr checkout`, except when you're already on the PR's branch and it has commits that
 /// aren't on the PR (unpushed work, or a local rebase): then it stays as it is, and the note
 /// returned says so. Never resets your branch unless `force`.
-/// `branch` is PR `p`'s, as gh names it checked out: the PR's own, or `<owner>-<branch>` when
-/// that name is taken.
-fn on_branch(branch: &str, p: &gh::Pr) -> bool {
-    !p.head_branch.is_empty() && (branch == p.head_branch || branch == format!("{}-{}", p.head_owner, p.head_branch))
+/// `branch` is named as PR `p`'s is checked out by gh: the PR's own name, or `<owner>/<branch>`
+/// (a fork's from its default branch).
+fn branch_named(branch: &str, p: &gh::Pr) -> bool {
+    !p.head_branch.is_empty() && (branch == p.head_branch || branch == format!("{}/{}", p.head_owner, p.head_branch))
+}
+
+/// `branch` in checkout `dir` is PR `p`'s: named so, and not only a namesake (yours, a fork's
+/// `master` and yours): it pushes to the PR's repo, or has the PR's head in it. The one test.
+fn on_branch(dir: &Path, branch: &str, p: &gh::Pr) -> bool {
+    let d = dir.to_string_lossy();
+    branch_named(branch, p)
+        && (diff::push_remote(dir, branch).is_some_and(|remote| diff::remote_is(dir, &remote, &p.head_repo))
+            || (!p.head_oid.is_empty() && diff::git(&["-C", &d, "merge-base", "--is-ancestor", &p.head_oid, branch]).is_ok()))
 }
 
 /// This checkout is on PR `p`: its branch, or (detached) the PR's own worktree dv made, not
@@ -706,7 +740,7 @@ fn on_pr_n(n: u64, p: Option<&gh::Pr>) -> bool {
             let top = diff::git(&["rev-parse", "--show-toplevel"]).ok().and_then(|t| real(t.trim()));
             worktree_dir(n).is_ok_and(|(_, d)| top.is_some() && top == real(&d.to_string_lossy()))
         }
-        b => p.is_some_and(|p| on_branch(b, p)),
+        b => p.is_some_and(|p| on_branch(Path::new("."), b, p)),
     }
 }
 
@@ -725,12 +759,21 @@ pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool, own: Option<&s
         return Ok(None);
     };
     let msg = format!("{e:#}");
-    let diverged = ["Not possible to fast-forward", "Diverging branches"].iter().any(|p| msg.contains(p));
+    // (gh merges --ff-only on a branch of a remote of yours; fetches into it, a fork's.)
+    let diverged = ["Not possible to fast-forward", "Diverging branches", "non-fast-forward"].iter().any(|p| msg.contains(p));
     let here = diff::git(&["branch", "--show-current"]).unwrap_or_default().trim().to_owned();
-    let on_it = gh::pr(Some(n)).is_ok_and(|p| on_branch(&here, &p));
+    let on_it = gh::pr(Some(n)).is_ok_and(|p| on_branch(Path::new("."), &here, &p));
+    // On its branch with nothing of yours (the PR force-pushed): moved to the PR, uncommitted
+    // edits kept (or refused, if they'd clash).
+    if diverged && on_it && !detach && local_work(n, Path::new(".")).is_none() {
+        let pr = diff::git(&["rev-parse", "FETCH_HEAD"])?.trim().to_owned();
+        diff::git(&["reset", "-q", "--keep", &pr]).map_err(|e| e.context(format!("moving {here} to PR #{n}'s head (uncommitted edits in the way?)")))?;
+        record_checkout(n);
+        return Ok(None);
+    }
     match (diverged && !force && !detach, on_it) {
         (true, true) => Ok(Some(format!(
-            "{here} has commits that aren't on PR #{n}: showing it as is (push to update the PR; -f resets to the PR)"
+            "{here} has commits that aren't on PR #{n}: showing it as is (push to update the PR; `git reset --hard` to drop them)"
         ))),
         (true, false) => Err(e.context(format!(
             "your local branch for PR #{n} has diverged from the PR (local commits, or the PR was force-pushed); \
@@ -861,10 +904,9 @@ fn at_head(p: &gh::Pr, detach: bool) -> bool {
     let head = diff::git(&["rev-parse", "HEAD"]).unwrap_or_default();
     let here = diff::git(&["branch", "--show-current"]).unwrap_or_default();
     let here = here.trim();
-    // gh names the local branch as the PR's, or `<owner>-<branch>` when that name is taken.
     let on_it = match detach {
         true => here.is_empty(),
-        false => !here.is_empty() && (here == p.head_branch || here == format!("{}-{}", p.head_owner, p.head_branch)),
+        false => !here.is_empty() && on_branch(Path::new("."), here, p),
     };
     !p.head_oid.is_empty() && head.trim() == p.head_oid && on_it
 }
@@ -1093,17 +1135,11 @@ fn checked_cargo(args: &[String]) -> anyhow::Result<i32> {
 /// PR's (not just a branch of the same name, a fork's `master`, say): it pushes to the PR's
 /// branch (behind it, diverged: a rebase there, an amend), or its history holds the PR's head.
 fn worktree_on_branch(p: &gh::Pr) -> Option<PathBuf> {
-    let (branch, oid) = (p.head_branch.as_str(), p.head_oid.as_str());
     let list = diff::git(&["worktree", "list", "--porcelain"]).ok()?;
-    let dir = checked_out_at(&list, branch)?;
-    let d = dir.to_string_lossy().into_owned();
-    let git = |args: &[&str]| diff::git(&[&["-C", d.as_str()], args].concat()).ok().map(|s| s.trim().to_owned());
-    // Where Space g there pushes (as it decides it): to the PR's repo.
-    let pushes_there = diff::push_remote(&dir, branch).is_some_and(|remote| diff::remote_is(&dir, &remote, &p.head_repo));
-    // (Its history containing the PR's head: one behind it on that name is only a namesake, a
-    // fork's `master` and yours.)
-    let one_line = !oid.is_empty() && git(&["merge-base", "--is-ancestor", oid, "HEAD"]).is_some();
-    (pushes_there || one_line).then_some(dir)
+    // (Either name gh gives it; a namesake's not it: `on_branch`.)
+    [p.head_branch.clone(), format!("{}/{}", p.head_owner, p.head_branch)]
+        .into_iter()
+        .find_map(|b| checked_out_at(&list, &b).filter(|dir| on_branch(dir, &b, p)))
 }
 
 /// From `git worktree list --porcelain`: the worktree with `branch` checked out.
@@ -1192,6 +1228,13 @@ fn args() {
     assert_eq!((a.cmd, a.rest, a.pr, a.base), (Some("amend"), vec!["abc1234".into(), "src/a.rs".into(), "12".into()], None, None));
     let r = p("replace 12 15").unwrap();
     assert_eq!((r.cmd, r.pr, r.more), (Some("replace"), Some(12), vec![15]));
+    // What doesn't go together, said at once; only --pr takes a value.
+    for bad in ["5 -b", "review-info -b", "5 6", "list 5", "--no-mouse=1", "-w", "list --rm"] {
+        assert!(p(bad).is_err(), "{bad}");
+    }
+    assert_eq!(p("-p12").unwrap(), pr(12, false, false, false));
+    assert_eq!(p("#12").unwrap(), pr(12, false, false, false));
+    assert!(p("prepare-worktree 5 -b").is_ok());
 }
 
 #[test]
@@ -1219,6 +1262,6 @@ fn self_exe_after_an_install() {
 #[test]
 fn a_prs_branch_as_gh_names_it() {
     let p = gh::Pr { head_branch: "fix".into(), head_owner: "amy".into(), ..Default::default() };
-    assert!(on_branch("fix", &p) && on_branch("amy-fix", &p));
-    assert!(!on_branch("main", &p) && !on_branch("fix", &gh::Pr::default()));
+    assert!(branch_named("fix", &p) && branch_named("amy/fix", &p) && !branch_named("amy-fix", &p));
+    assert!(!branch_named("main", &p) && !branch_named("fix", &gh::Pr::default()));
 }

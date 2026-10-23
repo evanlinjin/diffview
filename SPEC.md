@@ -3,7 +3,7 @@
 ```
 dv              # working tree vs merge-base(origin/HEAD)
 dv <base>       # working tree vs merge-base(<base>)
-dv --pr 123     # gh pr checkout 123 first (-f: reset the local PR branch to the PR head)
+dv --pr 123     # gh pr checkout 123 first (-f: reset its local branch to the PR head when you're not on it)
 dv --pr 123 -w  # check it out in a worktree next to the repo (<repo>-123), detached; reused later
 dv --pr 123 -w -b  # same, on the PR's branch (tracking it, for pushing); a branch already
                    # checked out in another worktree (a replacement's own): opened there
