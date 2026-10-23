@@ -72,7 +72,7 @@ impl List {
         // (Needs complete once what they come from is in: its details, its checks, its scan.)
         // (Its details in: who you are came with them, PRs or none. Once: a refetch keeps
         // what it had till the new comes.)
-        self.todos.ready |= self.extra_rx.is_none() && self.checks.is_none() && self.unpushed_rx.is_none() && !self.me.is_empty();
+        self.todos.ready |= self.all_in() && !self.me.is_empty();
         let (mut items, said) = self.todos.settle(items, met);
         if let Some(said) = said {
             self.msg = said;
@@ -314,6 +314,12 @@ impl List {
             .collect()
     }
 
+    /// What items' needs come from is all in (nothing under way): its details, its checks, its
+    /// scan. `s` and a ranking wait for it.
+    fn all_in(&self) -> bool {
+        self.extra_rx.is_none() && self.checks.is_none() && self.unpushed_rx.is_none()
+    }
+
     /// Have Claude rank what needs you (`r r`: a Claude run, so only when you ask), once what's
     /// needed is in (GitHub's part).
     pub(super) fn rank_now(&mut self, asked: bool) {
@@ -322,7 +328,7 @@ impl List {
             self.want_rank = None;
             return if asked { self.msg = why.into() };
         }
-        if self.extra_rx.is_some() || self.checks.is_some() {
+        if !self.all_in() {
             // (Said once, when you ask.)
             if asked && self.want_rank != Some(true) {
                 self.msg = "Claude ranks what needs you once GitHub's part is in…".into();
