@@ -5,6 +5,26 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.95.23] - 2026-10-23
+
+### Fixed
+- Checking a PR out never loses your work: whether a checkout keeps work of yours is decided
+  in one place, for `dv N`, `-w`, `-w -b`, dv list's runs and `Space g`'s update, where gh
+  leaves you; a PR force-pushed with nothing of yours on its branch moves to it (the same for
+  a fork's PR as a same-repo one); a detached checkout with commits on no branch isn't
+  checked out over; `-f` never runs gh's `--force` (its `reset --hard` took uncommitted
+  edits) but resets the PR's branch with `--keep`.
+- A PR's branch is told by one rule: gh's name for it (`owner/branch` only with no remote
+  for a fork), tracking the PR or holding its head; a branch of yours only named like it
+  isn't taken over (it says how to make it the PR's, or not), wherever it pushes.
+- What dv records as checked out is the PR's head as fetched then, never HEAD (a push
+  mid-checkout had your commit taken for the PR's); the PR's head is fetched into a ref of
+  this dv's own, never FETCH_HEAD.
+- `dv N` from inside another PR's worktree checks out from the main checkout.
+- Flags are checked together before anything's done; only `--pr` takes a value; `-p12`,
+  `#12` work; one PR at a time; `-f`'s help says what it does.
+- Printing subcommands read in part (`| head`) end quietly.
+
 ## [0.95.22] - 2026-10-23
 
 ### Fixed
