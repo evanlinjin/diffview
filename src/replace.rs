@@ -86,12 +86,13 @@ impl Record {
         (self.published.is_none() && !self.refused.is_empty()).then_some(self.refused.as_str())
     }
 
-    /// What's said where its drafts aren't yet, and what to do: not drafted, or why not
-    /// (blocked). (A title says only `undrafted_state`.)
+    /// What's said where its drafts aren't yet: not drafted, or why not (blocked). (What to
+    /// do is the menu's to say, which knows whether Claude's at it; a title says only
+    /// `undrafted_state`.)
     pub fn undrafted(&self) -> String {
         match self.blocked() {
-            Some(r) => format!("blocked: Claude was refused {r} (allow it, then Space a → Redraft)"),
-            None => "not drafted yet (Space a → Redraft)".into(),
+            Some(r) => format!("blocked: Claude was refused {r}"),
+            None => "not drafted yet".into(),
         }
     }
 
@@ -585,6 +586,8 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
         if let Some(why) = refused(prs) {
             anyhow::bail!(why);
         }
+        // (A run again: blocked again only if it's refused again.)
+        r.refused.clear();
         // What it replaces, said at once (`prepare` fills them in): another draft asked
         // meanwhile sees them.
         for &n in prs.iter().filter(|_| !is_new(id)) {

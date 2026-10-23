@@ -647,7 +647,7 @@ impl List {
             _ => match self.rep_of.get(&id)? {
                 r if r.published.is_some() => return Some((format!("{of}: published as #{}", r.published.unwrap_or(0)), true)),
                 // (Its last draft refused a tool it needed: what's in the way, said.)
-                r if let Some(b) = r.blocked() => (format!("blocked: Claude was refused {b} (allow it, then Space a → Redraft)"), false),
+                r if r.blocked().is_some() => (format!("{} (allow it, then Space a → Redraft)", r.undrafted()), false),
                 r if !r.drafted() => ("no draft yet".into(), false),
                 _ => ("drafted".into(), true),
             },

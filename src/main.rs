@@ -967,7 +967,6 @@ fn runnable(p: PathBuf) -> PathBuf {
     p.to_str().and_then(|s| s.strip_suffix(" (deleted)")).map(PathBuf::from).filter(|p| p.exists()).unwrap_or_else(|| PathBuf::from("dv"))
 }
 
-/// The commit dv last checked PR `n` out at, here or in its worktree.
 /// HEAD is what dv last checked out for some PR (one whose branch is gone, detached at its
 /// head, say): the PR's commits, not yours left on no branch. As `only_here` has it.
 fn checked_out_by_dv() -> bool {
@@ -976,6 +975,7 @@ fn checked_out_by_dv() -> bool {
     std::fs::read_dir(dir).into_iter().flatten().flatten().any(|e| std::fs::read_to_string(e.path()).is_ok_and(|t| t.trim() == head.trim()))
 }
 
+/// The commit dv last checked PR `n` out at, here or in its worktree.
 pub(crate) fn last_checkout(n: u64) -> Option<String> {
     Some(std::fs::read_to_string(checkout_record(n)?).ok()?.trim().to_owned())
 }
