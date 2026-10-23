@@ -73,7 +73,6 @@ struct R<'a> {
     quote: usize,
     code: Option<(String, String)>,
     table: Option<Table>,
-    heading: Option<HeadingLevel>,
     /// An HTML block's tag or comment not closed on its line (`<img` then `src=…` on the
     /// next; a PR template's `<!--`), for the next line's event.
     carry: String,
@@ -100,7 +99,6 @@ pub fn render(text: &str, width: usize, s: &Styles, hl: &Highlighter, repo: Opti
         quote: 0,
         code: None,
         table: None,
-        heading: None,
         carry: String::new(),
         html_links: 0,
         summary: false,
@@ -155,12 +153,11 @@ impl R<'_> {
 
     fn start(&mut self, t: Tag) {
         match t {
-            Tag::Heading { level, .. } => {
+            Tag::Heading { .. } => {
                 // (A summary's title as a heading: on its ▸'s line.)
                 if !self.title_to_come() {
                     self.flush();
                 }
-                self.heading = Some(level);
                 self.style.push(self.s.heading.add_modifier(Modifier::BOLD));
             }
             Tag::BlockQuote(kind) => {
@@ -233,7 +230,6 @@ impl R<'_> {
                 self.style.pop();
                 let len = width(&self.cur);
                 self.flush();
-                self.heading = None;
                 // GitHub underlines the two biggest heading levels.
                 if matches!(level, HeadingLevel::H1 | HeadingLevel::H2) {
                     let rule: Vec<Cell> = "─".repeat(len.min(self.width)).chars().map(|ch| Cell { ch, st: Some(self.s.dim), link: None }).collect();
@@ -378,6 +374,9 @@ impl R<'_> {
                 self.style.pop();
                 self.link.pop();
             }
+            // (In a table's cell, as `<br>`: its ▸ there, the title rule for a line of its own.)
+            ("summary", false) if self.table.is_some() => self.push("▸ ", None),
+            ("summary", true) if self.table.is_some() => self.push(" ", None),
             ("summary", false) if !self.summary => {
                 self.flush();
                 self.push("▸ ", None);
@@ -742,6 +741,10 @@ fn github_html_alerts_and_wide_text() {
     let l = r("<details>\n<summary>\n\nBody\n</details>\n\nafter", 60);
     assert!(l.iter().find(|l| l.text == "after").is_some_and(|l| l.styles.iter().all(Option::is_none)));
     assert_eq!(texts(r("<details>\n<summary>\nTitle\nmore\n</summary>", 60)), ["▸ Title", "more"]);
+    // A summary in a table's cell: its ▸ there, nothing after the table bold.
+    let l = r("| a | b |\n|---|---|\n| <details><summary>T</summary>x</details> | y |\n\nHello world", 60);
+    assert!(l.iter().any(|l| l.text.contains("▸ T x")));
+    assert!(l.iter().find(|l| l.text == "Hello world").is_some_and(|l| l.styles.iter().all(Option::is_none)));
     assert_eq!(texts(r("<div>\na < b\nmore text\n</div>", 60)), ["a < b", "more text"]);
     assert_eq!(texts(r("<details><summary>Title\n\nBody\n</details>\n\nafter", 60)), ["▸ Title", "Body", "", "after"]);
     // GitHub's markdown in a summary: a blank line, then its title (bold, a heading).
