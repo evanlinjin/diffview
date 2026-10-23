@@ -701,6 +701,15 @@ fn install_skill() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The local branch gh checks PR `p` out on: its own name, or `<owner>/<branch>` when that's
+/// the default branch's.
+fn gh_branch(p: &gh::Pr) -> String {
+    match p.head_branch == diff::default_branch() {
+        true => format!("{}/{}", p.head_owner, p.head_branch),
+        false => p.head_branch.clone(),
+    }
+}
+
 /// `branch` is named as PR `p`'s is checked out by gh: the PR's own name, or `<owner>/<branch>`
 /// (a fork's from its default branch).
 fn branch_named(branch: &str, p: &gh::Pr) -> bool {
@@ -765,9 +774,19 @@ pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool, own: Option<&s
     if detached_here
         && !force
         && !on_pr_n(n, p.as_ref())
-        && diff::git(&["rev-list", "-1", "HEAD", "--not", "--branches", "--remotes"]).is_ok_and(|o| !o.trim().is_empty())
+        && diff::git(&["rev-list", "-1", "HEAD", "--not", "--exclude=HEAD", "--all"]).is_ok_and(|o| !o.trim().is_empty())
     {
         anyhow::bail!("HEAD has commits on no branch: put them on one first (`git switch -c <name>`), or `dv {n} -f` to leave them");
+    }
+    // A branch of yours named as gh would name the PR's, not the PR's: gh would take it over
+    // (fast-forward it, or reset it with -f). Said, not done.
+    if !detach
+        && let Some(p) = &p
+        && let b = gh_branch(p)
+        && diff::git(&["rev-parse", "--verify", "-q", &format!("refs/heads/{b}")]).is_ok()
+        && !on_branch(Path::new("."), &b, p)
+    {
+        anyhow::bail!("your branch {b} isn't PR #{n}'s, only named like it: rename it (`git branch -m {b} <name>`), or `dv {n} -w` to review the PR in a worktree of its own");
     }
     // Checked out as the PR has it: what dv put here (nothing here is work done since).
     let Err(e) = gh::checkout(n, force, detach) else {
@@ -778,30 +797,22 @@ pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool, own: Option<&s
     // (gh merges --ff-only on a branch of a remote of yours; fetches into it, a fork's.)
     let diverged = ["Not possible to fast-forward", "Diverging branches", "non-fast-forward"].iter().any(|p| msg.contains(p));
     let here = diff::git(&["branch", "--show-current"]).unwrap_or_default().trim().to_owned();
-    let on_it = p.as_ref().is_some_and(|p| on_branch(Path::new("."), &here, p));
-    // On its branch with nothing of yours (the PR force-pushed): moved to the PR, uncommitted
-    // edits kept (or refused, if they'd clash). (gh may have switched onto it before its ff
-    // failed: what's here now decides, the one rule again.)
-    if diverged && on_it && !detach {
+    // On its branch, or (a fork's, which gh refused before switching onto it; a same-repo
+    // PR's it switched onto first) its branch here: onto it, then with nothing of yours (the PR
+    // force-pushed) moved to the PR, uncommitted edits kept (or refused, if they'd clash). What's
+    // there decides, the one rule again, not gh's order of steps.
+    let theirs = p.as_ref().filter(|_| diverged && !detach).map(|p| (gh_branch(p), p)).filter(|(b, p)| on_branch(Path::new("."), b, p)).map(|(b, _)| b);
+    if let Some(b) = theirs {
+        if b != here {
+            diff::git(&["switch", "-q", &b]).map_err(|e| e.context(format!("switching onto {b}, PR #{n}'s branch here")))?;
+        }
         if let Some(note) = local_work(n, Path::new(".")) {
             return Ok(Some(note));
         }
         let pr = fetch_pr(n, Path::new("."))?;
-        diff::git(&["reset", "-q", "--keep", &pr]).map_err(|e| e.context(format!("moving {here} to PR #{n}'s head (uncommitted edits in the way?)")))?;
+        diff::git(&["reset", "-q", "--keep", &pr]).map_err(|e| e.context(format!("moving {b} to PR #{n}'s head (uncommitted edits in the way?)")))?;
         record_checkout_at(n, &pr);
         return Ok(None);
-    }
-    // Its local branch, a fork's, refused before gh switched onto it (a same-repo PR's is
-    // switched onto first): onto it here, then the same rule as there, gh's order of steps not
-    // deciding. (Uncommitted edits carried, or refused.)
-    if diverged
-        && !on_it
-        && !detach
-        && let Some(b) = p.as_ref().and_then(|p| [p.head_branch.clone(), format!("{}/{}", p.head_owner, p.head_branch)].into_iter().find(|b| on_branch(Path::new("."), b, p)))
-        && b != here
-    {
-        diff::git(&["switch", "-q", &b])?;
-        return checkout_or_keep(n, force, detach, own);
     }
     match diverged && !force && !detach {
         true => Err(e.context(format!(
