@@ -770,12 +770,12 @@ pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool, own: Option<&s
     // On the PR already (its branch, its own worktree) with work of yours (or Claude's) it
     // doesn't have: kept, -f or not, said; not checked out over. The one place it's decided.
     let was_on = on_pr_n(n, p.as_ref());
+    let detached_here = diff::git(&["branch", "--show-current"]).is_ok_and(|b| b.trim().is_empty());
     if was_on && let Some(note) = local_work(n, Path::new(".")) {
         return Ok(Some(note));
     }
     // Detached elsewhere with commits on no branch (not the PR's own worktree): a checkout would
     // leave them behind, git only warning (which gh keeps to itself). Said, not done.
-    let detached_here = diff::git(&["branch", "--show-current"]).is_ok_and(|b| b.trim().is_empty());
     if detached_here
         && !force
         && !was_on
@@ -797,7 +797,9 @@ pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool, own: Option<&s
     // Checked out as the PR has it: what dv put here (nothing here is work done since). Never
     // gh's --force: its reset --hard would take your uncommitted edits too. -f (its branch,
     // not yours to keep: you weren't on it) is dv's reset --keep instead, edits kept or refused.
-    let reset = force && !was_on && !detach;
+    // (The PR's own worktree, detached with nothing of yours: on the PR, not on its branch. Not
+    // with the PR unknown: the guard against a namesake couldn't run.)
+    let reset = force && !detach && (detached_here || !was_on) && p.is_some();
     let Err(e) = gh::checkout(n, detach) else {
         if reset {
             let pr = fetch_pr(n, Path::new("."))?;
