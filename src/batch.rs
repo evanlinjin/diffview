@@ -366,9 +366,7 @@ pub type Groups = Vec<(Vec<u64>, String)>;
 /// reads them.
 pub fn group(prs: Vec<(u64, String, String, String)>, root: PathBuf) -> Receiver<anyhow::Result<Groups>> {
     let (tx, rx) = mpsc::channel();
-    let work = Work::new();
     std::thread::spawn(move || {
-        let _work = work;
         let _slot = Slot::take();
         _ = tx.send(guarded(|| suggest_groups(&prs, &root)));
     });

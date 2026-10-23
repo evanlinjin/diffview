@@ -107,7 +107,7 @@ impl List {
             // Claude at work here (`busy`): it'd stop with dv. q asks first; Esc only says so (a
             // second Esc calls things off, it doesn't quit).
             KeyCode::Esc if !self.busy() => return Some(Do::Quit),
-            KeyCode::Esc => self.msg = "Claude is still at work here: q, then q again, quits".into(),
+            KeyCode::Esc => self.msg = "Claude is still at work in dv: q, then q again, quits".into(),
             KeyCode::Char('q') => return self.quit(armed),
             KeyCode::Char('R') => return Some(Do::Refresh),
             KeyCode::Char('D') if self.nav.tab == Tab::Replacements => {

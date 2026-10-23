@@ -372,7 +372,8 @@ fn issue_back(o: &Opts, n: u64, root: &Path) -> anyhow::Result<Option<String>> {
         Ok(a) => a,
         // (A PR's number: that PR, as a link to it opens it.)
         Err(_) if gh::is_pr(n) => return review_back(o, n, None, root),
-        Err(e) => return Ok(Some(format!("#{n}: {e:#}"))),
+        // (It says which: "loading issue #N: …".)
+        Err(e) => return Ok(Some(format!("{e:#}"))),
     };
     app.hands_prs = true;
     let mut term = view::init_terminal();

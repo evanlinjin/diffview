@@ -70,7 +70,10 @@ pub struct List {
     /// another dv: their claims, in `running_reps`.)
     reps_changed: Option<std::time::SystemTime>,
     /// Claude's suggestion of how to group marked PRs into replacements, on its way.
-    group_rx: Option<Receiver<anyhow::Result<batch::Groups>>>,
+    /// (Its `Work`: counted till what it suggests is read, here.)
+    group_rx: Option<(batch::Work, Receiver<anyhow::Result<batch::Groups>>)>,
+    /// Requests held back (`holds`), counted as dv's work.
+    held: Option<batch::Work>,
     /// A key that asks to be pressed again (`D` on this PR's worktree, `a`, `q`): any other
     /// key calls it off.
     confirm: Option<(char, u64)>,
@@ -177,9 +180,12 @@ impl List {
     /// drafted, a ranking asked (each lost, or left half done, if dv quits).
     pub fn busy(&self) -> bool {
         // (All of this dv's, the issues list's and a view's left at work too: `batch::at_work`.)
-        batch::at_work()
-            // (Yours held back, to be asked again: not dropped unasked.)
-            || self.batch.iter().any(|(n, s)| matches!(s, batch::Status::Busy(..)) && self.batch_extra.get(n).is_some_and(Option::is_some))
+        batch::at_work() || self.holds()
+    }
+
+    /// Yours held back (Claude was at it), to be asked again: not dropped unasked.
+    fn holds(&self) -> bool {
+        self.batch.iter().any(|(n, s)| matches!(s, batch::Status::Busy(..)) && self.batch_extra.get(n).is_some_and(Option::is_some))
     }
 
     pub fn new(flags: String) -> List {
@@ -225,6 +231,10 @@ impl List {
         self.find_todo(); // and what you did there may have seen to it
         self.select_card(keep);
         loop {
+            // (Counted as dv's work while any is, for the issues list's q too.)
+            if self.holds() != self.held.is_some() {
+                self.held = self.holds().then(batch::Work::new);
+            }
             // (Failed: tried again once the marks change, not every turn of the loop.)
             if self.marked == self.marked_saved {
                 self.marks_failed = None;
@@ -268,7 +278,7 @@ impl List {
                 self.load_reps();
                 self.find_todo(); // drafting (in any dv), or drafted: where they go on it
             }
-            if let Some(Ok(res)) = self.group_rx.as_ref().map(Receiver::try_recv) {
+            if let Some(Ok(res)) = self.group_rx.as_ref().map(|g| g.1.try_recv()) {
                 self.group_rx = None;
                 self.draft_groups(term, res);
             }
@@ -342,7 +352,7 @@ impl List {
                     let about = |n: u64| self.prs.iter().find(|p| p.number == n).map(|p| (n, p.title.clone(), p.author.clone(), p.base.clone()));
                     let prs = prs.into_iter().map(|n| about(n).unwrap_or((n, String::new(), String::new(), String::new()))).collect();
                     self.msg = "Claude is looking at how to group them (one replacement per group)…".into();
-                    self.group_rx = Some(batch::group(prs, self.root.clone()));
+                    self.group_rx = Some((batch::Work::new(), batch::group(prs, self.root.clone())));
                 }
                 Some(Do::AskRebase(n)) => self.ask_rebase(term, n),
                 Some(Do::PostWait(n, text)) => {

@@ -5,6 +5,10 @@
 use super::*;
 use crate::todo::{self, Item, Of, Ranked, Until};
 
+/// Claude reading an "until…" for an item: its key, the "or" time, the answer to come, its
+/// `Work`.
+type UntilAsked = (String, Option<i64>, Receiver<Result<Until>>, crate::batch::Work);
+
 #[derive(Default)]
 pub(super) struct Todos {
     /// What needs you, in order, and what's changed since Claude last ranked it.
@@ -22,7 +26,8 @@ pub(super) struct Todos {
     pub(super) ready: bool,
     pub(super) deferring: Option<String>,
     /// Claude reading a deferral's "until …": the item's key, the "or" time, its answer.
-    pub(super) until_rx: Option<(String, Option<i64>, Receiver<Result<Until>>)>,
+    /// (Its `Work`: counted till what Claude read is used, here.)
+    pub(super) until_rx: Option<UntilAsked>,
     /// Auto (`C`, kept in git config `dv.auto`, one setting for both lists): Claude does its
     /// part as things come in, and ranks them again; when it last ranked.
     pub(super) auto: bool,
@@ -245,7 +250,7 @@ impl Todos {
                 // (One read meanwhile: this one instead, said so; a reading that hangs isn't
                 // in the way of the next.)
                 let instead = self.until_rx.as_ref().map_or(String::new(), |r| format!(" (instead of the \"until\" for {})", self.label(&r.0)));
-                self.until_rx = Some((key, or, todo::interpret(text, about(), root.to_path_buf())));
+                self.until_rx = Some((key, or, todo::interpret(text, about(), root.to_path_buf()), crate::batch::Work::new()));
                 Reading::Asked(format!("Claude is reading when you mean…{instead}"))
             }
         }
@@ -255,7 +260,7 @@ impl Todos {
     /// what's said of why not.
     pub(super) fn until_news(&mut self) -> Option<std::result::Result<Read, String>> {
         let res = self.until_rx.as_ref()?.2.try_recv().ok()?;
-        let (key, or, _) = self.until_rx.take()?;
+        let (key, or, ..) = self.until_rx.take()?;
         Some(res.map(|c| (key, c, or)).map_err(|e| format!("not deferred: {e:#}")))
     }
 
@@ -352,7 +357,7 @@ fn deferring_an_item() {
     t.deferred.remove("issue-7");
     // A reading under way for it, then a deferral of yours: the reading's dropped.
     let (_tx, rx) = std::sync::mpsc::channel();
-    t.until_rx = Some(("issue-7".into(), None, rx));
+    t.until_rx = Some(("issue-7".into(), None, rx, crate::batch::Work::new()));
     assert!(t.defer("issue-7", 1, None, 0) && t.until_rx.is_none());
     // "until 3 days" read here, no Claude.
     assert!(matches!(t.until("issue-7".into(), "3 days", String::new, &file), Reading::Read(Until::Time(_), None)));
