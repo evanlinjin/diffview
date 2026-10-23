@@ -204,42 +204,23 @@ impl App {
         }
     }
 
-    /// Your own change to an issue since Claude triaged it isn't one to triage again for: the
-    /// triage's time moves with the issue's, GitHub's now (one changed by another meanwhile,
-    /// it doesn't).
+    /// Your own change to an issue since Claude triaged it isn't one to triage again for: kept
+    /// beside its file (dv's, not Claude's), from the issue's time before to GitHub's now (your
+    /// changes in a row: from the first's before); a triage as of a time in that run reads as
+    /// of its end (`triage_of`).
     fn own_change(&mut self) {
-        let (Some(i), Some(p)) = (&mut self.issue, self.claude.path.clone()) else { return };
+        let (Some(i), Some(p)) = (&mut self.issue, &self.claude.path) else { return };
         let Ok(now) = gh::gh(&["api", &format!("repos/{{owner}}/{{repo}}/issues/{}", i.number), "--jq", ".updated_at"]) else { return };
         let now = now.trim().to_owned();
         if now != i.updated {
-            // In the issue's file, for every triage alike: one kept moves now; one under way
-            // anywhere (as of the time before) is saved as of this (`merge_triage`). Your
-            // changes in a row: from the first's time before.
-            // (A file that won't read: left as it is, not written over.)
-            let mut v: serde_json::Value = match crate::claude::read(&p) {
-                Ok(None) => serde_json::json!({}),
-                Ok(Some(t)) => match serde_json::from_str(&t) {
-                    Ok(v) => v,
-                    Err(_) => return i.updated = now,
-                },
-                Err(_) => return i.updated = now,
-            };
-            let from = match v["own"]["to"].as_str() == Some(i.updated.as_str()) {
-                true => v["own"]["from"].clone(),
+            let p = crate::list::issues::own_path(p);
+            let was: serde_json::Value = std::fs::read_to_string(&p).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+            let from = match was["to"].as_str() == Some(i.updated.as_str()) {
+                true => was["from"].clone(),
                 false => i.updated.clone().into(),
             };
-            v["own"] = serde_json::json!({ "from": from, "to": now });
-            if v["updated"].as_str() == Some(i.updated.as_str()) {
-                v["updated"] = now.clone().into();
-            }
             _ = p.parent().map(std::fs::create_dir_all);
-            // (dv's own note, not news from Claude: the file as read, still.)
-            let mtime = |p: &std::path::Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
-            let current = mtime(&p) == self.claude.mtime;
-            _ = crate::claude::write(&p, &v);
-            if current {
-                self.claude.mtime = mtime(&p);
-            }
+            _ = crate::claude::write(&p, &serde_json::json!({ "from": from, "to": now }));
         }
         i.updated = now;
     }

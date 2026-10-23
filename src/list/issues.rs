@@ -120,14 +120,31 @@ fn issue(i: &Value) -> Issue {
 
 /// Claude's triage of issue `n`, if it has one (`dir`: the reviews' directory).
 pub fn triage_of(dir: &std::path::Path, n: u64) -> Option<Triage> {
-    let v: Value = serde_json::from_str(&std::fs::read_to_string(dir.join(format!("issue-{n}.json"))).ok()?).ok()?;
+    let file = dir.join(format!("issue-{n}.json"));
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(&file).ok()?).ok()?;
+    let own: Value = std::fs::read_to_string(own_path(&file)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
     let s = |k: &str| v[k].as_str().unwrap_or("").trim().to_owned();
     // (Only a closing comment drafted, no triage: not triaged.)
     if s("kind").is_empty() && s("summary").is_empty() {
         return None;
     }
     let fixes_seen = v["fixes_seen"].as_array().map(|a| a.iter().filter_map(Value::as_u64).collect()).unwrap_or_default();
-    Some(Triage { kind: s("kind"), priority: s("priority"), next: s("next"), close: s("close"), updated: s("updated"), fixes_seen })
+    Some(Triage { kind: s("kind"), priority: s("priority"), next: s("next"), close: s("close"), updated: as_of(&own, &s("updated")), fixes_seen })
+}
+
+/// Where dv keeps your own run of changes to an issue (`own_change`), beside its file `review`.
+pub(crate) fn own_path(review: &std::path::Path) -> std::path::PathBuf {
+    review.with_extension("own")
+}
+
+/// A triage's time `updated`, with your own run of changes `own` ({from, to}): within it (from
+/// its first's time before, up to its last's), as of the last's; else as it is.
+fn as_of(own: &Value, updated: &str) -> String {
+    let at = |v: &Value| v.as_str().and_then(crate::gh::epoch_secs);
+    match (at(&own["from"]), crate::gh::epoch_secs(updated), at(&own["to"])) {
+        (Some(f), Some(u), Some(t)) if f <= u && u < t => own["to"].as_str().unwrap_or(updated).to_owned(),
+        _ => updated.to_owned(),
+    }
 }
 
 /// What issue `i` needs of you (`t`: Claude's triage of it, written at `t_at`, seconds):
@@ -216,7 +233,11 @@ pub(crate) fn save_triage(n: u64, updated: &str, fixes: &[(u64, String, String)]
     let file = crate::claude::Subject::Issue(n).path()?;
     let answer = v["result"].as_str().unwrap_or("");
     let t = crate::claude::json_in(answer, '{').filter(Value::is_object).context("no triage in Claude's answer")?;
-    let old: Value = std::fs::read_to_string(&file).ok().and_then(|o| serde_json::from_str(&o).ok()).unwrap_or_default();
+    // (One that won't read: not written over, Claude's talk and proposals in it.)
+    let old: Value = match crate::claude::read(&file)? {
+        None => Value::Null,
+        Some(t) => serde_json::from_str(&t).with_context(|| format!("{} won't read (not written over)", file.display()))?,
+    };
     let t = merge_triage(&old, t, n, updated, fixes);
     std::fs::create_dir_all(file.parent().context("no dir")?)?;
     crate::claude::write(&file, &t)?;
@@ -271,13 +292,6 @@ fn merge_triage(old: &Value, t: Value, n: u64, updated: &str, fixes: &[(u64, Str
         }
     }
     m.insert("issue".into(), n.into());
-    // A triage as of a time your own changes moved on from (their first's before, or one
-    // between): as of the last's (`own_change`).
-    let own = |k: &str| old["own"][k].as_str().and_then(crate::gh::epoch_secs);
-    let updated = match (own("from"), crate::gh::epoch_secs(updated), own("to")) {
-        (Some(f), Some(u), Some(t)) if f <= u && u < t => old["own"]["to"].as_str().unwrap_or(updated),
-        _ => updated,
-    };
     m.insert("updated".into(), updated.into());
     // (When Claude wrote it, as a PR review's: its age, its place among what Claude said.)
     m.insert("created".into(), crate::claude::now().into());
@@ -301,12 +315,16 @@ fn a_triage_keeps_the_rest_of_the_file() {
     // A title proposed with a new text you asked for stays (the triage's own one waits).
     let old = serde_json::json!({ "title": "Asked for", "description": "proposed" });
     assert_eq!(merge_triage(&old, serde_json::json!({ "title": "Triage's" }), 7, "u", &[])["title"], "Asked for");
-    // One as of the time before your own change: as of the change's; one after, its own.
+}
+
+#[test]
+fn a_triage_before_your_own_changes_is_as_of_them() {
+    // One as of the time before your own changes, or between them: as of the last's; one
+    // after, its own.
     let (t0, t1, t2, t3) = ("2026-01-01T00:00:00Z", "2026-01-01T00:01:00Z", "2026-01-01T00:02:00Z", "2026-01-01T00:03:00Z");
-    let old = serde_json::json!({ "own": { "from": t0, "to": t2 } });
-    assert_eq!(merge_triage(&old, serde_json::json!({}), 7, t0, &[])["updated"], t2);
-    assert_eq!(merge_triage(&old, serde_json::json!({}), 7, t1, &[])["updated"], t2);
-    assert_eq!(merge_triage(&old, serde_json::json!({}), 7, t3, &[])["updated"], t3);
+    let own = serde_json::json!({ "from": t0, "to": t2 });
+    assert_eq!((as_of(&own, t0), as_of(&own, t1), as_of(&own, t3)), (t2.into(), t2.into(), t3.into()));
+    assert_eq!(as_of(&Value::Null, t0), t0);
 }
 
 /// Whether `k` is for moving about, the tabs, the filter, the help (`Nav`) while `pending`
