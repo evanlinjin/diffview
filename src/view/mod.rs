@@ -786,6 +786,9 @@ pub struct App {
     /// as it was then (a load since is newer, so that one's dropped).
     github: Option<std::sync::mpsc::Receiver<(u64, github::Fetched)>>,
     github_gen: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    /// dv changed the issue (a label, a comment, its text): its time when it did, so the change
+    /// doesn't count as one since Claude triaged it (`apply_github`).
+    own_change: Option<String>,
     /// Tells the background watch to fetch now, whatever the PR's ETag says.
     github_poke: Option<std::sync::mpsc::Sender<()>>,
     /// The PR's whole conversation attached to the description, not only its latest (`Space o`).
@@ -841,6 +844,11 @@ impl App {
     /// triage of it and talk about it; no code (no diff, commits, or language server).
     pub fn open_issue(n: u64) -> Result<Self> {
         crate::progress(Some("loading the issue"));
+        // (Nothing kept of it: asked first, so one that isn't an issue (a PR, none) fails here,
+        // not as an empty view.)
+        if github::cache_path(crate::claude::Subject::Issue(n)).is_none_or(|p| !p.exists()) {
+            gh::issue_json(n)?;
+        }
         let mut app = Self::with(String::new(), vec![]);
         app.issue = Some(IssueRec { number: n, ..IssueRec::default() });
         app.claude.path = crate::claude::Subject::Issue(n).path().ok();

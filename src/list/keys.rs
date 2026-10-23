@@ -48,7 +48,7 @@ PR
 impl List {
     /// Quit, asked first while Claude's at work here (`busy`): it'd stop with dv.
     fn quit(&mut self, armed: Option<(char, u64)>) -> Option<Do> {
-        let quits = !self.busy() || self.again(armed, 'q', (), "Claude is still at work here (reviewing, drafting, ranking): q again quits (what's under way is lost; queued reviews don't start)");
+        let quits = !self.busy() || self.again(armed, 'q', (), "Claude is still at work in dv (reviewing, triaging, drafting, ranking; here or in the issues): q again quits (what's under way is lost; queued reviews don't start)");
         quits.then_some(Do::Quit)
     }
 

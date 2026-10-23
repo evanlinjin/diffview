@@ -197,6 +197,9 @@ impl App {
     /// under way brings back is from before, and would undo what dv shows now; the watcher's
     /// asked again (it may hold the ETag already), and that answer's current.
     pub(super) fn github_changed(&mut self) {
+        if let Some(i) = &self.issue {
+            self.own_change.get_or_insert_with(|| i.updated.clone());
+        }
         self.github_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         if let Some(p) = &self.github_poke {
             _ = p.send(());
@@ -269,6 +272,18 @@ impl App {
                         self.github_base = Some(base);
                     }
                 } else if let Some(i) = &mut self.issue {
+                    // Your own change since the triage isn't one to triage again for: the
+                    // triage's time moves with it (another's since, it doesn't).
+                    // (Taken once GitHub's time has moved: an answer from before it did, not.)
+                    if fresh
+                        && let Some(was) = self.own_change.take_if(|w| *w != updated)
+                        && let Some(p) = &self.claude.path
+                        && let Ok(mut v) = std::fs::read_to_string(p).map_err(anyhow::Error::from).and_then(|t| Ok(serde_json::from_str::<serde_json::Value>(&t)?))
+                        && v["updated"].as_str() == Some(was.as_str())
+                    {
+                        v["updated"] = updated.clone().into();
+                        _ = crate::claude::write(p, &v);
+                    }
                     (i.title, i.url, i.updated, i.fixes) = (title, url, updated, fixes);
                 }
                 self.refresh_sync(); // the PR's head may have moved

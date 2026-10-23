@@ -272,6 +272,8 @@ fn merge_triage(old: &Value, t: Value, n: u64, updated: &str, fixes: &[(u64, Str
     }
     m.insert("issue".into(), n.into());
     m.insert("updated".into(), updated.into());
+    // (When Claude wrote it, as a PR review's: its age, its place among what Claude said.)
+    m.insert("created".into(), crate::claude::now().into());
     // (The merged fixes it judged: one merging after has it triaged again.)
     m.insert("fixes_seen".into(), fixes.iter().filter(|p| p.1 == "MERGED").map(|p| p.0).collect::<Vec<_>>().into());
     Value::Object(m)
@@ -375,6 +377,8 @@ pub struct Issues {
     fetched: Option<Receiver<Fetch>>,
     /// A closing comment Claude's drafting (`batch`'s, as for a PR's), on its way; one at a time.
     claude_rx: Option<Receiver<(u64, batch::Status)>>,
+    /// dv list (its runs, its ranking) at work too: q asks first for all of dv's.
+    pub also_busy: bool,
     /// The issues with a closing comment drafted (read as the triages are, as they change).
     closing: HashSet<u64>,
     /// Auto (`C`, git config `dv.auto`, as dv list's): Claude triages what isn't triaged, and
@@ -415,8 +419,10 @@ impl Issues {
         }
         self.drafts_checked = Some(std::time::Instant::now());
         let Some(dir) = self.reviews_dir.as_ref().and_then(|d| d.parent()).map(|d| d.join("running")) else { return };
+        // (Claude at an issue, or a draft fixing one, started or done: the todo again.)
+        let was = std::mem::take(&mut self.at_work);
         self.at_work = crate::claude::sweep_running(&dir, &std::cell::OnceCell::new());
-        if draft_fix(&records(), &self.at_work) != self.draft_fix {
+        if self.at_work != was || draft_fix(&records(), &self.at_work) != self.draft_fix {
             self.find_todo();
         }
     }
@@ -459,6 +465,11 @@ impl Issues {
         let met = self.todos.met(&items, |_, c, _| self.happened(c));
         self.todos.ready = !self.items.is_empty();
         let (items, said) = self.todos.settle(items, met);
+        // Those Claude is at (here or in any dv): at the bottom till it's done, as dv list's.
+        let doing = |it: &Item| self.at_work.get(&crate::claude::pr_key(it.number)).cloned();
+        let (mut busy, mut items): (Vec<Item>, Vec<Item>) = items.into_iter().partition(|it| doing(it).is_some());
+        busy.iter_mut().for_each(|it| it.busy = doing(it));
+        items.append(&mut busy);
         self.todos.items = items;
         if let Some(said) = said {
             self.msg = said;
@@ -544,7 +555,7 @@ impl Issues {
     /// Claude at work from here: triaging, drafting a fix or a closing comment, ranking.
     pub fn busy(&self) -> bool {
         // (A view's run left at work counts too: `claude::claims_held`.)
-        self.running.values().any(batch::Status::running) || self.claude_rx.is_some() || self.todos.rank_rx.is_some() || crate::claude::claims_held() > 0
+        self.also_busy || self.running.values().any(batch::Status::running) || self.claude_rx.is_some() || self.todos.rank_rx.is_some() || crate::claude::claims_held() > 0
     }
 
     /// The issues on the tab shown, filtered.
@@ -722,7 +733,7 @@ impl Issues {
         if !self.busy() || pending == Some('q') {
             return Some(IssuesDo::Quit);
         }
-        (self.pending, self.msg) = (Some('q'), "Claude is still at work (triaging, ranking): q again quits (what's under way is lost)".into());
+        (self.pending, self.msg) = (Some('q'), "Claude is still at work in dv (triaging, ranking; here or on PRs in dv list): q again quits (what's under way is lost)".into());
         None
     }
 
@@ -810,6 +821,8 @@ impl Issues {
                 };
             }
             (Some(_), KeyCode::Esc) => {} // (a pending key called off, as Helix's)
+            // (No filter to clear: quits, as dv list's; asked first while Claude's at work.)
+            (None, KeyCode::Esc) => return self.quit(None),
             (_, KeyCode::Char('q')) => return self.quit(pending),
             (_, KeyCode::Char('R')) => {
                 self.msg = "fetching the open issues…".into();
@@ -1028,7 +1041,7 @@ impl Issues {
                 let card_w = column.unwrap_or(width);
                 let rank = item.filter(|_| column.is_some()).map(|_| k + 1); // (narrow: on the line under the title)
                 let close = self.close_why(i.number).unwrap_or_default();
-                let mut l = issue_card(i, ui, k == sel, self.marked.contains(&i.number), num_w, card_w, self.triage.get(&i.number), self.running.get(&i.number), rank, &close, self.draft_fix.get(&i.number));
+                let mut l = issue_card(i, ui, k == sel, self.marked.contains(&i.number), num_w, card_w, self.triage.get(&i.number), self.running.get(&i.number), self.at_work.get(&crate::claude::pr_key(i.number)).map(String::as_str), rank, &close, self.draft_fix.get(&i.number));
                 if let Some(it) = item {
                     let cx = Cards { ui, num_w, width: card_w, checks_loading: false, usual: "" };
                     match column {
@@ -1077,7 +1090,7 @@ impl Issues {
 /// it and who has it, and Claude's triage (what kind, how pressing); the PRs that would fix it,
 /// and what Claude says is next (or that it's at it).
 #[allow(clippy::too_many_arguments)]
-fn issue_card(i: &Issue, ui: &Ui, selected: bool, marked: bool, num_w: usize, width: usize, t: Option<&Triage>, run: Option<&batch::Status>, rank: Option<usize>, close: &str, draft: Option<&(String, Option<String>)>) -> Vec<Line<'static>> {
+fn issue_card(i: &Issue, ui: &Ui, selected: bool, marked: bool, num_w: usize, width: usize, t: Option<&Triage>, run: Option<&batch::Status>, at_work: Option<&str>, rank: Option<usize>, close: &str, draft: Option<&(String, Option<String>)>) -> Vec<Line<'static>> {
     let row = card_row(ui, selected);
     let tint = |st: Style| row.patch(Style { bg: None, ..st });
     let dim = tint(ui.stale);
@@ -1119,6 +1132,8 @@ fn issue_card(i: &Issue, ui: &Ui, selected: bool, marked: bool, num_w: usize, wi
     }
     let triage = match (run, t) {
         (Some(s), _) if s.running() => vec![sp("claude: triaging…".into(), tint(ui.key))],
+        // (Claude at it from anywhere else: a view, another dv.)
+        _ if let Some(w) = at_work => vec![sp(format!("claude: {w}…"), tint(ui.key))],
         (Some(batch::Status::Failed(e, _)), _) => vec![sp(format!("claude failed: {}", e.lines().next().unwrap_or("")), tint(ui.error))],
         _ if !close.is_empty() => vec![sp(format!("✕ close: {close}"), tint(ui.warning))],
         (_, Some(t)) => vec![sp([t.kind.as_str(), t.priority.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" · "), tint(ui.key))],
@@ -1178,7 +1193,7 @@ FIND
   /                    filter: all terms match (Enter keeps it, Esc clears it)
                        text: number, title, author, labels
                        label: author: kind: priority:  is:triaged  (-term excludes)
-  Esc                  clear the filter
+  Esc                  clear the filter (none: quit)
   R                    refresh from GitHub (no Claude)
 
 TODO

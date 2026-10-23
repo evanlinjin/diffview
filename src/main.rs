@@ -307,16 +307,13 @@ fn pick_and_review(o: &Opts, root: &Path) -> anyhow::Result<()> {
     loop {
         let mut term = view::init_terminal();
         // The issues (`dv issues`, `I I`): until you quit there or go back to the PRs.
+        // (q asks first for all of dv's work, either list's.)
+        (list.also_busy, issues.also_busy) = (false, false);
+        (list.also_busy, issues.also_busy) = (issues.busy(), list.busy());
         if on_issues {
             let res = issues.run(&mut term);
             view::restore_terminal();
             match res? {
-                // (Not with Claude still at work on PRs from the list: back there, saying so.)
-                // (Its own work: `Issues` asks before it quits.)
-                list::issues::IssuesDo::Quit if list.busy() => {
-                    list.msg = "Claude is still at work on PRs here: q again (in dv list) quits".into();
-                    on_issues = false;
-                }
                 list::issues::IssuesDo::Quit => return Ok(()),
                 list::issues::IssuesDo::Prs => on_issues = false,
                 // An issue (Enter on its card): in the PR view, then back to the issues.
@@ -376,6 +373,8 @@ fn review_back(o: &Opts, n: u64, known: Option<gh::Pr>, root: &Path) -> anyhow::
 fn issue_back(o: &Opts, n: u64, root: &Path) -> anyhow::Result<Option<String>> {
     let mut app = match view::App::open_issue(n) {
         Ok(a) => a,
+        // (A PR's number: that PR, as a link to it opens it.)
+        Err(_) if gh::gh(&["pr", "view", &n.to_string(), "--json", "number"]).is_ok() => return review_back(o, n, None, root),
         Err(e) => return Ok(Some(format!("#{n}: {e:#}"))),
     };
     app.hands_prs = true;
