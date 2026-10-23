@@ -628,6 +628,8 @@ impl List {
             Some(s) if s.running() => ("drafting…".into(), true),
             _ => match self.rep_of.get(&id)? {
                 r if r.published.is_some() => return Some((format!("{of}: published as #{}", r.published.unwrap_or(0)), true)),
+                // (Its last draft refused a tool it needed: what's in the way, said.)
+                r if !r.refused.is_empty() => (format!("blocked: Claude was refused {} (allow it, then Space a → Redraft)", r.refused), false),
                 r if !r.drafted() => ("no draft yet".into(), false),
                 _ => ("drafted".into(), true),
             },

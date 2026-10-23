@@ -317,11 +317,7 @@ fn run(s: Subject, branch: bool, task: &Task, root: &Path, extra: &str, tx: &Sen
         _ = crate::claude::save_session(&review, &dir, None); // start afresh next time
         anyhow::bail!("Claude stopped ({st}): see {}", log.display());
     }
-    Ok(Status::Done(format!(
-        "{} turns, ${:.2}",
-        v["num_turns"].as_u64().unwrap_or(0),
-        v["total_cost_usd"].as_f64().unwrap_or(0.0)
-    )))
+    Ok(Status::Done(crate::claude::took(&v)))
 }
 
 /// `f`'s result, or a failure if it panics: a background run always says how it ended (its

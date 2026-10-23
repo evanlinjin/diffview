@@ -241,7 +241,7 @@ pub(crate) fn save_triage(n: u64, updated: &str, fixes: &[(u64, String, String)]
     let t = merge_triage(&old, t, n, updated, fixes);
     std::fs::create_dir_all(file.parent().context("no dir")?)?;
     crate::claude::write(&file, &t)?;
-    Ok(format!("{} turns, ${:.2}", v["num_turns"].as_u64().unwrap_or(0), v["total_cost_usd"].as_f64().unwrap_or(0.0)))
+    Ok(crate::claude::took(v))
 }
 
 /// Claude triages issue `n` here (dv issues'): its hold on it meanwhile (`claude::claim`), for

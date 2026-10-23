@@ -1009,7 +1009,7 @@ fn margin_tags_on_their_own_line() {
 
 #[test]
 fn what_claude_was_refused() {
-    use agent::refusal;
+    use crate::claude::refusal;
     let v = |d: serde_json::Value| serde_json::json!({ "permission_denials": d });
     assert_eq!(refusal(&v(serde_json::json!([]))), None);
     let edit = serde_json::json!({ "tool_name": "Edit", "tool_input": { "file_path": "/r/notes.md" } });

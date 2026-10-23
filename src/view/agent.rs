@@ -1056,7 +1056,7 @@ impl App {
             _ => self.set_session(None), // e.g. the session is gone: start afresh next time
         }
         // A run can end "successfully" having been refused what it needed: say what.
-        let refused = out.as_ref().and_then(refusal);
+        let refused = out.as_ref().and_then(crate::claude::refusal);
         let cost = out.as_ref().and_then(|v| v["total_cost_usd"].as_f64());
         self.claude.spent += cost.unwrap_or(0.0);
         let took = match (out.as_ref().and_then(|v| v["num_turns"].as_u64()), cost) {
@@ -1110,21 +1110,6 @@ impl App {
         }
     }
 
-}
-
-/// What a run's result says it was refused, in a few words: the first refusal's tool and its
-/// target (first line, kept short for the status bar), "and N more" if there were others.
-pub(super) fn refusal(out: &serde_json::Value) -> Option<String> {
-    let denied = out["permission_denials"].as_array().filter(|d| !d.is_empty())?;
-    let d = &denied[0];
-    let input = &d["tool_input"];
-    let target = ["file_path", "path", "command", "pattern", "url"].iter().find_map(|k| input[*k].as_str()).unwrap_or("");
-    let target: String = target.lines().next().unwrap_or("").chars().take(60).collect();
-    let more = match denied.len() {
-        1 => String::new(),
-        n => format!(" (and {} more)", n - 1),
-    };
-    Some(format!("{} {target}{more}", d["tool_name"].as_str().unwrap_or("a tool")).replace("  ", " ").trim().to_owned())
 }
 
 /// How long since `t`, for the status bar: "40s", "3m".

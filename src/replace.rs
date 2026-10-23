@@ -68,6 +68,8 @@ pub struct Record {
     /// When its last draft (that went through) read the originals' reviews (unix seconds; 0:
     /// not known): reviews changed since go to a redraft.
     pub drafted_at: u64,
+    /// What Claude was refused in its last draft (a tool it needed): what's in the way.
+    pub refused: String,
 }
 
 impl Record {
@@ -241,6 +243,7 @@ fn parse(id: u64, text: &str) -> Result<Record> {
                 }).collect(),
         taking: v["taking"].as_u64().unwrap_or(0) as usize,
         drafted_at: v["drafted_at"].as_u64().unwrap_or(0),
+        refused: s(&v["refused"]),
     })
 }
 
@@ -252,6 +255,7 @@ fn to_json(r: &Record) -> String {
         "closing_note": r.closing_note, "session": r.session, "published": r.published, "closed": r.closed,
         "task": r.task,
         "asks": r.asks.iter().map(|a| json!({ "text": a.text, "want": a.want, "on": a.on, "answer": a.answer })).collect::<Vec<_>>(), "taking": r.taking, "drafted_at": r.drafted_at,
+        "refused": r.refused,
     });
     serde_json::to_string_pretty(&v).unwrap_or_default() + "\n"
 }
@@ -660,7 +664,13 @@ fn run_claude(r: &Record, dir: &Path, first: bool, extra: &str, which: Reviews, 
     if !st.success() || v["is_error"] != false {
         anyhow::bail!("Claude stopped ({st}): see {}", log.display());
     }
-    Ok(format!("{} turns, ${:.2}", v["num_turns"].as_u64().unwrap_or(0), v["total_cost_usd"].as_f64().unwrap_or(0.0)))
+    // (What it was refused, kept with the draft: its card and view say so till a draft isn't.)
+    let refused = crate::claude::refusal(&v).unwrap_or_default();
+    _ = update(r.id, |r| {
+        r.refused = refused;
+        Ok(())
+    });
+    Ok(crate::claude::took(&v))
 }
 
 /// The remote replacement branches are pushed to (`git config dv.replaceRemote`): not origin,
@@ -878,6 +888,7 @@ fn records_round_trip() {
         ],
         taking: 1,
         drafted_at: 1_800_000_000,
+        refused: "Bash magick convert a.png".into(),
     };
     assert_eq!(parse(12, &to_json(&r)).unwrap(), r);
     // Only what no redraft has taken in yet is asked again.

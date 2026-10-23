@@ -1625,3 +1625,29 @@ fn a_review_as_a_replacement_reads_it() {
         "Fixes the symptom.\n\n- `src/a.rs:12` (bug)\n  Claude: This drops the error.\n  the user: Agreed:\n  make it return it\n\n- `src/b.rs:3` (resolved)\n  the user: rename it\n\n- on the summary\n  the user: move the check into parse()"
     );
 }
+
+/// What a run's result says it was refused, in a few words: the first refusal's tool and its
+/// target (first line, kept short for the status bar), "and N more" if there were others.
+pub fn refusal(out: &serde_json::Value) -> Option<String> {
+    let denied = out["permission_denials"].as_array().filter(|d| !d.is_empty())?;
+    let d = &denied[0];
+    let input = &d["tool_input"];
+    let target = ["file_path", "path", "command", "pattern", "url"].iter().find_map(|k| input[*k].as_str()).unwrap_or("");
+    let target: String = target.lines().next().unwrap_or("").chars().take(60).collect();
+    let more = match denied.len() {
+        1 => String::new(),
+        n => format!(" (and {} more)", n - 1),
+    };
+    Some(format!("{} {target}{more}", d["tool_name"].as_str().unwrap_or("a tool")).replace("  ", " ").trim().to_owned())
+}
+
+/// A background run's end, from its result `v`: its turns and cost, and what it was refused
+/// (a run "done" having been refused what it needed, `magick`, `python3`: said, not left for
+/// you to find it made no progress). The one wording, for drafts, reviews and triages.
+pub fn took(v: &Value) -> String {
+    let t = format!("{} turns, ${:.2}", v["num_turns"].as_u64().unwrap_or(0), v["total_cost_usd"].as_f64().unwrap_or(0.0));
+    match refusal(v) {
+        Some(r) => format!("{t}; blocked: refused {r} (allow it in Claude Code's settings, then ask again)"),
+        None => t,
+    }
+}
