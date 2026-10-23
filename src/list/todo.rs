@@ -94,11 +94,7 @@ impl List {
         let items = rest;
         // Those Claude is at (here or in any dv; drafting their replacement too): at the bottom
         // till it's done.
-        let doing = |it: &Item| match it.is_rep() {
-            // A replacement: Claude drafting it, or at it in its worktree.
-            true => self.drafting_replacement(it.number).then(|| "drafting it".to_owned()).or_else(|| self.running_reps.get(&it.number).cloned()),
-            false => self.claude_doing(it.number),
-        };
+        let doing = |it: &Item| self.item_doing(it);
         let (mut busy, todo): (Vec<Item>, Vec<Item>) = items.into_iter().partition(|it| doing(it).is_some());
         busy.iter_mut().for_each(|it| it.busy = doing(it));
         // A replacement drafted, ready for you to review: first.
@@ -649,6 +645,16 @@ impl List {
             let mut all = read_described().unwrap_or_default();
             all.insert(n, head);
             _ = super::marks::write_json(&f, &serde_json::json!(all));
+        }
+    }
+
+    /// What Claude is doing on item `it` now: a PR's, `claude_doing`; a replacement's, on its PR
+    /// once published (`claude_doing`: its draft's work too), else drafting it or at it in its
+    /// worktree.
+    pub(super) fn item_doing(&self, it: &Item) -> Option<String> {
+        match self.pr_of(it) {
+            Some(p) => self.claude_doing(p),
+            None => self.drafting_replacement(it.number).then(|| "drafting it".to_owned()).or_else(|| self.running_reps.get(&it.number).cloned()),
         }
     }
 

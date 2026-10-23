@@ -89,9 +89,11 @@ fn lock(main: &std::path::Path) -> Result<std::fs::File> {
 /// `dv merge-run N` (a merge's pane, or a merge here): the script for PR `n`, in the main
 /// checkout, holding the merge lock till it's done.
 pub fn run_locked(n: u64) -> Result<std::process::ExitStatus> {
-    let (main, argv) = command(n)?;
+    // (The lock first: what the command looks up takes a moment.)
+    let (main, _) = crate::worktree_dir(n)?;
     let held = lock(&main)?;
     held.try_lock().map_err(|_| anyhow::anyhow!("github-merge.py is merging in {} already: once it's done", main.display()))?;
+    let (main, argv) = command(n)?;
     std::process::Command::new(&argv[0]).args(&argv[1..]).current_dir(&main).status().context("running python3")
 }
 
@@ -134,7 +136,12 @@ fn pane_argv(argv: &[String], n: u64) -> Vec<String> {
 /// for it, as here.
 pub fn waits(n: u64) -> Option<String> {
     // Its work under its own key, or its draft's (a pane opened before it was published keeps it).
-    let draft = || crate::replace::all().into_iter().find(|r| r.published == Some(n))?.at_work();
+    // (Its draft's worktree too: a pane there no marker says.)
+    let draft = || {
+        let r = crate::replace::all().into_iter().find(|r| r.published == Some(n))?;
+        let dir = crate::worktree_dir_named(std::path::Path::new("."), &crate::replace::name(r.id)).ok();
+        r.at_work().or_else(|| crate::claude::at_work_in(&dir?, None))
+    };
     if let Some(w) = crate::claude::at_work(&crate::claude::pr_key(n), None, None).or_else(draft) {
         return Some(format!("Claude is {w} on #{n}: merge it once it's done (a pane: closed)"));
     }

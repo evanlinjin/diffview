@@ -576,8 +576,10 @@ impl List {
     /// approving).
     fn draft_state(&self, id: u64, of: &str) -> Option<(String, bool)> {
         // (Claude at it from anywhere: what its claim says, a draft's "drafting" or a run's.)
+        // (Published: Claude at its PR, as its PR's card says.)
+        let at_pr = self.rep_of.get(&id).and_then(|r| r.published).and_then(|p| self.claude_doing(p));
         let (what, ok) = match self.drafting.get(&id) {
-            _ if let Some(w) = self.running_reps.get(&id) => (format!("{w}…"), true),
+            _ if let Some(w) = at_pr.or_else(|| self.running_reps.get(&id).cloned()) => (format!("{w}…"), true),
             Some(batch::Status::Failed(e, _)) => return Some((format!("{of}: draft failed: {}", cut(e.lines().next().unwrap_or(""), 60)), false)),
             Some(s) if s.running() => ("drafting…".into(), true),
             _ => match self.rep_of.get(&id)? {
