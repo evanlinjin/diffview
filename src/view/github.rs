@@ -209,14 +209,22 @@ impl App {
     /// it doesn't).
     fn own_change(&mut self) {
         let (Some(i), Some(p)) = (&mut self.issue, &self.claude.path) else { return };
+        // A triage at the issue's time: kept, or under way here (saved as of its start).
+        let read = std::fs::read_to_string(p).map_err(anyhow::Error::from).and_then(|t| Ok(serde_json::from_str::<serde_json::Value>(&t)?));
+        let mut kept = read.ok().filter(|v| v["updated"].as_str() == Some(i.updated.as_str()));
+        let mut running = self.claude.job.as_mut().and_then(|j| j.triage.as_mut()).filter(|t| t.updated == i.updated);
+        // (GitHub asked only when there's one to move.)
+        if kept.is_none() && running.is_none() {
+            return;
+        }
         let Ok(now) = gh::gh(&["api", &format!("repos/{{owner}}/{{repo}}/issues/{}", i.number), "--jq", ".updated_at"]) else { return };
         let now = now.trim().to_owned();
-        if let Ok(mut v) = std::fs::read_to_string(p).map_err(anyhow::Error::from).and_then(|t| Ok(serde_json::from_str::<serde_json::Value>(&t)?))
-            && v["updated"].as_str() == Some(i.updated.as_str())
-            && now != i.updated
-        {
+        if let Some(v) = kept.as_mut().filter(|_| now != i.updated) {
             v["updated"] = now.clone().into();
-            _ = crate::claude::write(p, &v);
+            _ = crate::claude::write(p, v);
+        }
+        if let Some(t) = running.as_mut() {
+            t.updated.clone_from(&now);
         }
         i.updated = now;
     }

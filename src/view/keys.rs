@@ -360,9 +360,9 @@ impl App {
         }
     }
 
-    /// What can follow `Space` that's for code alone (an issue's view leaves them out: each says
-    /// `NO_CODE` there).
-    pub(super) const CODE_ONLY: [&str; 6] = ["f", "C", "N", "v", "g", "p"];
+    /// What can follow `Space` that's for code alone: in an issue's view, left out of the
+    /// which-key popup, and each says `NO_CODE`.
+    pub(super) const CODE_ONLY: [char; 5] = ['f', 'C', 'v', 'g', 'p'];
 
     /// What can follow prefix key `p`, for the which-key popup (as Helix shows): (title, keys).
     /// Kept next to `pending_key`, which they mirror.
@@ -438,6 +438,9 @@ impl App {
             let j = self.jumps.len();
             (0..n).for_each(|_| self.pending_key(p, c));
             return self.jumps.truncate(j + 1);
+        }
+        if p == ' ' && !self.has_code() && Self::CODE_ONLY.contains(&c) {
+            return self.msg = super::git::NO_CODE.into();
         }
         let file = |app: &App, r: usize| app.rows[r].line.kind == Kind::File;
         let so = super::render::scrolloff(self.height);

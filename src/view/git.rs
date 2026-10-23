@@ -58,9 +58,6 @@ impl App {
 
     /// `Space g`: what there is to do with the working tree and the branch.
     pub(super) fn git_menu(&mut self) {
-        if !self.has_code() {
-            return self.msg = NO_CODE.into();
-        }
         // dv's rebase that ended some other way (in a terminal, say): its note goes.
         if !super::rebase::rebasing(&self.root) && self.claude.job.is_none() {
             super::rebase::forget_rebase(&self.root);

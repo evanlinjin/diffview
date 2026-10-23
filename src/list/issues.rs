@@ -429,7 +429,7 @@ impl Issues {
             self.find_todo();
         }
         // Yours held back: asked again, as you asked, once Claude's done there (`batch::held`).
-        let free: Vec<(u64, String)> = self.running.keys().filter(|&&n| self.held_yours(n) && !batch::held(n, None) && self.items.iter().any(|i| i.number == n)).filter_map(|&n| Some((n, self.asked.get(&n).cloned().flatten()?))).collect();
+        let free: Vec<(u64, String)> = self.running.keys().filter(|&&n| self.held_yours(n) && !batch::held(n, None)).filter_map(|&n| Some((n, self.asked.get(&n).cloned().flatten()?))).collect();
         for (n, extra) in free {
             self.triage(vec![n], Some(extra));
         }
@@ -640,6 +640,11 @@ impl Issues {
                             && let Some(e) = self.todos.prune(|k| k.strip_prefix("issue-").and_then(|n| n.parse().ok()).is_none_or(open))
                         {
                             self.msg = e;
+                        }
+                        // (Yours held for an issue no longer open: let go, not asked again.)
+                        if all_in {
+                            let gone: Vec<u64> = self.running.keys().copied().filter(|&n| !open(n) && self.held_yours(n)).collect();
+                            gone.iter().for_each(|n| _ = self.running.remove(n));
                         }
                         let first = !self.started;
                         // (Not a ranking straight away: once the triages are in, a quarter hour on.)

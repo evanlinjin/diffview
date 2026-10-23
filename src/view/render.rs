@@ -56,7 +56,7 @@ impl App {
         // shown; else a popup (below).
         let keys = match self.pending {
             // (An issue's: not what's for code alone.)
-            Some(p) => App::which(p).map(|(t, k)| (t, k.iter().filter(|(k, _)| self.has_code() || !(p == ' ' && App::CODE_ONLY.contains(k))).copied().collect())),
+            Some(p) => App::which(p).map(|(t, k)| (t, k.iter().filter(|(k, _)| self.has_code() || !(p == ' ' && k.chars().next().is_some_and(|c| App::CODE_ONLY.contains(&c)))).copied().collect())),
             // The list has focus: its keys.
             None if self.files_focus && self.picker.is_none() && self.popup.is_none() => Some(self.list_keys()).map(|(t, k)| (t, k.to_vec())),
             None if self.picker.is_none() && self.popup.is_none() && self.prompt.is_none() => self.context_keys(),
