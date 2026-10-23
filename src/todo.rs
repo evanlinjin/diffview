@@ -771,23 +771,25 @@ pub fn load_deferred(p: Option<&std::path::Path>) -> Deferred {
         .collect()
 }
 
-pub fn save_deferred(p: Option<&std::path::Path>, d: &Deferred) -> Result<()> {
-    let v: serde_json::Map<String, Value> = d
-        .iter()
-        .map(|(k, d)| {
-            let mut e = json!({ "until": d.until, "needs": d.needs, "at": d.at });
-            if let Some(c) = &d.cond {
-                e["cond"] = c.to_json();
-            }
-            (k.clone(), e)
-        })
-        .collect();
+/// What's changed here since `saved` (`now`), into the deferrals at `p` as they are (another dv
+/// list's kept, as it wrote them: one this dv can't read too): the deferrals now there.
+pub fn save_deferred(p: Option<&std::path::Path>, saved: &Deferred, now: &Deferred) -> Result<Deferred> {
     let p = p.context("no dv directory")?;
+    let mut v: serde_json::Map<String, Value> = std::fs::read_to_string(p).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+    v.retain(|k, _| now.contains_key(k) || !saved.contains_key(k));
+    for (k, d) in now.iter().filter(|(k, d)| saved.get(*k) != Some(d)) {
+        let mut e = json!({ "until": d.until, "needs": d.needs, "at": d.at });
+        if let Some(c) = &d.cond {
+            e["cond"] = c.to_json();
+        }
+        v.insert(k.clone(), e);
+    }
     std::fs::create_dir_all(p.parent().unwrap_or(p))?;
     // (In one step: another dv list never reads half of it.)
     let tmp = p.with_extension(format!("json.{}.tmp", std::process::id()));
     std::fs::write(&tmp, Value::Object(v).to_string())?;
-    Ok(std::fs::rename(&tmp, p)?)
+    std::fs::rename(&tmp, p)?;
+    Ok(load_deferred(Some(p)))
 }
 
 /// How long `s` then `c` defers an item for: (seconds, in words). `1` an hour, `4` four hours,

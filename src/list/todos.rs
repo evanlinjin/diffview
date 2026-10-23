@@ -208,20 +208,15 @@ impl Todos {
 
     /// The deferrals, kept (an error: what's said).
     pub(super) fn save(&mut self) -> Option<String> {
-        // What's changed here since, into the file as it is now (as marks are merged).
-        let mut all = match &self.deferred_file {
-            Some(f) if f.exists() => todo::load_deferred(Some(f)),
-            _ => self.saved.clone(),
-        };
-        all.retain(|k, _| self.deferred.contains_key(k) || !self.saved.contains_key(k));
-        for (k, d) in &self.deferred {
-            if self.saved.get(k) != Some(d) {
-                all.insert(k.clone(), d.clone());
+        // What's changed here since, into the file as it is now (as marks are merged); as
+        // saved only once it is (failed: still to save, next time).
+        match todo::save_deferred(self.deferred_file.as_deref(), &self.saved, &self.deferred) {
+            Ok(all) => {
+                (self.deferred, self.saved) = (all.clone(), all);
+                None
             }
+            Err(e) => Some(format!("couldn't save it: {e:#}")),
         }
-        let res = todo::save_deferred(self.deferred_file.as_deref(), &all).err().map(|e| format!("couldn't save it: {e:#}"));
-        (self.deferred, self.saved) = (all.clone(), all);
-        res
     }
 
     /// "until `text`" for item `key` ("…, or 2 weeks": whichever first): read here, or Claude

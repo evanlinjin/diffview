@@ -225,11 +225,11 @@ impl List {
         loop {
             if self.marked != self.marked_saved {
                 // On what's saved now: another dv list of this repo may have marked some too.
+                // (As saved only once they are: failed, still to save, next time.)
                 match save_marks(&self.marked_saved, &self.marked) {
-                    Ok(now) => self.marked = now,
+                    Ok(now) => (self.marked, self.marked_saved) = (now.clone(), now),
                     Err(e) => self.msg = format!("couldn't save the marks: {e}"),
                 }
-                self.marked_saved = self.marked.clone();
             }
             term.draw(|f| self.draw(f))?;
             // What comes in below may change the list under the cursor: it stays on its card
