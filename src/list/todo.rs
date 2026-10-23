@@ -127,7 +127,8 @@ impl List {
     /// published replacement, green, closes what it replaces; and what needs you is ranked again
     /// as it changes. Not what you've put aside or wait on, not where Claude's at it already.
     fn auto_run(&mut self) {
-        if !self.todos.auto {
+        // (Nor on part of what it acts on: a PR's unpushed commits not yet scanned, say.)
+        if !self.todos.auto || !self.all_in() {
             return;
         }
         let todo: Vec<Item> = self.todos.items.iter().filter(|it| it.busy.is_none() && it.deferred.is_none() && it.waits.is_none()).cloned().collect();
@@ -275,7 +276,7 @@ impl List {
         }
         // Ranked again once something's new or changed, at most every quarter hour (a run each,
         // tried or not: a failing one isn't run over and over).
-        if self.want_rank.is_none() && self.todos.auto_rank_due() {
+        if !self.want_rank && self.todos.auto_rank_due() {
             self.rank_now(false);
         }
         if !said.is_empty() {
@@ -325,17 +326,17 @@ impl List {
     pub(super) fn rank_now(&mut self, asked: bool) {
         // (Not reading every review for it, if it can't; said only if you asked.)
         if let Err(why) = self.todos.can_rank() {
-            self.want_rank = None;
+            self.want_rank = false;
             return if asked { self.msg = why.into() };
         }
+        // (Only an asked one waits: auto's runs once all's in.)
         if !self.all_in() {
-            // (Said once, when you ask.)
-            if asked && self.want_rank != Some(true) {
-                self.msg = "Claude ranks what needs you once GitHub's part is in…".into();
+            if !self.want_rank {
+                self.msg = "Claude ranks what needs you once all it needs is in…".into();
             }
-            return self.want_rank = Some(asked);
+            return self.want_rank = true;
         }
-        self.want_rank = None;
+        self.want_rank = false;
         let items: Vec<(todo::Entry, String)> = self
             .todo_shown()
             .into_iter()
@@ -382,13 +383,13 @@ impl List {
                         }
                         false => format!("the todo's details from GitHub: {why}"),
                     };
-                    self.want_rank = None;
+                    self.want_rank = false;
                 }
             }
             self.find_todo();
         }
-        if let Some(asked) = self.want_rank {
-            self.rank_now(asked);
+        if self.want_rank {
+            self.rank_now(true);
         }
         let Some(res) = self.todos.rank_news() else { return };
         match res {

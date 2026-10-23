@@ -113,7 +113,7 @@ impl Todos {
         }
         // (What it needs not all in yet: deferred on part of it, it'd be back once the rest is.)
         if !self.ready {
-            return (false, "once GitHub's part is in (a moment): s again".into());
+            return (false, "once all it needs is in (a moment): s again".into());
         }
         self.deferring = Some(it.key());
         (false, format!("defer {what} for: 1 an hour, 4 four hours, d a day, w a week, or u until something happens (any other key: not); it's back sooner if what it needs changes"))
@@ -321,7 +321,7 @@ fn deferring_an_item() {
     let file = std::env::temp_dir().join(format!("dv-todos-{}.json", std::process::id()));
     let mut t = Todos { items: vec![it.clone()], deferred_file: Some(file.clone()), ..Default::default() };
     // Not before what it needs is all in: said so.
-    assert!(t.defer_key(&it, "#7").1.starts_with("once GitHub's part is in"));
+    assert!(t.defer_key(&it, "#7").1.starts_with("once all it needs is in"));
     t.ready = true;
     // s asks how long; d: a day, kept.
     let (changed, said) = t.defer_key(&it, "#7");

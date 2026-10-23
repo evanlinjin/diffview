@@ -105,9 +105,8 @@ pub struct List {
     gone_pending: HashSet<u64>,
     /// What needs you: in order, Claude's ranking, what's deferred (`todos.rs`).
     todos: Todos,
-    /// Rank (again) once what's needed is in (`R` on the todo tab).
-    /// (`Some`: and whether you asked, or auto did: said only if you asked.)
-    want_rank: Option<bool>,
+    /// Rank (again) once what's needed is in (`r r` on the todo tab, asked before it was).
+    want_rank: bool,
     /// What Claude is doing, by PR, in any dv (its markers: `watch_running`), and when they
     /// were last looked at.
     running: HashMap<u64, String>,
