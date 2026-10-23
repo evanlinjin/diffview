@@ -5,6 +5,27 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.95.21] - 2026-10-23
+
+### Fixed
+- The issues list's keys as dv list's: Ctrl-c, q and Esc ask first while Claude's at work
+  anywhere in dv (either list, a view's run, a request held back or a result not yet read),
+  and only then; no Ctrl+letter is the letter; Enter on a filter that's a number opens it
+  (a PR's number, that PR). Its cards' number column is dv list's.
+- Auto is read as each list opens (`C` in one reached the other only on restart), and
+  leaves an issue you asked about alone.
+- An `a a` triage that finds Claude at the issue is held and asked again once it's done
+  there, your instructions kept; one for an issue no longer open is let go (dv list's too).
+- Claude at an issue from anywhere shows on its card and moves it to the todo's bottom.
+- Your own changes to an issue (a comment, a label, its text, closing) aren't ones to
+  triage again for, nor is a triage under way as they're made; a triage has its time.
+- Closing with Claude's comment says how it closes (as completed, not planned, a duplicate
+  of #N); one closed meanwhile keeps your comment, not lost as posted.
+- An issue's Space keys and labels picker leave out what's for code alone.
+- Back from an issue that's gone, the list's cursor stays where it was.
+- Every JSON file dv keeps is written in one step (a temp file of its own), and what's seen
+  is merged with the file, so two dvs or views never read half of one or lose each other's.
+
 ## [0.95.20] - 2026-10-23
 
 ### Fixed
