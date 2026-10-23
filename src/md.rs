@@ -74,8 +74,9 @@ struct R<'a> {
     code: Option<(String, String)>,
     table: Option<Table>,
     heading: Option<HeadingLevel>,
-    /// Inside an HTML comment (`<!-- … -->`, a PR template's), across lines: not shown.
-    comment: bool,
+    /// An HTML block's tag or comment not closed on its line (`<img` then `src=…` on the
+    /// next; a PR template's `<!--`), for the next line's event.
+    carry: String,
     /// Links HTML opened (`<a href>`), for its `</a>` to close: no others.
     html_links: usize,
     /// In a `<summary>` (its bold to end at its `</summary>`).
@@ -100,7 +101,7 @@ pub fn render(text: &str, width: usize, s: &Styles, hl: &Highlighter, repo: Opti
         code: None,
         table: None,
         heading: None,
-        comment: false,
+        carry: String::new(),
         html_links: 0,
         summary: false,
     };
@@ -140,9 +141,10 @@ impl R<'_> {
             }
             Event::TaskListMarker(done) => self.bullet = Some(if done { "☑ " } else { "☐ " }.into()),
             // (Block HTML comes a line an event: each its own line.)
+            // (A summary's title runs to its `</summary>`, over lines.)
             Event::Html(h) => {
                 self.html(&h);
-                if h.ends_with('\n') {
+                if h.ends_with('\n') && !self.summary {
                     self.flush();
                 }
             }
@@ -265,8 +267,8 @@ impl R<'_> {
                 }
             }
             TagEnd::Item => self.flush(),
-            // (An unclosed comment ends with its block.)
-            TagEnd::HtmlBlock => self.comment = false,
+            // (What's unclosed ends with its block.)
+            TagEnd::HtmlBlock => self.carry.clear(),
             TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough => _ = self.style.pop(),
             TagEnd::Link | TagEnd::Image => {
                 self.style.pop();
@@ -297,42 +299,33 @@ impl R<'_> {
     /// `<img>` and `<a href>` links as markdown's are, comments dropped (across lines too);
     /// other tags are dropped and their text kept.
     fn html(&mut self, h: &str) {
-        let mut kept = String::new();
-        let mut h = h;
-        loop {
-            if self.comment {
-                match h.find("-->") {
-                    Some(i) => (self.comment, h) = (false, &h[i + 3..]),
-                    None => break,
-                }
-            }
-            match h.find("<!--") {
-                Some(a) => {
-                    kept.push_str(&h[..a]);
-                    (self.comment, h) = (true, &h[a + 4..]);
-                }
-                None => {
-                    kept.push_str(h);
-                    break;
-                }
-            }
-        }
-        // Each tag where it is, the text between them kept: a line's `<a href><img></a>` as
-        // much as a tag alone on it.
-        let mut rest = kept.as_str();
+        // (A block comes a line an event: a tag or comment not closed on its line waits for
+        // the next, `carry`; the block's end lets it go.)
+        let h = std::mem::take(&mut self.carry) + h;
+        let (mut rest, mut lead) = (h.as_str(), true);
         while let Some(a) = rest.find('<') {
-            self.html_text(&rest[..a]);
-            let end = rest[a..].find('>').map_or(rest.len(), |e| a + e + 1);
-            self.html_tag(&rest[a..end]);
+            self.html_text(&rest[..a], lead);
+            lead = false;
+            let close = if rest[a..].starts_with("<!--") { "-->" } else { ">" };
+            let Some(e) = rest[a + 1..].find(close) else {
+                self.carry = rest[a..].to_owned();
+                return;
+            };
+            let end = a + 1 + e + close.len();
+            if close == ">" {
+                self.html_tag(&rest[a..end]);
+            }
             rest = &rest[end..];
         }
-        self.html_text(rest);
+        self.html_text(rest, lead);
     }
 
-    /// Text between HTML tags (not their indentation, nor a line's end).
-    fn html_text(&mut self, t: &str) {
+    /// Text between HTML tags: a line's indentation and end dropped (`lead`: what starts it),
+    /// a space between two tags kept.
+    fn html_text(&mut self, t: &str, lead: bool) {
         let t = t.trim_matches('\n');
-        if !t.trim().is_empty() {
+        let t = if lead { t.trim_start() } else { t };
+        if !t.is_empty() {
             self.text(t);
         }
     }
@@ -343,8 +336,17 @@ impl R<'_> {
     fn html_tag(&mut self, tag: &str) {
         let name = tag.trim_start_matches('<').split(|c: char| c.is_whitespace() || c == '>' || c == '/').find(|s| !s.is_empty()).unwrap_or("").to_lowercase();
         let closing = tag.starts_with("</");
-        // (An attribute by its whole name: `data-src=` isn't `src=`.)
-        let attr = |k: &str| tag.split(&format!(" {k}=\"")).nth(1)?.split('"').next().map(str::to_owned);
+        // (An attribute by its whole name, after any space: `data-src=` isn't `src=`; its value
+        // in either quotes, or none.)
+        let attr = |k: &str| {
+            let at = tag.match_indices(&format!("{k}=")).find(|(i, _)| tag[..*i].ends_with(char::is_whitespace))?.0 + k.len() + 1;
+            let v = &tag[at..];
+            match v.chars().next()? {
+                q @ ('"' | '\'') => v[1..].split(q).next(),
+                _ => v.split(|c: char| c.is_whitespace() || c == '>').next(),
+            }
+            .map(str::to_owned)
+        };
         match (name.as_str(), closing) {
             ("img", false) => {
                 if let Some(src) = attr("src") {
@@ -376,6 +378,8 @@ impl R<'_> {
                 self.style.pop();
                 self.flush();
             }
+            // (In a table's cell, which a line break can't split: a space.)
+            ("br", _) if self.table.is_some() => self.push(" ", None, false),
             ("br", _) => self.flush(),
             _ => {}
         }
@@ -714,4 +718,11 @@ fn github_html_alerts_and_wide_text() {
     let l = r(r#"[x <a name="q"></a> y](https://l.k) after"#, 60);
     assert!(l[0].links.iter().all(|k| k.2 == "https://l.k" && k.1 <= 4) && l[0].text.ends_with("y after"));
     assert_eq!(r(r#"<img data-src="bad" src="https://good">"#, 60)[0].links[0].2, "https://good");
+    // Spaces between tags; a tag over lines; bare and single-quoted values; a summary's
+    // title on its own line.
+    assert_eq!(texts(r("<p><b>foo</b> <i>bar</i></p>", 60)), ["foo bar"]);
+    assert_eq!(texts(r("<p align=\"center\">\n  <img\n    src=\"https://i\"\n    alt=\"logo\">\n</p>", 60)), ["🖼 logo"]);
+    assert_eq!(r("See <a href=https://x>docs</a> here", 60)[0].links[0].2, "https://x");
+    assert_eq!(r("See <a href='https://y'>docs</a>", 60)[0].links[0].2, "https://y");
+    assert_eq!(texts(r("<details>\n<summary>\nTitle\n</summary>\n\nBody\n</details>", 60))[0], "▸ Title");
 }
