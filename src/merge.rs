@@ -126,6 +126,12 @@ pub fn waits(n: u64) -> Option<String> {
         Ok((main, _)) => main,
         Err(e) => return Some(format!("{e:#}")),
     };
+    // Nor while the script's at a merge there already (its branch checked out: from any dv, a
+    // pane at its sign-off): a second would switch it away, and delete its merge.
+    let on = crate::diff::git(&["-C", &main.to_string_lossy(), "branch", "--show-current"]).unwrap_or_default();
+    if on.trim().starts_with("pull/") && on.trim().ends_with("/local-merge") {
+        return Some(format!("github-merge.py is merging in {} ({}): once it's done", main.display(), on.trim()));
+    }
     // Nor under Claude at work there, on whatever PR (its edits would land on the base branch).
     if let Some(w) = crate::claude::at_work_in(&main, None) {
         return Some(format!("Claude is {w} in {}, which the merge script's checkouts would switch under it: merge once it's done", main.display()));

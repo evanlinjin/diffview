@@ -97,7 +97,7 @@ impl List {
         let doing = |it: &Item| match it.is_rep() {
             // A replacement: Claude drafting it, or at it in its worktree.
             true => self.drafting_replacement(it.number).then(|| "drafting it".to_owned()).or_else(|| self.running_reps.get(&it.number).cloned()),
-            false => self.claude_doing(it.number).or_else(|| self.drafting_replacement(it.number).then(|| "drafting a replacement".to_owned())),
+            false => self.claude_doing(it.number),
         };
         let (mut busy, todo): (Vec<Item>, Vec<Item>) = items.into_iter().partition(|it| doing(it).is_some());
         busy.iter_mut().for_each(|it| it.busy = doing(it));
@@ -137,7 +137,9 @@ impl List {
         for it in todo.iter().filter(|it| it.is_rep() && it.needs.iter().any(|n| matches!(n, todo::Need::CloseOriginals(_)))) {
             let Some(r) = self.rep_of.get(&it.number) else { continue };
             let Some(p) = r.published.and_then(|n| self.prs.iter().find(|p| p.number == n)) else { continue };
-            if !p.checks_head.is_empty() && todo::green(p.checks) && self.auto_done.insert((it.number, p.checks_head.clone(), "close")) {
+            // (Not while Claude's at one of them: closed under it.)
+            let at_one = r.replaces.iter().any(|o| self.claude_doing(o.number).is_some());
+            if !at_one && !p.checks_head.is_empty() && todo::green(p.checks) && self.auto_done.insert((it.number, p.checks_head.clone(), "close")) {
                 close.push(r.clone());
             }
         }
@@ -658,7 +660,9 @@ impl List {
             Some(s) if s.running() => Some(doing().to_owned()),
             // Held back (Claude at it where it'd work): at it, as far as anything here goes.
             Some(batch::Status::Busy(..)) => Some(self.running.get(&n).cloned().unwrap_or_else(|| format!("held back from {}", doing()))),
-            _ => self.running.get(&n).cloned(),
+            _ if self.running.contains_key(&n) => self.running.get(&n).cloned(),
+            // Its replacement being drafted (from anywhere): nothing on it meanwhile.
+            _ => self.drafting_replacement(n).then(|| "drafting a replacement".to_owned()),
         }
     }
 
