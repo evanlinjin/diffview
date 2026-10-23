@@ -329,8 +329,7 @@ impl App {
         let Some(p) = &self.pane_file else { return };
         let mut v = self.pane_json();
         v[key] = val;
-        let _ = std::fs::create_dir_all(p.parent().unwrap_or(p));
-        let _ = std::fs::write(p, v.to_string());
+        let _ = crate::todo::write_json(p, &v);
     }
 
     /// Map rows to screen rows. Code runs down the left: one column, or in split view two,

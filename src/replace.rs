@@ -272,7 +272,8 @@ fn update<T>(id: u64, f: impl FnOnce(&mut Record) -> Result<T>) -> Result<(T, Re
 pub fn save(r: &Record) -> Result<()> {
     let p = path(r.id)?;
     std::fs::create_dir_all(p.parent().context("no dir")?)?;
-    Ok(std::fs::write(p, to_json(r))?)
+    // (In one step: another dv never reads half of it.)
+    crate::claude::write_at(&p, to_json(r).as_bytes())
 }
 
 /// When any replacement's record last changed (or one came or went), to notice it.

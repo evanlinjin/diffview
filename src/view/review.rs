@@ -108,7 +108,14 @@ impl App {
                 }
                 self.finish(res.map(|_| "pending review discarded"));
             }
-            Job::DeleteComment(c) => self.finish(gh::delete_comment(&c).map(|_| "comment deleted")),
+            Job::DeleteComment(c) => {
+                let res = gh::delete_comment(&c);
+                // (A change dv made, as any other.)
+                if res.is_ok() {
+                    self.github_changed();
+                }
+                self.finish(res.map(|_| "comment deleted"));
+            }
             Job::SetField(field, name, on) => {
                 let n = self.subject().map_or(0, |s| s.n());
                 let res = gh::set_field(n, field, &name, on);

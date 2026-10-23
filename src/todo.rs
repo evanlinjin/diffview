@@ -790,8 +790,8 @@ pub fn save_deferred(p: Option<&std::path::Path>, saved: &Deferred, now: &Deferr
     Ok(load_deferred(Some(p)))
 }
 
-/// `v` as JSON at `p`, in one step (a temp file, renamed over): another dv list never reads
-/// half of it. dv list's shared files (marks, deferrals, descriptions' heads) are written so.
+/// `v` as JSON at `p`, in one step (`claude::write_at`): another dv never reads half of it.
+/// dv's shared state is written so (marks, deferrals, rankings, panes, what's seen, CI notes).
 pub fn write_json(p: &std::path::Path, v: &serde_json::Value) -> Result<()> {
     std::fs::create_dir_all(p.parent().unwrap_or(p))?;
     crate::claude::write_at(p, serde_json::to_string(v)?.as_bytes())
@@ -860,9 +860,8 @@ pub fn load_of(of: Of) -> Option<Ranked> {
 fn save(r: &Ranked, of: Of) -> Result<()> {
     let items: Vec<Value> = r.items.iter().map(|(k, s)| json!({ "key": k, "says": s })).collect();
     let p = path(of).context("no dv directory")?;
-    std::fs::create_dir_all(p.parent().unwrap_or(&p))?;
     let waits: serde_json::Map<String, Value> = r.waits.iter().map(|(k, w)| (k.clone(), w.to_json())).collect();
-    Ok(std::fs::write(p, json!({ "at": r.at, "cost": r.cost, "fingerprint": r.fingerprint, "items": items, "waits": waits, "closes": r.closes }).to_string())?)
+    write_json(&p, &json!({ "at": r.at, "cost": r.cost, "fingerprint": r.fingerprint, "items": items, "waits": waits, "closes": r.closes }))
 }
 
 /// A line about item `it` for Claude's ranking: what it is and what it needs.

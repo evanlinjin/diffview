@@ -96,7 +96,7 @@ impl App {
             let mut keys: Vec<&String> = self.seen.keys.iter().collect();
             keys.sort();
             // ponytail: rewrites the whole set; fine for a PR's worth of comments.
-            _ = std::fs::create_dir_all(p.parent().unwrap_or(p)).and_then(|_| std::fs::write(p, serde_json::to_string(&keys).unwrap_or_default()));
+            _ = crate::todo::write_json(p, &serde_json::json!(keys));
             if !conversation {
                 let keep = self.cursor_key();
                 self.rebuild(keep); // without its [new] tag

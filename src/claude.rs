@@ -296,7 +296,7 @@ pub fn ci_fix_drafted(n: u64) {
     let Ok(p) = ci_note_path(n) else { return };
     let Some(mut v) = std::fs::read_to_string(&p).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()) else { return };
     v["task"] = "".into();
-    _ = std::fs::write(&p, v.to_string());
+    _ = crate::todo::write_json(&p, &v);
 }
 
 impl CiNote {
