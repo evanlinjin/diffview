@@ -367,7 +367,7 @@ pub struct Issues {
     /// at it now. Not on the todo till it's done: nothing for you there meanwhile.
     draft_fix: HashMap<u64, (String, Option<String>)>,
     running: HashMap<u64, batch::Status>,
-    /// Who asked each triage, as dv list's `batch_extra`: you (`a a`, your instructions) or
+    /// Who asked each issue's last triage, as dv list's `batch_extra` (each overwrites it): you (`a a`, your instructions) or
     /// auto (`None`). Yours that Claude was at already is held (`Busy`) and asked again once it
     /// isn't; counted as dv's work (`held`).
     asked: HashMap<u64, Option<String>>,
@@ -429,7 +429,7 @@ impl Issues {
             self.find_todo();
         }
         // Yours held back: asked again, as you asked, once Claude's done there (`batch::held`).
-        let free: Vec<(u64, String)> = self.running.iter().filter(|(n, s)| matches!(s, batch::Status::Busy(..)) && !batch::held(**n, None)).filter_map(|(&n, _)| Some((n, self.asked.get(&n).cloned().flatten()?))).collect();
+        let free: Vec<(u64, String)> = self.running.keys().filter(|&&n| self.held_yours(n) && !batch::held(n, None)).filter_map(|&n| Some((n, self.asked.get(&n).cloned().flatten()?))).collect();
         for (n, extra) in free {
             self.triage(vec![n], Some(extra));
         }
@@ -533,7 +533,9 @@ impl Issues {
             // move the issue's time).
             let merged: Vec<u64> = i.fixed_by.iter().filter(|p| p.1 == "MERGED").map(|p| p.0).collect();
             // (Not one Claude's at elsewhere just now: on a later look, once it's done.)
-            let free = || !self.at_work.contains_key(&crate::claude::pr_key(i.number)); // (`watch_running`'s)
+            // (Not one Claude's at (`watch_running`'s), nor one asked and not done: under way, or
+            // yours held, asked again by `watch_running` alone.)
+            let free = || !self.at_work.contains_key(&crate::claude::pr_key(i.number)) && !self.running.get(&i.number).is_some_and(|s| s.running() || matches!(s, batch::Status::Busy(..)));
             if due && run.len() < batch::AT_ONCE && free() && self.auto_done.insert((i.number, format!("{}{merged:?}", i.updated))) {
                 run.push(i.number);
             }
@@ -558,6 +560,16 @@ impl Issues {
     /// Issues auto would triage: not triaged, not deferred.
     fn untriaged(&self) -> usize {
         self.todos.items.iter().filter(|it| it.deferred.is_none() && it.needs.contains(&crate::todo::Need::Untriaged)).count()
+    }
+
+    /// Whether you asked issue `n`'s last triage (`a a`), not auto.
+    fn yours(&self, n: u64) -> bool {
+        self.asked.get(&n).is_some_and(Option::is_some)
+    }
+
+    /// Yours held back: Claude was at it, asked again once it isn't.
+    fn held_yours(&self, n: u64) -> bool {
+        matches!(self.running.get(&n), Some(batch::Status::Busy(..))) && self.yours(n)
     }
 
     /// Claude at work from here: triaging, drafting a fix or a closing comment, ranking.
@@ -691,7 +703,7 @@ impl Issues {
                     match &st {
                         // Claude at it elsewhere: not triaged now, and not done for auto either
                         // (asked again on a later look).
-                        batch::Status::Busy(w, _) if self.asked.get(&n).is_some_and(Option::is_some) => self.msg = format!("#{n}: {w}: triaged as you asked once it's done there"),
+                        batch::Status::Busy(w, _) if self.yours(n) => self.msg = format!("#{n}: {w}: triaged as you asked once it's done there"),
                         batch::Status::Busy(w, _) => {
                             self.msg = format!("#{n}: not triaged now: {w}");
                             self.running.remove(&n);
@@ -709,7 +721,7 @@ impl Issues {
                 }
             }
             // (Counted as dv's work while any is held: after the news, before a key can leave.)
-            let holds = self.running.iter().any(|(n, s)| matches!(s, batch::Status::Busy(..)) && self.asked.get(n).is_some_and(Option::is_some));
+            let holds = self.running.keys().any(|&n| self.held_yours(n));
             if holds != self.held.is_some() {
                 self.held = holds.then(batch::Work::new);
             }
