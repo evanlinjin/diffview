@@ -5,6 +5,19 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.95.22] - 2026-10-23
+
+### Fixed
+- rust-analyzer that exits, never starts or fails to initialize is let go and said, not
+  "starting" for good; one that had worked is started again when next asked; every request
+  goes through that one gate.
+- `Space k` on a name in a comment shows its hover, not its definition; `gr`, `gi` and
+  `Space k` on a name with several definitions ask which one's; a name rust-analyzer
+  doesn't know says so (only `gd` falls back to the text search).
+- This repo's `/pull/N` links open in dv as `#N` and `/issues/N` do; `Space k` on a link
+  that isn't an issue or PR says what it previews.
+- `Ctrl-o` passes over a jump whose row has gone.
+
 ## [0.95.21] - 2026-10-23
 
 ### Fixed
