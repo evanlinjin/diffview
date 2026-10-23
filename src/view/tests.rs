@@ -950,7 +950,7 @@ fn pr_text_attached_to_the_description() {
     app.seen.before = ["n1", "n3", "n4", "n5"].map(String::from).into();
     app.seen.path = Some(std::env::temp_dir().join("dv-seen-unused.json")); // (somewhere to keep it)
     app.build();
-    _ = screen(220, 40, |f| app.draw(f));
+    draw(&mut app);
     let at = |app: &App, t: &str| app.rows.iter().position(|r| r.line.text == t);
     // In the diff's column, in order: the facts, the description, then what's new (c2) and the
     // last three; c1 isn't, but a line says there's more.
@@ -963,12 +963,12 @@ fn pr_text_attached_to_the_description() {
     // The pane hidden: after the description, in the diff's column.
     app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
     app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
-    _ = screen(220, 40, |f| app.draw(f));
+    draw(&mut app);
     let c2 = at(&app, "comment 2").unwrap();
     assert!(!app.in_pane(c2) && matches!(app.drows[app.d_of[c2]], DRow::Full(_)));
     app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
     app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
-    _ = screen(220, 40, |f| app.draw(f));
+    draw(&mut app);
     assert_eq!(app.pane_tabs().len(), 3); // Comments, Claude, Pending
     // Enter on it: the whole conversation, there in the pane (the files as they were); the
     // line then says so, and Enter on it again: only the latest.
@@ -2071,31 +2071,31 @@ fn wheel_scrolls_what_is_under_it() {
     let draw = |app: &mut App| _ = screen(220, 14, |f| app.draw(f));
     // The cursor on a comment, the review's summaries over the pane: the wheel still scrolls.
     let mut app = fixture();
-    _ = screen(220, 40, |f| app.draw(f));
+    draw(&mut app);
     app.goto_comment(0, 0);
-    _ = screen(220, 40, |f| app.draw(f));
+    draw(&mut app);
     let pane = (app.geom.relw + app.geom.gw + app.geom.ctw + 10) as u16;
     let top = app.top;
     wheel(&mut app, pane);
-    _ = screen(220, 40, |f| app.draw(f));
+    draw(&mut app);
     assert!(app.top > top, "the pane's wheel moved nothing ({top})");
     // The comments tab: the wheel over it scrolls (with the code) while there are comments
     // further down, and stops once the last one is on screen.
     let mut app = fixture();
-    _ = screen(220, 40, |f| app.draw(f));
+    draw(&mut app);
     let pane = (app.geom.relw + app.geom.gw + app.geom.ctw + 10) as u16;
     for _ in 0..20 {
         wheel(&mut app, pane);
-        _ = screen(220, 40, |f| app.draw(f));
+        draw(&mut app);
     }
     let top = app.top;
     assert!(!app.comments_beyond(true));
     wheel(&mut app, pane);
-    _ = screen(220, 40, |f| app.draw(f));
+    draw(&mut app);
     assert_eq!(app.top, top, "the pane's wheel kept scrolling past its last comment");
     // The code's wheel goes on.
     wheel(&mut app, 20);
-    _ = screen(220, 40, |f| app.draw(f));
+    draw(&mut app);
     assert!(app.top > top || app.top == app.drows.len() - 1);
 }
 
@@ -2105,9 +2105,9 @@ fn gg_in_the_pane() {
     let draw = |app: &mut App| _ = screen(220, 20, |f| app.draw(f));
     // In the comments: gg to the first, ge to the last (not the diff's top / end).
     let mut app = fixture();
-    _ = screen(220, 40, |f| app.draw(f));
+    draw(&mut app);
     app.goto_comment(1, 0);
-    _ = screen(220, 40, |f| app.draw(f));
+    draw(&mut app);
     let comments: Vec<usize> = (0..app.rows.len()).filter(|&r| app.in_margin(r)).collect();
     k(&mut app, 'g');
     k(&mut app, 'g');
@@ -2171,15 +2171,15 @@ fn between_the_code_and_the_pane() {
     let ctrl = |app: &mut App, c: char| app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL));
     let draw = |app: &mut App| _ = screen(220, 40, |f| app.draw(f));
     let mut app = fixture();
-    _ = screen(220, 40, |f| app.draw(f));
+    draw(&mut app);
     // Claude's comment is about new line 12; its box may sit lower in the pane.
     let line12 = app.rows.iter().position(|r| r.line.kind == Kind::Add && r.line.new == Some(12)).unwrap();
     // Ctrl-l from that line: the comment about it; Ctrl-h from the comment: back to its line.
     app.goto(line12, 0);
-    _ = screen(220, 40, |f| app.draw(f));
+    draw(&mut app);
     ctrl(&mut app, 'l');
     assert_eq!(app.rows[app.head.row].thread, Some(0));
-    _ = screen(220, 40, |f| app.draw(f));
+    draw(&mut app);
     ctrl(&mut app, 'h');
     assert_eq!(app.head.row, line12);
     // w at the end of a code line carries on in the code, not into the comment after it in `rows`.
@@ -4325,11 +4325,11 @@ fn the_wheel_over_code_beside_a_floating_pane_scrolls_it() {
     let mut app = fixture();
     app.margin_pref = Some(true);
     let draw = |app: &mut App| screen(100, 14, |f| app.draw(f));
-    _ = screen(220, 40, |f| app.draw(f));
+    draw(&mut app);
     assert!(app.margin_float);
     while app.comments_beyond(true) {
         app.scroll_code(1);
-        _ = screen(220, 40, |f| app.draw(f));
+        draw(&mut app);
     }
     let y = (1..12).find(|&y| app.note_at(app.top + y - 1).is_none()).unwrap();
     let x = (app.geom.relw + app.geom.gw + app.geom.ctw + 5) as u16;
