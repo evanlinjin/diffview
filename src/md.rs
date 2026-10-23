@@ -156,7 +156,10 @@ impl R<'_> {
     fn start(&mut self, t: Tag) {
         match t {
             Tag::Heading { level, .. } => {
-                self.flush();
+                // (A summary's title as a heading: on its ▸'s line.)
+                if !self.title_to_come() {
+                    self.flush();
+                }
                 self.heading = Some(level);
                 self.style.push(self.s.heading.add_modifier(Modifier::BOLD));
             }
@@ -270,7 +273,8 @@ impl R<'_> {
             // (What's unclosed ends with its block: a tag, a comment, a summary's title.)
             TagEnd::HtmlBlock => {
                 self.carry.clear();
-                if self.summary {
+                // (Not one whose title's still to come: `<summary>`, a blank line, markdown.)
+                if self.summary && !self.title_to_come() {
                     self.html_tag("</summary>");
                 }
             }
@@ -292,6 +296,11 @@ impl R<'_> {
             }
             _ => {}
         }
+    }
+
+    /// A `<summary>` open with only its ▸ so far: its title still to come.
+    fn title_to_come(&self) -> bool {
+        self.summary && self.cur.len() <= "▸ ".chars().count()
     }
 
     fn open_link(&mut self, url: String) {
@@ -736,4 +745,7 @@ fn github_html_alerts_and_wide_text() {
     // A `<` that starts no tag is text; a summary left open ends with its block.
     assert_eq!(texts(r("<div>\na < b\nmore text\n</div>", 60)), ["a < b", "more text"]);
     assert_eq!(texts(r("<details><summary>Title\n\nBody\n</details>\n\nafter", 60)), ["▸ Title", "Body", "", "after"]);
+    // GitHub's markdown in a summary: a blank line, then its title (bold, a heading).
+    assert_eq!(texts(r("<details>\n<summary>\n\n**Bold title**\n\n</summary>\n\nBody\n</details>", 60))[0], "▸ Bold title");
+    assert_eq!(texts(r("<details>\n<summary>\n\n### Title\n\n</summary>\n\nBody\n</details>", 60))[0], "▸ Title");
 }
