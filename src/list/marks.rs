@@ -30,9 +30,14 @@ pub(super) fn read_marks(p: &std::path::Path) -> HashSet<u64> {
 pub(super) fn write_marks(p: &std::path::Path, marked: &HashSet<u64>) -> Result<()> {
     let mut v: Vec<u64> = marked.iter().copied().collect();
     v.sort();
+    write_json(p, &serde_json::json!(v))
+}
+
+/// `v` as JSON at `p`, in one step (a temp file, renamed over): another dv list never reads
+/// half of it. dv list's shared files (marks, descriptions' heads) are written so.
+pub(super) fn write_json(p: &std::path::Path, v: &serde_json::Value) -> Result<()> {
     std::fs::create_dir_all(p.parent().unwrap_or(p))?;
-    // In one step (temp file, renamed over), so another dv list never reads half of it.
     let tmp = p.with_extension(format!("json.{}.tmp", std::process::id()));
-    std::fs::write(&tmp, serde_json::to_string(&v)?)?;
+    std::fs::write(&tmp, serde_json::to_string(v)?)?;
     Ok(std::fs::rename(&tmp, p)?)
 }

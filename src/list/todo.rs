@@ -640,18 +640,10 @@ impl List {
     /// the file as it is now (another dv list's notes kept), the one place they're written.
     pub(super) fn note_described(&mut self, n: u64, head: String) {
         self.described.insert(n, head.clone());
-        // (In one step, as marks are: another dv list never reads half of it, nor writes over
-        // what it can't read.)
         if let Some(f) = described_file() {
-            let mut all = match (f.exists(), read_described()) {
-                (true, None) => return,
-                (_, saved) => saved.unwrap_or_default(),
-            };
+            let mut all = read_described().unwrap_or_default();
             all.insert(n, head);
-            let tmp = f.with_extension(format!("json.{}.tmp", std::process::id()));
-            if std::fs::write(&tmp, serde_json::to_string(&all).unwrap_or_default()).is_ok() {
-                _ = std::fs::rename(&tmp, &f);
-            }
+            _ = super::marks::write_json(&f, &serde_json::json!(all));
         }
     }
 

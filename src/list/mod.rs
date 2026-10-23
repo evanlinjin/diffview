@@ -177,6 +177,8 @@ impl List {
     pub fn busy(&self) -> bool {
         // (A view's run left at work counts too: `claude::claims_held`.)
         self.batch.values().any(batch::Status::running) || self.drafting.values().any(batch::Status::running) || self.todos.rank_rx.is_some() || self.group_rx.is_some() || crate::claude::claims_held() > 0
+            // (Yours held back, to be asked again: not dropped unasked.)
+            || self.batch.iter().any(|(n, s)| matches!(s, batch::Status::Busy(..)) && self.batch_extra.get(n).is_some_and(Option::is_some))
     }
 
     pub fn new(flags: String) -> List {

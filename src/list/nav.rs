@@ -125,6 +125,7 @@ impl<T: Tabs> Nav<T> {
     /// as shown under the bar): that tab, or that card selected (`true`: a second click soon on
     /// the same card, to open it).
     pub(super) fn click(&mut self, x: u16, y: u16, n: usize, rows: usize) -> bool {
+        self.filtering = false; // (a click ends typing a filter, kept, as any key that isn't one)
         if y == 0 {
             if let Some(&(_, tab)) = self.tab_hits.iter().find(|(r, _)| r.contains(&x)) {
                 self.go(tab);
