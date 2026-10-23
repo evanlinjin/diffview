@@ -295,13 +295,14 @@ impl List {
             match self.key(k) {
                 Some(Do::Quit) => return Ok(None),
                 Some(Do::Open(n)) => {
-                    // (A published replacement's PR: as its draft's card opens it, its view.)
-                    let (n, replacement) = match self.rep_of.values().find(|r| r.published == Some(n)) {
-                        Some(r) => (r.id, true),
-                        None => (n, self.selected().is_some_and(|(m, rep)| m == n && rep)),
-                    };
                     // Used once: after the review it may have moved on (a push), so it's looked up again.
                     let pr = self.pr_cache.lock().ok().and_then(|mut c| c.remove(&n)).filter(|(t, _)| t.elapsed().as_secs() < 120).map(|(_, p)| p);
+                    // A replacement's card: it. A PR that's a published replacement: as its draft's
+                    // card opens it, its view.
+                    let (n, replacement) = match self.selected() {
+                        Some((m, true)) if m == n => (n, true),
+                        _ => self.rep_of.values().find(|r| r.published == Some(n)).map_or((n, false), |r| (r.id, true)),
+                    };
                     return Ok(Some(Pick { number: n, replacement, merge: false, issues: false, pr }));
                 }
                 Some(Do::Merge(n)) => {

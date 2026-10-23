@@ -865,11 +865,12 @@ fn at_head(p: &gh::Pr, detach: bool) -> bool {
 /// `gh pr checkout` sets it up, so pushing updates the PR). Refuses a dir that isn't a worktree
 /// of this repo; git refuses to update one with local changes.
 fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> anyhow::Result<(PathBuf, Option<String>)> {
-    let (_, own) = worktree_dir(n)?;
-    // On its branch (-b), when that branch is checked out in another worktree already (a
-    // replacement's own, say): there (git won't check one branch out twice), brought up to the
-    // PR as its own would be.
-    let other = known.filter(|_| branch).and_then(worktree_on_branch).filter(|d| *d != own);
+    let (main, own) = worktree_dir(n)?;
+    // Its branch checked out in another worktree already: there (git won't check one branch out
+    // twice), brought up to the PR as its own would be. One of dv's (a published replacement's):
+    // always, -b or not (one checkout a PR, where its runs work); one of yours: on -b.
+    let other = known.and_then(worktree_on_branch).filter(|d| *d != own && (branch || dv_worktree(&main, d)));
+    let branch = branch || other.is_some(); // (on its branch there: never detached)
     let there = other.as_ref().zip(known).map(|(o, p)| format!("#{n}'s branch {} is checked out in {}: opened there", p.head_branch, o.display()));
     let dir = other.unwrap_or(own);
     let existed = dir.exists();
