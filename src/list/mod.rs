@@ -226,6 +226,9 @@ impl List {
         self.select_card(keep);
         loop {
             // (Failed: tried again once the marks change, not every turn of the loop.)
+            if self.marked == self.marked_saved {
+                self.marks_failed = None;
+            }
             if self.marked != self.marked_saved && self.marks_failed.as_ref() != Some(&self.marked) {
                 // On what's saved now: another dv list of this repo may have marked some too.
                 // (As saved only once they are: failed, still to save, next time.)

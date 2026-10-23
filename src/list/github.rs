@@ -321,19 +321,13 @@ impl List {
                     self.gone_rx.push(rx);
                 }
                 self.prs = prs;
-                // Deferrals of what's gone (merged, closed; a draft removed): dropped, not kept
-                // (nor what they wait on looked up) for good.
-                // (Kept while it's listed open, or still being looked up.)
+                // (Deferrals kept while it's listed open, or still being looked up.)
                 let open = |n: u64| self.prs.iter().any(|p| p.number == n && (p.open() || p.state == LOOKING));
-                let before = self.todos.deferred.len();
-                self.todos.deferred.retain(|k, _| match (k.strip_prefix("pr-"), k.strip_prefix("rep-")) {
+                if let Some(e) = self.todos.prune(|k| match (k.strip_prefix("pr-"), k.strip_prefix("rep-")) {
                     (Some(n), _) => n.parse().is_ok_and(open),
                     (_, Some(id)) => id.parse().is_ok_and(|id: u64| self.rep_of.contains_key(&id)),
                     _ => true,
-                });
-                if self.todos.deferred.len() != before
-                    && let Some(e) = self.todos.save()
-                {
+                }) {
                     self.msg = e;
                 }
                 // (What's waited on, looked up again against this fetch: `find_others`, in

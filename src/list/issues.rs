@@ -600,6 +600,14 @@ impl Issues {
                     Ok((me, can_triage, items)) => {
                         let keep = self.shown().get(self.nav.sel).map(|i| i.number);
                         (self.me, self.can_triage, self.items) = (me, can_triage, items);
+                        // (Deferrals of issues no longer open: unless past the cap, unlisted.)
+                        let all_in = self.items.len() < ISSUES_MAX;
+                        let open = |n: u64| self.items.iter().any(|i| i.number == n);
+                        if all_in
+                            && let Some(e) = self.todos.prune(|k| k.strip_prefix("issue-").and_then(|n| n.parse().ok()).is_none_or(open))
+                        {
+                            self.msg = e;
+                        }
                         let first = !self.started;
                         // (Not a ranking straight away: once the triages are in, a quarter hour on.)
                         if first {

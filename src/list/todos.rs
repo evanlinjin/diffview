@@ -207,6 +207,14 @@ impl Todos {
     }
 
     /// The deferrals, kept (an error: what's said).
+    /// Deferrals of what's gone (merged, closed; a draft removed) dropped, not kept for good:
+    /// those `keep` says no to. Saved if any were (a failure said).
+    pub(super) fn prune(&mut self, keep: impl Fn(&str) -> bool) -> Option<String> {
+        let before = self.deferred.len();
+        self.deferred.retain(|k, _| keep(k));
+        (self.deferred.len() != before).then(|| self.save()).flatten()
+    }
+
     pub(super) fn save(&mut self) -> Option<String> {
         // What's changed here since, into the file as it is now (as marks are merged); as
         // saved only once it is (failed: still to save, next time).
