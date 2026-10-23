@@ -382,6 +382,17 @@ pub fn issue_preview(url: &str) -> Result<(String, String)> {
 }
 
 /// PR `n`'s state on GitHub now: OPEN, CLOSED or MERGED (`None` if gh doesn't say).
+/// `#n`'s state, a PR's or an issue's alike (what's waited on may be either): OPEN, CLOSED, or
+/// MERGED (a PR merged).
+pub fn ref_state(n: u64) -> Result<String> {
+    let v: Value = gh_json(&["api", &format!("repos/{{owner}}/{{repo}}/issues/{n}")])?;
+    Ok(match (v["state"].as_str(), v["pull_request"]["merged_at"].is_string()) {
+        (_, true) => "MERGED".into(),
+        (Some(s), _) => s.to_uppercase(),
+        (None, _) => anyhow::bail!("#{n}: no state"),
+    })
+}
+
 pub fn pr_state(n: u64) -> Result<Option<String>> {
     let v: Value = gh_json(&["pr", "view", &n.to_string(), "--json", "state"])?;
     Ok(v["state"].as_str().map(str::to_owned))

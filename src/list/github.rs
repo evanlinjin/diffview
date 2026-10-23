@@ -262,7 +262,7 @@ impl List {
     }
 
     /// The PRs as fetched: on the cards, keeping the selected one selected. `quiet` (in the
-    /// background): no message, and the CI counts kept until the new ones come.
+    /// background): no message. (The CI counts are kept till the new ones come, either way.)
     pub(super) fn apply_list(&mut self, res: Result<Vec<Listed>>, quiet: bool) {
         // (Before the PRs change: the cursor's card, as shown now.)
         let keep = self.selected();

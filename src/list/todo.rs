@@ -69,9 +69,7 @@ impl List {
             }
         }
         let met = self.todos.met(&items, |it, c, at| self.happened(it, c, at));
-        // (Needs complete once what they come from is in: its details, its checks.)
-        let ready = self.extra_rx.is_none() && self.checks.is_none() && !self.extra.is_empty();
-        let (mut items, said) = self.todos.settle(items, met, ready);
+        let (mut items, said) = self.todos.settle(items, met);
         if let Some(said) = said {
             self.msg = said;
         }
@@ -596,8 +594,9 @@ impl List {
         }
         self.others_pending.extend(&waited);
         let (tx, rx) = mpsc::channel();
-        // (Not found, an issue's number say: "?", not asked again till the next fetch.)
-        std::thread::spawn(move || _ = tx.send(waited.into_iter().map(|n| (n, gh::pr_state(n).ok().flatten().unwrap_or_else(|| "?".into()))).collect()));
+        // (A PR's or an issue's: "Blocked on #123" may be either. Not found: "?", not asked again
+        // till the next fetch.)
+        std::thread::spawn(move || _ = tx.send(waited.into_iter().map(|n| (n, gh::ref_state(n).unwrap_or_else(|_| "?".into()))).collect()));
         self.others_rx.push(rx);
     }
 

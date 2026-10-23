@@ -162,14 +162,14 @@ impl Todos {
     /// What needs you, `items`, settled: in Claude's order where it ranked them; deferrals whose
     /// condition has happened (`met`) over (kept so; what to say of the last), the rest at the
     /// bottom till then; and what's changed since the ranking (`since`).
-    /// Deferrals over (`ready`: what needs come from is in) are dropped too: their time up, or
-    /// what their item needs changed (back for good, not hidden again if it changes back).
-    pub(super) fn settle(&mut self, items: Vec<Item>, met: Vec<(String, String)>, ready: bool) -> (Vec<Item>, Option<String>) {
+    /// Deferrals whose time is up are dropped too. (One whose item's needs changed is back
+    /// while they differ: needs read before all of what they come from is in aren't a change.)
+    pub(super) fn settle(&mut self, items: Vec<Item>, met: Vec<(String, String)>) -> (Vec<Item>, Option<String>) {
         let items = todo::order(items, self.ranked.as_ref());
         let before = self.deferred.len();
         met.iter().for_each(|(key, _)| _ = self.deferred.remove(key));
         let now = crate::claude::now_secs();
-        self.deferred.retain(|k, d| d.until > now && !(ready && items.iter().any(|it| &it.key() == k && it.needs_key() != d.needs)));
+        self.deferred.retain(|_, d| d.until > now);
         if self.deferred.len() != before {
             _ = self.save();
         }
@@ -189,6 +189,11 @@ impl Todos {
             .filter(|(it, c, at)| happened(it, c, *at))
             .map(|(it, c, _)| (it.key(), format!("{} is back: {}", it.label(), c.says())))
             .collect()
+    }
+
+    /// Whether a deferral's time is up (`now`): the items to settle again.
+    pub(super) fn due(&self, now: i64) -> bool {
+        self.deferred.values().any(|d| d.until <= now) || self.items.iter().any(|it| it.waits.as_ref().is_some_and(|w| matches!(w.0, Until::Time(t) if t <= now)))
     }
 
     /// The deferrals, kept (an error: what's said).

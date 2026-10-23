@@ -247,6 +247,10 @@ impl List {
             self.gone_news();
             self.prefetch();
             self.others_news();
+            // A deferral (or a wait) whose time's come: back.
+            if self.todos.due(crate::claude::now_secs()) {
+                self.find_todo();
+            }
             if self.watch_running() {
                 self.worktrees_changed(); // what it finished with may be waiting to be pushed (another dv's: a worktree made)
                 self.find_todo(); // Claude started or finished somewhere: its item moves

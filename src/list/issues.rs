@@ -456,7 +456,7 @@ impl Issues {
         let items: Vec<Item> = items.into_iter().filter(|it| !self.draft_fix.contains_key(&it.number)).collect();
 
         let met = self.todos.met(&items, |_, c, _| self.happened(c));
-        let (items, said) = self.todos.settle(items, met, !self.items.is_empty());
+        let (items, said) = self.todos.settle(items, met);
         self.todos.items = items;
         if let Some(said) = said {
             self.msg = said;
@@ -629,9 +629,8 @@ impl Issues {
                 Some(Err(said)) => self.msg = said,
                 None => {}
             }
-            // A deferral whose time's come: back.
-            let now = crate::claude::now_secs();
-            if self.todos.items.iter().any(|it| it.deferred.as_ref().is_some_and(|d| d.until <= now)) {
+            // A deferral (or a wait) whose time's come: back.
+            if self.todos.due(crate::claude::now_secs()) {
                 self.find_todo();
             }
             if let Some(res) = self.todos.rank_news() {
