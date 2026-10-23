@@ -129,13 +129,19 @@ fn sgr(params: &str, dim: &mut bool, grey: &mut bool) {
             22 => *dim = false,
             30..=37 | 39 | 91..=97 => *grey = false,
             90 => *grey = true,
-            38 if n.get(i + 1) == Some(&2) && i + 4 < n.len() => {
+            // A color's own numbers (the foreground's, or a background's or underline's,
+            // which say nothing here) passed over, not read as codes: `48;2;…` isn't dim.
+            38 | 48 | 58 if n.get(i + 1) == Some(&2) && i + 4 < n.len() => {
                 let (r, g, b) = (n[i + 2], n[i + 3], n[i + 4]);
-                *grey = r == g && g == b && r < 200;
+                if n[i] == 38 {
+                    *grey = r == g && g == b && r < 200;
+                }
                 i += 4;
             }
-            38 if n.get(i + 1) == Some(&5) => {
-                *grey = n.get(i + 2).is_some_and(|&c| c == 8 || (232..=250).contains(&c));
+            38 | 48 | 58 if n.get(i + 1) == Some(&5) => {
+                if n[i] == 38 {
+                    *grey = n.get(i + 2).is_some_and(|&c| c == 8 || (232..=250).contains(&c));
+                }
                 i += 2;
             }
             _ => {}

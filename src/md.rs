@@ -31,12 +31,17 @@ pub struct MdLine {
 impl MdLine {
     /// As a line to draw: a span a char, each in its style.
     pub fn into_line(self) -> ratatui::text::Line<'static> {
-        let spans: Vec<ratatui::text::Span<'static>> = self
-            .text
-            .chars()
-            .zip(self.styles.into_iter().chain(std::iter::repeat(None)))
-            .map(|(ch, st)| ratatui::text::Span::styled(ch.to_string(), st.unwrap_or_default()))
-            .collect();
+        let mut spans: Vec<ratatui::text::Span<'static>> = vec![];
+        for (ch, st) in self.text.chars().zip(self.styles.into_iter().chain(std::iter::repeat(None))) {
+            // (A combining mark with the char it's on: a span of its own, zero wide, isn't drawn.)
+            if ratatui::text::Span::raw(ch.to_string()).width() == 0
+                && let Some(l) = spans.last_mut()
+            {
+                l.content.to_mut().push(ch);
+                continue;
+            }
+            spans.push(ratatui::text::Span::styled(ch.to_string(), st.unwrap_or_default()));
+        }
         ratatui::text::Line::from(spans)
     }
 }
@@ -69,6 +74,8 @@ struct R<'a> {
     code: Option<(String, String)>,
     table: Option<Table>,
     heading: Option<HeadingLevel>,
+    /// Inside an HTML comment (`<!-- … -->`, a PR template's), across lines: not shown.
+    comment: bool,
 }
 
 pub fn render(text: &str, width: usize, s: &Styles, hl: &Highlighter, repo: Option<&str>) -> Vec<MdLine> {
@@ -89,8 +96,11 @@ pub fn render(text: &str, width: usize, s: &Styles, hl: &Highlighter, repo: Opti
         code: None,
         table: None,
         heading: None,
+        comment: false,
     };
-    for ev in Parser::new_ext(text, opts) {
+    // (Tabs as the diff draws them, four wide: measured as drawn.)
+    let text = text.replace('\t', "    ");
+    for ev in Parser::new_ext(&text, opts) {
         r.event(ev);
     }
     r.flush();
@@ -123,7 +133,14 @@ impl R<'_> {
                 self.blank();
             }
             Event::TaskListMarker(done) => self.bullet = Some(if done { "☑ " } else { "☐ " }.into()),
-            Event::Html(h) | Event::InlineHtml(h) => self.html(&h),
+            // (Block HTML comes a line an event: each its own line.)
+            Event::Html(h) => {
+                self.html(&h);
+                if h.ends_with('\n') {
+                    self.flush();
+                }
+            }
+            Event::InlineHtml(h) => self.html(&h),
             _ => {}
         }
     }
@@ -135,9 +152,14 @@ impl R<'_> {
                 self.heading = Some(level);
                 self.style.push(self.s.heading.add_modifier(Modifier::BOLD));
             }
-            Tag::BlockQuote(_) => {
+            Tag::BlockQuote(kind) => {
                 self.flush();
                 self.quote += 1;
+                // GitHub's alerts (`> [!NOTE]`): their label, as it shows it.
+                if let Some(k) = kind {
+                    self.push(&format!("{k:?}"), Some(Style::new().add_modifier(Modifier::BOLD)), false);
+                    self.flush();
+                }
             }
             Tag::CodeBlock(kind) => {
                 self.flush();
@@ -198,7 +220,7 @@ impl R<'_> {
             }
             TagEnd::Heading(level) => {
                 self.style.pop();
-                let len = self.cur.len();
+                let len = width(&self.cur);
                 self.flush();
                 self.heading = None;
                 // GitHub underlines the two biggest heading levels.
@@ -263,9 +285,54 @@ impl R<'_> {
         self.style.push(self.s.link);
     }
 
-    /// GitHub HTML in markdown: `<summary>` becomes a "▸" heading line, `<br>` a line break;
+    /// GitHub HTML in markdown: `<summary>` becomes a "▸" heading line, `<br>` a line break,
+    /// `<img>` and `<a href>` links as markdown's are, comments dropped (across lines too);
     /// other tags are dropped and their text kept.
     fn html(&mut self, h: &str) {
+        let mut kept = String::new();
+        let mut h = h;
+        loop {
+            if self.comment {
+                match h.find("-->") {
+                    Some(i) => (self.comment, h) = (false, &h[i + 3..]),
+                    None => break,
+                }
+            }
+            match h.find("<!--") {
+                Some(a) => {
+                    kept.push_str(&h[..a]);
+                    (self.comment, h) = (true, &h[a + 4..]);
+                }
+                None => {
+                    kept.push_str(h);
+                    break;
+                }
+            }
+        }
+        let h = kept.trim();
+        let attr = |k: &str| h.split(&format!("{k}=\"")).nth(1)?.split('"').next().map(str::to_owned);
+        if h.starts_with("<img") {
+            if let Some(src) = attr("src") {
+                self.open_link(src);
+                self.push(&format!("🖼 {}", attr("alt").unwrap_or_default()), None, false);
+                self.style.pop();
+                self.link.pop();
+            }
+            return;
+        }
+        if h.starts_with("<a ") {
+            if let Some(u) = attr("href") {
+                self.open_link(u);
+            }
+            return;
+        }
+        if h.starts_with("</a") {
+            if !self.link.is_empty() {
+                self.style.pop();
+                self.link.pop();
+            }
+            return;
+        }
         let text = strip_tags(h);
         if h.contains("<summary") {
             self.flush();
@@ -284,38 +351,40 @@ impl R<'_> {
         if !self.link.is_empty() {
             return self.push(&t, None, false);
         }
-        let c: Vec<char> = t.chars().collect();
-        let (mut i, mut plain) = (0, String::new());
-        while i < c.len() {
-            let rest: String = c[i..].iter().collect();
-            let word_start = i == 0 || !(c[i - 1].is_alphanumeric() || c[i - 1] == '/');
+        let (mut plain, mut skip, mut prev) = (String::new(), 0, None::<char>);
+        for (b, ch) in t.char_indices() {
+            if b < skip {
+                prev = Some(ch);
+                continue;
+            }
+            let rest = &t[b..];
+            let word_start = prev.is_none_or(|p| !(p.is_alphanumeric() || p == '/'));
             let auto = if rest.starts_with("https://") || rest.starts_with("http://") {
                 let n = rest.find(|ch: char| ch.is_whitespace() || "<>\"')]".contains(ch)).unwrap_or(rest.len());
                 let url = rest[..n].trim_end_matches(['.', ',', ';', ':', '!', '?']);
-                Some((url.chars().count(), url.to_owned()))
-            } else if word_start && c[i] == '#' && self.repo.is_some() {
-                let n = c[i + 1..].iter().take_while(|ch| ch.is_ascii_digit()).count();
+                Some((url.len(), url.to_owned()))
+            } else if word_start && ch == '#' && self.repo.is_some() {
+                let n = rest[1..].bytes().take_while(u8::is_ascii_digit).count();
                 (n > 0).then(|| (n + 1, format!("{}/issues/{}", self.repo.unwrap_or(""), &rest[1..=n])))
-            } else if word_start && c[i] == '@' {
-                let n = c[i + 1..].iter().take_while(|ch| ch.is_ascii_alphanumeric() || **ch == '-').count();
+            } else if word_start && ch == '@' {
+                let n = rest[1..].bytes().take_while(|b| b.is_ascii_alphanumeric() || *b == b'-').count();
                 (n > 0).then(|| (n + 1, format!("https://github.com/{}", &rest[1..=n])))
             } else {
                 None
             };
             match auto {
+                // (`n`: its length in bytes, from here.)
                 Some((n, url)) => {
                     self.push(&std::mem::take(&mut plain), None, false);
                     self.open_link(url);
-                    self.push(&c[i..i + n].iter().collect::<String>(), None, false);
+                    self.push(&rest[..n], None, false);
                     self.style.pop();
                     self.link.pop();
-                    i += n;
+                    skip = b + n;
                 }
-                None => {
-                    plain.push(c[i]);
-                    i += 1;
-                }
+                None => plain.push(ch),
             }
+            prev = Some(ch);
         }
         self.push(&plain, None, false);
     }
@@ -363,7 +432,6 @@ impl R<'_> {
         }
         let cells = std::mem::take(&mut self.cur);
         let (first, rest) = (self.prefix(true), self.prefix(false));
-        self.bullet = None;
         let quoted = self.quote > 0;
         let avail = self.width.saturating_sub(first.len()).max(10);
         let mut lines: Vec<Vec<Cell>> = vec![vec![]];
@@ -379,7 +447,8 @@ impl R<'_> {
                 let (st, link) = sep.unwrap_or((None, None));
                 line.push(Cell { ch: ' ', st, link: link.filter(|l| word.first().is_some_and(|w| w.link == Some(*l))) });
             }
-            for chunk in word.chunks(avail) {
+            // (A word wider than a line: broken by width, not chars: a wide char is two.)
+            for chunk in wrap_cells(word.to_vec(), avail).iter() {
                 let line = lines.last_mut().unwrap();
                 if !line.is_empty() && width(line) + width(chunk) > avail {
                     lines.push(vec![]);
@@ -396,6 +465,8 @@ impl R<'_> {
     }
 
     fn line(&mut self, prefix: Vec<Cell>, cells: Vec<Cell>) {
+        // (An item's bullet goes on its first line, whatever's drawn first: text, code, a rule.)
+        self.bullet = None;
         let all: Vec<Cell> = prefix.into_iter().chain(cells).collect();
         let mut links: Vec<(usize, usize, String)> = vec![];
         for (i, c) in all.iter().enumerate() {
@@ -592,4 +663,24 @@ fn github_emoji_shortcodes() {
     // In a `<details>` summary too; not what isn't one.
     assert!(text("<details><summary>:rocket: New features</summary>\n\nx\n</details>").contains("▸ 🚀 New features"));
     assert_eq!(text("at 12:30:00, :notanemoji:"), "at 12:30:00, :notanemoji:");
+}
+
+#[test]
+fn github_html_alerts_and_wide_text() {
+    let (s, hl) = (Styles::default(), Highlighter::new(&crate::theme::Theme::ansi()));
+    let r = |t: &str, w: usize| render(t, w, &s, &hl, None);
+    let texts = |l: Vec<MdLine>| l.into_iter().map(|l| l.text).collect::<Vec<_>>();
+    // A template's comment, across lines: gone; HTML block lines each their own.
+    assert_eq!(texts(r("<!--\nPlease describe\n-->\n\nReal text", 60)), ["Real text"]);
+    assert_eq!(texts(r("<p>one</p>\n<p>two</p>", 60)), ["one", "two"]);
+    // A pasted screenshot, and an HTML link: links still.
+    let img = r(r#"<img width="800" alt="Image" src="https://x.y/i.png">"#, 60);
+    assert_eq!((img[0].text.as_str(), img[0].links[0].2.as_str()), ("🖼 Image", "https://x.y/i.png"));
+    assert_eq!(r(r#"See <a href="https://x.y">docs</a>"#, 60)[0].links[0].2, "https://x.y");
+    // A CJK word wider than the line: broken by width.
+    assert!(r(&"中文".repeat(40), 30).iter().all(|l| ratatui::text::Span::raw(l.text.clone()).width() <= 30));
+    // A code block as an item's first content: its bullet once.
+    assert_eq!(texts(r("- ```\n  a\n  b\n  ```", 60)).iter().filter(|l| l.contains('•')).count(), 1);
+    // An alert's label.
+    assert!(r("> [!NOTE]\n> Useful", 60)[0].text.contains("Note"));
 }

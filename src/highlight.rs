@@ -126,6 +126,11 @@ impl Highlighter {
 
     /// Highlight a whole file; empty if the language isn't known.
     pub fn file(&self, path: &str, text: &str) -> Colors {
+        // Generated, minified (a line of tens of thousands of chars): no colors, not seconds
+        // of the screen frozen for colors no one reads on it.
+        if text.lines().any(|l| l.len() > 20_000) {
+            return vec![];
+        }
         let ext = path.rsplit('.').next().unwrap_or("");
         let first = text.lines().next().unwrap_or("");
         let ss = if ext == "toml" { &self.toml } else { &self.ss };

@@ -118,7 +118,6 @@ impl Theme {
     /// Terminal palette colors, for when no Helix theme can be loaded.
     pub fn ansi() -> Theme {
         let fg = |c| Style::new().fg(c);
-        let bg = |c| Style::new().bg(c);
         let m = |m| Style::new().add_modifier(m);
         let styles = [
             ("comment", fg(Color::DarkGray)),
@@ -148,9 +147,11 @@ impl Theme {
             ("info", fg(Color::LightBlue)),
             ("hint", fg(Color::LightCyan)),
             ("ui.linenr", fg(Color::DarkGray)),
-            ("ui.selection", bg(Color::Rgb(0x3b, 0x42, 0x52))),
-            ("ui.statusline", bg(Color::Rgb(0x2a, 0x2e, 0x38))),
-            ("ui.menu", bg(Color::Rgb(0x45, 0x40, 0x3d))),
+            // (Named colors and modifiers only: readable on a light terminal or a dark one, and
+            // on one without truecolor.)
+            ("ui.selection", m(Modifier::REVERSED)),
+            ("ui.statusline", m(Modifier::REVERSED)),
+            ("ui.menu", m(Modifier::REVERSED)),
             ("ui.menu.selected", m(Modifier::REVERSED)),
             ("ui.virtual.jump-label", fg(Color::Magenta).add_modifier(Modifier::BOLD)),
         ];
@@ -188,15 +189,17 @@ impl Theme {
             _ => fallback,
         };
         let tint = |s: Style, fallback| tint_on(s, bg, fallback);
-        let cursorline = self.find("ui.cursorline.primary").or(self.find("ui.cursorline")).and_then(|s| s.bg);
+        let cursorline = self.find("ui.cursorline.primary").and_then(|s| s.bg);
         let half = cursorline.zip(bg).and_then(|(c, b)| blend(c, b, 0.5));
         let related = self.find("ui.cursorline.secondary").and_then(|s| s.bg).filter(|&c| Some(c) != cursorline).or(half);
-        let (add_bg, del_bg) = (tint(plus, Color::Rgb(0x1f, 0x33, 0x22)), tint(minus, Color::Rgb(0x3a, 0x20, 0x22)));
+        // (No background to fade into (no theme, a transparent one): no tint, the diff's color
+        // on the text alone; a guessed dark one is unreadable on a light terminal.)
+        let (add_bg, del_bg) = (tint(plus, Color::Reset), tint(minus, Color::Reset));
         let or_reversed = |s: Option<Style>| match s {
             Some(s) if s.fg.is_some() || s.bg.is_some() => s,
             _ => Style::new().add_modifier(Modifier::REVERSED),
         };
-        let cursor = self.find("ui.cursor.primary.normal").or(self.find("ui.cursor.primary")).or(self.find("ui.cursor"));
+        let cursor = self.find("ui.cursor.primary.normal"); // (`find` goes up: ui.cursor.primary, ui.cursor)
         let comment = self.get("comment");
         let bar = match (self.get("ui.statusline").bg, self.get("ui.menu").bg) {
             (Some(s), Some(m)) if luma(m) < luma(s) => Some(m),
@@ -221,8 +224,8 @@ impl Theme {
             cursor_select: or_reversed(self.find("ui.cursor.primary.select").or(cursor)),
             status: Style { bg: bar, ..self.get("ui.statusline") },
             bar,
-            mode_normal: self.find("ui.statusline.normal").unwrap_or(self.get("ui.statusline")),
-            mode_select: self.find("ui.statusline.select").unwrap_or(self.get("ui.statusline")),
+            mode_normal: self.get("ui.statusline.normal"),
+            mode_select: self.get("ui.statusline.select"),
             popup: self.find("ui.popup").or(self.find("ui.menu")).unwrap_or_default(),
             menu_selected: or_reversed(self.find("ui.menu.selected")),
             jump_label: self.get("ui.virtual.jump-label"),
@@ -233,8 +236,8 @@ impl Theme {
             warning: self.get("warning"),
             resolved: self.get("diff.plus"),
             pending: self.find("hint").unwrap_or(self.get("info")),
-            emph_add: plus.fg.zip(bg).and_then(|(c, b)| blend(c, b, 0.42)).unwrap_or(Color::Rgb(0x2f, 0x5a, 0x33)),
-            emph_del: minus.fg.zip(bg).and_then(|(c, b)| blend(c, b, 0.42)).unwrap_or(Color::Rgb(0x6b, 0x2c, 0x2c)),
+            emph_add: plus.fg.zip(bg).and_then(|(c, b)| blend(c, b, 0.42)).unwrap_or(Color::Reset),
+            emph_del: minus.fg.zip(bg).and_then(|(c, b)| blend(c, b, 0.42)).unwrap_or(Color::Reset),
             cursorline,
             key: self.find("ui.text.focus").unwrap_or(self.get("function")).add_modifier(Modifier::BOLD),
             md: crate::md::Styles {

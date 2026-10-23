@@ -386,6 +386,14 @@ impl App {
                 n = i + 1;
                 continue;
             }
+            // (A combining mark on the char before: a zero-wide span of its own isn't drawn.)
+            if Span::raw(c.to_string()).width() == 0
+                && let Some(l) = spans.last_mut()
+            {
+                l.content.to_mut().push(c);
+                n = i + 1;
+                continue;
+            }
             spans.push(Span::styled(if c == '\t' { "    ".into() } else { c.to_string() }, st));
             n = i + 1;
         }
