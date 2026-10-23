@@ -271,6 +271,11 @@ fn merge_triage(old: &Value, t: Value, n: u64, updated: &str, fixes: &[(u64, Str
         }
     }
     m.insert("issue".into(), n.into());
+    // A triage as of a time your own change moved on from: as of the moved one (`own_change`).
+    let updated = match old["own"]["from"].as_str() == Some(updated) {
+        true => old["own"]["to"].as_str().unwrap_or(updated),
+        false => updated,
+    };
     m.insert("updated".into(), updated.into());
     // (When Claude wrote it, as a PR review's: its age, its place among what Claude said.)
     m.insert("created".into(), crate::claude::now().into());
@@ -294,6 +299,10 @@ fn a_triage_keeps_the_rest_of_the_file() {
     // A title proposed with a new text you asked for stays (the triage's own one waits).
     let old = serde_json::json!({ "title": "Asked for", "description": "proposed" });
     assert_eq!(merge_triage(&old, serde_json::json!({ "title": "Triage's" }), 7, "u", &[])["title"], "Asked for");
+    // One as of the time before your own change: as of the change's; one after, its own.
+    let old = serde_json::json!({ "own": { "from": "t0", "to": "t1" } });
+    assert_eq!(merge_triage(&old, serde_json::json!({}), 7, "t0", &[])["updated"], "t1");
+    assert_eq!(merge_triage(&old, serde_json::json!({}), 7, "t2", &[])["updated"], "t2");
 }
 
 /// Whether `k` is for moving about, the tabs, the filter, the help (`Nav`) while `pending`

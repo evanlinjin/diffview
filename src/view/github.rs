@@ -211,18 +211,21 @@ impl App {
         let (Some(i), Some(p)) = (&mut self.issue, &self.claude.path) else { return };
         let Ok(now) = gh::gh(&["api", &format!("repos/{{owner}}/{{repo}}/issues/{}", i.number), "--jq", ".updated_at"]) else { return };
         let now = now.trim().to_owned();
-        // A triage at the issue's time: kept, or under way here (saved as of its start; one
-        // started from now on, as of now).
-        let read = std::fs::read_to_string(p).map_err(anyhow::Error::from).and_then(|t| Ok(serde_json::from_str::<serde_json::Value>(&t)?));
-        if let Ok(mut v) = read
-            && v["updated"].as_str() == Some(i.updated.as_str())
-            && now != i.updated
-        {
-            v["updated"] = now.clone().into();
+        if now != i.updated {
+            // In the issue's file, for every triage alike: one kept moves now; one under way
+            // anywhere (as of the time before) is saved as of this (`merge_triage`). Your
+            // changes in a row: from the first's time before.
+            let mut v: serde_json::Value = std::fs::read_to_string(p).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| serde_json::json!({}));
+            let from = match v["own"]["to"].as_str() == Some(i.updated.as_str()) {
+                true => v["own"]["from"].clone(),
+                false => i.updated.clone().into(),
+            };
+            v["own"] = serde_json::json!({ "from": from, "to": now });
+            if v["updated"].as_str() == Some(i.updated.as_str()) {
+                v["updated"] = now.clone().into();
+            }
+            _ = p.parent().map(std::fs::create_dir_all);
             _ = crate::claude::write(p, &v);
-        }
-        if let Some(t) = self.claude.job.as_mut().and_then(|j| j.triage.as_mut()).filter(|t| t.updated == i.updated) {
-            t.updated.clone_from(&now);
         }
         i.updated = now;
     }
