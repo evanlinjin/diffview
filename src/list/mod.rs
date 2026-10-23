@@ -297,12 +297,9 @@ impl List {
                 Some(Do::Open(n)) => {
                     // Used once: after the review it may have moved on (a push), so it's looked up again.
                     let pr = self.pr_cache.lock().ok().and_then(|mut c| c.remove(&n)).filter(|(t, _)| t.elapsed().as_secs() < 120).map(|(_, p)| p);
-                    // A replacement's card: it. A PR that's a published replacement: as its draft's
-                    // card opens it, its view.
-                    let (n, replacement) = match self.selected() {
-                        Some((m, true)) if m == n => (n, true),
-                        _ => self.rep_of.values().find(|r| r.published == Some(n)).map_or((n, false), |r| (r.id, true)),
-                    };
+                    // A replacement's card: it. (A PR, a published replacement's too: reviewed, in
+                    // its one checkout, `pr_checkout`.)
+                    let replacement = self.selected().is_some_and(|(m, rep)| m == n && rep);
                     return Ok(Some(Pick { number: n, replacement, merge: false, issues: false, pr }));
                 }
                 Some(Do::Merge(n)) => {

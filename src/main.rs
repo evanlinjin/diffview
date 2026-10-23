@@ -495,7 +495,7 @@ fn review(o: &Opts, pr_num: Option<u64>, known: Option<gh::Pr>) -> anyhow::Resul
     // one, `dv N -w`: made your way. A list's flags are for one it makes.)
     let found = pr_num.filter(|_| !o.worktree || o.pr.is_none()).and_then(|n| {
         // (Or its one checkout, a published replacement's worktree, on its branch.)
-        let rep = pr_checkout(n).ok().filter(|d| worktree_dir(n).is_ok_and(|(_, own)| own != *d)).map(|d| (n, d, Some(String::new())));
+        let rep = pr_checkout(n).ok().filter(|d| worktree_dir(n).is_ok_and(|(_, own)| own != *d)).map(|d| (n, d, Some(String::new()))); // (on its branch: `enter_worktree`)
         rep.or_else(|| pr_worktrees().into_iter().find(|w| w.0 == n))
     });
     let adjusted;
@@ -881,6 +881,9 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
     let existed = dir.exists();
     if existed {
         ensure_ours(&dir)?;
+    } else if let Some(r) = published_as(n).filter(|_| dir != mine) {
+        // A published replacement's, gone: made again as a replacement's is, on its branch.
+        replace::worktree(&r, &worktree_dir(n)?.0)?;
     } else {
         // At the PR's head from the start: one left behind half set up (gh failed, dv was
         // killed) is then just behind the PR, never someone else's commits taken for work here.
@@ -919,12 +922,16 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
 }
 
 /// PR `n`'s one checkout dv works on it in: a published replacement's worktree (it's that
-/// draft's PR: its branch is there), else its own `<repo>-N` (made or not). By dv's records,
-/// not its branch's name (no GitHub lookup; never another PR's worktree).
+/// draft's PR: its branch is there), else its own `<repo>-N` (made or not, either). By dv's
+/// records, not its branch's name (no GitHub lookup; never another PR's worktree).
 pub(crate) fn pr_checkout(n: u64) -> anyhow::Result<PathBuf> {
     let (main, own) = worktree_dir(n)?;
-    let rep = replace::all().into_iter().find(|r| r.published == Some(n)).and_then(|r| worktree_dir_named(&main, &replace::name(r.id)).ok());
-    Ok(rep.filter(|d| d.exists()).unwrap_or(own))
+    Ok(published_as(n).and_then(|r| worktree_dir_named(&main, &replace::name(r.id)).ok()).unwrap_or(own))
+}
+
+/// The replacement published as PR `n`, if one was.
+fn published_as(n: u64) -> Option<replace::Record> {
+    replace::all().into_iter().find(|r| r.published == Some(n))
 }
 
 /// The main checkout's root (found from inside a worktree too) and PR `n`'s worktree next to it.

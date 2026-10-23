@@ -398,7 +398,14 @@ impl List {
             self.rescan = true; // after the one under way
             return;
         }
-        let local: Vec<(u64, String)> = self.local.iter().map(|(&n, (dir, _))| (n, dir.to_string_lossy().into_owned())).collect();
+        let mut local: Vec<(u64, String)> = self.local.iter().map(|(&n, (dir, _))| (n, dir.to_string_lossy().into_owned())).collect();
+        // A published replacement's PR: its one checkout is the draft's worktree (`pr_checkout`).
+        for (id, p) in self.rep_of.values().filter_map(|r| Some((r.id, r.published?))) {
+            if let Ok(d) = crate::worktree_dir_named(&self.root, &crate::replace::name(id)).map(|d| d.to_string_lossy().into_owned()) {
+                local.retain(|(n, _)| *n != p);
+                local.push((p, d));
+            }
+        }
         let heads: HashMap<u64, String> = self.extra.iter().map(|(&n, e)| (n, e.head_oid.clone())).collect();
         let bases: HashMap<u64, String> = self.prs.iter().map(|p| (p.number, p.base.clone())).collect();
         let (tx, rx) = mpsc::channel();
