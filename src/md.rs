@@ -79,7 +79,7 @@ struct R<'a> {
     carry: String,
     /// Links HTML opened (`<a href>`), for its `</a>` to close: no others.
     html_links: usize,
-    /// In a `<summary>` (its bold to end at its `</summary>`).
+    /// A `<summary>`'s ▸ is on the line: its title is the line's first (bold, when it's drawn).
     summary: bool,
 }
 
@@ -129,7 +129,7 @@ impl R<'_> {
                 Some((_, buf)) => buf.push_str(&t),
                 None => self.text(&t),
             },
-            Event::Code(t) => self.push(&t, Some(self.s.raw), false),
+            Event::Code(t) => self.push(&t, Some(self.s.raw)),
             // GitHub keeps line breaks in comments and PR bodies (unlike plain CommonMark).
             Event::SoftBreak => self.flush(),
             Event::HardBreak => self.flush(),
@@ -141,10 +141,10 @@ impl R<'_> {
             }
             Event::TaskListMarker(done) => self.bullet = Some(if done { "☑ " } else { "☐ " }.into()),
             // (Block HTML comes a line an event: each its own line.)
-            // (A summary's title runs to its `</summary>`, over lines.)
+            // (Only a ▸ still waiting for its title holds the line.)
             Event::Html(h) => {
                 self.html(&h);
-                if h.ends_with('\n') && !self.summary {
+                if h.ends_with('\n') && !self.title_to_come() {
                     self.flush();
                 }
             }
@@ -168,7 +168,7 @@ impl R<'_> {
                 self.quote += 1;
                 // GitHub's alerts (`> [!NOTE]`): their label, as it shows it.
                 if let Some(k) = kind {
-                    self.push(&format!("{k:?}"), Some(Style::new().add_modifier(Modifier::BOLD)), false);
+                    self.push(&format!("{k:?}"), Some(Style::new().add_modifier(Modifier::BOLD)));
                     self.flush();
                 }
             }
@@ -201,7 +201,7 @@ impl R<'_> {
             Tag::Link { dest_url, .. } => self.open_link(dest_url.to_string()),
             Tag::Image { dest_url, .. } => {
                 self.open_link(dest_url.to_string());
-                self.push("🖼 ", None, false);
+                self.push("🖼 ", None);
             }
             Tag::Table(_) => {
                 self.flush();
@@ -270,14 +270,8 @@ impl R<'_> {
                 }
             }
             TagEnd::Item => self.flush(),
-            // (What's unclosed ends with its block: a tag, a comment, a summary's title.)
-            TagEnd::HtmlBlock => {
-                self.carry.clear();
-                // (Not one whose title's still to come: `<summary>`, a blank line, markdown.)
-                if self.summary && !self.title_to_come() {
-                    self.html_tag("</summary>");
-                }
-            }
+            // (What's unclosed ends with its block: a tag, a comment.)
+            TagEnd::HtmlBlock => self.carry.clear(),
             TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough => _ = self.style.pop(),
             TagEnd::Link | TagEnd::Image => {
                 self.style.pop();
@@ -368,7 +362,7 @@ impl R<'_> {
             ("img", false) => {
                 if let Some(src) = attr("src") {
                     self.open_link(src);
-                    self.push(&format!("🖼 {}", attr("alt").unwrap_or_default()), None, false);
+                    self.push(&format!("🖼 {}", attr("alt").unwrap_or_default()), None);
                     self.style.pop();
                     self.link.pop();
                 }
@@ -385,18 +379,14 @@ impl R<'_> {
                 self.link.pop();
             }
             ("summary", false) if !self.summary => {
+                self.flush();
+                self.push("▸ ", None);
                 self.summary = true;
-                self.flush();
-                self.push("▸ ", None, false);
-                self.style.push(Style::new().add_modifier(Modifier::BOLD));
             }
-            ("summary", true) if self.summary => {
-                self.summary = false;
-                self.style.pop();
-                self.flush();
-            }
+            // (Empty, `<summary></summary>`: its ▸ still.)
+            ("summary", true) if self.summary => self.flush(),
             // (In a table's cell, which a line break can't split: a space.)
-            ("br", _) if self.table.is_some() => self.push(" ", None, false),
+            ("br", _) if self.table.is_some() => self.push(" ", None),
             ("br", _) => self.flush(),
             _ => {}
         }
@@ -406,7 +396,7 @@ impl R<'_> {
     fn text(&mut self, t: &str) {
         let t = emoji(t);
         if !self.link.is_empty() {
-            return self.push(&t, None, false);
+            return self.push(&t, None);
         }
         let (mut plain, mut skip, mut prev) = (String::new(), 0, None::<char>);
         for (b, ch) in t.char_indices() {
@@ -432,9 +422,9 @@ impl R<'_> {
             match auto {
                 // (`n`: its length in bytes, from here.)
                 Some((n, url)) => {
-                    self.push(&std::mem::take(&mut plain), None, false);
+                    self.push(&std::mem::take(&mut plain), None);
                     self.open_link(url);
-                    self.push(&rest[..n], None, false);
+                    self.push(&rest[..n], None);
                     self.style.pop();
                     self.link.pop();
                     skip = b + n;
@@ -443,11 +433,11 @@ impl R<'_> {
             }
             prev = Some(ch);
         }
-        self.push(&plain, None, false);
+        self.push(&plain, None);
     }
 
     /// Append inline text with the current style stack (plus `extra`), into a table cell if in one.
-    fn push(&mut self, t: &str, extra: Option<Style>, _: bool) {
+    fn push(&mut self, t: &str, extra: Option<Style>) {
         let mut st = self.style.iter().fold(Style::new(), |a, b| a.patch(*b));
         if let Some(e) = extra {
             st = st.patch(e);
@@ -487,7 +477,11 @@ impl R<'_> {
         if self.cur.is_empty() {
             return;
         }
-        let cells = std::mem::take(&mut self.cur);
+        let mut cells = std::mem::take(&mut self.cur);
+        // (A summary's title: the line its ▸ is on, bold; whatever it was written as.)
+        if std::mem::take(&mut self.summary) {
+            cells.iter_mut().skip("▸ ".chars().count()).for_each(|c| c.st = Some(c.st.unwrap_or_default().add_modifier(Modifier::BOLD)));
+        }
         let (first, rest) = (self.prefix(true), self.prefix(false));
         let quoted = self.quote > 0;
         let avail = self.width.saturating_sub(first.len()).max(10);
@@ -742,7 +736,12 @@ fn github_html_alerts_and_wide_text() {
     assert_eq!(r("See <a href=https://x>docs</a> here", 60)[0].links[0].2, "https://x");
     assert_eq!(r("See <a href='https://y'>docs</a>", 60)[0].links[0].2, "https://y");
     assert_eq!(texts(r("<details>\n<summary>\nTitle\n</summary>\n\nBody\n</details>", 60))[0], "▸ Title");
-    // A `<` that starts no tag is text; a summary left open ends with its block.
+    // A `<` that starts no tag is text; a summary left open: its title alone bold (not what
+    // follows, nor a summary after it unseen); a title over lines, its first.
+    assert_eq!(texts(r("<details>\n<summary>\n\nBody\n</details>\n\nafter\n\n<details><summary>Two</summary>\n\nB2\n</details>", 60)), ["▸ Body", "", "after", "", "▸ Two", "B2"]);
+    let l = r("<details>\n<summary>\n\nBody\n</details>\n\nafter", 60);
+    assert!(l.iter().find(|l| l.text == "after").is_some_and(|l| l.styles.iter().all(Option::is_none)));
+    assert_eq!(texts(r("<details>\n<summary>\nTitle\nmore\n</summary>", 60)), ["▸ Title", "more"]);
     assert_eq!(texts(r("<div>\na < b\nmore text\n</div>", 60)), ["a < b", "more text"]);
     assert_eq!(texts(r("<details><summary>Title\n\nBody\n</details>\n\nafter", 60)), ["▸ Title", "Body", "", "after"]);
     // GitHub's markdown in a summary: a blank line, then its title (bold, a heading).
