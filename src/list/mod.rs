@@ -78,6 +78,8 @@ pub struct List {
     /// outlast a `dv list`; and what was saved last.
     marked: HashSet<u64>,
     marked_saved: HashSet<u64>,
+    /// The marks a save of failed (said once, not tried again till they change).
+    marks_failed: Option<HashSet<u64>>,
     /// Claude's reviews from here (`a`): how each is going, and the news on its way.
     batch: HashMap<u64, batch::Status>,
     batch_rx: Vec<Receiver<(u64, batch::Status)>>,
@@ -223,12 +225,13 @@ impl List {
         self.find_todo(); // and what you did there may have seen to it
         self.select_card(keep);
         loop {
-            if self.marked != self.marked_saved {
+            // (Failed: tried again once the marks change, not every turn of the loop.)
+            if self.marked != self.marked_saved && self.marks_failed.as_ref() != Some(&self.marked) {
                 // On what's saved now: another dv list of this repo may have marked some too.
                 // (As saved only once they are: failed, still to save, next time.)
                 match save_marks(&self.marked_saved, &self.marked) {
-                    Ok(now) => (self.marked, self.marked_saved) = (now.clone(), now),
-                    Err(e) => self.msg = format!("couldn't save the marks: {e}"),
+                    Ok(now) => (self.marked, self.marked_saved, self.marks_failed) = (now.clone(), now, None),
+                    Err(e) => (self.msg, self.marks_failed) = (format!("couldn't save the marks: {e}"), Some(self.marked.clone())),
                 }
             }
             term.draw(|f| self.draw(f))?;

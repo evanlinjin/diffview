@@ -776,7 +776,9 @@ pub fn load_deferred(p: Option<&std::path::Path>) -> Deferred {
 pub fn save_deferred(p: Option<&std::path::Path>, saved: &Deferred, now: &Deferred) -> Result<Deferred> {
     let p = p.context("no dv directory")?;
     let mut v: serde_json::Map<String, Value> = std::fs::read_to_string(p).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
-    v.retain(|k, _| now.contains_key(k) || !saved.contains_key(k));
+    // (And what's run out: dropped here as loading drops it, not kept for good.)
+    let t = crate::claude::now_secs();
+    v.retain(|k, e| (now.contains_key(k) || !saved.contains_key(k)) && e["until"].as_i64().is_some_and(|u| u > t));
     for (k, d) in now.iter().filter(|(k, d)| saved.get(*k) != Some(d)) {
         let mut e = json!({ "until": d.until, "needs": d.needs, "at": d.at });
         if let Some(c) = &d.cond {
