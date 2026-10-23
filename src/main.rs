@@ -894,7 +894,6 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
         progress(Some(&format!("creating the worktree {}", dir.display())));
         // (Its own ref, not FETCH_HEAD: `dv list` prepares several worktrees at once.)
         let at = format!("refs/dv/pull/{n}");
-        _ = diff::git(&["worktree", "prune"]); // (one deleted, not removed: registered, in the way)
         diff::git(&["fetch", "-q", &crate::diff::remote(), &format!("+refs/pull/{n}/head:{at}")])?;
         diff::git(&["worktree", "add", "--detach", &dir.to_string_lossy(), &at])?;
         _ = diff::git(&["update-ref", "-d", &at]); // (its HEAD keeps the commit)
@@ -930,6 +929,7 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
 /// draft's PR: its branch is there), else its own `<repo>-N` (made or not, either). By dv's
 /// records, not its branch's name (no GitHub lookup; never another PR's worktree).
 pub(crate) fn pr_checkout(n: u64) -> anyhow::Result<PathBuf> {
+    pr_worktrees(); // (git's own list as it is: one deleted by hand let go)
     let (main, own) = worktree_dir(n)?;
     Ok(published_as(n).and_then(|r| worktree_dir_named(&main, &replace::name(r.id)).ok()).unwrap_or(own))
 }
@@ -980,8 +980,9 @@ pub(crate) fn pr_worktrees() -> Vec<(u64, PathBuf, Option<String>)> {
     for block in list.split("\n\n") {
         let field = |k: &str| block.lines().find_map(|l| l.strip_prefix(k));
         let Some(path) = field("worktree ").map(PathBuf::from) else { continue };
-        // (One whose directory was deleted, not removed: gone.)
+        // (One whose directory was deleted, not removed: let go, its branch with it.)
         if field("prunable").is_some() {
+            _ = diff::git(&["worktree", "prune"]);
             continue;
         }
         let n = path.file_name().and_then(|f| f.to_str()?.strip_prefix(&format!("{name}-"))?.parse().ok());
@@ -1116,9 +1117,8 @@ fn ensure_ours(dir: &Path) -> anyhow::Result<()> {
 pub(crate) fn remove_worktree(n: u64, force: bool) -> anyhow::Result<String> {
     let (main, dir) = worktree_dir(n)?;
     if !dir.exists() {
-        // (Deleted, not removed: what git still has of it let go.)
-        _ = diff::git(&["-C", &main.to_string_lossy(), "worktree", "prune"]);
-        return Ok(format!("no worktree at {} (its directory gone; let go)", dir.display()));
+        pr_worktrees(); // (one deleted, not removed: let go)
+        anyhow::bail!("no worktree at {}", dir.display());
     }
     ensure_ours(&dir)?;
     // Not under Claude at work there (a run, a pane: on it, or in it on any key): its claim,
