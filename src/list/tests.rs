@@ -33,6 +33,12 @@ fn filter_and_keys() {
     assert_eq!(filter(&mut l, "ci:fail"), [333]);
     assert_eq!(filter(&mut l, "ci:none -author:an"), [22]);
     assert_eq!(filter(&mut l, "docs"), [22]); // labels count as text too
+    // A value a key doesn't take: said, not an empty list unexplained.
+    let keys: &[(&str, &[&str])] = &[("is", &["draft"]), ("ci", &["pass", "fail"])];
+    filter(&mut l, "-is:merged");
+    assert_eq!(l.nav.unknown(keys).as_deref(), Some("-is:merged: not a filter here (is:draft)"));
+    filter(&mut l, "fix: ci:f");
+    assert_eq!(l.nav.unknown(keys), None); // (`fix:` is text; `ci:f`, fail's start)
     l.nav.query.clear();
     // `/` types a filter; Enter keeps it, Esc (out of filter mode) clears it.
     k(&mut l, KeyCode::Char('/'));

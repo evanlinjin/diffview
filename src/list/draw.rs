@@ -144,7 +144,8 @@ impl List {
 
         // (The keys: in their popup, but beside the todo tab's word on each.)
         let idle = if self.nav.tab == Tab::Todo && msg_col.is_some() { " ? keys" } else { "" };
-        let left = self.nav.status(&self.msg, "author: label: base: branch: is:draft review: ci:", idle);
+        let keys: &[(&str, &[&str])] = &[("is", &["draft"]), ("review", &["approved", "changes", "required", "none"]), ("ci", &["pass", "fail", "pending", "none"])];
+        let left = self.nav.status(&self.msg, "author: label: base: branch: is:draft review: ci:", idle, keys);
         // On the right, how it's ordered (on the todo tab, Claude's ranking: how old, what it
         // cost, what's changed since), and the flags PRs open with.
         let order = match self.nav.tab {

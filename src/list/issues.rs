@@ -1138,7 +1138,7 @@ impl Issues {
         }
         f.render_widget(Paragraph::new(lines), Rect { y: area.y + 1, height: (h * rows) as u16, ..area });
         let idle = if column.is_some() { " ? keys" } else { "" };
-        let left = self.nav.status(&self.msg, "label: author: kind: priority: is:triaged", idle);
+        let left = self.nav.status(&self.msg, "label: author: kind: priority: is:triaged", idle, &[("is", &["triaged"])]);
         let order = match self.nav.tab {
             ITab::Todo => self.todos.order_text(),
             _ => "by updated ↓".to_owned(),

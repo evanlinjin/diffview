@@ -45,11 +45,24 @@ impl<T: Tabs> Nav<T> {
 
     /// The status bar's left, as the filter has it: typing it (`fields`: what it takes), what's
     /// said (`msg`), the filter kept; else `idle`.
-    pub(super) fn status(&self, msg: &str, fields: &str, idle: &str) -> String {
+    /// A term of the filter whose key this list knows (`keys`: each key's values) but not its
+    /// value (`is:merged`), said: it'd only match nothing, unexplained.
+    pub(super) fn unknown(&self, keys: &[(&str, &[&str])]) -> Option<String> {
+        self.query.split_whitespace().find_map(|t| {
+            let (k, v) = t.trim_start_matches('-').split_once(':')?;
+            let (k, values) = keys.iter().find(|(key, _)| key.eq_ignore_ascii_case(k))?;
+            let v = v.to_lowercase();
+            (v.is_empty() || !values.iter().any(|a| a.starts_with(&v))).then(|| format!("{t}: not a filter here ({k}:{})", values.join("|")))
+        })
+    }
+
+    /// (`keys`: the filter's keys with values of their own, for `unknown`.)
+    pub(super) fn status(&self, msg: &str, fields: &str, idle: &str, keys: &[(&str, &[&str])]) -> String {
+        let bad = self.unknown(keys);
         match (self.filtering, self.query.is_empty(), msg.is_empty()) {
-            (true, ..) => format!(" /{}▏  {fields}  -x negates", self.query),
+            (true, ..) => format!(" /{}▏  {}", self.query, bad.unwrap_or_else(|| format!("{fields}  -x negates"))),
             (_, _, false) => format!(" {msg}"),
-            (_, false, _) => format!(" filter: {}  (Esc clears)", self.query),
+            (_, false, _) => format!(" filter: {}  ({})", self.query, bad.unwrap_or_else(|| "Esc clears".into())),
             _ => idle.into(),
         }
     }
