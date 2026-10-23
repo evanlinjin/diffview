@@ -301,12 +301,13 @@ pub fn no_prompt(cmd: &mut Command) -> &mut Command {
         if own.is_none() && std::env::var_os("GIT_SSH").is_some() {
             return None;
         }
-        Some(format!("{} -o BatchMode=yes", own.as_deref().unwrap_or("ssh")))
+        // (Bounded: a connection half-open after a sleep fails in a minute, not hours.)
+        Some(format!("{} -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=2", own.as_deref().unwrap_or("ssh")))
     });
     if let Some(s) = ssh {
         cmd.env("GIT_SSH_COMMAND", s);
     }
-    cmd.env("GIT_TERMINAL_PROMPT", "0")
+    cmd.env("GIT_TERMINAL_PROMPT", "0").env("GIT_HTTP_LOW_SPEED_LIMIT", "1000").env("GIT_HTTP_LOW_SPEED_TIME", "30")
 }
 
 /// Why `cmd` (git's or gh's) failed when it's ssh that `no_prompt` kept from asking: first in
