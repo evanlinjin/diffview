@@ -68,7 +68,9 @@ struct R<'a> {
     cur: Vec<Cell>,
     style: Vec<Style>,
     link: Vec<usize>,
-    lists: Vec<Option<u64>>,
+    /// The lists it's in: each one's next number (none: bullets), and its item's marker's
+    /// width (`1. `, `10. `, `• `), what the item's other lines are indented by.
+    lists: Vec<(Option<u64>, usize)>,
     bullet: Option<String>,
     quote: usize,
     code: Option<(String, String)>,
@@ -179,17 +181,20 @@ impl R<'_> {
             }
             Tag::List(start) => {
                 self.flush();
-                self.lists.push(start);
+                self.lists.push((start, 2));
             }
             Tag::Item => {
                 self.flush();
                 let b = match self.lists.last_mut() {
-                    Some(Some(n)) => {
+                    Some((Some(n), _)) => {
                         *n += 1;
                         format!("{}. ", *n - 1)
                     }
                     _ => "• ".into(),
                 };
+                if let Some(l) = self.lists.last_mut() {
+                    l.1 = b.chars().count();
+                }
                 self.bullet = Some(b);
             }
             Tag::Emphasis => self.style.push(Style::new().add_modifier(Modifier::ITALIC)),
@@ -458,15 +463,13 @@ impl R<'_> {
         for _ in 0..self.quote {
             add(&mut p, "▎ ", self.s.quote);
         }
-        let depth = self.lists.len().saturating_sub(1);
-        add(&mut p, &"  ".repeat(depth), Style::new());
-        if let Some(b) = &self.bullet {
-            match first {
-                true => add(&mut p, b, self.s.list),
-                false => add(&mut p, &" ".repeat(b.chars().count()), Style::new()),
+        // Each list it's in indents by its item's marker; the item's bullet on its first line.
+        let last = self.lists.len().saturating_sub(1);
+        for (i, &(_, w)) in self.lists.iter().enumerate() {
+            match &self.bullet {
+                Some(b) if i == last && first => add(&mut p, b, self.s.list),
+                _ => add(&mut p, &" ".repeat(w), Style::new()),
             }
-        } else if !self.lists.is_empty() {
-            add(&mut p, "  ", Style::new());
         }
         p
     }
@@ -741,6 +744,9 @@ fn github_html_alerts_and_wide_text() {
     let l = r("<details>\n<summary>\n\nBody\n</details>\n\nafter", 60);
     assert!(l.iter().find(|l| l.text == "after").is_some_and(|l| l.styles.iter().all(Option::is_none)));
     assert_eq!(texts(r("<details>\n<summary>\nTitle\nmore\n</summary>", 60)), ["▸ Title", "more"]);
+    // An ordered item's other lines under its text, however wide its number.
+    assert_eq!(texts(r("1. first\n\n   second para", 60)), ["1. first", "   second para"]);
+    assert_eq!(texts(r("1. a\n   - b", 60)), ["1. a", "   • b"]);
     // A summary in a table's cell: its ▸ there, nothing after the table bold.
     let l = r("| a | b |\n|---|---|\n| <details><summary>T</summary>x</details> | y |\n\nHello world", 60);
     assert!(l.iter().any(|l| l.text.contains("▸ T x")));
