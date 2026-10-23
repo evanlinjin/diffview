@@ -424,11 +424,16 @@ pub fn order(mut items: Vec<Item>, ranked: Option<&Ranked>) -> Vec<Item> {
     }
     let mut out = vec![];
     for (key, word) in ranked.map_or(&[][..], |r| r.items.as_slice()) {
-        if let Some(i) = items.iter().position(|it| &it.key() == key) {
+        // (One changed since: not where Claude put it; the rules place it, below.)
+        if let Some(i) = items.iter().position(|it| &it.key() == key && !it.changed) {
             let mut it = items.remove(i);
             it.reason = Some(word.clone());
             out.push(it);
         }
+    }
+    // (One changed since: placed by the rules, Claude's word on it then still shown, as from then.)
+    for it in items.iter_mut() {
+        it.reason = ranked.and_then(|r| r.items.iter().find(|(k, _)| *k == it.key())).map(|(_, w)| w.clone());
     }
     rule_order(&mut items);
     for it in items {
@@ -512,6 +517,14 @@ pub enum Until {
 }
 
 impl Until {
+    /// The other PR it waits on, if any: its state looked up when it's not listed.
+    pub fn other_pr(&self) -> Option<u64> {
+        match self {
+            Until::Merged(n) | Until::Closed(n) | Until::PushedTo(n, _) => Some(*n),
+            _ => None,
+        }
+    }
+
     /// A push from no known head: nothing to tell it by (it'd wait forever).
     pub fn unwatchable(&self) -> bool {
         matches!(self, Until::Pushed(h) | Until::PushedTo(_, h) if h.is_empty())
@@ -679,7 +692,7 @@ pub fn until_or(c: Until, or: Option<i64>) -> (i64, Option<Until>, String) {
 /// oldest first) that starts "Waiting on", "Blocked on/by", "Depends on" or "Deferred until",
 /// and who said it; a later "Unblocked" (or "No longer waiting") ends it. `#N` alone means that
 /// PR merged.
-pub fn waiting_on(said: &[(String, String, i64)], now: i64) -> Option<(Until, String, i64)> {
+pub fn waiting_on(said: &[(String, String, i64)]) -> Option<(Until, String, i64)> {
     const LEADS: [&str; 8] = ["waiting on", "waiting for", "blocked on", "blocked by", "depends on", "deferred until", "defer until", "until"];
     for (who, body, at) in said.iter().rev() {
         for line in body.lines().rev() {
@@ -699,7 +712,8 @@ pub fn waiting_on(said: &[(String, String, i64)], now: i64) -> Option<(Until, St
             // "CI, then review", nor "me to review".)
             let head = ws.iter().find(|w| !["a", "an", "the", "your", "more", "another", "code", "maintainer", "final"].contains(w));
             let review = head.is_some_and(|w| w.starts_with("review")) && !ws.iter().any(|w| w.starts_with("comment")) && !rest.contains(['#', '@']);
-            let c = bare.map(Until::Merged).or_else(|| Until::parse(rest, now)).or_else(|| review.then_some(Until::Reviewed(None)));
+            // (A time from when it was said, not from now: "for a day" ends a day after.)
+            let c = bare.map(Until::Merged).or_else(|| Until::parse(rest, *at)).or_else(|| review.then_some(Until::Reviewed(None)));
             // (A push from no known head: nothing to tell it by.)
             let c = c.filter(|c| !c.unwatchable());
             // The newest marker says it, read or not (not an older one); a bare "until" is often
@@ -1175,42 +1189,41 @@ mod tests {
         assert_eq!(or_time("İİİİİİİİİİİİİİ or 1h", now).1, Some(now + 3600)); // (not a panic)
         // Another PR's push, from no known head: not a wait (it'd never end).
         let c = |who: &str, body: &str| (who.to_owned(), body.to_owned(), 0);
-        assert_eq!(waiting_on(&[c("me", "Waiting on #2258 to be updated")], now), None);
+        assert_eq!(waiting_on(&[c("me", "Waiting on #2258 to be updated")]), None);
     }
 
     #[test]
     fn waiting_on_from_comments() {
         let c = |who: &str, body: &str| (who.to_owned(), body.to_owned(), 0);
-        let now = 0;
-        assert_eq!(waiting_on(&[c("bo", "Looks good.\n\nBlocked on #2380.")], now), Some((Until::Merged(2380), "bo".into(), 0)));
-        assert_eq!(waiting_on(&[c("me", "Waiting on: CI to pass")], now), Some((Until::Green, "me".into(), 0)));
-        assert_eq!(waiting_on(&[c("me", "waiting on @amy approves it")], now), Some((Until::Approved(Some("amy".into())), "me".into(), 0)));
-        assert_eq!(waiting_on(&[c("me", "Depends on #12 merged")], now), Some((Until::Merged(12), "me".into(), 0)));
+        assert_eq!(waiting_on(&[c("bo", "Looks good.\n\nBlocked on #2380.")]), Some((Until::Merged(2380), "bo".into(), 0)));
+        assert_eq!(waiting_on(&[c("me", "Waiting on: CI to pass")]), Some((Until::Green, "me".into(), 0)));
+        assert_eq!(waiting_on(&[c("me", "waiting on @amy approves it")]), Some((Until::Approved(Some("amy".into())), "me".into(), 0)));
+        assert_eq!(waiting_on(&[c("me", "Depends on #12 merged")]), Some((Until::Merged(12), "me".into(), 0)));
         // The newest says; a later Unblocked ends it; other talk isn't a wait.
-        assert_eq!(waiting_on(&[c("me", "Blocked on #1"), c("bo", "Blocked on #2")], now).map(|w| w.0), Some(Until::Merged(2)));
-        assert_eq!(waiting_on(&[c("me", "Blocked on #1"), c("me", "Unblocked: #1 is in")], now), None);
+        assert_eq!(waiting_on(&[c("me", "Blocked on #1"), c("bo", "Blocked on #2")]).map(|w| w.0), Some(Until::Merged(2)));
+        assert_eq!(waiting_on(&[c("me", "Blocked on #1"), c("me", "Unblocked: #1 is in")]), None);
         // "Waiting for reviews": someone else's; and it's the newest that says, read or not.
-        assert_eq!(waiting_on(&[c("me", "Waiting on @amy approves it"), c("me", "Waiting for reviews")], now).map(|w| w.0), Some(Until::Reviewed(None)));
-        assert_eq!(waiting_on(&[c("me", "Blocked on #1"), c("me", "Blocked on the design call")], now), None);
+        assert_eq!(waiting_on(&[c("me", "Waiting on @amy approves it"), c("me", "Waiting for reviews")]).map(|w| w.0), Some(Until::Reviewed(None)));
+        assert_eq!(waiting_on(&[c("me", "Blocked on #1"), c("me", "Blocked on the design call")]), None);
         // Prose isn't a marker; the author's fixing isn't someone's review.
-        assert_eq!(waiting_on(&[c("me", "Blocked on #1"), c("bo", "Until then, LGTM")], now).map(|w| w.0), Some(Until::Merged(1)));
-        assert_eq!(waiting_on(&[c("me", "Blocked on #1"), c("bo", "Waiting only for CI")], now).map(|w| w.0), Some(Until::Merged(1)));
-        assert_eq!(waiting_on(&[c("me", "Waiting for the review comments to be fixed")], now), None);
+        assert_eq!(waiting_on(&[c("me", "Blocked on #1"), c("bo", "Until then, LGTM")]).map(|w| w.0), Some(Until::Merged(1)));
+        assert_eq!(waiting_on(&[c("me", "Blocked on #1"), c("bo", "Waiting only for CI")]).map(|w| w.0), Some(Until::Merged(1)));
+        assert_eq!(waiting_on(&[c("me", "Waiting for the review comments to be fixed")]), None);
         for t in ["Waiting for the review", "Waiting for your review", "Waiting on code review", "Waiting for maintainer review"] {
-            assert_eq!(waiting_on(&[c("me", t)], now).map(|w| w.0), Some(Until::Reviewed(None)), "{t}");
+            assert_eq!(waiting_on(&[c("me", t)]).map(|w| w.0), Some(Until::Reviewed(None)), "{t}");
         }
-        assert_eq!(waiting_on(&[c("me", "Blocked on #1"), c("bo", "Until it's updated, LGTM")], now).map(|w| w.0), Some(Until::Merged(1)));
+        assert_eq!(waiting_on(&[c("me", "Blocked on #1"), c("bo", "Until it's updated, LGTM")]).map(|w| w.0), Some(Until::Merged(1)));
         for t in ["**Blocked on** #12", "**Blocked on #12**", "Blocked on **#12**"] {
-            assert_eq!(waiting_on(&[c("me", "Blocked on #1"), c("bo", t)], now).map(|w| w.0), Some(Until::Merged(12)), "{t}");
+            assert_eq!(waiting_on(&[c("me", "Blocked on #1"), c("bo", t)]).map(|w| w.0), Some(Until::Merged(12)), "{t}");
         }
         for t in ["Waiting on CI, then review", "Waiting for me to review", "Waiting on @bo's review comments to be addressed"] {
-            assert!(!matches!(waiting_on(&[c("me", t)], now).map(|w| w.0), Some(Until::Reviewed(_))), "{t}");
+            assert!(!matches!(waiting_on(&[c("me", t)]).map(|w| w.0), Some(Until::Reviewed(_))), "{t}");
         }
-        assert_eq!(waiting_on(&[c("me", "Waiting on @bo's review")], now).map(|w| w.0), Some(Until::Reviewed(Some("bo".into()))));
-        assert_eq!(waiting_on(&[c("me", "I'm waiting to see what amy thinks")], now), None);
+        assert_eq!(waiting_on(&[c("me", "Waiting on @bo's review")]).map(|w| w.0), Some(Until::Reviewed(Some("bo".into()))));
+        assert_eq!(waiting_on(&[c("me", "I'm waiting to see what amy thinks")]), None);
         // What `p` posts reads back as itself.
         for u in [Until::Merged(2380), Until::Green, Until::Approved(Some("amy".into())), Until::Reviewed(Some("bo".into())), Until::Reviewed(None), Until::Closed(7), Until::Pushed("abc1234".into())] {
-            assert_eq!(waiting_on(&[c("me", &format!("Waiting on: {}.", u.says()))], now).map(|w| w.0), Some(u));
+            assert_eq!(waiting_on(&[c("me", &format!("Waiting on: {}.", u.says()))]).map(|w| w.0), Some(u));
         }
     }
 
