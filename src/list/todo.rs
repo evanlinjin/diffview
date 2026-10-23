@@ -475,15 +475,19 @@ impl List {
     /// The scan's result, when it's in: on the todo tab then.
     pub(super) fn unpushed_news(&mut self) {
         let found = match self.unpushed_rx.as_ref().map(Receiver::try_recv) {
-            Some(Ok(found)) => found,
-            Some(Err(mpsc::TryRecvError::Disconnected)) => return self.unpushed_rx = None, // it died: the next asks again
+            Some(Ok(found)) => Some(found),
+            Some(Err(mpsc::TryRecvError::Disconnected)) => None, // it died: the owed one, or the next, asks again
             _ => return,
         };
-        (self.unpushed, self.unpushed_rx) = (found, None);
-        self.find_todo();
+        self.unpushed_rx = None;
+        if let Some(found) = found {
+            self.unpushed = found;
+        }
+        // (A scan owed started first: what's needed isn't all in till it's in.)
         if std::mem::take(&mut self.rescan) {
             self.scan_unpushed();
         }
+        self.find_todo();
     }
 
     /// Whether what deferral condition `c` waits for has happened, for item `it`: a review or an

@@ -206,7 +206,6 @@ impl Todos {
         self.deferred.values().any(|d| d.until <= now) || self.items.iter().any(|it| it.waits.as_ref().is_some_and(|w| matches!(w.0, Until::Time(t) if t <= now)))
     }
 
-    /// The deferrals, kept (an error: what's said).
     /// Deferrals of what's gone (merged, closed; a draft removed) dropped, not kept for good:
     /// those `keep` says no to. Saved if any were (a failure said).
     pub(super) fn prune(&mut self, keep: impl Fn(&str) -> bool) -> Option<String> {
@@ -215,6 +214,7 @@ impl Todos {
         (self.deferred.len() != before).then(|| self.save()).flatten()
     }
 
+    /// The deferrals, kept (an error: what's said).
     pub(super) fn save(&mut self) -> Option<String> {
         // What's changed here since, into the file as it is now (as marks are merged); as
         // saved only once it is (failed: still to save, next time).
