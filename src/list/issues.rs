@@ -367,9 +367,10 @@ pub struct Issues {
     /// at it now. Not on the todo till it's done: nothing for you there meanwhile.
     draft_fix: HashMap<u64, (String, Option<String>)>,
     running: HashMap<u64, batch::Status>,
-    /// What you asked Claude (`a a`, your instructions): one Claude was at already is held
-    /// (`Busy`) and asked again once it isn't, as dv list's; counted as dv's work (`held`).
-    asked: HashMap<u64, String>,
+    /// Who asked each triage, as dv list's `batch_extra`: you (`a a`, your instructions) or
+    /// auto (`None`). Yours that Claude was at already is held (`Busy`) and asked again once it
+    /// isn't; counted as dv's work (`held`).
+    asked: HashMap<u64, Option<String>>,
     held: Option<batch::Work>,
     running_rx: Vec<Receiver<(u64, batch::Status)>>,
     reviews_dir: Option<PathBuf>,
@@ -428,11 +429,9 @@ impl Issues {
             self.find_todo();
         }
         // Yours held back: asked again, as you asked, once Claude's done there (`batch::held`).
-        let free: Vec<u64> = self.running.iter().filter(|(n, s)| matches!(s, batch::Status::Busy(..)) && self.asked.contains_key(n) && !batch::held(**n, None)).map(|(&n, _)| n).collect();
-        for n in free {
-            self.running.insert(n, batch::Status::Queued);
-            let extra = self.asked.get(&n).cloned().unwrap_or_default();
-            self.triage(vec![n], extra);
+        let free: Vec<(u64, String)> = self.running.iter().filter(|(n, s)| matches!(s, batch::Status::Busy(..)) && !batch::held(**n, None)).filter_map(|(&n, _)| Some((n, self.asked.get(&n).cloned().flatten()?))).collect();
+        for (n, extra) in free {
+            self.triage(vec![n], Some(extra));
         }
     }
 
@@ -500,7 +499,7 @@ impl Issues {
         let started = !run.is_empty();
         if started {
             self.say(format!("auto: Claude is triaging {}", run.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(", ")));
-            self.triage(run, String::new());
+            self.triage(run, None);
         }
         // An issue Claude would close with no closing comment drafted yet: drafted, one at a time,
         // once each (its view closes with it, your editor first).
@@ -692,19 +691,15 @@ impl Issues {
                     match &st {
                         // Claude at it elsewhere: not triaged now, and not done for auto either
                         // (asked again on a later look).
-                        batch::Status::Busy(w, _) if self.asked.contains_key(&n) => self.msg = format!("#{n}: {w}: triaged as you asked once it's done there"),
+                        batch::Status::Busy(w, _) if self.asked.get(&n).is_some_and(Option::is_some) => self.msg = format!("#{n}: {w}: triaged as you asked once it's done there"),
                         batch::Status::Busy(w, _) => {
                             self.msg = format!("#{n}: not triaged now: {w}");
                             self.running.remove(&n);
                             self.auto_done.retain(|d| d.0 != n || d.1.starts_with("closing@"));
                             continue;
                         }
-                        batch::Status::Failed(e, _) => {
-                            self.asked.remove(&n);
-                            self.msg = format!("#{n}: {}", e.lines().next().unwrap_or(""));
-                        }
+                        batch::Status::Failed(e, _) => self.msg = format!("#{n}: {}", e.lines().next().unwrap_or("")),
                         batch::Status::Done(took) => {
-                            self.asked.remove(&n);
                             self.say(format!("triaged #{n} ({took})"));
                             self.reviews_mtime = None; // (read again: written over, the dir may not say)
                         }
@@ -714,7 +709,7 @@ impl Issues {
                 }
             }
             // (Counted as dv's work while any is held: after the news, before a key can leave.)
-            let holds = self.running.iter().any(|(n, s)| matches!(s, batch::Status::Busy(..)) && self.asked.contains_key(n));
+            let holds = self.running.iter().any(|(n, s)| matches!(s, batch::Status::Busy(..)) && self.asked.get(n).is_some_and(Option::is_some));
             if holds != self.held.is_some() {
                 self.held = holds.then(batch::Work::new);
             }
@@ -934,7 +929,14 @@ impl Issues {
     }
 
     /// Claude triages `ns` (`extra`: your instructions), each as listed now (`Ask`).
-    fn triage(&mut self, ns: Vec<u64>, extra: String) {
+    /// (`extra`: your instructions, `a a`; `None`, auto's.)
+    fn triage(&mut self, ns: Vec<u64>, extra: Option<String>) {
+        // Queued now, not once its news comes: what looks at it next sees it under way (as dv
+        // list's); who asked, kept.
+        for &n in &ns {
+            self.running.insert(n, batch::Status::Queued);
+            self.asked.insert(n, extra.clone());
+        }
         // (One Claude's at already, from an issue's view, say: its claim says so, as its run's
         // failure.)
         let asks = ns
@@ -944,7 +946,7 @@ impl Issues {
                 None => Ask { n, updated: String::new(), fixes: vec![] },
             })
             .collect();
-        self.running_rx.push(triage_all(asks, self.root.clone(), extra));
+        self.running_rx.push(triage_all(asks, self.root.clone(), extra.unwrap_or_default()));
     }
 
     /// Issue `n`'s fix PRs: (number, state, head).
@@ -1017,8 +1019,7 @@ impl Issues {
         let Some(extra) = said(instructions(term, "triage", "instructions for Claude's triage (optional)"), &mut self.msg) else { return };
         self.msg = format!("Claude is triaging {} issue(s), {} at a time", ns.len(), batch::AT_ONCE);
         self.marked.clear();
-        self.asked.extend(ns.iter().map(|&n| (n, extra.clone())));
-        self.triage(ns, extra);
+        self.triage(ns, Some(extra));
     }
 
     /// A card's rows, and the blank after it: on the todo tab, one more (Claude's word, beside
