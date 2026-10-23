@@ -228,7 +228,7 @@ impl R<'_> {
         match t {
             TagEnd::Paragraph => {
                 self.flush();
-                if self.list_depth() == 0 {
+                if !self.in_item() {
                     self.blank();
                 }
             }
@@ -238,7 +238,7 @@ impl R<'_> {
                 self.flush();
                 // GitHub underlines the two biggest heading levels.
                 if matches!(level, HeadingLevel::H1 | HeadingLevel::H2) {
-                    let rule: Vec<Cell> = "─".repeat(len.min(self.width)).chars().map(|ch| Cell { ch, st: Some(self.s.dim), link: None }).collect();
+                    let rule: Vec<Cell> = "─".repeat(len.min(self.width.saturating_sub(self.prefix(false).len()))).chars().map(|ch| Cell { ch, st: Some(self.s.dim), link: None }).collect();
                     self.line(self.prefix(true), rule);
                 }
                 self.blank();
@@ -267,11 +267,17 @@ impl R<'_> {
             TagEnd::List(_) => {
                 self.flush();
                 self.nest.pop();
-                if self.list_depth() == 0 {
+                if !self.in_item() {
                     self.blank();
                 }
             }
-            TagEnd::Item => self.flush(),
+            // (An empty item: its marker still, as GitHub shows it.)
+            TagEnd::Item => {
+                self.flush();
+                if self.list().is_some_and(|(_, _, pending)| *pending) {
+                    self.line(self.prefix(true), vec![]);
+                }
+            }
             // (What's unclosed ends with its block: a tag, a comment.)
             TagEnd::HtmlBlock => self.carry.clear(),
             TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough => _ = self.style.pop(),
@@ -302,9 +308,9 @@ impl R<'_> {
         })
     }
 
-    /// How many lists it's in.
-    fn list_depth(&self) -> usize {
-        self.nest.iter().filter(|n| matches!(n, Nest::List(..))).count()
+    /// Right in a list's item (not in a quote in it): its paragraphs and lists close together.
+    fn in_item(&self) -> bool {
+        matches!(self.nest.last(), Some(Nest::List(..)))
     }
 
     /// A `<summary>` open with only its ▸ so far: its title still to come.
@@ -766,6 +772,9 @@ fn github_html_alerts_and_wide_text() {
     // markers; a quote in an item, under it.
     assert_eq!(texts(r("1. [ ] alpha\n\n   second", 60)), ["☐ alpha", "  second"]);
     assert_eq!(texts(r("- - a", 60)), ["• • a"]);
+    // A quote's paragraphs apart in an item too; an empty item kept.
+    assert_eq!(texts(r("- > p1\n  >\n  > p2", 60))[..3], ["• ▎ p1".to_owned(), "".to_owned(), "  ▎ p2".to_owned()]);
+    assert_eq!(texts(r("1. a\n2.\n3. c", 60)), ["1. a", "2. ", "3. c"]);
     assert_eq!(texts(r("- a\n\n  > quoted\n\n  after", 60))[1..3], ["  ▎ quoted".to_owned(), "".to_owned()]);
     // A summary in a table's cell: its ▸ there, nothing after the table bold.
     let l = r("| a | b |\n|---|---|\n| <details><summary>T</summary>x</details> | y |\n\nHello world", 60);
