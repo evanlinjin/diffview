@@ -147,9 +147,12 @@ impl List {
 
         // (The keys: in their popup, but beside the todo tab's word on each.)
         let idle = if self.nav.tab == Tab::Todo && msg_col.is_some() { " ? keys" } else { "" };
-        // (`is:merged`, `is:closed` on the done tab alone: open PRs are neither.)
-        let is: &[&str] = if self.nav.tab == Tab::Done { &["draft", "merged", "closed"] } else { &["draft"] };
-        let keys: &[(&str, &[&str])] = &[("is", is), ("review", REVIEW), ("ci", CI)];
+        // (`is:merged`, `is:closed` on the done tab alone: open PRs are neither; `ci:` not there:
+        // its PRs' checks aren't fetched, any value said so.)
+        let keys: &[(&str, &[&str])] = match self.nav.tab {
+            Tab::Done => &[("is", IS), ("review", REVIEW), ("ci", &[])],
+            _ => &[("is", &["draft"]), ("review", REVIEW), ("ci", CI)],
+        };
         let left = self.nav.status(&self.msg, "author: label: base: branch: is:draft review: ci:", idle, keys);
         // On the right, how it's ordered (on the todo tab, Claude's ranking: how old, what it
         // cost, what's changed since), and the flags PRs open with.

@@ -30,7 +30,7 @@ impl App {
             Some(n) => vec![item(format!("Published as PR #{n}"), Target::Note(""))],
         };
         // Its last run refused what it needed (drafted or not, as its card says): first.
-        if let Some(b) = r.blocked_note("Space a").filter(|_| !self.at_it()) {
+        if let Some(b) = r.blocked_note("Space a → Redraft").filter(|_| !self.at_it()) {
             items.insert(0, item(format!("Claude: {b}"), Target::Note("")));
         }
         match (r.published, open.is_empty()) {

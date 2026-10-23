@@ -13,6 +13,8 @@ use std::sync::mpsc::{self, Receiver};
 pub enum Need {
     /// A replacement Claude has drafted: publish it (or not).
     Publish,
+    /// A replacement's draft Claude was refused a tool for: allow it, then redraft.
+    Blocked,
     /// A published replacement whose originals (this many) are still open: close them.
     CloseOriginals(usize),
     /// Work in its worktree that isn't on GitHub (yours, or Claude's): this many changed files,
@@ -68,7 +70,7 @@ impl Need {
     /// How pressing it is, for the order before (and without) Claude's.
     pub fn weight(&self) -> u8 {
         match self {
-            Need::Publish => 90,
+            Need::Publish | Need::Blocked => 90,
             Need::ClaudeChanged(..) => 88,
             Need::Unpushed(..) => 85,
             Need::PushedSinceReview => 80,
@@ -113,6 +115,7 @@ impl Need {
         let s = |n: usize| if n == 1 { "" } else { "s" };
         match self {
             Need::Publish => "replacement drafted: publish it".into(),
+            Need::Blocked => "Claude was refused a tool it needed: allow it, then A A to redraft".into(),
             Need::CloseOriginals(n) => format!("published: close the {n} PR{} it replaces", s(*n)),
             Need::Unpushed(files, commits) | Need::ClaudeChanged(files, commits) => {
                 let what = match (files, commits) {
@@ -363,6 +366,8 @@ pub fn needs(f: &Facts) -> (Vec<Need>, Option<Task>) {
 pub fn rep_needs(r: &crate::replace::Record) -> Vec<Need> {
     match r.published {
         // (Claude at it meanwhile: dv list's busy rows say so.)
+        // (Its last run refused what it needed: not ready to publish, drafted or not.)
+        None if r.blocked().is_some() => vec![Need::Blocked],
         None if r.drafted() => vec![Need::Publish],
         Some(_) => match r.replaces.iter().filter(|o| !r.closed.contains(&o.number)).count() {
             0 => vec![],

@@ -619,16 +619,22 @@ impl List {
     fn draft_news(&mut self) {
         let news: Vec<(u64, batch::Status)> = self.draft_rx.iter().flat_map(|rx| rx.try_iter()).collect();
         for (id, s) in news {
-            match &s {
-                batch::Status::Done(took) => self.msg = format!("Claude drafted {} ({took}): it's in the drafts tab", crate::replace::label(id)),
-                batch::Status::Failed(e, _) => self.msg = format!("Claude's draft of {} failed: {e}", crate::replace::label(id)),
-                _ => {}
-            }
             let done = !s.running();
-            self.drafting.insert(id, s);
             if done || !self.rep_of.contains_key(&id) {
                 self.load_reps(); // its record exists from Preparing on; its drafts once done
             }
+            // (Blocked, said as its card says it: not "drafted".)
+            match &s {
+                batch::Status::Done(took) => {
+                    self.msg = match self.rep_of.get(&id).and_then(|r| r.blocked_note("A A to redraft")) {
+                        Some(b) => format!("{}: {b}", crate::replace::label(id)),
+                        None => format!("Claude drafted {} ({took}): it's in the drafts tab", crate::replace::label(id)),
+                    }
+                }
+                batch::Status::Failed(e, _) => self.msg = format!("Claude's draft of {} failed: {e}", crate::replace::label(id)),
+                _ => {}
+            }
+            self.drafting.insert(id, s);
             self.find_todo(); // drafting: its PRs to the bottom; drafted: the replacement on top
         }
     }
@@ -647,7 +653,7 @@ impl List {
             _ => match self.rep_of.get(&id)? {
                 r if r.published.is_some() => return Some((format!("{of}: published as #{}", r.published.unwrap_or(0)), true)),
                 // (Its last draft refused a tool it needed: what's in the way, said.)
-                r if let Some(b) = r.blocked_note("A A") => (b, false),
+                r if let Some(b) = r.blocked_note("A A to redraft") => (b, false),
                 r if !r.drafted() => ("no draft yet".into(), false),
                 _ => ("drafted".into(), true),
             },
@@ -864,7 +870,7 @@ impl List {
             _ => self.prs.iter().filter(in_tab).map(|p| (p, None)).collect(),
         };
         let mut prs: Vec<(&Listed, Option<&crate::todo::Item>)> = all.into_iter().filter(|p| self.nav.query.split_whitespace().all(|t| term(p.0, t))).collect();
-        // (The todo: in the order of what needs you most; done: most recently closed first.)
+        // (The todo: in the order of what needs you most; done: most recently updated first.)
         if matches!(self.nav.tab, Tab::Todo | Tab::Done) {
             return prs;
         }

@@ -96,10 +96,10 @@ impl Record {
         }
     }
 
-    /// Blocked, said with what to do (`key`: how to redraft where it's said), for the card and
+    /// Blocked, said with what to do (`then`: how to redraft where it's said), for the card and
     /// the view alike.
-    pub fn blocked_note(&self, key: &str) -> Option<String> {
-        self.blocked().map(|_| format!("{} (allow it, then {key} → Redraft)", self.undrafted()))
+    pub fn blocked_note(&self, then: &str) -> Option<String> {
+        self.blocked().map(|_| format!("{} (allow it, then {then})", self.undrafted()))
     }
 
     /// Its state, short, for a title: not drafted yet, or blocked.

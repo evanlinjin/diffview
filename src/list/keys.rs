@@ -100,7 +100,7 @@ impl List {
         }
         // The done tab's PRs are to read: what acts on a PR (marks, Claude, merging, deferring)
         // isn't for them.
-        if self.nav.tab == Tab::Done && matches!(k.code, KeyCode::Char('m' | 'a' | 'A' | 'M' | 'b' | 'W' | 's' | 'p' | 'D')) {
+        if self.nav.tab == Tab::Done && matches!(k.code, KeyCode::Char('m' | 'a' | 'A' | 'M' | 'b' | 'W')) {
             self.msg = "merged and closed PRs are to read here: Enter reviews one".into();
             return None;
         }
