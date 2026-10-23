@@ -538,7 +538,8 @@ impl Until {
     pub fn says(&self) -> String {
         match self {
             Until::Time(t) => format!("in {}", in_secs(t - crate::claude::now_secs())),
-            Until::Merged(n) => format!("#{n} is merged"),
+            // (Closed unmerged ends it too: nothing more to wait for.)
+            Until::Merged(n) => format!("#{n} is merged (or closed)"),
             Until::Closed(n) => format!("#{n} is closed"),
             Until::Green => "its checks pass".into(),
             Until::Approved(Some(who)) => format!("@{who} approves it"),

@@ -456,7 +456,7 @@ impl Issues {
         let items: Vec<Item> = items.into_iter().filter(|it| !self.draft_fix.contains_key(&it.number)).collect();
 
         let met = self.todos.met(&items, |_, c, _| self.happened(c));
-        let (items, said) = self.todos.settle(items, met);
+        let (items, said) = self.todos.settle(items, met, !self.items.is_empty());
         self.todos.items = items;
         if let Some(said) = said {
             self.msg = said;
@@ -862,8 +862,7 @@ impl Issues {
         };
         let Some(p) = self.items.iter().flat_map(|i| &i.fixed_by).find(|p| p.0 == n) else { return self.started };
         match c {
-            Until::Merged(_) => p.1 == "MERGED",
-            Until::Closed(_) => p.1 != "OPEN",
+            Until::Merged(_) | Until::Closed(_) => p.1 != "OPEN",
             Until::PushedTo(_, head) => Until::moved_past(head, &p.2) || p.1 != "OPEN",
             _ => false,
         }

@@ -162,10 +162,15 @@ impl Todos {
     /// What needs you, `items`, settled: in Claude's order where it ranked them; deferrals whose
     /// condition has happened (`met`) over (kept so; what to say of the last), the rest at the
     /// bottom till then; and what's changed since the ranking (`since`).
-    pub(super) fn settle(&mut self, items: Vec<Item>, met: Vec<(String, String)>) -> (Vec<Item>, Option<String>) {
+    /// Deferrals over (`ready`: what needs come from is in) are dropped too: their time up, or
+    /// what their item needs changed (back for good, not hidden again if it changes back).
+    pub(super) fn settle(&mut self, items: Vec<Item>, met: Vec<(String, String)>, ready: bool) -> (Vec<Item>, Option<String>) {
         let items = todo::order(items, self.ranked.as_ref());
+        let before = self.deferred.len();
         met.iter().for_each(|(key, _)| _ = self.deferred.remove(key));
-        if !met.is_empty() {
+        let now = crate::claude::now_secs();
+        self.deferred.retain(|k, d| d.until > now && !(ready && items.iter().any(|it| &it.key() == k && it.needs_key() != d.needs)));
+        if self.deferred.len() != before {
             _ = self.save();
         }
         // (What's met is over: what's deferred still waits.)
@@ -303,7 +308,7 @@ fn deferring_an_item() {
     // Until #2380 merges: met once it has, named as you know it.
     t.deferred.insert("issue-7".into(), todo::Deferral { until: i64::MAX, needs: it.needs_key(), cond: Some(Until::Merged(2380)), at: 0 });
     assert!(t.met(&t.items, |_, _, _| false).is_empty());
-    assert_eq!(t.met(&t.items, |_, c, _| *c == Until::Merged(2380)), [("issue-7".to_owned(), "#7 is back: #2380 is merged".to_owned())]);
+    assert_eq!(t.met(&t.items, |_, c, _| *c == Until::Merged(2380)), [("issue-7".to_owned(), "#7 is back: #2380 is merged (or closed)".to_owned())]);
     t.deferred.remove("issue-7");
     // A reading under way for it, then a deferral of yours: the reading's dropped.
     let (_tx, rx) = std::sync::mpsc::channel();

@@ -280,11 +280,11 @@ impl List {
         self.load_reps();
         match res {
             Ok(mut prs) => {
-                if quiet {
-                    for p in &mut prs {
-                        if let Some(o) = self.prs.iter().find(|o| o.number == p.number) {
-                            (p.checks, p.optional_failing, p.checks_head) = (o.checks, o.optional_failing, o.checks_head.clone());
-                        }
+                // CI as it was till the new counts come (shown loading meanwhile): unknown isn't
+                // none, nothing failing nor ready all at once.
+                for p in &mut prs {
+                    if let Some(o) = self.prs.iter().find(|o| o.number == p.number) {
+                        (p.checks, p.optional_failing, p.checks_head) = (o.checks, o.optional_failing, o.checks_head.clone());
                     }
                 }
                 let (tx, rx) = mpsc::channel();
