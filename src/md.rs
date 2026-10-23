@@ -58,6 +58,14 @@ struct Table {
     head: usize,
 }
 
+/// A container text is in: a quote (its bar), or a list: its next number (none: bullets), its
+/// item's marker (`1. `, `• `, `☐ `: the item's other lines indented by its width), and whether
+/// that's still to be drawn (on the item's first line).
+enum Nest {
+    Quote,
+    List(Option<u64>, String, bool),
+}
+
 struct R<'a> {
     width: usize,
     s: &'a Styles,
@@ -68,11 +76,8 @@ struct R<'a> {
     cur: Vec<Cell>,
     style: Vec<Style>,
     link: Vec<usize>,
-    /// The lists it's in: each one's next number (none: bullets), and its item's marker's
-    /// width (`1. `, `10. `, `• `), what the item's other lines are indented by.
-    lists: Vec<(Option<u64>, usize)>,
-    bullet: Option<String>,
-    quote: usize,
+    /// The quotes and lists it's in, outermost first, as they nest.
+    nest: Vec<Nest>,
     code: Option<(String, String)>,
     table: Option<Table>,
     /// An HTML block's tag or comment not closed on its line (`<img` then `src=…` on the
@@ -96,9 +101,7 @@ pub fn render(text: &str, width: usize, s: &Styles, hl: &Highlighter, repo: Opti
         cur: vec![],
         style: vec![],
         link: vec![],
-        lists: vec![],
-        bullet: None,
-        quote: 0,
+        nest: vec![],
         code: None,
         table: None,
         carry: String::new(),
@@ -139,7 +142,11 @@ impl R<'_> {
                 self.line(self.prefix(true), "─".repeat(w).chars().map(|ch| Cell { ch, st: Some(self.s.dim), link: None }).collect());
                 self.blank();
             }
-            Event::TaskListMarker(done) => self.bullet = Some(if done { "☑ " } else { "☐ " }.into()),
+            Event::TaskListMarker(done) => {
+                if let Some((_, m, _)) = self.list() {
+                    *m = if done { "☑ " } else { "☐ " }.into();
+                }
+            }
             // (Block HTML comes a line an event: each its own line.)
             // (Only a ▸ still waiting for its title holds the line.)
             Event::Html(h) => {
@@ -164,7 +171,7 @@ impl R<'_> {
             }
             Tag::BlockQuote(kind) => {
                 self.flush();
-                self.quote += 1;
+                self.nest.push(Nest::Quote);
                 // GitHub's alerts (`> [!NOTE]`): their label, as it shows it.
                 if let Some(k) = kind {
                     self.push(&format!("{k:?}"), Some(Style::new().add_modifier(Modifier::BOLD)));
@@ -181,21 +188,15 @@ impl R<'_> {
             }
             Tag::List(start) => {
                 self.flush();
-                self.lists.push((start, 2));
+                self.nest.push(Nest::List(start, String::new(), false));
             }
             Tag::Item => {
                 self.flush();
-                let b = match self.lists.last_mut() {
-                    Some((Some(n), _)) => {
-                        *n += 1;
-                        format!("{}. ", *n - 1)
-                    }
-                    _ => "• ".into(),
-                };
-                if let Some(l) = self.lists.last_mut() {
-                    l.1 = b.chars().count();
+                if let Some((n, m, pending)) = self.list() {
+                    *m = n.map_or("• ".into(), |n| format!("{n}. "));
+                    *n = n.map(|n| n + 1);
+                    *pending = true;
                 }
-                self.bullet = Some(b);
             }
             Tag::Emphasis => self.style.push(Style::new().add_modifier(Modifier::ITALIC)),
             Tag::Strong => self.style.push(Style::new().add_modifier(Modifier::BOLD)),
@@ -227,7 +228,7 @@ impl R<'_> {
         match t {
             TagEnd::Paragraph => {
                 self.flush();
-                if self.lists.is_empty() {
+                if self.list_depth() == 0 {
                     self.blank();
                 }
             }
@@ -244,7 +245,7 @@ impl R<'_> {
             }
             TagEnd::BlockQuote(_) => {
                 self.flush();
-                self.quote -= 1;
+                self.nest.pop();
                 self.blank();
             }
             TagEnd::CodeBlock => {
@@ -265,8 +266,8 @@ impl R<'_> {
             }
             TagEnd::List(_) => {
                 self.flush();
-                self.lists.pop();
-                if self.lists.is_empty() {
+                self.nest.pop();
+                if self.list_depth() == 0 {
                     self.blank();
                 }
             }
@@ -291,6 +292,19 @@ impl R<'_> {
             }
             _ => {}
         }
+    }
+
+    /// The innermost list it's in: (next number, marker, marker still to draw).
+    fn list(&mut self) -> Option<(&mut Option<u64>, &mut String, &mut bool)> {
+        self.nest.iter_mut().rev().find_map(|n| match n {
+            Nest::List(a, b, c) => Some((a, b, c)),
+            Nest::Quote => None,
+        })
+    }
+
+    /// How many lists it's in.
+    fn list_depth(&self) -> usize {
+        self.nest.iter().filter(|n| matches!(n, Nest::List(..))).count()
     }
 
     /// A `<summary>` open with only its ▸ so far: its title still to come.
@@ -460,15 +474,12 @@ impl R<'_> {
     fn prefix(&self, first: bool) -> Vec<Cell> {
         let mut p: Vec<Cell> = vec![];
         let add = |p: &mut Vec<Cell>, s: &str, st: Style| p.extend(s.chars().map(|ch| Cell { ch, st: Some(st), link: None }));
-        for _ in 0..self.quote {
-            add(&mut p, "▎ ", self.s.quote);
-        }
-        // Each list it's in indents by its item's marker; the item's bullet on its first line.
-        let last = self.lists.len().saturating_sub(1);
-        for (i, &(_, w)) in self.lists.iter().enumerate() {
-            match &self.bullet {
-                Some(b) if i == last && first => add(&mut p, b, self.s.list),
-                _ => add(&mut p, &" ".repeat(w), Style::new()),
+        // As they nest: a quote's bar, a list's item's marker on its first line, its width after.
+        for n in &self.nest {
+            match n {
+                Nest::Quote => add(&mut p, "▎ ", self.s.quote),
+                Nest::List(_, m, true) if first => add(&mut p, m, self.s.list),
+                Nest::List(_, m, _) => add(&mut p, &" ".repeat(m.chars().count()), Style::new()),
             }
         }
         p
@@ -485,7 +496,7 @@ impl R<'_> {
             cells.iter_mut().skip("▸ ".chars().count()).for_each(|c| c.st = Some(c.st.unwrap_or_default().add_modifier(Modifier::BOLD)));
         }
         let (first, rest) = (self.prefix(true), self.prefix(false));
-        let quoted = self.quote > 0;
+        let quoted = self.nest.iter().any(|n| matches!(n, Nest::Quote));
         let avail = self.width.saturating_sub(first.len()).max(10);
         let mut lines: Vec<Vec<Cell>> = vec![vec![]];
         for word in cells.split(|c| c.ch == ' ') {
@@ -519,7 +530,11 @@ impl R<'_> {
 
     fn line(&mut self, prefix: Vec<Cell>, cells: Vec<Cell>) {
         // (An item's bullet goes on its first line, whatever's drawn first: text, code, a rule.)
-        self.bullet = None;
+        self.nest.iter_mut().for_each(|n| {
+            if let Nest::List(_, _, pending) = n {
+                *pending = false;
+            }
+        });
         let all: Vec<Cell> = prefix.into_iter().chain(cells).collect();
         let mut links: Vec<(usize, usize, String)> = vec![];
         for (i, c) in all.iter().enumerate() {
@@ -747,6 +762,11 @@ fn github_html_alerts_and_wide_text() {
     // An ordered item's other lines under its text, however wide its number.
     assert_eq!(texts(r("1. first\n\n   second para", 60)), ["1. first", "   second para"]);
     assert_eq!(texts(r("1. a\n   - b", 60)), ["1. a", "   • b"]);
+    // An ordered task item's other lines under its text; an item that starts with a list, both
+    // markers; a quote in an item, under it.
+    assert_eq!(texts(r("1. [ ] alpha\n\n   second", 60)), ["☐ alpha", "  second"]);
+    assert_eq!(texts(r("- - a", 60)), ["• • a"]);
+    assert_eq!(texts(r("- a\n\n  > quoted\n\n  after", 60))[1..3], ["  ▎ quoted".to_owned(), "".to_owned()]);
     // A summary in a table's cell: its ▸ there, nothing after the table bold.
     let l = r("| a | b |\n|---|---|\n| <details><summary>T</summary>x</details> | y |\n\nHello world", 60);
     assert!(l.iter().any(|l| l.text.contains("▸ T x")));
