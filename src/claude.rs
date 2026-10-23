@@ -991,8 +991,15 @@ fn assign_ids(comments: &mut [Value]) -> bool {
 /// Replace the file in one step (write a temp file, rename it over), so dv and Claude never
 /// read a half-written review.
 pub(crate) fn write(path: &std::path::Path, v: &Value) -> Result<()> {
-    let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
-    std::fs::write(&tmp, serde_json::to_string_pretty(v)? + "\n")?;
+    write_at(path, (serde_json::to_string_pretty(v)? + "\n").as_bytes())
+}
+
+/// `text` at `path` in one step: a temp file of its own (this file's, this process's and
+/// thread's: no other write's, whatever its name), renamed over. dv's one atomic write.
+pub(crate) fn write_at(path: &std::path::Path, text: &[u8]) -> Result<()> {
+    let name = path.file_name().context("no file name")?.to_string_lossy();
+    let tmp = path.with_file_name(format!(".{name}.{}.{:?}.tmp", std::process::id(), std::thread::current().id()));
+    std::fs::write(&tmp, text)?;
     std::fs::rename(&tmp, path)?;
     Ok(())
 }

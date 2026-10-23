@@ -794,9 +794,7 @@ pub fn save_deferred(p: Option<&std::path::Path>, saved: &Deferred, now: &Deferr
 /// half of it. dv list's shared files (marks, deferrals, descriptions' heads) are written so.
 pub fn write_json(p: &std::path::Path, v: &serde_json::Value) -> Result<()> {
     std::fs::create_dir_all(p.parent().unwrap_or(p))?;
-    let tmp = p.with_extension(format!("json.{}.tmp", std::process::id()));
-    std::fs::write(&tmp, serde_json::to_string(v)?)?;
-    Ok(std::fs::rename(&tmp, p)?)
+    crate::claude::write_at(p, serde_json::to_string(v)?.as_bytes())
 }
 
 /// How long `s` then `c` defers an item for: (seconds, in words). `1` an hour, `4` four hours,
