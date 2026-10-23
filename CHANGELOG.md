@@ -5,6 +5,19 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.95.19] - 2026-10-23
+
+### Fixed
+- A PR's one checkout is found by dv's records (a published replacement's worktree, else
+  `<repo>-N`), not its branch's name: opened there from anywhere (Enter, `dv N`, an issue's
+  link, a draft's card), its runs work there, made again there if gone (from its branch, or
+  its PR's head, pushing where publishing set), and a merge checks it for what's not on
+  GitHub.
+- A worktree deleted by hand is let go wherever dv reads its worktrees: its branch is free for
+  any checkout, D D drops its card, and it's made again when needed.
+- Claude at work: the asker's own pane is minded everywhere; a published draft's card is its
+  PR for prefetching and Enter.
+
 ## [0.95.18] - 2026-10-23
 
 ### Fixed
