@@ -647,7 +647,7 @@ impl List {
             _ => match self.rep_of.get(&id)? {
                 r if r.published.is_some() => return Some((format!("{of}: published as #{}", r.published.unwrap_or(0)), true)),
                 // (Its last draft refused a tool it needed: what's in the way, said.)
-                r if r.blocked().is_some() => (format!("{} (allow it, then Space a → Redraft)", r.undrafted()), false),
+                r if let Some(b) = r.blocked_note("A A") => (b, false),
                 r if !r.drafted() => ("no draft yet".into(), false),
                 _ => ("drafted".into(), true),
             },
@@ -984,11 +984,11 @@ const IS: &[&str] = &["draft", "merged", "closed"];
 const REVIEW: &[&str] = &["approved", "changes", "required", "none"];
 const CI: &[&str] = &["pass", "fail", "pending", "none"];
 
-/// `v`, a filter term's value as typed (its start, any case), as the one of `values` it starts;
-/// none, nothing it could be. The one rule for the matching and for saying what's unknown.
-pub(super) fn resolve<'a>(v: &str, values: &[&'a str]) -> Option<&'a str> {
+/// `v`, a filter term's value as typed (its start, any case), as those of `values` it starts
+/// (`ci:p`: pass or pending); none, nothing it could be. The one rule for the matching and for saying what's unknown.
+pub(super) fn resolve<'a>(v: &str, values: &[&'a str]) -> Vec<&'a str> {
     let v = v.to_lowercase();
-    values.iter().find(|a| !v.is_empty() && a.starts_with(&v)).copied()
+    values.iter().filter(|a| !v.is_empty() && a.starts_with(&v)).copied().collect()
 }
 
 /// One filter term, GitHub-search style: `author:` `label:` `base:` `branch:` (substring),
@@ -1006,20 +1006,19 @@ fn term(p: &Listed, t: &str) -> bool {
                 "branch" => has(&p.branch, v),
                 // (A value as typed resolved to the one it starts, any case: `Nav::unknown` says
                 // what resolves to none.)
-                "is" => match resolve(v, IS) {
-                    Some("draft") => p.draft,
-                    Some("merged") => p.state == "MERGED",
-                    Some("closed") => !p.open(),
-                    _ => false,
-                },
-                "review" => resolve(v, REVIEW).is_some_and(|v| match p.decision.as_str() {
+                "is" => resolve(v, IS).into_iter().any(|v| match v {
+                    "draft" => p.draft,
+                    "merged" => p.state == "MERGED",
+                    _ => !p.open(),
+                }),
+                "review" => resolve(v, REVIEW).into_iter().any(|v| match p.decision.as_str() {
                     "APPROVED" => v == "approved",
                     "CHANGES_REQUESTED" => v == "changes",
                     "REVIEW_REQUIRED" => v == "required",
                     _ => v == "none",
                 }),
                 // Unknown until the checks arrive; then a PR can match several (fail and pending).
-                "ci" => resolve(v, CI).is_some_and(|v| match p.checks {
+                "ci" => resolve(v, CI).into_iter().any(|v| match p.checks {
                     Some((0, 0, 0)) | None => v == "none",
                     Some((pass, fail, pending)) => (v == "pass" && pass > 0 && fail == 0 && pending == 0) || (v == "fail" && fail > 0) || (v == "pending" && pending > 0),
                 }),

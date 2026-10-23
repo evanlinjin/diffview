@@ -96,6 +96,12 @@ impl Record {
         }
     }
 
+    /// Blocked, said with what to do (`key`: how to redraft where it's said), for the card and
+    /// the view alike.
+    pub fn blocked_note(&self, key: &str) -> Option<String> {
+        self.blocked().map(|_| format!("{} (allow it, then {key} → Redraft)", self.undrafted()))
+    }
+
     /// Its state, short, for a title: not drafted yet, or blocked.
     pub fn undrafted_state(&self) -> &'static str {
         if self.blocked().is_some() { "blocked" } else { "not drafted yet" }
@@ -656,7 +662,9 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
             now.replaces.retain(|o| !added.contains(&o.number));
         }
         let was_given = |a: &Request| given.iter().any(|(t, on)| *t == a.text && *on == a.on);
-        for a in now.asks.iter_mut().filter(|a| res.is_ok() && a.want != "ask" && !a.done() && was_given(a)) {
+        // (A run refused what it needed hasn't done what it was given: still to do.)
+        let made = res.is_ok() && now.refused.is_empty();
+        for a in now.asks.iter_mut().filter(|a| made && a.want != "ask" && !a.done() && was_given(a)) {
             a.answer = NO_ANSWER.into();
         }
         Ok(())

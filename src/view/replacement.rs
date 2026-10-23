@@ -12,7 +12,8 @@ impl App {
         let to = crate::replace::remote().map_or("your remote: dv asks which".to_owned(), |r| format!("to {r}"));
         let mut items = match r.published {
             _ if self.at_it() => vec![item("Claude is at work on it: wait for it to finish".into(), Target::Note(""))],
-            None if !r.drafted() => vec![item(format!("Claude: {} ({}Space a → Redraft)", r.undrafted(), if r.blocked().is_some() { "allow it, then " } else { "" }), Target::Note(""))],
+            None if !r.drafted() && r.blocked().is_none() => vec![item("Claude: not drafted yet (Space a → Redraft)".into(), Target::Note(""))],
+            None if !r.drafted() => vec![],
             // Only commits are published: what isn't committed would be left out.
             None if dirty => {
                 let mut v = vec![item("Commit the uncommitted changes first (they'd be left out)…".into(), Target::Do(Action::Commit))];
@@ -28,6 +29,10 @@ impl App {
             }
             Some(n) => vec![item(format!("Published as PR #{n}"), Target::Note(""))],
         };
+        // Its last run refused what it needed (drafted or not, as its card says): first.
+        if let Some(b) = r.blocked_note("Space a").filter(|_| !self.at_it()) {
+            items.insert(0, item(format!("Claude: {b}"), Target::Note("")));
+        }
         match (r.published, open.is_empty()) {
             (_, true) if !r.replaces.is_empty() => items.push(item("The PRs it replaces are closed".into(), Target::Note(""))),
             (Some(_), false) => items.push(item(format!("Close {} with the closing note (now)…", open.join(", ")), Target::Do(Action::CloseOriginals))),

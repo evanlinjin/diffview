@@ -52,7 +52,7 @@ impl<T: Tabs> Nav<T> {
             let (k, v) = t.trim_start_matches('-').split_once(':')?;
             let (k, values) = keys.iter().find(|(key, _)| key.eq_ignore_ascii_case(k))?;
             // (Still being typed, `review:`: not yet.)
-            (!v.is_empty() && super::resolve(v, values).is_none()).then(|| format!("{t}: not a filter here ({k}:{})", values.join("|")))
+            (!v.is_empty() && super::resolve(v, values).is_empty()).then(|| format!("{t}: not a filter here ({k}:{})", values.join("|")))
         })
     }
 
