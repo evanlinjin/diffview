@@ -5,6 +5,21 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.95.25] - 2026-10-23
+
+### Fixed
+- The done tab: most recently updated first (GitHub's search order, so a long-lived PR merged
+  today is there), 100 more as you reach its end; its own order (`o` / `O` not there, its bar
+  saying so); its hint and keys only what's for it; a PR whose branch is gone opens detached
+  at its head (and dv doesn't then take that head for commits of yours on no branch).
+- Filter values resolved one way for matching and for saying what's unknown: any case, a
+  value's start (`ci:p`: pass or pending); `is:merged` off the done tab and `ci:` on it said;
+  the hint short enough for the bar.
+- A blocked draft: said where it said "not drafted yet" (its view's description, closing note,
+  menu; titles just "blocked"), on the todo as blocked (not "publish it"), at its run's end
+  (dv list and `dv replace`), its asks not marked done; cleared once Claude starts again;
+  each place's hint its own key (`A A` in the list, `Space a` in the view).
+
 ## [0.95.24] - 2026-10-23
 
 ### Added
