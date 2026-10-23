@@ -68,7 +68,6 @@ impl List {
                 items.push(Item { kind: crate::todo::Kind::Rep, number: r.id, needs, claude: None, updated, reason: None, changed: false, deferred: None, busy: None, waits: None });
             }
         }
-        let now = crate::claude::now_secs();
         let met = self.todos.met(&items, |it, c, at| self.happened(it, c, at));
         let (mut items, said) = self.todos.settle(items, met);
         if let Some(said) = said {
@@ -83,7 +82,7 @@ impl List {
             // (A push from no known head: nothing to tell it by.)
             let claude = claude.filter(|(c, _)| !c.unwatchable());
             // (A review since it was said: the comment's, or since Claude ranked.)
-            let (waits, since) = match todo::waiting_on(said, now) {
+            let (waits, since) = match todo::waiting_on(said) {
                 Some((c, who, at)) => (Some((c, who)), at),
                 None => (claude, self.todos.ranked.as_ref().map_or(0, |r| r.at)),
             };
@@ -114,6 +113,7 @@ impl List {
         ready.append(&mut later);
         ready.append(&mut busy);
         self.todos.items = ready;
+        self.find_others(); // (what they wait on, once known: looked up if it isn't listed)
         self.auto_run();
     }
 
@@ -143,14 +143,15 @@ impl List {
         let (mut run, mut ready) = (vec![], vec![]);
         // One batch of Claude's at a time, of at most as many as run at once: the cap holds, and
         // the rest wait for a later look (most pressing first, in the todo's order).
-        let batch_busy = self.batch.values().any(batch::Status::running);
+        // (Its runs up to the slots free, as Claude's runs from here are: two at a time.)
+        let free = batch::AT_ONCE.saturating_sub(self.batch.values().filter(|s| s.running()).count());
         for it in todo.iter().filter(|it| !it.is_rep() && !closing.contains(&it.number)) {
             let Some(p) = self.prs.iter().find(|p| p.number == it.number) else { continue };
             let Some(head) = self.extra.get(&it.number).map(|e| e.head_oid.clone()).filter(|h| !h.is_empty()) else { continue };
             // CI's state is about the head the rest knows of (else it's another commit's).
             let ci_here = head == p.checks_head;
             match it.claude.clone() {
-                Some(t) if !batch_busy && run.len() < batch::AT_ONCE && (t != batch::Task::FixChecks || ci_here) => {
+                Some(t) if run.len() < free && (t != batch::Task::FixChecks || ci_here) => {
                     // Answers: once each change to the review file (your new replies), not a head.
                     let at = match t {
                         batch::Task::Answer { .. } => format!("{head}@{}", self.review_mtime(it.number)),
@@ -181,7 +182,7 @@ impl List {
         // PRs Claude's review would close with no closing comment drafted yet: drafted, once each
         // at a head (it's yours to close, after your editor, from the PR's view).
         for &n in self.closable.keys().filter(|&&n| !skip.contains(&n)) {
-            if batch_busy || run.len() >= batch::AT_ONCE {
+            if run.len() >= free {
                 break;
             }
             let Some(head) = self.extra.get(&n).map(|e| e.head_oid.clone()).filter(|h| !h.is_empty()) else { continue };
@@ -210,7 +211,7 @@ impl List {
                 // (A draft: its description's still to come. One Claude hasn't reviewed: that's
                 // its first run, not this: a description alone would stand for a review.)
                 // (Once a head, as auto's every task: `auto_done`; noted checked once it is.)
-                Some(old) if old != head && !p.draft && !batch_busy && run.len() < batch::AT_ONCE && !busy(p.number) && !run.iter().any(|r| r.0 == p.number) => {
+                Some(old) if old != head && !p.draft && run.len() < free && !busy(p.number) && !run.iter().any(|r| r.0 == p.number) => {
                     let f = self.reviews_dir.as_ref().map(|d| d.join(format!("pr-{}.json", p.number)));
                     let review = f.and_then(|f| crate::claude::load(&f).ok().flatten());
                     // A proposal already waiting on you: that first, and the head not noted, so
@@ -579,16 +580,15 @@ impl List {
     /// The state of PRs that deferrals wait on and that aren't listed (merged or closed ones
     /// aren't), from GitHub.
     pub(super) fn find_others(&mut self) {
-        let waited: Vec<u64> = self
-            .todos
-            .deferred
-            .values()
-            .filter_map(|d| match d.cond {
-                Some(todo::Until::Merged(n) | todo::Until::Closed(n) | todo::Until::PushedTo(n, _)) => Some(n),
-                _ => None,
-            })
-            .filter(|n| !self.prs.iter().any(|p| p.number == *n) && !self.others_pending.contains(n))
+        // What deferrals and conversations wait on (`Until::other_pr`), not listed, not looked up
+        // already (being, or found merged or closed: final).
+        let conds = self.todos.deferred.values().filter_map(|d| d.cond.as_ref()).chain(self.todos.items.iter().filter_map(|it| it.waits.as_ref().map(|w| &w.0)));
+        let mut waited: Vec<u64> = conds
+            .filter_map(todo::Until::other_pr)
+            .filter(|n| !self.prs.iter().any(|p| p.number == *n) && !self.others_pending.contains(n) && !self.others.get(n).is_some_and(|s| s != "OPEN"))
             .collect();
+        waited.sort();
+        waited.dedup();
         if waited.is_empty() {
             return;
         }
