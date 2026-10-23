@@ -183,16 +183,41 @@ impl Drop for Slot {
     }
 }
 
+/// Claude's work under way in this dv, queued too (a review, a triage, a draft, a grouping, a
+/// ranking): one each, let go as it ends, however. Either list's q asks first while any is.
+static WORK: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+pub struct Work;
+
+impl Work {
+    pub fn new() -> Work {
+        WORK.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Work
+    }
+}
+
+impl Drop for Work {
+    fn drop(&mut self) {
+        WORK.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// Whether Claude's at work from this dv (`Work`), or a run of its views is (`claims_held`).
+pub fn at_work() -> bool {
+    WORK.load(std::sync::atomic::Ordering::SeqCst) > 0 || crate::claude::claims_held() > 0
+}
+
 /// `items` done by `work` (which may say how it's going on the sender), `AT_ONCE` at a time,
 /// in the background: each queued first, then its news and how it ended, by number.
 pub fn pool<T: Numbered + Send + 'static>(items: Vec<T>, work: impl Fn(&T, &Sender<(u64, Status)>) -> (u64, Status) + Send + Sync + 'static) -> Receiver<(u64, Status)> {
     let (tx, rx) = mpsc::channel();
     items.iter().for_each(|i| _ = tx.send((i.number(), Status::Queued)));
-    let (queue, work) = (Arc::new(Mutex::new(VecDeque::from(items))), Arc::new(work));
+    let items: VecDeque<(Work, T)> = items.into_iter().map(|i| (Work::new(), i)).collect();
+    let (queue, work) = (Arc::new(Mutex::new(items)), Arc::new(work));
     for _ in 0..AT_ONCE {
         let (queue, tx, work) = (queue.clone(), tx.clone(), work.clone());
         std::thread::spawn(move || {
-            while let Some(item) = queue.lock().ok().and_then(|mut q| q.pop_front()) {
+            while let Some((_work, item)) = queue.lock().ok().and_then(|mut q| q.pop_front()) {
                 let _slot = Slot::take();
                 // (A panic in one: it failed, and the worker goes on to the next.)
                 let st = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&item, &tx)));
@@ -322,7 +347,9 @@ pub fn replace(prs: Vec<u64>, root: PathBuf, extra: String) -> Receiver<(u64, St
     let (tx, rx) = mpsc::channel();
     let id = prs[0];
     _ = tx.send((id, Status::Preparing));
+    let work = Work::new();
     std::thread::spawn(move || {
+        let _work = work;
         let ready = tx.clone();
         // (Its run guarded inside, the record's mark coming off; and all of it, here.)
         let st = guarded(|| crate::replace::draft(&prs, &root, &extra, move || _ = ready.send((id, Status::Reviewing))));
@@ -339,7 +366,9 @@ pub type Groups = Vec<(Vec<u64>, String)>;
 /// reads them.
 pub fn group(prs: Vec<(u64, String, String, String)>, root: PathBuf) -> Receiver<anyhow::Result<Groups>> {
     let (tx, rx) = mpsc::channel();
+    let work = Work::new();
     std::thread::spawn(move || {
+        let _work = work;
         let _slot = Slot::take();
         _ = tx.send(guarded(|| suggest_groups(&prs, &root)));
     });

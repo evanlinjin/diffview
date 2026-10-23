@@ -307,9 +307,6 @@ fn pick_and_review(o: &Opts, root: &Path) -> anyhow::Result<()> {
     loop {
         let mut term = view::init_terminal();
         // The issues (`dv issues`, `I I`): until you quit there or go back to the PRs.
-        // (q asks first for all of dv's work, either list's.)
-        (list.also_busy, issues.also_busy) = (false, false);
-        (list.also_busy, issues.also_busy) = (issues.busy(), list.busy());
         if on_issues {
             let res = issues.run(&mut term);
             view::restore_terminal();
@@ -374,7 +371,7 @@ fn issue_back(o: &Opts, n: u64, root: &Path) -> anyhow::Result<Option<String>> {
     let mut app = match view::App::open_issue(n) {
         Ok(a) => a,
         // (A PR's number: that PR, as a link to it opens it.)
-        Err(_) if gh::gh(&["pr", "view", &n.to_string(), "--json", "number"]).is_ok() => return review_back(o, n, None, root),
+        Err(_) if gh::is_pr(n) => return review_back(o, n, None, root),
         Err(e) => return Ok(Some(format!("#{n}: {e:#}"))),
     };
     app.hands_prs = true;

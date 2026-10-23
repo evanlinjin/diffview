@@ -894,7 +894,9 @@ pub fn rank_of(lines: Vec<String>, fingerprint: String, root: std::path::PathBuf
     let (tx, rx) = mpsc::channel();
     // (When it was asked: what happens while Claude ranks is news to it.)
     let at = crate::claude::now_secs();
+    let work = crate::batch::Work::new();
     std::thread::spawn(move || {
+        let _work = work;
         let res = crate::batch::guarded(|| ask(&lines, &root, of)).map(|((items, waits, closes), cost)| Ranked { at, cost, fingerprint, items, waits, closes });
         if let Ok(r) = &res {
             _ = save(r, of);

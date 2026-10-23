@@ -381,6 +381,11 @@ pub fn issue_preview(url: &str) -> Result<(String, String)> {
     Ok((title, md))
 }
 
+/// Whether #`n` is a PR (GitHub's links and numbers say /issues/ for both).
+pub fn is_pr(n: u64) -> bool {
+    gh(&["pr", "view", &n.to_string(), "--json", "number"]).is_ok()
+}
+
 /// `#n`'s state, a PR's or an issue's alike (what's waited on may be either): OPEN, CLOSED, or
 /// MERGED (a PR merged).
 pub fn ref_state(n: u64) -> Result<String> {

@@ -107,8 +107,6 @@ pub struct List {
     todos: Todos,
     /// Rank (again) once what's needed is in (`r r` on the todo tab, asked before it was).
     want_rank: bool,
-    /// The issues list (its runs, its ranking) at work too: q asks first for all of dv's.
-    pub also_busy: bool,
     /// What Claude is doing, by PR, in any dv (its markers: `watch_running`), and when they
     /// were last looked at.
     running: HashMap<u64, String>,
@@ -178,8 +176,8 @@ impl List {
     /// Claude at work from here: reviews under way or queued, replacements or new PRs being
     /// drafted, a ranking asked (each lost, or left half done, if dv quits).
     pub fn busy(&self) -> bool {
-        // (A view's run left at work counts too: `claude::claims_held`.)
-        self.also_busy || self.batch.values().any(batch::Status::running) || self.drafting.values().any(batch::Status::running) || self.todos.rank_rx.is_some() || self.group_rx.is_some() || crate::claude::claims_held() > 0
+        // (All of this dv's, the issues list's and a view's left at work too: `batch::at_work`.)
+        batch::at_work()
             // (Yours held back, to be asked again: not dropped unasked.)
             || self.batch.iter().any(|(n, s)| matches!(s, batch::Status::Busy(..)) && self.batch_extra.get(n).is_some_and(Option::is_some))
     }

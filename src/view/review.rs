@@ -94,10 +94,10 @@ impl App {
                 Err(e) => self.msg = format!("{e:#}"),
             },
             // (GitHub's links say /issues/ for PRs too: it's asked which.)
-            Job::OpenIssue(n, url) => match gh::gh(&["pr", "view", &n.to_string(), "--json", "number"]) {
-                Ok(_) if self.hands_prs => (self.hand_off, self.msg) = (Some(HandOff::Pr(n)), String::new()),
-                Ok(_) => self.open_url(&url),
-                Err(_) => (self.hand_off, self.msg) = (Some(HandOff::Issue(n)), String::new()),
+            Job::OpenIssue(n, url) => match gh::is_pr(n) {
+                true if self.hands_prs => (self.hand_off, self.msg) = (Some(HandOff::Pr(n)), String::new()),
+                true => self.open_url(&url),
+                false => (self.hand_off, self.msg) = (Some(HandOff::Issue(n)), String::new()),
             },
             Job::Refresh => self.finish(Ok("refreshed")),
             Job::Resolve(t, on) => self.finish(gh::set_resolved(&t, on).map(|_| if on { "thread resolved" } else { "thread unresolved" })),
@@ -143,6 +143,10 @@ impl App {
             Job::React(node, what, add) => self.finish(gh::react(&node, what, add).map(|_| if add { "reacted" } else { "reaction taken back" })),
             Job::Post(p) => {
                 let res = self.post(p);
+                // (A change dv made, as any other: what's fetched from before it doesn't undo it.)
+                if res.is_ok() {
+                    self.github_changed();
+                }
                 self.finish(res);
             }
         }

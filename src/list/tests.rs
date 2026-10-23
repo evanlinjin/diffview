@@ -118,7 +118,8 @@ fn filter_and_keys() {
     l.claude_open.insert(1, None);
     assert_eq!(l.claude_state(1), Some(("claude: its review won't read".into(), false)));
     l.claude_open.clear();
-    // Esc says how to quit, arming nothing; q asks first.
+    // Esc says how to quit, arming nothing; q asks first. (Claude at work in this dv.)
+    let _work = batch::Work::new();
     assert!(k(&mut l, KeyCode::Esc).is_none() && l.confirm.is_none() && l.msg.starts_with("Claude is still at work here: q"));
     assert!(k(&mut l, KeyCode::Char('q')).is_none() && l.msg.starts_with("Claude is still at work in dv"));
     assert!(matches!(k(&mut l, KeyCode::Char('q')), Some(Do::Quit)));

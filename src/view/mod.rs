@@ -844,11 +844,7 @@ impl App {
     /// triage of it and talk about it; no code (no diff, commits, or language server).
     pub fn open_issue(n: u64) -> Result<Self> {
         crate::progress(Some("loading the issue"));
-        // (Nothing kept of it: asked first, so one that isn't an issue (a PR, none) fails here,
-        // not as an empty view.)
-        if github::cache_path(crate::claude::Subject::Issue(n)).is_none_or(|p| !p.exists()) {
-            gh::issue_json(n)?;
-        }
+        let cached = github::cache_path(crate::claude::Subject::Issue(n)).is_some_and(|p| p.exists());
         let mut app = Self::with(String::new(), vec![]);
         app.issue = Some(IssueRec { number: n, ..IssueRec::default() });
         app.claude.path = crate::claude::Subject::Issue(n).path().ok();
@@ -856,6 +852,9 @@ impl App {
             _ = crate::claude::adopt_issue_extras(p);
         }
         app.open_github();
+        // (Nothing kept of it, and GitHub's answer no issue (a PR's number, none): failed here,
+        // not an empty view.)
+        anyhow::ensure!(cached || app.pr_state.is_some(), "{}", app.msg);
         app.files_pref = Some(false); // (no files: its contents would be the description alone)
         app.build();
         Ok(app)

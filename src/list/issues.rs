@@ -377,8 +377,6 @@ pub struct Issues {
     fetched: Option<Receiver<Fetch>>,
     /// A closing comment Claude's drafting (`batch`'s, as for a PR's), on its way; one at a time.
     claude_rx: Option<Receiver<(u64, batch::Status)>>,
-    /// dv list (its runs, its ranking) at work too: q asks first for all of dv's.
-    pub also_busy: bool,
     /// The issues with a closing comment drafted (read as the triages are, as they change).
     closing: HashSet<u64>,
     /// Auto (`C`, git config `dv.auto`, as dv list's): Claude triages what isn't triaged, and
@@ -554,8 +552,8 @@ impl Issues {
 
     /// Claude at work from here: triaging, drafting a fix or a closing comment, ranking.
     pub fn busy(&self) -> bool {
-        // (A view's run left at work counts too: `claude::claims_held`.)
-        self.also_busy || self.running.values().any(batch::Status::running) || self.claude_rx.is_some() || self.todos.rank_rx.is_some() || crate::claude::claims_held() > 0
+        // (All of this dv's, dv list's and a view's left at work too: `batch::at_work`.)
+        batch::at_work()
     }
 
     /// The issues on the tab shown, filtered.
@@ -821,8 +819,10 @@ impl Issues {
                 };
             }
             (Some(_), KeyCode::Esc) => {} // (a pending key called off, as Helix's)
-            // (No filter to clear: quits, as dv list's; asked first while Claude's at work.)
-            (None, KeyCode::Esc) => return self.quit(None),
+            // (No filter to clear: quits, as dv list's; Claude at work, says how (q, q again:
+            // a second Esc calls things off, it doesn't quit).)
+            (None, KeyCode::Esc) if !self.busy() => return Some(IssuesDo::Quit),
+            (None, KeyCode::Esc) => self.msg = "Claude is still at work in dv: q, then q again, quits".into(),
             (_, KeyCode::Char('q')) => return self.quit(pending),
             (_, KeyCode::Char('R')) => {
                 self.msg = "fetching the open issues…".into();
