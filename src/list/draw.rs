@@ -154,7 +154,9 @@ impl List {
             _ => &[("is", &["draft"]), ("review", REVIEW), ("ci", CI)],
         };
         // (What it takes, from the same table: the done tab's own.)
-        let vals: Vec<String> = keys.iter().filter(|(_, v)| !v.is_empty()).map(|(k, v)| format!("{k}:{}", v.join("|"))).collect();
+        // (A key's values where they're few; else the key alone: `unknown` lists them when one's
+        // wrong. Short enough for the bar.)
+        let vals: Vec<String> = keys.iter().filter(|(_, v)| !v.is_empty()).map(|(k, v)| if v.len() <= 3 { format!("{k}:{}", v.join("|")) } else { format!("{k}:") }).collect();
         let fields = format!("author: label: base: branch: {}", vals.join(" "));
         let left = self.nav.status(&self.msg, &fields, idle, keys);
         // On the right, how it's ordered (on the todo tab, Claude's ranking: how old, what it

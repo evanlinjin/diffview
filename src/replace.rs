@@ -677,23 +677,24 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
 /// `first`: its first draft (a new session; else it carries on in its own).
 fn run_claude(r: &Record, dir: &Path, first: bool, extra: &str, which: Reviews, prepared: impl FnOnce()) -> Result<String> {
     prepared();
-    // (Claude at it again: blocked again only if it's refused again. Not before: a run that
-    // never starts leaves what the last one was refused.)
-    _ = update(r.id, |r| {
-        r.refused.clear();
-        Ok(())
-    });
     let session = match first {
         true => ["--session-id".to_owned(), r.session.clone()],
         false => ["--resume".to_owned(), r.session.clone()],
     };
     let log = std::env::temp_dir().join(format!("dv-claude-replace-{}-{}.log", std::process::id(), r.id));
-    let st = crate::claude::claude_command(crate::claude::Work::Replace, &prompt(r, extra, which), dir, &session, crate::claude::REPLACE_TOOLS, Some(&writable()?))
+    let mut child = crate::claude::claude_command(crate::claude::Work::Replace, &prompt(r, extra, which), dir, &session, crate::claude::REPLACE_TOOLS, Some(&writable()?))
         .stdin(std::process::Stdio::null())
         .stdout(std::fs::File::create(&log)?)
         .stderr(std::fs::File::create(log.with_extension("err"))?)
-        .status()
+        .spawn()
         .context("is Claude Code (`claude`) installed?")?;
+    // (Claude at it again: blocked again only if it's refused again. Not before it's started:
+    // a run that never does leaves what the last one was refused.)
+    _ = update(r.id, |r| {
+        r.refused.clear();
+        Ok(())
+    });
+    let st = child.wait()?;
     let v: Value = std::fs::read_to_string(&log).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
     // (What it was refused, kept with the draft, whether it ended or stopped: its card and view
     // say so till a draft isn't.)
