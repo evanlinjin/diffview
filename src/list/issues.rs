@@ -456,6 +456,7 @@ impl Issues {
         let items: Vec<Item> = items.into_iter().filter(|it| !self.draft_fix.contains_key(&it.number)).collect();
 
         let met = self.todos.met(&items, |_, c, _| self.happened(c));
+        self.todos.ready = !self.items.is_empty();
         let (items, said) = self.todos.settle(items, met);
         self.todos.items = items;
         if let Some(said) = said {

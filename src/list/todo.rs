@@ -69,6 +69,8 @@ impl List {
             }
         }
         let met = self.todos.met(&items, |it, c, at| self.happened(it, c, at));
+        // (Needs complete once what they come from is in: its details, its checks, its scan.)
+        self.todos.ready = self.extra_rx.is_none() && self.checks.is_none() && self.unpushed_rx.is_none() && !self.extra.is_empty();
         let (mut items, said) = self.todos.settle(items, met);
         if let Some(said) = said {
             self.msg = said;

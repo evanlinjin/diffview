@@ -14,7 +14,12 @@ pub(super) struct Todos {
     pub(super) rank_rx: Option<Receiver<Result<Ranked>>>,
     /// Items deferred (`s`), kept in dv's directory (`file`); the one `s` is asking how long for.
     pub(super) deferred: todo::Deferred,
+    /// The deferrals as last read or saved: what's changed here since, put into the file as it
+    /// is then (another dv list's kept).
+    saved: todo::Deferred,
     pub(super) deferred_file: Option<PathBuf>,
+    /// What items need is complete (all its sources in): what's deferred records it.
+    pub(super) ready: bool,
     pub(super) deferring: Option<String>,
     /// Claude reading a deferral's "until …": the item's key, the "or" time, its answer.
     pub(super) until_rx: Option<(String, Option<i64>, Receiver<Result<Until>>)>,
@@ -51,7 +56,8 @@ impl Todos {
     pub(super) fn of(of: Of) -> Todos {
         let file = todo::deferred_path_of(of);
         let auto = crate::diff::git(&["config", "--get", "dv.auto"]).is_ok_and(|v| v.trim() == "true");
-        Todos { ranked: todo::load_of(of), deferred: todo::load_deferred(file.as_deref()), deferred_file: file, auto, ..Default::default() }
+        let deferred = todo::load_deferred(file.as_deref());
+        Todos { ranked: todo::load_of(of), saved: deferred.clone(), deferred, deferred_file: file, auto, ..Default::default() }
     }
 
     /// `C`: auto on / off, kept (for both lists).
@@ -104,6 +110,10 @@ impl Todos {
             self.forget_reading(&it.key());
             self.deferred.remove(&it.key());
             return (true, format!("{what} is back"));
+        }
+        // (What it needs not all in yet: deferred on part of it, it'd be back once the rest is.)
+        if !self.ready {
+            return (false, "once GitHub's part is in (a moment): s again".into());
         }
         self.deferring = Some(it.key());
         (false, format!("defer {what} for: 1 an hour, 4 four hours, d a day, w a week, or u until something happens (any other key: not); it's back sooner if what it needs changes"))
@@ -197,8 +207,21 @@ impl Todos {
     }
 
     /// The deferrals, kept (an error: what's said).
-    pub(super) fn save(&self) -> Option<String> {
-        todo::save_deferred(self.deferred_file.as_deref(), &self.deferred).err().map(|e| format!("couldn't save it: {e:#}"))
+    pub(super) fn save(&mut self) -> Option<String> {
+        // What's changed here since, into the file as it is now (as marks are merged).
+        let mut all = match &self.deferred_file {
+            Some(f) if f.exists() => todo::load_deferred(Some(f)),
+            _ => self.saved.clone(),
+        };
+        all.retain(|k, _| self.deferred.contains_key(k) || !self.saved.contains_key(k));
+        for (k, d) in &self.deferred {
+            if self.saved.get(k) != Some(d) {
+                all.insert(k.clone(), d.clone());
+            }
+        }
+        let res = todo::save_deferred(self.deferred_file.as_deref(), &all).err().map(|e| format!("couldn't save it: {e:#}"));
+        (self.deferred, self.saved) = (all.clone(), all);
+        res
     }
 
     /// "until `text`" for item `key` ("…, or 2 weeks": whichever first): read here, or Claude
@@ -294,6 +317,9 @@ fn deferring_an_item() {
     let it = Item { kind: Kind::Issue, number: 7, needs: vec![Need::Untriaged], claude: None, updated: String::new(), reason: None, changed: false, deferred: None, busy: None, waits: None };
     let file = std::env::temp_dir().join(format!("dv-todos-{}.json", std::process::id()));
     let mut t = Todos { items: vec![it.clone()], deferred_file: Some(file.clone()), ..Default::default() };
+    // Not before what it needs is all in: said so.
+    assert!(t.defer_key(&it, "#7").1.starts_with("once GitHub's part is in"));
+    t.ready = true;
     // s asks how long; d: a day, kept.
     let (changed, said) = t.defer_key(&it, "#7");
     assert!(!changed && said.starts_with("defer #7 for:"));
@@ -338,4 +364,22 @@ fn deferring_an_item() {
     assert_eq!((since(&t.items).new, since(&t.items).changed), (0, 0));
     assert_eq!(since(&[t.items[0].clone(), eight]).new, 1);
     _ = std::fs::remove_file(file);
+}
+
+#[test]
+fn two_lists_keep_each_others_deferrals() {
+    let file = std::env::temp_dir().join(format!("dv-todos-two-{}.json", std::process::id()));
+    _ = std::fs::remove_file(&file);
+    let d = || todo::Deferral { until: i64::MAX, needs: String::new(), cond: None, at: 0 };
+    let (mut a, mut b) = (Todos { deferred_file: Some(file.clone()), ..Default::default() }, Todos { deferred_file: Some(file.clone()), ..Default::default() });
+    a.deferred.insert("pr-1".into(), d());
+    assert!(a.save().is_none());
+    b.deferred.insert("pr-2".into(), d());
+    assert!(b.save().is_none());
+    // Each kept, and b has a's now; a's removal of its own leaves b's.
+    assert!(b.deferred.contains_key("pr-1") && b.deferred.contains_key("pr-2"));
+    a.deferred.remove("pr-1");
+    assert!(a.save().is_none());
+    assert_eq!(todo::load_deferred(Some(&file)).keys().collect::<Vec<_>>(), ["pr-2"]);
+    _ = std::fs::remove_file(&file);
 }

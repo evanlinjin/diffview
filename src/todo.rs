@@ -784,7 +784,10 @@ pub fn save_deferred(p: Option<&std::path::Path>, d: &Deferred) -> Result<()> {
         .collect();
     let p = p.context("no dv directory")?;
     std::fs::create_dir_all(p.parent().unwrap_or(p))?;
-    Ok(std::fs::write(p, Value::Object(v).to_string())?)
+    // (In one step: another dv list never reads half of it.)
+    let tmp = p.with_extension(format!("json.{}.tmp", std::process::id()));
+    std::fs::write(&tmp, Value::Object(v).to_string())?;
+    Ok(std::fs::rename(&tmp, p)?)
 }
 
 /// How long `s` then `c` defers an item for: (seconds, in words). `1` an hour, `4` four hours,

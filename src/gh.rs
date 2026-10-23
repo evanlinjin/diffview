@@ -381,7 +381,6 @@ pub fn issue_preview(url: &str) -> Result<(String, String)> {
     Ok((title, md))
 }
 
-/// PR `n`'s state on GitHub now: OPEN, CLOSED or MERGED (`None` if gh doesn't say).
 /// `#n`'s state, a PR's or an issue's alike (what's waited on may be either): OPEN, CLOSED, or
 /// MERGED (a PR merged).
 pub fn ref_state(n: u64) -> Result<String> {
@@ -393,6 +392,7 @@ pub fn ref_state(n: u64) -> Result<String> {
     })
 }
 
+/// PR `n`'s state on GitHub now: OPEN, CLOSED or MERGED (`None` if gh doesn't say).
 pub fn pr_state(n: u64) -> Result<Option<String>> {
     let v: Value = gh_json(&["pr", "view", &n.to_string(), "--json", "state"])?;
     Ok(v["state"].as_str().map(str::to_owned))
