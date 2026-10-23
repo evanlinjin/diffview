@@ -80,7 +80,9 @@ impl Lsp {
 
 impl Drop for Lsp {
     fn drop(&mut self) {
+        // (Waited on too: not a zombie while dv goes on.)
         let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 }
 

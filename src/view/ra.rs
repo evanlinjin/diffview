@@ -9,15 +9,35 @@ pub(super) enum Req {
     /// A name from text (a comment, the PR's): where it's defined, by rust-analyzer's symbol
     /// search; then `then` (references, implementations, its hover) from there, if that's what
     /// was asked.
-    Symbol { name: String, then: Option<(&'static str, Box<Req>)> },
+    Symbol { name: String, then: Option<&'static str> },
+}
+
+/// What a request `method`'s answer is for: a hover's text, else places to go.
+fn req_for(method: &str) -> Req {
+    if method.ends_with("hover") { Req::Hover } else { Req::Goto }
 }
 
 impl App {
-    pub(super) fn lsp_request(&mut self, method: &'static str, req: Req) {
+    /// rust-analyzer started (at the view's start; again when asked once it's gone).
+    pub(super) fn lsp_start(&mut self) {
+        match Lsp::start(&self.root) {
+            Ok((l, id)) => {
+                self.lsp = Some(l);
+                self.inflight.insert(id, Req::Init);
+            }
+            Err(e) => self.msg = format!("{e:#}"),
+        }
+    }
+
+    pub(super) fn lsp_request(&mut self, method: &'static str) {
+        // Gone (exited, crashed): started again, as you ask.
+        if std::mem::take(&mut self.lsp_lost) {
+            self.lsp_start();
+        }
         let row = &self.rows[self.head.row];
         // In text (a comment, the PR's): the name under the cursor, found by name.
         if matches!(row.line.kind, Kind::Comment | Kind::Thread) || row.file == INFO {
-            return self.lsp_by_name(method, req);
+            return self.lsp_by_name(method);
         }
         let (Some(n), Some(f)) = (row.line.new, self.files.get(row.file)) else {
             self.msg = "not on a new-side line".into();
@@ -27,13 +47,13 @@ impl App {
         match &self.lsp {
             None => self.msg = "rust-analyzer is not running".into(),
             Some(_) if !self.lsp_ready => self.msg = "rust-analyzer is starting…".into(),
-            Some(_) => self.ask_at(method, &path, n - 1, character, req, None),
+            Some(_) => self.ask_at(method, &path, n - 1, character, None),
         }
     }
 
-    /// Ask rust-analyzer `method` at `path`'s `line`, `character` (0-based, UTF-16), for `req`;
-    /// said till the answer comes (`of`: the name it's for).
-    fn ask_at(&mut self, method: &'static str, path: &std::path::Path, line: u32, character: u32, req: Req, of: Option<&str>) {
+    /// Ask rust-analyzer `method` at `path`'s `line`, `character` (0-based, UTF-16); said till
+    /// the answer comes (`of`: the name it's for).
+    pub(super) fn ask_at(&mut self, method: &'static str, path: &std::path::Path, line: u32, character: u32, of: Option<&str>) {
         let Some(l) = &mut self.lsp else { return };
         let mut params = json!({
             "textDocument": { "uri": lsp::uri(path) },
@@ -57,7 +77,7 @@ impl App {
                     (w, Some(name)) => format!("finding {w} of {name}…"),
                     (w, None) => format!("finding {w}…"),
                 };
-                self.inflight.insert(id, req);
+                self.inflight.insert(id, req_for(method));
             }
             Err(e) => self.msg = format!("rust-analyzer: {e}"),
         }
@@ -67,10 +87,10 @@ impl App {
     /// for it (its exact matches), then, for references / implementations / its hover, those of
     /// what it found. Without rust-analyzer (or while it starts), the definition by text
     /// search, as Enter finds it.
-    fn lsp_by_name(&mut self, method: &'static str, req: Req) {
+    fn lsp_by_name(&mut self, method: &'static str) {
         let Some(name) = self.name_at_cursor() else { return self.msg = "no name under the cursor".into() };
         let then = match method.rsplit('/').next() {
-            Some("references" | "implementation" | "hover") => Some((method, Box::new(req))),
+            Some("references" | "implementation" | "hover") => Some(method),
             _ => None, // the definition (a type's is itself)
         };
         match &mut self.lsp {
@@ -108,10 +128,10 @@ impl App {
     }
 
     fn lsp_gone(&mut self, why: &str) {
-        (self.lsp, self.lsp_ready) = (None, false);
+        (self.lsp, self.lsp_ready, self.lsp_lost) = (None, false, true);
         self.inflight.clear();
         self.progress.clear();
-        self.msg = why.into();
+        self.msg = format!("{why} (asked again, it starts again)");
     }
 
     pub(super) fn lsp_msg(&mut self, m: Value) {
@@ -153,7 +173,7 @@ impl App {
                         t if t.is_empty() => self.msg = "no hover info".into(),
                         t => self.popup = Some((" hover  j/k scroll ".into(), self.hover_lines(&t), 0)),
                     },
-                    Req::Goto => self.show_locations(lsp::locations(res)),
+                    Req::Goto => self.show_locations(lsp::locations(res), None),
                     Req::Symbol { name, then } => {
                         // Its exact matches (the search is fuzzy), as locations.
                         let found: Vec<Value> = res.as_array().into_iter().flatten().filter(|s| s["name"] == name.as_str()).map(|s| s["location"].clone()).collect();
@@ -163,11 +183,8 @@ impl App {
                             // go on (its references, its hover: not the definition instead).
                             (None, None) => self.goto_definition(&name),
                             (Some(_), None) => self.msg = format!("rust-analyzer doesn't know {name}"),
-                            (None, _) => self.show_locations(locs),
-                            (Some((method, req)), Some(at)) => {
-                                let (path, line, character) = (at.path.clone(), at.line, at.character);
-                                self.ask_at(method, &path, line, character, *req, Some(&name));
-                            }
+                            // (Several of that name: which one's, picked.)
+                            (then, _) => self.show_locations(locs, then),
                         }
                     }
                 }
@@ -176,10 +193,12 @@ impl App {
         }
     }
 
-    pub(super) fn show_locations(&mut self, locs: Vec<Loc>) {
+    /// Places rust-analyzer answered: one, there; several, a picker of them. `then`: not to go
+    /// there but to ask that of it (a name's references, implementations, hover).
+    pub(super) fn show_locations(&mut self, locs: Vec<Loc>, then: Option<&'static str>) {
         match locs.as_slice() {
             [] => self.msg = "no results".into(),
-            [l] => self.jump_loc(l),
+            [l] => self.at_loc(l, then),
             _ => {
                 let mut cache = HashMap::new();
                 let items = locs
@@ -189,11 +208,19 @@ impl App {
                         let shown = l.path.strip_prefix(&self.root).unwrap_or(&l.path).display().to_string();
                         let text = disk_line(&mut cache, &l.path, l.line);
                         let label = format!("{mark} {shown}:{}  {}", l.line + 1, text.trim());
-                        Item::new(label, Target::Loc(l))
+                        Item::new(label, Target::Loc(l, then))
                     })
                     .collect();
                 self.picker = Some(Picker::new(" locations  ● = in diff ", items));
             }
+        }
+    }
+
+    /// At `l`: there, or `then` asked of it.
+    pub(super) fn at_loc(&mut self, l: &Loc, then: Option<&'static str>) {
+        match then {
+            Some(m) => self.ask_at(m, &l.path, l.line, l.character, None),
+            None => self.jump_loc(l),
         }
     }
 

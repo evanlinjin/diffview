@@ -295,7 +295,14 @@ impl App {
                 'l' => self.side(true),
                 'y' => self.scroll(-5),
                 'o' => {
-                    if let Some((r, col)) = self.jumps.pop().and_then(|(k, col)| Some((self.find_key(k)?, col))) {
+                    // (One whose row has gone since: passed over, to the one before.)
+                    let mut back = None;
+                    while back.is_none()
+                        && let Some((k, col)) = self.jumps.pop()
+                    {
+                        back = self.find_key(k).map(|r| (r, col));
+                    }
+                    if let Some((r, col)) = back {
                         self.select = false;
                         self.goto(r, col);
                     }
@@ -469,16 +476,15 @@ impl App {
                 let col = self.chars(self.head.row).iter().position(|c| !c.is_whitespace()).unwrap_or(0);
                 self.goto(self.head.row, col);
             }
-            ('g', 'd') => self.lsp_request("textDocument/definition", Req::Goto),
-            ('g', 'y') => self.lsp_request("textDocument/typeDefinition", Req::Goto),
-            ('g', 'i') => self.lsp_request("textDocument/implementation", Req::Goto),
-            ('g', 'r') => self.lsp_request("textDocument/references", Req::Goto),
+            ('g', 'd') => self.lsp_request("textDocument/definition"),
+            ('g', 'y') => self.lsp_request("textDocument/typeDefinition"),
+            ('g', 'i') => self.lsp_request("textDocument/implementation"),
+            ('g', 'r') => self.lsp_request("textDocument/references"),
             ('g', 'w') => self.show_labels(),
-            (' ', 'k') => match self.link_at_cursor().filter(|u| gh::issue_ref(u).is_some()).map(str::to_owned) {
-                Some(url) => {
-                    self.start(Job::Preview(url));
-                }
-                None => self.lsp_request("textDocument/hover", Req::Hover),
+            (' ', 'k') => match self.link_at_cursor().map(str::to_owned) {
+                Some(url) if gh::issue_ref(&url).is_some() => self.start(Job::Preview(url)),
+                Some(_) => self.msg = "Space k previews issue and PR links (Enter opens this one)".into(),
+                None => self.lsp_request("textDocument/hover"),
             },
             (']', 'g') => self.next_kind(true, change_start),
             ('[', 'g') => self.next_kind(false, change_start),
@@ -662,7 +668,7 @@ impl App {
                         }
                         Target::Run(job) => self.start(job),
                         Target::Spot(s) => self.goto_spot(s),
-                        Target::Loc(l) => self.jump_loc(&l),
+                        Target::Loc(l, then) => self.at_loc(&l, then),
                         Target::Discard => {
                             let n = self.pending_count();
                             let items = vec![

@@ -162,7 +162,7 @@ impl App {
         if locs.is_empty() {
             return self.msg = format!("no definition of {name} found");
         }
-        self.show_locations(locs);
+        self.show_locations(locs, None);
     }
 }
 

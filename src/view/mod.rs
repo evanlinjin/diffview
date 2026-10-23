@@ -264,7 +264,8 @@ enum Target {
     Run(Job),
     /// A line of the files' list (a file, a section): there.
     Spot(files::Spot),
-    Loc(Loc),
+    /// A place rust-analyzer answered: there, or (`Some`) that request asked of it.
+    Loc(Loc, Option<&'static str>),
     /// Asks for confirmation first.
     Discard,
     /// A comment: (thread index, comment index within it).
@@ -471,7 +472,7 @@ impl Target {
             Target::Want(_) | Target::Land(..) => ('\u{f417}', Claude, ""),
             Target::Spot(_) => ('\u{f4a5}', Plain, ""),
             Target::CommitRow(_) => ('\u{f417}', Plain, ""),
-            Target::Loc(_) => ('\u{f450}', Plain, ""),
+            Target::Loc(..) => ('\u{f450}', Plain, ""),
             Target::Comment(..) => ('\u{f41f}', Plain, ""),
             Target::ReplaceRemote(..) => ('\u{f402}', Plain, ""),
             Target::Nothing => ('\u{f467}', Plain, ""),
@@ -771,6 +772,8 @@ pub struct App {
     root: PathBuf,
     lsp: Option<Lsp>,
     lsp_ready: bool,
+    /// rust-analyzer was running and is gone (`lsp_gone`): started again when next asked.
+    lsp_lost: bool,
     inflight: HashMap<u64, Req>,
     progress: HashMap<String, (String, String)>,
     /// Scrollable overlay: (title, text, scroll).
@@ -827,13 +830,7 @@ impl App {
         app.rekey_commits(); // (commits rewritten while dv was closed)
         app.refresh_sync();
         app.build();
-        match Lsp::start(&app.root) {
-            Ok((l, id)) => {
-                app.lsp = Some(l);
-                app.inflight.insert(id, Req::Init);
-            }
-            Err(e) => app.msg = format!("{e:#}"),
-        }
+        app.lsp_start();
         Ok(app)
     }
 
