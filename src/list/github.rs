@@ -330,6 +330,9 @@ impl List {
                 }) {
                     self.msg = e;
                 }
+                // (Yours held for a PR no longer open: let go, as the issues list's; it'd only
+                // find it gone.)
+                self.batch.retain(|&n, s| !matches!(s, batch::Status::Busy(..)) || open(n));
                 // (What's waited on, looked up again against this fetch: `find_others`, in
                 // `find_todo` below; what's final kept.)
                 self.others.retain(|_, s| s == "MERGED" || s == "CLOSED");
