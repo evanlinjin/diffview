@@ -280,8 +280,8 @@ impl List {
                     return Some(Do::Replace(prs));
                 }
             }
-            KeyCode::Char('o') => self.sort(self.order.next(), self.rev),
-            KeyCode::Char('O') => self.sort(self.order, !self.rev),
+            KeyCode::Char('o') if !self.nav.tab.own_order() => self.sort(self.order.next(), self.rev),
+            KeyCode::Char('O') if !self.nav.tab.own_order() => self.sort(self.order, !self.rev),
             _ => {}
         }
         None

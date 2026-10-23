@@ -153,11 +153,15 @@ impl List {
             Tab::Done => &[("is", IS), ("review", REVIEW), ("ci", &[])],
             _ => &[("is", &["draft"]), ("review", REVIEW), ("ci", CI)],
         };
-        let left = self.nav.status(&self.msg, "author: label: base: branch: is:draft review: ci:", idle, keys);
+        // (What it takes, from the same table: the done tab's own.)
+        let vals: Vec<String> = keys.iter().filter(|(_, v)| !v.is_empty()).map(|(k, v)| format!("{k}:{}", v.join("|"))).collect();
+        let fields = format!("author: label: base: branch: {}", vals.join(" "));
+        let left = self.nav.status(&self.msg, &fields, idle, keys);
         // On the right, how it's ordered (on the todo tab, Claude's ranking: how old, what it
         // cost, what's changed since), and the flags PRs open with.
         let order = match self.nav.tab {
             Tab::Todo => self.todos.order_text(),
+            Tab::Done => "most recently updated first".into(),
             _ => format!("by {} {arrow}", self.order.name()),
         };
         let flags = if self.flags.is_empty() { String::new() } else { format!("opens with {}", self.flags) };
@@ -212,7 +216,7 @@ impl List {
                 .iter()
                 .filter(|(k, _)| match *k {
                     "D D" => matches!(self.nav.tab, Tab::Worktrees | Tab::Replacements), // (as the key does)
-                    "o O" => !matches!(self.nav.tab, Tab::Todo | Tab::Done), // (their own order)
+                    "o O" => !self.nav.tab.own_order(),
                     // (Done PRs are to read.)
                     "m" | "a a" | "A A" | "M M" | "W W" | "b b" => self.nav.tab != Tab::Done,
                     "r r" | "s" | "p" => self.nav.tab == Tab::Todo,

@@ -290,7 +290,11 @@ fn run() -> anyhow::Result<()> {
             let prs = replace::target(&prs);
             eprintln!("Claude is drafting {} (dv list's drafts tab shows it)…", replace::label(prs[0]));
             let took = replace::draft(&prs, &root, "", || {})?;
-            println!("drafted ({took}): `dv list`, drafts tab, or {}", worktree_dir_named(&root, &replace::name(prs[0]))?.display());
+            // (Blocked, said as its card says it: not "drafted".)
+            match replace::load(prs[0]).ok().and_then(|r| r.blocked_note("`dv replace` again")) {
+                Some(b) => println!("{}: {b}", replace::label(prs[0])),
+                None => println!("drafted ({took}): `dv list`, drafts tab, or {}", worktree_dir_named(&root, &replace::name(prs[0]))?.display()),
+            }
             return Ok(());
         }
         Some(cmd) => return review_file(cmd, &o),

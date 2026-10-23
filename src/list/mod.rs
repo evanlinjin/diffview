@@ -871,7 +871,7 @@ impl List {
         };
         let mut prs: Vec<(&Listed, Option<&crate::todo::Item>)> = all.into_iter().filter(|p| self.nav.query.split_whitespace().all(|t| term(p.0, t))).collect();
         // (The todo: in the order of what needs you most; done: most recently updated first.)
-        if matches!(self.nav.tab, Tab::Todo | Tab::Done) {
+        if self.nav.tab.own_order() {
             return prs;
         }
         prs.sort_by(|(a, _), (b, _)| {
@@ -936,6 +936,14 @@ enum Tab {
     Replacements,
     /// Merged and closed PRs, to read: no todo, auto, marks or worktrees.
     Done,
+}
+
+impl Tab {
+    /// Its cards in an order of their own (the todo: what needs you most; done: most recently
+    /// updated first), not `o`'s.
+    fn own_order(self) -> bool {
+        matches!(self, Tab::Todo | Tab::Done)
+    }
 }
 
 impl Tabs for Tab {

@@ -592,8 +592,6 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
         if let Some(why) = refused(prs) {
             anyhow::bail!(why);
         }
-        // (A run again: blocked again only if it's refused again.)
-        r.refused.clear();
         // What it replaces, said at once (`prepare` fills them in): another draft asked
         // meanwhile sees them.
         for &n in prs.iter().filter(|_| !is_new(id)) {
@@ -679,6 +677,12 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
 /// `first`: its first draft (a new session; else it carries on in its own).
 fn run_claude(r: &Record, dir: &Path, first: bool, extra: &str, which: Reviews, prepared: impl FnOnce()) -> Result<String> {
     prepared();
+    // (Claude at it again: blocked again only if it's refused again. Not before: a run that
+    // never starts leaves what the last one was refused.)
+    _ = update(r.id, |r| {
+        r.refused.clear();
+        Ok(())
+    });
     let session = match first {
         true => ["--session-id".to_owned(), r.session.clone()],
         false => ["--resume".to_owned(), r.session.clone()],
