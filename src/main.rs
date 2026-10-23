@@ -843,8 +843,9 @@ pub(crate) fn last_checkout(n: u64) -> Option<String> {
     Some(std::fs::read_to_string(checkout_record(n)?).ok()?.trim().to_owned())
 }
 
-/// Note what PR `n` is checked out at now, for `local_work` next time.
-fn record_checkout(n: u64) {
+/// Note what PR `n` is checked out at now (checked out, or pushed: GitHub has it), for
+/// `only_here` next time.
+pub(crate) fn record_checkout(n: u64) {
     let (Some(p), Ok(head)) = (checkout_record(n), diff::git(&["rev-parse", "HEAD"])) else { return };
     _ = std::fs::create_dir_all(p.parent().unwrap_or(&p));
     _ = std::fs::write(p, head.trim());

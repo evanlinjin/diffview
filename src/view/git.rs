@@ -416,9 +416,11 @@ impl App {
         let to = format!("HEAD:refs/heads/{branch}");
         args.extend([remote.as_str(), to.as_str()]);
         diff::git(&args)?;
-        // The PR's head is what was just pushed (its next fetch says so too).
+        // The PR's head is what was just pushed (its next fetch says so too); GitHub's, so not
+        // work only here once the PR moves on (`only_here`).
         if let (Some(p), Ok(h)) = (&mut self.pr, diff::git(&["rev-parse", "HEAD"])) {
             p.head_oid = h.trim().to_owned();
+            crate::record_checkout(p.number);
         }
         let next = match self.threads.iter().any(Thread::by_claude) {
             true => " · Space a → Update Claude's review looks at just what's new",
