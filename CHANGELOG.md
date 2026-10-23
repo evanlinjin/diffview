@@ -5,6 +5,25 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.95.20] - 2026-10-23
+
+### Fixed
+- dv list's todo: `s`, `r r` and auto act once everything an item's needs come from is in
+  (its details, checks and worktree scan), not on part of it; a refetch keeps what it had
+  till the new comes, so `s` isn't refused meanwhile. Auto no longer ranks at every start,
+  nor marks a draft ready (or fixes its checks again) over an unpushed fix not yet scanned.
+- Deferrals: one whose time is up is dropped, one whose needs changed is back while they
+  differ; they're saved as marks are (merged with the file another dv list writes, in one
+  step, and as saved only once they are); the issues list drops those of closed issues.
+- What's waited on (`until #9 is merged`, "Blocked on #123") is looked up when it isn't
+  listed, a PR or an issue alike; merged waits end on closed too.
+- A conversation's "waiting … for a day" runs from when it was said.
+- A worktree whose PR head can't be fetched counts as unpushed work, not none; what dv pushes
+  is recorded as GitHub's (the commit pushed, not a later one), so pushed commits don't count
+  as work once the PR moves on.
+- dv's background git network calls give up on a dead connection within a minute.
+- A failed marks save is said once and tried again when the marks change.
+
 ## [0.95.19] - 2026-10-23
 
 ### Fixed
