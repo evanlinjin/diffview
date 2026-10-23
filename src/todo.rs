@@ -70,7 +70,9 @@ impl Need {
     /// How pressing it is, for the order before (and without) Claude's.
     pub fn weight(&self) -> u8 {
         match self {
-            Need::Publish | Need::Blocked => 90,
+            Need::Publish => 90,
+            // (Its own: an item's needs are told apart by their weights, `needs_key`.)
+            Need::Blocked => 89,
             Need::ClaudeChanged(..) => 88,
             Need::Unpushed(..) => 85,
             Need::PushedSinceReview => 80,
@@ -1154,6 +1156,7 @@ mod tests {
         let o = |n| crate::replace::Original { number: n, ..Default::default() };
         let r = crate::replace::Record { id: 12, replaces: vec![o(12), o(15)], title: "Fix".into(), ..Default::default() };
         assert_eq!(rep_needs(&r), vec![Need::Publish]);
+        assert_ne!(Need::Blocked.weight(), Need::Publish.weight()); // (blocked ↔ drafted: a change)
         let r = crate::replace::Record { published: Some(20), closed: vec![12], ..r };
         assert_eq!(rep_needs(&r), vec![Need::CloseOriginals(1)]);
         assert_eq!(rep_needs(&crate::replace::Record { closed: vec![12, 15], ..r }), vec![]);

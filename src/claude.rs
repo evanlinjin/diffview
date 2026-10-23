@@ -1635,9 +1635,9 @@ pub fn refusal(out: &serde_json::Value) -> Option<String> {
     let target = ["file_path", "path", "command", "pattern", "url"].iter().find_map(|k| input[*k].as_str()).unwrap_or("");
     let target: String = target.lines().next().unwrap_or("").chars().take(60).collect();
     // (The same refused again, retried: not "more".)
-    let mut seen: Vec<(&str, &Value)> = denied.iter().map(|d| (d["tool_name"].as_str().unwrap_or(""), &d["tool_input"])).collect();
-    seen.dedup();
-    let more = match seen.len() {
+    let seen: Vec<(&str, &Value)> = denied.iter().map(|d| (d["tool_name"].as_str().unwrap_or(""), &d["tool_input"])).collect();
+    let distinct = seen.iter().enumerate().filter(|(i, s)| !seen[..*i].contains(s)).count();
+    let more = match distinct {
         1 => String::new(),
         n => format!(" (and {} more)", n - 1),
     };
