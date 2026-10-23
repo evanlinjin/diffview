@@ -761,7 +761,7 @@ pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool, own: Option<&s
     }
     // Checked out as the PR has it: what dv put here (nothing here is work done since).
     let Err(e) = gh::checkout(n, force, detach) else {
-        record_checked_out(n, p.as_ref());
+        record_checked_out(n);
         return Ok(None);
     };
     let msg = format!("{e:#}");
@@ -769,23 +769,24 @@ pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool, own: Option<&s
     let diverged = ["Not possible to fast-forward", "Diverging branches", "non-fast-forward"].iter().any(|p| msg.contains(p));
     let here = diff::git(&["branch", "--show-current"]).unwrap_or_default().trim().to_owned();
     let on_it = p.as_ref().is_some_and(|p| on_branch(Path::new("."), &here, p));
-    // On its branch with nothing of yours (seen above: the PR force-pushed): moved to the PR,
-    // uncommitted edits kept (or refused, if they'd clash).
+    // On its branch with nothing of yours (the PR force-pushed): moved to the PR, uncommitted
+    // edits kept (or refused, if they'd clash). (gh may have switched onto it before its ff
+    // failed: what's here now decides, the one rule again.)
     if diverged && on_it && !detach {
+        if let Some(note) = local_work(n, Path::new(".")) {
+            return Ok(Some(note));
+        }
         let pr = fetch_pr(n, Path::new("."))?;
         diff::git(&["reset", "-q", "--keep", &pr]).map_err(|e| e.context(format!("moving {here} to PR #{n}'s head (uncommitted edits in the way?)")))?;
         record_checkout_at(n, &pr);
         return Ok(None);
     }
-    match (diverged && !force && !detach, on_it) {
-        (true, true) => Ok(Some(format!(
-            "{here} has commits that aren't on PR #{n}: showing it as is (push to update the PR; `git reset --hard` to drop them)"
-        ))),
-        (true, false) => Err(e.context(format!(
+    match diverged && !force && !detach {
+        true => Err(e.context(format!(
             "your local branch for PR #{n} has diverged from the PR (local commits, or the PR was force-pushed); \
              check it out to review it as is, or `dv {n} -f` to reset it to the PR (dropping its local commits)"
         ))),
-        _ => Err(e),
+        false => Err(e),
     }
 }
 
@@ -849,13 +850,19 @@ pub(crate) fn fetch_pr(n: u64, dir: &Path) -> anyhow::Result<String> {
     pr
 }
 
-/// After a checkout of PR `n` (as GitHub has it, `p`): what dv put here recorded, the PR's head
+/// After a checkout of PR `n`: what dv put here recorded, the PR's head as GitHub has it now
 /// when HEAD holds it (commits of yours above it, gh's ff having nothing to do, stay yours),
-/// else HEAD (the PR pushed meanwhile, `p` stale; detached).
-fn record_checked_out(n: u64, p: Option<&gh::Pr>) {
-    let Ok(head) = diff::git(&["rev-parse", "HEAD"]) else { return };
-    let pr = p.map(|p| p.head_oid.as_str()).filter(|h| !h.is_empty() && diff::git(&["merge-base", "--is-ancestor", h, "HEAD"]).is_ok());
-    record_checkout_at(n, pr.unwrap_or(head.trim()));
+/// else HEAD (pushed again meanwhile). Can't tell: nothing recorded (an older record errs
+/// towards keeping).
+fn record_checked_out(n: u64) {
+    let Ok(pr) = fetch_pr(n, Path::new(".")) else { return };
+    let at = match diff::git(&["merge-base", "--is-ancestor", &pr, "HEAD"]) {
+        Ok(_) => pr,
+        Err(_) => diff::git(&["rev-parse", "HEAD"]).map(|h| h.trim().to_owned()).unwrap_or_default(),
+    };
+    if !at.is_empty() {
+        record_checkout_at(n, &at);
+    }
 }
 
 fn checkout_record(n: u64) -> Option<PathBuf> {
