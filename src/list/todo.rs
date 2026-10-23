@@ -170,7 +170,7 @@ impl List {
             .todos
             .items
             .iter()
-            .filter(|it| it.busy.is_some() || it.deferred.is_some() || it.waits.is_some())
+            .filter(|it| !it.is_rep() && (it.busy.is_some() || it.deferred.is_some() || it.waits.is_some()))
             .map(|it| it.number)
             // (Claude at it anywhere, a PR with no item even, a run held back too: `claude_doing`.)
             .chain(self.prs.iter().map(|p| p.number).filter(|&n| self.claude_doing(n).is_some()))
@@ -201,7 +201,7 @@ impl List {
         let mut noted = vec![];
         // (Claude at it, `claude_doing`: a run held back too; or its item put aside.)
         let busy: HashSet<u64> =
-            self.prs.iter().map(|p| p.number).filter(|&n| self.claude_doing(n).is_some() || self.todos.items.iter().any(|it| it.number == n && (it.busy.is_some() || it.deferred.is_some()))).collect();
+            self.prs.iter().map(|p| p.number).filter(|&n| self.claude_doing(n).is_some() || self.todos.items.iter().any(|it| !it.is_rep() && it.number == n && (it.busy.is_some() || it.deferred.is_some()))).collect();
         let busy = |n: u64| busy.contains(&n);
         for p in self.prs.iter().filter(|p| p.open() && p.author == self.me) {
             let Some(head) = self.extra.get(&p.number).map(|e| e.head_oid.clone()).filter(|h| !h.is_empty()) else { continue };
@@ -667,12 +667,9 @@ impl List {
             // Held back (Claude at it where it'd work): at it, as far as anything here goes.
             Some(batch::Status::Busy(..)) => Some(self.running.get(&n).cloned().unwrap_or_else(|| format!("held back from {}", doing()))),
             _ if self.running.contains_key(&n) => self.running.get(&n).cloned(),
-            // Its replacement being drafted (from anywhere), or (published as it) Claude at its
-            // draft: nothing on it meanwhile.
-            _ => self.drafting_replacement(n).then(|| "drafting a replacement".to_owned()).or_else(|| {
-                let r = self.rep_of.values().find(|r| r.published == Some(n))?;
-                self.running_reps.get(&r.id).cloned()
-            }),
+            // Its replacement being drafted (from anywhere): nothing on it meanwhile. (Claude at a
+            // published one's draft is at its PR: `running`, `watch_running`.)
+            _ => self.drafting_replacement(n).then(|| "drafting a replacement".to_owned()),
         }
     }
 
@@ -706,6 +703,12 @@ impl List {
                     (_, Some(r)) => reps.insert(r, doing.into()),
                     _ => None,
                 };
+            }
+        }
+        // A published replacement's: its PR's (Claude at it is at that PR, one map for it).
+        for (id, p) in self.rep_of.values().filter_map(|r| Some((r.id, r.published?))).collect::<Vec<_>>() {
+            if let Some(w) = reps.remove(&id) {
+                now.entry(p).or_insert(w);
             }
         }
         let changed = now != self.running || reps != self.running_reps;
