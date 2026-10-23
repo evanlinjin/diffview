@@ -9,4 +9,9 @@
         b                                                                                        claude could review            │
                                                                                                                                 │
 
+    #1  Fix fees  [✗ 2 checks failing]                                                           CI ✓1 ✗2              2026-01  │ (placed since Claude ranked) a fee bug —
+    3.  @amy   +0 −0 in 1 file                                                                                                  │ it rounds the wrong way for some
+        b                                                                                        claude could review            │ wallets, reported twice
+                                                                                                                                │ → review it, then ask for a test
+
  ? keys                                                                                                         ranked 1h ago, cost $0.38, since: 1 changed  ·  auto off

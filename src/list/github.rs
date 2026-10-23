@@ -331,10 +331,14 @@ impl List {
                     (_, Some(id)) => id.parse().is_ok_and(|id: u64| self.rep_of.contains_key(&id)),
                     _ => true,
                 });
-                if self.todos.deferred.len() != before {
-                    self.save_defer();
+                if self.todos.deferred.len() != before
+                    && let Some(e) = self.todos.save()
+                {
+                    self.msg = e;
                 }
-                self.find_others(); // (against the list as it is now: one gone from it, looked up)
+                // (What's waited on, looked up again against this fetch: `find_others`, in
+                // `find_todo` below; what's final kept.)
+                self.others.retain(|_, s| s == "MERGED" || s == "CLOSED");
                 self.prune_marks();
                 self.find_new();
                 self.find_todo();

@@ -492,8 +492,8 @@ impl List {
         let reviews: Vec<&(String, String, i64)> = extra.into_iter().flat_map(|e| &e.reviews).filter(|r| r.2 > since).collect();
         match c {
             todo::Until::Time(t) => crate::claude::now_secs() >= *t,
-            todo::Until::Merged(n) => state(*n).is_some_and(|s| s == "MERGED"),
-            todo::Until::Closed(n) => state(*n).is_some_and(|s| s == "MERGED" || s == "CLOSED"),
+            // (Merged, or closed unmerged: nothing more to wait for, as for a push to it.)
+            todo::Until::Merged(n) | todo::Until::Closed(n) => state(*n).is_some_and(|s| s == "MERGED" || s == "CLOSED"),
             todo::Until::Green => todo::green(pr.and_then(|p| p.checks)),
             // (Approved already when deferred: an approval since, not its standing decision.)
             todo::Until::Approved(None) => since == 0 && pr.is_some_and(|p| p.decision == "APPROVED") || reviews.iter().any(|r| r.1 == "APPROVED"),
@@ -503,7 +503,7 @@ impl List {
             todo::Until::Reviewed(None) => reviews.iter().any(|r| r.0 != self.me && pr.is_some_and(|p| r.0 != p.author)),
             // (Or no more pushes to come: merged, closed.)
             todo::Until::PushedTo(n, head) => {
-                self.extra.get(n).is_some_and(|e| todo::Until::moved_past(head, &e.head_oid)) || state(*n).is_some_and(|s| s != "OPEN")
+                self.extra.get(n).is_some_and(|e| todo::Until::moved_past(head, &e.head_oid)) || state(*n).is_some_and(|s| s == "MERGED" || s == "CLOSED")
             }
             todo::Until::Pushed(head) => extra.is_some_and(|e| todo::Until::moved_past(head, &e.head_oid)),
         }
@@ -581,11 +581,11 @@ impl List {
     /// aren't), from GitHub.
     pub(super) fn find_others(&mut self) {
         // What deferrals and conversations wait on (`Until::other_pr`), not listed, not looked up
-        // already (being, or found merged or closed: final).
+        // already: once a list's fetch (`apply_list` forgets what isn't final: merged, closed).
         let conds = self.todos.deferred.values().filter_map(|d| d.cond.as_ref()).chain(self.todos.items.iter().filter_map(|it| it.waits.as_ref().map(|w| &w.0)));
         let mut waited: Vec<u64> = conds
             .filter_map(todo::Until::other_pr)
-            .filter(|n| !self.prs.iter().any(|p| p.number == *n) && !self.others_pending.contains(n) && !self.others.get(n).is_some_and(|s| s != "OPEN"))
+            .filter(|n| !self.prs.iter().any(|p| p.number == *n) && !self.others_pending.contains(n) && !self.others.contains_key(n))
             .collect();
         waited.sort();
         waited.dedup();
@@ -594,7 +594,8 @@ impl List {
         }
         self.others_pending.extend(&waited);
         let (tx, rx) = mpsc::channel();
-        std::thread::spawn(move || _ = tx.send(waited.into_iter().filter_map(|n| Some((n, gh::pr_state(n).ok()??))).collect()));
+        // (Not found, an issue's number say: "?", not asked again till the next fetch.)
+        std::thread::spawn(move || _ = tx.send(waited.into_iter().map(|n| (n, gh::pr_state(n).ok().flatten().unwrap_or_else(|| "?".into()))).collect()));
         self.others_rx.push(rx);
     }
 

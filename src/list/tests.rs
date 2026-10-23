@@ -360,7 +360,7 @@ fn todo_tab() {
     l.prs[0].checks = Some((1, 2, 0));
     l.todos.ranked.as_mut().unwrap().items[0].1 = "a fee bug — it rounds the wrong way for some wallets, reported twice\nreview it, then ask for a test".into();
     l.find_todo();
-    snapshot("list_todo_wide", &screen(170, 12, |f| l.draw(f)));
+    snapshot("list_todo_wide", &screen(170, 17, |f| l.draw(f)));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
