@@ -143,6 +143,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Opts> {
             "replace-info" => o.cmd = Some("replace-info"),
             // For `dv list`'s batch reviews: a process of its own, as it changes directory.
             "prepare-worktree" => o.cmd = Some("prepare-worktree"),
+            "merge-run" => o.cmd = Some("merge-run"),
             _ if a.starts_with('-') => anyhow::bail!("unknown flag {a}\n{USAGE}"),
             _ if !a.is_empty() && a.bytes().all(|b| b.is_ascii_digit()) && o.pr.is_some() && o.cmd == Some("replace") => {
                 o.more.push(num(Some(a))?)
@@ -228,6 +229,11 @@ fn run() -> anyhow::Result<()> {
     }
     match o.cmd {
         Some("install-skill") => return install_skill(),
+        // (A merge's pane: the script, holding the merge lock for its whole run.)
+        Some("merge-run") => {
+            let st = merge::run_locked(o.pr.context("merge-run needs a PR number")?)?;
+            std::process::exit(st.code().unwrap_or(1));
+        }
         Some("prepare-worktree") => {
             let n = o.pr.context("prepare-worktree needs a PR number")?;
             let known = gh::pr(Some(n)).ok();
@@ -972,7 +978,7 @@ fn dv_worktrees_by_name() {
     }
 }
 
-fn common_dir(d: &Path) -> anyhow::Result<String> {
+pub(crate) fn common_dir(d: &Path) -> anyhow::Result<String> {
     Ok(diff::git(&["-C", &d.to_string_lossy(), "rev-parse", "--path-format=absolute", "--git-common-dir"])?.trim().to_owned())
 }
 

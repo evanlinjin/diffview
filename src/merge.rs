@@ -79,6 +79,22 @@ fn command(n: u64) -> Result<(PathBuf, Vec<String>)> {
     Ok((main, argv))
 }
 
+/// The merge lock of the repo checked out at `main` (in its git dir): held by a script's run,
+/// start to end (`run_locked`); a run that dies lets go.
+fn lock(main: &std::path::Path) -> Result<std::fs::File> {
+    let p = PathBuf::from(crate::common_dir(main)?).join("dv-merge.lock");
+    Ok(std::fs::File::options().create(true).truncate(false).write(true).open(p)?)
+}
+
+/// `dv merge-run N` (a merge's pane, or a merge here): the script for PR `n`, in the main
+/// checkout, holding the merge lock till it's done.
+pub fn run_locked(n: u64) -> Result<std::process::ExitStatus> {
+    let (main, argv) = command(n)?;
+    let held = lock(&main)?;
+    held.try_lock().map_err(|_| anyhow::anyhow!("github-merge.py is merging in {} already: once it's done", main.display()))?;
+    std::process::Command::new(&argv[0]).args(&argv[1..]).current_dir(&main).status().context("running python3")
+}
+
 /// Shell that gives a command git config `pairs` (key, shell word for its value), for its run.
 fn config_prefix(pairs: &[(&str, String)]) -> String {
     let mut set = format!("export GIT_CONFIG_COUNT={}; ", pairs.len());
@@ -126,11 +142,10 @@ pub fn waits(n: u64) -> Option<String> {
         Ok((main, _)) => main,
         Err(e) => return Some(format!("{e:#}")),
     };
-    // Nor while the script's at a merge there already (its branch checked out: from any dv, a
-    // pane at its sign-off): a second would switch it away, and delete its merge.
-    let on = crate::diff::git(&["-C", &main.to_string_lossy(), "branch", "--show-current"]).unwrap_or_default();
-    if on.trim().starts_with("pull/") && on.trim().ends_with("/local-merge") {
-        return Some(format!("github-merge.py is merging in {} ({}): once it's done", main.display(), on.trim()));
+    // Nor while the script's at a merge there already (from any dv: its sign-off, its push
+    // prompt): a second would switch the checkout away, and drop its merge.
+    if lock(&main).is_ok_and(|l| l.try_lock().is_err()) {
+        return Some(format!("github-merge.py is merging in {}: once it's done", main.display()));
     }
     // Nor under Claude at work there, on whatever PR (its edits would land on the base branch).
     if let Some(w) = crate::claude::at_work_in(&main, None) {
@@ -162,8 +177,11 @@ pub fn merge(n: u64, pane: bool) -> Result<String> {
         anyhow::bail!("not merged: {why}");
     }
     let removed = clear_worktree(n)?;
-    let (main, argv) = command(n)?;
+    let (main, _) = crate::worktree_dir(n)?;
     let first = removed.map_or(String::new(), |r| format!("{r}; "));
+    // dv's own run of it (`merge-run`), with dv's PATH (a zellij pane has zellij's).
+    let path = format!("PATH={}", std::env::var("PATH").unwrap_or_default());
+    let argv: Vec<String> = vec!["env".into(), path, crate::self_exe().to_string_lossy().into_owned(), "merge-run".into(), n.to_string()];
     if pane {
         let st = std::process::Command::new("zellij")
             .args(["run", "--close-on-exit", "--name", &format!("github-merge.py #{n}"), "--cwd"])
@@ -178,7 +196,7 @@ pub fn merge(n: u64, pane: bool) -> Result<String> {
         return Ok(format!("{first}merging #{n} with github-merge.py in its own pane"));
     }
     eprintln!("\n{first}github-merge.py {n}, in {}:\n", main.display());
-    let st = std::process::Command::new(&argv[0]).args(&argv[1..]).current_dir(&main).status().context("running python3")?;
+    let st = run_locked(n)?;
     eprint!("\ngithub-merge.py is done ({st}). Enter goes back to dv… ");
     let mut line = String::new();
     _ = std::io::stdin().read_line(&mut line);
