@@ -93,6 +93,9 @@ impl App {
         if self.seen.keys.len() != before
             && let Some(p) = &self.seen.path
         {
+            // (Another view's, written since: kept, merged in.)
+            let on_disk: HashSet<String> = std::fs::read_to_string(p).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+            self.seen.keys.extend(on_disk);
             let mut keys: Vec<&String> = self.seen.keys.iter().collect();
             keys.sort();
             // ponytail: rewrites the whole set; fine for a PR's worth of comments.
