@@ -177,7 +177,7 @@ impl List {
             .filter(|it| it.busy.is_some() || it.deferred.is_some() || it.waits.is_some())
             .map(|it| it.number)
             // (Claude at it anywhere, a PR with no item even, a run held back too: `claude_doing`.)
-            .chain(self.running.keys().chain(self.batch.keys()).copied().filter(|&n| self.claude_doing(n).is_some()))
+            .chain(self.prs.iter().map(|p| p.number).filter(|&n| self.claude_doing(n).is_some()))
             .chain(run.iter().map(|r| r.0))
             .chain(closing.iter().copied())
             .chain(self.prs.iter().filter(|p| p.author == self.me).map(|p| p.number))
@@ -661,8 +661,12 @@ impl List {
             // Held back (Claude at it where it'd work): at it, as far as anything here goes.
             Some(batch::Status::Busy(..)) => Some(self.running.get(&n).cloned().unwrap_or_else(|| format!("held back from {}", doing()))),
             _ if self.running.contains_key(&n) => self.running.get(&n).cloned(),
-            // Its replacement being drafted (from anywhere): nothing on it meanwhile.
-            _ => self.drafting_replacement(n).then(|| "drafting a replacement".to_owned()),
+            // Its replacement being drafted (from anywhere), or (published as it) Claude at its
+            // draft: nothing on it meanwhile.
+            _ => self.drafting_replacement(n).then(|| "drafting a replacement".to_owned()).or_else(|| {
+                let r = self.rep_of.values().find(|r| r.published == Some(n))?;
+                self.running_reps.get(&r.id).cloned()
+            }),
         }
     }
 
