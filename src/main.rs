@@ -845,10 +845,17 @@ pub(crate) fn last_checkout(n: u64) -> Option<String> {
 
 /// Note what PR `n` is checked out at now (checked out, or pushed: GitHub has it), for
 /// `only_here` next time.
-pub(crate) fn record_checkout(n: u64) {
-    let (Some(p), Ok(head)) = (checkout_record(n), diff::git(&["rev-parse", "HEAD"])) else { return };
+fn record_checkout(n: u64) {
+    if let Ok(head) = diff::git(&["rev-parse", "HEAD"]) {
+        record_checkout_at(n, head.trim());
+    }
+}
+
+/// `record_checkout`, at `sha`.
+pub(crate) fn record_checkout_at(n: u64, sha: &str) {
+    let Some(p) = checkout_record(n) else { return };
     _ = std::fs::create_dir_all(p.parent().unwrap_or(&p));
-    _ = std::fs::write(p, head.trim());
+    _ = std::fs::write(p, sha);
 }
 
 /// Already at PR `p`'s head as `gh pr checkout` would leave it (`detach`ed, or on its branch),

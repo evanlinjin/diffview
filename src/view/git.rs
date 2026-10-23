@@ -402,10 +402,12 @@ impl App {
     /// dv knows it (it looks every few seconds): a push there it hasn't seen yet stops it.
     pub(super) fn push(&mut self, force: bool) -> Result<String> {
         let (remote, branch, name) = self.push_target()?;
+        // What's pushed, and recorded as pushed: HEAD as it is now (a commit while it's sent, not).
+        let sha = diff::git(&["rev-parse", "HEAD"])?.trim().to_owned();
         // Nothing of its own over its base: pushed, GitHub would close the PR (no commits).
         if let Some(p) = &self.pr {
             let base = diff::remote_branch(&p.base);
-            let own = diff::git(&["rev-list", "--count", &format!("{base}..HEAD")]).unwrap_or_default();
+            let own = diff::git(&["rev-list", "--count", &format!("{base}..{sha}")]).unwrap_or_default();
             anyhow::ensure!(own.trim() != "0", "not pushed: HEAD has no commits over {base}, and GitHub would close #{} for it (is this checkout on the PR?)", p.number);
         }
         let lease = format!("--force-with-lease=refs/heads/{branch}:{}", self.their_head(&remote, &branch));
@@ -413,14 +415,14 @@ impl App {
         if force {
             args.push(&lease);
         }
-        let to = format!("HEAD:refs/heads/{branch}");
+        let to = format!("{sha}:refs/heads/{branch}");
         args.extend([remote.as_str(), to.as_str()]);
         diff::git(&args)?;
         // The PR's head is what was just pushed (its next fetch says so too); GitHub's, so not
         // work only here once the PR moves on (`only_here`).
-        if let (Some(p), Ok(h)) = (&mut self.pr, diff::git(&["rev-parse", "HEAD"])) {
-            p.head_oid = h.trim().to_owned();
-            crate::record_checkout(p.number);
+        if let Some(p) = &mut self.pr {
+            crate::record_checkout_at(p.number, &sha);
+            p.head_oid = sha;
         }
         let next = match self.threads.iter().any(Thread::by_claude) {
             true => " · Space a → Update Claude's review looks at just what's new",
