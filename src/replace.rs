@@ -341,10 +341,21 @@ pub fn worktree(r: &Record, root: &Path) -> Result<PathBuf> {
     _ = git(&["worktree", "prune"]);
     _ = git(&["fetch", "-q", &crate::diff::remote(), &r.base]);
     let (b, d) = (branch(r.id), dir.to_string_lossy().into_owned());
+    // Its branch, else made: from its PR's head once published (that's what it is), else its base.
+    let start = match r.published {
+        Some(p) => {
+            let at = format!("refs/dv/pull/{p}");
+            git(&["fetch", "-q", &crate::diff::remote(), &format!("+refs/pull/{p}/head:{at}")]).map(|_| at)?
+        }
+        None => crate::diff::remote_branch(&r.base),
+    };
     match git(&["rev-parse", "--verify", "-q", &format!("refs/heads/{b}")]) {
         Ok(_) => git(&["worktree", "add", &d, &b])?,
-        Err(_) => git(&["worktree", "add", "-b", &b, &d, &crate::diff::remote_branch(&r.base)])?,
+        Err(_) => git(&["worktree", "add", "-b", &b, &d, &start])?,
     };
+    if r.published.is_some() {
+        _ = git(&["update-ref", "-d", &start]);
+    }
     Ok(dir)
 }
 

@@ -437,7 +437,7 @@ pub fn at_work_in(dir: &std::path::Path, own: Option<&str>) -> Option<String> {
     // screen says), at it or asking you something.
     marked.or_else(|| {
         crate::view::in_zellij().then_some(())?;
-        panes.get_or_init(crate::pane::open).iter().filter(|p| p.2.starts_with(dir)).find_map(|p| crate::pane::claude_doing(p).map(str::to_owned))
+        panes.get_or_init(crate::pane::open).iter().filter(|p| p.2.starts_with(dir) && own.is_none_or(|s| !p.1.contains(s))).find_map(|p| crate::pane::claude_doing(p).map(str::to_owned))
     })
 }
 

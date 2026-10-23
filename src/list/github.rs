@@ -352,8 +352,8 @@ impl List {
     /// (not each one `j` passes): opening it then needn't wait on that, nor, the first time,
     /// on its comments (most of what opening a PR takes).
     pub(super) fn prefetch(&mut self) {
-        // Not a replacement (its number is its own, not a PR's).
-        let n = self.selected().filter(|s| !s.1).map(|s| s.0);
+        // Its PR (a published replacement's card: its PR, as Enter opens it).
+        let n = self.card_pr();
         if n != self.prefetched.0 {
             self.prefetched = (n, Some(std::time::Instant::now()), false);
         }

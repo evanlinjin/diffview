@@ -894,6 +894,7 @@ fn enter_worktree(n: u64, branch: bool, force: bool, known: Option<&gh::Pr>) -> 
         progress(Some(&format!("creating the worktree {}", dir.display())));
         // (Its own ref, not FETCH_HEAD: `dv list` prepares several worktrees at once.)
         let at = format!("refs/dv/pull/{n}");
+        _ = diff::git(&["worktree", "prune"]); // (one deleted, not removed: registered, in the way)
         diff::git(&["fetch", "-q", &crate::diff::remote(), &format!("+refs/pull/{n}/head:{at}")])?;
         diff::git(&["worktree", "add", "--detach", &dir.to_string_lossy(), &at])?;
         _ = diff::git(&["update-ref", "-d", &at]); // (its HEAD keeps the commit)
@@ -979,6 +980,10 @@ pub(crate) fn pr_worktrees() -> Vec<(u64, PathBuf, Option<String>)> {
     for block in list.split("\n\n") {
         let field = |k: &str| block.lines().find_map(|l| l.strip_prefix(k));
         let Some(path) = field("worktree ").map(PathBuf::from) else { continue };
+        // (One whose directory was deleted, not removed: gone.)
+        if field("prunable").is_some() {
+            continue;
+        }
         let n = path.file_name().and_then(|f| f.to_str()?.strip_prefix(&format!("{name}-"))?.parse().ok());
         if let (Some(n), true) = (n, path.parent() == Some(parent)) {
             out.push((n, path, field("branch refs/heads/").map(str::to_owned)));
@@ -1111,7 +1116,9 @@ fn ensure_ours(dir: &Path) -> anyhow::Result<()> {
 pub(crate) fn remove_worktree(n: u64, force: bool) -> anyhow::Result<String> {
     let (main, dir) = worktree_dir(n)?;
     if !dir.exists() {
-        anyhow::bail!("no worktree at {}", dir.display());
+        // (Deleted, not removed: what git still has of it let go.)
+        _ = diff::git(&["-C", &main.to_string_lossy(), "worktree", "prune"]);
+        return Ok(format!("no worktree at {} (its directory gone; let go)", dir.display()));
     }
     ensure_ours(&dir)?;
     // Not under Claude at work there (a run, a pane: on it, or in it on any key): its claim,
