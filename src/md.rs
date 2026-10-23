@@ -267,8 +267,13 @@ impl R<'_> {
                 }
             }
             TagEnd::Item => self.flush(),
-            // (What's unclosed ends with its block.)
-            TagEnd::HtmlBlock => self.carry.clear(),
+            // (What's unclosed ends with its block: a tag, a comment, a summary's title.)
+            TagEnd::HtmlBlock => {
+                self.carry.clear();
+                if self.summary {
+                    self.html_tag("</summary>");
+                }
+            }
             TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough => _ = self.style.pop(),
             TagEnd::Link | TagEnd::Image => {
                 self.style.pop();
@@ -303,7 +308,10 @@ impl R<'_> {
         // the next, `carry`; the block's end lets it go.)
         let h = std::mem::take(&mut self.carry) + h;
         let (mut rest, mut lead) = (h.as_str(), true);
-        while let Some(a) = rest.find('<') {
+        // (A `<` starts a tag only before a letter, `/` or `!`, as HTML reads it: `a < b` is
+        // text.)
+        let tag_at = |s: &str| s.match_indices('<').map(|(i, _)| i).find(|&i| s[i + 1..].starts_with(|c: char| c.is_ascii_alphabetic() || c == '/' || c == '!'));
+        while let Some(a) = tag_at(rest) {
             self.html_text(&rest[..a], lead);
             lead = false;
             let close = if rest[a..].starts_with("<!--") { "-->" } else { ">" };
@@ -725,4 +733,7 @@ fn github_html_alerts_and_wide_text() {
     assert_eq!(r("See <a href=https://x>docs</a> here", 60)[0].links[0].2, "https://x");
     assert_eq!(r("See <a href='https://y'>docs</a>", 60)[0].links[0].2, "https://y");
     assert_eq!(texts(r("<details>\n<summary>\nTitle\n</summary>\n\nBody\n</details>", 60))[0], "▸ Title");
+    // A `<` that starts no tag is text; a summary left open ends with its block.
+    assert_eq!(texts(r("<div>\na < b\nmore text\n</div>", 60)), ["a < b", "more text"]);
+    assert_eq!(texts(r("<details><summary>Title\n\nBody\n</details>\n\nafter", 60)), ["▸ Title", "Body", "", "after"]);
 }
