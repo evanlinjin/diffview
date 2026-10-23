@@ -41,6 +41,7 @@ impl List {
             (Tab::Stalled, format!("stalled {}", self.prs.iter().filter(|p| p.open() && self.stalled(p).is_some()).count())),
             (Tab::Worktrees, format!("worktrees {}", self.local.len())),
             (Tab::Replacements, format!("drafts {}", self.reps.len())),
+            (Tab::Done, self.done.as_ref().map_or("done".into(), |d| format!("done {}{}", d.len(), if d.len() >= github::DONE_MAX { "+" } else { "" }))),
         ];
         let tabs: Vec<(String, bool)> = names.iter().map(|(t, n)| (n.clone(), self.nav.tab == *t)).collect();
         let hits = top_bar(f, ui, "PRs", &tabs, "I I the issues", sel, shown.len());
@@ -134,6 +135,8 @@ impl List {
             (Tab::Stalled, true, _) => format!(" nothing stalled: no author has left a review or a maintainer's comment unanswered for {} days or more (git config dv.stalledDays)", self.stalled_days),
             (Tab::Worktrees, true, _) => " no PR worktrees here yet: `dv N -w` (or dv list -w, then Enter) makes one".into(),
             (Tab::Replacements, true, _) => " no replacements yet: A A on a PR (or marked ones) has Claude draft one".into(),
+            (Tab::Done, true, _) if self.done.is_none() => " fetching the merged and closed PRs…".into(),
+            (Tab::Done, true, _) => " no merged or closed PRs".into(),
             (_, _, Some(n)) => format!(" #{n} isn't listed: Enter opens it anyway"),
             _ => String::new(),
         };
@@ -144,7 +147,7 @@ impl List {
 
         // (The keys: in their popup, but beside the todo tab's word on each.)
         let idle = if self.nav.tab == Tab::Todo && msg_col.is_some() { " ? keys" } else { "" };
-        let keys: &[(&str, &[&str])] = &[("is", &["draft"]), ("review", &["approved", "changes", "required", "none"]), ("ci", &["pass", "fail", "pending", "none"])];
+        let keys: &[(&str, &[&str])] = &[("is", &["draft", "merged", "closed"]), ("review", &["approved", "changes", "required", "none"]), ("ci", &["pass", "fail", "pending", "none"])];
         let left = self.nav.status(&self.msg, "author: label: base: branch: is:draft review: ci:", idle, keys);
         // On the right, how it's ordered (on the todo tab, Claude's ranking: how old, what it
         // cost, what's changed since), and the flags PRs open with.
@@ -164,6 +167,7 @@ impl List {
                 Tab::CanClose => "review (Space a there drafts a closing comment)".to_owned(),
                 Tab::Stalled => "review (H asks its author whether they need help)".to_owned(),
                 Tab::Replacements => "review it, in its worktree".to_owned(),
+                Tab::Done => "review it, as it was merged or closed".to_owned(),
                 Tab::Open if self.flags.is_empty() => "review".to_owned(),
                 Tab::Open => format!("review (dv N {})", self.flags),
             };
@@ -173,7 +177,8 @@ impl List {
                 Tab::CanClose => "stalled PRs",
                 Tab::Stalled => "PRs with a worktree",
                 Tab::Worktrees => "replacements",
-                Tab::Replacements => "what needs you",
+                Tab::Replacements => "merged and closed PRs",
+                Tab::Done => "what needs you",
             };
             let remove = if self.nav.tab == Tab::Replacements { "remove replacement" } else { "remove worktree" };
             let keys = [
@@ -249,9 +254,13 @@ pub(super) fn top_bar(f: &mut Frame, ui: &Ui, title: &str, tabs: &[(String, bool
         spans.extend([s, Span::styled(" ", hs)]);
         x += w + 1;
     }
-    spans.push(Span::styled(format!("   {other}"), dim));
-    f.render_widget(Paragraph::new(Line::from(spans)).style(hs), head);
     let pos = if n == 0 { "0 / 0 ".into() } else { format!("{} / {n} ", sel + 1) };
+    // (The other list's key where there's room for it before the count, not cut under it.)
+    let other = format!("   {other}");
+    if x as usize + other.chars().count() + pos.chars().count() < head.width as usize {
+        spans.push(Span::styled(other, dim));
+    }
+    f.render_widget(Paragraph::new(Line::from(spans)).style(hs), head);
     // Only where it goes (at the right end): over the whole line, its style would take the lit tab's.
     let w = (pos.chars().count() as u16).min(head.width);
     f.render_widget(Paragraph::new(pos).style(hs), Rect { x: head.right() - w, width: w, ..head });

@@ -1,4 +1,4 @@
- PRs   todo 0   open 3   close 0   stalled 0   worktrees 0   drafts 0     I I the issues      0 / 0
+ PRs   todo 0   open 3   close 0   stalled 0   worktrees 0   drafts 0   done                  0 / 0
 ╭ keys ────────────────────────────────────────────────────╮
 │ Enter  review (H asks its author whether they need help) │r's comment unanswered for 14 days or mo
 │ h l    PRs with a worktree                               │

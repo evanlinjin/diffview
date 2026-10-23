@@ -1,4 +1,4 @@
- PRs   todo 3   open 3   close 0   stalled 0   worktrees 0   drafts 0     I I the issues      3 / 3
+ PRs   todo 3   open 3   close 0   stalled 0   worktrees 0   drafts 0   done                  3 / 3
 ▌   #2  Docs                                      ╭ keys ──────────────────────────────────────────╮
 ▌   3.  → z                                       │ Enter  see to it (opens the PR or replacement) │
 ▌       @bo   +0 −0 in 1 file                     │ h l    open PRs                                │

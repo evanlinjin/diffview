@@ -1,4 +1,4 @@
- PRs   todo 0   open 3   close 0   stalled 0   worktrees 0   drafts 0     I I the issues      2 / 3
+ PRs   todo 0   open 3   close 0   stalled 0   worktrees 0   drafts 0   done                  2 / 3
       #1  Fix CI                                                                            2026-03
           @ann   +1 −0 in 1 file
           claude reviewed
@@ -6,50 +6,50 @@
 
 ▌    #22  Add docs   DRAFT   [new]                                                          2026-01
 ▌         @bo   +22 −0 in 1 file    docs
-╭ dv list keys ─────────────────────────────────────────────────────────────────── any key closes ╮
-│  MOVE                                                                                           │
-│   j k, Up Down         move                                                                     │
-│   gg ge                first / last PR                                                          │
-│   Ctrl-d Ctrl-u        half a page down / up                                                    │
-│   l h, gn gp           next / previous tab (todo, open, can close, stalled, worktrees, drafts)  │
-│   H                    stalled tab: ask the author whether they need help (your editor first;   │
-│                        stalled: a review or maintainer's comment unanswered dv.stalledDays, 14) │
-│   Enter                review the PR (in its worktree if it has one; q comes back)              │
-│   ?                    this help                                                                │
-│   q, Ctrl-c            quit                                                                     │
-│                                                                                                 │
-│  FIND                                                                                           │
-│   /                    filter: all terms match (Enter keeps it, Esc clears it)                  │
-│                        text: number, title, author, branch, labels                              │
-│                        author: label: base: branch:  (part of that field)                       │
-│                        is:draft  review:approved|changes|required|none                          │
-│                        ci:pass|fail|pending|none  (-term excludes)                              │
-│   Esc                  clear the filter (none: quit)                                            │
-│   o O                  next sort order (created, number, size, updated) / reverse               │
-│   R                    refresh from GitHub (no Claude)                                          │
-│                                                                                                 │
-│  TODO                                                                                           │
-│   r r                  Claude ranks what needs you (one run; the bar says its cost)             │
-│   s                    defer it: 1 an hour, 4 four hours, d a day, w a week, u until…           │
-│                        (s on a deferred one brings it back)                                     │
-│   p                    post what it waits on (dv reads the comment back, for everyone)          │
-│   a a                  Claude does its part (answers, updates or writes its review)             │
-│                                                                                                 │
-│  CLAUDE                                                                                         │
-│   m                    mark the PR (again: unmark; marks are kept)                              │
-│   U U                  unmark all                                                               │
-│   a a                  Claude reviews the marked PRs (or this one), two at a time               │
-│   A A                  Claude drafts a replacement (unpublished, on the drafts tab)             │
-│   N N                  Claude drafts a new PR from what you write (unpublished)                 │
-│   C                    auto: Claude does its part as things come in (git config dv.auto)        │
-│                                                                                                 │
-│  PR                                                                                             │
-│   b b                  ask the author to rebase (a comment; todo waits for their push)          │
-│   W W                  approve its workflow runs (GitHub holds a first-timer's)                 │
-│   M M                  merge with github-merge.py (dv.mergescript: your own copy)               │
-│   I I                  the issues (dv issues opens there)                                       │
-│   D D                  remove a worktree or draft (their tabs; not with unpushed work)          │
-╰─────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭ dv list keys ──────────────────────────────────────────────────────────────────── any key closes ╮
+│  MOVE                                                                                            │
+│   j k, Up Down         move                                                                      │
+│   gg ge                first / last PR                                                           │
+│   Ctrl-d Ctrl-u        half a page down / up                                                     │
+│   l h, gn gp           next / previous tab (todo, open, close, stalled, worktrees, drafts, done) │
+│   H                    stalled tab: ask the author whether they need help (your editor first;    │
+│                        stalled: a review or maintainer's comment unanswered dv.stalledDays, 14)  │
+│   Enter                review the PR (in its worktree if it has one; q comes back)               │
+│   ?                    this help                                                                 │
+│   q, Ctrl-c            quit                                                                      │
+│                                                                                                  │
+│  FIND                                                                                            │
+│   /                    filter: all terms match (Enter keeps it, Esc clears it)                   │
+│                        text: number, title, author, branch, labels                               │
+│                        author: label: base: branch:  (part of that field)                        │
+│                        is:draft|merged|closed  review:approved|changes|required|none             │
+│                        ci:pass|fail|pending|none  (-term excludes)                               │
+│   Esc                  clear the filter (none: quit)                                             │
+│   o O                  next sort order (created, number, size, updated) / reverse                │
+│   R                    refresh from GitHub (no Claude)                                           │
+│                                                                                                  │
+│  TODO                                                                                            │
+│   r r                  Claude ranks what needs you (one run; the bar says its cost)              │
+│   s                    defer it: 1 an hour, 4 four hours, d a day, w a week, u until…            │
+│                        (s on a deferred one brings it back)                                      │
+│   p                    post what it waits on (dv reads the comment back, for everyone)           │
+│   a a                  Claude does its part (answers, updates or writes its review)              │
+│                                                                                                  │
+│  CLAUDE                                                                                          │
+│   m                    mark the PR (again: unmark; marks are kept)                               │
+│   U U                  unmark all                                                                │
+│   a a                  Claude reviews the marked PRs (or this one), two at a time                │
+│   A A                  Claude drafts a replacement (unpublished, on the drafts tab)              │
+│   N N                  Claude drafts a new PR from what you write (unpublished)                  │
+│   C                    auto: Claude does its part as things come in (git config dv.auto)         │
+│                                                                                                  │
+│  PR                                                                                              │
+│   b b                  ask the author to rebase (a comment; todo waits for their push)           │
+│   W W                  approve its workflow runs (GitHub holds a first-timer's)                  │
+│   M M                  merge with github-merge.py (dv.mergescript: your own copy)                │
+│   I I                  the issues (dv issues opens there)                                        │
+│   D D                  remove a worktree or draft (their tabs; not with unpushed work)           │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 
 
 

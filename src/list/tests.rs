@@ -39,6 +39,19 @@ fn filter_and_keys() {
     assert_eq!(l.nav.unknown(keys).as_deref(), Some("-is:merged: not a filter here (is:draft)"));
     filter(&mut l, "fix: ci:f");
     assert_eq!(l.nav.unknown(keys), None); // (`fix:` is text; `ci:f`, fail's start)
+    // The done tab: merged and closed PRs, to read (filtered as the others; nothing acts on them).
+    let mut merged = pr(7, "Old fix", "ann", "2025-12");
+    merged.state = "MERGED".into();
+    let mut closed = pr(8, "Dropped", "bo", "2025-11");
+    closed.state = "CLOSED".into();
+    (l.done, l.nav.tab) = (Some(vec![merged, closed]), Tab::Done);
+    assert_eq!(filter(&mut l, ""), [7, 8]);
+    assert_eq!(filter(&mut l, "is:merged"), [7]);
+    assert_eq!(filter(&mut l, "-is:merged is:closed"), [8]);
+    filter(&mut l, "");
+    assert!(k(&mut l, KeyCode::Char('m')).is_none() && l.marked.is_empty() && l.msg.contains("to read"));
+    assert!(matches!(k(&mut l, KeyCode::Enter), Some(Do::Open(7))));
+    l.nav.tab = Tab::Open;
     l.nav.query.clear();
     // `/` types a filter; Enter keeps it, Esc (out of filter mode) clears it.
     k(&mut l, KeyCode::Char('/'));

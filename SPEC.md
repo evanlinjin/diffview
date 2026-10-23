@@ -392,7 +392,8 @@ cursor line), with a bar down its left edge. `j k`, `gg ge`, `Ctrl-d Ctrl-u` mov
 `o` cycles the order (created, the default / number / size / updated, newest or biggest first), `O`
 reverses it. `/` edits the filter (Enter keeps, Esc clears): space-separated terms that must
 all match, GitHub-search style, `-` negating one: `author:` `label:` `base:` `branch:`
-(substring), `is:draft`, `review:approved|changes|required|none`, `ci:pass|fail|pending|none`,
+(substring), `is:draft|merged|closed`, `review:approved|changes|required|none`, `ci:pass|fail|pending|none`
+(a value a key doesn't take, `is:foo`, is said: not a filter here),
 anything else is text in the number, title, author, branch or labels (smart case). E.g.
 `ci:fail -is:draft -author:dependabot`. `Enter` reviews the PR as `dv <N> <flags>` would, `R`
 refreshes, `q` quits. The mouse: a click selects a card, a double-click opens it, a click on a
@@ -403,7 +404,7 @@ the background (after your editor, for optional instructions to every one of tho
 from your last review instructions in this repo, as `Space a` → review does; `:cq` cancels), two at a time, each in its `<repo>-N` worktree (made if need be; one on the
 PR's branch stays on it) and its own session; cards show `claude: reviewing…` and then
 `claude ✓`. `A A` has Claude draft one replacement for the marked PRs (or the selected
-one): see Replacements below. `l` / `h` (or `gn` / `gp`) go round todo / open / can close / worktrees / replacements. Can close: the open PRs Claude's review would close (its `"close"`: one line on why, its premise is wrong or a competing PR does it better, which the card shows under its title, `✕ …`); Enter reviews one, where `Space a` drafts a comment closing it. `[new]` (before the age) marks a PR with something you haven't seen: GitHub updated
+one): see Replacements below. `l` / `h` (or `gn` / `gp`) go round todo / open / can close / stalled / worktrees / drafts / done. Done: the last 100 merged and closed PRs (most recently updated first, fetched the first time it's shown, and on `R`), to read: Enter reviews one; nothing else acts on them (marks, Claude, merging, deferring say so). Can close: the open PRs Claude's review would close (its `"close"`: one line on why, its premise is wrong or a competing PR does it better, which the card shows under its title, `✕ …`); Enter reviews one, where `Space a` drafts a comment closing it. `[new]` (before the age) marks a PR with something you haven't seen: GitHub updated
 it, or Claude's review changed, since you last left it in dv (`seen/pr-N.looked`); of PRs
 you've never opened, only those Claude has reviewed. `D D` in the worktrees tab removes the worktree (not with local changes; the branch
 stays). Quitting the review returns to the list; if opening a PR fails, the

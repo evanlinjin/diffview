@@ -62,6 +62,9 @@ pub struct List {
     local: HashMap<u64, (PathBuf, Option<String>)>,
     /// Replacements (`replace.rs`), as cards (`number`: the replacement's), and their records.
     reps: Vec<Listed>,
+    /// The done tab's merged and closed PRs: fetched the first time it's shown (and on `R`).
+    done: Option<Vec<Listed>>,
+    done_rx: Option<Receiver<Result<Vec<Listed>>>>,
     rep_of: HashMap<u64, crate::replace::Record>,
     /// Replacements Claude is drafting: how each is going, and the news on its way.
     drafting: HashMap<u64, batch::Status>,
@@ -278,6 +281,21 @@ impl List {
                 self.group_rx = None;
                 self.draft_groups(term, res);
             }
+            // The done tab, the first time it's shown: its PRs fetched.
+            if self.nav.tab == Tab::Done && self.done.is_none() && self.done_rx.is_none() {
+                let (tx, rx) = mpsc::channel();
+                std::thread::spawn(move || _ = tx.send(github::done()));
+                (self.done_rx, self.msg) = (Some(rx), "fetching the merged and closed PRs…".into());
+            }
+            if let Some(Ok(res)) = self.done_rx.as_ref().map(Receiver::try_recv) {
+                self.done_rx = None;
+                // (Failed: none, said; R asks again.)
+                self.msg = match &res {
+                    Ok(_) => String::new(),
+                    Err(e) => format!("merged and closed PRs: {e:#} (R tries again)"),
+                };
+                self.done = Some(res.unwrap_or_default());
+            }
             // Quietly: what you're reading stays (an error just waits for the next try).
             if let Some(Ok(Ok(prs))) = self.fresh.as_ref().map(|(_, rx)| rx.try_recv()) {
                 self.apply_list(Ok(prs), true);
@@ -331,6 +349,7 @@ impl List {
                 }
                 Some(Do::Issues) => return Ok(Some(Pick { number: 0, replacement: false, merge: false, issues: true, pr: None })),
                 Some(Do::Refresh) => {
+                    self.done = None; // (fetched again when it's shown)
                     self.refresh(term)?;
                 }
                 Some(Do::Review(prs)) => {
@@ -820,6 +839,7 @@ impl List {
         };
         let all: Vec<(&Listed, Option<&crate::todo::Item>)> = match self.nav.tab {
             Tab::Replacements => self.reps.iter().map(|r| (r, None)).collect(),
+            Tab::Done => self.done.iter().flatten().map(|p| (p, None)).collect(),
             Tab::Todo => self.todo_shown().into_iter().map(|(card, it)| (card, Some(it))).collect(),
             _ => self.prs.iter().filter(in_tab).map(|p| (p, None)).collect(),
         };
@@ -887,6 +907,8 @@ enum Tab {
     Stalled,
     Worktrees,
     Replacements,
+    /// Merged and closed PRs, to read: no todo, auto, marks or worktrees.
+    Done,
 }
 
 impl Tabs for Tab {
@@ -897,12 +919,13 @@ impl Tabs for Tab {
             Tab::CanClose => Tab::Stalled,
             Tab::Stalled => Tab::Worktrees,
             Tab::Worktrees => Tab::Replacements,
-            Tab::Replacements => Tab::Todo,
+            Tab::Replacements => Tab::Done,
+            Tab::Done => Tab::Todo,
         }
     }
 
     fn prev(self) -> Tab {
-        self.next().next().next().next().next()
+        self.next().next().next().next().next().next()
     }
 }
 
@@ -949,6 +972,8 @@ fn term(p: &Listed, t: &str) -> bool {
                 "base" => has(&p.base, v),
                 "branch" => has(&p.branch, v),
                 "is" if v == "draft" => p.draft,
+                "is" if v == "merged" => p.state == "MERGED",
+                "is" if v == "closed" => !p.open(),
                 "review" => match p.decision.as_str() {
                     "APPROVED" => "approved".starts_with(v),
                     "CHANGES_REQUESTED" => "changes".starts_with(v),

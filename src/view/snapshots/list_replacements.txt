@@ -1,4 +1,4 @@
- PRs   todo 0   open 3   close 0   stalled 0   worktrees 0   drafts 0     I I the issues      0 / 0
+ PRs   todo 0   open 3   close 0   stalled 0   worktrees 0   drafts 0   done                  0 / 0
                                                      ╭ keys ───────────────────────────────────────╮
  no PR worktrees here yet: `dv N -w` (or dv list -w, │ Enter  review, in its worktree              │
                                                      │ h l    replacements                         │

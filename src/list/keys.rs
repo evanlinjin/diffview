@@ -6,7 +6,7 @@ MOVE
   j k, Up Down         move
   gg ge                first / last PR
   Ctrl-d Ctrl-u        half a page down / up
-  l h, gn gp           next / previous tab (todo, open, can close, stalled, worktrees, drafts)
+  l h, gn gp           next / previous tab (todo, open, close, stalled, worktrees, drafts, done)
   H                    stalled tab: ask the author whether they need help (your editor first;
                        stalled: a review or maintainer's comment unanswered dv.stalledDays, 14)
   Enter                review the PR (in its worktree if it has one; q comes back)
@@ -17,7 +17,7 @@ FIND
   /                    filter: all terms match (Enter keeps it, Esc clears it)
                        text: number, title, author, branch, labels
                        author: label: base: branch:  (part of that field)
-                       is:draft  review:approved|changes|required|none
+                       is:draft|merged|closed  review:approved|changes|required|none
                        ci:pass|fail|pending|none  (-term excludes)
   Esc                  clear the filter (none: quit)
   o O                  next sort order (created, number, size, updated) / reverse
@@ -96,6 +96,12 @@ impl List {
         }
         // Moving about, the tabs (`gp` before `p` on a tab), the filter, the help.
         if self.nav.key(k, n) {
+            return None;
+        }
+        // The done tab's PRs are to read: what acts on a PR (marks, Claude, merging, deferring)
+        // isn't for them.
+        if self.nav.tab == Tab::Done && matches!(k.code, KeyCode::Char('m' | 'a' | 'A' | 'M' | 'b' | 'W' | 's' | 'p' | 'D')) {
+            self.msg = "merged and closed PRs are to read here: Enter reviews one".into();
             return None;
         }
         match k.code {

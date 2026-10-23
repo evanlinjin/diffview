@@ -79,6 +79,17 @@ pub fn list() -> Result<Vec<Listed>> {
     Ok(v.as_array().context("gh pr list")?.iter().map(listed).collect())
 }
 
+/// The last merged and closed PRs (`dv list`'s done tab), most recently updated first.
+pub fn done() -> Result<Vec<Listed>> {
+    let v: Value = gh_json(&["pr", "list", "--state", "closed", "--limit", &DONE_MAX.to_string(), "--json", LISTED])?;
+    let mut prs: Vec<Listed> = v.as_array().context("gh pr list")?.iter().map(listed).collect();
+    prs.sort_by(|a, b| b.updated.cmp(&a.updated));
+    Ok(prs)
+}
+
+/// How many merged and closed PRs the done tab fetches (`#N` opens any other).
+pub const DONE_MAX: usize = 100;
+
 pub fn listed_one(n: u64) -> Result<Listed> {
     let v: Value = gh_json(&["pr", "view", &n.to_string(), "--json", LISTED])?;
     Ok(listed(&v))
