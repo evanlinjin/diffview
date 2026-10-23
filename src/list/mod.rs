@@ -197,7 +197,8 @@ impl List {
 
     /// Show the list until a PR is picked (`Some`) or the user quits (`None`).
     pub fn run(&mut self, term: &mut DefaultTerminal) -> Result<Option<Pick>> {
-        // As saved: another dv list of this repo may have changed them meanwhile.
+        // As saved: another dv list of this repo (or the issues list) may have changed them meanwhile.
+        self.todos.auto = Todos::auto_setting();
         self.marked = load_marks();
         self.prefetched = (None, None, true); // what's selected is looked up again
         self.marked_saved = self.marked.clone();

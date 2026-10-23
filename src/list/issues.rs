@@ -373,12 +373,10 @@ pub struct Issues {
     drafts_checked: Option<std::time::Instant>,
     at_work: HashMap<String, String>,
     fetched: Option<Receiver<Fetch>>,
-    /// Claude's drafts of PRs fixing issues, under way.
-    drafts: Vec<Receiver<(u64, batch::Status)>>,
-    /// Those drafts not done yet (by id).
-    drafting: HashSet<u64>,
     /// A closing comment Claude's drafting (`batch`'s, as for a PR's), on its way; one at a time.
     claude_rx: Option<Receiver<(u64, batch::Status)>>,
+    /// The issues with a closing comment drafted (read as the triages are, as they change).
+    closing: HashSet<u64>,
     /// Auto (`C`, git config `dv.auto`, as dv list's): Claude triages what isn't triaged, and
     /// what's changed since, and ranks the todo again. Whether it's started (the first fetch
     /// in), what it's done (once each), and when it last ranked.
@@ -418,7 +416,7 @@ impl Issues {
         self.drafts_checked = Some(std::time::Instant::now());
         let Some(dir) = self.reviews_dir.as_ref().and_then(|d| d.parent()).map(|d| d.join("running")) else { return };
         self.at_work = crate::claude::sweep_running(&dir, &std::cell::OnceCell::new());
-        if draft_fix(&records(), &self.drafting, &self.at_work) != self.draft_fix {
+        if draft_fix(&records(), &self.at_work) != self.draft_fix {
             self.find_todo();
         }
     }
@@ -434,6 +432,9 @@ impl Issues {
         self.triage = self.items.iter().filter_map(|i| Some((i.number, triage_of(dir, i.number)?))).collect();
         let at = |n: u64| std::fs::metadata(dir.join(format!("issue-{n}.json"))).ok()?.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs() as i64);
         self.triage_at = self.triage.keys().filter_map(|&n| Some((n, at(n)?))).collect();
+        // (A closing comment can be drafted with no triage: Claude's ranking said close.)
+        let closing = |n: u64| std::fs::read_to_string(dir.join(format!("issue-{n}.json"))).ok().is_some_and(|t| serde_json::from_str::<Value>(&t).is_ok_and(|v| v["closing"].as_str().is_some_and(|c| !c.trim().is_empty())));
+        self.closing = self.items.iter().map(|i| i.number).filter(|&n| closing(n)).collect();
         self.find_todo();
     }
 
@@ -452,7 +453,7 @@ impl Issues {
             })
             .collect();
         // (A draft fixing it, unpublished: its record's task starts "Fix #N", as `N N` has it.)
-        self.draft_fix = draft_fix(&records(), &self.drafting, &self.at_work);
+        self.draft_fix = draft_fix(&records(), &self.at_work);
         let items: Vec<Item> = items.into_iter().filter(|it| !self.draft_fix.contains_key(&it.number)).collect();
 
         let met = self.todos.met(&items, |_, c, _| self.happened(c));
@@ -484,8 +485,7 @@ impl Issues {
         // An issue Claude would close with no closing comment drafted yet: drafted, one at a time,
         // once each (its view closes with it, your editor first).
         if self.claude_rx.is_none() && !started {
-            let dir = self.reviews_dir.clone();
-            let drafted = |n: u64| dir.as_ref().and_then(|d| std::fs::read_to_string(d.join(format!("issue-{n}.json"))).ok()).is_some_and(|t| serde_json::from_str::<Value>(&t).is_ok_and(|v| v["closing"].as_str().is_some_and(|c| !c.trim().is_empty())));
+            let drafted = |n: u64| self.closing.contains(&n);
             // (Not what you've put aside.)
             let deferred: HashSet<u64> = self.todos.items.iter().filter(|it| it.deferred.is_some()).map(|it| it.number).collect();
             let next = self.items.iter().map(|i| (i.number, i.updated.clone())).find(|(n, u)| {
@@ -544,7 +544,7 @@ impl Issues {
     /// Claude at work from here: triaging, drafting a fix or a closing comment, ranking.
     pub fn busy(&self) -> bool {
         // (A view's run left at work counts too: `claude::claims_held`.)
-        self.running.values().any(batch::Status::running) || !self.drafting.is_empty() || self.claude_rx.is_some() || self.todos.rank_rx.is_some() || crate::claude::claims_held() > 0
+        self.running.values().any(batch::Status::running) || self.claude_rx.is_some() || self.todos.rank_rx.is_some() || crate::claude::claims_held() > 0
     }
 
     /// The issues on the tab shown, filtered.
@@ -588,6 +588,8 @@ impl Issues {
 
     /// Show the issues until you quit or go back to the PRs.
     pub fn run(&mut self, term: &mut DefaultTerminal) -> Result<IssuesDo> {
+        // (As kept: `C` in dv list may have changed it.)
+        self.todos.auto = Todos::auto_setting();
         if self.items.is_empty() {
             self.msg = "fetching the open issues…".into();
         }
@@ -649,20 +651,6 @@ impl Issues {
                         self.find_todo();
                     }
                     Err(e) => self.msg = format!("not ranked: {e:#}"),
-                }
-            }
-            for (id, st) in self.drafts.iter().flat_map(|rx| rx.try_iter()).collect::<Vec<_>>() {
-                if !st.running() {
-                    self.drafting.remove(&id);
-                }
-                // (Under way, or done: its record says so now.)
-                if !matches!(st, batch::Status::Queued | batch::Status::Preparing) {
-                    self.drafts_changed();
-                }
-                match st {
-                    batch::Status::Done(took) => self.msg = format!("Claude drafted {} ({took}): dv list's drafts tab has it (I I there)", crate::replace::label(id)),
-                    batch::Status::Failed(e, _) => self.msg = format!("Claude's draft of {} failed: {}", crate::replace::label(id), e.lines().next().unwrap_or("")),
-                    _ => {}
                 }
             }
             for (n, st) in self.claude_rx.iter().flat_map(|rx| rx.try_iter()).collect::<Vec<_>>() {
@@ -729,10 +717,31 @@ impl Issues {
         }
     }
 
+    /// `q` (and Ctrl-c): asked again first while Claude's at work here.
+    fn quit(&mut self, pending: Option<char>) -> Option<IssuesDo> {
+        if !self.busy() || pending == Some('q') {
+            return Some(IssuesDo::Quit);
+        }
+        (self.pending, self.msg) = (Some('q'), "Claude is still at work (triaging, ranking): q again quits (what's under way is lost)".into());
+        None
+    }
+
     fn key(&mut self, term: &mut DefaultTerminal, k: KeyEvent) -> Option<IssuesDo> {
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+        let pending = self.pending.take();
+        // (Ctrl-c is q, wherever: asked first while Claude's at work here, as dv list's.)
         if ctrl && k.code == KeyCode::Char('c') {
-            return Some(IssuesDo::Quit);
+            return self.quit(pending);
+        }
+        // Ctrl keys: only Ctrl-d and Ctrl-u (half a page); no Ctrl+letter is the letter, as in
+        // dv list. (It calls off what waits for a key, as any other.)
+        if ctrl {
+            self.todos.deferring = None;
+            self.nav.g = false;
+            if matches!(k.code, KeyCode::Char('d' | 'u')) {
+                self.nav.key(k, self.shown().len());
+            }
+            return None;
         }
         if std::mem::take(&mut self.nav.help) {
             return None; // any key closes it
@@ -741,7 +750,6 @@ impl Issues {
             return None;
         }
         let n = self.shown().len();
-        let pending = self.pending.take();
         let this = self.shown().get(self.nav.sel).map(|i| i.number);
         self.msg.clear();
         // After `s`: how long to defer it for, or until what (any other key: not).
@@ -802,12 +810,7 @@ impl Issues {
                 };
             }
             (Some(_), KeyCode::Esc) => {} // (a pending key called off, as Helix's)
-            (Some('q'), KeyCode::Char('q')) => return Some(IssuesDo::Quit),
-            (_, KeyCode::Char('q')) if self.busy() => {
-                self.pending = Some('q');
-                self.msg = "Claude is still at work (triaging, drafting, ranking): q again quits (what's under way is lost)".into();
-            }
-            (_, KeyCode::Char('q')) => return Some(IssuesDo::Quit),
+            (_, KeyCode::Char('q')) => return self.quit(pending),
             (_, KeyCode::Char('R')) => {
                 self.msg = "fetching the open issues…".into();
                 self.refresh();
@@ -820,9 +823,11 @@ impl Issues {
                     self.nav.step(true, self.shown().len());
                 }
             }
-            // The issue, in dv.
+            // The issue, in dv. (A filter that's just a number: that issue, listed or not, as
+            // dv list's.)
             (_, KeyCode::Enter) => {
-                if let Some(n) = this {
+                let typed = self.nav.query.trim().trim_start_matches('#').parse().ok();
+                if let Some(n) = this.or(typed) {
                     self.msg = format!("#{n}…");
                     _ = term.draw(|f| self.draw(f)); // (said while GitHub's asked)
                     self.msg.clear();
@@ -938,11 +943,6 @@ impl Issues {
         self.save_defer();
     }
 
-    /// A draft started or finished: the todo again.
-    fn drafts_changed(&mut self) {
-        self.find_todo();
-    }
-
     fn save_defer(&mut self) {
         if let Some(e) = self.todos.save() {
             self.msg = e;
@@ -1030,7 +1030,7 @@ impl Issues {
                 let close = self.close_why(i.number).unwrap_or_default();
                 let mut l = issue_card(i, ui, k == sel, self.marked.contains(&i.number), num_w, card_w, self.triage.get(&i.number), self.running.get(&i.number), rank, &close, self.draft_fix.get(&i.number));
                 if let Some(it) = item {
-                    let cx = Cards { ui, num_w: num_w.max(3) - 1, width: card_w, checks_loading: false, usual: "" };
+                    let cx = Cards { ui, num_w, width: card_w, checks_loading: false, usual: "" };
                     match column {
                         Some(w) => l = with_message(l, &todo_says(it).1, &cx, w, width, k == sel),
                         None => l.insert(1, todo_line(k + 1, it, &cx, k == sel)),
@@ -1083,7 +1083,7 @@ fn issue_card(i: &Issue, ui: &Ui, selected: bool, marked: bool, num_w: usize, wi
     let dim = tint(ui.stale);
     let sp = |s: String, st| Span::styled(s, st);
     let bar = || sp(if selected { "▌".into() } else { " ".into() }, tint(ui.key));
-    let indent = || sp(" ".repeat(MARK_W + num_w + 1), row);
+    let indent = || sp(" ".repeat(MARK_W + num_w + 2), row);
     let content = width.min(CARD_MAX);
     let left_w = content.saturating_sub(1 + RIGHT);
     let full = |mut spans: Vec<Span<'static>>| {
@@ -1100,7 +1100,7 @@ fn issue_card(i: &Issue, ui: &Ui, selected: bool, marked: bool, num_w: usize, wi
     // What it is.
     let mut top = vec![
         sp(if marked { " ● ".into() } else { "   ".into() }, tint(ui.key).add_modifier(ratatui::style::Modifier::BOLD)),
-        sp(format!("{:>w$} ", format!("#{}", i.number), w = num_w), tint(ui.key)),
+        sp(format!("{:>w$}  ", format!("#{}", i.number), w = num_w), tint(ui.key)),
         sp(i.title.clone(), row.add_modifier(ratatui::style::Modifier::BOLD)),
     ];
     for (name, color) in &i.labels {
@@ -1110,7 +1110,7 @@ fn issue_card(i: &Issue, ui: &Ui, selected: bool, marked: bool, num_w: usize, wi
     // Who; Claude's triage.
     // (Its place on the todo tab, under its number.)
     let first = match rank {
-        Some(r) => sp(format!("{}{:>w$} ", " ".repeat(MARK_W), format!("{r}."), w = num_w), tint(ui.key)),
+        Some(r) => sp(format!("{}{:>w$}  ", " ".repeat(MARK_W), format!("{r}."), w = num_w), tint(ui.key)),
         None => indent(),
     };
     let mut who = vec![first, sp(format!("@{}", i.author), dim)];
@@ -1149,15 +1149,15 @@ fn records() -> Vec<crate::replace::Record> {
 }
 
 /// Unpublished drafts fixing an issue: the issue → the draft's label, what Claude's doing on it
-/// (its claims say, or this dv just started drafting it: not claimed yet). One whose run
+/// (its claims say). One whose run
 /// failed or stopped before drafting doesn't count: nothing to wait on.
-fn draft_fix(records: &[crate::replace::Record], here: &HashSet<u64>, at_work: &HashMap<String, String>) -> HashMap<u64, (String, Option<String>)> {
+fn draft_fix(records: &[crate::replace::Record], at_work: &HashMap<String, String>) -> HashMap<u64, (String, Option<String>)> {
     records
         .iter()
         .filter(|r| r.published.is_none())
         .filter_map(|r| {
             let n = crate::replace::fixes(&r.task)?;
-            let at_it = if here.contains(&r.id) { Some("drafting".to_owned()) } else { at_work.get(&crate::claude::rep_key(r.id)).cloned() };
+            let at_it = at_work.get(&crate::claude::rep_key(r.id)).cloned();
             (at_it.is_some() || r.drafted()).then(|| (n, (crate::replace::label(r.id), at_it)))
         })
         .collect()
@@ -1296,8 +1296,8 @@ fn a_draft_holds_its_issue_while_it_can_come() {
     use crate::replace::Record;
     let rec = |id: u64, task: &str, title: &str| Record { id, task: task.into(), title: title.into(), ..Default::default() };
     let records = [rec(1, "Fix #7: it panics", "Fix the panic"), rec(2, "Fix #8: slow", ""), rec(3, "Fix #9: odd", ""), rec(4, "Refactor", "x")];
-    // #7 drafted; #8 started here (its record doesn't say yet); #9's run failed before drafting.
-    let fix = draft_fix(&records, &HashSet::from([2]), &HashMap::new());
+    // #7 drafted; #8 being drafted (its record doesn't say yet); #9's run failed before drafting.
+    let fix = draft_fix(&records, &HashMap::from([(crate::claude::rep_key(2), "drafting".to_owned())]));
     assert_eq!(fix.get(&7).map(|f| f.1.as_deref()), Some(None));
     assert_eq!(fix.get(&8).map(|f| f.1.as_deref()), Some(Some("drafting")));
     assert!(!fix.contains_key(&9) && fix.len() == 2);

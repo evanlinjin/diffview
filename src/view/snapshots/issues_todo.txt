@@ -1,13 +1,13 @@
  Issues   todo 2   open 2   mine 1   close 1     I I the PRs                                                                          1 / 2
-▌   #8 How do I sync?                                                                         ╭ keys ──────────────────────────────────────╮
+▌   #8  How do I sync?                                                                        ╭ keys ──────────────────────────────────────╮
 ▌   1.  → Claude would close it: answered in #3                                               │ Enter  open it                             │
-▌      @bo                                                                                    │ h l    tabs                                │
-▌      → answer it                                                                            │ /      filter                              │
+▌       @bo                                                                                   │ h l    tabs                                │
+▌       → answer it                                                                           │ /      filter                              │
                                                                                               │ R      refresh (from GitHub)               │
-    #7 Panics on reorg  bug                                                                   │ r r    Claude ranks what needs you (a run) │
+    #7  Panics on reorg  bug                                                                  │ r r    Claude ranks what needs you (a run) │
     2.  → assigned to you · #9 would fix it: review that · not triaged yet (a a)              │ s      defer it (or bring it back)         │
-       @amy  → @me                                                                            │ m      mark                                │
-       fixed by #9 (open)                                                                     │ a a    Claude triages (marked)             │
+        @amy  → @me                                                                           │ m      mark                                │
+        fixed by #9 (open)                                                                    │ a a    Claude triages (marked)             │
                                                                                               │ U U    unmark all                          │
                                                                                               │ C      auto on / off (triage, ranking)     │
                                                                                               ╰────────────────────────────────────────────╯

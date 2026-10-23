@@ -1,11 +1,11 @@
  Issues   todo 2   open 2   mine 1   close 1     I I the PRs                                                                          1 / 2
-▌   #7 Panics on reorg  bug                                                                       ╭ keys ──────────────────────────────────╮
-▌      @amy  → @me                                                                                │ Enter  open it                         │
-▌      fixed by #9 (open)                                                                         │ h l    tabs                            │
+▌   #7  Panics on reorg  bug                                                                      ╭ keys ──────────────────────────────────╮
+▌       @amy  → @me                                                                               │ Enter  open it                         │
+▌       fixed by #9 (open)                                                                        │ h l    tabs                            │
                                                                                                   │ /      filter                          │
-    #8 How do I sync?                                                                             │ R      refresh (from GitHub)           │
-       @bo                                                                                        │ m      mark                            │
-       → answer it                                                                                │ a a    Claude triages (marked)         │
+    #8  How do I sync?                                                                            │ R      refresh (from GitHub)           │
+        @bo                                                                                       │ m      mark                            │
+        → answer it                                                                               │ a a    Claude triages (marked)         │
                                                                                                   │ U U    unmark all                      │
                                                                                                   │ C      auto on / off (triage, ranking) │
                                                                                                   ╰────────────────────────────────────────╯

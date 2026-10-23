@@ -55,9 +55,15 @@ impl Todos {
     /// The list of `of`'s: its last ranking and deferrals, as kept.
     pub(super) fn of(of: Of) -> Todos {
         let file = todo::deferred_path_of(of);
-        let auto = crate::diff::git(&["config", "--get", "dv.auto"]).is_ok_and(|v| v.trim() == "true");
+        let auto = Todos::auto_setting();
         let deferred = todo::load_deferred(file.as_deref());
         Todos { ranked: todo::load_of(of), saved: deferred.clone(), deferred, deferred_file: file, auto, ..Default::default() }
+    }
+
+    /// Auto as kept (git config `dv.auto`): read as each list opens, `C` in one reaching the
+    /// other.
+    pub(super) fn auto_setting() -> bool {
+        crate::diff::git(&["config", "--get", "dv.auto"]).is_ok_and(|v| v.trim() == "true")
     }
 
     /// `C`: auto on / off, kept (for both lists).
