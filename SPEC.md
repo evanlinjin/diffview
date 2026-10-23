@@ -179,7 +179,7 @@ disk: rust-analyzer can index it and `hx` can open it.
    turning it on says how many, at about $0.30 each) and those changed since their triage, two
    at a time, in the todo's order, once each; and ranks the todo again once it's changed, at
    most every quarter hour; and for an issue Claude would close, drafts the comment closing it,
-   one at a time (`X X` then closes with it, your editor first). `/` filters (`label:`, `author:`,
+   one at a time (`Space a` in its view closes it with it, your editor first). `/` filters (`label:`, `author:`,
    `kind:`, `priority:`, `is:triaged`, `-term`). `m` marks, `a a` has Claude triage the marked
    (or this one), two at a time, in the main checkout, reading only (`gh issue view/list`, `gh
    search`, `gh label list`, the code): the skill's "Triage an issue", to `issue-N.json` beside
