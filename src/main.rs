@@ -120,7 +120,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Opts> {
     }
     let mut o = Opts::default();
     let mut args = expanded.into_iter();
-    let num = |v: Option<String>| -> anyhow::Result<u64> { v.context("--pr needs a number")?.parse().context("--pr needs a number") };
+    let num = |v: Option<String>| -> anyhow::Result<u64> { v.context("--pr needs a number")?.trim_start_matches('#').parse().context("--pr needs a number") };
     while let Some(a) = args.next() {
         // (`#123`, as GitHub writes it: the PR.)
         let a = match a.strip_prefix('#') {
@@ -130,7 +130,11 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Opts> {
         match a.as_str() {
             "-h" | "--help" => o.help = true,
             "version" | "--version" | "-V" => o.cmd = Some("version"),
-            "-p" | "--pr" => o.pr = Some(num(args.next())?),
+            "-p" | "--pr" => {
+                let n = num(args.next())?;
+                anyhow::ensure!(o.pr.is_none_or(|p| p == n), "one PR at a time ({} and {n})", o.pr.unwrap_or_default());
+                o.pr = Some(n)
+            }
             "-f" | "--force" => o.force = true,
             "-w" | "--worktree" => o.worktree = true,
             "-b" | "--branch" => o.branch = true,
@@ -707,9 +711,6 @@ fn install_skill() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// `gh pr checkout`, except when you're already on the PR's branch and it has commits that
-/// aren't on the PR (unpushed work, or a local rebase): then it stays as it is, and the note
-/// returned says so. Never resets your branch unless `force`.
 /// `branch` is named as PR `p`'s is checked out by gh: the PR's own name, or `<owner>/<branch>`
 /// (a fork's from its default branch).
 fn branch_named(branch: &str, p: &gh::Pr) -> bool {
@@ -717,12 +718,16 @@ fn branch_named(branch: &str, p: &gh::Pr) -> bool {
 }
 
 /// `branch` in checkout `dir` is PR `p`'s: named so, and not only a namesake (yours, a fork's
-/// `master` and yours): it pushes to the PR's repo, or has the PR's head in it. The one test.
+/// `master` and yours): it tracks the PR (as gh set it: the PR's ref, or the PR's repo), pushes
+/// there, or has the PR's head in it. The one test.
 fn on_branch(dir: &Path, branch: &str, p: &gh::Pr) -> bool {
-    let d = dir.to_string_lossy();
+    let cfg = |k: &str| diff::git_config(dir, &format!("branch.{branch}.{k}"));
+    let to_pr = |r: Option<String>| r.is_some_and(|r| diff::remote_is(dir, &r, &p.head_repo));
     branch_named(branch, p)
-        && (diff::push_remote(dir, branch).is_some_and(|remote| diff::remote_is(dir, &remote, &p.head_repo))
-            || (!p.head_oid.is_empty() && diff::git(&["-C", &d, "merge-base", "--is-ancestor", &p.head_oid, branch]).is_ok()))
+        && (cfg("merge").as_deref() == Some(format!("refs/pull/{}/head", p.number).as_str())
+            || to_pr(cfg("remote"))
+            || to_pr(diff::push_remote(dir, branch))
+            || (!p.head_oid.is_empty() && diff::git_in(dir, &["merge-base", "--is-ancestor", &p.head_oid, &format!("refs/heads/{branch}")]).is_ok()))
 }
 
 /// This checkout is on PR `p`: its branch, or (detached) the PR's own worktree dv made, not
@@ -744,6 +749,10 @@ fn on_pr_n(n: u64, p: Option<&gh::Pr>) -> bool {
     }
 }
 
+/// `gh pr checkout`, except when you're already on the PR's branch and it has commits that
+/// aren't on the PR (unpushed work, or a local rebase): then it stays as it is, and the note
+/// returned says so; with none (the PR force-pushed), it's moved to the PR. Never resets work
+/// of yours unless `force`.
 pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool, own: Option<&str>) -> anyhow::Result<Option<String>> {
     // Not under Claude at work in this checkout (a run, a pane, but `own`'s, the asker's):
     // on the PR already (its branch, its own worktree), shown as it is; else not opened here.
@@ -754,8 +763,13 @@ pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool, own: Option<&s
     }
     // Checked out as the PR has it: what dv put here (nothing here is work done since). Kept
     // as it was (a note): not that.
+    // (What's recorded is the PR's head gh checked out, not HEAD: commits of yours above it,
+    // gh's ff having nothing to do, stay yours.)
     let Err(e) = gh::checkout(n, force, detach) else {
-        record_checkout(n);
+        match gh::pr(Some(n)) {
+            Ok(p) if !p.head_oid.is_empty() => record_checkout_at(n, &p.head_oid),
+            _ => {}
+        }
         return Ok(None);
     };
     let msg = format!("{e:#}");
@@ -765,11 +779,14 @@ pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool, own: Option<&s
     let on_it = gh::pr(Some(n)).is_ok_and(|p| on_branch(Path::new("."), &here, &p));
     // On its branch with nothing of yours (the PR force-pushed): moved to the PR, uncommitted
     // edits kept (or refused, if they'd clash).
-    if diverged && on_it && !detach && local_work(n, Path::new(".")).is_none() {
-        let pr = diff::git(&["rev-parse", "FETCH_HEAD"])?.trim().to_owned();
-        diff::git(&["reset", "-q", "--keep", &pr]).map_err(|e| e.context(format!("moving {here} to PR #{n}'s head (uncommitted edits in the way?)")))?;
-        record_checkout(n);
-        return Ok(None);
+    if diverged && on_it && !detach {
+        let pr = fetch_pr(n, Path::new("."))?;
+        let base = gh::pr(Some(n)).map(|p| p.base).ok();
+        if only_here(Path::new("."), n, &pr, base.as_deref()) == 0 {
+            diff::git(&["reset", "-q", "--keep", &pr]).map_err(|e| e.context(format!("moving {here} to PR #{n}'s head (uncommitted edits in the way?)")))?;
+            record_checkout_at(n, &pr);
+            return Ok(None);
+        }
     }
     match (diverged && !force && !detach, on_it) {
         (true, true) => Ok(Some(format!(
@@ -815,10 +832,10 @@ pub(crate) fn local_work(n: u64, dir: &Path) -> Option<String> {
     let git = |args: &[&str]| diff::git(&[&["-C", d.as_str()], args].concat());
     git(&["rev-parse", "HEAD"]).ok()?; // (a checkout to look in)
     // (Can't tell, GitHub out of reach: kept as it is, not updated over what may be work.)
-    if let Err(e) = git(&["fetch", "-q", &crate::diff::remote(), &format!("refs/pull/{n}/head")]) {
-        return Some(format!("couldn't fetch #{n} to see what's only here ({e:#}): kept as it is"));
-    }
-    let pr = git(&["rev-parse", "FETCH_HEAD"]).ok()?.trim().to_owned();
+    let pr = match fetch_pr(n, dir) {
+        Ok(pr) => pr,
+        Err(e) => return Some(format!("couldn't fetch #{n} to see what's only here ({e:#}): kept as it is")),
+    };
     let base = gh::pr(Some(n)).map(|p| p.base).ok();
     let ahead = only_here(dir, n, &pr, base.as_deref());
     if ahead == 0 {
@@ -830,6 +847,16 @@ pub(crate) fn local_work(n: u64, dir: &Path) -> Option<String> {
          Space g pushes {them}; to drop {them} instead, `git reset --hard {}`",
         &pr[..pr.len().min(12)]
     ))
+}
+
+/// PR `n`'s head as GitHub has it now, fetched into checkout `dir`: its commit. (A ref of its
+/// own, not FETCH_HEAD: another fetch here meanwhile, a view's, would be taken for it.)
+fn fetch_pr(n: u64, dir: &Path) -> anyhow::Result<String> {
+    let at = format!("refs/dv/pull/{n}");
+    diff::git_in(dir, &["fetch", "-q", "--no-write-fetch-head", &crate::diff::remote(), &format!("+refs/pull/{n}/head:{at}")])?;
+    let pr = diff::git_in(dir, &["rev-parse", &at]).map(|s| s.trim().to_owned());
+    _ = diff::git_in(dir, &["update-ref", "-d", &at]);
+    pr
 }
 
 fn checkout_record(n: u64) -> Option<PathBuf> {
@@ -1130,7 +1157,6 @@ fn checked_cargo(args: &[String]) -> anyhow::Result<i32> {
     Ok(cargo.args(args).status()?.code().unwrap_or(1))
 }
 
-/// Only ever touch a dir that's a worktree of this repo.
 /// The worktree of this repo that has PR `p`'s branch checked out, if one does and it's the
 /// PR's (not just a branch of the same name, a fork's `master`, say): it pushes to the PR's
 /// branch (behind it, diverged: a rebase there, an amend), or its history holds the PR's head.
@@ -1234,6 +1260,8 @@ fn args() {
     }
     assert_eq!(p("-p12").unwrap(), pr(12, false, false, false));
     assert_eq!(p("#12").unwrap(), pr(12, false, false, false));
+    assert_eq!(p("--pr=#12").unwrap(), pr(12, false, false, false));
+    assert!(p("5 -p 6").is_err());
     assert!(p("prepare-worktree 5 -b").is_ok());
 }
 
