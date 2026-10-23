@@ -701,10 +701,11 @@ fn install_skill() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The local branch gh checks PR `p` out on: its own name, or `<owner>/<branch>` when that's
-/// the default branch's.
+/// The local branch gh checks PR `p` out on: its own name, or, with no remote here for its repo
+/// (a fork's), `<owner>/<branch>` when that's the default branch's.
 fn gh_branch(p: &gh::Pr) -> String {
-    match p.head_branch == diff::default_branch() {
+    let remote_for_it = diff::git(&["remote"]).unwrap_or_default().lines().any(|r| diff::remote_is(Path::new("."), r.trim(), &p.head_repo));
+    match !remote_for_it && p.head_branch == diff::default_branch() {
         true => format!("{}/{}", p.head_owner, p.head_branch),
         false => p.head_branch.clone(),
     }
@@ -717,16 +718,22 @@ fn branch_named(branch: &str, p: &gh::Pr) -> bool {
 }
 
 /// `branch` in checkout `dir` is PR `p`'s: named so, and not only a namesake (yours, a fork's
-/// `master` and yours): it tracks the PR (as gh set it: the PR's ref, or the PR's repo), pushes
-/// there, or has the PR's head in it. The one test.
+/// `master` and yours): it tracks the PR (its ref, or its branch in its repo, as gh or a push
+/// set it), has the PR's head in it or what dv last checked out for it, or, tracking nothing,
+/// pushes to the PR's repo. A branch tracking another branch isn't it, whatever its remote.
+/// The one test.
 fn on_branch(dir: &Path, branch: &str, p: &gh::Pr) -> bool {
     let cfg = |k: &str| diff::git_config(dir, &format!("branch.{branch}.{k}"));
     let to_pr = |r: Option<String>| r.is_some_and(|r| diff::remote_is(dir, &r, &p.head_repo));
+    let holds = |c: &str| !c.is_empty() && diff::git_in(dir, &["merge-base", "--is-ancestor", c, &format!("refs/heads/{branch}")]).is_ok();
+    let merge = cfg("merge");
+    let tracks_pr = merge.as_deref() == Some(format!("refs/pull/{}/head", p.number).as_str())
+        || (to_pr(cfg("remote")) && merge.as_deref() == Some(format!("refs/heads/{}", p.head_branch).as_str()));
     branch_named(branch, p)
-        && (cfg("merge").as_deref() == Some(format!("refs/pull/{}/head", p.number).as_str())
-            || to_pr(cfg("remote"))
-            || to_pr(diff::push_remote(dir, branch))
-            || (!p.head_oid.is_empty() && diff::git_in(dir, &["merge-base", "--is-ancestor", &p.head_oid, &format!("refs/heads/{branch}")]).is_ok()))
+        && (tracks_pr
+            || holds(&p.head_oid)
+            || last_checkout(p.number).is_some_and(|c| holds(&c))
+            || (merge.is_none() && to_pr(diff::push_remote(dir, branch))))
 }
 
 /// This checkout is on PR `p`: its branch, or (detached) the PR's own worktree dv made, not
@@ -786,7 +793,7 @@ pub(crate) fn checkout_or_keep(n: u64, force: bool, detach: bool, own: Option<&s
         && diff::git(&["rev-parse", "--verify", "-q", &format!("refs/heads/{b}")]).is_ok()
         && !on_branch(Path::new("."), &b, p)
     {
-        anyhow::bail!("your branch {b} isn't PR #{n}'s, only named like it: rename it (`git branch -m {b} <name>`), or `dv {n} -w` to review the PR in a worktree of its own");
+        anyhow::bail!("your branch {b} isn't PR #{n}'s as far as dv can tell, only named like it (it tracks something else, or neither holds the other): rename it (`git branch -m {b} <name>`), or `dv {n} -w` to review the PR in a worktree of its own");
     }
     // Checked out as the PR has it: what dv put here (nothing here is work done since).
     let Err(e) = gh::checkout(n, force, detach) else {
