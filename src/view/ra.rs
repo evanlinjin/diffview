@@ -29,11 +29,26 @@ impl App {
         }
     }
 
-    pub(super) fn lsp_request(&mut self, method: &'static str) {
-        // Gone (exited, crashed): started again, as you ask.
+    /// rust-analyzer gone (it worked, then exited): started again, as it's asked.
+    fn lsp_revive(&mut self) {
         if std::mem::take(&mut self.lsp_lost) {
             self.lsp_start();
         }
+    }
+
+    /// rust-analyzer to ask, every request's one gate: gone (it worked, then exited), started
+    /// again; not running or starting, said.
+    fn lsp_usable(&mut self) -> bool {
+        self.lsp_revive();
+        match &self.lsp {
+            None => self.msg = "rust-analyzer is not running".into(),
+            Some(_) if !self.lsp_ready => self.msg = "rust-analyzer is starting…".into(),
+            Some(_) => return true,
+        }
+        false
+    }
+
+    pub(super) fn lsp_request(&mut self, method: &'static str) {
         let row = &self.rows[self.head.row];
         // In text (a comment, the PR's): the name under the cursor, found by name.
         if matches!(row.line.kind, Kind::Comment | Kind::Thread) || row.file == INFO {
@@ -44,16 +59,15 @@ impl App {
             return;
         };
         let (path, character) = (self.root.join(&f.path), lsp::utf16_col(&row.line.text, self.head.col));
-        match &self.lsp {
-            None => self.msg = "rust-analyzer is not running".into(),
-            Some(_) if !self.lsp_ready => self.msg = "rust-analyzer is starting…".into(),
-            Some(_) => self.ask_at(method, &path, n - 1, character, None),
-        }
+        self.ask_at(method, &path, n - 1, character);
     }
 
     /// Ask rust-analyzer `method` at `path`'s `line`, `character` (0-based, UTF-16); said till
-    /// the answer comes (`of`: the name it's for).
-    pub(super) fn ask_at(&mut self, method: &'static str, path: &std::path::Path, line: u32, character: u32, of: Option<&str>) {
+    /// the answer comes.
+    pub(super) fn ask_at(&mut self, method: &'static str, path: &std::path::Path, line: u32, character: u32) {
+        if !self.lsp_usable() {
+            return;
+        }
         let Some(l) = &mut self.lsp else { return };
         let mut params = json!({
             "textDocument": { "uri": lsp::uri(path) },
@@ -72,10 +86,9 @@ impl App {
                     Some("references") => "references",
                     _ => "",
                 };
-                self.msg = match (what, of) {
-                    ("", _) => "asking rust-analyzer…".into(),
-                    (w, Some(name)) => format!("finding {w} of {name}…"),
-                    (w, None) => format!("finding {w}…"),
+                self.msg = match what {
+                    "" => "asking rust-analyzer…".into(),
+                    w => format!("finding {w}…"),
                 };
                 self.inflight.insert(id, req_for(method));
             }
@@ -93,6 +106,7 @@ impl App {
             Some("references" | "implementation" | "hover") => Some(method),
             _ => None, // the definition (a type's is itself)
         };
+        self.lsp_revive();
         match &mut self.lsp {
             Some(l) if self.lsp_ready => match l.request("workspace/symbol", json!({ "query": name })) {
                 Ok(id) => {
@@ -128,10 +142,12 @@ impl App {
     }
 
     fn lsp_gone(&mut self, why: &str) {
-        (self.lsp, self.lsp_ready, self.lsp_lost) = (None, false, true);
+        // (One that never got ready isn't started again: it'd only exit again, each ask.)
+        let again = self.lsp_ready;
+        (self.lsp, self.lsp_ready, self.lsp_lost) = (None, false, again);
         self.inflight.clear();
         self.progress.clear();
-        self.msg = format!("{why} (asked again, it starts again)");
+        self.msg = if again { format!("{why} (asked again, it starts again)") } else { why.into() };
     }
 
     pub(super) fn lsp_msg(&mut self, m: Value) {
@@ -211,7 +227,14 @@ impl App {
                         Item::new(label, Target::Loc(l, then))
                     })
                     .collect();
-                self.picker = Some(Picker::new(" locations  ● = in diff ", items));
+                // (For a name's references, implementations, hover: which one's, asked.)
+                let title = match then.and_then(|m| m.rsplit('/').next()) {
+                    Some("references") => " which one's references?  ● = in diff ",
+                    Some("implementation") => " which one's implementations?  ● = in diff ",
+                    Some(_) => " which one's hover?  ● = in diff ",
+                    None => " locations  ● = in diff ",
+                };
+                self.picker = Some(Picker::new(title, items));
             }
         }
     }
@@ -219,7 +242,7 @@ impl App {
     /// At `l`: there, or `then` asked of it.
     pub(super) fn at_loc(&mut self, l: &Loc, then: Option<&'static str>) {
         match then {
-            Some(m) => self.ask_at(m, &l.path, l.line, l.character, None),
+            Some(m) => self.ask_at(m, &l.path, l.line, l.character),
             None => self.jump_loc(l),
         }
     }
