@@ -903,11 +903,6 @@ pub fn create_pr(base: &str, head: &str, title: &str, body: &str) -> Result<u64>
     url.trim().rsplit('/').next().and_then(|n| n.parse().ok()).with_context(|| format!("no PR number in {url}"))
 }
 
-/// Close PR `n` with a comment saying why.
-/// Close issue `n` with `comment`, as `reason` says (`completed`, `not planned`, `duplicate`
-/// of `dup`).
-/// Closes issue `n`, as `reason` says (a duplicate of `dup`, not planned, else done): GitHub's
-/// `stateReason` for it.
 /// How an issue closes for Claude's triage's `reason` (and `dup`): GitHub's state reason, in
 /// words, and `gh issue close`'s arguments. One rule for the close and what's said of it.
 pub fn close_how(reason: &str, dup: Option<u64>) -> (&'static str, String, Vec<String>) {
@@ -918,6 +913,8 @@ pub fn close_how(reason: &str, dup: Option<u64>) -> (&'static str, String, Vec<S
     }
 }
 
+/// Close issue `n` with `comment`, as `reason` says (a duplicate of `dup`, not planned, else
+/// done): GitHub's `stateReason` for it.
 pub fn close_issue(n: u64, comment: &str, reason: &str, dup: Option<u64>) -> Result<&'static str> {
     let (why, _, how) = close_how(reason, dup);
     let n = n.to_string();
@@ -936,6 +933,7 @@ fn ensure_open(n: &str) -> Result<()> {
     Ok(())
 }
 
+/// Close PR `n`, with `comment` saying why if given.
 pub fn close(n: u64, comment: Option<&str>) -> Result<()> {
     let n = n.to_string();
     if comment.is_some() {
