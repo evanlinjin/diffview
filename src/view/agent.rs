@@ -424,7 +424,8 @@ impl App {
         if let Some(j) = &self.claude.job {
             self.msg = format!("Claude is still {} ({} so far); Space a can stop it", j.label, ago(j.started));
         } else if !ran && self.claude.summary.trim().is_empty() && !self.threads.iter().any(|t| t.claude.is_some()) {
-            self.msg = "Claude hasn't written a review yet (Space a → review asks for one)".into();
+            let ask = if self.has_code() { "review" } else { "triage" };
+            self.msg = format!("Claude hasn't written a review yet (Space a → {ask} asks for one)");
         }
     }
 

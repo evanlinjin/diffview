@@ -921,13 +921,26 @@ pub fn close_how(reason: &str, dup: Option<u64>) -> (&'static str, String, Vec<S
 pub fn close_issue(n: u64, comment: &str, reason: &str, dup: Option<u64>) -> Result<&'static str> {
     let (why, _, how) = close_how(reason, dup);
     let n = n.to_string();
+    ensure_open(&n)?;
     let mut args = vec!["issue", "close", &n, "--comment", comment];
     args.extend(how.iter().map(String::as_str));
     gh(&args).map(|_| why)
 }
 
+/// Before a close with a comment: #`n` (a PR or an issue) still open. gh closes nothing and
+/// posts nothing on one closed already, and says so only on stderr (exit 0): the comment'd be
+/// lost unsaid.
+fn ensure_open(n: &str) -> Result<()> {
+    let s = gh(&["api", &format!("repos/{{owner}}/{{repo}}/issues/{n}"), "--jq", ".state"])?;
+    anyhow::ensure!(s.trim() == "open", "#{n} is closed already: nothing posted");
+    Ok(())
+}
+
 pub fn close(n: u64, comment: Option<&str>) -> Result<()> {
     let n = n.to_string();
+    if comment.is_some() {
+        ensure_open(&n)?;
+    }
     let mut args = vec!["pr", "close", &n];
     args.extend(comment.map(|c| ["--comment", c]).into_iter().flatten());
     gh(&args).map(drop)
