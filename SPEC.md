@@ -210,7 +210,7 @@ disk: rust-analyzer can index it and `hx` can open it.
 | `w b e`, `W B E` | word motions (they select, like Helix) |
 | `gh gl gs` | line start / end / first non-blank |
 | `f t F T <c>` | find char |
-| `gw` | jump labels on visible words (uses your `jump-label-alphabet`) |
+| `gw` | jump labels on the visible words of the pane you're in (uses your `jump-label-alphabet`) |
 | `mm` | matching bracket (counted through one version of the whole file; grows the hunk if the match is hidden) |
 | `gg ge`, `Ctrl-d Ctrl-u`, `Ctrl-e Ctrl-y` | top / end (in the comments pane, its own: the first / last comment), half page, scroll 5 lines |
 | `zz zt zb` | put the cursor line at center / top / bottom |

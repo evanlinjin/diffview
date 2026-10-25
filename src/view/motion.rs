@@ -456,17 +456,19 @@ impl App {
         true
     }
 
-    /// Label every visible word (2+ chars), nearest to the cursor first, alternating forward/back.
+    /// Label every visible word (2+ chars) of the pane the cursor's in, as Helix labels its
+    /// focused view: nearest to the cursor first, alternating forward/back.
     pub(super) fn show_labels(&mut self) {
         let mut words = vec![];
-        // What's on screen, each part once: each screen row's code, a side each, and the
-        // comment beside it (not under the file header pinned over the top).
+        // What's on screen, each part once: each screen row's code, a side each, or the comment
+        // beside it in the pane (not under the file header pinned over the top). One pane's:
+        // both share alphabet² labels, and the code's alone can use them all.
         let mut shown: Vec<Shown> = vec![];
-        let pinned = self.sticky().is_some();
+        let (pinned, in_pane) = (self.sticky().is_some(), self.margin_side());
         for d in self.top..(self.top + self.height).min(self.drows.len()) {
-            let note = self.note_at(d).and_then(|c| self.span_of(c, 0));
+            let note = self.note_at(d).and_then(|c| self.span_of(c, 0)).filter(|_| in_pane);
             // (Under the pinned header, the code's covered; the pane beside it isn't.)
-            let code = if pinned && d == self.top { [None, None] } else { [self.span(d, false), self.span(d, true)] };
+            let code = if in_pane || pinned && d == self.top { [None, None] } else { [self.span(d, false), self.span(d, true)] };
             for s in code.into_iter().chain([note]).flatten() {
                 if !shown.contains(&s) {
                     shown.push(s);

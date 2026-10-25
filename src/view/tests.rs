@@ -3764,8 +3764,18 @@ fn the_wheel_from_the_pane_and_labels_under_the_pinned_header() {
     assert!(app.top >= 12, "scrolled: top {}", app.top);
     // The file's header pinned over the top: no labels on what it covers.
     assert!(app.sticky().is_some());
+    let mid = app.side_row(app.top + 5, true).unwrap();
+    app.goto(mid, 0);
     app.show_labels();
-    assert!(app.labels.iter().all(|l| app.d_at(l.0) > app.top), "none on the row under the header");
+    assert!(!app.labels.is_empty() && app.labels.iter().all(|l| app.d_at(l.0) > app.top), "none on the row under the header");
+    // gw labels the pane the cursor's in: the code's, not the comment's beside it (they'd share
+    // alphabet² labels, and run out); in the pane, the comment's.
+    assert!(app.labels.iter().all(|l| app.rows[l.0.row].thread.is_none()));
+    let c = app.rows.iter().position(|r| r.thread.is_some()).unwrap();
+    app.goto(c, 0);
+    _ = screen(220, 20, |f| app.draw(f));
+    app.show_labels();
+    assert!(!app.labels.is_empty() && app.labels.iter().all(|l| app.rows[l.0.row].thread.is_some()));
 }
 
 #[test]
