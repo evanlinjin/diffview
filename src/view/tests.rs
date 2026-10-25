@@ -3768,10 +3768,32 @@ fn the_wheel_from_the_pane_and_labels_under_the_pinned_header() {
     app.goto(mid, 0);
     app.show_labels();
     assert!(!app.labels.is_empty() && app.labels.iter().all(|l| app.d_at(l.0) > app.top), "none on the row under the header");
-    // gw labels the pane the cursor's in: the code's, not the comment's beside it (they'd share
-    // alphabet² labels, and run out); in the pane, the comment's.
-    assert!(app.labels.iter().all(|l| app.rows[l.0.row].thread.is_none()));
+}
+
+#[test]
+fn gw_labels_the_pane_the_cursor_is_in() {
+    // A long comment beside the code on screen, labels for the code's words and no more: the
+    // last line on screen labelled too (shared with the comment's words, they ran out).
+    let body: String = (0..40).map(|i| format!("+word{i} other{i}\n")).collect();
+    let text = format!("diff --git a/a.rs b/a.rs\nindex 1..2 100644\n--- a/a.rs\n+++ b/a.rs\n@@ -0,0 +1,40 @@\n{body}");
+    let mut app = App::with("base".into(), diff::parse(&text));
+    app.files_pref = Some(false);
+    let said = (0..30).map(|i| format!("said{i}")).collect::<Vec<_>>().join(" ");
+    app.threads = vec![gh::Thread { path: "a.rs".into(), line: Some(3), comments: vec![gh::Comment { author: "amy".into(), body: said, ..Default::default() }], ..Default::default() }];
+    app.build();
+    _ = screen(220, 20, |f| app.draw(f));
     let c = app.rows.iter().position(|r| r.thread.is_some()).unwrap();
+    assert!(app.d_at(Pos { row: c, col: 0 }) < app.top + app.height, "the comment's on screen");
+    app.show_labels();
+    let code = app.labels.len();
+    assert!(code > 0 && app.labels.iter().all(|l| app.rows[l.0.row].thread.is_none()), "only the code's");
+    // Just enough labels for the code's words: the last one on screen still gets one.
+    let n = (1..).find(|n| n * n >= code).unwrap();
+    app.alphabet = ('a'..='z').take(n).collect();
+    app.show_labels();
+    let last = app.labels.iter().map(|l| l.0).max().unwrap();
+    assert!((app.top..app.top + app.height).filter_map(|d| app.side_row(d, true)).all(|r| r <= last.row || app.rows[r].thread.is_some()));
+    // In the pane: the comment's.
     app.goto(c, 0);
     _ = screen(220, 20, |f| app.draw(f));
     app.show_labels();
