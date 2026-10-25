@@ -3783,7 +3783,8 @@ fn gw_labels_the_pane_the_cursor_is_in() {
     app.build();
     _ = screen(220, 20, |f| app.draw(f));
     let c = app.rows.iter().position(|r| r.thread.is_some()).unwrap();
-    assert!(app.d_at(Pos { row: c, col: 0 }) < app.top + app.height, "the comment's on screen");
+    assert!((app.top..app.top + app.height).contains(&app.d_at(Pos { row: c, col: 0 })), "the comment's on screen");
+    app.alphabet = ('a'..='z').collect(); // (not your Helix config's)
     app.show_labels();
     let code = app.labels.len();
     assert!(code > 0 && app.labels.iter().all(|l| app.rows[l.0.row].thread.is_none()), "only the code's");
@@ -3791,6 +3792,7 @@ fn gw_labels_the_pane_the_cursor_is_in() {
     let n = (1..).find(|n| n * n >= code).unwrap();
     app.alphabet = ('a'..='z').take(n).collect();
     app.show_labels();
+    assert_eq!(app.labels.len(), code);
     let last = app.labels.iter().map(|l| l.0).max().unwrap();
     assert!((app.top..app.top + app.height).filter_map(|d| app.side_row(d, true)).all(|r| r <= last.row || app.rows[r].thread.is_some()));
     // In the pane: the comment's.
