@@ -467,8 +467,8 @@ impl App {
         let (pinned, in_pane) = (self.sticky().is_some(), self.margin_side());
         for d in self.top..(self.top + self.height).min(self.drows.len()) {
             let parts = match in_pane {
-                // (The pinned header covers the code, not the pane beside it.)
                 true => [None, None, self.note_at(d).and_then(|c| self.span_of(c, 0))],
+                // (The pinned header covers the code, not the pane beside it.)
                 false if pinned && d == self.top => [None, None, None],
                 false => [self.span(d, false), self.span(d, true), None],
             };
