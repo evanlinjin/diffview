@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.95.26] - 2026-10-25
+
+### Fixed
+- `gw` labels the pane you're in, as Helix its focused view: the code's words and the comments'
+  beside it shared the alphabet's labels, and ran out partway down the screen.
+
 ## [0.95.25] - 2026-10-23
 
 ### Fixed
