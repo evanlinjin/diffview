@@ -2608,11 +2608,14 @@ fn claude_drafts_a_closing_comment() {
     assert!(app.rows.iter().any(|r| r.line.text.contains("#3 with it:")));
     app.claude_menu();
     assert!(app.picker.take().unwrap().items.iter().any(|i| i.label.contains("and #3 with Claude's comments")));
-    // It closed, #3 left (its editor cancelled, say): Space a goes on from it.
+    // It closed, #3 left (its editor cancelled, say): Space a goes on from it; not while it's open.
     let closing = std::mem::take(&mut app.claude.closing);
     app.claude_menu();
+    assert!(!app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::Do(Action::CloseWith(3)))));
+    app.pr_state = Some(("CLOSED", "da3633"));
+    app.claude_menu();
     assert!(app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::Do(Action::CloseWith(3)))));
-    app.claude.closing = closing;
+    (app.claude.closing, app.pr_state) = (closing, Some(("OPEN", "238636")));
     // Not linked any more (closed meanwhile, say): neither.
     app.linked.clear();
     app.build();

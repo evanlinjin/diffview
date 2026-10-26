@@ -1197,6 +1197,16 @@ fn closing_with(v: &Value) -> Vec<ClosingWith> {
 }
 
 #[test]
+fn closed_with_one_goes() {
+    let p = std::env::temp_dir().join(format!("dv-closed-with-{}.json", std::process::id()));
+    std::fs::write(&p, r#"{ "closing": "x", "closing_with": [{ "n": 5, "comment": "a" }, { "n": 6, "comment": "b" }] }"#).unwrap();
+    closed_with(&p, 5).unwrap();
+    let r = load(&p).unwrap().unwrap();
+    assert_eq!((r.closing.as_str(), r.closing_with.iter().map(|c| c.n).collect::<Vec<_>>()), ("x", vec![6]));
+    _ = std::fs::remove_file(p);
+}
+
+#[test]
 fn closing_with_what_it_closes() {
     let r = parse(r#"{ "closing": "Superseded.", "closing_with": [
         { "n": 5, "comment": "Fixed by the other PR.", "reason": "not planned" },

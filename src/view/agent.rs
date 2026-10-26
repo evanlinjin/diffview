@@ -34,6 +34,19 @@ impl Ask {
     }
 }
 
+/// What's next after #`m` of `ns` (what closing closes with it, in order): one round, each
+/// once, `m` closed or not.
+fn after(ns: &[u64], m: u64) -> Option<u64> {
+    ns.iter().skip_while(|&&x| x != m).nth(1).copied()
+}
+
+#[test]
+fn each_closes_with_it_once_a_round() {
+    assert_eq!(after(&[5, 6, 7], 5), Some(6));
+    assert_eq!(after(&[5, 6, 7], 7), None);
+    assert_eq!(after(&[6, 7], 5), None); // (gone meanwhile: the round's over)
+}
+
 /// `Space a`'s way to talk about text (`ON_DESCRIPTION`, `ON_CLOSING`): a thread there, a
 /// change wanted, as `a` on it.
 fn talk_on(on: &str) -> Action {
@@ -390,7 +403,7 @@ impl App {
                 false => format!("Close {}{} and {} with Claude's comments (your editor first, each)…", self.what(), self.closes_as(), with.join(", ")),
             };
             items.insert(0, Item::new(what, Target::Do(Action::ClosePr)));
-        } else if let Some(first) = self.linked_drafts().first().filter(|_| !drafted) {
+        } else if let Some(first) = self.linked_drafts().first().filter(|_| !open && self.subject().is_some()) {
             // (It closed, what it closes with it not all yet: on from there.)
             items.insert(0, Item::new(format!("Close {} with Claude's comments (your editor first, each)…", with.join(", ")), Target::Do(Action::CloseWith(first.0.n()))));
         } else if self.subject().is_some() && open {
@@ -591,7 +604,7 @@ impl App {
     }
 
     /// Then what it closes with it, the first of them (`CloseWith`, an action of its own: its
-    /// editor too, beside dv as any): what to say of it.
+    /// editor too, beside dv as any): what to say of it. (Each, then the next after it: `after`.)
     fn close_next(&mut self) -> String {
         match self.linked_drafts().first() {
             Some((s, _)) => {
@@ -604,28 +617,38 @@ impl App {
 
     /// `CloseWith`: #`m`, which closing this closes with it, with Claude's comment for it
     /// (`closing_with`) after your editor (empty: left open, its comment kept for Space a); then
-    /// the next.
+    /// the next after it, whatever came of it (each once a round).
     pub(super) fn close_with(&mut self, m: u64) -> Result<String> {
         let (Some(n), Some(path)) = (self.subject().map(|s| s.n()), self.claude.path.clone()) else { return Ok(String::new()) };
-        let Some((s, c)) = self.linked_drafts().into_iter().find(|(s, _)| s.n() == m) else { return Ok(format!("#{m}: no comment of Claude's to close it with")) };
+        let drafts = self.linked_drafts();
+        let next = after(&drafts.iter().map(|(s, _)| s.n()).collect::<Vec<_>>(), m);
+        let Some((s, c)) = drafts.into_iter().find(|(s, _)| s.n() == m) else { return Ok(format!("#{m}: no comment of Claude's to close it with")) };
         let how = match s {
             crate::claude::Subject::Issue(_) => format!(", {}", crate::gh::close_how(&c.reason, c.duplicate_of).1),
             crate::claude::Subject::Pr(_) => String::new(),
         };
         let what = format!("comment closing #{m} with #{n} (posted on it, then it's closed{how}; empty leaves it open)");
-        let Some(text) = compose_with(&what, true, &c.comment, true)?.filter(|t| !t.trim().is_empty()) else {
-            return Ok(format!("#{m} left open (Space a closes it, with its comment, when you will)"));
+        let written = compose_with(&what, true, &c.comment, true)?;
+        // (Written, or not: on to the next, then.)
+        self.action = next.map(Action::CloseWith);
+        let then = next.map_or(String::new(), |x| format!("; then #{x}"));
+        let Some(text) = written.filter(|t| !t.trim().is_empty()) else {
+            return Ok(format!("#{m} left open (Space a closes it, with its comment, when you will){then}"));
         };
         let closed = match s {
             crate::claude::Subject::Pr(_) => crate::gh::close(m, Some(text.trim())),
             crate::claude::Subject::Issue(_) => crate::gh::close_issue(m, text.trim(), &c.reason, c.duplicate_of).map(drop),
         };
+        let res = closed.as_ref().map(drop).map_err(|e| format!("{e:#}"));
+        // (Closed, or closed already, elsewhere: its comment's done with.)
+        if res.as_ref().is_ok() || res.as_ref().is_err_and(|e| e.contains("closed already")) {
+            _ = crate::claude::closed_with(&path, m);
+            let keep = self.cursor_key();
+            self.load_claude();
+            self.rebuild(keep);
+        }
         keep_on_error(closed, &text)?;
-        _ = crate::claude::closed_with(&path, m);
-        let keep = self.cursor_key();
-        self.load_claude();
-        self.rebuild(keep);
-        Ok(format!("#{m} closed, with your comment{}", self.close_next()))
+        Ok(format!("#{m} closed, with your comment{then}"))
     }
 
     /// `Space a` → discard Claude's draft (`keys`: `"description"` and `"title"`, `"closing"`),
