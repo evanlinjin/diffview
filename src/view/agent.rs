@@ -600,19 +600,10 @@ impl App {
         let keep = self.cursor_key();
         self.load_claude();
         self.rebuild(keep);
-        Ok(format!("#{n} closed, with your comment{}", self.close_next()))
-    }
-
-    /// Then what it closes with it, the first of them (`CloseWith`, an action of its own: its
-    /// editor too, beside dv as any): what to say of it. (Each, then the next after it: `after`.)
-    fn close_next(&mut self) -> String {
-        match self.linked_drafts().first() {
-            Some((s, _)) => {
-                self.action = Some(Action::CloseWith(s.n()));
-                format!("; then #{}", s.n())
-            }
-            None => String::new(),
-        }
+        // Then what it closes with it, the first of them (an action of its own: its editor
+        // too, beside dv as any; each then the next after it, `after`).
+        self.action = self.linked_drafts().first().map(|(s, _)| Action::CloseWith(s.n()));
+        Ok(format!("#{n} closed, with your comment"))
     }
 
     /// `CloseWith`: #`m`, which closing this closes with it, with Claude's comment for it
@@ -631,24 +622,23 @@ impl App {
         let written = compose_with(&what, true, &c.comment, true)?;
         // (Written, or not: on to the next, then.)
         self.action = next.map(Action::CloseWith);
-        let then = next.map_or(String::new(), |x| format!("; then #{x}"));
         let Some(text) = written.filter(|t| !t.trim().is_empty()) else {
-            return Ok(format!("#{m} left open (Space a closes it, with its comment, when you will){then}"));
+            return Ok(format!("#{m} left open (Space a closes it, with its comment, when you will)"));
         };
         let closed = match s {
             crate::claude::Subject::Pr(_) => crate::gh::close(m, Some(text.trim())),
             crate::claude::Subject::Issue(_) => crate::gh::close_issue(m, text.trim(), &c.reason, c.duplicate_of).map(drop),
         };
-        let res = closed.as_ref().map(drop).map_err(|e| format!("{e:#}"));
         // (Closed, or closed already, elsewhere: its comment's done with.)
-        if res.as_ref().is_ok() || res.as_ref().is_err_and(|e| e.contains("closed already")) {
+        if closed.as_ref().is_ok() || closed.as_ref().is_err_and(|e| e.is::<crate::gh::ClosedAlready>()) {
+            self.github_changed();
             _ = crate::claude::closed_with(&path, m);
             let keep = self.cursor_key();
             self.load_claude();
             self.rebuild(keep);
         }
         keep_on_error(closed, &text)?;
-        Ok(format!("#{m} closed, with your comment{then}"))
+        Ok(format!("#{m} closed, with your comment"))
     }
 
     /// `Space a` → discard Claude's draft (`keys`: `"description"` and `"title"`, `"closing"`),

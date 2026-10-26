@@ -494,7 +494,8 @@ impl App {
             if res.as_ref().is_err_and(|e| e.is::<term::Writing>()) {
                 let w = res.unwrap_err().downcast().unwrap();
                 self.writing = Some((again, w));
-                self.msg = "writing in the editor's pane: dv's yours meanwhile (save and quit there to send; :cq cancels)".into();
+                let before = self.chained.as_ref().map_or(String::new(), |c| format!("{c}; "));
+                self.msg = format!("{before}writing in the editor's pane: dv's yours meanwhile (save and quit there to send; :cq cancels)");
                 return;
             }
             // Written, but what asked gave up before its editor: kept, not lost.
@@ -511,6 +512,15 @@ impl App {
             self.reloaded(res, false);
             if let Some(k) = kept.take() {
                 self.msg = format!("{}: its pane closed; what it had saved is kept in {}", self.msg, k.display());
+            }
+            // One leading to another (closing, then what closes with it): what each came to,
+            // said together at the end, not each over the one before (a failure, where its text
+            // was kept).
+            let said = std::mem::take(&mut self.msg);
+            let all = [self.chained.take(), Some(said)].into_iter().flatten().filter(|m| !m.is_empty()).collect::<Vec<_>>().join("; ");
+            match self.action.is_some() {
+                true => self.chained = Some(all),
+                false => self.msg = all,
             }
         }
     }

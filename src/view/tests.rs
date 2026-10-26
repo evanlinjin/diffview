@@ -2616,6 +2616,15 @@ fn claude_drafts_a_closing_comment() {
     app.claude_menu();
     assert!(app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::Do(Action::CloseWith(3)))));
     (app.claude.closing, app.pr_state) = (closing, Some(("OPEN", "238636")));
+    // One round: #5 left open (its editor left empty), then #6 all the same; after #6, done.
+    let cw = |n| crate::claude::ClosingWith { n, comment: format!("With #{n}."), ..Default::default() };
+    (app.claude.closing_with, app.linked) = (vec![cw(5), cw(6)], vec![5, 6]);
+    let (res, _) = super::term::writing_beside(false, Some(None), || app.close_with(5));
+    assert!(res.unwrap().starts_with("#5 left open") && matches!(app.action.take(), Some(Action::CloseWith(6))));
+    _ = super::term::writing_beside(false, Some(None), || app.close_with(6));
+    assert!(app.action.is_none() && app.claude.closing_with.len() == 2, "left open: their comments kept");
+    app.load_claude();
+    app.linked = vec![3];
     // Not linked any more (closed meanwhile, say): neither.
     app.linked.clear();
     app.build();

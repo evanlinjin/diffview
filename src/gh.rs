@@ -966,9 +966,21 @@ fn what_closes_with_it_is_open_and_here() {
 /// lost unsaid.
 fn ensure_open(n: &str) -> Result<()> {
     let s = gh(&["api", &format!("repos/{{owner}}/{{repo}}/issues/{n}"), "--jq", ".state"])?;
-    anyhow::ensure!(s.trim() == "open", "#{n} is closed already: nothing posted");
+    anyhow::ensure!(s.trim() == "open", ClosedAlready(n.to_owned()));
     Ok(())
 }
+
+/// `ensure_open`'s no: #N's closed already (nothing posted).
+#[derive(Debug)]
+pub struct ClosedAlready(String);
+
+impl std::fmt::Display for ClosedAlready {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "#{} is closed already: nothing posted", self.0)
+    }
+}
+
+impl std::error::Error for ClosedAlready {}
 
 /// Close PR `n`, with `comment` saying why if given.
 pub fn close(n: u64, comment: Option<&str>) -> Result<()> {

@@ -1189,10 +1189,13 @@ pub fn closed_with(path: &std::path::Path, n: u64) -> Result<()> {
 /// comment.
 fn closing_with(v: &Value) -> Vec<ClosingWith> {
     let s = |v: &Value| v.as_str().unwrap_or("").trim().to_owned();
+    let mut seen = std::collections::HashSet::new();
     v.as_array()
         .into_iter()
         .flatten()
         .filter_map(|c| Some(ClosingWith { n: c["n"].as_u64()?, comment: Some(s(&c["comment"])).filter(|c| !c.is_empty())?, reason: s(&c["reason"]), duplicate_of: c["duplicate_of"].as_u64() }))
+        // (Each once, its first: twice, its editor'd come round again and again.)
+        .filter(|c| seen.insert(c.n))
         .collect()
 }
 
@@ -1211,7 +1214,7 @@ fn closing_with_what_it_closes() {
     let r = parse(r#"{ "closing": "Superseded.", "closing_with": [
         { "n": 5, "comment": "Fixed by the other PR.", "reason": "not planned" },
         { "n": 6, "comment": "Same as #3.", "reason": "duplicate", "duplicate_of": 3 },
-        { "n": 7, "comment": " " }, { "comment": "no number" } ] }"#).unwrap();
+        { "n": 7, "comment": " " }, { "comment": "no number" }, { "n": 5, "comment": "again" } ] }"#).unwrap();
     assert_eq!(r.closing_with.iter().map(|c| (c.n, c.reason.as_str(), c.duplicate_of)).collect::<Vec<_>>(), [(5, "not planned", None), (6, "duplicate", Some(3))]);
 }
 
