@@ -1692,7 +1692,8 @@ pub fn refusal(out: &serde_json::Value) -> Option<String> {
 pub fn took(v: &Value) -> String {
     let t = format!("{} turns, ${:.2}", v["num_turns"].as_u64().unwrap_or(0), v["total_cost_usd"].as_f64().unwrap_or(0.0));
     match refusal(v) {
-        Some(r) => format!("{t}; blocked: refused {r} (allow it in Claude Code's settings, then ask again)"),
+        // (Whether that blocked it is the caller's to say: a draft's record, a run's result.)
+        Some(r) => format!("{t}; refused {r} (allow it in Claude Code's settings, if it's needed)"),
         None => t,
     }
 }

@@ -743,7 +743,9 @@ fn draft_once(prs: &[u64], root: &Path, extra: &str, prepared: &mut impl FnMut()
             now.replaces.retain(|o| !added.contains(&o.number));
         }
         // (A run refused what it needed hasn't done what it was given: still to do.)
-        let made = res.is_ok() && now.refused.is_empty();
+        // (Refused anything, not blocked by it: what it was given and didn't answer may be what it
+        // couldn't do. Claude's answers say what it did.)
+        let made = matches!(res, Ok((_, false)));
         Ok((std::mem::take(&mut now.answers), made))
     });
     if let (Ok(((answers, made), _)), Ok(review)) = (answers, review_path(id)) {
@@ -763,12 +765,13 @@ fn draft_once(prs: &[u64], root: &Path, extra: &str, prepared: &mut impl FnMut()
     if !set_up && !existed {
         _ = std::fs::remove_file(path(id)?);
     }
-    res.map(|took| (took, given.iter().map(|t| (t.claude.clone().unwrap_or_default(), t.comments.len())).collect()))
+    res.map(|(took, _)| (took, given.iter().map(|t| (t.claude.clone().unwrap_or_default(), t.comments.len())).collect()))
 }
 
 /// `first`: its first draft (a new session; else it carries on in its own). `waiting`: your
 /// threads about it, to answer.
-fn run_claude(r: &Record, dir: &Path, first: bool, extra: &str, which: Reviews, waiting: &[crate::gh::Thread], prepared: &mut impl FnMut()) -> Result<String> {
+/// What it took, and whether it was refused anything.
+fn run_claude(r: &Record, dir: &Path, first: bool, extra: &str, which: Reviews, waiting: &[crate::gh::Thread], prepared: &mut impl FnMut()) -> Result<(String, bool)> {
     prepared();
     let session = match first {
         true => ["--session-id".to_owned(), r.session.clone()],
@@ -790,7 +793,7 @@ fn run_claude(r: &Record, dir: &Path, first: bool, extra: &str, which: Reviews, 
     let st = child.wait()?;
     let v: Value = std::fs::read_to_string(&log).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
     // (What it was refused, kept with the draft when it stopped it: its card and view say so
-    // till a draft isn't. Worked around, drafted all the same: not blocked; `took` says it.)
+    // till a draft isn't. Worked around, drafted all the same: not blocked; `took` says what.)
     let refused = crate::claude::refusal(&v);
     let stopped = !st.success() || v["is_error"] != false;
     _ = update(r.id, |r| {
@@ -801,7 +804,7 @@ fn run_claude(r: &Record, dir: &Path, first: bool, extra: &str, which: Reviews, 
         let why = refused.map_or(String::new(), |r| format!(", refused {r}"));
         anyhow::bail!("Claude stopped ({st}{why}): see {}", log.display());
     }
-    Ok(crate::claude::took(&v))
+    Ok((crate::claude::took(&v), refused.is_some()))
 }
 
 /// What a draft's run was refused that blocked it (`Record::refused`): what it was refused,
