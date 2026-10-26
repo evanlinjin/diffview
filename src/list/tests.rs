@@ -706,13 +706,14 @@ fn stalled_when_the_author_leaves_feedback_unanswered() {
     // (Its author's last work 5 days before the review.)
     let at = |days: i64| Extra { unanswered: Some((crate::claude::now_secs() - days * 86400, "bo".into(), true)), active: crate::claude::now_secs() - (days + 5) * 86400, ..Default::default() };
     l.extra.insert(1, at(20));
-    assert_eq!(l.stalled(&p), Some((20, Some(("bo".into(), true)))));
+    assert_eq!(l.stalled(&p), Some((20, Some((20, "bo".into(), true)))));
     l.extra.insert(1, at(3));
     assert_eq!(l.stalled(&p), None);
     l.extra.insert(1, at(20));
     assert_eq!(l.stalled(&Listed { author: "me".into(), ..p.clone() }), None);
     // A draft too, with feedback unanswered: since anyone was at work on it.
-    assert_eq!(l.stalled(&Listed { draft: true, ..p.clone() }), Some((25, Some(("bo".into(), true)))));
+    // (Quiet 25 days, the review waiting 20: each its own.)
+    assert_eq!(l.stalled(&Listed { draft: true, ..p.clone() }), Some((25, Some((20, "bo".into(), true)))));
     // A draft left: nothing of its author's (nor anyone's push) for that long, nothing asked of
     // them (no one else's to move on); one ready, waiting on reviews, isn't stalled.
     let ago = |days: i64| crate::claude::now_secs() - days * 86400;

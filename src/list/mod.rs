@@ -821,21 +821,21 @@ impl List {
     /// Whether PR `p`'s author has gone quiet for `stalled_days` or more: a review or a
     /// maintainer's comment left unanswered (nothing of theirs since: no push, no comment, no
     /// reply), or a draft of theirs left (nothing of theirs at all: it's no one else's to move
-    /// on, nor anyone's commit since). How long, and whose word is unanswered (none: a draft
-    /// left). Not yours (you'd
-    /// know), nor one waiting on reviews (they had the last word, ready for them); a bot's
-    /// (`app/…`) isn't one to ask, nor a deleted account, ghost.
-    pub(super) fn stalled(&self, p: &Listed) -> Option<(i64, Option<(String, bool)>)> {
+    /// on, nor anyone's commit since). How long (a draft: since anyone was at work on it,
+    /// feedback waiting or not; else since what's waiting), and what's waiting: for how many
+    /// days, whose, a review or not (none: a draft left). Not yours (you'd know), nor one waiting
+    /// on reviews (they had the last word, ready for them); a bot's (`app/…`) isn't one to ask,
+    /// nor a deleted account, ghost.
+    pub(super) fn stalled(&self, p: &Listed) -> Option<(i64, Option<(i64, String, bool)>)> {
         let e = self.extra.get(&p.number)?;
-        // (A draft: since anyone was at work on it, feedback waiting or not; else since what's
-        // waiting.)
-        let waiting = e.unanswered.as_ref().map(|(_, who, review)| (who.clone(), *review));
+        let age = |at: i64| (crate::claude::now_secs() - at) / 86400;
+        let waiting = e.unanswered.as_ref().map(|(at, who, review)| (age(*at), who.clone(), *review));
         let at = match (&e.unanswered, p.draft) {
             (_, true) => e.active.max(crate::gh::epoch_secs(&p.created).unwrap_or(0)),
             (Some((at, ..)), false) => *at,
             (None, false) => return None,
         };
-        let days = (crate::claude::now_secs() - at) / 86400;
+        let days = age(at);
         (p.author != self.me && !p.author.starts_with("app/") && p.author != "ghost" && days >= self.stalled_days).then_some((days, waiting))
     }
 
@@ -845,10 +845,10 @@ impl List {
         let Some(p) = self.prs.iter().find(|p| p.number == n) else { return };
         let Some((days, waiting)) = self.stalled(p) else { return };
         let what = match waiting {
-            Some((who, review)) => {
+            Some((waited, who, review)) => {
                 let what = if review { "review" } else { "comment" };
                 let whose = if who == self.me { format!("my {what}") } else { format!("@{who}'s {what}") };
-                format!("{whose} has been waiting for {days} days")
+                format!("{whose} has been waiting for {waited} days")
             }
             None => format!("it's been quiet for {days} days"),
         };
