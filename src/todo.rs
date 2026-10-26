@@ -368,7 +368,7 @@ pub fn needs(f: &Facts) -> (Vec<Need>, Option<Task>) {
 pub fn rep_needs(r: &crate::replace::Record) -> Vec<Need> {
     match r.published {
         // (Claude at it meanwhile: dv list's busy rows say so.)
-        // (Its last run refused what it needed: not ready to publish, drafted or not.)
+        // (Its last run stopped for what it was refused, or drafted nothing: not ready to publish.)
         None if r.blocked().is_some() => vec![Need::Blocked],
         None if r.drafted() => vec![Need::Publish],
         Some(_) => match r.replaces.iter().filter(|o| !r.closed.contains(&o.number)).count() {

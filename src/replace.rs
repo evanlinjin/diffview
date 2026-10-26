@@ -742,7 +742,6 @@ fn draft_once(prs: &[u64], root: &Path, extra: &str, prepared: &mut impl FnMut()
         if !set_up {
             now.replaces.retain(|o| !added.contains(&o.number));
         }
-        // (A run refused what it needed hasn't done what it was given: still to do.)
         // (Refused anything, not blocked by it: what it was given and didn't answer may be what it
         // couldn't do. Claude's answers say what it did.)
         let made = matches!(res, Ok((_, false)));
