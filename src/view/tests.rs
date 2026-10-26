@@ -445,7 +445,7 @@ fn claude_review() {
     app.view = View::Claude; // (with a PR, the summary's there)
     app.build();
     let s = screen(220, 40, |f| app.draw(f));
-    assert!(s.contains("y ago · of 42995cf, before the PR's latest)"), "{s}");
+    assert!(app.rows.iter().any(|r| r.line.text.ends_with("y ago · of 42995cf, before the PR's latest)")), "{s}");
     (app.pr, app.claude.created, app.claude.head, app.view) = (None, String::new(), String::new(), View::All);
     app.build();
     // Its file unreadable a moment (Claude mid-edit): what was read stays, and dv says why.
@@ -1562,6 +1562,9 @@ fn replacement_in_the_pr_section() {
     app.rebuild(keep);
     let review = app.rows.iter().position(|r| r.line.text == "claude's review").expect("claude's review");
     assert!(app.rows[review].attached && app.rows[review].main.is_none());
+    // What you asked of the drafts with your other questions under it, before what Claude did.
+    let at = |s: &str| app.rows.iter().position(|r| r.line.text == s).expect(s);
+    assert!(review < at("Tidy it.") && at("Tidy it.") < at("claude's activity"));
     // Published, on its PR: its closing note is still there, while what it replaces is open.
     let mut r = app.replacement.clone().unwrap();
     r.published = Some(20);

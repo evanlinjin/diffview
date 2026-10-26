@@ -154,7 +154,12 @@ impl App {
             next.extend(self.md_rows_at(says, self.info_w(), mk));
             next.push(mk(Kind::Comment, String::new()));
         }
+        // What you asked of a draft's description: with your other questions, before what
+        // Claude did (not after it, apart from them).
+        let desc = self.heading(Self::is_description).map_or(0, |h| h + 1);
+        let asks = self.request_rows(&["description", ""], desc);
         if !summary && !questions {
+            next.extend(asks);
             next.extend(self.claude_activity()); // (what it did all the same)
             return next;
         }
@@ -195,6 +200,7 @@ impl App {
             }
         };
         rows.extend(self.summary_threads());
+        rows.extend(asks);
         rows.extend(self.claude_activity());
         next.extend(rows);
         next

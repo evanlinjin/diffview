@@ -333,10 +333,7 @@ impl App {
     fn attached_rows(&self) -> Vec<Row> {
         match self.view {
             _ if !self.whole_pr() || self.sections_folded.contains(&DESCRIPTION) => vec![],
-            _ if self.claude_side() => {
-                let desc = self.heading(Self::is_description).map_or(0, |h| h + 1);
-                [self.claude_attached(), self.request_rows(&["description", ""], desc)].into_iter().flatten().collect()
-            }
+            _ if self.claude_side() => self.claude_attached(),
             View::All if self.info_collapsed => vec![],
             View::All => {
                 let latest = (!self.conversation_all).then_some(LATEST);
