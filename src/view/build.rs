@@ -396,7 +396,7 @@ impl App {
         let text = match (drafted, asked) {
             (true, _) => format!("{}{with}", self.claude.closing.trim()),
             (false, false) if !left.is_empty() => with.trim_start().to_owned(),
-            _ => "_(not drafted yet)_".to_owned(),
+            _ => format!("_(not drafted yet)_{with}"),
         };
         let s = self.section(CLOSING_PR, what, &text, None);
         self.with_talk(CLOSING_PR, s, ON_CLOSING)

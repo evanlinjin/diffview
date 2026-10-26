@@ -379,7 +379,8 @@ impl App {
         let open = self.pr_state.is_some_and(|s| matches!(s.0, "OPEN" | "DRAFT"));
         let drafted = !self.claude.closing.trim().is_empty();
         // (What it closes with it, Claude's comment for each: left, it closed or not.)
-        let with: Vec<String> = self.linked_drafts().iter().map(|(s, _)| format!("#{}", s.n())).collect();
+        let left = self.left_to_close();
+        let with: Vec<String> = left.iter().map(|n| format!("#{n}")).collect();
         if drafted || !with.is_empty() {
             items.insert(0, Item::new("Discard Claude's closing comment", Target::CloseDiscard));
         }
@@ -390,10 +391,9 @@ impl App {
                 false => format!("Close {}{} and {} with Claude's comments (your editor first, each)…", self.what(), self.closes_as(), with.join(", ")),
             };
             items.insert(0, Item::new(what, Target::Do(Action::ClosePr)));
-        } else if !with.is_empty() && !open && self.subject().is_some() {
+        } else if !left.is_empty() && !open {
             // (It closed, what it closes with it not all yet: on from there.)
-            let ns = self.linked_drafts().iter().map(|(s, _)| s.n()).collect();
-            items.insert(0, Item::new(format!("Close {} with Claude's comments (your editor first, each)…", with.join(", ")), Target::Do(Action::CloseWith(ns))));
+            items.insert(0, Item::new(format!("Close {} with Claude's comments (your editor first, each)…", with.join(", ")), Target::Do(Action::CloseWith(left))));
         } else if self.subject().is_some() && open {
             items.push(Item::new(format!("Draft a comment closing {}… (you edit it, then close)", self.what()), Target::Do(talk_on(ON_CLOSING))));
         }
@@ -581,6 +581,10 @@ impl App {
             crate::claude::Subject::Issue(_) => crate::gh::close_issue(n, text.trim(), &t.reason, t.duplicate_of)
                 .map(|why| serde_json::json!({ "__typename": "Issue", "state": "CLOSED", "stateReason": why })),
         };
+        // (Closed already, elsewhere: as closed; GitHub asked again, for what closes with it.)
+        if closed.as_ref().is_err_and(|e| e.is::<crate::gh::ClosedAlready>()) {
+            self.github_changed();
+        }
         let now = keep_on_error(closed, &text)?;
         _ = crate::claude::clear(&path, "closing");
         self.pr_state = Some(super::info::state(&now));
@@ -590,16 +594,23 @@ impl App {
         self.rebuild(keep);
         // Then what it closes with it (an action of its own: its editor too, beside dv as any),
         // each once.
-        let ns: Vec<u64> = self.linked_drafts().iter().map(|(s, _)| s.n()).collect();
+        let ns = self.left_to_close();
         self.action = (!ns.is_empty()).then_some(Action::CloseWith(ns));
         Ok(format!("#{n} closed, with your comment"))
+    }
+
+    /// What closing it closes with it, with Claude's comment for it, by number: what's left.
+    pub(super) fn left_to_close(&self) -> Vec<u64> {
+        self.linked_drafts().iter().map(|(s, _)| s.n()).collect()
     }
 
     /// `CloseWith`: the first of `ns`, #`m`, which closing this closes with it, with Claude's
     /// comment for it (`closing_with`) after your editor (empty: left open, its comment kept for
     /// Space a); then the rest, whatever came of it (each once a round).
     pub(super) fn close_with(&mut self, ns: Vec<u64>) -> Result<String> {
-        let (Some(n), Some(path), Some((&m, rest))) = (self.subject().map(|s| s.n()), self.claude.path.clone(), ns.split_first()) else { return Ok(String::new()) };
+        let (Some(n), Some(path), Some((&m, rest))) = (self.subject().map(|s| s.n()), self.claude.path.clone(), ns.split_first()) else {
+            return Ok("nothing to close here any more".into());
+        };
         let next = (!rest.is_empty()).then(|| Action::CloseWith(rest.to_vec()));
         let Some((s, c)) = self.linked_drafts().into_iter().find(|(s, _)| s.n() == m) else {
             // (Gone meanwhile: closed elsewhere, say. On with the rest.)

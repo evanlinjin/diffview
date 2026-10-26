@@ -2610,9 +2610,15 @@ fn claude_drafts_a_closing_comment() {
     assert!(app.picker.take().unwrap().items.iter().any(|i| i.label.contains("and #3 with Claude's comments")));
     // It closed, #3 left (its editor cancelled, say): Space a goes on from it; not while it's open.
     let closing = std::mem::take(&mut app.claude.closing);
+    let header = |app: &mut App| {
+        app.build();
+        app.rows.iter().find(|r| r.main == Some(CLOSING_PR) && r.line.kind == Kind::File).map(|r| r.line.text.clone()).unwrap_or_default()
+    };
+    assert!(header(&mut app).contains("Space a: draft a comment closing"), "{}", header(&mut app));
     app.claude_menu();
     assert!(!app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::Do(Action::CloseWith(ref ns)) if ns == &[3])));
     app.pr_state = Some(("CLOSED", "da3633"));
+    assert!(header(&mut app).contains("what closes with it, left"), "{}", header(&mut app));
     app.claude_menu();
     assert!(app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::Do(Action::CloseWith(ref ns)) if ns == &[3])));
     (app.claude.closing, app.pr_state) = (closing, Some(("OPEN", "238636")));
@@ -2624,8 +2630,8 @@ fn claude_drafts_a_closing_comment() {
     _ = super::term::writing_beside(false, Some(None), || app.close_with(vec![6]));
     assert!(app.action.is_none() && app.claude.closing_with.len() == 2, "left open: their comments kept");
     // #4 gone meanwhile (closed elsewhere): on with the rest.
-    _ = super::term::writing_beside(false, Some(None), || app.close_with(vec![4, 6]));
-    assert!(matches!(app.action.take(), Some(Action::CloseWith(ns)) if ns == [6]));
+    let (res, _) = super::term::writing_beside(false, Some(None), || app.close_with(vec![4, 6]));
+    assert!(res.unwrap().starts_with("#4: no comment") && matches!(app.action.take(), Some(Action::CloseWith(ns)) if ns == [6]));
     app.load_claude();
     // Not linked any more (closed meanwhile, say): neither.
     app.linked.clear();
