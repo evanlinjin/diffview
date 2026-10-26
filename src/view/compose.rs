@@ -256,6 +256,26 @@ impl App {
                 if let Some(k) = kept {
                     _ = crate::claude::save_instructions(k, &extra);
                 }
+                // A change you say: a thread of its own on the PR (as a question about it is),
+                // wanting it as it lands, kept with Claude's answer; with the open comments, if
+                // any (else answered as any thread).
+                if matches!(ask, agent::Ask::Fix | agent::Ask::Edit) && !extra.trim().is_empty() {
+                    let want = match (self.theirs && matches!(ask, agent::Ask::Fix), self.claude.land) {
+                        (true, _) => "suggest",
+                        (_, "amend") => "amend",
+                        (_, "commit") => "commit",
+                        _ => "change",
+                    };
+                    let p = self.claude.path.clone().context("no review file")?;
+                    let others = self.change_requests();
+                    keep_on_error(crate::claude::add_conversation(&p, ON_SUMMARY, &extra, want).map(drop), &extra)?;
+                    if others == 0 {
+                        return Ok(self.answer_now());
+                    }
+                    self.load_claude();
+                    self.run_claude(ask, "");
+                    return Ok(std::mem::take(&mut self.msg));
+                }
                 if self.run_claude(ask, &extra) || extra.trim().is_empty() {
                     return Ok(std::mem::take(&mut self.msg));
                 }
