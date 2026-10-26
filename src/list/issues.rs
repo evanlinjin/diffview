@@ -501,16 +501,13 @@ impl Issues {
             .collect();
         // (An issue waits for a time only: its deferrals are over by `defer`'s clock.)
         self.todos.ready = !self.items.is_empty();
-        let (items, said) = self.todos.settle(items, vec![]);
+        let (items, _) = self.todos.settle(items, vec![]);
         // Those Claude is at (here or in any dv): at the bottom till it's done, as dv list's.
         let doing = |it: &Item| self.at_work.get(&crate::claude::pr_key(it.number)).cloned();
         let (mut busy, mut items): (Vec<Item>, Vec<Item>) = items.into_iter().partition(|it| doing(it).is_some());
         busy.iter_mut().for_each(|it| it.busy = doing(it));
         items.append(&mut busy);
         self.todos.items = items;
-        if let Some(said) = said {
-            self.msg = said;
-        }
         if let Some(i) = keep.and_then(|n| self.shown().iter().position(|i| i.number == n)) {
             self.nav.sel = i;
         }
@@ -665,9 +662,6 @@ impl Issues {
                         // (Deferrals of issues no longer open: unless past the cap, unlisted.)
                         let all_in = self.items.len() < ISSUES_MAX;
                         let open = |n: u64| self.items.iter().any(|i| i.number == n);
-                        // (And what one waited on of its fix PR, from before: an issue waits for a
-                        // time only.)
-                        self.todos.deferred.retain(|_, d| d.cond.is_none());
                         if all_in
                             && let Some(e) = self.todos.prune(|k| k.strip_prefix("issue-").and_then(|n| n.parse().ok()).is_none_or(open))
                         {
@@ -837,7 +831,7 @@ impl Issues {
                 return None;
             }
             Some(After::Until(key)) => {
-                let what = "defer it until… (a time: 3 days, Monday, 2 weeks)";
+                let what = "defer it until… (a time: 3 days, 2 weeks)";
                 if let Some(text) = said(edit(term, what, "", false, true), &mut self.msg) {
                     self.defer_until(key, &text);
                 }
@@ -976,21 +970,15 @@ impl Issues {
     }
 
     /// Defer issue item `key` until `c` (or time `or`, first): what an issue can wait for, a
-    /// time. (One a PR would fix, open, isn't on the todo: it's back once that's merged.)
+    /// time ("…, or 2 weeks" with a condition: the time). (One a PR would fix, open, isn't on
+    /// the todo: it's back once it isn't open.)
     fn defer_on(&mut self, key: &str, c: crate::todo::Until, or: Option<i64>) {
         use crate::todo::Until;
-        if !self.todos.items.iter().any(|it| it.key() == key) {
-            return self.msg = GONE.into();
-        }
-        // (A condition with a time, "…, or 2 weeks": the time.)
-        let c = match (c, or) {
-            (Until::Time(t), _) | (_, Some(t)) => Until::Time(t),
-            (c, None) => c,
+        let t = match (c, or) {
+            (Until::Time(t), _) | (_, Some(t)) => t,
+            (c, None) => return self.msg = format!("not deferred: an issue can't wait until {}, only for a time (a PR fixing it, open, takes it off the todo till it isn't)", c.says()),
         };
-        if !matches!(c, Until::Time(_)) {
-            return self.msg = format!("not deferred: an issue can't wait until {}, only for a time (a PR fixing it, open, takes it off the todo till it's merged)", c.says());
-        }
-        self.msg = self.todos.defer_on(key, c, or, 0);
+        self.msg = self.todos.defer_on(key, Until::Time(t), or, 0);
         self.save_defer();
     }
 
@@ -1237,7 +1225,7 @@ FIND
 TODO
   r r                  Claude ranks what needs you (one run; the bar says its cost)
   s                    defer it: 1 an hour, 4 four hours, d a day, w a week, u until… (a
-                       time: 3 days, Monday; again: back)
+                       time: 3 days, 2 weeks; again: back)
 
 CLAUDE
   m                    mark the issue (again: unmark)
