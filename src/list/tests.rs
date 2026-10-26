@@ -663,7 +663,7 @@ fn stalled_when_the_author_leaves_feedback_unanswered() {
         serde_json::json!({ "author": { "login": "amy" },
             // (A maintainer's "Update branch" since: not amy's word.)
             "commits": { "nodes": [{ "commit": { "committedDate": t("01"), "author": { "user": { "login": "amy" } } } },
-                                   { "commit": { "committedDate": t("04"), "author": { "user": { "login": "bo" } } } }] },
+                                   { "commit": { "committedDate": t("04"), "authoredDate": t("04"), "committer": { "user": { "login": "web-flow" } }, "author": { "user": { "login": "bo" } } } }] },
             "reviews": { "nodes": reviews },
             "comments": { "nodes": comments } })
     };
@@ -720,8 +720,11 @@ fn stalled_when_the_author_leaves_feedback_unanswered() {
     let mut j = pr(serde_json::json!([]), vec![]);
     j["commits"]["nodes"].as_array_mut().unwrap().push(serde_json::json!({ "commit": { "committedDate": t("09"), "authoredDate": t("08"), "committer": { "user": { "login": "web-flow" } }, "author": { "user": { "login": "bo" } } } }));
     j["commits"]["nodes"].as_array_mut().unwrap().push(serde_json::json!({ "commit": { "committedDate": t("09"), "authoredDate": t("01"), "committer": { "user": { "login": "bo" } }, "author": { "user": { "login": "amy" } } } }));
+    // GitHub's rebase of amy's own (committed by web-flow): when she wrote it, still.
+    j["commits"]["nodes"].as_array_mut().unwrap().push(serde_json::json!({ "commit": { "committedDate": t("09"), "authoredDate": t("01"), "committer": { "user": { "login": "web-flow" } }, "author": { "user": { "login": "amy" } } } }));
     let e = super::github::extra(&j, "me");
     assert_eq!(e.active, crate::gh::epoch_secs(&t("01")).unwrap());
+    assert!(e.unanswered.is_some());
     j["commits"]["nodes"].as_array_mut().unwrap().push(serde_json::json!({ "commit": { "committedDate": t("07"), "authoredDate": t("07"), "committer": { "user": { "login": "bo" } }, "author": { "user": { "login": "bo" } } } }));
     let e = super::github::extra(&j, "me");
     assert_eq!(e.active, crate::gh::epoch_secs(&t("07")).unwrap());

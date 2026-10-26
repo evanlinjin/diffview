@@ -181,10 +181,12 @@ pub(super) fn extra(p: &Value, me: &str) -> Extra {
         let by = &c["commit"]["author"];
         by.is_object() && (by["user"]["login"] == author.as_str() || by["user"].is_null())
     };
+    // A commit's time: when its author committed it, theirs; else when it was written (one
+    // rebased, by anyone, GitHub's own too; edited on the web).
     let when = |c: &Value| {
-        let by = &c["commit"]["committer"]["user"]["login"];
-        let other = by.as_str().is_some_and(|by| by != author && by != "web-flow");
-        at(&c["commit"][if other { "authoredDate" } else { "committedDate" }])
+        let committed = c["commit"]["committer"]["user"]["login"] == author.as_str();
+        let wrote = at(&c["commit"]["authoredDate"]);
+        if committed || wrote == 0 { at(&c["commit"]["committedDate"]) } else { wrote }
     };
     let pushed = nodes("commits").iter().filter(|c| theirs(c)).map(when).max().unwrap_or(0);
     let by_author = |k: &str, t: &str| nodes(k).into_iter().filter(|c| c["author"]["login"] == author.as_str()).map(|c| at(&c[t])).max().unwrap_or(0);
@@ -214,9 +216,9 @@ pub(super) fn extra(p: &Value, me: &str) -> Extra {
         signatures_required: requires_signatures(p),
         awaiting: 0, // from the workflow runs, after (`list_extra`)
         unanswered,
-        // (A commit's work when it was written: not when it was rebased, nor GitHub's merge of the
-        // base, "Update branch": a sync, not work on it.)
-        active: last_word.max(nodes("commits").iter().filter(|c| c["commit"]["committer"]["user"]["login"] != "web-flow").map(|c| at(&c["commit"]["authoredDate"])).max().unwrap_or(0)),
+        // (Anyone's commit, by `when`; not another's "Update branch", GitHub's merge of the base:
+        // a sync, not work on it.)
+        active: last_word.max(nodes("commits").iter().filter(|c| theirs(c) || c["commit"]["committer"]["user"]["login"] != "web-flow").map(when).max().unwrap_or(0)),
     }
 }
 
