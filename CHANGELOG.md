@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.96.4] - 2026-10-26
+
+### Fixed
+- Going to a question about Claude's summary from the whole diff (`]c`, a picker) goes to it,
+  on Claude's side, instead of saying it isn't shown (and `]c` stopping there); going to a
+  thread unfolds only what it must.
+
 ## [0.96.3] - 2026-10-26
 
 ### Fixed
