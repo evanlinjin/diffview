@@ -172,7 +172,7 @@ disk: rust-analyzer can index it and `hx` can open it.
    does: the issues ranking says which to close). Todo: what needs you of an issue (the PR
    fixing it merged: close it; Claude would close it; assigned to you; changed since Claude
    triaged it; not triaged; not one a PR open would fix, or a draft: that's what to look at, in
-   the PRs' views, and it's back once the PR's merged), in the rules' order, or Claude's (`r r`,
+   the PRs' views, and it's back once it isn't open: merged into another branch, or closed), in the rules' order, or Claude's (`r r`,
    one reading-only run: why each is where it is and what next, in the message column as dv
    list's; its own ranking, `todo-issues.json`); `s` defers one for a time (1 / 4 / d / w; kept in
    `deferred-issues.json`), back sooner if what it needs changes. Auto (`C`, git config

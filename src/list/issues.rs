@@ -486,24 +486,22 @@ impl Issues {
         use crate::todo::{Item, Kind};
         // (The cursor stays on its issue as they reorder: a ranking, a triage landing.)
         let keep = self.shown().get(self.nav.sel).map(|i| i.number);
+        // Not one with a fix under way (it's what to look at): a PR open to fix it (in the PRs'
+        // views; back once it isn't open: merged, or closed), or a draft, unpublished (its
+        // record's task starts "Fix #N", as `N N` has it). One merged too: so, till the open's done.
+        self.draft_fix = draft_fix(&records(), &self.at_work);
         let items: Vec<Item> = self
             .items
             .iter()
+            .filter(|i| !self.draft_fix.contains_key(&i.number) && !i.fixed_by.iter().any(|p| p.1 == "OPEN"))
             .filter_map(|i| {
                 let needs = issue_needs(i, self.triage.get(&i.number), self.triage_at.get(&i.number).copied(), &self.me);
                 (!needs.is_empty()).then(|| Item { kind: Kind::Issue, number: i.number, needs, claude: None, updated: i.updated.clone(), reason: None, changed: false, deferred: None, busy: None, waits: None })
             })
             .collect();
-        // Not those a PR would fix, open (it's what to look at, in the PRs' views), or a draft,
-        // unpublished (its record's task starts "Fix #N", as `N N` has it).
-        self.draft_fix = draft_fix(&records(), &self.at_work);
-        let fixing = |n: u64| self.items.iter().any(|i| i.number == n && i.fixed_by.iter().any(|p| p.1 == "OPEN"));
-        let items: Vec<Item> = items.into_iter().filter(|it| !self.draft_fix.contains_key(&it.number) && !fixing(it.number)).collect();
-
         // (An issue waits for a time only: its deferrals are over by `defer`'s clock.)
-        let met = self.todos.met(&items, |_, _, _| false);
         self.todos.ready = !self.items.is_empty();
-        let (items, said) = self.todos.settle(items, met);
+        let (items, said) = self.todos.settle(items, vec![]);
         // Those Claude is at (here or in any dv): at the bottom till it's done, as dv list's.
         let doing = |it: &Item| self.at_work.get(&crate::claude::pr_key(it.number)).cloned();
         let (mut busy, mut items): (Vec<Item>, Vec<Item>) = items.into_iter().partition(|it| doing(it).is_some());
@@ -667,6 +665,9 @@ impl Issues {
                         // (Deferrals of issues no longer open: unless past the cap, unlisted.)
                         let all_in = self.items.len() < ISSUES_MAX;
                         let open = |n: u64| self.items.iter().any(|i| i.number == n);
+                        // (And what one waited on of its fix PR, from before: an issue waits for a
+                        // time only.)
+                        self.todos.deferred.retain(|_, d| d.cond.is_none());
                         if all_in
                             && let Some(e) = self.todos.prune(|k| k.strip_prefix("issue-").and_then(|n| n.parse().ok()).is_none_or(open))
                         {
@@ -836,7 +837,7 @@ impl Issues {
                 return None;
             }
             Some(After::Until(key)) => {
-                let what = "defer it until… (e.g. #2258 gets a push, the author pushes, #2258 is merged, 3 days; \"…, or 2 weeks\": whichever first)";
+                let what = "defer it until… (a time: 3 days, Monday, 2 weeks)";
                 if let Some(text) = said(edit(term, what, "", false, true), &mut self.msg) {
                     self.defer_until(key, &text);
                 }
@@ -981,6 +982,11 @@ impl Issues {
         if !self.todos.items.iter().any(|it| it.key() == key) {
             return self.msg = GONE.into();
         }
+        // (A condition with a time, "…, or 2 weeks": the time.)
+        let c = match (c, or) {
+            (Until::Time(t), _) | (_, Some(t)) => Until::Time(t),
+            (c, None) => c,
+        };
         if !matches!(c, Until::Time(_)) {
             return self.msg = format!("not deferred: an issue can't wait until {}, only for a time (a PR fixing it, open, takes it off the todo till it's merged)", c.says());
         }
@@ -1231,7 +1237,7 @@ FIND
 TODO
   r r                  Claude ranks what needs you (one run; the bar says its cost)
   s                    defer it: 1 an hour, 4 four hours, d a day, w a week, u until… (a
-                       fix PR's push or merge, …, or 2 weeks; again: back)
+                       time: 3 days, Monday; again: back)
 
 CLAUDE
   m                    mark the issue (again: unmark)
@@ -1314,8 +1320,17 @@ fn issues_listed_triaged_filtered() {
     assert!(l.msg.starts_with("not deferred: an issue can't wait until #9 is merged"), "{}", l.msg);
     l.defer_until(key.clone(), "@bo approves");
     assert!(l.msg.starts_with("not deferred: an issue can't wait until @bo approves it"), "{}", l.msg);
-    l.defer_until(key, "2 weeks");
-    assert!(l.todos.items.iter().find(|it| it.number == 7).unwrap().deferred.is_some(), "{}", l.msg);
+    // With a time ("…, or 2 weeks"): for the time.
+    l.defer_until(key, "#9 is merged, or 2 weeks");
+    assert!(l.todos.items.iter().find(|it| it.number == 7).unwrap().deferred.as_ref().is_some_and(|d| d.until < i64::MAX), "{}", l.msg);
+    // #9 merged (into another branch: #7 still open), another still open to fix it: not yet;
+    // that one closed: back, to close it.
+    l.items[0].fixed_by = vec![(9, "MERGED".into(), String::new()), (10, "OPEN".into(), String::new())];
+    l.find_todo();
+    assert!(!l.todos.items.iter().any(|it| it.number == 7));
+    l.items[0].fixed_by[1].1 = "CLOSED".into();
+    l.find_todo();
+    assert!(l.todos.items.iter().find(|it| it.number == 7).unwrap().needs.contains(&crate::todo::Need::FixMerged(9)));
     _ = std::fs::remove_dir_all(&dir);
 }
 
