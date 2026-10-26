@@ -408,9 +408,16 @@ fn review_in(o: &Opts, n: u64, known: Option<gh::Pr>, here: &Path) -> anyhow::Re
 }
 
 /// PR `n`, a link to it followed from a PR's view (checked out in `here`): reviewed in a
-/// worktree of its own (this checkout's left as it is), then back here (`review_in`).
+/// worktree of its own (this checkout's left as it is), then back here (`review_in`). One made
+/// for it goes again as you come back, if nothing in it would be lost (`remove_worktree`
+/// refuses: changes, commits not on the PR, Claude at work there).
 fn linked_pr(n: u64, here: &Path) -> anyhow::Result<anyhow::Result<Option<u64>>> {
-    review_in(&Opts { worktree: true, ..Opts::default() }, n, None, here)
+    let own = worktree_dir(n).ok().map(|w| w.1).filter(|d| !d.exists() && pr_checkout(n).is_ok_and(|c| c == *d));
+    let res = review_in(&Opts { worktree: true, ..Opts::default() }, n, None, here);
+    if own.is_some_and(|d| d.exists()) && res.is_ok() {
+        _ = remove_worktree(n, false);
+    }
+    res
 }
 
 /// Issue `n` in the PR view (from dv's issues), a PR a link there goes to reviewed as dv list
