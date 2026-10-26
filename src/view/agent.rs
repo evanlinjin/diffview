@@ -95,8 +95,9 @@ pub(super) fn turn(t: &Thread) -> Option<&'static str> {
 /// Claude's review for this PR/branch, and the background `claude -p` runs that write it.
 #[derive(Default)]
 pub(super) struct ClaudeState {
-    /// How "make the changes" lands them: `""` uncommitted, `"amend"` into the commits they
-    /// belong in, `"commit"` as new commits (`Space a` asks; the last answer comes first).
+    /// How "make the changes" lands them, as wanted of a comment (`ask::WANTS`): `"change"`
+    /// uncommitted (`""`: not asked yet), `"amend"` into the commits they belong in, `"commit"`
+    /// as new commits (`Space a` asks; the last answer comes first).
     pub(super) land: &'static str,
     /// Its review file (see `claude.rs`), and when that last changed.
     pub(super) path: Option<PathBuf>,
@@ -159,15 +160,9 @@ impl Drop for ClaudeState {
     }
 }
 
-/// How "make the changes" can land them: the key (`ClaudeState::land`), the picker's item.
 /// How changes on someone else's PR may land too: as suggestions for you to post (`Ask::Fix`).
+/// (How "make the changes" lands them is what you can want of a comment: `ask::WANTS`.)
 pub(super) const SUGGEST: &str = "suggest";
-
-pub(super) const LANDS: [(&str, &str); 3] = [
-    ("", "Leave them uncommitted (you commit them)"),
-    ("amend", "Amend each into the commit it belongs in (dv's amend: a backup branch first)"),
-    ("commit", "As new commits"),
-];
 
 impl App {
     /// Whether `ask` may change the code (or reads it whole: a review): answering does when a
@@ -696,19 +691,21 @@ impl App {
             // maintainers: else they stay here).
             Ask::Fix | Ask::Edit => {
                 let here = if self.theirs { Ask::Edit } else { Ask::Fix };
-                let mut items: Vec<Item> = LANDS.iter().map(|&(key, label)| Item::new(label, Target::Land(here, key))).collect();
+                let mut items: Vec<Item> = super::ask::WANTS.iter().filter(|w| super::ask::edits_code(w.0)).map(|w| Item::new(w.3, Target::Land(here, w.0))).collect();
                 if self.theirs {
                     let push = match self.pr.as_ref().is_some_and(|p| p.maintainer_can_modify || !p.cross_repo) {
                         true => "Space g pushes them to their branch",
                         false => "they don't allow maintainer edits: the commits stay here",
                     };
                     items.iter_mut().for_each(|i| i.label = format!("{} ({push})", i.label));
-                    items.insert(0, Item::new("As suggestions for you to post (their code stays as it is)", Target::Land(Ask::Fix, SUGGEST)));
+                    let suggest = super::ask::WANTS.iter().find(|w| w.0 == SUGGEST).map_or("", |w| w.3);
+                    items.insert(0, Item::new(suggest, Target::Land(Ask::Fix, SUGGEST)));
                 }
                 // (Their PR: suggested, unless you've said how; made here, Space g pushes
                 // commits, so as commits.)
                 let land = match (self.theirs, self.claude.land) {
                     (true, "") => SUGGEST,
+                    (false, "") => "change",
                     (_, l) => l,
                 };
                 let p = Picker::new(" how should the changes land? ", items).select(|t| matches!(t, Target::Land(_, k) if *k == land));

@@ -2787,7 +2787,7 @@ fn claude_makes_changes_on_their_pr() {
         app.picker.take().unwrap().items.into_iter().map(|i| (i.label, i.target)).collect::<Vec<_>>()
     };
     let items = lands(&mut app);
-    assert!(items[0].0.starts_with("As suggestions") && matches!(items[0].1, Target::Land(agent::Ask::Fix, agent::SUGGEST)));
+    assert!(items[0].0.starts_with("Suggest:") && matches!(items[0].1, Target::Land(agent::Ask::Fix, agent::SUGGEST)));
     let (label, _) = items.iter().find(|(_, t)| matches!(t, Target::Land(agent::Ask::Edit, "commit"))).expect("make them");
     assert!(label.contains("Space g pushes them to their branch"), "{label}");
     // The prompt makes them (no "don't edit the code").

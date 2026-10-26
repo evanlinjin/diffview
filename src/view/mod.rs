@@ -283,7 +283,7 @@ enum Target {
     /// A comment: (thread index, comment index within it).
     Comment(usize, usize),
     Claude(agent::Ask),
-    /// How "make the changes" lands them (`agent::LANDS`).
+    /// How "make the changes" lands them (as wanted of a comment: `ask::WANTS`).
     Land(agent::Ask, &'static str),
     /// What you want of Claude on the comment or reply you're about to write ("ask", …).
     Want(&'static str),
