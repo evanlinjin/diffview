@@ -5713,9 +5713,22 @@ fn going_to_a_thread_on_no_lines_finds_where_it_shows() {
     assert!(on(&app, closing) && app.sections_folded.contains(&DESCRIPTION) && app.info_collapsed && !app.sections_folded.contains(&CLOSING_PR), "{}", app.msg);
     app.toggle_collapse();
     assert!(app.sections_folded == [DESCRIPTION, CLOSING_PR].into(), "{:?}", app.sections_folded);
+    // A question about the summary, the description folded: on Claude's side, beside it,
+    // unfolded there; the closing comment's fold kept.
+    (app.view, app.sections_folded) = (View::All, [DESCRIPTION, CLOSING_PR].into());
+    app.build();
+    app.goto_comment(summary, 0);
+    assert!(app.view == View::Claude && on(&app, summary) && app.sections_folded == [CLOSING_PR].into(), "{} {:?}", app.msg, app.sections_folded);
     // Shown nowhere (a comment it hasn't, here): all as it was, the view too.
     (app.view, app.sections_folded, app.info_collapsed) = (View::Pending, [CLOSING_PR].into(), true);
     app.build();
     app.goto_comment(desc, 5);
     assert!(app.view == View::Pending && app.sections_folded == [CLOSING_PR].into() && app.info_collapsed && app.msg.contains("isn't shown"), "{}", app.msg);
+    // A file folded, a thread on it not found: still folded, the thread too.
+    (app.view, app.info_collapsed) = (View::All, false);
+    app.collapsed.insert("src/big.rs".into());
+    app.build();
+    let toggled = app.toggled.clone();
+    app.goto_comment(0, 5);
+    assert!(app.collapsed.contains("src/big.rs") && app.toggled == toggled);
 }

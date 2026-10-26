@@ -164,16 +164,19 @@ impl App {
     }
 
     /// Jump to comment `ci` of thread `ti`, unfolding its file and thread if needed; on no
-    /// lines, where it shows (its text's section unfolded, or Claude's side: tried in turn, not
-    /// foretold, so whatever `build` does with it, it's found). Not found: all as it was.
+    /// lines, where it shows: in the view it's in, else on Claude's side, each as it is, else
+    /// with its text unfolded (the others folded back): tried in turn, not foretold, so
+    /// whatever `build` does with it, it's found. Not found: all as it was.
     pub(super) fn goto_comment(&mut self, ti: usize, ci: usize) {
         let Some(t) = self.threads.get(ti) else { return };
         let keep = self.cursor_key();
-        let was = (self.view, self.sections_folded.clone(), self.info_collapsed, self.code_head);
-        if !self.in_view(t) {
-            self.view = View::All; // it's not in this view: back to the whole diff, to show it
+        let was = (self.view, self.sections_folded.clone(), self.info_collapsed, self.code_head, self.collapsed.clone(), self.toggled.clone());
+        // Not in this view: the whole diff, to show it; one of Claude's on no lines, its side too.
+        let first = if self.in_view(t) { self.view } else { View::All };
+        let mut views = vec![first];
+        if t.path.is_empty() && t.claude.is_some() && first != View::Claude {
+            views.push(View::Claude);
         }
-        let t = &self.threads[ti];
         self.collapsed.remove(&t.path.clone());
         // (Only one it unfolds: a jump isn't a choice to keep it open.)
         if !self.thread_open(ti)
@@ -181,40 +184,45 @@ impl App {
         {
             self.toggled.insert(id, true);
         }
-        self.rebuild(keep.clone());
         // Each comment starts with an author row; outdated threads' code rows aren't author rows.
         let at = |app: &App| app.rows.iter().enumerate().filter(|(_, r)| r.thread == Some(ti) && r.line.kind == Kind::Thread).nth(ci).map(|(r, _)| r);
-        let mut row = at(self);
-        if row.is_none() && self.threads[ti].path.is_empty() {
-            let text = [DESCRIPTION, CLOSING_NOTE, CLOSING_PR];
-            let folded: HashSet<usize> = was.1.iter().copied().filter(|s| text.contains(s)).collect();
-            // Its text folded (the PR's pane, a section): unfolded, then the others folded back.
-            if !folded.is_empty() || was.2 {
+        let text = [DESCRIPTION, CLOSING_NOTE, CLOSING_PR];
+        let folded: HashSet<usize> = was.1.iter().copied().filter(|s| text.contains(s)).collect();
+        let mut row = None;
+        for (k, v) in views.into_iter().enumerate() {
+            (self.view, self.sections_folded, self.info_collapsed) = (v, was.1.clone(), was.2);
+            self.rebuild(keep.clone());
+            row = at(self);
+            // Its text folded (a section, the PR's pane): unfolded, then what it isn't beside
+            // folded back, and the pane if it's shown all the same.
+            if row.is_none() && self.threads[ti].path.is_empty() && (!folded.is_empty() || was.2) {
                 self.sections_folded.retain(|s| !folded.contains(s));
                 self.info_collapsed = false;
                 self.rebuild(keep.clone());
                 row = at(self);
                 if let Some(home) = row.and_then(|r| self.rows[r].beside) {
                     self.sections_folded.extend(folded.iter().filter(|&&s| s != home));
-                    self.info_collapsed = was.2 && home != DESCRIPTION;
+                    self.info_collapsed = was.2;
                     self.rebuild(keep.clone());
                     row = at(self);
+                    if row.is_none() {
+                        self.info_collapsed = false;
+                        self.rebuild(keep.clone());
+                        row = at(self);
+                    }
                 }
             }
-            // Else on Claude's side.
-            if row.is_none() && self.threads[ti].claude.is_some() && was.0 != View::Claude {
-                (self.sections_folded, self.info_collapsed, self.view) = (was.1.clone(), was.2, View::Claude);
-                self.rebuild(keep.clone());
-                row = at(self);
-                if row.is_some() {
+            if row.is_some() {
+                if k > 0 {
                     self.msg = "on Claude's side (gn / gp: the other tabs)".into();
                 }
+                break;
             }
         }
         match row {
             Some(r) => self.jump(r, 0),
             None => {
-                (self.view, self.sections_folded, self.info_collapsed) = (was.0, was.1, was.2);
+                (self.view, self.sections_folded, self.info_collapsed, self.collapsed, self.toggled) = (was.0, was.1, was.2, was.4, was.5);
                 self.rebuild(keep);
                 self.code_head = was.3;
                 // (Showing only what isn't committed; a question on no file, where nothing shows it.)
