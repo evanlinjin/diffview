@@ -1500,10 +1500,14 @@ fn replacement_in_the_pr_section() {
     let (keep, wanting) = (app.cursor_key(), app.wanting.take());
     let code = app.rows.iter().position(|r| r.file < app.files.len() && r.line.kind == diff::Kind::Add).unwrap();
     app.goto(code, 0);
-    app.claude.path.get_or_insert_with(|| std::env::temp_dir().join("dv-unused-draft-review.json"));
     app.start_ask_claude();
-    let wants: Vec<_> = app.picker.take().expect("the want picker").items.into_iter().map(|i| i.target).collect();
-    assert!(matches!(wants[..], [Target::Want("ask"), Target::Want("change")]), "{}", app.msg);
+    let picker = app.picker.take().expect("the want picker");
+    let wants: Vec<_> = picker.items.iter().map(|i| &i.target).collect();
+    assert!(matches!(wants[..], [Target::Want("ask"), Target::Want("change")]) && picker.sel == 1, "{}", app.msg);
+    // Nor Space a's making of changes: a draft's are its redraft's.
+    app.claude_menu();
+    let items = app.picker.take().unwrap().items;
+    assert!(!items.iter().any(|i| matches!(i.target, Target::Claude(agent::Ask::Fix | agent::Ask::Edit))));
     app.wanting = wanting;
     app.rebuild(keep);
     app.want("ask");

@@ -549,7 +549,13 @@ pub fn prompt(r: &Record, extra: &str, reviews: Reviews, waiting: &[crate::gh::T
     let asks: Vec<String> = waiting
         .iter()
         .map(|t| {
-            let want = if t.want.is_empty() { String::new() } else { format!(" (want: {})", t.want) };
+            // (Its commits Claude's to make as it redrafts: an amend or a commit asked before
+            // that was so, a change.)
+            let want = match t.want.as_str() {
+                "" => String::new(),
+                "amend" | "commit" => " (want: change)".to_owned(),
+                w => format!(" (want: {w})"),
+            };
             format!("`{}`{want}, {}", t.claude.as_deref().unwrap_or(""), crate::claude::thread_brief(t))
         })
         .collect();

@@ -329,8 +329,9 @@ impl App {
             false => "Write notes for Claude on this repo (it reads them before each task)",
         };
         let mut items = vec![Item::new(review.0, Target::Claude(review.1)), Item::new(format!("Answer your replies ({n} waiting)"), Target::Claude(Ask::Answer))];
-        // (How: suggested, on someone else's PR, or made here; and how they land.)
-        if self.has_code() {
+        // (How: suggested, on someone else's PR, or made here; and how they land. A draft's:
+        // redrafted, with your instructions, below.)
+        if self.has_code() && !self.unpublished() {
             items.push(Item::new(
                 match open {
                     0 => "Make a change… (no open comments: you say what)".to_owned(),

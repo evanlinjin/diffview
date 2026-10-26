@@ -258,7 +258,7 @@ fn run() -> anyhow::Result<()> {
     // changed of the ones given (`./a`, `../b`, a dir, a glob).
     // Its `-F <file>` (read here, from where it was given) or `-m <message>`: the commit's new
     // message.
-    let message = match amend_message(&mut o.rest).filter(|_| o.cmd == Some("amend")).transpose()? {
+    let message = match (o.cmd == Some("amend")).then(|| amend_message(&mut o.rest)).flatten().transpose()? {
         Some((true, m)) => Some(m),
         Some((false, f)) => Some(std::fs::read_to_string(&f).with_context(|| format!("reading {f}"))?),
         None => None,
