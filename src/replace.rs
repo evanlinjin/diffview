@@ -226,8 +226,9 @@ pub fn load(id: u64) -> Result<Record> {
     let text = std::fs::read_to_string(&p).with_context(|| format!("reading {}", p.display()))?;
     // (Its own `asks`, top-level: not a word in a draft.)
     if serde_json::from_str::<Value>(&text).is_ok_and(|v| v.get("asks").is_some()) {
-        let v = adopt_asks(&text, &review_path(id)?)?;
+        let (v, asks) = adopt_asks(&text)?;
         crate::claude::write_at(&p, (serde_json::to_string_pretty(&v)? + "\n").as_bytes())?;
+        adopt_into(&review_path(id)?, &asks)?;
         return load(id);
     }
     parse(id, &text)
@@ -235,11 +236,20 @@ pub fn load(id: u64) -> Result<Record> {
 
 /// A record as dv 0.95 kept what you asked of its drafts (`asks`: text, want, on, answer):
 /// threads in its review file now, answered as they were. ponytail: drop this a few releases on.
-/// (`review`: its review file, where they go; the record, without them.)
-fn adopt_asks(text: &str, review: &Path) -> Result<Value> {
+/// (The record, without them, and them.)
+fn adopt_asks(text: &str) -> Result<(Value, Vec<Value>)> {
     let mut v: Value = serde_json::from_str(text)?;
     let asks = v.as_object_mut().and_then(|o| o.remove("asks")).and_then(|a| a.as_array().cloned()).unwrap_or_default();
-    for a in &asks {
+    if let Some(o) = v.as_object_mut() {
+        o.remove("taking");
+    }
+    Ok((v, asks))
+}
+
+/// Adopted (`adopt_asks`): its record written first, without them, then they're threads (not
+/// adopted twice, failing half way). ponytail: two dvs loading it at once may both adopt them.
+fn adopt_into(review: &Path, asks: &[Value]) -> Result<()> {
+    for a in asks {
         let s = |k: &str| a[k].as_str().unwrap_or("").to_owned();
         let on = match s("on").as_str() {
             "" => crate::claude::ON_DRAFT.to_owned(),
@@ -255,10 +265,7 @@ fn adopt_asks(text: &str, review: &Path) -> Result<Value> {
             crate::claude::answer(review, &k, 1, &answer)?;
         }
     }
-    if let Some(o) = v.as_object_mut() {
-        o.remove("taking");
-    }
-    Ok(v)
+    Ok(())
 }
 
 #[test]
@@ -268,8 +275,9 @@ fn v095_asks_adopted() {
         { "text": "Why two?", "want": "ask", "on": "description", "answer": "One per original." },
         { "text": "Shorter.", "want": "change", "on": "closing note", "done": true },
         { "text": "Keep the old API." } ] }"#;
-    let v = adopt_asks(text, &review).unwrap();
+    let (v, asks) = adopt_asks(text).unwrap();
     assert!(v.get("asks").is_none() && v.get("taking").is_none() && v["base"] == "main");
+    adopt_into(&review, &asks).unwrap();
     let t = crate::claude::load(&review).unwrap().unwrap().threads;
     let talk = |i: usize| (t[i].conversation.as_str(), t[i].want.as_str(), t[i].comments.iter().map(|c| c.body.as_str()).collect::<Vec<_>>());
     assert_eq!(talk(0), ("description", "ask", vec!["Why two?", "One per original."]));
@@ -612,16 +620,42 @@ pub fn writable() -> Result<PathBuf> {
 pub fn draft(prs: &[u64], root: &Path, extra: &str, mut prepared: impl FnMut()) -> Result<String> {
     let mut extra = extra;
     let id = *target(prs).first().context("no PR to replace")?;
+    let mut drafted: Option<String> = None;
     loop {
-        let (took, given) = draft_once(prs, root, extra, &mut prepared)?;
-        // More asked of it meanwhile (a thread, or a reply on one, it wasn't given): a redraft
-        // after; asked once its claim's gone, a redraft of its own (not another one here).
-        let more = waiting(id).iter().any(|t| !given.contains(&(t.claude.clone().unwrap_or_default(), t.comments.len())));
-        if !more || load(id).ok().and_then(|r| r.at_work()).is_some() {
-            return Ok(took);
+        // (One after it failing: it was drafted all the same; what's left waits, said so.)
+        let (took, given) = match (draft_once(prs, root, extra, &mut prepared), drafted) {
+            (Ok(d), _) => d,
+            (Err(e), Some(took)) => return Ok(format!("{took} (then {e:#}: what you asked since waits on a redraft)")),
+            (Err(e), None) => return Err(e),
+        };
+        drafted = Some(took);
+        // More asked of it meanwhile: a redraft after; asked once its claim's gone, a redraft of
+        // its own (not another one here).
+        if !asked_since(&waiting(id), &given) || load(id).ok().and_then(|r| r.at_work()).is_some() {
+            return Ok(drafted.unwrap_or_default());
         }
         extra = "";
     }
+}
+
+/// Whether what waits on a draft (`waiting`) has more than it was `given` (id, messages
+/// then): a thread, or a reply on one, asked while it drafted. (What it left unanswered, it
+/// was given.)
+fn asked_since(waiting: &[crate::gh::Thread], given: &[(String, usize)]) -> bool {
+    waiting.iter().any(|t| !given.contains(&(t.claude.clone().unwrap_or_default(), t.comments.len())))
+}
+
+#[test]
+fn what_a_draft_takes_up_after() {
+    let c = |who: &str| crate::gh::Comment { author: who.into(), ..Default::default() };
+    let t = |k: &str, said: &[&str]| crate::gh::Thread { claude: Some(k.into()), comments: said.iter().map(|w| c(w)).collect(), ..Default::default() };
+    let given = [("c1".to_owned(), 1), ("c2".to_owned(), 1)];
+    // c1 answered (no longer waiting), c2 a question left unanswered: nothing more.
+    assert!(!asked_since(&[t("c2", &["you"])], &given));
+    // A reply on c1 while it drafted (its answer went before it): more.
+    assert!(asked_since(&[t("c1", &["you", "claude", "you"])], &given));
+    // A new thread: more.
+    assert!(asked_since(&[t("c3", &["you"])], &given));
 }
 
 /// `draft`, once: what it took, and the threads it was given (id, messages then).
