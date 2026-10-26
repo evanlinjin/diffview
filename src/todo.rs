@@ -58,8 +58,6 @@ pub enum Need {
     WouldClose(String),
     /// An issue assigned to you.
     Assigned,
-    /// An issue a PR (this one) would fix: review that.
-    FixOpen(u64),
     /// An issue changed since Claude triaged it: triage it again.
     Retriage,
     /// An issue Claude hasn't triaged.
@@ -92,7 +90,6 @@ impl Need {
             Need::FixMerged(_) => 37,
             Need::WouldClose(_) => 58,
             Need::Assigned => 56,
-            Need::FixOpen(_) => 45,
             Need::Retriage => 36,
             Need::Untriaged => 31,
         }
@@ -151,7 +148,6 @@ impl Need {
             Need::FixMerged(n) => format!("#{n}, linked as its fix, merged: check it's fixed (a a)"),
             Need::WouldClose(why) => format!("Claude would close it: {why}"),
             Need::Assigned => "assigned to you".into(),
-            Need::FixOpen(n) => format!("#{n} would fix it: review that"),
             Need::Retriage => "changed since Claude triaged it (a a)".into(),
             Need::Untriaged => "not triaged yet (a a)".into(),
         }

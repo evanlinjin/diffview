@@ -149,8 +149,8 @@ fn as_of(own: &Value, updated: &str) -> String {
 
 /// What issue `i` needs of you (`t`: Claude's triage of it, written at `t_at`, seconds):
 /// a PR linked as fixing it merged since Claude looked (whether it does is to check: auto
-/// triages it again, as for a change), Claude would close it, assigned to you, a PR would fix it (review that),
-/// changed since Claude triaged it, not triaged.
+/// triages it again, as for a change), Claude would close it, assigned to you, changed since
+/// Claude triaged it, not triaged. (A PR open to fix it: not on the todo at all, `find_todo`.)
 pub fn issue_needs(i: &Issue, t: Option<&Triage>, t_at: Option<i64>, me: &str) -> Vec<crate::todo::Need> {
     use crate::todo::Need;
     let mut out = vec![];
@@ -163,9 +163,6 @@ pub fn issue_needs(i: &Issue, t: Option<&Triage>, t_at: Option<i64>, me: &str) -
     }
     if !me.is_empty() && i.assignees.iter().any(|a| a == me) {
         out.push(Need::Assigned);
-    }
-    if let Some(&(n, ..)) = i.fixed_by.iter().find(|p| p.1 == "OPEN") {
-        out.push(Need::FixOpen(n));
     }
     // Changed since: by the issue's own time when it was triaged (the file's, for one from before
     // that was kept).
@@ -497,11 +494,14 @@ impl Issues {
                 (!needs.is_empty()).then(|| Item { kind: Kind::Issue, number: i.number, needs, claude: None, updated: i.updated.clone(), reason: None, changed: false, deferred: None, busy: None, waits: None })
             })
             .collect();
-        // (A draft fixing it, unpublished: its record's task starts "Fix #N", as `N N` has it.)
+        // Not those a PR would fix, open (it's what to look at, in the PRs' views), or a draft,
+        // unpublished (its record's task starts "Fix #N", as `N N` has it).
         self.draft_fix = draft_fix(&records(), &self.at_work);
-        let items: Vec<Item> = items.into_iter().filter(|it| !self.draft_fix.contains_key(&it.number)).collect();
+        let fixing = |n: u64| self.items.iter().any(|i| i.number == n && i.fixed_by.iter().any(|p| p.1 == "OPEN"));
+        let items: Vec<Item> = items.into_iter().filter(|it| !self.draft_fix.contains_key(&it.number) && !fixing(it.number)).collect();
 
-        let met = self.todos.met(&items, |_, c, _| self.happened(c));
+        // (An issue waits for a time only: its deferrals are over by `defer`'s clock.)
+        let met = self.todos.met(&items, |_, _, _| false);
         self.todos.ready = !self.items.is_empty();
         let (items, said) = self.todos.settle(items, met);
         // Those Claude is at (here or in any dv): at the bottom till it's done, as dv list's.
@@ -942,37 +942,11 @@ impl Issues {
         }
     }
 
-    /// Whether what an issue's deferral waits for has happened: its fix PR merged, closed,
-    /// or pushed to past the commit it was at (a push: or no more to come, merged or closed).
-    /// One no listed issue has as a fix any more (its issue closed with it): over.
-    fn happened(&self, c: &crate::todo::Until) -> bool {
-        use crate::todo::Until;
-        let Some(n) = (match c {
-            Until::Merged(n) | Until::Closed(n) | Until::PushedTo(n, _) => Some(*n),
-            _ => None,
-        }) else {
-            return false;
-        };
-        let Some(p) = self.items.iter().flat_map(|i| &i.fixed_by).find(|p| p.0 == n) else { return self.started };
-        match c {
-            Until::Merged(_) | Until::Closed(_) => p.1 != "OPEN",
-            Until::PushedTo(_, head) => Until::moved_past(head, &p.2) || p.1 != "OPEN",
-            _ => false,
-        }
-    }
-
     /// `s` then `u`: defer the issue until what you write happens ("…, or 2 weeks": whichever
     /// first). dv reads the usual phrasings; the rest, Claude (`until_rx`).
     fn defer_until(&mut self, key: String, text: &str) {
         let n = self.todos.items.iter().find(|it| it.key() == key).map_or(0, |it| it.number);
-        let fixes = self.fixes(n);
-        let about = || {
-            let about = match fixes.is_empty() {
-                true => format!("issue #{n} (no PR fixes it yet)"),
-                false => format!("issue #{n} (the PRs fixing it: {}; \"the author\" is theirs)", fixes_text(&fixes)),
-            };
-            format!("{about}; for an issue only a fix PR merged, closed or pushed to, or a time, apply")
-        };
+        let about = || format!("issue #{n}; for an issue only a time applies");
         match self.todos.until(key.clone(), text, about, &self.root) {
             Reading::Read(c, or) => self.defer_on(&key, c, or),
             Reading::Asked(said) => self.msg = said,
@@ -1000,32 +974,16 @@ impl Issues {
         self.running_rx.push(triage_all(asks, self.root.clone(), extra.unwrap_or_default()));
     }
 
-    /// Issue `n`'s fix PRs: (number, state, head).
-    fn fixes(&self, n: u64) -> Vec<(u64, String, String)> {
-        self.items.iter().find(|i| i.number == n).map(|i| i.fixed_by.clone()).unwrap_or_default()
-    }
-
-    /// Defer issue item `key` until `c` (or time `or`, first): what an issue can wait for, its
-    /// fix PRs' merging or pushes ("the author pushes": its one open fix's), or a time.
+    /// Defer issue item `key` until `c` (or time `or`, first): what an issue can wait for, a
+    /// time. (One a PR would fix, open, isn't on the todo: it's back once that's merged.)
     fn defer_on(&mut self, key: &str, c: crate::todo::Until, or: Option<i64>) {
         use crate::todo::Until;
-        // (Seen to meanwhile, as Claude read when: said so.)
-        let Some(it) = self.todos.items.iter().find(|it| it.key() == key).cloned() else { return self.msg = GONE.into() };
-        let open: Vec<(u64, String, String)> = self.fixes(it.number).into_iter().filter(|p| p.1 == "OPEN").collect();
-        let c = match c {
-            Until::Pushed(_) if open.len() == 1 => Until::PushedTo(open[0].0, open[0].2.clone()),
-            Until::Pushed(_) => return self.msg = format!("not deferred: whose push? #{} has {} open fix PRs (say which: \"#N gets a push\")", it.number, open.len()),
-            // (Its own fix PRs': what dv sees of a PR here.)
-            Until::PushedTo(n, _) | Until::Merged(n) | Until::Closed(n) if !self.fixes(it.number).iter().any(|p| p.0 == n) => {
-                return self.msg = format!("not deferred: #{n} isn't a PR fixing #{}, which dv could watch", it.number);
-            }
-            Until::PushedTo(n, _) => match self.fixes(it.number).into_iter().find(|p| p.0 == n && !p.2.is_empty()) {
-                Some(p) => Until::PushedTo(n, p.2),
-                None => return self.msg = format!("not deferred: #{n}'s head isn't known, to see a push by"),
-            },
-            c @ (Until::Merged(_) | Until::Closed(_) | Until::Time(_)) => c,
-            c => return self.msg = format!("not deferred: an issue can't wait until {} (a fix PR merging, closing or getting a push, or a time)", c.says()),
-        };
+        if !self.todos.items.iter().any(|it| it.key() == key) {
+            return self.msg = GONE.into();
+        }
+        if !matches!(c, Until::Time(_)) {
+            return self.msg = format!("not deferred: an issue can't wait until {}, only for a time (a PR fixing it, open, takes it off the todo till it's merged)", c.says());
+        }
         self.msg = self.todos.defer_on(key, c, or, 0);
         self.save_defer();
     }
@@ -1323,12 +1281,10 @@ fn issues_listed_triaged_filtered() {
     l.nav.query.clear();
     l.items.iter_mut().for_each(|i| i.updated.clear()); // (no age: the snapshot stays as it is)
     snapshot("issues", &screen(140, 12, |f| l.draw(f)));
-    // The todo tab: #7 assigned to you, a PR would fix it; #8 Claude would close.
+    // The todo tab: #8 Claude would close; not #7, though it's assigned to you: #9 would fix
+    // it, open (what to look at, in the PRs' views).
     l.find_todo();
-    assert_eq!(l.todos.items.iter().map(|it| (it.number, it.needs.clone())).collect::<Vec<_>>(), [
-        (8, vec![crate::todo::Need::WouldClose("answered in #3".into())]),
-        (7, vec![crate::todo::Need::Assigned, crate::todo::Need::FixOpen(9), crate::todo::Need::Untriaged]),
-    ]);
+    assert_eq!(l.todos.items.iter().map(|it| (it.number, it.needs.clone())).collect::<Vec<_>>(), [(8, vec![crate::todo::Need::WouldClose("answered in #3".into())])]);
     l.nav.tab = ITab::Todo;
     snapshot("issues_todo", &screen(140, 14, |f| l.draw(f)));
     snapshot("issues_todo_wide", &screen(200, 14, |f| l.draw(f)));
@@ -1341,27 +1297,25 @@ fn issues_listed_triaged_filtered() {
     assert!(!click(&mut l, 10, 5) && l.nav.sel == 1); // the second card (four rows each, after the bar)
     assert!(click(&mut l, 10, 5)); // again: open it
     l.nav.tab = ITab::Todo;
+    // #9 closed unmerged: #7 is on the todo again (assigned to you, not triaged).
+    l.items[0].fixed_by[0].1 = "CLOSED".into();
+    l.find_todo();
+    assert!(l.todos.items.iter().any(|it| it.number == 7));
     // Auto: what isn't triaged (#7), once at an update; again once it's changed.
     assert_eq!(l.auto_picks(), [7]);
     assert!(l.auto_picks().is_empty());
     l.items[0].updated = "2026-02-01T00:00:00Z".into();
     l.find_todo();
     assert_eq!(l.auto_picks(), [7]);
-    // Until its fix PR gets a push, or 2 weeks: from #9's head now; back once it moves on.
+    // Deferred for a time; not until a PR does something (one open to fix it takes it off).
     l.todos.deferred_file = Some(dir.join("deferred-issues.json"));
     let key = l.todos.items.iter().find(|it| it.number == 7).unwrap().key();
-    l.defer_until(key.clone(), "the author makes progress, or 2 weeks");
-    assert!(l.msg.starts_with("deferred until #9 gets a push (past h9), or in 1"), "{}", l.msg);
-    assert!(l.todos.items.iter().find(|it| it.number == 7).unwrap().deferred.as_ref().is_some_and(|d| d.until < i64::MAX));
-    l.items[0].fixed_by[0].2 = "h10".into();
-    l.find_todo();
-    assert!(l.todos.items.iter().find(|it| it.number == 7).unwrap().deferred.is_none() && l.msg.starts_with("#7 is back"), "{}", l.msg);
-    // A PR that doesn't fix it: dv wouldn't see it.
-    l.defer_until(key.clone(), "#99 is merged");
-    assert!(l.msg.starts_with("not deferred: #99 isn't a PR fixing #7"), "{}", l.msg);
-    // What an issue can't wait for: said so.
-    l.defer_until(key, "@bo approves");
+    l.defer_until(key.clone(), "#9 is merged");
+    assert!(l.msg.starts_with("not deferred: an issue can't wait until #9 is merged"), "{}", l.msg);
+    l.defer_until(key.clone(), "@bo approves");
     assert!(l.msg.starts_with("not deferred: an issue can't wait until @bo approves it"), "{}", l.msg);
+    l.defer_until(key, "2 weeks");
+    assert!(l.todos.items.iter().find(|it| it.number == 7).unwrap().deferred.is_some(), "{}", l.msg);
     _ = std::fs::remove_dir_all(&dir);
 }
 

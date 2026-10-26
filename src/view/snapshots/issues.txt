@@ -1,4 +1,4 @@
- Issues   todo 2   open 2   mine 1   close 1     I I the PRs                                                                          1 / 2
+ Issues   todo 1   open 2   mine 1   close 1     I I the PRs                                                                          1 / 2
 ▌   #7  Panics on reorg  bug                                                                      ╭ keys ──────────────────────────────────╮
 ▌       @amy  → @me                                                                               │ Enter  open it                         │
 ▌       fixed by #9 (open)                                                                        │ h l    tabs                            │

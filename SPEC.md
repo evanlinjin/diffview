@@ -170,12 +170,13 @@ disk: rust-analyzer can index it and `hx` can open it.
    would close it (`fixed by #N (open)`). Tabs (`l` / `h`, or `gn` / `gp`): todo, open, mine (assigned to you or
    opened by you), can close (Claude's triage says why, or its ranking of the todo
    does: the issues ranking says which to close). Todo: what needs you of an issue (the PR
-   fixing it merged: close it; Claude would close it; assigned to you; a PR would fix it: review
-   that; changed since Claude triaged it; not triaged), in the rules' order, or Claude's (`r r`,
+   fixing it merged: close it; Claude would close it; assigned to you; changed since Claude
+   triaged it; not triaged; not one a PR open would fix, or a draft: that's what to look at, in
+   the PRs' views, and it's back once the PR's merged), in the rules' order, or Claude's (`r r`,
    one reading-only run: why each is where it is and what next, in the message column as dv
-   list's; its own ranking, `todo-issues.json`); `s` defers one (1 / 4 / d / w; kept in
+   list's; its own ranking, `todo-issues.json`); `s` defers one for a time (1 / 4 / d / w; kept in
    `deferred-issues.json`), back sooner if what it needs changes. Auto (`C`, git config
-   `dv.auto`, the same as dv list's): Claude triages every issue not triaged (the backlog too:
+   `dv.auto`, the same as dv list's): Claude triages every issue on the todo not triaged (the backlog too:
    turning it on says how many, at about $0.30 each) and those changed since their triage, two
    at a time, in the todo's order, once each; and ranks the todo again once it's changed, at
    most every quarter hour; and for an issue Claude would close, drafts the comment closing it,
