@@ -789,18 +789,34 @@ fn run_claude(r: &Record, dir: &Path, first: bool, extra: &str, which: Reviews, 
     });
     let st = child.wait()?;
     let v: Value = std::fs::read_to_string(&log).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
-    // (What it was refused, kept with the draft, whether it ended or stopped: its card and view
-    // say so till a draft isn't.)
+    // (What it was refused, kept with the draft when it stopped it: its card and view say so
+    // till a draft isn't. Worked around, drafted all the same: not blocked; `took` says it.)
     let refused = crate::claude::refusal(&v);
+    let stopped = !st.success() || v["is_error"] != false;
     _ = update(r.id, |r| {
-        r.refused = refused.clone().unwrap_or_default();
+        r.refused = blocked_by(refused.as_deref(), stopped, r.drafted());
         Ok(())
     });
-    if !st.success() || v["is_error"] != false {
+    if stopped {
         let why = refused.map_or(String::new(), |r| format!(", refused {r}"));
         anyhow::bail!("Claude stopped ({st}{why}): see {}", log.display());
     }
     Ok(crate::claude::took(&v))
+}
+
+/// What a draft's run was refused that blocked it (`Record::refused`): what it was refused,
+/// if that stopped it (it stopped, or it left no drafts); else nothing (it went on without).
+fn blocked_by(refused: Option<&str>, stopped: bool, drafted: bool) -> String {
+    refused.filter(|_| stopped || !drafted).unwrap_or_default().to_owned()
+}
+
+#[test]
+fn a_refusal_worked_around_is_no_block() {
+    // #2438's: refused sed into /tmp, it moved the code with Edit, and drafted it.
+    assert_eq!(blocked_by(Some("Bash sed -n …"), false, true), "");
+    assert_eq!(blocked_by(Some("Bash sed -n …"), true, true), "Bash sed -n …");
+    assert_eq!(blocked_by(Some("Bash magick"), false, false), "Bash magick");
+    assert_eq!(blocked_by(None, true, false), "");
 }
 
 /// The remote replacement branches are pushed to (`git config dv.replaceRemote`): not origin,

@@ -218,7 +218,9 @@ and `dv amend <sha> -F <file>` (with files too, to fold them in the same go). Do
 hand. Say which commit it went in.
 
 Your commands run only if each is allowed on its own: one plain command per call (no `cd`, `&&`,
-loops, pipes into other commands, or `git -C`). Build and test through dv: `dv cargo test`,
+loops, pipes into other commands, or `git -C`). There's no `sed`, `awk`, `cat >`, `>` or `/tmp`:
+to move or rewrite code, Read it and Edit (or Write) it, here in the checkout. Build and test
+through dv (never `cargo` itself): `dv cargo test`,
 `dv cargo clippy`, `dv cargo +nightly fmt --check`, `dv cargo +1.85.0 clippy …` (check, build,
 test, clippy, doc, bench or fmt --check, on any toolchain). To measure performance, `dv cargo
 bench`: it waits for the builds and tests other Claude runs have going on this machine, and
