@@ -113,18 +113,6 @@ fn on_text(conversation: &str) -> bool {
     ON_DESCRIPTION.contains(&conversation) || conversation == ON_CLOSING_NOTE || conversation == ON_CLOSING
 }
 
-/// The section a thread on no lines is beside, which folds it: Claude's closing comment, a
-/// draft's closing note, else the description (with all that's attached to it: the summary,
-/// the conversation). Not one on code, nor on a commit.
-fn text_home(t: &Thread) -> Option<usize> {
-    match t.conversation.as_str() {
-        c if !t.path.is_empty() || commit_of(c).is_some() => None,
-        ON_CLOSING => Some(CLOSING_PR),
-        ON_CLOSING_NOTE => Some(CLOSING_NOTE),
-        _ => Some(DESCRIPTION),
-    }
-}
-
 /// The text a thread on it (`on_text`) is about, in words ("closing comment").
 fn text_name(conversation: &str) -> &str {
     match conversation {
@@ -194,6 +182,7 @@ impl Row {
 }
 
 /// What the cursor is on, independent of row indices.
+#[derive(Clone)]
 struct CursorKey {
     /// (file, old, new) for a diff row.
     line: Option<(String, Option<u32>, Option<u32>)>,
@@ -215,6 +204,7 @@ struct CursorKey {
 
 /// Where the cursor and a selection's anchor (and its column) are, taken before what a rebuild
 /// follows changes the rows' threads.
+#[derive(Clone)]
 struct Kept {
     head: CursorKey,
     anchor: Option<(CursorKey, usize)>,

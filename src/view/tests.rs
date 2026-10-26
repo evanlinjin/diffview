@@ -2558,6 +2558,17 @@ fn claude_drafts_a_closing_comment() {
     app.build();
     let asked: Vec<usize> = (0..app.rows.len()).filter(|&r| app.rows[r].line.text == "Kinder.").collect();
     assert!(asked.len() == 1 && app.rows[asked[0]].attached, "{asked:?}");
+    // Not drafted yet: a on its placeholder quotes nothing.
+    let closing = std::mem::take(&mut app.claude.closing);
+    app.build();
+    let ph = app.rows.iter().position(|r| r.main == Some(CLOSING_PR) && r.line.text.contains("not drafted yet")).expect("its placeholder");
+    app.goto(ph, 0);
+    app.start_ask_claude();
+    app.picker = None;
+    app.want("ask");
+    assert!(matches!(app.action.take(), Some(Action::AskConversation { prefill, .. }) if prefill == "About the closing comment:\n\n"));
+    app.claude.closing = closing;
+    app.build();
     // Answered, and the comment used (or discarded): no section asking for it again.
     let (closing, mut t) = (std::mem::take(&mut app.claude.closing), app.threads.pop().unwrap());
     t.comments.push(gh::Comment { author: "claude".into(), body: "Kinder now.".into(), ..Default::default() });
@@ -5668,4 +5679,31 @@ fn x_stays_in_the_code_with_the_pane_beside() {
         let bad: Vec<usize> = sel.iter().copied().filter(|&r| app.side_of(r) != Some(false)).collect();
         assert!(bad.is_empty() && app.side_of(app.head.row) == Some(false), "x #{i}: head {:?} side {:?} bad {:?} {:?}", app.head, app.side_of(app.head.row), bad, bad.iter().map(|&r| app.rows[r].line.text.clone()).collect::<Vec<_>>());
     }
+}
+
+#[test]
+fn going_to_a_thread_on_no_lines_finds_where_it_shows() {
+    let mut app = fixture();
+    let talk = |k: &str, on: &str, body: &str| gh::Thread { claude: Some(k.into()), conversation: on.into(), comments: vec![gh::Comment { author: "you".into(), body: body.into(), ..Default::default() }], ..Default::default() };
+    app.threads.push(talk("c8", ON_SUMMARY, "Why approve?"));
+    app.threads.push(talk("c9", "description", "Shorter?"));
+    let (summary, desc) = (app.threads.len() - 2, app.threads.len() - 1);
+    app.build();
+    let on = |app: &App, t: usize| app.rows[app.head.row].thread == Some(t);
+    // A question about the summary, from the whole diff (where it isn't): on Claude's side.
+    app.goto_comment(summary, 0);
+    assert!(app.view == View::Claude && on(&app, summary), "{}", app.msg);
+    // One about the description, its section folded and the PR's pane collapsed: neither
+    // with what has no place, and gone to, unfolded.
+    app.view = View::All;
+    app.sections_folded.insert(DESCRIPTION);
+    app.info_collapsed = true;
+    app.build();
+    assert!(!app.rows.iter().any(|r| r.thread == Some(desc)));
+    app.goto_comment(desc, 0);
+    assert!(on(&app, desc) && !app.info_collapsed && !app.sections_folded.contains(&DESCRIPTION), "{}", app.msg);
+    // A thread on code: no fold of the text undone for it.
+    app.sections_folded.insert(DESCRIPTION);
+    app.goto_comment(0, 0);
+    assert!(app.sections_folded.contains(&DESCRIPTION) && app.rows[app.head.row].thread == Some(0));
 }

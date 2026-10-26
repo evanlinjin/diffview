@@ -377,7 +377,7 @@ impl App {
     /// gone: what was said about it with what has no place.)
     fn closing_comment(&self) -> Vec<Row> {
         let drafted = !self.claude.closing.trim().is_empty();
-        let asked = self.threads.iter().any(|t| t.conversation == ON_CLOSING && t.waiting() && self.in_view(t));
+        let asked = self.threads.iter().any(|t| t.conversation == ON_CLOSING && t.waiting());
         if self.view != View::All || !drafted && !asked {
             return vec![];
         }
@@ -773,9 +773,8 @@ impl App {
             return self.msg = "nothing to fold here".into();
         }
         if attached && self.view != View::Pending {
-            // The section it's beside: its text's (what you asked of a draft), else the description.
-            let info = self.rows[self.head.row].info;
-            let id = self.rows.iter().find(|r| r.main.is_some() && info.is_some() && r.info == info).and_then(|r| r.main).unwrap_or(DESCRIPTION);
+            // The description it's beside.
+            let id = DESCRIPTION;
             if !self.rows.iter().any(|r| r.main == Some(id) && r.line.kind == Kind::File) {
                 return self.msg = "nothing to fold here".into();
             }

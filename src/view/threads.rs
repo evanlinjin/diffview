@@ -163,7 +163,9 @@ impl App {
         }
     }
 
-    /// Jump to comment `ci` of thread `ti`, unfolding its file and thread if needed.
+    /// Jump to comment `ci` of thread `ti`, unfolding its file and thread if needed; on no
+    /// lines, where it shows (its text's section unfolded, or Claude's side: tried in turn, not
+    /// foretold, so whatever `build` does with it, it's found).
     pub(super) fn goto_comment(&mut self, ti: usize, ci: usize) {
         let Some(t) = self.threads.get(ti) else { return };
         let keep = self.cursor_key();
@@ -172,22 +174,34 @@ impl App {
         }
         let t = &self.threads[ti];
         self.collapsed.remove(&t.path.clone());
-        // On text: its section unfolded (the description's, with the PR's pane).
-        if let Some(s) = text_home(t) {
-            self.sections_folded.remove(&s);
-            self.info_collapsed &= s != DESCRIPTION;
-        }
         // (Only one it unfolds: a jump isn't a choice to keep it open.)
         if !self.thread_open(ti)
             && let Some(id) = self.root_id(ti)
         {
             self.toggled.insert(id, true);
         }
-        self.rebuild(keep);
+        self.rebuild(keep.clone());
         // Each comment starts with an author row; outdated threads' code rows aren't author rows.
-        let row = self.rows.iter().enumerate().filter(|(_, r)| r.thread == Some(ti) && r.line.kind == Kind::Thread).nth(ci);
+        let at = |app: &App| app.rows.iter().enumerate().filter(|(_, r)| r.thread == Some(ti) && r.line.kind == Kind::Thread).nth(ci).map(|(r, _)| r);
+        let mut row = at(self);
+        if row.is_none() && self.threads[ti].path.is_empty() {
+            let (folds, info, view) = (self.sections_folded.clone(), self.info_collapsed, self.view);
+            // Its text folded (the PR's pane, a section): unfolded; else on Claude's side.
+            (self.sections_folded, self.info_collapsed) = (folds.iter().copied().filter(|s| ![DESCRIPTION, CLOSING_NOTE, CLOSING_PR].contains(s)).collect(), false);
+            self.rebuild(keep.clone());
+            row = at(self);
+            if row.is_none() && self.threads[ti].claude.is_some() && view != View::Claude {
+                (self.sections_folded, self.info_collapsed, self.view) = (folds.clone(), info, View::Claude);
+                self.rebuild(keep.clone());
+                row = at(self);
+            }
+            if row.is_none() {
+                (self.sections_folded, self.info_collapsed, self.view) = (folds, info, view);
+                self.rebuild(keep);
+            }
+        }
         match row {
-            Some((r, _)) => self.jump(r, 0),
+            Some(r) => self.jump(r, 0),
             // (Showing only what isn't committed; a question on no file, where nothing shows it.)
             None => self.msg = match self.threads[ti].path.as_str() {
                 "" => "that comment isn't shown here".into(),
