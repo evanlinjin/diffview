@@ -662,7 +662,7 @@ fn stalled_when_the_author_leaves_feedback_unanswered() {
         reviews.extend(more);
         serde_json::json!({ "author": { "login": "amy" },
             // (A maintainer's "Update branch" since: not amy's word.)
-            "commits": { "nodes": [{ "commit": { "committedDate": t("01"), "author": { "user": { "login": "amy" } } } },
+            "commits": { "nodes": [{ "commit": { "committedDate": t("01"), "authoredDate": t("01"), "committer": { "user": { "login": "amy" } }, "author": { "user": { "login": "amy" } } } },
                                    { "commit": { "committedDate": t("04"), "authoredDate": t("04"), "committer": { "user": { "login": "web-flow" } }, "author": { "user": { "login": "bo" } } } }] },
             "reviews": { "nodes": reviews },
             "comments": { "nodes": comments } })
@@ -671,9 +671,14 @@ fn stalled_when_the_author_leaves_feedback_unanswered() {
     // asks nothing of her).
     let e = super::github::extra(&pr(serde_json::json!([]), vec![review("copilot", "COMMENTED", "05", "NONE")]), "me");
     assert_eq!(e.unanswered, Some((crate::gh::epoch_secs(&t("02")).unwrap(), "bo".to_owned(), true)));
-    // amy's push from an email not on her account (no user linked): hers, an answer.
+    // amy's push from an email not on her account (no user linked), amending what she wrote
+    // before the review: hers, when she committed it, an answer.
     let mut j = pr(serde_json::json!([]), vec![]);
-    j["commits"]["nodes"].as_array_mut().unwrap().push(serde_json::json!({ "commit": { "committedDate": t("03"), "author": { "user": null } } }));
+    j["commits"]["nodes"].as_array_mut().unwrap().push(serde_json::json!({ "commit": { "committedDate": t("03"), "authoredDate": t("01"), "committer": { "user": null }, "author": { "user": null } } }));
+    assert_eq!(super::github::extra(&j, "me").unanswered, None);
+    // Her own rebase (she committed it) after the review: an answer too.
+    let mut j = pr(serde_json::json!([]), vec![]);
+    j["commits"]["nodes"].as_array_mut().unwrap().push(serde_json::json!({ "commit": { "committedDate": t("03"), "authoredDate": t("01"), "committer": { "user": { "login": "amy" } }, "author": { "user": { "login": "amy" } } } }));
     assert_eq!(super::github::extra(&j, "me").unanswered, None);
     // Hers rebased by bo (he committed it): her word when she wrote it, not when he rebased.
     let rebased = |wrote: &str| serde_json::json!({ "commit": { "committedDate": t("05"), "authoredDate": t(wrote), "committer": { "user": { "login": "bo" } }, "author": { "user": { "login": "amy" } } } });

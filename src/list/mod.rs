@@ -827,8 +827,7 @@ impl List {
     /// (`app/…`) isn't one to ask, nor a deleted account, ghost.
     pub(super) fn stalled(&self, p: &Listed) -> Option<(i64, Option<(String, bool)>)> {
         let e = self.extra.get(&p.number)?;
-        // (What was asked, then done by anyone since: not waiting on its author.)
-        let (at, waiting) = match e.unanswered.as_ref().filter(|(at, ..)| *at > e.active) {
+        let (at, waiting) = match &e.unanswered {
             Some((at, who, review)) => (*at, Some((who.clone(), *review))),
             None if p.draft => (e.active.max(crate::gh::epoch_secs(&p.created).unwrap_or(0)), None),
             None => return None,

@@ -117,8 +117,9 @@ pub struct Extra {
     /// Workflow runs on its head waiting for a maintainer's approval.
     pub awaiting: usize,
     /// What the author hasn't answered: the newest maintainer's review (not an approval) or
-    /// comment since their last push, comment or review, (when, who, a review or not). None:
-    /// they had the last word, or an approval since did.
+    /// comment since anyone was at work on it (`active`: their last push, comment or review;
+    /// anyone's commit), (when, who, a review or not). None: they had the last word, someone's
+    /// done something since, or an approval since did.
     pub unanswered: Option<(i64, String, bool)>,
     /// The last sign of anyone at work on it: its author's last word (push, comment, review),
     /// or anyone's commit, when written (one taken over is not left); 0: none seen.
@@ -181,22 +182,24 @@ pub(super) fn extra(p: &Value, me: &str) -> Extra {
         let by = &c["commit"]["author"];
         by.is_object() && (by["user"]["login"] == author.as_str() || by["user"].is_null())
     };
-    // A commit's time: when its author committed it, theirs; else when it was written (one
-    // rebased, by anyone, GitHub's own too; edited on the web).
+    // A commit's time: when its own author committed it (amended, squashed: theirs then);
+    // else when it was written (rebased by another, GitHub's own too; edited on the web).
     let when = |c: &Value| {
-        let committed = c["commit"]["committer"]["user"]["login"] == author.as_str();
-        let wrote = at(&c["commit"]["authoredDate"]);
-        if committed || wrote == 0 { at(&c["commit"]["committedDate"]) } else { wrote }
+        let own = c["commit"]["committer"]["user"]["login"] == c["commit"]["author"]["user"]["login"];
+        at(&c["commit"][if own { "committedDate" } else { "authoredDate" }])
     };
     let pushed = nodes("commits").iter().filter(|c| theirs(c)).map(when).max().unwrap_or(0);
     let by_author = |k: &str, t: &str| nodes(k).into_iter().filter(|c| c["author"]["login"] == author.as_str()).map(|c| at(&c[t])).max().unwrap_or(0);
     let last_word = pushed.max(by_author("comments", "createdAt")).max(by_author("reviews", "submittedAt"));
+    // The last sign of anyone at work on it: its author's last word, or anyone's commit (not
+    // another's "Update branch", GitHub's merge of the base: a sync, not work on it).
+    let active = last_word.max(nodes("commits").iter().filter(|c| theirs(c) || c["commit"]["committer"]["user"]["login"] != "web-flow").map(when).max().unwrap_or(0));
     let others = |c: &Value| c["author"]["login"] != author.as_str() && trusted(c);
     let reviews = nodes("reviews").into_iter().filter(|r| others(r) && matches!(r["state"].as_str(), Some("CHANGES_REQUESTED" | "COMMENTED")));
     let said = reviews
         .map(|r| (at(&r["submittedAt"]), crate::gh::login(&r["author"]), true))
         .chain(nodes("comments").into_iter().filter(others).map(|c| (at(&c["createdAt"]), crate::gh::login(&c["author"]), false)))
-        .filter(|(t, ..)| *t > last_word)
+        .filter(|(t, ..)| *t > active)
         .max_by_key(|(t, ..)| *t);
     let approved_last = nodes("reviews").iter().filter(|r| others(r) && r["state"] == "APPROVED").map(|r| at(&r["submittedAt"])).max().unwrap_or(0);
     let unanswered = said.filter(|(t, ..)| *t > approved_last);
@@ -216,9 +219,7 @@ pub(super) fn extra(p: &Value, me: &str) -> Extra {
         signatures_required: requires_signatures(p),
         awaiting: 0, // from the workflow runs, after (`list_extra`)
         unanswered,
-        // (Anyone's commit, by `when`; not another's "Update branch", GitHub's merge of the base:
-        // a sync, not work on it.)
-        active: last_word.max(nodes("commits").iter().filter(|c| theirs(c) || c["commit"]["committer"]["user"]["login"] != "web-flow").map(when).max().unwrap_or(0)),
+        active,
     }
 }
 
