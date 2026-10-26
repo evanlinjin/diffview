@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.96.10] - 2026-10-26
+
+### Fixed
+- A view a PR link opened through an issue that can't get back to the checkout it was in
+  ends, not carries on in another PR's checkout.
+
 ## [0.96.9] - 2026-10-26
 
 ### Changed
