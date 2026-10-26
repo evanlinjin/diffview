@@ -736,7 +736,7 @@ fn stalled_when_the_author_leaves_feedback_unanswered() {
     l.extra.insert(1, Extra { active: ago(30), unanswered: Some((ago(2), "bo".into(), false)), ..Default::default() });
     assert_eq!(l.stalled(&Listed { draft: true, ..p.clone() }), Some((30, None)));
     // Not a bot's (no one to ask), nor a deleted account's.
-    let bot = Listed { author: crate::gh::login(&serde_json::json!({ "login": "app/renovate", "is_bot": true })), bot: crate::gh::is_bot(&serde_json::json!({ "login": "app/renovate", "is_bot": true })), draft: true, ..p.clone() };
+    let bot = super::github::listed(&serde_json::json!({ "number": 1, "author": { "is_bot": true, "login": "app/renovate" }, "isDraft": true }));
     assert_eq!(l.stalled(&bot), None);
     assert_eq!(l.stalled(&Listed { author: "ghost".into(), draft: true, ..p.clone() }), None);
     // Nothing seen of anyone: from when it was opened (lately: not left).

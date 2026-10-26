@@ -49,7 +49,7 @@ pub const LOOKING: &str = "…";
 
 const LISTED: &str = "number,title,author,baseRefName,headRefName,isDraft,state,createdAt,updatedAt,additions,deletions,changedFiles,reviewDecision,labels";
 
-fn listed(p: &Value) -> Listed {
+pub(super) fn listed(p: &Value) -> Listed {
     let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
     let n = |v: &Value| v.as_u64().unwrap_or(0);
     Listed {

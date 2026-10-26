@@ -115,15 +115,15 @@ pub struct Anchor {
 }
 
 /// Who `v` (GitHub's author, actor: `{login}`) is: a deleted account's, GitHub's "ghost"; a
-/// bot's as GraphQL names it (gh's REST answers say `app/dependabot`).
+/// bot's as GraphQL names it (gh's `--json` says `app/dependabot`).
 pub(crate) fn login(v: &Value) -> String {
     let l = v["login"].as_str().unwrap_or("ghost");
     l.strip_prefix("app/").unwrap_or(l).to_owned()
 }
 
-/// Whether `v` (as `login`'s) is a bot: gh's `is_bot` (and `app/…`), GraphQL's `Bot`.
+/// Whether `v` (as `login`'s) is a bot: gh's `is_bot`, GraphQL's `Bot`.
 pub(crate) fn is_bot(v: &Value) -> bool {
-    v["is_bot"] == true || v["__typename"] == "Bot" || v["login"].as_str().is_some_and(|l| l.starts_with("app/"))
+    v["is_bot"] == true || v["__typename"] == "Bot"
 }
 
 /// `v`'s page on GitHub (a bot's is under /apps/).
