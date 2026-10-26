@@ -5,6 +5,17 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.96.7] - 2026-10-26
+
+### Changed
+- Enter on a link to one of this repo's PRs reviews it in dv from any view, as `dv list`
+  does (from a PR's view, in a worktree of its own, this checkout as it is), then back as you
+  were; not the browser. The link's tooltip says which: `→` in dv, `↗` out.
+
+### Fixed
+- Going to a comment in resolved talk (Enter on Claude's answer in its activity) shows it,
+  not "isn't in this diff".
+
 ## [0.96.6] - 2026-10-26
 
 ### Fixed
