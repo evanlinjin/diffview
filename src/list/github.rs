@@ -121,8 +121,9 @@ pub struct Extra {
     /// anyone's commit), (when, who, a review or not). None: they had the last word, someone's
     /// done something since, or an approval since did.
     pub unanswered: Option<(i64, String, bool)>,
-    /// The last sign of anyone at work on it: its author's last word (push, comment, review),
-    /// or anyone's commit, when written (one taken over is not left); 0: none seen.
+    /// The last sign of anyone at work on it: its author's comment or review, or anyone's
+    /// commit (by when its own author committed it, else wrote it; one taken over is not left);
+    /// 0: none seen.
     pub active: i64,
 }
 
@@ -170,30 +171,28 @@ pub(super) fn extra(p: &Value, me: &str) -> Extra {
     let at = |v: &Value| crate::gh::epoch_secs(&s(v)).unwrap_or(0);
     let author = crate::gh::login(&p["author"]);
     let trusted = |c: &Value| c["author"]["login"] == me || matches!(c["authorAssociation"].as_str(), Some("OWNER" | "MEMBER" | "COLLABORATOR"));
-    // The author's last word (their push: not a maintainer's "Update branch"; a comment; a
-    // review: a reply on a thread is one), and what maintainers said since, waiting on them
-    // (bots' and drive-bys' aren't); an approval since: the ball's with the maintainers.
-    // (Theirs, or no one's linked to it: a commit from an email not on their account. One
-    // someone else committed, a maintainer's rebase: when they wrote it, not when it was
-    // rebased. GitHub's web edits are web-flow's.)
+    // The last sign of anyone at work on it (`active`), and what maintainers said since, waiting
+    // on its author (bots' and drive-bys' aren't); an approval since: the ball's with the
+    // maintainers. At work: its author's comment or review (a reply on a thread is one), or
+    // anyone's commit, by when its own author committed it (amended, squashed: theirs then), else
+    // when it was written (rebased by another, GitHub's own rebase too). Not one GitHub made for
+    // another, written as it committed it: their "Update branch", a merge of the base (a sync,
+    // not work on it), or a web edit; the author's own, or one from an email not on an account
+    // (`theirs`), is theirs all the same.
     // (Its author, not `authors`, co-authors too: a connection per commit, of 100 commits of
     // 100 PRs, cost the query 100 of GitHub's points a page, not 6.)
     let theirs = |c: &Value| {
         let by = &c["commit"]["author"];
         by.is_object() && (by["user"]["login"] == author.as_str() || by["user"].is_null())
     };
-    // A commit's time: when its own author committed it (amended, squashed: theirs then);
-    // else when it was written (rebased by another, GitHub's own too; edited on the web).
+    let made_by_github = |c: &Value| c["commit"]["committer"]["user"]["login"] == "web-flow" && c["commit"]["authoredDate"] == c["commit"]["committedDate"];
     let when = |c: &Value| {
         let own = c["commit"]["committer"]["user"]["login"] == c["commit"]["author"]["user"]["login"];
         at(&c["commit"][if own { "committedDate" } else { "authoredDate" }])
     };
-    let pushed = nodes("commits").iter().filter(|c| theirs(c)).map(when).max().unwrap_or(0);
+    let commits = nodes("commits").iter().filter(|c| theirs(c) || !made_by_github(c)).map(when).max().unwrap_or(0);
     let by_author = |k: &str, t: &str| nodes(k).into_iter().filter(|c| c["author"]["login"] == author.as_str()).map(|c| at(&c[t])).max().unwrap_or(0);
-    let last_word = pushed.max(by_author("comments", "createdAt")).max(by_author("reviews", "submittedAt"));
-    // The last sign of anyone at work on it: its author's last word, or anyone's commit (not
-    // another's "Update branch", GitHub's merge of the base: a sync, not work on it).
-    let active = last_word.max(nodes("commits").iter().filter(|c| theirs(c) || c["commit"]["committer"]["user"]["login"] != "web-flow").map(when).max().unwrap_or(0));
+    let active = commits.max(by_author("comments", "createdAt")).max(by_author("reviews", "submittedAt"));
     let others = |c: &Value| c["author"]["login"] != author.as_str() && trusted(c);
     let reviews = nodes("reviews").into_iter().filter(|r| others(r) && matches!(r["state"].as_str(), Some("CHANGES_REQUESTED" | "COMMENTED")));
     let said = reviews

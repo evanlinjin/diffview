@@ -723,16 +723,21 @@ fn stalled_when_the_author_leaves_feedback_unanswered() {
     // In what GitHub says: bo's "Update branch" (a merge GitHub made) isn't work on it, nor a
     // rebase (its commits written before); bo's own commit since his review is (taken over).
     let mut j = pr(serde_json::json!([]), vec![]);
-    j["commits"]["nodes"].as_array_mut().unwrap().push(serde_json::json!({ "commit": { "committedDate": t("09"), "authoredDate": t("08"), "committer": { "user": { "login": "web-flow" } }, "author": { "user": { "login": "bo" } } } }));
+    j["commits"]["nodes"].as_array_mut().unwrap().push(serde_json::json!({ "commit": { "committedDate": t("09"), "authoredDate": t("09"), "committer": { "user": { "login": "web-flow" } }, "author": { "user": { "login": "bo" } } } }));
     j["commits"]["nodes"].as_array_mut().unwrap().push(serde_json::json!({ "commit": { "committedDate": t("09"), "authoredDate": t("01"), "committer": { "user": { "login": "bo" } }, "author": { "user": { "login": "amy" } } } }));
     // GitHub's rebase of amy's own (committed by web-flow): when she wrote it, still.
     j["commits"]["nodes"].as_array_mut().unwrap().push(serde_json::json!({ "commit": { "committedDate": t("09"), "authoredDate": t("01"), "committer": { "user": { "login": "web-flow" } }, "author": { "user": { "login": "amy" } } } }));
     let e = super::github::extra(&j, "me");
     assert_eq!(e.active, crate::gh::epoch_secs(&t("01")).unwrap());
     assert!(e.unanswered.is_some());
-    j["commits"]["nodes"].as_array_mut().unwrap().push(serde_json::json!({ "commit": { "committedDate": t("07"), "authoredDate": t("07"), "committer": { "user": { "login": "bo" } }, "author": { "user": { "login": "bo" } } } }));
+    j["commits"]["nodes"].as_array_mut().unwrap().push(serde_json::json!({ "commit": { "committedDate": t("07"), "authoredDate": t("06"), "committer": { "user": { "login": "bo" } }, "author": { "user": { "login": "bo" } } } }));
     let e = super::github::extra(&j, "me");
     assert_eq!(e.active, crate::gh::epoch_secs(&t("07")).unwrap());
+    // GitHub's rebase of it ("Update branch", rebasing): still when bo wrote it.
+    j["commits"]["nodes"].as_array_mut().unwrap().pop();
+    j["commits"]["nodes"].as_array_mut().unwrap().push(serde_json::json!({ "commit": { "committedDate": t("10"), "authoredDate": t("06"), "committer": { "user": { "login": "web-flow" } }, "author": { "user": { "login": "bo" } } } }));
+    let e = super::github::extra(&j, "me");
+    assert_eq!(e.active, crate::gh::epoch_secs(&t("06")).unwrap());
     // ...so what bo asked of amy, done since, isn't waiting on her.
     l.extra.insert(1, e);
     assert_eq!(l.stalled(&Listed { number: 1, author: "amy".into(), ..Listed::default() }), None);
