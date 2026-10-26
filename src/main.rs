@@ -399,6 +399,15 @@ fn review_back(o: &Opts, n: u64, known: Option<gh::Pr>, root: &Path) -> anyhow::
     })
 }
 
+/// PR `n`, a link to it followed from a PR's view (checked out in `here`): reviewed in a
+/// worktree of its own (this checkout's left as it is), then back here; what to say there.
+fn linked_pr(n: u64, here: &Path) -> Option<String> {
+    let o = Opts { worktree: true, ..Opts::default() };
+    let said = review_back(&o, n, None, here).unwrap_or_else(|e| Some(format!("PR #{n}: {e:#}")));
+    _ = std::env::set_current_dir(here);
+    said
+}
+
 /// Issue `n` in the PR view (from dv's issues), a PR a link there goes to reviewed as dv list
 /// does (then back to the issue, as it was); what to say back in the list.
 fn issue_back(o: &Opts, n: u64, root: &Path) -> anyhow::Result<Option<String>> {
@@ -409,7 +418,6 @@ fn issue_back(o: &Opts, n: u64, root: &Path) -> anyhow::Result<Option<String>> {
         // (It says which: "loading issue #N: …".)
         Err(e) => return Ok(Some(format!("{e:#}"))),
     };
-    app.hands_prs = true;
     let mut term = view::init_terminal();
     let res = run_view(&mut app, &mut term, &mut |p| review_back(o, p, None, root).unwrap_or_else(|e| Some(format!("PR #{p}: {e:#}"))));
     view::restore_terminal();
@@ -437,8 +445,7 @@ fn merge_from(n: u64, root: &Path) -> String {
 /// `app` on `term`, and what it hands over meanwhile (an issue a link goes to, in a view of its
 /// own; the PR's replacement, in its own): shown, then back to it, as it was. What goes wrong
 /// in what it hands over is said there, not an end to it (the terminal's the caller's to
-/// restore). A PR a link goes to (`HandOff::Pr`, where views hand them: `hands_prs`) is
-/// reviewed with `review` (what to say back), the terminal let go meanwhile, then back to the
+/// restore). A PR a link goes to (`HandOff::Pr`) is reviewed with `review` (what to say back), the terminal let go meanwhile, then back to the
 /// view that asked, as it was (never dropped: what you write beside it is still sent). A PR to
 /// merge (`merge`, asked in what it handed over too) is left asked, for the caller.
 fn run_view(app: &mut view::App, term: &mut ratatui::DefaultTerminal, review: &mut dyn FnMut(u64) -> Option<String>) -> anyhow::Result<()> {
@@ -455,10 +462,9 @@ fn run_view(app: &mut view::App, term: &mut ratatui::DefaultTerminal, review: &m
                 Ok(said)
             }
             // An issue: in the PR view too, its own, as it was when it comes back; a PR its link
-            // goes to, reviewed as this view's are (`hands_prs`).
+            // goes to, reviewed as this view's are.
             view::HandOff::Issue(n) => match view::App::open_issue(n) {
                 Ok(mut a) => {
-                    a.hands_prs = app.hands_prs;
                     let shown = run_view(&mut a, term, review);
                     if let Some(n) = a.merge {
                         app.merge_asked(n);
@@ -512,7 +518,7 @@ fn replacement_view(id: u64, root: &Path, term: &mut ratatui::DefaultTerminal) -
     // Its base followed as a PR's is: a rebase (a redraft's, publishing's) moves the diff's base.
     app.follow_base = Some(follow);
     progress(None);
-    run_view(&mut app, term, &mut |_| None)?; // (a PR view hands no PRs)
+    run_view(&mut app, term, &mut |p| linked_pr(p, &dir))?;
     Ok(app.merge)
 }
 
@@ -566,7 +572,8 @@ fn review(o: &Opts, pr_num: Option<u64>, known: Option<gh::Pr>) -> anyhow::Resul
         app.notice(n);
     }
     let mut term = view::init_terminal();
-    let res = run_view(&mut app, &mut term, &mut |_| None); // (a PR view hands no PRs)
+    let here = std::env::current_dir()?;
+    let res = run_view(&mut app, &mut term, &mut |p| linked_pr(p, &here));
     view::restore_terminal();
     Ok((wt, res.map(|_| app.merge)))
 }

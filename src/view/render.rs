@@ -502,8 +502,9 @@ impl App {
         if let (Some(url), None, None, false) = (self.link_at_cursor(), &self.picker, &self.popup, header) {
             let y = (hd - self.top) as u16 + pin as u16;
             let x = ((self.text_x(c) + self.rows[self.head.row].guide_w() + self.col_of(self.head.row, self.head.col).saturating_sub(self.text_left(self.head.row, self.head.col))) as u16).min(area.width.saturating_sub(20));
-            // (Just where it goes: its keys are in the key hints.)
-            let text = format!(" ↗ {url} ");
+            // (Just where it goes, in dv or out of it: its keys are in the key hints.)
+            let to = if self.issue_here(url).is_some() { "→" } else { "↗" };
+            let text = format!(" {to} {url} ");
             let w = (text.chars().count() as u16).min(area.width - x);
             let ty = if y + 1 < (h + pin) as u16 { y + 1 } else { y.saturating_sub(1) };
             let r = Rect { x: area.x + x, y: area.y + ty, width: w, height: 1 };

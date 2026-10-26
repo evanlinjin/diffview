@@ -94,11 +94,11 @@ impl App {
                 Err(e) => self.msg = format!("{e:#}"),
             },
             // (GitHub's links say /issues/ for PRs too: it's asked which.)
-            Job::OpenIssue(n, url) => match gh::is_pr(n) {
-                true if self.hands_prs => (self.hand_off, self.msg) = (Some(HandOff::Pr(n)), String::new()),
-                true => self.open_url(&url),
-                false => (self.hand_off, self.msg) = (Some(HandOff::Issue(n)), String::new()),
-            },
+            // This repo's issue, or PR: in dv (a PR reviewed as dv list does, then back here).
+            Job::OpenIssue(n) => {
+                let to = if gh::is_pr(n) { HandOff::Pr(n) } else { HandOff::Issue(n) };
+                (self.hand_off, self.msg) = (Some(to), String::new());
+            }
             Job::Refresh => self.finish(Ok("refreshed")),
             Job::Resolve(t, on) => self.finish(gh::set_resolved(&t, on).map(|_| if on { "thread resolved" } else { "thread unresolved" })),
             Job::Discard(r) => {

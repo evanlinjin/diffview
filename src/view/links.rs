@@ -79,9 +79,9 @@ impl App {
                 (None, None) => self.msg = "no link, file:line or name under the cursor".into(),
             };
         };
-        // This repo's issue: in dv's issue view (and back here after).
+        // This repo's issue or PR: in dv (and back here after).
         if let Some(n) = self.issue_here(&url) {
-            return self.start(Job::OpenIssue(n, url));
+            return self.start(Job::OpenIssue(n));
         }
         self.open_url(&url);
     }

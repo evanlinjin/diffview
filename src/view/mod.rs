@@ -215,8 +215,8 @@ struct Kept {
 
 /// Network work that doesn't need the terminal; run after a frame shows its "…" message.
 enum Job {
-    /// This repo's #N, from a link (its URL): an issue's in dv's issue view, a PR's in the browser.
-    OpenIssue(u64, String),
+    /// This repo's #N, from a link: an issue's in dv's issue view, a PR's reviewed in dv.
+    OpenIssue(u64),
     Refresh,
     /// Bring the checkout up to date: the PR's head, or `git pull --ff-only` without a PR.
     Pull,
@@ -257,7 +257,7 @@ impl Job {
             Job::Discard(_) => "discarding…".into(),
             Job::DeleteComment(_) => "deleting…".into(),
             Job::Preview(url) => format!("loading {url}…"),
-            Job::OpenIssue(n, _) => format!("opening #{n}…"),
+            Job::OpenIssue(n) => format!("opening #{n}…"),
             Job::Reactions(_) => "asking GitHub for its reactions…".into(),
             Job::Rebase => "rebasing…".into(),
             Job::Retarget(base) => format!("the PR's base is {base} now: fetching it…"),
@@ -385,7 +385,7 @@ pub enum HandOff {
     Issue(u64),
     /// The PR's replacement (its id), in its own view.
     Replacement(u64),
-    /// A PR a link goes to (`App::hands_prs`), reviewed as dv list does.
+    /// A PR a link goes to, reviewed as dv list does.
     Pr(u64),
 }
 
@@ -640,9 +640,6 @@ pub struct App {
     /// What to show instead for a while (an issue a link goes to, this PR's replacement): the
     /// view hands it over, and goes on as it was after.
     pub hand_off: Option<HandOff>,
-    /// A PR a link goes to is handed off to be reviewed (an issue opened from dv's issues),
-    /// rather than opened in the browser.
-    pub hands_prs: bool,
     /// This PR's replacement (one replacing it, among others or not), as last read, and when
     /// that was looked for (every few seconds, as the records change).
     replaced_by: Option<crate::replace::Record>,
