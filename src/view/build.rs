@@ -377,7 +377,7 @@ impl App {
     /// gone: what was said about it with what has no place.)
     fn closing_comment(&self) -> Vec<Row> {
         let drafted = !self.claude.closing.trim().is_empty();
-        let asked = self.threads.iter().any(|t| t.conversation == ON_CLOSING && t.waiting());
+        let asked = self.threads.iter().any(|t| t.conversation == ON_CLOSING && t.waiting() && self.in_view(t));
         if self.view != View::All || !drafted && !asked {
             return vec![];
         }

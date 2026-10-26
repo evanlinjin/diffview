@@ -1530,8 +1530,9 @@ fn replacement_in_the_pr_section() {
     app.sections_folded.insert(CLOSING_NOTE);
     app.build();
     assert!(!app.rows.iter().any(|r| r.line.text == "Tidy it."));
-    app.sections_folded.remove(&CLOSING_NOTE);
-    app.build();
+    // Gone to (]a, a picker, Claude's activity): its section unfolded, to show it.
+    app.goto_comment(2, 0);
+    assert!(!app.sections_folded.contains(&CLOSING_NOTE) && app.rows[app.head.row + 2].line.text == "Tidy it.", "{}", app.msg);
     // r on one: a reply in its thread (no picker: its want goes on).
     app.goto(at("Why two?"), 0);
     app.start_reply(false);
@@ -2575,7 +2576,7 @@ fn claude_drafts_a_closing_comment() {
     app.start_ask_claude();
     app.picker = None;
     app.want("change");
-    assert!(matches!(app.action.take(), Some(Action::AskConversation { url, want: "change", .. }) if url == "closing"), "{}", app.msg);
+    assert!(matches!(app.action.take(), Some(Action::AskConversation { url, want: "change", prefill, .. }) if url == "closing" && prefill.contains("> Thanks! Superseded by #9.")), "{}", app.msg);
     // Discarded: gone; Space a offers to draft one.
     app.discard(&["closing"], "Claude's closing comment");
     assert!(!std::fs::read_to_string(&path).unwrap().contains("closing") && !app.rows.iter().any(|r| r.main == Some(CLOSING_PR)));

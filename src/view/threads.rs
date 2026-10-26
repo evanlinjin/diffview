@@ -172,6 +172,11 @@ impl App {
         }
         let t = &self.threads[ti];
         self.collapsed.remove(&t.path.clone());
+        // On text: its section unfolded (the description's, with the PR's pane).
+        if let Some(s) = text_home(t) {
+            self.sections_folded.remove(&s);
+            self.info_collapsed &= s != DESCRIPTION;
+        }
         // (Only one it unfolds: a jump isn't a choice to keep it open.)
         if !self.thread_open(ti)
             && let Some(id) = self.root_id(ti)
