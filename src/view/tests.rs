@@ -2611,20 +2611,22 @@ fn claude_drafts_a_closing_comment() {
     // It closed, #3 left (its editor cancelled, say): Space a goes on from it; not while it's open.
     let closing = std::mem::take(&mut app.claude.closing);
     app.claude_menu();
-    assert!(!app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::Do(Action::CloseWith(3)))));
+    assert!(!app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::Do(Action::CloseWith(ref ns)) if ns == &[3])));
     app.pr_state = Some(("CLOSED", "da3633"));
     app.claude_menu();
-    assert!(app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::Do(Action::CloseWith(3)))));
+    assert!(app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::Do(Action::CloseWith(ref ns)) if ns == &[3])));
     (app.claude.closing, app.pr_state) = (closing, Some(("OPEN", "238636")));
     // One round: #5 left open (its editor left empty), then #6 all the same; after #6, done.
     let cw = |n| crate::claude::ClosingWith { n, comment: format!("With #{n}."), ..Default::default() };
     (app.claude.closing_with, app.linked) = (vec![cw(5), cw(6)], vec![5, 6]);
-    let (res, _) = super::term::writing_beside(false, Some(None), || app.close_with(5));
-    assert!(res.unwrap().starts_with("#5 left open") && matches!(app.action.take(), Some(Action::CloseWith(6))));
-    _ = super::term::writing_beside(false, Some(None), || app.close_with(6));
+    let (res, _) = super::term::writing_beside(false, Some(None), || app.close_with(vec![5, 6]));
+    assert!(res.unwrap().starts_with("#5 left open") && matches!(app.action.take(), Some(Action::CloseWith(ns)) if ns == [6]));
+    _ = super::term::writing_beside(false, Some(None), || app.close_with(vec![6]));
     assert!(app.action.is_none() && app.claude.closing_with.len() == 2, "left open: their comments kept");
+    // #4 gone meanwhile (closed elsewhere): on with the rest.
+    _ = super::term::writing_beside(false, Some(None), || app.close_with(vec![4, 6]));
+    assert!(matches!(app.action.take(), Some(Action::CloseWith(ns)) if ns == [6]));
     app.load_claude();
-    app.linked = vec![3];
     // Not linked any more (closed meanwhile, say): neither.
     app.linked.clear();
     app.build();
@@ -3049,7 +3051,7 @@ fn quitting_while_writing_beside_says_so_first() {
         app.hold_quit();
     };
     let (q, ctrl_c) = (KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE), KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
-    app.writing = Some((Action::Shell, term::test_writing()));
+    app.writing = Some((Action::Shell, term::test_writing(), None));
     quit(&mut app, q);
     assert!(!app.quit && app.msg.starts_with("you're writing in the editor's pane"));
     // A held key's repeat doesn't leave; nor asking long after.

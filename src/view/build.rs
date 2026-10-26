@@ -386,6 +386,7 @@ impl App {
         let open = self.pr_state.is_some_and(|s| matches!(s.0, "OPEN" | "DRAFT"));
         let what = match (drafted, open) {
             _ if !open && !left.is_empty() && !asked => "closing comment · what closes with it, left (Space a: close them, discard)".to_owned(),
+            (false, true) if !left.is_empty() && !asked => format!("closing comment · what closes with it (Space a: draft a comment closing {it}, discard)"),
             (false, _) => "closing comment · asked of Claude (it drafts it)".to_owned(),
             (true, true) => format!("closing comment · Claude's draft (Space a: close {it} with it, more changes, discard)"),
             (true, false) => format!("closing comment · Claude's draft ({it} isn't open: Space a discards it)"),

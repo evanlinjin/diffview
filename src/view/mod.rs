@@ -641,7 +641,7 @@ pub struct App {
     /// view hands it over, and goes on as it was after.
     pub hand_off: Option<HandOff>,
     /// What the actions so far of a chain came to (`act`: one queueing the next), said with
-    /// the last.
+    /// the last. (While its editor's beside dv, with it in `writing`: not another action's.)
     chained: Option<String>,
     /// What closing it would close with it, open (`Info::linked`): a PR's issues, an issue's
     /// PRs; each with Claude's closing comment, if it's drafted one (its file's `"closing"`).
@@ -782,7 +782,7 @@ pub struct App {
     hx: Option<HxPane>,
     /// What's being written in the editor's pane (inside zellij), dv going on meanwhile, and
     /// what asked for it: done again once it's written, given the text (`term::Writing`).
-    writing: Option<(Action, term::Writing)>,
+    writing: Option<(Action, term::Writing, Option<String>)>,
     /// Quitting while writing beside dv was warned of, by the last key: the next quit goes,
     /// with the merge it held, if one was asked (`Space g`), and only then.
     quit_armed: Option<(std::time::Instant, Option<u64>)>,

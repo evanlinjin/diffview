@@ -926,7 +926,7 @@ impl App {
     /// Appends `text` to your pending review's text, on GitHub (starting the review if need be).
     pub(super) fn add_to_summary(&mut self, text: &str) {
         // (Submitting goes with what's in the editor: added here, it'd be lost.)
-        if matches!(self.writing, Some((Action::Submit(_), _))) {
+        if matches!(self.writing, Some((Action::Submit(_), ..))) {
             return self.msg = "you're writing what goes with your review in the editor's pane: add it there".into();
         }
         let draft = self.summary_draft.trim_end();

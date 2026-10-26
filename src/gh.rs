@@ -982,6 +982,16 @@ impl std::fmt::Display for ClosedAlready {
 
 impl std::error::Error for ClosedAlready {}
 
+#[test]
+fn closed_already_is_known_as_such() {
+    let f = || -> Result<()> {
+        anyhow::ensure!(false, ClosedAlready("5".into()));
+        Ok(())
+    };
+    let e = f().unwrap_err();
+    assert!(e.is::<ClosedAlready>() && format!("{e:#}") == "#5 is closed already: nothing posted");
+}
+
 /// Close PR `n`, with `comment` saying why if given.
 pub fn close(n: u64, comment: Option<&str>) -> Result<()> {
     let n = n.to_string();

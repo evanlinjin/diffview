@@ -42,9 +42,9 @@ pub(super) enum Action {
     NewPr { prefill: String, as_is: bool },
     /// Close the PR with Claude's draft comment, after the editor.
     ClosePr,
-    /// Close what closing it closes with it, #N, with Claude's comment for it (`closing_with`),
-    /// after the editor; then the next.
-    CloseWith(u64),
+    /// Close what closing it closes with it, the first of these, with Claude's comment for it
+    /// (`closing_with`), after the editor; then the rest, the same way.
+    CloseWith(Vec<u64>),
     /// Close the PRs the replacement here replaces, after the editor (the note).
     CloseOriginals,
     /// A new PR conversation comment, starting with `quote` (may be empty); `as_is`: posted
@@ -356,12 +356,12 @@ impl App {
                 if close {
                     self.action = Some(Action::CloseOriginals); // its own editor, next
                 }
-                let then = if originals { ": S closes what it replaces, with the note" } else { "" };
+                let then = if originals && !close { ": S closes what it replaces, with the note" } else { "" };
                 // Ready for review only once CI passes: `Space g` there, which checks.
                 Ok(format!("published as {kind} #{}{then} (ready for review once CI passes: Space g)", res.unwrap_or(0)))
             }
             Action::ClosePr => self.close_pr(),
-            Action::CloseWith(m) => self.close_with(m),
+            Action::CloseWith(ns) => self.close_with(ns),
             Action::CiFixPr => {
                 let n = self.pr.as_ref().map_or(0, |p| p.number);
                 let c = self.ci_note(n).context("no fix in mind for CI any more")?;
@@ -470,7 +470,8 @@ impl App {
             && !self.mid_sequence()
             && let Some(text) = self.writing.as_mut().and_then(|w| w.1.done())
         {
-            let (a, w) = self.writing.take().unwrap();
+            let (a, w, chained) = self.writing.take().unwrap();
+            self.chained = chained;
             self.quit_armed = None; // (what held leaving is over: a merge held with it too)
             (self.action, given, kept) = (Some(a), Some(text), w.kept);
             focus_dv();
@@ -493,8 +494,9 @@ impl App {
             // The editor in its pane, dv going on: the rest once it's written.
             if res.as_ref().is_err_and(|e| e.is::<term::Writing>()) {
                 let w = res.unwrap_err().downcast().unwrap();
-                self.writing = Some((again, w));
-                let before = self.chained.as_ref().map_or(String::new(), |c| format!("{c}; "));
+                let chained = self.chained.take();
+                let before = chained.as_ref().map_or(String::new(), |c| format!("{c}; "));
+                self.writing = Some((again, w, chained));
                 self.msg = format!("{before}writing in the editor's pane: dv's yours meanwhile (save and quit there to send; :cq cancels)");
                 return;
             }
@@ -509,15 +511,20 @@ impl App {
             if !in_pane {
                 *term = init_terminal();
             }
+            let failed = res.is_err();
             self.reloaded(res, false);
             if let Some(k) = kept.take() {
                 self.msg = format!("{}: its pane closed; what it had saved is kept in {}", self.msg, k.display());
             }
             // One leading to another (closing, then what closes with it): what each came to,
-            // said together at the end, not each over the one before (a failure, where its text
-            // was kept).
-            let said = std::mem::take(&mut self.msg);
-            let all = [self.chained.take(), Some(said)].into_iter().flatten().filter(|m| !m.is_empty()).collect::<Vec<_>>().join("; ");
+            // said together at the end, not each over the one before; a failure (where its text
+            // was kept) first, as the bar cuts the end off.
+            let said = Some(std::mem::take(&mut self.msg));
+            let parts = match failed {
+                true => [said, self.chained.take()],
+                false => [self.chained.take(), said],
+            };
+            let all = parts.into_iter().flatten().filter(|m| !m.is_empty()).collect::<Vec<_>>().join("; ");
             match self.action.is_some() {
                 true => self.chained = Some(all),
                 false => self.msg = all,
