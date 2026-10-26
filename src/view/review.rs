@@ -535,6 +535,7 @@ impl App {
         self.claude.created.clear();
         self.claude.description.clear();
         self.claude.closing.clear();
+        self.claude.closing_with.clear();
         (self.claude.triage, self.claude.close) = Default::default();
         if let Some(Ok(Some(mut r))) = loaded {
             // Comments with their code recorded follow it; others can only trust their lines.
@@ -551,7 +552,7 @@ impl App {
             if self.whole_pr() {
                 crate::claude::reanchor(&mut r.threads, &self.files);
             }
-            (self.claude.summary, self.claude.head, self.claude.description, self.claude.closing) = (r.summary, r.head, r.description, r.closing);
+            (self.claude.summary, self.claude.head, self.claude.description, self.claude.closing, self.claude.closing_with) = (r.summary, r.head, r.description, r.closing, r.closing_with);
             (self.claude.created, self.claude.triage, self.claude.close) = (r.created, r.triage, r.close);
             self.threads.extend(r.threads);
             // (Tab's shown talks: while resolved only, so one resolved again, by you or Claude,

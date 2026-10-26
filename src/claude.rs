@@ -91,6 +91,9 @@ pub struct Review {
     pub description: String,
     /// A comment Claude drafted for closing the PR (empty: none), for the user to close it with.
     pub closing: String,
+    /// And for what closing it closes with it (a PR's issues, an issue's PRs; `"closing_with"`):
+    /// each, its comment, and how to close an issue (its reason; a duplicate's of what).
+    pub closing_with: Vec<ClosingWith>,
     /// Why Claude would close the PR (its premise is wrong, a competing PR is better); empty:
     /// it wouldn't. `dv list`'s "can close" tab.
     pub close: String,
@@ -100,6 +103,16 @@ pub struct Review {
     /// An issue's: Claude's triage of it (`list/issues.rs` writes it; a PR's, none).
     pub triage: Triage,
     pub threads: Vec<Thread>,
+}
+
+/// What closing a PR or an issue closes with it, as Claude drafted it (`Review::closing_with`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ClosingWith {
+    pub n: u64,
+    pub comment: String,
+    /// An issue's: `"completed"`, `"not planned"` or `"duplicate"` (of `duplicate_of`).
+    pub reason: String,
+    pub duplicate_of: Option<u64>,
 }
 
 /// An issue's triage: what it is and how urgent, what should happen next, the labels and the
@@ -970,7 +983,7 @@ fn parse(text: &str) -> Result<Review> {
         reason: s(&v["reason"]),
         duplicate_of: v["duplicate_of"].as_u64(),
     };
-    Ok(Review { head: s(&v["head"]), created: created.clone(), summary: s(&v["summary"]), description: s(&v["description"]), closing: s(&v["closing"]), close: s(&v["close"]), replace: s(&v["replace"]), triage, threads })
+    Ok(Review { head: s(&v["head"]), created: created.clone(), summary: s(&v["summary"]), description: s(&v["description"]), closing: s(&v["closing"]), closing_with: closing_with(&v["closing_with"]), close: s(&v["close"]), replace: s(&v["replace"]), triage, threads })
 }
 
 /// A GitHub review comment's id, from a review file's `"about"`: the id, or its link
@@ -1154,13 +1167,36 @@ fn push_comment(path: &std::path::Path, c: Value) -> Result<String> {
 }
 
 /// Drop the review file's top-level draft `key`: Claude's proposed `"description"`, or its
-/// `"closing"` comment (used, or discarded).
+/// `"closing"` comment (used, or discarded: with what it was to close with it).
 pub fn clear(path: &std::path::Path, key: &str) -> Result<()> {
     let mut v: Value = serde_json::from_str(&std::fs::read_to_string(path)?)?;
     if let Some(o) = v.as_object_mut() {
         o.remove(key);
+        if key == "closing" {
+            o.remove("closing_with");
+        }
     }
     write(path, &v)
+}
+
+/// `"closing_with"`'s entries, as Claude wrote them (`ClosingWith`); none without a number or a
+/// comment.
+fn closing_with(v: &Value) -> Vec<ClosingWith> {
+    let s = |v: &Value| v.as_str().unwrap_or("").trim().to_owned();
+    v.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|c| Some(ClosingWith { n: c["n"].as_u64()?, comment: Some(s(&c["comment"])).filter(|c| !c.is_empty())?, reason: s(&c["reason"]), duplicate_of: c["duplicate_of"].as_u64() }))
+        .collect()
+}
+
+#[test]
+fn closing_with_what_it_closes() {
+    let r = parse(r#"{ "closing": "Superseded.", "closing_with": [
+        { "n": 5, "comment": "Fixed by the other PR.", "reason": "not planned" },
+        { "n": 6, "comment": "Same as #3.", "reason": "duplicate", "duplicate_of": 3 },
+        { "n": 7, "comment": " " }, { "comment": "no number" } ] }"#).unwrap();
+    assert_eq!(r.closing_with.iter().map(|c| (c.n, c.reason.as_str(), c.duplicate_of)).collect::<Vec<_>>(), [(5, "not planned", None), (6, "duplicate", Some(3))]);
 }
 
 /// Remove comment `key`.

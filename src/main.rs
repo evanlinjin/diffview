@@ -694,18 +694,13 @@ fn review_file(cmd: &str, o: &Opts) -> anyhow::Result<()> {
     check_review(&path, &diff::load(&base, None, 3)?)
 }
 
-/// What closing `s` would close with it (open, as GitHub links them: a PR's issues, an
-/// issue's PRs), each with the file its closing comment goes in: `review-info`'s `with:` lines.
+/// What closing `s` would close with it (`gh::linked`: a PR's issues, an issue's PRs, open,
+/// here): `review-info`'s `with:` lines, for its closing comment's `"closing_with"`.
 fn print_linked(s: claude::Subject) {
-    let other = |m| match s {
-        claude::Subject::Pr(_) => claude::Subject::Issue(m),
-        claude::Subject::Issue(_) => claude::Subject::Pr(m),
-    };
-    for m in gh::linked(s).unwrap_or_default() {
-        let (kind, file) = (if matches!(other(m), claude::Subject::Pr(_)) { "PR" } else { "issue" }, other(m).path());
-        if let Ok(f) = file {
-            println!("with: #{m} ({kind}, closed with it)    file: {}", f.display());
-        }
+    let kind = if matches!(s, claude::Subject::Pr(_)) { "issue" } else { "PR" };
+    match gh::linked(s) {
+        Ok(ns) => ns.iter().for_each(|m| println!("with: #{m} ({kind}: closing this closes it too)")),
+        Err(e) => println!("with: unknown ({e:#})"),
     }
 }
 

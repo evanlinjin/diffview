@@ -121,8 +121,8 @@ pub fn parse_info(v: &Value) -> Info {
     let awaiting = v["dvAwaiting"].as_u64().unwrap_or(0) as usize;
     let fixes = v["dvFixes"].as_array().into_iter().flatten();
     let fixes: Vec<(u64, String, String)> = fixes.map(|p| (p["number"].as_u64().unwrap_or(0), p["state"].as_str().unwrap_or("").to_owned(), p["headRefOid"].as_str().unwrap_or("").to_owned())).collect();
-    let closes = v["closingIssuesReferences"].as_array().into_iter().flatten().filter_map(|i| i["number"].as_u64());
-    let linked = closes.chain(fixes.iter().filter(|p| p.1 == "OPEN").map(|p| p.0)).collect();
+    // (A PR's issues it closes, an issue's PRs fixing it: open, here.)
+    let linked = [&v["dvCloses"], &v["dvFixes"]].into_iter().flat_map(|n| crate::gh::open_here(n, v["url"].as_str().unwrap_or(""))).collect();
     Info {
         lines: info_lines(v),
         title: s("title"),
@@ -699,9 +699,12 @@ mod tests {
     #[test]
     fn what_closes_with_it() {
         // A PR's issues it closes; an issue's PRs that would fix it, open.
-        assert_eq!(parse_info(&json!({ "closingIssuesReferences": [{ "number": 7 }, { "number": 8 }] })).linked, [7, 8]);
-        let fixes = json!({ "dvFixes": [{ "number": 9, "state": "OPEN" }, { "number": 3, "state": "MERGED" }, { "number": 4, "state": "CLOSED" }] });
-        assert_eq!(parse_info(&fixes).linked, [9]);
+        let i = |n: u64, state: &str| json!({ "number": n, "state": state, "url": format!("https://github.com/o/r/issues/{n}") });
+        let pr = json!({ "url": "https://github.com/o/r/pull/40", "dvCloses": [i(7, "OPEN"), i(8, "CLOSED")] });
+        assert_eq!(parse_info(&pr).linked, [7]);
+        let p = |n: u64, state: &str| json!({ "number": n, "state": state, "url": format!("https://github.com/o/r/pull/{n}") });
+        let issue = json!({ "url": "https://github.com/o/r/issues/5", "dvFixes": [p(9, "OPEN"), p(3, "MERGED"), p(4, "CLOSED")] });
+        assert_eq!(parse_info(&issue).linked, [9]);
     }
 
     #[test]

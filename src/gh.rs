@@ -921,16 +921,37 @@ pub fn close_issue(n: u64, comment: &str, reason: &str, dup: Option<u64>) -> Res
     gh(&args).map(|_| why)
 }
 
-/// What closing `s` would close with it, open (as GitHub links them): a PR's issues it
-/// closes, an issue's PRs that would fix it.
+/// What closing `s` would close with it, open, here (`open_here`): a PR's issues it closes,
+/// an issue's PRs that would fix it. One query.
 pub fn linked(s: crate::claude::Subject) -> Result<Vec<u64>> {
-    let n = s.n().to_string();
     let (kind, field) = match s {
-        crate::claude::Subject::Pr(_) => ("pr", "closingIssuesReferences"),
-        crate::claude::Subject::Issue(_) => ("issue", "closedByPullRequestsReferences"),
+        crate::claude::Subject::Pr(_) => ("pullRequest", "closingIssuesReferences(first: 20)"),
+        crate::claude::Subject::Issue(_) => ("issue", "closedByPullRequestsReferences(first: 20)"),
     };
-    let v = gh_json(&[kind, "view", &n, "--json", field])?;
-    Ok(v[field].as_array().into_iter().flatten().filter(|x| x["state"].as_str().is_none_or(|s| s == "OPEN")).filter_map(|x| x["number"].as_u64()).collect())
+    let q = format!("query($owner: String!, $name: String!, $n: Int!) {{ repository(owner: $owner, name: $name) {{ {kind}(number: $n) {{ url linked: {field} {{ nodes {{ number state url }} }} }} }} }}");
+    let v = gh_json(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-F", &format!("n={}", s.n()), "-f", &format!("query={q}")])?;
+    let it = &v["data"]["repository"][kind];
+    Ok(open_here(&it["linked"]["nodes"], it["url"].as_str().unwrap_or("")))
+}
+
+/// Of `nodes` (GitHub's: number, state, url), the open ones in the repo of `url` (a PR's or
+/// an issue's): a PR can close another repo's issue, whose number here is another's.
+pub fn open_here(nodes: &Value, url: &str) -> Vec<u64> {
+    let repo = |u: &str| u.rsplit_once("/pull/").or_else(|| u.rsplit_once("/issues/")).map(|(r, _)| r.to_owned());
+    let Some(here) = repo(url) else { return vec![] };
+    nodes.as_array().into_iter().flatten().filter(|x| x["state"] == "OPEN" && repo(x["url"].as_str().unwrap_or("")).as_deref() == Some(here.as_str())).filter_map(|x| x["number"].as_u64()).collect()
+}
+
+#[test]
+fn what_closes_with_it_is_open_and_here() {
+    let nodes = json!([
+        { "number": 5, "state": "OPEN", "url": "https://github.com/o/r/issues/5" },
+        { "number": 6, "state": "CLOSED", "url": "https://github.com/o/r/issues/6" },
+        { "number": 123, "state": "OPEN", "url": "https://github.com/other/lib/issues/123" },
+        { "number": 9, "state": "OPEN", "url": "https://github.com/o/r/pull/9" },
+    ]);
+    assert_eq!(open_here(&nodes, "https://github.com/o/r/pull/40"), [5, 9]);
+    assert!(open_here(&nodes, "").is_empty());
 }
 
 /// Before a close with a comment: #`n` (a PR or an issue) still open. gh closes nothing and
@@ -1013,7 +1034,8 @@ fn pr_node(v: &Value) -> Result<Value> {
 fn pr_query(n: u64) -> Result<Value> {
     let q = format!(
         "query($owner: String!, $name: String!, $n: Int!) {{ repository(owner: $owner, name: $name) {{ pullRequest(number: $n) {{
-           {SIGNATURE_RULES} commits(last: 100) {{ totalCount nodes {{ commit {{ oid signature {{ isValid }} }} }} }} }} }} }}"
+           {SIGNATURE_RULES} commits(last: 100) {{ totalCount nodes {{ commit {{ oid signature {{ isValid }} }} }} }}
+           closingIssuesReferences(first: 20) {{ nodes {{ number state url }} }} }} }} }}"
     );
     let v = gh_json(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-F", &format!("n={n}"), "-f", &format!("query={q}")])?;
     pr_node(&v)
@@ -1039,7 +1061,7 @@ pub fn unsigned_blocking(n: u64) -> Result<Option<String>> {
 }
 
 const INFO_FIELDS: &str = "number,baseRefOid,headRepositoryOwner,isCrossRepository,headRepository,maintainerCanModify,headRefOid,title,author,state,isDraft,url,baseRefName,headRefName,additions,deletions,\
-changedFiles,labels,assignees,reviewDecision,reviewRequests,latestReviews,statusCheckRollup,body,id,mergeable,closingIssuesReferences";
+changedFiles,labels,assignees,reviewDecision,reviewRequests,latestReviews,statusCheckRollup,body,id,mergeable";
 
 /// What GitHub couldn't say this time (`new`) but did before (`old`, as dv kept it), kept: its
 /// commits' signatures, for the same head (a commit's signature is part of it, so it still
@@ -1169,9 +1191,14 @@ pub fn info_json(n: u64) -> Result<Value> {
     let id = s(&v["id"]);
     let (activity, signatures) = std::thread::scope(|sc| {
         let activity = sc.spawn(|| activity(&id, false));
-        let signatures = pr_query(n).and_then(|p| signatures_of(&p)).map_err(|e| format!("{e:#}"));
-        (activity.join().unwrap_or_else(|p| Err(anyhow::anyhow!(crate::batch::panicked(&p)))), signatures.map_err(|w| first_line(&w)))
+        let pq = pr_query(n);
+        // (The issues it closes, as an issue's PRs fixing it are: `dvFixes`.)
+        let closes = pq.as_ref().map_or(Value::Null, |p| p["closingIssuesReferences"]["nodes"].clone());
+        let signatures = pq.and_then(|p| signatures_of(&p)).map_err(|e| format!("{e:#}"));
+        (activity.join().unwrap_or_else(|p| Err(anyhow::anyhow!(crate::batch::panicked(&p)))), (signatures.map_err(|w| first_line(&w)), closes))
     });
+    let (signatures, closes) = signatures;
+    v["dvCloses"] = closes;
     v["dvActivity"] = activity.unwrap_or_else(|e| json!({ "error": first_line(&format!("{e:#}")) }));
     match signatures {
         Ok(s) => {
