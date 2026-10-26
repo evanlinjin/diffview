@@ -389,23 +389,28 @@ fn pick_and_review(o: &Opts, root: &Path) -> anyhow::Result<()> {
 /// Review PR `n` from a list (`known`: as the list has it), then back in `root`: what to say
 /// there, if anything (it failed; `Space g` → merge, from the review: merged, or why not).
 fn review_back(o: &Opts, n: u64, known: Option<gh::Pr>, root: &Path) -> anyhow::Result<Option<String>> {
-    let res = review(o, Some(n), known).and_then(|(_, res)| res);
-    progress(None);
-    std::env::set_current_dir(root)?; // a worktree review leaves us in the worktree
-    Ok(match res {
-        Err(e) => Some(format!("PR #{n}: {e:#}")),
+    Ok(match review_in(o, n, known, root)? {
+        Err(e) => Some(format!("{e:#}")),
         Ok(Some(m)) => Some(merge_from(m, root)),
         Ok(None) => None,
     })
 }
 
+/// Review PR `n` as `o` says, then back in `here` (the outer error: not back); what it came
+/// to: the merge asked there, for the caller to make once its views are done (a merge switches
+/// the checkout: never under one).
+fn review_in(o: &Opts, n: u64, known: Option<gh::Pr>, here: &Path) -> anyhow::Result<anyhow::Result<Option<u64>>> {
+    let res = review(o, Some(n), known).and_then(|(_, res)| res);
+    progress(None);
+    // (A worktree review leaves us in the worktree.)
+    std::env::set_current_dir(here).with_context(|| format!("back to {}", here.display()))?;
+    Ok(res.with_context(|| format!("PR #{n}")))
+}
+
 /// PR `n`, a link to it followed from a PR's view (checked out in `here`): reviewed in a
-/// worktree of its own (this checkout's left as it is), then back here; what to say there.
-fn linked_pr(n: u64, here: &Path) -> Option<String> {
-    let o = Opts { worktree: true, ..Opts::default() };
-    let said = review_back(&o, n, None, here).unwrap_or_else(|e| Some(format!("PR #{n}: {e:#}")));
-    _ = std::env::set_current_dir(here);
-    said
+/// worktree of its own (this checkout's left as it is), then back here (`review_in`).
+fn linked_pr(n: u64, here: &Path) -> anyhow::Result<anyhow::Result<Option<u64>>> {
+    review_in(&Opts { worktree: true, ..Opts::default() }, n, None, here)
 }
 
 /// Issue `n` in the PR view (from dv's issues), a PR a link there goes to reviewed as dv list
@@ -419,7 +424,7 @@ fn issue_back(o: &Opts, n: u64, root: &Path) -> anyhow::Result<Option<String>> {
         Err(e) => return Ok(Some(format!("{e:#}"))),
     };
     let mut term = view::init_terminal();
-    let res = run_view(&mut app, &mut term, &mut |p| review_back(o, p, None, root).unwrap_or_else(|e| Some(format!("PR #{p}: {e:#}"))));
+    let res = run_view(&mut app, &mut term, &mut |p| review_in(o, p, None, root));
     view::restore_terminal();
     res?;
     Ok(app.merge.map(|m| merge_from(m, root)))
@@ -445,10 +450,12 @@ fn merge_from(n: u64, root: &Path) -> String {
 /// `app` on `term`, and what it hands over meanwhile (an issue a link goes to, in a view of its
 /// own; the PR's replacement, in its own): shown, then back to it, as it was. What goes wrong
 /// in what it hands over is said there, not an end to it (the terminal's the caller's to
-/// restore). A PR a link goes to (`HandOff::Pr`) is reviewed with `review` (what to say back), the terminal let go meanwhile, then back to the
-/// view that asked, as it was (never dropped: what you write beside it is still sent). A PR to
-/// merge (`merge`, asked in what it handed over too) is left asked, for the caller.
-fn run_view(app: &mut view::App, term: &mut ratatui::DefaultTerminal, review: &mut dyn FnMut(u64) -> Option<String>) -> anyhow::Result<()> {
+/// restore). A PR a link goes to (`HandOff::Pr`) is reviewed with `review` (`review_in`), the
+/// terminal let go meanwhile, then back to the view that asked, as it was (never dropped: what
+/// you write beside it is still sent). A PR to merge (`merge`, asked in what it handed over
+/// too) is left asked, for the caller.
+type Review<'a> = dyn FnMut(u64) -> anyhow::Result<anyhow::Result<Option<u64>>> + 'a;
+fn run_view(app: &mut view::App, term: &mut ratatui::DefaultTerminal, review: &mut Review) -> anyhow::Result<()> {
     loop {
         // (What was drawn over it meanwhile, and loading lines: all drawn anew.)
         _ = term.clear();
@@ -457,9 +464,16 @@ fn run_view(app: &mut view::App, term: &mut ratatui::DefaultTerminal, review: &m
         let shown = match to {
             view::HandOff::Pr(p) => {
                 view::restore_terminal();
-                let said = review(p);
+                let res = review(p);
                 *term = view::init_terminal();
-                Ok(said)
+                // (Not back where this view is: it'd work in another's checkout.)
+                match res? {
+                    Ok(Some(n)) => {
+                        app.merge_asked(n);
+                        continue;
+                    }
+                    res => res.map(|_| None),
+                }
             }
             // An issue: in the PR view too, its own, as it was when it comes back; a PR its link
             // goes to, reviewed as this view's are.
