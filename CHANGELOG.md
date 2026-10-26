@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.96.2] - 2026-10-26
+
+### Fixed
+- Folding a description or closing note (or the PR pane) folds what's said about it, not move
+  it to the list of what has no place.
+- Claude's closing comment's section goes once it's used or discarded; `a` on it quotes it.
+- A redraft after one that went through failing doesn't report the draft failed.
+
 ## [0.96.1] - 2026-10-26
 
 ### Fixed
