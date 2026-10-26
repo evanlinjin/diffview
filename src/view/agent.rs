@@ -182,6 +182,12 @@ impl App {
         }
     }
 
+    /// Whether `ask`'s run may commit (and amend): what makes changes you asked for, answering
+    /// your replies too (their `[amend]`, `[commit]`), wherever it runs. The one rule.
+    pub(super) fn commits(&self, ask: Ask) -> bool {
+        self.has_code() && matches!(ask, Ask::Fix | Ask::Edit | Ask::Answer)
+    }
+
     /// Replies of yours that Claude hasn't answered yet.
     pub(super) fn waiting_replies(&self) -> usize {
         self.threads.iter().filter(|t| t.waiting()).count()
@@ -766,7 +772,7 @@ impl App {
             return asked;
         }
         let ci = self.pr.as_ref().filter(|_| matches!(ask, Ask::FixChecks)).map(|p| p.number);
-        let more = tools_for(ci, matches!(ask, Ask::Fix | Ask::Edit));
+        let more = tools_for(ci, self.commits(ask));
         let (msg, asked) = match in_zellij() {
             // A real session in a pane (the PR's, as the background runs use): watch it, approve
             // what it asks, talk to it.
@@ -816,7 +822,7 @@ impl App {
         }
         let prompt = self.claude_prompt(Ask::Answer, "");
         let forked = self.claude_pane().is_some();
-        let more = tools_for(None, self.has_code());
+        let more = tools_for(None, self.commits(Ask::Answer));
         match self.spawn_claude(&prompt, "answering", Ask::Answer.work(), forked, &more.iter().map(String::as_str).collect::<Vec<_>>()) {
             Ok(job) => {
                 self.claude.job = Some(job);
