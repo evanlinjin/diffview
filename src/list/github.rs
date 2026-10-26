@@ -116,10 +116,9 @@ pub struct Extra {
     pub signatures_required: bool,
     /// Workflow runs on its head waiting for a maintainer's approval.
     pub awaiting: usize,
-    /// What the author hasn't answered: the newest maintainer's review (not an approval) or
-    /// comment since anyone was at work on it (`active`: their last push, comment or review;
-    /// anyone's commit), (when, who, a review or not). None: they had the last word, someone's
-    /// done something since, or an approval since did.
+    /// What the author hasn't answered: the first maintainer's review (not an approval) or
+    /// comment since anyone was at work on it (`active`) and any approval, (when, who, a review
+    /// or not). None: they had the last word, someone's done something since, or an approval.
     pub unanswered: Option<(i64, String, bool)>,
     /// The last sign of anyone at work on it: its author's comment or review, or anyone's
     /// commit (by when its own author committed it, else wrote it; one taken over is not left);
@@ -177,14 +176,11 @@ pub(super) fn extra(p: &Value, me: &str) -> Extra {
     // anyone's commit, by when its own author committed it (amended, squashed: theirs then), else
     // when it was written (rebased by another, GitHub's own rebase too). Not one GitHub made for
     // another, written as it committed it: their "Update branch", a merge of the base (a sync,
-    // not work on it), or a web edit; the author's own, or one from an email not on an account
-    // (`theirs`), is theirs all the same.
+    // not work on it), or a web edit; the author's own (`theirs`: one GitHub made is signed in)
+    // is theirs all the same.
     // (Its author, not `authors`, co-authors too: a connection per commit, of 100 commits of
     // 100 PRs, cost the query 100 of GitHub's points a page, not 6.)
-    let theirs = |c: &Value| {
-        let by = &c["commit"]["author"];
-        by.is_object() && (by["user"]["login"] == author.as_str() || by["user"].is_null())
-    };
+    let theirs = |c: &Value| c["commit"]["author"]["user"]["login"] == author.as_str();
     let made_by_github = |c: &Value| c["commit"]["committer"]["user"]["login"] == "web-flow" && c["commit"]["authoredDate"] == c["commit"]["committedDate"];
     let when = |c: &Value| {
         let own = c["commit"]["committer"]["user"]["login"] == c["commit"]["author"]["user"]["login"];
@@ -194,14 +190,14 @@ pub(super) fn extra(p: &Value, me: &str) -> Extra {
     let by_author = |k: &str, t: &str| nodes(k).into_iter().filter(|c| c["author"]["login"] == author.as_str()).map(|c| at(&c[t])).max().unwrap_or(0);
     let active = commits.max(by_author("comments", "createdAt")).max(by_author("reviews", "submittedAt"));
     let others = |c: &Value| c["author"]["login"] != author.as_str() && trusted(c);
+    let approved_last = nodes("reviews").iter().filter(|r| others(r) && r["state"] == "APPROVED").map(|r| at(&r["submittedAt"])).max().unwrap_or(0);
     let reviews = nodes("reviews").into_iter().filter(|r| others(r) && matches!(r["state"].as_str(), Some("CHANGES_REQUESTED" | "COMMENTED")));
-    let said = reviews
+    let unanswered = reviews
         .map(|r| (at(&r["submittedAt"]), crate::gh::login(&r["author"]), true))
         .chain(nodes("comments").into_iter().filter(others).map(|c| (at(&c["createdAt"]), crate::gh::login(&c["author"]), false)))
-        .filter(|(t, ..)| *t > active)
-        .max_by_key(|(t, ..)| *t);
-    let approved_last = nodes("reviews").iter().filter(|r| others(r) && r["state"] == "APPROVED").map(|r| at(&r["submittedAt"])).max().unwrap_or(0);
-    let unanswered = said.filter(|(t, ..)| *t > approved_last);
+        // (Waiting since the first of it: a nudge since doesn't start it again.)
+        .filter(|(t, ..)| *t > active.max(approved_last))
+        .min_by_key(|(t, ..)| *t);
     Extra {
         my_review,
         reviews: nodes("reviews").iter().map(|r| (crate::gh::login(&r["author"]), s(&r["state"]), crate::gh::epoch_secs(&s(&r["submittedAt"])).unwrap_or(0))).collect(),

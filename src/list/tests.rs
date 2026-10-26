@@ -676,6 +676,13 @@ fn stalled_when_the_author_leaves_feedback_unanswered() {
     let mut j = pr(serde_json::json!([]), vec![]);
     j["commits"]["nodes"].as_array_mut().unwrap().push(serde_json::json!({ "commit": { "committedDate": t("03"), "authoredDate": t("01"), "committer": { "user": null }, "author": { "user": null } } }));
     assert_eq!(super::github::extra(&j, "me").unanswered, None);
+    // Her suggestion applied on the web (GitHub committed it, as she wrote it): hers, an answer.
+    let mut j = pr(serde_json::json!([]), vec![]);
+    j["commits"]["nodes"].as_array_mut().unwrap().push(serde_json::json!({ "commit": { "committedDate": t("03"), "authoredDate": t("03"), "committer": { "user": { "login": "web-flow" } }, "author": { "user": { "login": "amy" } } } }));
+    assert_eq!(super::github::extra(&j, "me").unanswered, None);
+    // Nudged since (your comment): waiting since bo's review still, not since the nudge.
+    let e = super::github::extra(&pr(serde_json::json!([{ "author": { "login": "me" }, "createdAt": t("06"), "body": "any news?" }]), vec![]), "me");
+    assert_eq!(e.unanswered, Some((crate::gh::epoch_secs(&t("02")).unwrap(), "bo".to_owned(), true)));
     // Her own rebase (she committed it) after the review: an answer too.
     let mut j = pr(serde_json::json!([]), vec![]);
     j["commits"]["nodes"].as_array_mut().unwrap().push(serde_json::json!({ "commit": { "committedDate": t("03"), "authoredDate": t("01"), "committer": { "user": { "login": "amy" } }, "author": { "user": { "login": "amy" } } } }));
@@ -696,15 +703,16 @@ fn stalled_when_the_author_leaves_feedback_unanswered() {
     // In the list: stalled once it's been `dv.stalledDays`, not before; never your own.
     let mut l = List { stalled_days: 14, me: "me".into(), ..Default::default() };
     let p = Listed { number: 1, author: "amy".into(), ..Listed::default() };
-    let at = |days: i64| Extra { unanswered: Some((crate::claude::now_secs() - days * 86400, "bo".into(), true)), ..Default::default() };
+    // (Its author's last work 5 days before the review.)
+    let at = |days: i64| Extra { unanswered: Some((crate::claude::now_secs() - days * 86400, "bo".into(), true)), active: crate::claude::now_secs() - (days + 5) * 86400, ..Default::default() };
     l.extra.insert(1, at(20));
     assert_eq!(l.stalled(&p), Some((20, Some(("bo".into(), true)))));
     l.extra.insert(1, at(3));
     assert_eq!(l.stalled(&p), None);
     l.extra.insert(1, at(20));
     assert_eq!(l.stalled(&Listed { author: "me".into(), ..p.clone() }), None);
-    // A draft too, with feedback unanswered.
-    assert_eq!(l.stalled(&Listed { draft: true, ..p.clone() }), Some((20, Some(("bo".into(), true)))));
+    // A draft too, with feedback unanswered: since anyone was at work on it.
+    assert_eq!(l.stalled(&Listed { draft: true, ..p.clone() }), Some((25, Some(("bo".into(), true)))));
     // A draft left: nothing of its author's (nor anyone's push) for that long, nothing asked of
     // them (no one else's to move on); one ready, waiting on reviews, isn't stalled.
     let ago = |days: i64| crate::claude::now_secs() - days * 86400;

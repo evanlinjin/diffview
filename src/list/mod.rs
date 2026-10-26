@@ -827,10 +827,13 @@ impl List {
     /// (`app/…`) isn't one to ask, nor a deleted account, ghost.
     pub(super) fn stalled(&self, p: &Listed) -> Option<(i64, Option<(String, bool)>)> {
         let e = self.extra.get(&p.number)?;
-        let (at, waiting) = match &e.unanswered {
-            Some((at, who, review)) => (*at, Some((who.clone(), *review))),
-            None if p.draft => (e.active.max(crate::gh::epoch_secs(&p.created).unwrap_or(0)), None),
-            None => return None,
+        // (A draft: since anyone was at work on it, feedback waiting or not; else since what's
+        // waiting.)
+        let waiting = e.unanswered.as_ref().map(|(_, who, review)| (who.clone(), *review));
+        let at = match (&e.unanswered, p.draft) {
+            (_, true) => e.active.max(crate::gh::epoch_secs(&p.created).unwrap_or(0)),
+            (Some((at, ..)), false) => *at,
+            (None, false) => return None,
         };
         let days = (crate::claude::now_secs() - at) / 86400;
         (p.author != self.me && !p.author.starts_with("app/") && p.author != "ghost" && days >= self.stalled_days).then_some((days, waiting))
