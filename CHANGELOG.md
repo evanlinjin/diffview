@@ -5,6 +5,17 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.96.1] - 2026-10-26
+
+### Fixed
+- A reply on a thread while its draft is redrafted waits on the next redraft, not under the
+  answer to what the draft was given; one asked as a draft ends gets a redraft of its own.
+- A thread on Claude's closing comment shows once, beside it; a draft's closing-note threads
+  show once published, wherever they'd have no place.
+- Published, what was asked of the whole draft is a question about the PR.
+- A draft's thread asked while another view's run works waits for `Space a` → Redraft; a
+  suggestion asked with open comments is answered after them.
+
 ## [0.96.0] - 2026-10-26
 
 ### Changed
