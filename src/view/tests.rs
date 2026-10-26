@@ -5684,7 +5684,10 @@ fn x_stays_in_the_code_with_the_pane_beside() {
 #[test]
 fn going_to_a_thread_on_no_lines_finds_where_it_shows() {
     let mut app = fixture();
-    let talk = |k: &str, on: &str, body: &str| gh::Thread { claude: Some(k.into()), conversation: on.into(), comments: vec![gh::Comment { author: "you".into(), body: body.into(), ..Default::default() }], ..Default::default() };
+    // (Each comment its own id, as the fixture's: threads are keyed by their first's.)
+    let id = std::cell::Cell::new(100);
+    let next = || (id.set(id.get() + 1), id.get()).1;
+    let talk = |k: &str, on: &str, body: &str| gh::Thread { claude: Some(k.into()), conversation: on.into(), comments: vec![gh::Comment { id: next(), author: "you".into(), body: body.into(), ..Default::default() }], ..Default::default() };
     app.threads.push(talk("c8", ON_SUMMARY, "Why approve?"));
     app.threads.push(talk("c9", "description", "Shorter?"));
     let (summary, desc) = (app.threads.len() - 2, app.threads.len() - 1);
@@ -5734,7 +5737,7 @@ fn going_to_a_thread_on_no_lines_finds_where_it_shows() {
     assert!(app.collapsed.contains("src/a.rs") && app.toggled == toggled && app.msg == "that comment isn't shown here", "{}", app.msg);
     // Claude's answer in talk resolved under its comment (Enter on it in Claude's activity):
     // shown.
-    let said = |who: &str, body: &str| gh::Comment { author: who.into(), body: body.into(), ..Default::default() };
+    let said = |who: &str, body: &str| gh::Comment { id: next(), author: who.into(), body: body.into(), ..Default::default() };
     let line = |n| gh::Thread { path: "src/big.rs".into(), line: Some(n), original_line: Some(n), ..Default::default() };
     app.threads.push(gh::Thread { claude: Some("c12".into()), talk_resolved: true, comments: vec![said("claude", "Rename it."), said("you", "Why?"), said("claude", "Clearer.")], ..line(5) });
     app.build();
