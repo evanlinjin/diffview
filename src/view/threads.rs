@@ -170,7 +170,7 @@ impl App {
     pub(super) fn goto_comment(&mut self, ti: usize, ci: usize) {
         let Some(t) = self.threads.get(ti) else { return };
         let keep = self.cursor_key();
-        let was = (self.view, self.sections_folded.clone(), self.info_collapsed, self.code_head, self.collapsed.clone(), self.toggled.clone());
+        let was = (self.view, self.sections_folded.clone(), self.info_collapsed, self.code_head, self.collapsed.clone(), self.toggled.clone(), self.talk_shown.clone());
         // Not in this view: the whole diff, to show it; one of Claude's on no lines, its side too.
         let first = if self.in_view(t) { self.view } else { View::All };
         let mut views = vec![first];
@@ -179,10 +179,12 @@ impl App {
         }
         self.collapsed.remove(&t.path.clone());
         // (Only one it unfolds: a jump isn't a choice to keep it open.)
-        if !self.thread_open(ti)
-            && let Some(id) = self.root_id(ti)
-        {
-            self.toggled.insert(id, true);
+        // (Its talk too, resolved: the comment may be in it.)
+        if let Some(id) = self.root_id(ti) {
+            if !self.thread_open(ti) {
+                self.toggled.insert(id, true);
+            }
+            self.talk_shown.insert(id);
         }
         // Each comment starts with an author row; outdated threads' code rows aren't author rows.
         let at = |app: &App| app.rows.iter().enumerate().filter(|(_, r)| r.thread == Some(ti) && r.line.kind == Kind::Thread).nth(ci).map(|(r, _)| r);
@@ -200,8 +202,9 @@ impl App {
                 self.info_collapsed = false;
                 self.rebuild(keep.clone());
                 row = at(self);
-                if let Some(home) = row.and_then(|r| self.rows[r].beside) {
-                    self.sections_folded.extend(folded.iter().filter(|&&s| s != home));
+                if let Some(r) = row {
+                    let home = self.rows[r].beside;
+                    self.sections_folded.extend(folded.iter().filter(|&&s| Some(s) != home));
                     self.info_collapsed = was.2;
                     self.rebuild(keep.clone());
                     row = at(self);
@@ -222,13 +225,13 @@ impl App {
         match row {
             Some(r) => self.jump(r, 0),
             None => {
-                (self.view, self.sections_folded, self.info_collapsed, self.collapsed, self.toggled) = (was.0, was.1, was.2, was.4, was.5);
+                (self.view, self.sections_folded, self.info_collapsed, self.collapsed, self.toggled, self.talk_shown) = (was.0, was.1, was.2, was.4, was.5, was.6);
                 self.rebuild(keep);
                 self.code_head = was.3;
                 // (Showing only what isn't committed; a question on no file, where nothing shows it.)
                 self.msg = match self.threads[ti].path.as_str() {
-                    "" => "that comment isn't shown here".into(),
-                    p => format!("{p} isn't in this diff"),
+                    p if !p.is_empty() && !self.has_file(p) => format!("{p} isn't in this diff"),
+                    _ => "that comment isn't shown here".into(),
                 }
             }
         }

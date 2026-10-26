@@ -626,7 +626,7 @@ impl App {
         !(self.uncommitted() || self.commit_shown.is_some())
     }
 
-    fn has_file(&self, path: &str) -> bool {
+    pub(super) fn has_file(&self, path: &str) -> bool {
         self.files.iter().any(|f| f.path == path)
     }
 

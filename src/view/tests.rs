@@ -5724,11 +5724,20 @@ fn going_to_a_thread_on_no_lines_finds_where_it_shows() {
     app.build();
     app.goto_comment(desc, 5);
     assert!(app.view == View::Pending && app.sections_folded == [CLOSING_PR].into() && app.info_collapsed && app.msg.contains("isn't shown"), "{}", app.msg);
-    // A file folded, a thread on it not found: still folded, the thread too.
+    // A file folded, a (resolved, folded) thread on it not found: still folded, the thread too,
+    // and said not shown (its file is in the diff).
     (app.view, app.info_collapsed) = (View::All, false);
-    app.collapsed.insert("src/big.rs".into());
+    app.collapsed.insert("src/a.rs".into());
     app.build();
     let toggled = app.toggled.clone();
-    app.goto_comment(0, 5);
-    assert!(app.collapsed.contains("src/big.rs") && app.toggled == toggled);
+    app.goto_comment(3, 5);
+    assert!(app.collapsed.contains("src/a.rs") && app.toggled == toggled && app.msg == "that comment isn't shown here", "{}", app.msg);
+    // Claude's answer in talk resolved under its comment (Enter on it in Claude's activity):
+    // shown.
+    let said = |who: &str, body: &str| gh::Comment { author: who.into(), body: body.into(), ..Default::default() };
+    let line = |n| gh::Thread { path: "src/big.rs".into(), line: Some(n), original_line: Some(n), ..Default::default() };
+    app.threads.push(gh::Thread { claude: Some("c12".into()), talk_resolved: true, comments: vec![said("claude", "Rename it."), said("you", "Why?"), said("claude", "Clearer.")], ..line(5) });
+    app.build();
+    app.goto_comment(app.threads.len() - 1, 2);
+    assert!(app.rows[app.head.row + 1].line.text == "Clearer.", "{}", app.msg);
 }
