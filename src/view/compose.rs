@@ -42,6 +42,9 @@ pub(super) enum Action {
     NewPr { prefill: String, as_is: bool },
     /// Close the PR with Claude's draft comment, after the editor.
     ClosePr,
+    /// Close what closing it closes with it, #N, with Claude's comment for it (`closing_with`),
+    /// after the editor; then the next.
+    CloseWith(u64),
     /// Close the PRs the replacement here replaces, after the editor (the note).
     CloseOriginals,
     /// A new PR conversation comment, starting with `quote` (may be empty); `as_is`: posted
@@ -358,6 +361,7 @@ impl App {
                 Ok(format!("published as {kind} #{}{then} (ready for review once CI passes: Space g)", res.unwrap_or(0)))
             }
             Action::ClosePr => self.close_pr(),
+            Action::CloseWith(m) => self.close_with(m),
             Action::CiFixPr => {
                 let n = self.pr.as_ref().map_or(0, |p| p.number);
                 let c = self.ci_note(n).context("no fix in mind for CI any more")?;

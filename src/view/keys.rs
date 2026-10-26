@@ -726,7 +726,7 @@ impl App {
                         Target::ClaudeDismissOutdated(sure) => self.dismiss_outdated(sure),
                         Target::DescApprove(sure) => self.approve_description(sure),
                         Target::DescDiscard => self.discard(&["description", "title"], "Claude's proposed description"),
-                        Target::CloseDiscard => self.discard(&["closing"], "Claude's closing comment"),
+                        Target::CloseDiscard => self.discard(&["closing", "closing_with"], "Claude's closing comment"),
                         Target::Nothing | Target::Note(_) | Target::Warn => {}
                     }
                 }

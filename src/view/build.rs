@@ -378,18 +378,24 @@ impl App {
     fn closing_comment(&self) -> Vec<Row> {
         let drafted = !self.claude.closing.trim().is_empty();
         let asked = self.threads.iter().any(|t| t.conversation == ON_CLOSING && t.waiting());
-        if self.view != View::All || !drafted && !asked {
+        let left = self.linked_drafts();
+        if self.view != View::All || !drafted && !asked && left.is_empty() {
             return vec![];
         }
         let it = self.what();
         let what = match (drafted, self.pr_state.is_some_and(|s| matches!(s.0, "OPEN" | "DRAFT"))) {
+            (false, _) if !left.is_empty() && !asked => "closing comment · what closes with it, left (Space a: close them, discard)".to_owned(),
             (false, _) => "closing comment · asked of Claude (it drafts it)".to_owned(),
             (true, true) => format!("closing comment · Claude's draft (Space a: close {it} with it, more changes, discard)"),
             (true, false) => format!("closing comment · Claude's draft ({it} isn't open: Space a discards it)"),
         };
         // (With what it closes with it, Claude's comment for each.)
-        let with: String = self.linked_drafts().iter().map(|(s, c)| format!("\n\n**#{} with it:**\n\n{}", s.n(), c.comment)).collect();
-        let text = if drafted { format!("{}{with}", self.claude.closing.trim()) } else { "_(not drafted yet)_".to_owned() };
+        let with: String = left.iter().map(|(s, c)| format!("\n\n**#{} with it:**\n\n{}", s.n(), c.comment)).collect();
+        let text = match (drafted, asked) {
+            (true, _) => format!("{}{with}", self.claude.closing.trim()),
+            (false, false) if !left.is_empty() => with.trim_start().to_owned(),
+            _ => "_(not drafted yet)_".to_owned(),
+        };
         let s = self.section(CLOSING_PR, what, &text, None);
         self.with_talk(CLOSING_PR, s, ON_CLOSING)
     }

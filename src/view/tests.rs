@@ -2602,8 +2602,23 @@ fn claude_drafts_a_closing_comment() {
     app.picker = None;
     app.want("change");
     assert!(matches!(app.action.take(), Some(Action::AskConversation { url, want: "change", prefill, .. }) if url == "closing" && prefill.contains("> Thanks! Superseded by #9.")), "{}", app.msg);
+    // What it closes with it (#3, linked), with Claude's comment for it: under it, named.
+    app.linked = vec![3];
+    app.build();
+    assert!(app.rows.iter().any(|r| r.line.text.contains("#3 with it:")));
+    app.claude_menu();
+    assert!(app.picker.take().unwrap().items.iter().any(|i| i.label.contains("and #3 with Claude's comments")));
+    // It closed, #3 left (its editor cancelled, say): Space a goes on from it.
+    let closing = std::mem::take(&mut app.claude.closing);
+    app.claude_menu();
+    assert!(app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::Do(Action::CloseWith(3)))));
+    app.claude.closing = closing;
+    // Not linked any more (closed meanwhile, say): neither.
+    app.linked.clear();
+    app.build();
+    assert!(!app.rows.iter().any(|r| r.line.text.contains("#3 with it:")));
     // Discarded: gone; Space a offers to draft one.
-    app.discard(&["closing"], "Claude's closing comment");
+    app.discard(&["closing", "closing_with"], "Claude's closing comment");
     assert!(!std::fs::read_to_string(&path).unwrap().contains("closing") && !app.rows.iter().any(|r| r.main == Some(CLOSING_PR)));
     app.claude_menu();
     assert!(app.picker.take().unwrap().items.iter().any(|i| matches!(&i.target, Target::Do(Action::AskConversation { url, .. }) if url == ON_CLOSING)));

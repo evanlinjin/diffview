@@ -1167,14 +1167,20 @@ fn push_comment(path: &std::path::Path, c: Value) -> Result<String> {
 }
 
 /// Drop the review file's top-level draft `key`: Claude's proposed `"description"`, or its
-/// `"closing"` comment (used, or discarded: with what it was to close with it).
+/// `"closing"` comment (used, or discarded), `"closing_with"` (discarded).
 pub fn clear(path: &std::path::Path, key: &str) -> Result<()> {
     let mut v: Value = serde_json::from_str(&std::fs::read_to_string(path)?)?;
     if let Some(o) = v.as_object_mut() {
         o.remove(key);
-        if key == "closing" {
-            o.remove("closing_with");
-        }
+    }
+    write(path, &v)
+}
+
+/// `"closing_with"`'s comment for #`n` used (it's closed): gone, the others kept.
+pub fn closed_with(path: &std::path::Path, n: u64) -> Result<()> {
+    let mut v: Value = serde_json::from_str(&std::fs::read_to_string(path)?)?;
+    if let Some(a) = v["closing_with"].as_array_mut() {
+        a.retain(|c| c["n"].as_u64() != Some(n));
     }
     write(path, &v)
 }
