@@ -640,6 +640,9 @@ pub struct App {
     /// What to show instead for a while (an issue a link goes to, this PR's replacement): the
     /// view hands it over, and goes on as it was after.
     pub hand_off: Option<HandOff>,
+    /// What closing it would close with it, open (`Info::linked`): a PR's issues, an issue's
+    /// PRs; each with Claude's closing comment, if it's drafted one (its file's `"closing"`).
+    linked: Vec<u64>,
     /// This PR's replacement (one replacing it, among others or not), as last read, and when
     /// that was looked for (every few seconds, as the records change).
     replaced_by: Option<crate::replace::Record>,

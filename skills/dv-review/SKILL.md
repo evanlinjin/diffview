@@ -323,6 +323,12 @@ it short and kind: it's someone's work. For an issue, also `"close"` (why, a few
 `"reason"`, as in "Triage an issue" below. Don't close it or comment on GitHub: the user edits
 your draft and closes it with it in dv.
 
+What closing it closes with it, `dv review-info` lists (`with:` lines: a PR's issues it would
+close, an issue's open PRs that would fix it), each with its own file. Draft a comment closing
+each of those too, in its file's top-level `"closing"` (create the file as `{"closing": "…"}`
+if there isn't one; else keep the rest as it is), saying why it closes with this one: the
+user closes them together, editing each first.
+
 ## 6. Draft a replacement or a new PR
 
 The user can have you write a PR yourself, which they review in dv before anything is

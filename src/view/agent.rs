@@ -382,7 +382,12 @@ impl App {
         }
         if drafted && open {
             items.insert(0, Item::new("Changes to the closing comment…", Target::Do(talk_on(ON_CLOSING))));
-            items.insert(0, Item::new(format!("Close {}{} with Claude's comment (your editor first)…", self.what(), self.closes_as()), Target::Do(Action::ClosePr)));
+            let with: Vec<String> = self.linked_drafts().iter().map(|(s, ..)| format!("#{}", s.n())).collect();
+            let what = match with.is_empty() {
+                true => format!("Close {}{} with Claude's comment (your editor first)…", self.what(), self.closes_as()),
+                false => format!("Close {}{} and {} with Claude's comments (your editor first, each)…", self.what(), self.closes_as(), with.join(", ")),
+            };
+            items.insert(0, Item::new(what, Target::Do(Action::ClosePr)));
         } else if self.subject().is_some() && open {
             items.push(Item::new(format!("Draft a comment closing {}… (you edit it, then close)", self.what()), Target::Do(talk_on(ON_CLOSING))));
         }
@@ -543,8 +548,25 @@ impl App {
         }
     }
 
+    /// What closing it would close with it (`linked`), that Claude's drafted a closing comment
+    /// for (in its own file, `"closing"`, as for this): each, its comment, and its triage's
+    /// reason to close an issue as (and of what it's a duplicate).
+    pub(super) fn linked_drafts(&self) -> Vec<(crate::claude::Subject, String, String, Option<u64>)> {
+        use crate::claude::Subject;
+        let Some(here) = self.subject() else { return vec![] };
+        self.linked
+            .iter()
+            .filter_map(|&m| {
+                let s = if matches!(here, Subject::Pr(_)) { Subject::Issue(m) } else { Subject::Pr(m) };
+                let r = crate::claude::load(&s.path().ok()?).ok()??;
+                (!r.closing.trim().is_empty()).then(|| (s, r.closing.trim().to_owned(), r.triage.reason, r.triage.duplicate_of))
+            })
+            .collect()
+    }
+
     /// `Space a` → close the PR with Claude's comment: in your editor first (an empty one, or
-    /// `:cq`, closes nothing), then posted, and the PR closed.
+    /// `:cq`, closes nothing), then posted, and the PR closed; then what it closes with it
+    /// (`linked_drafts`: a PR's issues, an issue's PRs), each the same way.
     pub(super) fn close_pr(&mut self) -> Result<String> {
         let (Some(s), Some(path)) = (self.subject(), self.claude.path.clone()) else { return Ok(String::new()) };
         let n = s.n();
@@ -559,14 +581,36 @@ impl App {
             crate::claude::Subject::Issue(_) => crate::gh::close_issue(n, text.trim(), &t.reason, t.duplicate_of)
                 .map(|why| serde_json::json!({ "__typename": "Issue", "state": "CLOSED", "stateReason": why })),
         };
+        let linked = self.linked_drafts();
         let now = keep_on_error(closed, &text)?;
         _ = crate::claude::clear(&path, "closing");
         self.pr_state = Some(super::info::state(&now));
         self.github_changed();
+        // Then what it closes with it, each in your editor (empty: left open).
+        let mut said = vec![format!("#{n} closed, with your comment")];
+        for (s, comment, reason, dup) in linked {
+            let m = s.n();
+            let what = format!("comment closing #{m} with #{n} (posted on it, then it's closed; empty leaves it open)");
+            let Some(text) = compose_with(&what, true, &comment, true)?.filter(|t| !t.trim().is_empty()) else {
+                said.push(format!("#{m} left open"));
+                continue;
+            };
+            let closed = match s {
+                crate::claude::Subject::Pr(_) => crate::gh::close(m, Some(text.trim())),
+                crate::claude::Subject::Issue(_) => crate::gh::close_issue(m, text.trim(), &reason, dup).map(drop),
+            };
+            said.push(match keep_on_error(closed, &text) {
+                Ok(()) => {
+                    _ = s.path().and_then(|p| crate::claude::clear(&p, "closing"));
+                    format!("#{m} too")
+                }
+                Err(e) => format!("#{m} not closed: {e:#}"),
+            });
+        }
         let keep = self.cursor_key();
         self.load_claude();
         self.rebuild(keep);
-        Ok(format!("#{n} closed, with your comment"))
+        Ok(said.join("; "))
     }
 
     /// `Space a` → discard Claude's draft (`keys`: `"description"` and `"title"`, `"closing"`),

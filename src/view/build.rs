@@ -387,8 +387,10 @@ impl App {
             (true, true) => format!("closing comment · Claude's draft (Space a: close {it} with it, more changes, discard)"),
             (true, false) => format!("closing comment · Claude's draft ({it} isn't open: Space a discards it)"),
         };
-        let text = if drafted { self.claude.closing.trim() } else { "_(not drafted yet)_" };
-        let s = self.section(CLOSING_PR, what, text, None);
+        // (With what it closes with it, Claude's comment for each.)
+        let with: String = self.linked_drafts().iter().map(|(s, c, ..)| format!("\n\n**#{} with it:**\n\n{c}", s.n())).collect();
+        let text = if drafted { format!("{}{with}", self.claude.closing.trim()) } else { "_(not drafted yet)_".to_owned() };
+        let s = self.section(CLOSING_PR, what, &text, None);
         self.with_talk(CLOSING_PR, s, ON_CLOSING)
     }
 

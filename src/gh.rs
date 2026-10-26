@@ -921,6 +921,18 @@ pub fn close_issue(n: u64, comment: &str, reason: &str, dup: Option<u64>) -> Res
     gh(&args).map(|_| why)
 }
 
+/// What closing `s` would close with it, open (as GitHub links them): a PR's issues it
+/// closes, an issue's PRs that would fix it.
+pub fn linked(s: crate::claude::Subject) -> Result<Vec<u64>> {
+    let n = s.n().to_string();
+    let (kind, field) = match s {
+        crate::claude::Subject::Pr(_) => ("pr", "closingIssuesReferences"),
+        crate::claude::Subject::Issue(_) => ("issue", "closedByPullRequestsReferences"),
+    };
+    let v = gh_json(&[kind, "view", &n, "--json", field])?;
+    Ok(v[field].as_array().into_iter().flatten().filter(|x| x["state"].as_str().is_none_or(|s| s == "OPEN")).filter_map(|x| x["number"].as_u64()).collect())
+}
+
 /// Before a close with a comment: #`n` (a PR or an issue) still open. gh closes nothing and
 /// posts nothing on one closed already, and says so only on stderr (exit 0): the comment'd be
 /// lost unsaid.
@@ -1027,7 +1039,7 @@ pub fn unsigned_blocking(n: u64) -> Result<Option<String>> {
 }
 
 const INFO_FIELDS: &str = "number,baseRefOid,headRepositoryOwner,isCrossRepository,headRepository,maintainerCanModify,headRefOid,title,author,state,isDraft,url,baseRefName,headRefName,additions,deletions,\
-changedFiles,labels,assignees,reviewDecision,reviewRequests,latestReviews,statusCheckRollup,body,id,mergeable";
+changedFiles,labels,assignees,reviewDecision,reviewRequests,latestReviews,statusCheckRollup,body,id,mergeable,closingIssuesReferences";
 
 /// What GitHub couldn't say this time (`new`) but did before (`old`, as dv kept it), kept: its
 /// commits' signatures, for the same head (a commit's signature is part of it, so it still

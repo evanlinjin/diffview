@@ -652,6 +652,7 @@ fn review_file(cmd: &str, o: &Opts) -> anyhow::Result<()> {
             println!("exists: {}", path.exists());
             let notes = claude::notes_path()?;
             println!("notes: {}    (your notes on this repo, kept across reviews; exists: {})", notes.display(), notes.exists());
+            print_linked(claude::Subject::Issue(n));
             return Ok(());
         }
         return check_review(&path, &[]);
@@ -684,12 +685,28 @@ fn review_file(cmd: &str, o: &Opts) -> anyhow::Result<()> {
         println!("exists: {}", path.exists());
         let notes = claude::notes_path()?;
         println!("notes: {}    (your notes on this repo, kept across reviews; exists: {})", notes.display(), notes.exists());
-        if pr.is_some() {
+        if let Some(p) = &pr {
             println!("review comments: `dv review-comments` lists the PR's, on GitHub (to answer them)");
+            print_linked(claude::Subject::Pr(p.number));
         }
         return Ok(());
     }
     check_review(&path, &diff::load(&base, None, 3)?)
+}
+
+/// What closing `s` would close with it (open, as GitHub links them: a PR's issues, an
+/// issue's PRs), each with the file its closing comment goes in: `review-info`'s `with:` lines.
+fn print_linked(s: claude::Subject) {
+    let other = |m| match s {
+        claude::Subject::Pr(_) => claude::Subject::Issue(m),
+        claude::Subject::Issue(_) => claude::Subject::Pr(m),
+    };
+    for m in gh::linked(s).unwrap_or_default() {
+        let (kind, file) = (if matches!(other(m), claude::Subject::Pr(_)) { "PR" } else { "issue" }, other(m).path());
+        if let Ok(f) = file {
+            println!("with: #{m} ({kind}, closed with it)    file: {}", f.display());
+        }
+    }
 }
 
 /// `dv review-check`: the review at `path` placed on `files` (none: an issue's), said.

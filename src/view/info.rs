@@ -106,6 +106,9 @@ pub struct Info {
     /// An issue's: when it last changed, and the PRs linked as fixing it (number, state, head).
     pub updated: String,
     pub fixes: Vec<(u64, String, String)>,
+    /// What closing it would close with it, open: a PR's issues it closes, an issue's PRs that
+    /// would fix it (`gh::linked`).
+    pub linked: Vec<u64>,
 }
 
 /// The PR section's lines, its title, head, URL and state, its commits GitHub has no valid
@@ -117,7 +120,9 @@ pub fn parse_info(v: &Value) -> Info {
     let failing = gate(v["statusCheckRollup"].as_array().map(Vec::as_slice).unwrap_or(&[])).1;
     let awaiting = v["dvAwaiting"].as_u64().unwrap_or(0) as usize;
     let fixes = v["dvFixes"].as_array().into_iter().flatten();
-    let fixes = fixes.map(|p| (p["number"].as_u64().unwrap_or(0), p["state"].as_str().unwrap_or("").to_owned(), p["headRefOid"].as_str().unwrap_or("").to_owned())).collect();
+    let fixes: Vec<(u64, String, String)> = fixes.map(|p| (p["number"].as_u64().unwrap_or(0), p["state"].as_str().unwrap_or("").to_owned(), p["headRefOid"].as_str().unwrap_or("").to_owned())).collect();
+    let closes = v["closingIssuesReferences"].as_array().into_iter().flatten().filter_map(|i| i["number"].as_u64());
+    let linked = closes.chain(fixes.iter().filter(|p| p.1 == "OPEN").map(|p| p.0)).collect();
     Info {
         lines: info_lines(v),
         title: s("title"),
@@ -132,6 +137,7 @@ pub fn parse_info(v: &Value) -> Info {
         conflicts: s("mergeable") == "CONFLICTING",
         updated: s("updatedAt"),
         fixes,
+        linked,
     }
 }
 
@@ -688,6 +694,14 @@ mod tests {
         let x = json!({ "dvCommits": [{ "oid": "aa", "signed": true }, { "oid": "bb", "signed": false }] });
         assert_eq!(parse_info(&x).unsigned, Some(vec!["bb".to_owned()]));
         assert_eq!(parse_info(&json!({})).unsigned, None); // unknown: not "all signed"
+    }
+
+    #[test]
+    fn what_closes_with_it() {
+        // A PR's issues it closes; an issue's PRs that would fix it, open.
+        assert_eq!(parse_info(&json!({ "closingIssuesReferences": [{ "number": 7 }, { "number": 8 }] })).linked, [7, 8]);
+        let fixes = json!({ "dvFixes": [{ "number": 9, "state": "OPEN" }, { "number": 3, "state": "MERGED" }, { "number": 4, "state": "CLOSED" }] });
+        assert_eq!(parse_info(&fixes).linked, [9]);
     }
 
     #[test]
