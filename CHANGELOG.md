@@ -5,6 +5,29 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.96.0] - 2026-10-26
+
+### Changed
+- Talking to Claude is one thing everywhere: a thread, on what it's about, with what you want
+  of it (ask, suggest, change, amend, commit), replied to (`r`), resolved, folded, in Claude's
+  activity.
+  - What you ask of a draft (`a` on its description or closing note, a redraft's
+    instructions) is a thread, not a box of its own; its redraft answers every thread waiting
+    on the draft (it can't write dv's files: it writes its answers in the record, and dv puts
+    them in their threads), and one asked while it drafts as it ends. Records' old asks are
+    adopted.
+  - `a` on a PR's or issue's description, or on Claude's closing comment (and `Space a`'s
+    items for them) is a thread about that text: an answer, or the change (Claude proposes
+    it), kept beside it with Claude's answer.
+  - What you tell Claude to change (`Space a` → make a change) is a thread on the PR, kept.
+  - `r` on Claude's summary is a question of its own, as `a` there.
+  - How "make the changes" lands them is the same list as what you want of a comment.
+
+### Fixed
+- `a` on a GitHub review comment is a question, not a change request "make the changes" took
+  up.
+- Answering your replies may commit wherever it runs (`Space a`'s background run couldn't).
+
 ## [0.95.27] - 2026-10-26
 
 ### Added
