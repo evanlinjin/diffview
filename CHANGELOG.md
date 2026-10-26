@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.96.8] - 2026-10-26
+
+### Fixed
+- `Space g` → merge in a PR a link opened waits until the views it was opened from are done
+  (it switched their checkout under them).
+
 ## [0.96.7] - 2026-10-26
 
 ### Changed
