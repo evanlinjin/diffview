@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.96.5] - 2026-10-26
+
+### Fixed
+- Folding from a thread on Claude's closing comment, or a draft's closing note, folds that,
+  not the description.
+- Going to a thread unfolds only the text it's beside; other folds stay; not found, the view
+  and folds are as they were; on Claude's side, it says so.
+
 ## [0.96.4] - 2026-10-26
 
 ### Fixed
