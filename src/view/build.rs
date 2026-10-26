@@ -773,11 +773,8 @@ impl App {
             return self.msg = "nothing to fold here".into();
         }
         if attached && self.view != View::Pending {
-            // The description it's beside.
-            let id = DESCRIPTION;
-            if !self.rows.iter().any(|r| r.main == Some(id) && r.line.kind == Kind::File) {
-                return self.msg = "nothing to fold here".into();
-            }
+            // The section it's beside (the description, a closing comment or note).
+            let Some(id) = self.rows[self.head.row].beside else { return self.msg = "nothing to fold here".into() };
             flip(&mut self.sections_folded, id);
             return self.rebuild_at(move |r| r.main == Some(id) && r.line.kind == Kind::File);
         }

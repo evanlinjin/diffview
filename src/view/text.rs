@@ -313,7 +313,8 @@ impl App {
     /// after it.
     pub(super) fn attach(&self, mut s: Vec<Row>, attached: &mut Vec<Row>) -> Vec<Row> {
         let at = if self.margin_active { 1 } else { s.len() }.min(s.len());
-        s.splice(at..at, std::mem::take(attached).into_iter().map(|r| Row { attached: true, ..r }));
+        let beside = s.iter().find_map(|r| r.main);
+        s.splice(at..at, std::mem::take(attached).into_iter().map(|r| Row { attached: true, beside, ..r }));
         s
     }
 

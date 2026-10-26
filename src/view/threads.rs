@@ -165,10 +165,11 @@ impl App {
 
     /// Jump to comment `ci` of thread `ti`, unfolding its file and thread if needed; on no
     /// lines, where it shows (its text's section unfolded, or Claude's side: tried in turn, not
-    /// foretold, so whatever `build` does with it, it's found).
+    /// foretold, so whatever `build` does with it, it's found). Not found: all as it was.
     pub(super) fn goto_comment(&mut self, ti: usize, ci: usize) {
         let Some(t) = self.threads.get(ti) else { return };
         let keep = self.cursor_key();
+        let was = (self.view, self.sections_folded.clone(), self.info_collapsed, self.code_head);
         if !self.in_view(t) {
             self.view = View::All; // it's not in this view: back to the whole diff, to show it
         }
@@ -185,28 +186,43 @@ impl App {
         let at = |app: &App| app.rows.iter().enumerate().filter(|(_, r)| r.thread == Some(ti) && r.line.kind == Kind::Thread).nth(ci).map(|(r, _)| r);
         let mut row = at(self);
         if row.is_none() && self.threads[ti].path.is_empty() {
-            let (folds, info, view) = (self.sections_folded.clone(), self.info_collapsed, self.view);
-            // Its text folded (the PR's pane, a section): unfolded; else on Claude's side.
-            (self.sections_folded, self.info_collapsed) = (folds.iter().copied().filter(|s| ![DESCRIPTION, CLOSING_NOTE, CLOSING_PR].contains(s)).collect(), false);
-            self.rebuild(keep.clone());
-            row = at(self);
-            if row.is_none() && self.threads[ti].claude.is_some() && view != View::Claude {
-                (self.sections_folded, self.info_collapsed, self.view) = (folds.clone(), info, View::Claude);
+            let text = [DESCRIPTION, CLOSING_NOTE, CLOSING_PR];
+            let folded: HashSet<usize> = was.1.iter().copied().filter(|s| text.contains(s)).collect();
+            // Its text folded (the PR's pane, a section): unfolded, then the others folded back.
+            if !folded.is_empty() || was.2 {
+                self.sections_folded.retain(|s| !folded.contains(s));
+                self.info_collapsed = false;
                 self.rebuild(keep.clone());
                 row = at(self);
+                if let Some(home) = row.and_then(|r| self.rows[r].beside) {
+                    self.sections_folded.extend(folded.iter().filter(|&&s| s != home));
+                    self.info_collapsed = was.2 && home != DESCRIPTION;
+                    self.rebuild(keep.clone());
+                    row = at(self);
+                }
             }
-            if row.is_none() {
-                (self.sections_folded, self.info_collapsed, self.view) = (folds, info, view);
-                self.rebuild(keep);
+            // Else on Claude's side.
+            if row.is_none() && self.threads[ti].claude.is_some() && was.0 != View::Claude {
+                (self.sections_folded, self.info_collapsed, self.view) = (was.1.clone(), was.2, View::Claude);
+                self.rebuild(keep.clone());
+                row = at(self);
+                if row.is_some() {
+                    self.msg = "on Claude's side (gn / gp: the other tabs)".into();
+                }
             }
         }
         match row {
             Some(r) => self.jump(r, 0),
-            // (Showing only what isn't committed; a question on no file, where nothing shows it.)
-            None => self.msg = match self.threads[ti].path.as_str() {
-                "" => "that comment isn't shown here".into(),
-                p => format!("{p} isn't in this diff"),
-            },
+            None => {
+                (self.view, self.sections_folded, self.info_collapsed) = (was.0, was.1, was.2);
+                self.rebuild(keep);
+                self.code_head = was.3;
+                // (Showing only what isn't committed; a question on no file, where nothing shows it.)
+                self.msg = match self.threads[ti].path.as_str() {
+                    "" => "that comment isn't shown here".into(),
+                    p => format!("{p} isn't in this diff"),
+                }
+            }
         }
     }
 

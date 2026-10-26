@@ -5702,8 +5702,20 @@ fn going_to_a_thread_on_no_lines_finds_where_it_shows() {
     assert!(!app.rows.iter().any(|r| r.thread == Some(desc)));
     app.goto_comment(desc, 0);
     assert!(on(&app, desc) && !app.info_collapsed && !app.sections_folded.contains(&DESCRIPTION), "{}", app.msg);
-    // A thread on code: no fold of the text undone for it.
-    app.sections_folded.insert(DESCRIPTION);
-    app.goto_comment(0, 0);
-    assert!(app.sections_folded.contains(&DESCRIPTION) && app.rows[app.head.row].thread == Some(0));
+    // Another text's fold kept: Claude's closing comment's, with a thread of its own beside it,
+    // which folds that, not the description.
+    app.claude.closing = "Thanks!".into();
+    app.threads.push(talk("c10", ON_CLOSING, "Kinder."));
+    let closing = app.threads.len() - 1;
+    (app.sections_folded, app.info_collapsed) = ([DESCRIPTION, CLOSING_PR].into(), true);
+    app.build();
+    app.goto_comment(closing, 0);
+    assert!(on(&app, closing) && app.sections_folded.contains(&DESCRIPTION) && app.info_collapsed && !app.sections_folded.contains(&CLOSING_PR), "{}", app.msg);
+    app.toggle_collapse();
+    assert!(app.sections_folded == [DESCRIPTION, CLOSING_PR].into(), "{:?}", app.sections_folded);
+    // Shown nowhere (a comment it hasn't, here): all as it was, the view too.
+    (app.view, app.sections_folded, app.info_collapsed) = (View::Pending, [CLOSING_PR].into(), true);
+    app.build();
+    app.goto_comment(desc, 5);
+    assert!(app.view == View::Pending && app.sections_folded == [CLOSING_PR].into() && app.info_collapsed && app.msg.contains("isn't shown"), "{}", app.msg);
 }
