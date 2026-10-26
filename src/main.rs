@@ -176,29 +176,35 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Opts> {
     Ok(o)
 }
 
-/// `dv amend`'s message flag (taken out of `rest`): `-m MSG` (`true`, the message) or `-F
-/// FILE` (`false`, the file); one at most.
-fn amend_message(rest: &mut Vec<String>) -> Option<anyhow::Result<(bool, String)>> {
+/// `dv amend`'s message (its flag taken out of `rest`): `-m MSG`, or `-F FILE`'s (read here,
+/// from where it was given); one at most, not empty.
+fn amend_message(rest: &mut Vec<String>) -> Option<anyhow::Result<String>> {
     let flag = |a: &String| ["-F", "--file", "-m", "--message"].contains(&a.as_str());
     let i = rest.iter().position(flag)?;
     let inline = matches!(rest[i].as_str(), "-m" | "--message");
     let Some(v) = rest.get(i + 1).cloned() else { return Some(Err(anyhow::anyhow!("{} needs the commit's new message", rest[i]))) };
     rest.drain(i..i + 2);
-    if rest.iter().any(flag) {
-        return Some(Err(anyhow::anyhow!("one message at a time (-m or -F, once)")));
-    }
-    Some(Ok((inline, v)))
+    Some((|| {
+        anyhow::ensure!(!rest.iter().any(flag), "one message at a time (-m or -F, once)");
+        let m = if inline { v.clone() } else { std::fs::read_to_string(&v).with_context(|| format!("reading {v}"))? };
+        anyhow::ensure!(!m.trim().is_empty(), "no message to give the commit{}", if inline { String::new() } else { format!(" ({v} is empty)") });
+        Ok(m)
+    })())
 }
 
 #[test]
 fn amend_takes_one_message() {
     let mut rest: Vec<String> = ["abc", "-m", "fix: it", "src/a.rs"].map(String::from).into();
-    assert_eq!(amend_message(&mut rest).unwrap().unwrap(), (true, "fix: it".into()));
+    assert_eq!(amend_message(&mut rest).unwrap().unwrap(), "fix: it");
     assert_eq!(rest, ["abc", "src/a.rs"]);
-    let mut rest: Vec<String> = ["abc", "--file", "m.txt"].map(String::from).into();
-    assert_eq!(amend_message(&mut rest).unwrap().unwrap(), (false, "m.txt".into()));
+    let f = std::env::temp_dir().join(format!("dv-amend-msg-{}", std::process::id()));
+    std::fs::write(&f, "fix: from a file").unwrap();
+    let mut rest: Vec<String> = vec!["abc".into(), "--file".into(), f.to_string_lossy().into()];
+    assert_eq!(amend_message(&mut rest).unwrap().unwrap(), "fix: from a file");
+    _ = std::fs::remove_file(f);
     assert!(amend_message(&mut vec!["abc".into()]).is_none());
     assert!(amend_message(&mut ["abc", "-m"].map(String::from).into()).unwrap().is_err());
+    assert!(amend_message(&mut ["abc", "-m", " "].map(String::from).into()).unwrap().is_err());
     assert!(amend_message(&mut ["abc", "-F", "a", "-m", "b"].map(String::from).into()).unwrap().is_err());
 }
 
@@ -258,12 +264,7 @@ fn run() -> anyhow::Result<()> {
     // changed of the ones given (`./a`, `../b`, a dir, a glob).
     // Its `-F <file>` (read here, from where it was given) or `-m <message>`: the commit's new
     // message.
-    let message = match (o.cmd == Some("amend")).then(|| amend_message(&mut o.rest)).flatten().transpose()? {
-        Some((true, m)) => Some(m),
-        Some((false, f)) => Some(std::fs::read_to_string(&f).with_context(|| format!("reading {f}"))?),
-        None => None,
-    };
-    anyhow::ensure!(message.as_ref().is_none_or(|m| !m.trim().is_empty()), "no message to give the commit (it's empty)");
+    let message = (o.cmd == Some("amend")).then(|| amend_message(&mut o.rest)).flatten().transpose()?;
     if o.cmd == Some("amend") && o.rest.len() > 1 {
         let mut args = vec!["diff", "HEAD", "--name-only", "--no-renames", "--no-relative", "-z", "--"];
         args.extend(o.rest[1..].iter().map(String::as_str));

@@ -564,7 +564,7 @@ pub fn prompt(r: &Record, extra: &str, reviews: Reviews, waiting: &[crate::gh::T
         false => format!(
             "{p}\n\nThe user's threads with you about this draft, waiting on your answer (its description, closing note, \
              the whole draft, its code, your review of it): do what the last message of each wants (ask: only answer it, \
-             changing nothing; change, amend, commit: make the change; suggest: say what you'd change; none said: as it reads), \
+             changing nothing; change: make the change; suggest: say what you'd change; none said: as it reads), \
              and write what you did, or your answer, in a sentence or few, in the record's `\"answers\"` under the thread's \
              id (`{{\"c3\": \"…\"}}`); dv puts each in its thread.\n\n{}",
             asks.join("\n\n")
@@ -1043,7 +1043,7 @@ fn records_round_trip() {
     assert_eq!(parse(12, &to_json(&r)).unwrap(), r);
     // Your threads waiting on it: in its prompt, by id, with what each wants.
     let c = |who: &str, body: &str| crate::gh::Comment { author: who.into(), body: body.into(), ..Default::default() };
-    let t = crate::gh::Thread { claude: Some("c4".into()), conversation: "description".into(), want: "change".into(), comments: vec![c("you", "mention #9")], ..Default::default() };
+    let t = crate::gh::Thread { claude: Some("c4".into()), conversation: "description".into(), want: "amend".into(), comments: vec![c("you", "mention #9")], ..Default::default() };
     let p = prompt(&r, "", Reviews::All, &[t]);
     assert!(p.ends_with("`c4` (want: change), on description\n  the user: mention #9") && p.contains("\"answers\""), "{p}");
     // As Claude may leave it: fields missing are empty.
