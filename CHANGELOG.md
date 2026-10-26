@@ -5,6 +5,27 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.97.0] - 2026-10-26
+
+### Added
+- Closing a PR closes the issues it would close with it, and closing an issue the open PRs that
+  would fix it (this repo's, open, as GitHub links them): Claude drafts a comment for each, and
+  how an issue closes (completed, not planned, a duplicate), with the closing comment, in its
+  file (`closing_with`); the closing section shows them under it, `Space a` names them, and each
+  closes after your editor, one after another (beside dv in zellij too); one left open keeps
+  its comment, and `Space a` goes on from what's left. `dv review-info` lists them (`with:`).
+- The stalled tab takes in a draft left (nothing on it for `dv.stalledDays`, anyone's commit
+  counting as work, GitHub's "Update branch" not), and drafts with feedback unanswered; waiting
+  is from the first word unanswered (a nudge doesn't start it again), its card and `H` say each
+  wait's own age.
+
+### Fixed
+- A bot's PR isn't stalled (`H` could ask renovate how it was going).
+- A commit's time is when its own author committed it, else when it was written: GitHub's rebase
+  of the author's commits, or a maintainer's, no longer answers what was asked of them.
+- A chain of actions (closing, then what closes with it; publishing, then closing what it
+  replaces) says what each came to at its end, a failure first.
+
 ## [0.96.13] - 2026-10-26
 
 ### Changed
