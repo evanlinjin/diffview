@@ -436,16 +436,17 @@ fn claude_review() {
     app.build();
     let texts: Vec<&str> = app.rows.iter().map(|r| r.line.text.as_str()).collect();
     assert_eq!(&texts[..3], ["Claude's review", "claude's review", "Looks fine."]); // summary up top, no PR needed
-    // When it was written, on its heading; and of what, once the PR has moved on.
+    // When it was written, on its heading, and when its file last changed (just now, here);
+    // and of what, once the PR has moved on.
     app.claude.created = "2020-01-01T00:00:00Z".into();
     app.build();
-    assert!(app.rows.iter().any(|r| r.line.text.starts_with("claude's review (") && r.line.text.ends_with("y ago)")));
+    assert!(app.rows.iter().any(|r| r.line.text.starts_with("claude's review (") && r.line.text.ends_with("y ago · changed 0s ago)")));
     app.claude.head = "42995cfc0e".into();
     app.pr = Some(gh::Pr { head_oid: "5e1c0189b1".into(), ..Default::default() });
     app.view = View::Claude; // (with a PR, the summary's there)
     app.build();
     let s = screen(220, 40, |f| app.draw(f));
-    assert!(app.rows.iter().any(|r| r.line.text.ends_with("y ago · of 42995cf, before the PR's latest)")), "{s}");
+    assert!(app.rows.iter().any(|r| r.line.text.ends_with("y ago · changed 0s ago · of 42995cf, before the PR's latest)")), "{s}");
     (app.pr, app.claude.created, app.claude.head, app.view) = (None, String::new(), String::new(), View::All);
     app.build();
     // Its file unreadable a moment (Claude mid-edit): what was read stays, and dv says why.

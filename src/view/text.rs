@@ -175,6 +175,12 @@ impl App {
                 if !self.claude.created.is_empty() {
                     when.push(crate::gh::ago(&self.claude.created));
                 }
+                // Changed since (Claude's update, its answers, your replies): when, last.
+                let created = crate::gh::epoch_secs(&self.claude.created);
+                let changed = self.claude.mtime.and_then(|t| Some(t.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs() as i64));
+                if let Some(c) = changed.filter(|&c| created.is_some_and(|t| c - t >= 60)) {
+                    when.push(format!("changed {} ago", crate::gh::ago_secs(crate::claude::now_secs() - c)));
+                }
                 if moved {
                     when.push(format!("of {}, before the PR's latest", old.get(..7).unwrap_or(old)));
                 }
