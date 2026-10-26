@@ -1496,6 +1496,16 @@ fn replacement_in_the_pr_section() {
     let picker = app.picker.take().unwrap();
     let wants: Vec<_> = picker.items.iter().map(|i| &i.target).collect();
     assert!(matches!(wants[..], [Target::Want("ask"), Target::Want("change")]) && picker.sel == 1);
+    // On its code too: its commits are Claude's to make as it redrafts, nothing goes to GitHub.
+    let (keep, wanting) = (app.cursor_key(), app.wanting.take());
+    let code = app.rows.iter().position(|r| r.file < app.files.len() && r.line.kind == diff::Kind::Add).unwrap();
+    app.goto(code, 0);
+    app.claude.path.get_or_insert_with(|| std::env::temp_dir().join("dv-unused-draft-review.json"));
+    app.start_ask_claude();
+    let wants: Vec<_> = app.picker.take().expect("the want picker").items.into_iter().map(|i| i.target).collect();
+    assert!(matches!(wants[..], [Target::Want("ask"), Target::Want("change")]), "{}", app.msg);
+    app.wanting = wanting;
+    app.rebuild(keep);
     app.want("ask");
     match app.action.take() {
         Some(Action::AskConversation { url, prefill: q, want: "ask" }) => assert!(url == "closing note" && q == "About the closing note:\n> Thanks! Handled in {replacement}.\n\n", "{q:?}"),

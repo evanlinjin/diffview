@@ -109,7 +109,10 @@ impl App {
         }
         // About a commit (on no lines): no suggestion to post; an answer, unless you said.
         let commit = matches!(&action, Action::AskConversation { url, .. } if commit_of(url).is_some());
-        let wants: Vec<_> = WANTS.iter().filter(|w| !((commit || text) && w.0 == "suggest") && !(text && matches!(w.0, "amend" | "commit"))).collect();
+        // (A draft's: nothing of it goes to GitHub, and its commits are Claude's to make as it
+        // redrafts: an answer, or the change.)
+        let draft = self.unpublished();
+        let wants: Vec<_> = WANTS.iter().filter(|w| !((commit || text || draft) && w.0 == "suggest") && !((text || draft) && matches!(w.0, "amend" | "commit"))).collect();
         let last = t.and_then(|t| wants.iter().position(|w| w.0 == self.threads[t].want));
         let usual = match (commit, text, self.theirs) {
             (true, ..) => "ask",
@@ -117,12 +120,11 @@ impl App {
             (false, false, true) => "suggest",
         };
         // (A draft's: redrafted; else Claude proposes it, for you to approve or use.)
-        let draft = self.unpublished();
         let sel = last.or_else(|| wants.iter().position(|w| w.0 == usual)).unwrap_or(0);
         let items = wants
             .iter()
             .map(|&&(key, _, _, label)| match (key, text, self.theirs) {
-                ("change", true, _) if text && draft => Item::new("Change: Claude redrafts it (its drafts, and the code)", Target::Want(key)),
+                ("change", ..) if draft => Item::new("Change: Claude redrafts it (its drafts, and the code)", Target::Want(key)),
                 ("change", true, _) if text => Item::new("Change: Claude proposes it anew (you approve it, or use it)", Target::Want(key)),
                 ("change", false, true) => Item::new(format!("{label} (their PR: Space g pushes what you commit)"), Target::Want(key)),
                 ("amend", false, true) => Item::new(format!("{label} (their PR: Space g force-pushes it)"), Target::Want(key)),
