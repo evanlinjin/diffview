@@ -235,7 +235,8 @@ impl App {
         // (Its id, where there's no link with it.)
         let link = if link.is_empty() { format!(" (id {})", c.id) } else { link };
         let prefill = format!("About @{}'s comment{link}:\n{quote}\n", c.author);
-        self.action = Some(Action::AskClaude { anchor, code, about: Some((c.id, prefill)), want: "" });
+        // (A question: answered, not a change request left open for "make the changes".)
+        self.action = Some(Action::AskClaude { anchor, code, about: Some((c.id, prefill)), want: "ask" });
     }
 
     /// The conversation comment under the cursor (its author line or text): its URL, and the

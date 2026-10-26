@@ -2209,7 +2209,7 @@ fn claude_and_github_review_comments() {
     let first = app.rows.iter().position(|r| r.thread == Some(t)).unwrap();
     app.goto(first, 0);
     app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
-    let Some(Action::AskClaude { anchor, about: Some((id, quote)), .. }) = app.action.take() else { panic!("no question for Claude") };
+    let Some(Action::AskClaude { anchor, about: Some((id, quote)), want: "ask", .. }) = app.action.take() else { panic!("no question for Claude") };
     assert_eq!((anchor.path.as_str(), anchor.line, id), ("src/a.rs", 2, app.threads[t].comments[0].id));
     assert!(quote.starts_with("About @you's comment") && quote.contains("> Pass `y` here."), "{quote}");
     // Claude's comment answering amy's says so, and is marked as Claude's.
