@@ -121,10 +121,14 @@ pub(crate) fn login(v: &Value) -> String {
     l.strip_prefix("app/").unwrap_or(l).to_owned()
 }
 
-/// `v`'s page on GitHub (a bot's is under /apps/: gh's `is_bot`, GraphQL's `Bot`).
+/// Whether `v` (as `login`'s) is a bot: gh's `is_bot` (and `app/…`), GraphQL's `Bot`.
+pub(crate) fn is_bot(v: &Value) -> bool {
+    v["is_bot"] == true || v["__typename"] == "Bot" || v["login"].as_str().is_some_and(|l| l.starts_with("app/"))
+}
+
+/// `v`'s page on GitHub (a bot's is under /apps/).
 pub(crate) fn page(v: &Value) -> String {
-    let app = v["is_bot"] == true || v["__typename"] == "Bot";
-    format!("https://github.com/{}{}", if app { "apps/" } else { "" }, login(v))
+    format!("https://github.com/{}{}", if is_bot(v) { "apps/" } else { "" }, login(v))
 }
 
 /// Whether `err` (a gh run's, as said) is GitHub out of reach (the network: a timeout, no

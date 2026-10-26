@@ -12,6 +12,8 @@ pub struct Listed {
     pub number: u64,
     pub title: String,
     pub author: String,
+    /// Its author's a bot (dependabot, renovate): no one to ask how it's going.
+    pub bot: bool,
     pub base: String,
     pub branch: String,
     pub draft: bool,
@@ -54,6 +56,7 @@ fn listed(p: &Value) -> Listed {
         number: n(&p["number"]),
         title: s(&p["title"]),
         author: crate::gh::login(&p["author"]),
+        bot: crate::gh::is_bot(&p["author"]),
         base: s(&p["baseRefName"]),
         branch: s(&p["headRefName"]),
         draft: p["isDraft"] == true,

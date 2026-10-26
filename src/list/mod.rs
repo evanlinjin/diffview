@@ -824,19 +824,20 @@ impl List {
     /// on, nor anyone's commit since). How long (a draft: since anyone was at work on it,
     /// feedback waiting or not; else since what's waiting), and what's waiting: for how many
     /// days, whose, a review or not (none: a draft left). Not yours (you'd know), nor one waiting
-    /// on reviews (they had the last word, ready for them); a bot's (`app/…`) isn't one to ask,
-    /// nor a deleted account, ghost.
+    /// on reviews (they had the last word, ready for them); a bot's isn't one to ask, nor a
+    /// deleted account, ghost.
     pub(super) fn stalled(&self, p: &Listed) -> Option<(i64, Option<(i64, String, bool)>)> {
         let e = self.extra.get(&p.number)?;
         let age = |at: i64| (crate::claude::now_secs() - at) / 86400;
-        let waiting = e.unanswered.as_ref().map(|(at, who, review)| (age(*at), who.clone(), *review));
+        // (What's waiting, said for itself once it's stalled it: a draft's quiet, else.)
+        let waiting = e.unanswered.as_ref().map(|(at, who, review)| (age(*at), who.clone(), *review)).filter(|w| w.0 >= self.stalled_days);
         let at = match (&e.unanswered, p.draft) {
             (_, true) => e.active.max(crate::gh::epoch_secs(&p.created).unwrap_or(0)),
             (Some((at, ..)), false) => *at,
             (None, false) => return None,
         };
         let days = age(at);
-        (p.author != self.me && !p.author.starts_with("app/") && p.author != "ghost" && days >= self.stalled_days).then_some((days, waiting))
+        (p.author != self.me && !p.bot && p.author != "ghost" && days >= self.stalled_days).then_some((days, waiting))
     }
 
     /// `H` on a stalled PR: your editor on a note asking its author whether they need help,

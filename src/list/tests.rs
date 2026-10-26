@@ -694,6 +694,14 @@ fn stalled_when_the_author_leaves_feedback_unanswered() {
     assert!(super::github::extra(&j, "me").unanswered.is_some());
     j["commits"]["nodes"].as_array_mut().unwrap().push(rebased("03"));
     assert_eq!(super::github::extra(&j, "me").unanswered, None);
+    // A drive-by's comment asks nothing of her; yours does, as a maintainer's.
+    let said = |who: &str, assoc: &str| serde_json::json!([{ "author": { "login": who }, "authorAssociation": assoc, "createdAt": t("03"), "body": "?" }]);
+    let only = |comments| { let mut j = pr(comments, vec![]); j["reviews"]["nodes"] = serde_json::json!([]); j };
+    assert_eq!(super::github::extra(&only(said("zed", "NONE")), "me").unanswered, None);
+    assert_eq!(super::github::extra(&only(said("me", "NONE")), "me").unanswered.map(|u| u.1), Some("me".to_owned()));
+    // Asked again after an approval: waiting again.
+    let e = super::github::extra(&pr(serde_json::json!([]), vec![review("cy", "APPROVED", "03", "MEMBER"), review("cy", "CHANGES_REQUESTED", "04", "MEMBER")]), "me");
+    assert_eq!(e.unanswered.map(|u| u.1), Some("cy".to_owned()));
     // A maintainer's approval since: the ball's with the maintainers.
     let e = super::github::extra(&pr(serde_json::json!([]), vec![review("cy", "APPROVED", "05", "MEMBER")]), "me");
     assert_eq!(e.unanswered, None);
@@ -723,6 +731,14 @@ fn stalled_when_the_author_leaves_feedback_unanswered() {
     assert_eq!(l.stalled(&p), None);
     l.extra.insert(1, quiet(3));
     assert_eq!(l.stalled(&Listed { draft: true, ..p.clone() }), None);
+    // Quiet 30 days, a comment 2 days ago: stalled for the quiet, said so (not the comment's
+    // short wait).
+    l.extra.insert(1, Extra { active: ago(30), unanswered: Some((ago(2), "bo".into(), false)), ..Default::default() });
+    assert_eq!(l.stalled(&Listed { draft: true, ..p.clone() }), Some((30, None)));
+    // Not a bot's (no one to ask), nor a deleted account's.
+    let bot = Listed { author: crate::gh::login(&serde_json::json!({ "login": "app/renovate", "is_bot": true })), bot: crate::gh::is_bot(&serde_json::json!({ "login": "app/renovate", "is_bot": true })), draft: true, ..p.clone() };
+    assert_eq!(l.stalled(&bot), None);
+    assert_eq!(l.stalled(&Listed { author: "ghost".into(), draft: true, ..p.clone() }), None);
     // Nothing seen of anyone: from when it was opened (lately: not left).
     l.extra.insert(1, quiet(0));
     l.extra.get_mut(&1).unwrap().active = 0;
