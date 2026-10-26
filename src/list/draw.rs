@@ -121,8 +121,11 @@ impl List {
                     lines.insert(1, close_line(why, &cx, i == sel));
                 }
                 // How long its author hasn't answered, and whom.
-                if let Some((days, who, _)) = self.stalled(p).filter(|_| self.nav.tab == Tab::Stalled) {
-                    let why = format!("@{} hasn't answered @{who} for {days} days (H asks whether they need help)", p.author);
+                if let Some((days, waiting)) = self.stalled(p).filter(|_| self.nav.tab == Tab::Stalled) {
+                    let why = match waiting {
+                        Some((who, _)) => format!("@{} hasn't answered @{who} for {days} days (H asks whether they need help)", p.author),
+                        None => format!("@{}'s draft, nothing of theirs for {days} days (H asks whether they need help)", p.author),
+                    };
                     lines.insert(1, note_line("⏸", &why, &cx, i == sel));
                 }
                 lines.push(Line::raw("")); // room between cards
@@ -132,7 +135,7 @@ impl List {
         let typed = self.nav.query.trim().trim_start_matches('#').parse::<u64>().ok();
         let none = match (self.nav.tab, self.nav.query.is_empty(), typed) {
             (Tab::CanClose, true, _) => " nothing Claude would close: its reviews say when a PR's premise is wrong, or a competing PR does it better".into(),
-            (Tab::Stalled, true, _) => format!(" nothing stalled: no author has left a review or a maintainer's comment unanswered for {} days or more (git config dv.stalledDays)", self.stalled_days),
+            (Tab::Stalled, true, _) => format!(" nothing stalled: no author has left a review or a maintainer's comment unanswered, or a draft, for {} days or more (git config dv.stalledDays)", self.stalled_days),
             (Tab::Worktrees, true, _) => " no PR worktrees here yet: `dv N -w` (or dv list -w, then Enter) makes one".into(),
             (Tab::Replacements, true, _) => " no replacements yet: A A on a PR (or marked ones) has Claude draft one".into(),
             (Tab::Done, true, _) if self.done.is_none() => " fetching the merged and closed PRs…".into(),

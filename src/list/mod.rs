@@ -819,27 +819,38 @@ impl List {
     }
 
     /// The tab's PRs matching every filter term, in the chosen order.
-    /// Whether PR `p`'s author has left a review or a maintainer's comment unanswered for
-    /// `stalled_days` or more (nothing of theirs since: no push, no comment, no reply): how
-    /// long, and whose. Not yours (you'd know), nor one waiting on reviews (they had the last
-    /// word).
-    /// (A draft's author may be slow on purpose; a bot's (`app/…`) isn't one to ask, nor a
-    /// deleted account, ghost.)
-    pub(super) fn stalled(&self, p: &Listed) -> Option<(i64, String, bool)> {
-        let (at, who, review) = self.extra.get(&p.number)?.unanswered.clone()?;
+    /// Whether PR `p`'s author has gone quiet for `stalled_days` or more: a review or a
+    /// maintainer's comment left unanswered (nothing of theirs since: no push, no comment, no
+    /// reply), or a draft of theirs left (nothing of theirs at all: it's no one else's to move
+    /// on). How long, and whose word is unanswered (none: a draft left). Not yours (you'd
+    /// know), nor one waiting on reviews (they had the last word, ready for them); a bot's
+    /// (`app/…`) isn't one to ask, nor a deleted account, ghost.
+    pub(super) fn stalled(&self, p: &Listed) -> Option<(i64, Option<(String, bool)>)> {
+        let e = self.extra.get(&p.number)?;
+        let (at, waiting) = match &e.unanswered {
+            Some((at, who, review)) => (*at, Some((who.clone(), *review))),
+            None if p.draft => (e.last_word.max(crate::gh::epoch_secs(&p.created).unwrap_or(0)), None),
+            None => return None,
+        };
         let days = (crate::claude::now_secs() - at) / 86400;
-        (p.author != self.me && !p.draft && !p.author.starts_with("app/") && p.author != "ghost" && days >= self.stalled_days).then_some((days, who, review))
+        (p.author != self.me && !p.author.starts_with("app/") && p.author != "ghost" && days >= self.stalled_days).then_some((days, waiting))
     }
 
     /// `H` on a stalled PR: your editor on a note asking its author whether they need help,
     /// posted on the PR when you save (nothing: not posted).
     fn nudge(&mut self, term: &mut DefaultTerminal, n: u64) {
         let Some(p) = self.prs.iter().find(|p| p.number == n) else { return };
-        let Some((days, who, review)) = self.stalled(p) else { return };
-        let what = if review { "review" } else { "comment" };
-        let whose = if who == self.me { format!("my {what}") } else { format!("@{who}'s {what}") };
+        let Some((days, waiting)) = self.stalled(p) else { return };
+        let what = match waiting {
+            Some((who, review)) => {
+                let what = if review { "review" } else { "comment" };
+                let whose = if who == self.me { format!("my {what}") } else { format!("@{who}'s {what}") };
+                format!("{whose} has been waiting for {days} days")
+            }
+            None => format!("it's been quiet for {days} days"),
+        };
         let draft = format!(
-            "Hi @{}, checking in on this one: {whose} has been waiting for {days} days. Are you still working on it? \
+            "Hi @{}, checking in on this one: {what}. Are you still working on it? \
              If you're stuck or short on time, let us know: we're happy to help, or to take it over from here.",
             p.author
         );

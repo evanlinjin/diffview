@@ -8,7 +8,8 @@ MOVE
   Ctrl-d Ctrl-u        half a page down / up
   l h, gn gp           next / previous tab (todo, open, close, stalled, worktrees, drafts, done)
   H                    stalled tab: ask the author whether they need help (your editor first;
-                       stalled: a review or maintainer's comment unanswered dv.stalledDays, 14)
+                       stalled: a review or maintainer's comment unanswered, or a draft left,
+                       dv.stalledDays, 14)
   Enter                review the PR (in its worktree if it has one; q comes back)
   ?                    this help
   q, Ctrl-c            quit
