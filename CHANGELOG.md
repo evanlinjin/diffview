@@ -5,6 +5,16 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.95.27] - 2026-10-26
+
+### Added
+- Claude's review says when its file last changed, after when it was written (`3d ago ·
+  changed 2h ago`).
+
+### Fixed
+- On a draft, what you asked of its description shows with your other questions for Claude,
+  before Claude's activity, not after it.
+
 ## [0.95.26] - 2026-10-25
 
 ### Fixed
