@@ -623,18 +623,16 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, mut prepared: impl FnMut()) 
     let mut drafted: Option<String> = None;
     loop {
         // (One after it failing: it was drafted all the same; what's left waits, said so.)
-        let (took, given) = match (draft_once(prs, root, extra, &mut prepared), drafted) {
-            (Ok(d), _) => d,
-            (Err(e), Some(took)) => return Ok(format!("{took} (then {e:#}: what you asked since waits on a redraft)")),
-            (Err(e), None) => return Err(e),
+        let (took, given) = match draft_once(prs, root, extra, &mut prepared) {
+            Ok(d) => d,
+            Err(e) => return drafted.map(|took| format!("{took} (then {e:#}: what you asked since waits on a redraft)")).ok_or(e),
         };
-        drafted = Some(took);
         // More asked of it meanwhile: a redraft after; asked once its claim's gone, a redraft of
         // its own (not another one here).
         if !asked_since(&waiting(id), &given) || load(id).ok().and_then(|r| r.at_work()).is_some() {
-            return Ok(drafted.unwrap_or_default());
+            return Ok(took);
         }
-        extra = "";
+        (drafted, extra) = (Some(took), "");
     }
 }
 
