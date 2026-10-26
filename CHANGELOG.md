@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.96.3] - 2026-10-26
+
+### Fixed
+- Going to a thread about text (`]a`, a picker, Enter in Claude's activity) unfolds its
+  section, as it does a file.
+- `a` on a closing comment not drafted yet quotes no placeholder.
+
 ## [0.96.2] - 2026-10-26
 
 ### Fixed
