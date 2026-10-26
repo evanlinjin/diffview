@@ -338,15 +338,20 @@ impl App {
             View::All => {
                 let latest = (!self.conversation_all).then_some(LATEST);
                 // (Without a PR, Claude's summary first: an issue's triage, then what's said.)
-                [self.no_pr_summary(), self.pr_facts(), self.conversation(latest), self.draft_rows()].into_iter().flatten().collect()
+                // What you asked about the description, beside it, as on Claude's side (without a
+                // PR, with Claude's summary there).
+                let asked = if self.pr.is_some() { self.text_threads(&ON_DESCRIPTION) } else { vec![] };
+                [self.no_pr_summary(), self.pr_facts(), asked, self.conversation(latest), self.draft_rows()].into_iter().flatten().collect()
             }
             View::Pending | View::Claude => vec![],
         }
     }
 
     /// Claude's draft comment for closing the PR: first, as what you'd do next.
+    /// (Asked for, not drafted yet: there, with what you asked beside it.)
     fn closing_comment(&self) -> Vec<Row> {
-        if self.view != View::All || self.claude.closing.trim().is_empty() {
+        let mut asked = self.text_threads(&[ON_CLOSING]);
+        if self.view != View::All || self.claude.closing.trim().is_empty() && asked.is_empty() {
             return vec![];
         }
         let it = self.what();
@@ -354,7 +359,12 @@ impl App {
             true => format!("closing comment · Claude's draft (Space a: close {it} with it, more changes, discard)"),
             false => format!("closing comment · Claude's draft ({it} isn't open: Space a discards it)"),
         };
-        self.section(CLOSING_PR, what, &self.claude.closing, None)
+        let text = match self.claude.closing.trim() {
+            "" => "_(not drafted yet)_",
+            t => t,
+        };
+        let s = self.section(CLOSING_PR, what, text, None);
+        self.attach(s, &mut asked)
     }
 
     /// Before the files, like one: the PR's description (in the Claude view too), what's
@@ -402,7 +412,7 @@ impl App {
         let open = |r: &&crate::replace::Record| r.replaces.iter().any(|o| !r.closed.contains(&o.number));
         if let Some(r) = self.replacement.as_ref().filter(|_| self.pr.is_some()).filter(open) {
             let s = self.section(CLOSING_NOTE, "closing note, for the PRs it replaces (S closes them with it)".into(), &crate::replace::note(r), None);
-            let mut asked = self.draft_threads(&[ON_CLOSING_NOTE]);
+            let mut asked = self.text_threads(&[ON_CLOSING_NOTE]);
             return self.attach(s, &mut asked);
         }
         let Some(h) = self.heading(Self::is_closing_note) else { return vec![] };
@@ -414,7 +424,7 @@ impl App {
         let s = self.section(CLOSING_NOTE, self.info[h].text.clone(), text, Some(h + 1));
         let mut asked = match self.sections_folded.contains(&CLOSING_NOTE) {
             true => vec![],
-            false => self.draft_threads(&[ON_CLOSING_NOTE]),
+            false => self.text_threads(&[ON_CLOSING_NOTE]),
         };
         self.attach(s, &mut asked)
     }

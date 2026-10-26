@@ -106,10 +106,18 @@ const LATEST: usize = 3;
 const DESCRIPTION: usize = 0;
 /// What a thread in Claude's review file that replies to its summary is on (`"conversation"`).
 const ON_SUMMARY: &str = "summary";
-/// Your threads with Claude about a draft's text (`replace::review_path`): on its description,
-/// the whole of it (under the description), its closing note. Its PR's, once published.
+/// Your threads with Claude about text, not code (`"conversation"`): a PR's, an issue's or a
+/// draft's description (or the whole draft: under the description); a draft's closing note
+/// (`replace::review_path`; its PR's, once published); the comment Claude drafts for closing
+/// a PR or issue. A change asked there is to that text: Claude proposes it, or redrafts.
 const ON_DESCRIPTION: [&str; 2] = ["description", "draft"];
 const ON_CLOSING_NOTE: &str = "closing note";
+const ON_CLOSING: &str = "closing";
+
+/// Whether a thread's `"conversation"` is about text (`ON_DESCRIPTION`, …), not code.
+fn on_text(conversation: &str) -> bool {
+    ON_DESCRIPTION.contains(&conversation) || conversation == ON_CLOSING_NOTE || conversation == ON_CLOSING
+}
 /// `Row::main` for a replacement's closing note (Claude's draft), a section like its description.
 const CLOSING_NOTE: usize = usize::MAX - 1;
 /// `Row::main` for the comment Claude drafted for closing the PR, a section before the rest.
@@ -436,10 +444,10 @@ impl Target {
             Target::Claude(Ask::Fix | Ask::Edit) => ('\u{f448}', Claude, "Changes"),
             Target::Claude(Ask::FixChecks) => ('\u{f425}', Claude, "Changes"),
             Target::Do(Action::CiFixPr | Action::NewPr { .. }) => ('\u{f407}', Claude, "Changes"),
-            Target::Claude(Ask::Describe) => ('\u{f4ed}', Claude, "Description"),
+            Target::Do(Action::AskConversation { url, .. }) if url == "description" => ('\u{f4ed}', Claude, "Description"),
             Target::DescApprove(_) => ('\u{f42e}', Good, "Description"),
             Target::DescDiscard => ('\u{f48e}', Danger, "Description"),
-            Target::Claude(Ask::Close) => ('\u{f4dc}', Claude, "Closing"),
+            Target::Do(Action::AskConversation { url, .. }) if url == ON_CLOSING => ('\u{f4dc}', Claude, "Closing"),
             Target::Do(Action::ClosePr) => ('\u{f4dc}', Danger, "Closing"),
             Target::CloseDiscard => ('\u{f48e}', Danger, "Closing"),
             Target::ClaudeStop => ('\u{f46e}', Danger, "Claude"),

@@ -156,7 +156,7 @@ impl App {
         }
         // What you asked of a draft's description (or the whole): with your other questions,
         // before what Claude did (not after it, apart from them).
-        let asks = self.draft_threads(&ON_DESCRIPTION);
+        let asks = self.text_threads(&ON_DESCRIPTION);
         if !summary && !questions {
             next.extend(asks);
             next.extend(self.claude_activity()); // (what it did all the same)
@@ -221,6 +221,7 @@ impl App {
         let at = |t: &Thread| match (t.path.as_str(), t.line.or(t.original_line), t.conversation.as_str()) {
             ("", _, ON_SUMMARY) => "on its review".to_owned(),
             ("", _, ON_CLOSING_NOTE) => "on the closing note".to_owned(),
+            ("", _, ON_CLOSING) => "on the closing comment".to_owned(),
             ("", _, c) if ON_DESCRIPTION.contains(&c) => "on the description".to_owned(),
             ("", _, c) if commit_of(c).is_some() => format!("on commit {}", self.commit_short(commit_of(c).unwrap_or(""))),
             ("", ..) => "on the conversation".to_owned(),
@@ -304,7 +305,7 @@ impl App {
 
     /// Your threads with Claude about a draft's `on` (`ON_DESCRIPTION`, `ON_CLOSING_NOTE`),
     /// as under its summary.
-    pub(super) fn draft_threads(&self, on: &[&str]) -> Vec<Row> {
+    pub(super) fn text_threads(&self, on: &[&str]) -> Vec<Row> {
         (0..self.threads.len()).filter(|&t| on.contains(&self.threads[t].conversation.as_str()) && self.in_view(&self.threads[t])).flat_map(|t| self.thread_rows(t, INFO)).collect()
     }
 

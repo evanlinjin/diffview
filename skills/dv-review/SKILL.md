@@ -162,6 +162,12 @@ like a reply: it's waiting for you while the user has the last word. Some point 
   commits list).
 - `"conversation": "summary"`: about your review summary, or the PR in general (there may be
   no review yet: read the PR). If they change your mind, update the `summary` too, and say so.
+- `"conversation": "description"`: about the PR's (or issue's) description, quoted in it. Its
+  `"want"` `change`: propose the new text as in "Propose a description" below (from your
+  proposal there, if there is one), and say in your reply what you changed; `ask`: just answer.
+- `"conversation": "closing"`: about the comment closing the PR (or issue). `change`: draft it,
+  or change your draft, as in "Draft a closing comment" below, and say what you did; `ask`: just
+  answer.
 
 Answer each with a reply, as any other.
 

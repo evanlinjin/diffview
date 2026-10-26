@@ -29,11 +29,9 @@ pub(super) enum Action {
     AskConversation { url: String, prefill: String, want: &'static str },
     /// Run Claude (review, or make the changes) after your own instructions for it.
     ClaudeWith(agent::Ask),
-    /// Have Claude draft a replacement for these PRs, after your instructions for it (starting
-    /// from these, else your last ones: `a` on a draft quotes what it's about).
-    /// Claude's replacement of these PRs, drafted (again); `Some`: what you ask of one of its
-    /// drafts (which, the quote, what you want: `"ask"`, `"change"`).
-    Replace(Vec<u64>, Option<(&'static str, String, &'static str)>),
+    /// Have Claude draft a replacement for these PRs, after your instructions for it (a first
+    /// draft's start from your last ones; a redraft's are a thread about the whole draft).
+    Replace(Vec<u64>),
     /// Publish the replacement here as a draft PR, after the editor (title, description): (then
     /// close what it replaces, next).
     Publish(bool),
@@ -210,12 +208,26 @@ impl App {
             }
             Action::AskConversation { url, prefill, want } => {
                 let p = self.claude.path.clone().context("no review file")?;
+                // About text: what Claude does with a change to it.
+                let text = match (url.as_str(), self.unpublished()) {
+                    (_, true) => "Claude redrafts it",
+                    ("description", _) => "Claude proposes a new one; you approve it",
+                    _ => "Claude drafts it; you edit it before it goes",
+                };
                 let what = match (url == ON_SUMMARY, commit_of(&url)) {
+                    _ if on_text(&url) && want == "change" => format!("what to change in the {} ({text}; nothing goes to GitHub)", if url == ON_CLOSING { "closing comment" } else { &url }),
+                    _ if on_text(&url) => format!("for Claude, about the {}{}", if url == ON_CLOSING { "closing comment" } else { &url }, ask::want_hint(want)),
                     (true, _) => "a question for Claude about the PR, or a reply to its review (it answers in the Claude tab; nothing goes to GitHub)".to_owned(),
                     (_, Some(sha)) => format!("for Claude, about commit {}{}", self.commit_short(sha), ask::want_hint(want)),
                     _ => "ask Claude about this conversation comment (it answers under it; nothing goes to GitHub)".to_owned(),
                 };
-                let Some(body) = compose_with(&what, false, &prefill, false)? else { return Ok("question cancelled".into()) };
+                // (A closing comment drafted anew needs nothing said: Claude says why from the PR.)
+                let fresh = url == ON_CLOSING && self.claude.closing.trim().is_empty();
+                let Some(body) = compose_with(&what, fresh, &prefill, fresh)? else { return Ok("question cancelled".into()) };
+                let body = match body.trim() {
+                    "" => "Draft one.".to_owned(),
+                    _ => body,
+                };
                 // (A question about the PR or a conversation comment: an ask, not a change
                 // request left open once answered; a commit's, its picked want.)
                 let want = if want.is_empty() && commit_of(&url).is_none() { "ask" } else { want };
@@ -225,14 +237,10 @@ impl App {
             Action::ClaudeWith(ask) => {
                 // Optional (empty goes ahead) unless they're the whole request: a change with no
                 // open comments. Quitting the editor with an error (`:cq`) cancels.
-                let alone = matches!(ask, agent::Ask::Fix | agent::Ask::Edit) && self.change_requests() == 0 || matches!(ask, agent::Ask::Describe);
+                let alone = matches!(ask, agent::Ask::Fix | agent::Ask::Edit) && self.change_requests() == 0;
                 let what = match (ask, alone) {
                     (agent::Ask::Review, _) => "anything for Claude to look at or keep in mind in its review (optional)",
-                    (agent::Ask::Describe, _) if self.has_proposal() => "what else to change in Claude's proposed description",
-                    (agent::Ask::Describe, _) => "what to change in its description (Claude proposes a new one; you approve it)",
                     (agent::Ask::Triage, _) => "instructions for Claude's triage (optional)",
-                    (agent::Ask::Close, _) if !self.claude.closing.is_empty() => "what to change in Claude's closing comment",
-                    (agent::Ask::Close, _) => "why close it, and anything the comment should say (optional: Claude drafts it; you edit it before it goes)",
                     (_, true) => "what Claude should change (there are no open comments to act on)",
                     _ => "instructions for Claude, on top of the open comments (optional)",
                 };
@@ -255,7 +263,7 @@ impl App {
                 let why = std::mem::take(&mut self.msg);
                 Ok(keep_on_error::<()>(Err(anyhow::anyhow!(why)), &extra).err().map_or(String::new(), |e| format!("{e:#}")))
             }
-            Action::Replace(prs, about) => {
+            Action::Replace(prs) => {
                 let prs = crate::replace::target(&prs);
                 // Claude at work on it, or its pane open here (`redraft_waits`).
                 let waits = || self.redraft_waits(prs[0]);
@@ -267,19 +275,13 @@ impl App {
                     true => crate::replace::label(prs[0]),
                     false => format!("the replacement of {}", prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(", ")),
                 };
-                // Drafted already: what you want is asked of its drafts (kept with them, shown
-                // there), for the redraft to take in.
+                // Drafted already: what you want is a thread about it, which its redraft answers
+                // (one under way, as it ends).
                 if crate::replace::redrafts(prs[0]) {
-                    let (what, (on, prefill, want)) = match about {
-                        Some(q @ (_, _, "ask")) => (format!("ask Claude about {it}, under the quote (it answers; it changes nothing)"), q),
-                        Some(q) => (format!("ask Claude to redraft {it}: what to change, under the quote"), q),
-                        None => (format!("what else Claude should do in its redraft of {it} (optional)"), ("", String::new(), "")),
-                    };
-                    let asking = !prefill.is_empty();
-                    let Some(ask) = compose_with(&what, !asking, prefill.trim_end(), !asking)? else { return Ok("not asked".into()) };
+                    let what = format!("what else Claude should do in its redraft of {it} (optional)");
+                    let Some(ask) = compose_with(&what, true, "", true)? else { return Ok("not asked".into()) };
                     if !ask.trim().is_empty() {
-                        // A thread about it, which its redraft answers (one under way, as it ends).
-                        crate::replace::ask(prs[0], &ask, on, want)?;
+                        crate::replace::ask(prs[0], &ask, "", "")?;
                         let keep = self.cursor_key();
                         self.load_claude();
                         self.rebuild(keep);

@@ -1486,7 +1486,7 @@ fn replacement_in_the_pr_section() {
     // Space a offers to redraft it.
     app.claude.path = Some(std::env::temp_dir().join("dv-no-such-review.json"));
     app.claude_menu();
-    assert!(app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::Do(Action::Replace(ref p, None)) if p == &[12, 15])));
+    assert!(app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::Do(Action::Replace(ref p)) if p == &[12, 15])));
     // a on a draft: a redraft, starting from a quote of what it's about.
     let note = app.rows.iter().position(|r| r.line.text == "Thanks! Handled in {replacement}.").unwrap();
     app.goto(note, 0);
@@ -1498,7 +1498,7 @@ fn replacement_in_the_pr_section() {
     assert!(matches!(wants[..], [Target::Want("ask"), Target::Want("change")]) && picker.sel == 1);
     app.want("ask");
     match app.action.take() {
-        Some(Action::Replace(prs, Some(("closing note", q, "ask")))) => assert!(prs == [12, 15] && q == "About the closing note:\n> Thanks! Handled in {replacement}.\n\n", "{q:?}"),
+        Some(Action::AskConversation { url, prefill: q, want: "ask" }) => assert!(url == "closing note" && q == "About the closing note:\n> Thanks! Handled in {replacement}.\n\n", "{q:?}"),
         _ => panic!("a on the closing note asks about it"),
     }
     let body = app.rows.iter().position(|r| r.line.text == "Replaces #12 and #15.").unwrap();
@@ -1506,7 +1506,7 @@ fn replacement_in_the_pr_section() {
     app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
     app.picker = None;
     app.want("change");
-    assert!(matches!(app.action.take(), Some(Action::Replace(_, Some(("description", q, "change")))) if q.starts_with("About the description:")));
+    assert!(matches!(app.action.take(), Some(Action::AskConversation { url, prefill: q, want: "change" }) if url == "description" && q.starts_with("About the description:")));
     // What you asked of the drafts: threads about them (its review file), each beside the
     // draft it's about, as under a summary: replied to, resolved, folded as any.
     let c = |who: &str, body: &str| gh::Comment { author: who.into(), body: body.into(), ..Default::default() };
@@ -1540,7 +1540,7 @@ fn replacement_in_the_pr_section() {
     app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
     app.picker = None;
     app.want("ask");
-    assert!(matches!(app.action.take(), Some(Action::Replace(_, Some(("description", q, "ask")))) if q == "About the description:\n\n"), "only the draft's text is quoted");
+    assert!(matches!(app.action.take(), Some(Action::AskConversation { url, prefill: q, want: "ask" }) if url == "description" && q == "About the description:\n\n"), "only the draft's text is quoted");
     // In Claude's activity, Claude's answers, where they are.
     let activity = app.claude_activity();
     let heads: Vec<&str> = activity.iter().map(|r| r.line.text.as_str()).collect();
@@ -2487,7 +2487,9 @@ fn claude_proposes_a_description() {
     assert!(app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::DescApprove(true))));
     app.goto(head + 1, 0);
     app.start_ask_claude();
-    assert!(matches!(app.action.take(), Some(Action::ClaudeWith(agent::Ask::Describe))), "{}", app.msg);
+    app.picker = None;
+    app.want("change");
+    assert!(matches!(app.action.take(), Some(Action::AskConversation { url, want: "change", .. }) if url == "description"), "{}", app.msg);
     // Discarded: gone from the file, and the description is as it was.
     app.discard(&["description"], "Claude's proposed description");
     assert!(!std::fs::read_to_string(&path).unwrap().contains("description"));
@@ -2548,19 +2550,21 @@ fn claude_drafts_a_closing_comment() {
     assert!(app.rows[head].line.text.starts_with("closing comment · Claude's draft") && app.rows[head + 1].line.text == "Thanks! Superseded by #9.");
     app.claude_menu();
     let items: Vec<Item> = app.picker.take().unwrap().items.into_iter().filter(|i| i.section == "Closing").collect();
-    assert!(matches!(items[0].target, Target::Do(Action::ClosePr)) && matches!(items[1].target, Target::Claude(agent::Ask::Close)) && matches!(items[2].target, Target::CloseDiscard));
+    assert!(matches!(items[0].target, Target::Do(Action::ClosePr)) && matches!(&items[1].target, Target::Do(Action::AskConversation { url, .. }) if url == ON_CLOSING) && matches!(items[2].target, Target::CloseDiscard));
     app.goto(head + 1, 0);
     app.start_ask_claude();
-    assert!(matches!(app.action.take(), Some(Action::ClaudeWith(agent::Ask::Close))), "{}", app.msg);
+    app.picker = None;
+    app.want("change");
+    assert!(matches!(app.action.take(), Some(Action::AskConversation { url, want: "change", .. }) if url == "closing"), "{}", app.msg);
     // Discarded: gone; Space a offers to draft one.
     app.discard(&["closing"], "Claude's closing comment");
     assert!(!std::fs::read_to_string(&path).unwrap().contains("closing") && !app.rows.iter().any(|r| r.main == Some(CLOSING_PR)));
     app.claude_menu();
-    assert!(app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::Claude(agent::Ask::Close))));
+    assert!(app.picker.take().unwrap().items.iter().any(|i| matches!(&i.target, Target::Do(Action::AskConversation { url, .. }) if url == ON_CLOSING)));
     // Closed already: not offered; a draft left over can only be discarded.
     app.pr_state = Some(("CLOSED", "da3633"));
     app.claude_menu();
-    assert!(!app.picker.take().unwrap().items.iter().any(|i| matches!(i.target, Target::Claude(agent::Ask::Close))));
+    assert!(!app.picker.take().unwrap().items.iter().any(|i| matches!(&i.target, Target::Do(Action::AskConversation { url, .. }) if url == ON_CLOSING)));
     std::fs::write(&path, r#"{"closing": "Thanks!"}"#).unwrap();
     app.load_claude();
     app.claude_menu();
@@ -3065,7 +3069,7 @@ fn a_stopped_rebase_holds_only_what_changes_code() {
     app.root = dir.clone();
     std::fs::create_dir_all(dir.join(".git/rebase-merge")).unwrap();
     assert!(app.claude_blocked(Some(agent::Ask::Fix)).is_some() && app.claude_blocked(None).is_some());
-    assert!(app.claude_blocked(Some(agent::Ask::Describe)).is_none());
+    assert!(app.claude_blocked(Some(agent::Ask::Answer)).is_none());
     // Answering: held only when a reply waiting wants a change.
     assert_eq!(app.edits(agent::Ask::Answer), app.threads.iter().any(|t| t.waiting() && t.want == "change"));
     std::fs::remove_dir_all(dir).unwrap();

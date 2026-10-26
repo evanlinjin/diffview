@@ -11,15 +11,11 @@ pub(super) enum Ask {
     /// Make the changes the review's open comments ask for (Claude's and yours), and/or what
     /// your instructions say.
     Fix,
-    /// Propose a new description for the PR (in the review file), for you to approve.
-    Describe,
     /// On someone else's PR: make the changes (as `Fix` does on yours), here, for you to push
     /// to their branch, rather than suggest them.
     Edit,
     /// Your PR's CI fails: find out why from the failed runs' logs, and fix it here.
     FixChecks,
-    /// Draft a comment closing the PR (in the review file), for you to close it with.
-    Close,
     /// An issue: triage it (again), into its file.
     Triage,
 }
@@ -32,12 +28,16 @@ impl Ask {
             Ask::Review => Work::Review,
             Ask::Answer => Work::Answer,
             Ask::Fix | Ask::Edit => Work::Change,
-            Ask::Describe => Work::Describe,
             Ask::FixChecks => Work::FixCi,
-            Ask::Close => Work::Close,
             Ask::Triage => Work::Triage,
         }
     }
+}
+
+/// `Space a`'s way to talk about text (`ON_DESCRIPTION`, `ON_CLOSING`): a thread there, a
+/// change wanted, as `a` on it.
+fn talk_on(on: &str) -> Action {
+    Action::AskConversation { url: on.into(), prefill: String::new(), want: "change" }
 }
 
 /// A background `claude -p` run.
@@ -176,8 +176,7 @@ impl App {
     pub(super) fn edits(&self, ask: Ask) -> bool {
         match ask {
             _ if !self.has_code() => false,
-            Ask::Describe | Ask::Close => false,
-            Ask::Answer => self.threads.iter().any(|t| t.waiting() && super::ask::edits_code(&t.want)),
+            Ask::Answer => self.threads.iter().any(|t| t.waiting() && super::ask::edits_code(&t.want) && !on_text(&t.conversation)),
             _ => true,
         }
     }
@@ -206,7 +205,7 @@ impl App {
     /// What "make the changes" acts on: the review file's open comments, Claude's and the ones
     /// you left it (`a`), not resolved or outdated. The one place that's decided.
     pub(super) fn change_requests(&self) -> usize {
-        self.threads.iter().filter(|t| t.claude.is_some() && !t.stale() && (t.by_claude() || !matches!(t.want.as_str(), "ask" | "suggest"))).count()
+        self.threads.iter().filter(|t| t.claude.is_some() && !t.stale() && !on_text(&t.conversation) && (t.by_claude() || !matches!(t.want.as_str(), "ask" | "suggest"))).count()
     }
 
     /// Why Claude can't take a request right now (checked before asking you for instructions,
@@ -372,10 +371,10 @@ impl App {
         // A description Claude proposed: yours to approve (posted then), take further, or drop.
         if self.has_proposal() {
             items.insert(0, Item::new("Discard Claude's proposed description", Target::DescDiscard));
-            items.insert(0, Item::new("More changes to the description…", Target::Claude(Ask::Describe)));
+            items.insert(0, Item::new("More changes to the description…", Target::Do(talk_on("description"))));
             items.insert(0, Item::new("Approve Claude's description… (it replaces the one on GitHub)", Target::DescApprove(false)));
         } else if self.subject().is_some() {
-            items.push(Item::new(format!("Change {}'s description… (you approve it)", self.what()), Target::Claude(Ask::Describe)));
+            items.push(Item::new(format!("Change {}'s description… (you approve it)", self.what()), Target::Do(talk_on("description"))));
         }
         // Closing it: Claude drafts the comment; you edit it, then close with it (or don't).
         // (Closed or merged meanwhile: the draft can only go.)
@@ -385,10 +384,10 @@ impl App {
             items.insert(0, Item::new("Discard Claude's closing comment", Target::CloseDiscard));
         }
         if drafted && open {
-            items.insert(0, Item::new("Changes to the closing comment…", Target::Claude(Ask::Close)));
+            items.insert(0, Item::new("Changes to the closing comment…", Target::Do(talk_on(ON_CLOSING))));
             items.insert(0, Item::new(format!("Close {}{} with Claude's comment (your editor first)…", self.what(), self.closes_as()), Target::Do(Action::ClosePr)));
         } else if self.subject().is_some() && open {
-            items.push(Item::new(format!("Draft a comment closing {}… (you edit it, then close)", self.what()), Target::Claude(Ask::Close)));
+            items.push(Item::new(format!("Draft a comment closing {}… (you edit it, then close)", self.what()), Target::Do(talk_on(ON_CLOSING))));
         }
         // One that seems stuck: it can be stopped (the session stays, so the next run resumes it).
         if let Some(j) = &self.claude.job {
@@ -413,17 +412,17 @@ impl App {
                 if let Some(why) = self.redraft_waits(r.id).filter(|_| r.published.is_none()) {
                     items.push(Item::new(why, Target::Note("")));
                 } else if r.published.is_none() {
-                    items.push(Item::new(format!("Redraft {} (Claude carries on, with your instructions)", crate::replace::label(r.id)), Target::Do(Action::Replace(r.ids(), None))));
+                    items.push(Item::new(format!("Redraft {} (Claude carries on, with your instructions)", crate::replace::label(r.id)), Target::Do(Action::Replace(r.ids()))));
                 }
             }
             (Some(p), _) => items.push(Item::new(
                 format!("Draft a replacement for #{} (Claude writes it properly, unpublished, in the background)", p.number),
-                Target::Do(Action::Replace(vec![p.number], None)),
+                Target::Do(Action::Replace(vec![p.number])),
             )),
             (None, Some(r)) if let Some(why) = self.redraft_waits(r.id) => items.push(Item::new(why, Target::Note(""))),
             (None, Some(r)) => items.push(Item::new(
                 "Redraft this (Claude carries on, with your instructions)",
-                Target::Do(Action::Replace(r.ids(), None)),
+                Target::Do(Action::Replace(r.ids())),
             )),
             // An issue: a PR fixing it, Claude's draft (your editor first, on what it should do).
             _ => {
@@ -628,17 +627,6 @@ impl App {
             },
             Ask::Answer => answer_prompt(&what, self.theirs),
             Ask::FixChecks => fix_checks_prompt(self.pr.as_ref().map_or(0, |p| p.number)),
-            Ask::Close => format!(
-                "Use the dv-review skill to draft a comment closing {what}, as the user asks below, in the review file's \
-                 top-level \"closing\" field (see \"Draft a closing comment\"). Start from the draft already there, if there \
-                 is one. Don't close it or comment on GitHub: the user closes it in dv."
-            ),
-            Ask::Describe => format!(
-                "Use the dv-review skill to propose a new description for {what}, as the user asks below: the whole new text, \
-                 in the review file's top-level \"description\" field (see \"Propose a description\"). Start from the proposal \
-                 already there, if there is one, else from its current description. Don't change it on GitHub: the user \
-                 approves it in dv."
-            ),
             Ask::Triage => unreachable!("an issue's triage is its own run (`run_claude`)"),
             Ask::Fix if self.theirs && self.change_requests() == 0 => format!(
                 "Use the dv-review skill to suggest the change the user asks for below, in the dv review of {what}: \
@@ -701,7 +689,7 @@ impl App {
             return self.msg = why;
         }
         match ask {
-            Ask::Describe | Ask::Close | Ask::Triage if self.subject().is_none() => self.msg = "no PR or issue here".into(),
+            Ask::Triage if self.subject().is_none() => self.msg = "no PR or issue here".into(),
             // Making the changes (not suggesting them): how they land, first.
             // Making the changes: how they land. On someone else's PR, suggested (for you to
             // post) or made here (`Edit`: for you to push to their branch, when they let
@@ -726,7 +714,7 @@ impl App {
                 let p = Picker::new(" how should the changes land? ", items).select(|t| matches!(t, Target::Land(_, k) if *k == land));
                 self.picker = Some(p);
             }
-            Ask::Review | Ask::Describe | Ask::Close | Ask::Triage => self.action = Some(Action::ClaudeWith(ask)),
+            Ask::Review | Ask::Triage => self.action = Some(Action::ClaudeWith(ask)),
             ask => _ = self.run_claude(ask, ""),
         }
     }
@@ -762,10 +750,8 @@ impl App {
         let label = match ask {
             Ask::Review => "reviewing",
             Ask::Answer => "answering your replies",
-            Ask::Describe => "proposing a description",
             Ask::Fix if self.theirs => "suggesting the changes",
             Ask::Edit => "making the changes",
-            Ask::Close => "drafting a closing comment",
             Ask::Fix => "making the changes",
             Ask::FixChecks => "fixing CI",
             // An issue's triage: dv issues' own run, in the background (not a pane's: reading

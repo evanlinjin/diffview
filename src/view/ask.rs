@@ -1,7 +1,6 @@
 //! `a`: writing to Claude: on what (code lines, a thread, a commit, the conversation, a draft),
 //! and what you want of it (an answer, a suggestion for GitHub, the change made here).
 use super::*;
-use agent::Ask;
 
 /// What the editor says Claude will do with what you write, for `want`.
 pub(super) fn want_hint(want: &str) -> &'static str {
@@ -42,25 +41,13 @@ impl App {
     /// `a`: leave a comment for Claude on the selected lines (or the cursor's), in the review
     /// file; Claude answers right away, as it does replies. Nothing goes to GitHub.
     pub(super) fn start_ask_claude(&mut self) {
-        // On a replacement's drafts: a redraft, with what it's about quoted.
-        if let Some(which) = self.replacement_draft(self.head.row) {
-            let (s, e) = self.ordered();
-            // The draft's own text: its section's lines of its markdown (not its header, the line
-            // saying what it replaces, what you asked of it beside it, nor another draft's).
-            let text = |r: usize| {
-                let row = &self.rows[r];
-                self.replacement_draft(r) == Some(which) && row.main.is_some() && row.line.kind != Kind::File && row.info.is_some_and(|i| self.info.get(i).is_some_and(|l| l.md && !l.text.trim().is_empty()))
-            };
-            let lines: Vec<String> = (s.row..=e.row)
-                .filter(|&r| text(r))
-                .map(|r| format!("> {}", self.rows[r].line.text.trim_end()))
-                .collect();
-            let prs = self.replacement.as_ref().map(crate::replace::Record::ids).unwrap_or_default();
-            // What you want of it first, as on a PR's comments.
-            return self.pick_want(Action::Replace(prs, Some((which, format!("About the {which}:\n{}\n", lines.iter().map(|l| format!("{l}\n")).collect::<String>()), ""))), None);
-        }
         if self.claude.path.is_none() {
             return self.msg = "no review file here (not in a git repo?)".into();
+        }
+        // On text (a description, a draft's closing note, Claude's closing comment): a thread
+        // about it, with what it's about quoted.
+        if let Some(on) = self.talk_text_at(self.head.row) {
+            return self.ask_text(on);
         }
         if self.on_summary() {
             return self.ask_summary();
@@ -68,14 +55,6 @@ impl App {
         // A published replacement's closing note: yours to change as it goes out.
         if self.section_of(self.head.row) == Some(CLOSING_NOTE) {
             return self.msg = "S closes what it replaces with it, after your editor has it to change".into();
-        }
-        // On the PR's description: Claude proposes a new one (more changes, if it has).
-        if self.section_of(self.head.row) == Some(DESCRIPTION) {
-            return self.pick_claude(Ask::Describe);
-        }
-        // On Claude's closing comment: changes to it.
-        if self.section_of(self.head.row) == Some(CLOSING_PR) {
-            return self.pick_claude(Ask::Close);
         }
         // On a comment in the PR's conversation: a question about it, under it.
         if let Some((url, prefill)) = self.conversation_at_cursor() {
@@ -120,28 +99,31 @@ impl App {
         if self.claude.path.is_none() {
             return self.msg = "no review file here (not in a git repo?)".into();
         }
-        // An issue: no code to change or suggest for; asked, Claude answers.
-        if !self.has_code() {
+        // About text (a description, a closing comment): an answer, or the change to it (no
+        // code, nor anything to post). Else an issue: no code to change or suggest for; asked,
+        // Claude answers.
+        let text = matches!(&action, Action::AskConversation { url, .. } if on_text(url));
+        if !self.has_code() && !text {
             self.wanting = Some(action);
             return self.want("ask");
         }
-        // About a commit (on no lines): no suggestion to post; an answer, unless you said. A
-        // draft's: nothing goes to GitHub from it either; the change, unless you said.
+        // About a commit (on no lines): no suggestion to post; an answer, unless you said.
         let commit = matches!(&action, Action::AskConversation { url, .. } if commit_of(url).is_some());
-        let draft = matches!(&action, Action::Replace(..));
-        // (A draft's commits are Claude's to make as it redrafts: no amend or commit to ask for.)
-        let wants: Vec<_> = WANTS.iter().filter(|w| !((commit || draft) && w.0 == "suggest") && !(draft && matches!(w.0, "amend" | "commit"))).collect();
+        let wants: Vec<_> = WANTS.iter().filter(|w| !((commit || text) && w.0 == "suggest") && !(text && matches!(w.0, "amend" | "commit"))).collect();
         let last = t.and_then(|t| wants.iter().position(|w| w.0 == self.threads[t].want));
-        let usual = match (commit, draft, self.theirs) {
+        let usual = match (commit, text, self.theirs) {
             (true, ..) => "ask",
             (_, true, _) | (false, false, false) => "change",
             (false, false, true) => "suggest",
         };
+        // (A draft's: redrafted; else Claude proposes it, for you to approve or use.)
+        let draft = self.unpublished();
         let sel = last.or_else(|| wants.iter().position(|w| w.0 == usual)).unwrap_or(0);
         let items = wants
             .iter()
-            .map(|&&(key, _, _, label)| match (key, draft, self.theirs) {
-                ("change", true, _) => Item::new("Change: Claude redrafts it (its drafts, and the code)", Target::Want(key)),
+            .map(|&&(key, _, _, label)| match (key, text, self.theirs) {
+                ("change", true, _) if text && draft => Item::new("Change: Claude redrafts it (its drafts, and the code)", Target::Want(key)),
+                ("change", true, _) if text => Item::new("Change: Claude proposes it anew (you approve it, or use it)", Target::Want(key)),
                 ("change", false, true) => Item::new(format!("{label} (their PR: Space g pushes what you commit)"), Target::Want(key)),
                 ("amend", false, true) => Item::new(format!("{label} (their PR: Space g force-pushes it)"), Target::Want(key)),
                 ("commit", false, true) => Item::new(format!("{label} (their PR: Space g pushes it)"), Target::Want(key)),
@@ -159,7 +141,6 @@ impl App {
             Some(Action::ClaudeReply(k, _, q)) => Some(Action::ClaudeReply(k, w, q)),
             Some(Action::ClaudeReplyAll(ks, _)) => Some(Action::ClaudeReplyAll(ks, w)),
             Some(Action::AskConversation { url, prefill, .. }) => Some(Action::AskConversation { url, prefill, want: w }),
-            Some(Action::Replace(prs, Some((on, quote, _)))) => Some(Action::Replace(prs, Some((on, quote, w)))),
             other => other,
         };
     }
@@ -205,6 +186,39 @@ impl App {
         let file = self.files.iter().find(|f| f.path == a.path);
         a.start = a.start.and_then(|s| start_on_side(file?, s, a.left)).filter(|&s| s < a.line).map(|s| (s, a.left));
         a
+    }
+
+    /// The text row `r` is on, to talk about (its `"conversation"`): a draft's description or
+    /// closing note (`replacement_draft`), a PR's or issue's description, Claude's closing
+    /// comment. Not a thread beside it (`r` there goes on in it).
+    pub(super) fn talk_text_at(&self, r: usize) -> Option<&'static str> {
+        if self.rows[r].thread.is_some() {
+            return None;
+        }
+        if let Some(which) = self.replacement_draft(r) {
+            return Some(which);
+        }
+        match self.section_of(r) {
+            Some(DESCRIPTION) => Some("description"),
+            Some(CLOSING_PR) => Some(ON_CLOSING),
+            _ => None,
+        }
+    }
+
+    /// `a` on text (`talk_text_at`): a thread about it, its selected lines (the cursor's) quoted;
+    /// what you want of Claude first: an answer, or the change (proposed, redrafted).
+    pub(super) fn ask_text(&mut self, on: &'static str) {
+        let (s, e) = self.ordered();
+        // Its own text: its section's lines of markdown (not its header, the line saying what
+        // a draft replaces, nor another's).
+        let text = |r: usize| {
+            let row = &self.rows[r];
+            self.talk_text_at(r) == Some(on) && row.main.is_some() && row.line.kind != Kind::File && row.info.is_some_and(|i| self.info.get(i).is_some_and(|l| l.md && !l.text.trim().is_empty()))
+        };
+        let quote: String = (s.row..=e.row).filter(|&r| text(r)).map(|r| format!("> {}\n", self.rows[r].line.text.trim_end())).collect();
+        let name = if on == ON_CLOSING { "closing comment" } else { on };
+        let t = self.threads.iter().rposition(|t| t.conversation == on);
+        self.pick_want(Action::AskConversation { url: on.into(), prefill: format!("About the {name}:\n{quote}\n"), want: "" }, t);
     }
 
     /// On Claude's review summary (not a thread under it).
