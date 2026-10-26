@@ -698,14 +698,27 @@ fn stalled_when_the_author_leaves_feedback_unanswered() {
     assert_eq!(l.stalled(&p), None);
     l.extra.insert(1, at(20));
     assert_eq!(l.stalled(&Listed { author: "me".into(), ..p.clone() }), None);
-    // A draft left: nothing of its author's for that long, nothing asked of them (no one
-    // else's to move on); one ready, waiting on reviews, isn't stalled.
-    let quiet = |days: i64| Extra { last_word: crate::claude::now_secs() - days * 86400, ..Default::default() };
+    // A draft too, with feedback unanswered.
+    assert_eq!(l.stalled(&Listed { draft: true, ..p.clone() }), Some((20, Some(("bo".into(), true)))));
+    // A draft left: nothing of its author's (nor anyone's push) for that long, nothing asked of
+    // them (no one else's to move on); one ready, waiting on reviews, isn't stalled.
+    let ago = |days: i64| crate::claude::now_secs() - days * 86400;
+    let quiet = |days: i64| Extra { active: ago(days), ..Default::default() };
     l.extra.insert(1, quiet(30));
     assert_eq!(l.stalled(&Listed { draft: true, ..p.clone() }), Some((30, None)));
     assert_eq!(l.stalled(&p), None);
     l.extra.insert(1, quiet(3));
-    assert_eq!(l.stalled(&Listed { draft: true, ..p }), None);
+    assert_eq!(l.stalled(&Listed { draft: true, ..p.clone() }), None);
+    // Nothing seen of anyone: from when it was opened (lately: not left).
+    l.extra.insert(1, quiet(0));
+    l.extra.get_mut(&1).unwrap().active = 0;
+    let opened = |days: i64| crate::claude::iso(ago(days));
+    assert_eq!(l.stalled(&Listed { draft: true, created: opened(2), ..p.clone() }), None);
+    assert_eq!(l.stalled(&Listed { draft: true, created: opened(40), ..p }).map(|s| s.0), Some(40));
+    // In what GitHub says: a maintainer's push to a draft is work on it (taken over: not left),
+    // though it answers nothing asked of its author.
+    let e = super::github::extra(&pr(serde_json::json!([]), vec![]), "me");
+    assert!(e.unanswered.is_some() && e.active == crate::gh::epoch_secs(&t("04")).unwrap());
 }
 
 #[test]

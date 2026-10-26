@@ -818,18 +818,17 @@ impl List {
         }
     }
 
-    /// The tab's PRs matching every filter term, in the chosen order.
     /// Whether PR `p`'s author has gone quiet for `stalled_days` or more: a review or a
     /// maintainer's comment left unanswered (nothing of theirs since: no push, no comment, no
     /// reply), or a draft of theirs left (nothing of theirs at all: it's no one else's to move
-    /// on). How long, and whose word is unanswered (none: a draft left). Not yours (you'd
+    /// on, nor anyone's push since). How long, and whose word is unanswered (none: a draft left). Not yours (you'd
     /// know), nor one waiting on reviews (they had the last word, ready for them); a bot's
     /// (`app/…`) isn't one to ask, nor a deleted account, ghost.
     pub(super) fn stalled(&self, p: &Listed) -> Option<(i64, Option<(String, bool)>)> {
         let e = self.extra.get(&p.number)?;
         let (at, waiting) = match &e.unanswered {
             Some((at, who, review)) => (*at, Some((who.clone(), *review))),
-            None if p.draft => (e.last_word.max(crate::gh::epoch_secs(&p.created).unwrap_or(0)), None),
+            None if p.draft => (e.active.max(crate::gh::epoch_secs(&p.created).unwrap_or(0)), None),
             None => return None,
         };
         let days = (crate::claude::now_secs() - at) / 86400;
@@ -865,7 +864,8 @@ impl List {
         self.shown_cards().into_iter().map(|(card, _)| card).collect()
     }
 
-    /// The cards shown, each with its todo item on the todo tab (which says whether it's a
+    /// The tab's PRs matching every filter term, in the chosen order: the cards shown, each with
+    /// its todo item on the todo tab (which says whether it's a
     /// replacement's draft, whose number is the PR it replaces': not that PR, for what's done).
     fn shown_cards(&self) -> Vec<(&Listed, Option<&crate::todo::Item>)> {
         let in_tab = |p: &&Listed| match self.nav.tab {
@@ -940,8 +940,8 @@ enum Tab {
     Open,
     /// What Claude's reviews would close: the premise is wrong, a competing PR is better.
     CanClose,
-    /// Where the author hasn't answered a review or a maintainer's comment for a while
-    /// (`dv.stalledDays`): to ask whether they need help.
+    /// Where the author's gone quiet for a while (`dv.stalledDays`): a review or a maintainer's
+    /// comment unanswered, or a draft left; to ask whether they need help.
     Stalled,
     Worktrees,
     Replacements,

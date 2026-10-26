@@ -1010,7 +1010,7 @@ mod tests {
             signatures_required: false,
             awaiting: 0,
             unanswered: None,
-            last_word: 0,
+            active: 0,
         };
         let facts = |p: &'static Listed, e: Option<&'static Extra>, r: Option<&'static crate::claude::Review>| Facts { pr: p, extra: e, me: "me", review: r, looked: Some(LOOKED), review_changed: Some(50), unpushed: (0, 0), head_at: None, ci_note: None };
         // Nothing from you, no Claude review: you, and Claude reviews it.

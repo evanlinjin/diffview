@@ -120,8 +120,9 @@ pub struct Extra {
     /// comment since their last push, comment or review, (when, who, a review or not). None:
     /// they had the last word, or an approval since did.
     pub unanswered: Option<(i64, String, bool)>,
-    /// Its author's last word: their last push, comment or review (0: none seen).
-    pub last_word: i64,
+    /// The last sign of anyone at work on it: its author's last word (push, comment, review),
+    /// or anyone's push (one taken over is not left); 0: none seen.
+    pub active: i64,
 }
 
 /// You (your login), and `Extra` for the open PRs (the most recently updated, as `list` lists
@@ -213,7 +214,7 @@ pub(super) fn extra(p: &Value, me: &str) -> Extra {
         signatures_required: requires_signatures(p),
         awaiting: 0, // from the workflow runs, after (`list_extra`)
         unanswered,
-        last_word,
+        active: last_word.max(nodes("commits").iter().map(|c| at(&c["commit"]["committedDate"])).max().unwrap_or(0)),
     }
 }
 
