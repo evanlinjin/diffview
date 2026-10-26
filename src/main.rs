@@ -412,10 +412,14 @@ fn review_in(o: &Opts, n: u64, known: Option<gh::Pr>, here: &Path) -> anyhow::Re
 /// for it goes again as you come back, if nothing in it would be lost (`remove_worktree`
 /// refuses: changes, commits not on the PR, Claude at work there).
 fn linked_pr(n: u64, here: &Path) -> anyhow::Result<anyhow::Result<Option<u64>>> {
-    let own = worktree_dir(n).ok().map(|w| w.1).filter(|d| !d.exists() && pr_checkout(n).is_ok_and(|c| c == *d));
+    // (Not there before, there after: made for it. A published replacement's opens in its
+    // draft's, never this.)
+    let own = worktree_dir(n).ok().map(|w| w.1).filter(|d| !d.exists());
     let res = review_in(&Opts { worktree: true, ..Opts::default() }, n, None, here);
-    if own.is_some_and(|d| d.exists()) && res.is_ok() {
+    if let Some(d) = own.filter(|d| d.exists() && res.is_ok()) {
+        progress(Some(&format!("removing {}", d.display())));
         _ = remove_worktree(n, false);
+        progress(None);
     }
     res
 }
@@ -456,7 +460,8 @@ fn merge_from(n: u64, root: &Path) -> String {
 
 /// `app` on `term`, and what it hands over meanwhile (an issue a link goes to, in a view of its
 /// own; the PR's replacement, in its own): shown, then back to it, as it was. What goes wrong
-/// in what it hands over is said there, not an end to it (the terminal's the caller's to
+/// in what it hands over is said there, not an end to it, unless it's not back where this
+/// view is: then this ends too (the terminal's the caller's to
 /// restore). A PR a link goes to (`HandOff::Pr`) is reviewed with `review` (`review_in`), the
 /// terminal let go meanwhile, then back to the view that asked, as it was (never dropped: what
 /// you write beside it is still sent). A PR to merge (`merge`, asked in what it handed over
