@@ -216,7 +216,7 @@ impl App {
             self.talk_text_at(r) == Some(on) && row.main.is_some() && row.line.kind != Kind::File && row.info.is_some_and(|i| self.info.get(i).is_some_and(|l| l.md && !l.text.trim().is_empty()))
         };
         let quote: String = (s.row..=e.row).filter(|&r| text(r)).map(|r| format!("> {}\n", self.rows[r].line.text.trim_end())).collect();
-        let name = if on == ON_CLOSING { "closing comment" } else { on };
+        let name = text_name(on);
         let t = self.threads.iter().rposition(|t| t.conversation == on);
         self.pick_want(Action::AskConversation { url: on.into(), prefill: format!("About the {name}:\n{quote}\n"), want: "" }, t);
     }

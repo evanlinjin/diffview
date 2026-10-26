@@ -215,8 +215,8 @@ impl App {
                     _ => "Claude drafts it; you edit it before it goes",
                 };
                 let what = match (url == ON_SUMMARY, commit_of(&url)) {
-                    _ if on_text(&url) && want == "change" => format!("what to change in the {} ({text}; nothing goes to GitHub)", if url == ON_CLOSING { "closing comment" } else { &url }),
-                    _ if on_text(&url) => format!("for Claude, about the {}{}", if url == ON_CLOSING { "closing comment" } else { &url }, ask::want_hint(want)),
+                    _ if on_text(&url) && want == "change" => format!("what to change in the {} ({text}; nothing goes to GitHub)", text_name(&url)),
+                    _ if on_text(&url) => format!("for Claude, about the {}{}", text_name(&url), ask::want_hint(want)),
                     (true, _) => "a question for Claude about the PR, or a reply to its review (it answers in the Claude tab; nothing goes to GitHub)".to_owned(),
                     (_, Some(sha)) => format!("for Claude, about commit {}{}", self.commit_short(sha), ask::want_hint(want)),
                     _ => "ask Claude about this conversation comment (it answers under it; nothing goes to GitHub)".to_owned(),
@@ -261,7 +261,7 @@ impl App {
                 // any (else answered as any thread).
                 if matches!(ask, agent::Ask::Fix | agent::Ask::Edit) && !extra.trim().is_empty() {
                     let want = match (self.theirs && matches!(ask, agent::Ask::Fix), self.claude.land) {
-                        (true, _) => "suggest",
+                        (true, _) => agent::SUGGEST,
                         (_, "amend") => "amend",
                         (_, "commit") => "commit",
                         _ => "change",
@@ -273,7 +273,10 @@ impl App {
                         return Ok(self.answer_now());
                     }
                     self.load_claude();
-                    self.run_claude(ask, "");
+                    // (A suggestion isn't among the changes it makes: answered after, as any
+                    // thread waiting.)
+                    let asked = self.run_claude(ask, "");
+                    self.claude.again |= asked && want == agent::SUGGEST;
                     return Ok(std::mem::take(&mut self.msg));
                 }
                 if self.run_claude(ask, &extra) || extra.trim().is_empty() {
@@ -301,7 +304,7 @@ impl App {
                     let what = format!("what else Claude should do in its redraft of {it} (optional)");
                     let Some(ask) = compose_with(&what, true, "", true)? else { return Ok("not asked".into()) };
                     if !ask.trim().is_empty() {
-                        crate::replace::ask(prs[0], &ask, "", "")?;
+                        keep_on_error(crate::replace::ask(prs[0], &ask, "", ""), &ask)?;
                         let keep = self.cursor_key();
                         self.load_claude();
                         self.rebuild(keep);

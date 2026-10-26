@@ -136,11 +136,6 @@ impl App {
             .collect()
     }
 
-    /// The conversation comment with this URL: its body's index in `info`.
-    pub(super) fn conversation_item(&self, url: &str) -> Option<usize> {
-        (0..self.info.len()).find(|&i| self.info[i].heading && self.info[i].url == url).map(|h| h + 1).filter(|&b| self.info.get(b).is_some_and(|l| l.md))
-    }
-
     /// The Claude view's, attached to the description: Claude's summary (or, with no review
     /// yet, your questions about the PR), and what's said under it.
     pub(super) fn claude_attached(&self) -> Vec<Row> {

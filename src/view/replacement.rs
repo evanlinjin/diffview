@@ -101,6 +101,10 @@ impl App {
     /// replaces, Claude's drafts of its description and closing note); published, its record.
     pub(super) fn load_replacement(&mut self) {
         if let Some(r) = crate::replace::here(self.pr.as_ref().map(|p| p.number)) {
+            // (Its talk with Claude: its own file, whatever the checkout's on, mid-rebase too.)
+            if self.pr.is_none() {
+                self.claude.path = crate::replace::review_path(r.id).ok();
+            }
             self.show_replacement(r);
         }
     }

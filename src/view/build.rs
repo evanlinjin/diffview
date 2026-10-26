@@ -266,7 +266,7 @@ impl App {
         rows.extend(self.closing_note_rows());
         rows.extend(self.commit_sections());
         let gone_at = rows.len();
-        rows.extend(self.gone_rows());
+        rows.extend(self.gone_rows(&rows));
         let shown: Vec<&Thread> = self.threads.iter().filter(|t| self.in_view(t)).collect();
         for (i, f) in self.files.iter().enumerate() {
             rows.extend(self.file_rows(i, f, &shown));
@@ -355,14 +355,13 @@ impl App {
             return vec![];
         }
         let it = self.what();
-        let what = match self.pr_state.is_some_and(|s| matches!(s.0, "OPEN" | "DRAFT")) {
-            true => format!("closing comment · Claude's draft (Space a: close {it} with it, more changes, discard)"),
-            false => format!("closing comment · Claude's draft ({it} isn't open: Space a discards it)"),
+        let drafted = !self.claude.closing.trim().is_empty();
+        let what = match (drafted, self.pr_state.is_some_and(|s| matches!(s.0, "OPEN" | "DRAFT"))) {
+            (false, _) => "closing comment · asked of Claude (it drafts it)".to_owned(),
+            (true, true) => format!("closing comment · Claude's draft (Space a: close {it} with it, more changes, discard)"),
+            (true, false) => format!("closing comment · Claude's draft ({it} isn't open: Space a discards it)"),
         };
-        let text = match self.claude.closing.trim() {
-            "" => "_(not drafted yet)_",
-            t => t,
-        };
+        let text = if drafted { self.claude.closing.trim() } else { "_(not drafted yet)_" };
         let s = self.section(CLOSING_PR, what, text, None);
         self.attach(s, &mut asked)
     }
@@ -440,16 +439,15 @@ impl App {
     /// it hidden), by file, then on no file: on files that have left the diff (a change
     /// reverted, a file now matching the base); questions about a commit (on no lines, under
     /// "about commit …", whatever's shown); questions about the conversation not under their
-    /// comment (it isn't shown, or not in the whole diff). Those about the summary are under
-    /// it. Not with only some of the PR shown (`whole_pr`): most files are out of the diff on
-    /// purpose then.
-    fn gone_rows(&self) -> Vec<Row> {
-        let placed = |c: &str| c == ON_SUMMARY || c == ON_CLOSING_NOTE || ON_DESCRIPTION.contains(&c);
-        let unplaced = |th: &Thread| !placed(&th.conversation) && (self.view != View::All || self.conversation_item(&th.conversation).is_none());
+    /// comment, or about text not beside it (`above`: the rows before, not shown there). Those
+    /// about the summary are under it (on Claude's side). Not with only some of the PR shown
+    /// (`whole_pr`): most files are out of the diff on purpose then.
+    fn gone_rows(&self, above: &[Row]) -> Vec<Row> {
+        let unplaced = |t: usize| self.threads[t].conversation != ON_SUMMARY && !above.iter().any(|r| r.thread == Some(t));
         let mut gone: Vec<usize> = (0..self.threads.len())
             .filter(|&t| {
                 let th = &self.threads[t];
-                self.in_view(th) && !self.has_file(&th.path) && (self.on_code(th) || self.whole_pr() && unplaced(th))
+                self.in_view(th) && !self.has_file(&th.path) && (self.on_code(th) || self.whole_pr() && unplaced(t))
             })
             .collect();
         let label = |t: usize| {
@@ -457,6 +455,7 @@ impl App {
             match (th.path.is_empty(), commit_of(&th.conversation)) {
                 (false, _) => th.path.clone(),
                 (true, Some(sha)) => format!("about commit {}", self.commit_short(sha)),
+                (true, None) if on_text(&th.conversation) => format!("about the {}", text_name(&th.conversation)),
                 (true, None) => format!("questions about {}'s conversation", self.what()),
             }
         };

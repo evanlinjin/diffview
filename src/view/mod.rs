@@ -106,17 +106,19 @@ const LATEST: usize = 3;
 const DESCRIPTION: usize = 0;
 /// What a thread in Claude's review file that replies to its summary is on (`"conversation"`).
 const ON_SUMMARY: &str = "summary";
-/// Your threads with Claude about text, not code (`"conversation"`): a PR's, an issue's or a
-/// draft's description (or the whole draft: under the description); a draft's closing note
-/// (`replace::review_path`; its PR's, once published); the comment Claude drafts for closing
-/// a PR or issue. A change asked there is to that text: Claude proposes it, or redrafts.
-const ON_DESCRIPTION: [&str; 2] = ["description", "draft"];
-const ON_CLOSING_NOTE: &str = "closing note";
-const ON_CLOSING: &str = "closing";
+use crate::claude::{ON_CLOSING, ON_CLOSING_NOTE, ON_DESCRIPTION};
 
 /// Whether a thread's `"conversation"` is about text (`ON_DESCRIPTION`, …), not code.
 fn on_text(conversation: &str) -> bool {
     ON_DESCRIPTION.contains(&conversation) || conversation == ON_CLOSING_NOTE || conversation == ON_CLOSING
+}
+
+/// The text a thread on it (`on_text`) is about, in words ("closing comment").
+fn text_name(conversation: &str) -> &str {
+    match conversation {
+        ON_CLOSING => "closing comment",
+        c => c,
+    }
 }
 /// `Row::main` for a replacement's closing note (Claude's draft), a section like its description.
 const CLOSING_NOTE: usize = usize::MAX - 1;

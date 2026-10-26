@@ -2545,6 +2545,14 @@ fn claude_drafts_a_closing_comment() {
     app.claude.path = Some(path.clone());
     app.load_claude();
     app.build();
+    // What you asked of it: beside it, once (not again with what has no place).
+    let c = gh::Comment { author: "you".into(), body: "Kinder.".into(), ..Default::default() };
+    app.threads.push(gh::Thread { claude: Some("c1".into()), conversation: ON_CLOSING.into(), want: "change".into(), comments: vec![c], ..Default::default() });
+    app.build();
+    let asked: Vec<usize> = (0..app.rows.len()).filter(|&r| app.rows[r].line.text == "Kinder.").collect();
+    assert!(asked.len() == 1 && app.rows[asked[0]].attached, "{asked:?}");
+    app.threads.pop();
+    app.build();
     // A section first, in the diff; Space a: close with it (your editor first), more, discard.
     let head = app.rows.iter().position(|r| r.main == Some(CLOSING_PR)).expect("its section");
     assert!(app.rows[head].line.text.starts_with("closing comment · Claude's draft") && app.rows[head + 1].line.text == "Thanks! Superseded by #9.");

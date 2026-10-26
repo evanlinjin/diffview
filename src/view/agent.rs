@@ -235,8 +235,6 @@ impl App {
         self.claude.job.is_some() || self.claude.pane_busy || here()
     }
 
-    /// Why a redraft of draft `id` waits: Claude at work on it, from any dv (its draft, a run, a
-    /// pane open on it: the redraft's claim waits for each).
     /// An unpublished draft's PRs (`Record::ids`), here: what you ask of it, its redraft answers.
     pub(super) fn draft_ids(&self) -> Option<Vec<u64>> {
         self.replacement.as_ref().filter(|_| self.unpublished()).map(|r| crate::replace::target(&r.ids()))
@@ -251,11 +249,12 @@ impl App {
         }
         match crate::replace::load(ids[0]).ok().and_then(|r| r.at_work()) {
             Some(w) if w == "drafting" => "saved; the draft under way takes it up as it ends".into(),
-            Some(w) if self.claude.job.is_some() => {
+            // (This view's run on the draft: its next, `again`, is the redraft.)
+            Some(w) if self.claude.job.is_some() && self.draft_ids().as_deref() == Some(ids) => {
                 self.claude.again = true;
                 format!("saved; Claude's redraft answers it once it's done {w}")
             }
-            Some(w) => format!("saved; Claude is {w} on it: Space a → Answer your replies once it's done"),
+            Some(w) => format!("saved; Claude is {w} on {}: Space a → Redraft once it's done", crate::replace::label(ids[0])),
             None => match crate::replace::spawn(ids) {
                 Ok(()) => "sent; Claude's redraft answers it (the status bar says while it's at it)".into(),
                 Err(e) => format!("saved, but starting the redraft failed: {e:#} (Space a to retry)"),
@@ -263,6 +262,8 @@ impl App {
         }
     }
 
+    /// Why a redraft of draft `id` waits: Claude at work on it, from any dv (its draft, a run, a
+    /// pane open on it: the redraft's claim waits for each).
     pub(super) fn redraft_waits(&self, id: u64) -> Option<String> {
         let w = crate::replace::load(id).ok()?.at_work()?;
         Some(format!("Claude is {w} on {}: Space a → Redraft once it's done", crate::replace::label(id)))
