@@ -2562,7 +2562,7 @@ fn claude_drafts_a_closing_comment() {
     let mut app = fixture();
     app.pr_state = Some(("OPEN", "238636"));
     let path = std::env::temp_dir().join(format!("dv-close-{}.json", std::process::id()));
-    std::fs::write(&path, r#"{"closing": "Thanks! Superseded by #9."}"#).unwrap();
+    std::fs::write(&path, r#"{"closing": "Thanks! Superseded by #9.", "closing_with": [{ "n": 3, "comment": "With #7." }]}"#).unwrap();
     app.claude.path = Some(path.clone());
     app.load_claude();
     app.build();

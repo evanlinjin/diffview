@@ -1016,7 +1016,9 @@ fn first_line(s: &str) -> String {
 /// refused, none of it: a commit GitHub had trouble with isn't one that isn't signed, a review
 /// it didn't give isn't none. GitHub's first word for why.
 pub(crate) fn refused(v: &Value) -> Result<()> {
-    let base = |e: &&Value| e["path"].as_array().is_some_and(|p| p.iter().any(|k| k == "baseRef"));
+    // (What it may be refused, and be all the same: its base's rules, the issues it closes in
+    // a repo this token can't read.)
+    let base = |e: &&Value| e["path"].as_array().is_some_and(|p| p.iter().any(|k| k == "baseRef" || k == "closingIssuesReferences"));
     match v["errors"].as_array().into_iter().flatten().find(|e| !base(e)) {
         Some(e) => bail!("GitHub: {}", e["message"].as_str().unwrap_or("refused")),
         None => Ok(()),
@@ -1076,6 +1078,10 @@ pub fn keep_known(new: &mut Value, old: &Value) {
         if let Some(o) = new.as_object_mut() {
             o.remove("dvCommitsUnknown");
         }
+    }
+    // (What it closes, unknown this time: as it was.)
+    if new["dvCloses"].is_null() && old["dvCloses"].is_array() {
+        new["dvCloses"] = old["dvCloses"].clone();
     }
     if !new["dvActivity"]["error"].is_null() && old["dvActivity"]["items"].is_array() {
         new["dvActivity"] = old["dvActivity"].clone();

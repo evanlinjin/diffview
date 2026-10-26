@@ -263,7 +263,7 @@ fn triage_run(n: u64, updated: &str, fixes: &[(u64, String, String)], root: &std
 }
 
 /// What an issue's triage says (Claude's word on it, each triage anew).
-const TRIAGE_KEYS: [&str; 10] = ["kind", "priority", "summary", "next", "labels", "title", "close", "closing", "reason", "duplicate_of"];
+const TRIAGE_KEYS: [&str; 11] = ["kind", "priority", "summary", "next", "labels", "title", "close", "closing", "closing_with", "reason", "duplicate_of"];
 
 /// A new triage `t` of issue `n` (as of `updated`, with the PRs linked as fixing it) in its
 /// file as it was (`old`): what the last triage said goes, the rest stays (the talk with
@@ -284,7 +284,7 @@ fn merge_triage(old: &Value, t: Value, n: u64, updated: &str, fixes: &[(u64, Str
     }
     m.extend(t);
     if keep_closing {
-        for k in ["closing", "reason", "duplicate_of"] {
+        for k in ["closing", "closing_with", "reason", "duplicate_of"] {
             m.insert(k.into(), old[k].clone());
         }
     }
@@ -299,7 +299,7 @@ fn merge_triage(old: &Value, t: Value, n: u64, updated: &str, fixes: &[(u64, Str
 
 #[test]
 fn a_triage_keeps_the_rest_of_the_file() {
-    let old = serde_json::json!({ "summary": "old", "close": "fixed", "closing": "Thanks!", "reason": "completed", "next": "stale",
+    let old = serde_json::json!({ "summary": "old", "close": "fixed", "closing": "Thanks!", "closing_with": [{ "n": 30, "comment": "Closing with it." }], "reason": "completed", "next": "stale",
         "comments": [{ "conversation": "summary", "body": "why?" }], "description": "proposed" });
     // A new word: the old one's keys go (`next`), the talk and proposals stay.
     let t = merge_triage(&old, serde_json::json!({ "summary": "new", "close": "fixed by #9" }), 7, "u", &[(9, "MERGED".into(), String::new())]);
@@ -307,8 +307,12 @@ fn a_triage_keeps_the_rest_of_the_file() {
     assert_eq!(t["comments"][0]["body"], "why?");
     // Still to close, with no comment of its own: the drafted one kept.
     assert_eq!((t["closing"].as_str(), t["reason"].as_str(), t["fixes_seen"][0].as_u64()), (Some("Thanks!"), Some("completed"), Some(9)));
-    // Not to close now: no closing comment.
-    assert!(merge_triage(&old, serde_json::json!({ "summary": "keep it" }), 7, "u", &[])["closing"].is_null());
+    assert_eq!(t["closing_with"][0]["n"], 30);
+    // Not to close now: no closing comment, nor what it'd close with it.
+    let t = merge_triage(&old, serde_json::json!({ "summary": "keep it" }), 7, "u", &[]);
+    assert!(t["closing"].is_null() && t["closing_with"].is_null());
+    // One of its own: its own, not the old one's what-with.
+    assert!(merge_triage(&old, serde_json::json!({ "close": "dup", "closing": "New." }), 7, "u", &[])["closing_with"].is_null());
     // A title proposed with a new text you asked for stays (the triage's own one waits).
     let old = serde_json::json!({ "title": "Asked for", "description": "proposed" });
     assert_eq!(merge_triage(&old, serde_json::json!({ "title": "Triage's" }), 7, "u", &[])["title"], "Asked for");

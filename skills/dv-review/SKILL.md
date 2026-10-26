@@ -325,8 +325,8 @@ your draft and closes it with it in dv.
 
 What closing it closes with it, `dv review-info` lists (`with:` lines: a PR's issues it would
 close, an issue's open PRs that would fix it). Draft a comment closing each of those too, in
-this file's top-level `"closing_with"`, saying why it closes with this one; for an issue, how it
-closes: `"reason"` `"completed"` (this PR did it), `"not planned"` (it won't be done this way),
+this file's top-level `"closing_with"`, saying why it closes with this one; for each issue in
+it, how it closes: `"reason"` `"completed"` (this PR did it), `"not planned"` (it won't be done this way),
 or `"duplicate"` with `"duplicate_of"`:
 
 ```json
