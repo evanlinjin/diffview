@@ -112,24 +112,27 @@ pub struct Triage {
 /// the summary, on a conversation comment.
 pub fn review_brief(r: &Review) -> String {
     let mut out = vec![r.summary.trim().to_owned()];
-    for t in &r.threads {
-        let at = match t.conversation.as_str() {
-            "" => match t.own_lines() {
-                Some((Some(s), l)) => format!("`{}:{s}-{l}`", t.path),
-                Some((None, l)) => format!("`{}:{l}`", t.path),
-                None => format!("`{}`", t.path),
-            },
-            "summary" => "on the summary".into(),
-            url => format!("on {url}"),
-        };
-        let state = [(t.resolved, "resolved"), (t.outdated, "outdated")].iter().filter(|s| s.0).map(|s| s.1).collect::<Vec<_>>().join(", ");
-        let tag = [t.severity.as_str(), state.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(", ");
-        let tag = if tag.is_empty() { String::new() } else { format!(" ({tag})") };
-        let talk: Vec<String> = t.comments.iter().map(|c| format!("  {}: {}", if c.author == AUTHOR { "Claude" } else { "the user" }, c.body.trim().replace('\n', "\n  "))).collect();
-        out.push(format!("- {at}{tag}\n{}", talk.join("\n")));
-    }
+    out.extend(r.threads.iter().map(|t| format!("- {}", thread_brief(t))));
     out.retain(|s| !s.is_empty());
     out.join("\n\n")
+}
+
+/// A thread of a review file, for a prompt: where it is, its tags, and the talk on it.
+pub fn thread_brief(t: &Thread) -> String {
+    let at = match t.conversation.as_str() {
+        "" => match t.own_lines() {
+            Some((Some(s), l)) => format!("`{}:{s}-{l}`", t.path),
+            Some((None, l)) => format!("`{}:{l}`", t.path),
+            None => format!("`{}`", t.path),
+        },
+        "summary" => "on the summary".into(),
+        url => format!("on {url}"),
+    };
+    let state = [(t.resolved, "resolved"), (t.outdated, "outdated")].iter().filter(|s| s.0).map(|s| s.1).collect::<Vec<_>>().join(", ");
+    let tag = [t.severity.as_str(), state.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(", ");
+    let tag = if tag.is_empty() { String::new() } else { format!(" ({tag})") };
+    let talk: Vec<String> = t.comments.iter().map(|c| format!("  {}: {}", if c.author == AUTHOR { "Claude" } else { "the user" }, c.body.trim().replace('\n', "\n  "))).collect();
+    format!("{at}{tag}\n{}", talk.join("\n"))
 }
 
 /// dv's directory for this repo: `$XDG_DATA_HOME/dv/<repo>/` (`~/.local/share/dv/...`), named
@@ -1169,6 +1172,19 @@ pub fn reply(path: &std::path::Path, key: &str, body: &str, want: &str) -> Resul
         // (Talk again: the conversation's open again, a resolved comment's too, so it's
         // answered.)
         (c[i]["talk_resolved"], c[i]["resolved"]) = (false.into(), false.into());
+    })
+}
+
+/// Claude's answer to comment `key`, added for it (by dv: what a draft, which can't write
+/// here, answered).
+pub fn answer(path: &std::path::Path, key: &str, body: &str) -> Result<()> {
+    update(path, key, |c, i| {
+        if !c[i]["replies"].is_array() {
+            c[i]["replies"] = serde_json::json!([]);
+        }
+        if let Some(a) = c[i]["replies"].as_array_mut() {
+            a.push(serde_json::json!({ "author": AUTHOR, "body": body, "created": now() }));
+        }
     })
 }
 

@@ -401,7 +401,9 @@ impl App {
         }
         let open = |r: &&crate::replace::Record| r.replaces.iter().any(|o| !r.closed.contains(&o.number));
         if let Some(r) = self.replacement.as_ref().filter(|_| self.pr.is_some()).filter(open) {
-            return self.section(CLOSING_NOTE, "closing note, for the PRs it replaces (S closes them with it)".into(), &crate::replace::note(r), None);
+            let s = self.section(CLOSING_NOTE, "closing note, for the PRs it replaces (S closes them with it)".into(), &crate::replace::note(r), None);
+            let mut asked = self.draft_threads(&[ON_CLOSING_NOTE]);
+            return self.attach(s, &mut asked);
         }
         let Some(h) = self.heading(Self::is_closing_note) else { return vec![] };
         let undrafted = format!("_({})_", self.replacement.as_ref().map_or("not drafted yet".into(), |r| r.undrafted()));
@@ -412,7 +414,7 @@ impl App {
         let s = self.section(CLOSING_NOTE, self.info[h].text.clone(), text, Some(h + 1));
         let mut asked = match self.sections_folded.contains(&CLOSING_NOTE) {
             true => vec![],
-            false => self.request_rows(&["closing note"], h + 1),
+            false => self.draft_threads(&[ON_CLOSING_NOTE]),
         };
         self.attach(s, &mut asked)
     }
@@ -432,7 +434,8 @@ impl App {
     /// it. Not with only some of the PR shown (`whole_pr`): most files are out of the diff on
     /// purpose then.
     fn gone_rows(&self) -> Vec<Row> {
-        let unplaced = |th: &Thread| th.conversation != ON_SUMMARY && (self.view != View::All || self.conversation_item(&th.conversation).is_none());
+        let placed = |c: &str| c == ON_SUMMARY || c == ON_CLOSING_NOTE || ON_DESCRIPTION.contains(&c);
+        let unplaced = |th: &Thread| !placed(&th.conversation) && (self.view != View::All || self.conversation_item(&th.conversation).is_none());
         let mut gone: Vec<usize> = (0..self.threads.len())
             .filter(|&t| {
                 let th = &self.threads[t];

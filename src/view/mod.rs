@@ -106,6 +106,10 @@ const LATEST: usize = 3;
 const DESCRIPTION: usize = 0;
 /// What a thread in Claude's review file that replies to its summary is on (`"conversation"`).
 const ON_SUMMARY: &str = "summary";
+/// Your threads with Claude about a draft's text (`replace::review_path`): on its description,
+/// the whole of it (under the description), its closing note. Its PR's, once published.
+const ON_DESCRIPTION: [&str; 2] = ["description", "draft"];
+const ON_CLOSING_NOTE: &str = "closing note";
 /// `Row::main` for a replacement's closing note (Claude's draft), a section like its description.
 const CLOSING_NOTE: usize = usize::MAX - 1;
 /// `Row::main` for the comment Claude drafted for closing the PR, a section before the rest.

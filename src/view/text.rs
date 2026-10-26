@@ -154,10 +154,9 @@ impl App {
             next.extend(self.md_rows_at(says, self.info_w(), mk));
             next.push(mk(Kind::Comment, String::new()));
         }
-        // What you asked of a draft's description: with your other questions, before what
-        // Claude did (not after it, apart from them).
-        let desc = self.heading(Self::is_description).map_or(0, |h| h + 1);
-        let asks = self.request_rows(&["description", ""], desc);
+        // What you asked of a draft's description (or the whole): with your other questions,
+        // before what Claude did (not after it, apart from them).
+        let asks = self.draft_threads(&ON_DESCRIPTION);
         if !summary && !questions {
             next.extend(asks);
             next.extend(self.claude_activity()); // (what it did all the same)
@@ -221,6 +220,8 @@ impl App {
         // (Outdated: where it was.)
         let at = |t: &Thread| match (t.path.as_str(), t.line.or(t.original_line), t.conversation.as_str()) {
             ("", _, ON_SUMMARY) => "on its review".to_owned(),
+            ("", _, ON_CLOSING_NOTE) => "on the closing note".to_owned(),
+            ("", _, c) if ON_DESCRIPTION.contains(&c) => "on the description".to_owned(),
             ("", _, c) if commit_of(c).is_some() => format!("on commit {}", self.commit_short(commit_of(c).unwrap_or(""))),
             ("", ..) => "on the conversation".to_owned(),
             // (The file's name: its path is in the comment it goes to.)
@@ -301,44 +302,10 @@ impl App {
         }
     }
 
-    /// What you asked of an unpublished draft's drafts `on` (`replace::Request::on`), a box
-    /// each, oldest first, saying whether a redraft has taken it in: beside the draft it's about.
-    /// (Each row is its draft's, `info`: `a` there asks about that draft too.)
-    pub(super) fn request_rows(&self, on: &[&str], draft: usize) -> Vec<Row> {
-        let Some(r) = self.replacement.as_ref().filter(|_| self.unpublished()) else { return vec![] };
-        let mk = |kind, text| Row { info: Some(draft), ..Row::text(INFO, kind, text) };
-        let drafting = self.at_it();
-        let mut rows = vec![];
-        for (i, a) in r.asks.iter().enumerate().filter(|(_, a)| on.contains(&a.on.as_str())) {
-            // (A question is answered; anything else, redrafted with.)
-            let [done, doing, todo] = match a.want.as_str() {
-                "ask" => ["answered", "Claude is answering it", "not answered yet"],
-                _ => ["redrafted with it", "Claude is redrafting with it", "not redrafted with it yet"],
-            };
-            let state = match (a.done(), drafting && i < r.taking) {
-                (true, _) => done,
-                (false, true) => doing,
-                (false, false) => todo,
-            };
-            let want = match a.want.as_str() {
-                "ask" => " [ask]",
-                "change" => " [change]",
-                _ => "",
-            };
-            rows.push(mk(Kind::Thread, format!("you · asked of the drafts{want} · {state}")));
-            rows.extend(self.md_rows_at(&a.text, self.info_w(), mk));
-            match a.answer.trim() {
-                "" => {}
-                // dv's note (Claude said nothing): not as Claude's answer.
-                crate::replace::NO_ANSWER => rows.extend(self.md_rows_at(crate::replace::NO_ANSWER, self.info_w(), mk)),
-                ans => {
-                    rows.push(mk(Kind::Thread, "◆ claude".into()));
-                    rows.extend(self.md_rows_at(ans, self.info_w(), mk));
-                }
-            }
-            rows.push(Row { edge: true, ..mk(Kind::Comment, String::new()) });
-        }
-        rows
+    /// Your threads with Claude about a draft's `on` (`ON_DESCRIPTION`, `ON_CLOSING_NOTE`),
+    /// as under its summary.
+    pub(super) fn draft_threads(&self, on: &[&str]) -> Vec<Row> {
+        (0..self.threads.len()).filter(|&t| on.contains(&self.threads[t].conversation.as_str()) && self.in_view(&self.threads[t])).flat_map(|t| self.thread_rows(t, INFO)).collect()
     }
 
     /// Your pending review's text, in full, as it goes to GitHub with the review (`S`).

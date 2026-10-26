@@ -243,6 +243,32 @@ impl App {
 
     /// Why a redraft of draft `id` waits: Claude at work on it, from any dv (its draft, a run, a
     /// pane open on it: the redraft's claim waits for each).
+    /// An unpublished draft's PRs (`Record::ids`), here: what you ask of it, its redraft answers.
+    pub(super) fn draft_ids(&self) -> Option<Vec<u64>> {
+        self.replacement.as_ref().filter(|_| self.unpublished()).map(|r| crate::replace::target(&r.ids()))
+    }
+
+    /// What you've asked of a draft (a thread about it, a reply on one): its redraft answers
+    /// (its session wrote it), every thread waiting. One under way takes it up as it ends;
+    /// this view's run on it, once that's done (`again`). What to tell you.
+    pub(super) fn redraft_to_answer(&mut self, ids: &[u64]) -> String {
+        if let Some(why) = crate::replace::refused(ids) {
+            return format!("saved; {why}");
+        }
+        match crate::replace::load(ids[0]).ok().and_then(|r| r.at_work()) {
+            Some(w) if w == "drafting" => "saved; the draft under way takes it up as it ends".into(),
+            Some(w) if self.claude.job.is_some() => {
+                self.claude.again = true;
+                format!("saved; Claude's redraft answers it once it's done {w}")
+            }
+            Some(w) => format!("saved; Claude is {w} on it: Space a → Answer your replies once it's done"),
+            None => match crate::replace::spawn(ids) {
+                Ok(()) => "sent; Claude's redraft answers it (the status bar says while it's at it)".into(),
+                Err(e) => format!("saved, but starting the redraft failed: {e:#} (Space a to retry)"),
+            },
+        }
+    }
+
     pub(super) fn redraft_waits(&self, id: u64) -> Option<String> {
         let w = crate::replace::load(id).ok()?.at_work()?;
         Some(format!("Claude is {w} on {}: Space a → Redraft once it's done", crate::replace::label(id)))
@@ -720,6 +746,10 @@ impl App {
             self.msg = "no replies waiting for Claude (r on a Claude comment replies)".into();
             return false;
         }
+        if let Some(ids) = self.draft_ids().filter(|_| matches!(ask, Ask::Answer)) {
+            self.msg = self.redraft_to_answer(&ids);
+            return true;
+        }
         let requests = self.change_requests();
         if matches!(ask, Ask::Fix | Ask::Edit) && requests == 0 && extra.trim().is_empty() {
             self.msg = "nothing to change: no open comments, and no instructions written".into();
@@ -808,6 +838,9 @@ impl App {
         let keep = self.cursor_key();
         self.load_claude();
         self.rebuild(keep);
+        if let Some(ids) = self.draft_ids().filter(|_| self.claude.job.is_none()) {
+            return self.redraft_to_answer(&ids);
+        }
         if self.claude.job.is_some() {
             self.claude.again = true;
             return "reply saved; Claude answers it when it's done with what it's doing".into();

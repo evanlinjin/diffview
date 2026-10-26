@@ -368,11 +368,13 @@ Then:
 If the record already has drafts, you've been here before (the same session): do what the
 user's instructions ask, updating the code, commits and drafts to match.
 
-The record's `asks` are what the user asked of your drafts (`on`: the draft it's about;
-`want`: `ask`, only answer it, changing nothing; `change`, make it). Your prompt lists those to
-take in now (those without an answer): do what each wants, and write what you did, or your
-answer, in a sentence or few, in its `"answer"` (that marks it done). Keep the array as it is:
-its order, the others, the other fields of each.
+Your prompt lists the user's threads with you about the draft that wait on your answer: on its
+description, its closing note, the whole draft, its code, your review of it (their file is
+dv's, which you can't write to here). Each has an id (`c3`) and what its last message wants
+(as in section 3: `ask`, only answer it, changing nothing; `change`, `amend`, `commit`, make
+it; `suggest`, say what you'd change). Do what each wants, and write what you did, or your
+answer, in a sentence or few, in the record's `"answers"`, under its id
+(`"answers": {"c3": "Shortened the title."}`); dv puts each in its thread.
 
 ## Triage an issue
 

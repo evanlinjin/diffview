@@ -278,13 +278,15 @@ impl App {
                     let asking = !prefill.is_empty();
                     let Some(ask) = compose_with(&what, !asking, prefill.trim_end(), !asking)? else { return Ok("not asked".into()) };
                     if !ask.trim().is_empty() {
+                        // A thread about it, which its redraft answers (one under way, as it ends).
                         crate::replace::ask(prs[0], &ask, on, want)?;
+                        let keep = self.cursor_key();
+                        self.load_claude();
+                        self.rebuild(keep);
+                        return Ok(self.redraft_to_answer(&prs));
                     }
                     if let Some(why) = waits() {
-                        return Ok(match ask.trim() {
-                            "" => why,
-                            _ => format!("kept with the drafts for the next redraft ({why})"),
-                        });
+                        return Ok(why);
                     }
                 } else {
                     if let Some(why) = waits() {

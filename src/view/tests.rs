@@ -1507,29 +1507,32 @@ fn replacement_in_the_pr_section() {
     app.picker = None;
     app.want("change");
     assert!(matches!(app.action.take(), Some(Action::Replace(_, Some(("description", q, "change")))) if q.starts_with("About the description:")));
-    // What you asked of the drafts shows with them, until a redraft takes it in and after.
-    let mut r = app.replacement.clone().unwrap();
-    r.asks = vec![crate::replace::Request { text: "About the description:\n> Replaces #12 and #15.\n\nSay why.".into(), on: "description".into(), ..Default::default() }];
-    app.show_replacement(r);
-    let keep = app.cursor_key();
-    app.rebuild(keep);
-    let text: Vec<&str> = app.rows.iter().map(|r| r.line.text.as_str()).collect();
-    let said = app.rows.iter().position(|r| r.line.text == "Say why.").expect("what you asked");
-    assert!(app.rows[said].attached && text.iter().any(|t| t.ends_with("not redrafted with it yet")), "{text:#?}");
-    // Under way: only what the draft was given is being redrafted with; what came after waits.
-    let mut r = app.replacement.clone().unwrap();
-    r.asks.push(crate::replace::Request { text: "Shorter.".into(), want: "change".into(), ..Default::default() });
-    r.asks.push(crate::replace::Request { text: "Why two?".into(), want: "ask".into(), answer: "One per original.".into(), ..Default::default() });
-    r.taking = 1;
-    let claim = crate::claude::claim(&crate::claude::rep_key(r.id), "drafting", None).unwrap().unwrap();
-    app.show_replacement(r);
+    // What you asked of the drafts: threads about them (its review file), each beside the
+    // draft it's about, as under a summary: replied to, resolved, folded as any.
+    let c = |who: &str, body: &str| gh::Comment { author: who.into(), body: body.into(), ..Default::default() };
+    let talk = |k: &str, on: &str, want: &str, said: Vec<gh::Comment>| gh::Thread { claude: Some(k.into()), conversation: on.into(), want: want.into(), comments: said, ..Default::default() };
+    app.threads = vec![
+        talk("c1", "description", "change", vec![c("you", "About the description:\n> Replaces #12 and #15.\n\nSay why.")]),
+        talk("c2", "draft", "ask", vec![c("you", "Why two?"), c("claude", "One per original.")]),
+        talk("c3", "closing note", "change", vec![c("you", "Tidy it."), c("claude", crate::replace::NO_ANSWER)]),
+    ];
     let keep = app.cursor_key();
     app.rebuild(keep);
     let text: Vec<String> = app.rows.iter().map(|r| r.line.text.clone()).collect();
-    let at = |s: &str| text.iter().position(|t| t.contains(s)).unwrap();
-    // (Answered: done, Claude's answer under what you asked, in its box.)
-    assert!(at("Claude is redrafting with it") < at("Say why.") && at("Say why.") < at("[change] · not redrafted with it yet") && at("[change] · not redrafted with it yet") < at("Shorter."), "{text:#?}");
-    assert!(at("Shorter.") < at("[ask] · answered") && at("[ask] · answered") < at("Why two?") && at("Why two?") < at("◆ claude") && at("◆ claude") < at("One per original."), "{text:#?}");
+    let at = |s: &str| text.iter().position(|t| t.contains(s)).unwrap_or_else(|| panic!("{s}: {text:#?}"));
+    // (The description's and the whole draft's beside the description; the closing note's beside it.)
+    assert!(app.rows[at("Say why.")].attached && at("Say why.") < at("Why two?") && at("Why two?") < at("One per original."), "{text:#?}");
+    assert!(app.rows[at("Tidy it.")].attached && at("closing note, for") < at("Tidy it.") && at("Tidy it.") < at("Thanks! Handled in {replacement}."), "{text:#?}");
+    assert!(app.rows[at("Say why.")].thread.is_some() && app.rows[at("Tidy it.")].thread.is_some());
+    // Each its own box, once (not again as a question about the conversation).
+    assert_eq!(text.iter().filter(|t| t.contains("Why two?")).count(), 1);
+    // r on one: a reply in its thread (no picker: its want goes on).
+    app.goto(at("Why two?"), 0);
+    app.start_reply(false);
+    assert!(matches!(app.action.take(), Some(Action::ClaudeReply(k, "", _)) if k == "c2"), "{}", app.msg);
+    // a on one: likewise.
+    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+    assert!(matches!(app.action.take(), Some(Action::ClaudeReply(k, ..)) if k == "c2"), "{}", app.msg);
     // a on the line saying what it replaces: its draft's, the description's (not quoted).
     let replaces = app.rows.iter().position(|r| r.line.text.starts_with("replaces #12")).unwrap();
     assert_eq!(app.replacement_draft(replaces), Some("description"));
@@ -1538,25 +1541,10 @@ fn replacement_in_the_pr_section() {
     app.picker = None;
     app.want("ask");
     assert!(matches!(app.action.take(), Some(Action::Replace(_, Some(("description", q, "ask")))) if q == "About the description:\n\n"), "only the draft's text is quoted");
-    // Each ask its own box (one after another on the same draft).
-    let tops = (0..app.rows.len()).filter(|&r| app.rows[r].line.text.starts_with("you · asked of the drafts") && app.box_part(r) == Some(BoxPart::Top)).count();
-    assert_eq!(tops, 3);
-    // a on a box: about the draft it's beside, as on the draft, not quoting the box as its text.
-    app.goto(at("Why two?"), 0);
-    assert_eq!(app.replacement_draft(app.head.row), Some("description"));
-    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
-    app.picker = None;
-    app.want("ask");
-    assert!(matches!(app.action.take(), Some(Action::Replace(_, Some(("description", q, "ask")))) if q == "About the description:\n\n"), "the box quoted");
-    drop(claim);
-    // A change taken in without Claude saying so: dv's note, not as Claude's answer.
-    let mut r = app.replacement.clone().unwrap();
-    r.asks = vec![crate::replace::Request { text: "Tidy it.".into(), want: "change".into(), answer: crate::replace::NO_ANSWER.into(), ..Default::default() }];
-    app.show_replacement(r);
-    let keep = app.cursor_key();
-    app.rebuild(keep);
-    let text: Vec<String> = app.rows.iter().map(|r| r.line.text.clone()).collect();
-    assert!(text.iter().any(|t| t.contains("(redrafted with it)")) && !text.iter().any(|t| t == "◆ claude"), "{text:#?}");
+    // In Claude's activity, Claude's answers, where they are.
+    let activity = app.claude_activity();
+    let heads: Vec<&str> = activity.iter().map(|r| r.line.text.as_str()).collect();
+    assert!(heads.iter().any(|h| h.ends_with("on the description")) && heads.iter().any(|h| h.ends_with("on the closing note")), "{heads:#?}");
     // Claude's review is beside the description, in the pane, as on a PR's Claude view.
     app.claude.summary = "**What it does.** Builds for the target.".into();
     let keep = app.cursor_key();
@@ -1565,7 +1553,7 @@ fn replacement_in_the_pr_section() {
     assert!(app.rows[review].attached && app.rows[review].main.is_none());
     // What you asked of the drafts with your other questions under it, before what Claude did.
     let at = |s: &str| app.rows.iter().position(|r| r.line.text == s).expect(s);
-    assert!(review < at("Tidy it.") && at("Tidy it.") < at("claude's activity"));
+    assert!(review < at("Why two?") && at("Why two?") < at("claude's activity"));
     // Published, on its PR: its closing note is still there, while what it replaces is open.
     let mut r = app.replacement.clone().unwrap();
     r.published = Some(20);

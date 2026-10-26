@@ -8,29 +8,15 @@ use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
-/// Something you asked of a replacement's drafts (`a` on one, or for a redraft).
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Request {
-    pub text: String,
-    /// What you want of Claude: `"ask"` (an answer; nothing changed), `"change"` (made in its
-    /// drafts or code); empty: as it reads.
-    pub want: String,
-    /// The draft it's about: `"description"`, `"closing note"`; empty: the whole.
-    pub on: String,
-    /// Claude's answer: what it did about it, or (a question) its answer. Claude writes it.
-    pub answer: String,
-}
-
-/// What dv puts for an answer when a redraft took a request in without one (Claude didn't
-/// say): done, not to ask again. Shown as dv's note, not as Claude's.
+/// What dv answers for Claude when a redraft took in a change without saying how: done, not
+/// to ask again.
 pub const NO_ANSWER: &str = "_(redrafted with it)_";
 
-impl Request {
-    /// A redraft has taken it in: Claude has answered it (one rule, whatever Claude did to the
-    /// record's order).
-    pub fn done(&self) -> bool {
-        !self.answer.trim().is_empty()
-    }
+/// Where your talk with Claude about a draft is: its review file (the branch's), a thread on
+/// its description, closing note (`"conversation"`: their names) or the whole of it
+/// (`"draft"`), as on its code and Claude's review of it. Its redrafts answer it.
+pub fn review_path(id: u64) -> Result<PathBuf> {
+    crate::claude::branch_review(&branch(id))
 }
 
 /// A PR a replacement replaces, as it was when the replacement was drafted.
@@ -61,10 +47,9 @@ pub struct Record {
     pub closed: Vec<u64>,
     /// A new PR's: what you asked it to do (a replacement's is what it replaces).
     pub task: String,
-    /// What you've asked of its drafts, oldest first.
-    pub asks: Vec<Request>,
-    /// How many of `asks` the draft under way was given (the rest wait for the next).
-    pub taking: usize,
+    /// Claude's answers to your threads (`review_path`), by id, as a draft writes them (it
+    /// can't write there): dv moves them there as it ends.
+    pub answers: Vec<(String, String)>,
     /// When its last draft (that went through) read the originals' reviews (unix seconds; 0:
     /// not known): reviews changed since go to a redraft.
     pub drafted_at: u64,
@@ -236,7 +221,59 @@ pub fn path(id: u64) -> Result<PathBuf> {
 
 pub fn load(id: u64) -> Result<Record> {
     let p = path(id)?;
-    parse(id, &std::fs::read_to_string(&p).with_context(|| format!("reading {}", p.display()))?)
+    let text = std::fs::read_to_string(&p).with_context(|| format!("reading {}", p.display()))?;
+    if text.contains("\"asks\"") {
+        let v = adopt_asks(&text, &review_path(id)?)?;
+        crate::claude::write_at(&p, (serde_json::to_string_pretty(&v)? + "\n").as_bytes())?;
+        return load(id);
+    }
+    parse(id, &text)
+}
+
+/// A record as dv 0.95 kept what you asked of its drafts (`asks`: text, want, on, answer):
+/// threads in its review file now, answered as they were. ponytail: drop this a few releases on.
+/// (`review`: its review file, where they go; the record, without them.)
+fn adopt_asks(text: &str, review: &Path) -> Result<Value> {
+    let mut v: Value = serde_json::from_str(text)?;
+    let asks = v.as_object_mut().and_then(|o| o.remove("asks")).and_then(|a| a.as_array().cloned()).unwrap_or_default();
+    for a in &asks {
+        let s = |k: &str| a[k].as_str().unwrap_or("").to_owned();
+        let on = match s("on").as_str() {
+            "" => "draft".to_owned(),
+            on => on.to_owned(),
+        };
+        let k = crate::claude::add_conversation(review, &on, &s("text"), &s("want"))?;
+        // (Older still: taken in, unanswered, `done`.)
+        let answer = match s("answer") {
+            ans if ans.trim().is_empty() && a["done"] == true => NO_ANSWER.to_owned(),
+            ans => ans,
+        };
+        if !answer.trim().is_empty() {
+            crate::claude::answer(review, &k, &answer)?;
+        }
+    }
+    if let Some(o) = v.as_object_mut() {
+        o.remove("taking");
+    }
+    Ok(v)
+}
+
+#[test]
+fn v095_asks_adopted() {
+    let review = std::env::temp_dir().join(format!("dv-adopt-asks-{}.json", std::process::id()));
+    let text = r#"{ "base": "main", "taking": 1, "asks": [
+        { "text": "Why two?", "want": "ask", "on": "description", "answer": "One per original." },
+        { "text": "Shorter.", "want": "change", "on": "closing note", "done": true },
+        { "text": "Keep the old API." } ] }"#;
+    let v = adopt_asks(text, &review).unwrap();
+    assert!(v.get("asks").is_none() && v.get("taking").is_none() && v["base"] == "main");
+    let t = crate::claude::load(&review).unwrap().unwrap().threads;
+    let talk = |i: usize| (t[i].conversation.as_str(), t[i].want.as_str(), t[i].comments.iter().map(|c| c.body.as_str()).collect::<Vec<_>>());
+    assert_eq!(talk(0), ("description", "ask", vec!["Why two?", "One per original."]));
+    assert_eq!(talk(1), ("closing note", "change", vec!["Shorter.", NO_ANSWER]));
+    // Not answered: waiting on the next redraft, about the whole draft.
+    assert!(talk(2) == ("draft", "", vec!["Keep the old API."]) && t[2].waiting() && !t[0].waiting());
+    _ = std::fs::remove_file(review);
 }
 
 fn parse(id: u64, text: &str) -> Result<Record> {
@@ -257,17 +294,7 @@ fn parse(id: u64, text: &str) -> Result<Record> {
         published: v["published"].as_u64(),
         closed: v["closed"].as_array().into_iter().flatten().filter_map(Value::as_u64).collect(),
         task: s(&v["task"]),
-        asks: v["asks"].as_array().into_iter().flatten().map(|a| Request {
-                    text: s(&a["text"]),
-                    want: s(&a["want"]),
-                    on: s(&a["on"]),
-                    // (Records from before answers: taken in, unanswered.)
-                    answer: match (s(&a["answer"]), a["done"] == true) {
-                        (ans, true) if ans.trim().is_empty() => NO_ANSWER.into(),
-                        (ans, _) => ans,
-                    },
-                }).collect(),
-        taking: v["taking"].as_u64().unwrap_or(0) as usize,
+        answers: v["answers"].as_object().into_iter().flatten().map(|(k, a)| (k.clone(), s(a))).collect(),
         drafted_at: v["drafted_at"].as_u64().unwrap_or(0),
         refused: s(&v["refused"]),
     })
@@ -280,7 +307,7 @@ fn to_json(r: &Record) -> String {
         "replaces": replaces, "base": r.base, "title": r.title, "body": r.body,
         "closing_note": r.closing_note, "session": r.session, "published": r.published, "closed": r.closed,
         "task": r.task,
-        "asks": r.asks.iter().map(|a| json!({ "text": a.text, "want": a.want, "on": a.on, "answer": a.answer })).collect::<Vec<_>>(), "taking": r.taking, "drafted_at": r.drafted_at,
+        "answers": r.answers.iter().map(|(k, a)| (k.clone(), Value::from(a.as_str()))).collect::<serde_json::Map<_, _>>(), "drafted_at": r.drafted_at,
         "refused": r.refused,
     });
     serde_json::to_string_pretty(&v).unwrap_or_default() + "\n"
@@ -483,7 +510,7 @@ fn reviews_of(r: &Record, which: Reviews) -> String {
 /// What Claude is asked, to draft (or redraft) replacement `r`. Your notes on the repo come
 /// with it, to read: a draft reads untrusted PRs, so it gets no access to them (nor to dv's
 /// other files), only to its record.
-pub fn prompt(r: &Record, extra: &str, reviews: Reviews) -> String {
+pub fn prompt(r: &Record, extra: &str, reviews: Reviews, waiting: &[crate::gh::Thread]) -> String {
     let prs: Vec<String> = r.replaces.iter().map(|o| format!("#{}", o.number)).collect();
     let now = crate::claude::now();
     let notes = crate::claude::notes_path().ok().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
@@ -506,26 +533,30 @@ pub fn prompt(r: &Record, extra: &str, reviews: Reviews) -> String {
             reviews_of(r, reviews)
         ),
     };
-    // What you asked of its drafts that no redraft has taken in yet: in the record, to answer.
-    let want = |w: &str| match w {
-        "ask" => " (ask: answer it; change nothing)",
-        "change" => " (change: make it)",
-        _ => "",
-    };
-    let asks: Vec<String> = r.asks.iter().enumerate().filter(|(_, a)| !a.done()).map(|(i, a)| format!("`asks[{i}]`{}: {}", want(&a.want), a.text.trim())).collect();
+    // Your threads about it waiting on Claude: to answer, in the record (it can't write to
+    // their file).
+    let asks: Vec<String> = waiting
+        .iter()
+        .map(|t| {
+            let want = if t.want.is_empty() { String::new() } else { format!(" (want: {})", t.want) };
+            format!("`{}`{want}, {}", t.claude.as_deref().unwrap_or(""), crate::claude::thread_brief(t))
+        })
+        .collect();
     let p = match asks.is_empty() {
         true => p,
         false => format!(
-            "{p}\n\nThe user asks of your drafts (the record's `asks`): do what each says it wants (ask: only answer it, \
-             changing nothing; change: make the change; neither said: as it reads), and write what you did, or your answer, \
-             in a sentence or few, in its `\"answer\"` (in the record; the user reads it beside your drafts).\n\n{}",
+            "{p}\n\nThe user's threads with you about this draft, waiting on your answer (its description, closing note, \
+             the whole draft, its code, your review of it): do what the last message of each wants (ask: only answer it, \
+             changing nothing; change, amend, commit: make the change; suggest: say what you'd change; none said: as it reads), \
+             and write what you did, or your answer, in a sentence or few, in the record's `\"answers\"` under the thread's \
+             id (`{{\"c3\": \"…\"}}`); dv puts each in its thread.\n\n{}",
             asks.join("\n\n")
         ),
     };
     crate::claude::with_instructions(&p, extra)
 }
 
-/// Whether what you write for draft `id` is asked of it (as its drafts' asks, or a new PR's
+/// Whether what you write for draft `id` is asked of it (a thread about it, or a new PR's
 /// instructions with its task), not your instructions for replacements' first drafts.
 pub fn redrafts(id: u64) -> bool {
     is_new(id) || drafted(id)
@@ -536,14 +567,17 @@ pub fn drafted(id: u64) -> bool {
     load(id).is_ok_and(|r| r.drafted())
 }
 
-/// Ask Claude about replacement `id`'s drafts (`on`: the one it's about, or ""; `want`: see
-/// `Request`): kept in its record (shown beside it), for its next redraft to take in.
+/// Ask Claude about replacement `id`'s drafts (`on`: the one it's about, or "": the whole;
+/// `want`: as on any thread): a thread about it (`review_path`), for its next redraft to answer.
 pub fn ask(id: u64, text: &str, on: &str, want: &str) -> Result<()> {
-    update(id, |r| {
-        r.asks.push(Request { text: text.trim().to_owned(), on: on.to_owned(), want: want.to_owned(), ..Request::default() });
-        Ok(())
-    })
-    .map(drop)
+    let on = if on.is_empty() { "draft" } else { on };
+    crate::claude::add_conversation(&review_path(id)?, on, text.trim(), want).map(drop)
+}
+
+/// Your threads about draft `id` waiting on Claude (`review_path`): what its redraft answers.
+pub fn waiting(id: u64) -> Vec<crate::gh::Thread> {
+    let review = review_path(id).ok().and_then(|p| crate::claude::load_with_ids(&p).ok().flatten());
+    review.map_or(vec![], |r| r.threads.into_iter().filter(|t| t.waiting()).collect())
 }
 
 /// Have Claude draft a replacement for `prs` with a dv of its own (`dv replace`), in the
@@ -570,8 +604,21 @@ pub fn writable() -> Result<PathBuf> {
 /// Draft replacement `prs` with Claude, in its worktree, in the foreground of this thread:
 /// what it took ("12 turns, $0.40"). `extra`: what you wrote for it just now: your
 /// instructions for a first draft (none: your last ones for replacements); for one drafted
-/// already, asked of its drafts (as `ask`).
-pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> Result<String> {
+/// already, asked of its drafts (as `ask`). What you asked of it while it drafted (a reply on
+/// a thread about it): taken up as it ends, by a redraft after.
+pub fn draft(prs: &[u64], root: &Path, extra: &str, mut prepared: impl FnMut()) -> Result<String> {
+    let mut extra = extra;
+    loop {
+        let (took, more) = draft_once(prs, root, extra, &mut prepared)?;
+        if !more {
+            return Ok(took);
+        }
+        extra = "";
+    }
+}
+
+/// `draft`, once: what it took, and whether more waits on it now that it wasn't given.
+fn draft_once(prs: &[u64], root: &Path, extra: &str, prepared: &mut impl FnMut()) -> Result<(String, bool)> {
     let prs = &target(prs)[..];
     let id = *prs.first().context("no PR to replace")?;
     // Under way first, before the slow setting up: others (dv list, another dv) see it, and
@@ -600,9 +647,6 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
                 added.push(n);
             }
         }
-        if r.drafted() && !extra.trim().is_empty() {
-            r.asks.push(Request { text: extra.trim().to_owned(), ..Request::default() });
-        }
         // A first draft: a session of its own (one that failed before may have made the last
         // one, which Claude Code won't start again).
         let first = !r.drafted();
@@ -616,6 +660,10 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
     })?;
     // Under way (claimed, marked): then its turn among Claude's runs from this dv (two at a
     // time), waited for.
+    // Drafted already: what you wrote is asked of it, a thread about the whole of it.
+    if !first && !extra.trim().is_empty() {
+        ask(id, extra, "", "")?;
+    }
     let _slot = crate::batch::Slot::take();
     let saved;
     let extra = match extra.trim() {
@@ -626,8 +674,8 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
         e => e,
     };
     let (mut set_up, mut started) = (false, 0);
-    // What it was given of what you asked (by text and draft: Claude may reorder the record).
-    let mut given: Vec<(String, String)> = vec![];
+    // Your threads it was given (by id), to answer.
+    let mut given: Vec<crate::gh::Thread> = vec![];
     // (A panic in it: a failure, the record's mark off all the same, not "drafting" for good.)
     let res = crate::batch::guarded(|| {
         let dir = match prs {
@@ -635,23 +683,19 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
             _ => prepare(prs, root)?,
         };
         set_up = true;
-        // What you've asked of it so far goes in its prompt: those are what it takes in.
-        let (r, _) = update(id, |r| {
-            r.taking = r.asks.len();
-            Ok(r.clone())
-        })?;
+        // What waits on it so far goes in its prompt: those are what it answers.
+        let r = load(id)?;
         // (The reviews it's given are read now: changes after go to the next.)
         started = crate::claude::now_secs() as u64;
-        given = r.asks.iter().filter(|a| !a.done()).map(|a| (a.text.clone(), a.on.clone())).collect();
+        given = waiting(id);
         // (A new session has seen none of the reviews.)
         let which = if fresh { Reviews::All } else { Reviews::Since(last, added.clone()) };
-        run_claude(&r, &dir, fresh, if first { extra } else { "" }, which, prepared)
+        run_claude(&r, &dir, fresh, if first { extra } else { "" }, which, &given, prepared)
     });
-    // Claude has written to the record meanwhile (its answers): the mark comes off; a change
-    // it was given and made (it finished) without saying so is done all the same, not asked
+    // Claude has written its answers to the record meanwhile: each to its thread; a change it
+    // was given and made (it finished) without saying so is done all the same, not asked
     // again and again.
-    _ = update(id, |now| {
-        now.taking = 0;
+    let answers = update(id, |now| {
         if res.is_ok() {
             now.drafted_at = started;
         }
@@ -659,30 +703,40 @@ pub fn draft(prs: &[u64], root: &Path, extra: &str, prepared: impl FnOnce()) -> 
         if !set_up {
             now.replaces.retain(|o| !added.contains(&o.number));
         }
-        let was_given = |a: &Request| given.iter().any(|(t, on)| *t == a.text && *on == a.on);
         // (A run refused what it needed hasn't done what it was given: still to do.)
         let made = res.is_ok() && now.refused.is_empty();
-        for a in now.asks.iter_mut().filter(|a| made && a.want != "ask" && !a.done() && was_given(a)) {
-            a.answer = NO_ANSWER.into();
-        }
-        Ok(())
+        Ok((std::mem::take(&mut now.answers), made))
     });
+    if let (Ok(((answers, made), _)), Ok(review)) = (answers, review_path(id)) {
+        for t in &given {
+            let k = t.claude.as_deref().unwrap_or("");
+            let said = answers.iter().find(|(id, _)| id == k).map(|(_, a)| a.trim()).filter(|a| !a.is_empty());
+            match said {
+                Some(a) => _ = crate::claude::answer(&review, k, a),
+                None if made && !matches!(t.want.as_str(), "ask" | "suggest") => _ = crate::claude::answer(&review, k, NO_ANSWER),
+                None => {}
+            }
+        }
+    }
     // Not set up (PRs on different bases, one that isn't there): no record left of it.
     if !set_up && !existed {
         _ = std::fs::remove_file(path(id)?);
     }
-    res
+    // More asked of it meanwhile (not what it was given): a redraft after.
+    let more = res.is_ok() && waiting(id).iter().any(|t| !given.iter().any(|g| g.claude == t.claude));
+    res.map(|took| (took, more))
 }
 
-/// `first`: its first draft (a new session; else it carries on in its own).
-fn run_claude(r: &Record, dir: &Path, first: bool, extra: &str, which: Reviews, prepared: impl FnOnce()) -> Result<String> {
+/// `first`: its first draft (a new session; else it carries on in its own). `waiting`: your
+/// threads about it, to answer.
+fn run_claude(r: &Record, dir: &Path, first: bool, extra: &str, which: Reviews, waiting: &[crate::gh::Thread], prepared: &mut impl FnMut()) -> Result<String> {
     prepared();
     let session = match first {
         true => ["--session-id".to_owned(), r.session.clone()],
         false => ["--resume".to_owned(), r.session.clone()],
     };
     let log = std::env::temp_dir().join(format!("dv-claude-replace-{}-{}.log", std::process::id(), r.id));
-    let mut child = crate::claude::claude_command(crate::claude::Work::Replace, &prompt(r, extra, which), dir, &session, crate::claude::REPLACE_TOOLS, Some(&writable()?))
+    let mut child = crate::claude::claude_command(crate::claude::Work::Replace, &prompt(r, extra, which, waiting), dir, &session, crate::claude::REPLACE_TOOLS, Some(&writable()?))
         .stdin(std::process::Stdio::null())
         .stdout(std::fs::File::create(&log)?)
         .stderr(std::fs::File::create(log.with_extension("err"))?)
@@ -919,21 +973,20 @@ fn records_round_trip() {
         published: Some(20),
         closed: vec![12],
         task: String::new(),
-        asks: vec![
-            Request { text: "shorter title".into(), want: "change".into(), on: "description".into(), answer: "Done.".into() },
-            Request { text: "mention #9".into(), ..Request::default() },
-        ],
-        taking: 1,
+        answers: vec![("c2".into(), "Done.".into())],
         drafted_at: 1_800_000_000,
         refused: "Bash magick convert a.png".into(),
     };
     assert_eq!(parse(12, &to_json(&r)).unwrap(), r);
-    // Only what no redraft has taken in yet is asked again.
-    assert!(prompt(&r, "", Reviews::All).ends_with("`asks[1]`: mention #9") && !prompt(&r, "", Reviews::All).contains("asks[0]"));
+    // Your threads waiting on it: in its prompt, by id, with what each wants.
+    let c = |who: &str, body: &str| crate::gh::Comment { author: who.into(), body: body.into(), ..Default::default() };
+    let t = crate::gh::Thread { claude: Some("c4".into()), conversation: "description".into(), want: "change".into(), comments: vec![c("you", "mention #9")], ..Default::default() };
+    let p = prompt(&r, "", Reviews::All, &[t]);
+    assert!(p.ends_with("`c4` (want: change), on description\n  the user: mention #9") && p.contains("\"answers\""), "{p}");
     // As Claude may leave it: fields missing are empty.
     let bare = parse(3, r#"{ "replaces": [{ "number": 3 }], "base": "main" }"#).unwrap();
     assert_eq!((bare.replaces[0].number, bare.title.as_str(), bare.base.as_str()), (3, "", "main"));
-    assert!(prompt(&r, "keep the old API", Reviews::All).contains("PR #12, #15") && prompt(&r, "keep the old API", Reviews::All).ends_with("The user adds:\nkeep the old API"));
+    assert!(prompt(&r, "keep the old API", Reviews::All, &[]).contains("PR #12, #15") && prompt(&r, "keep the old API", Reviews::All, &[]).ends_with("The user adds:\nkeep the old API"));
     let r = Record { closing_note: "Thanks! See {replacement}.".into(), ..r };
     assert_eq!(note(&r), "Thanks! See #20.");
     assert_eq!(note(&Record { published: None, ..r.clone() }), "Thanks! See the replacement.");
@@ -954,6 +1007,6 @@ fn new_prs() {
     let r = parse(id, r#"{ "base": "master", "task": "Fix #9: the panic on empty input" }"#).unwrap();
     assert!(r.replaces.is_empty() && r.task.starts_with("Fix #9"));
     assert_eq!(parse(id, &to_json(&r)).unwrap(), r);
-    let p = prompt(&r, "", Reviews::All);
+    let p = prompt(&r, "", Reviews::All, &[]);
     assert!(p.contains("draft a new PR") && p.ends_with("Fix #9: the panic on empty input"), "{p}");
 }
