@@ -931,7 +931,10 @@ pub fn linked(s: crate::claude::Subject) -> Result<Vec<u64>> {
     let q = format!("query($owner: String!, $name: String!, $n: Int!) {{ repository(owner: $owner, name: $name) {{ {kind}(number: $n) {{ url linked: {field} {{ nodes {{ number state url }} }} }} }} }}");
     let v = gh_json(&["api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-F", &format!("n={}", s.n()), "-f", &format!("query={q}")])?;
     let it = &v["data"]["repository"][kind];
-    Ok(open_here(&it["linked"]["nodes"], it["url"].as_str().unwrap_or("")))
+    // (Not said, refused, or GitHub out of time: unknown, not none.)
+    let nodes = &it["linked"]["nodes"];
+    anyhow::ensure!(nodes.is_array(), "GitHub didn't say ({})", v["errors"][0]["message"].as_str().unwrap_or("no answer"));
+    Ok(open_here(nodes, it["url"].as_str().unwrap_or("")))
 }
 
 /// Of `nodes` (GitHub's: number, state, url), the open ones in the repo of `url` (a PR's or
@@ -1079,9 +1082,11 @@ pub fn keep_known(new: &mut Value, old: &Value) {
             o.remove("dvCommitsUnknown");
         }
     }
-    // (What it closes, unknown this time: as it was.)
-    if new["dvCloses"].is_null() && old["dvCloses"].is_array() {
-        new["dvCloses"] = old["dvCloses"].clone();
+    // (What it closes, or would fix it, unknown this time: as it was.)
+    for k in ["dvCloses", "dvFixes"] {
+        if new[k].is_null() && old[k].is_array() {
+            new[k] = old[k].clone();
+        }
     }
     if !new["dvActivity"]["error"].is_null() && old["dvActivity"]["items"].is_array() {
         new["dvActivity"] = old["dvActivity"].clone();

@@ -112,6 +112,8 @@ fn github_refusals() {
     // Its base's rules refused: the signatures stand (not required).
     let p = pr_node(&answer(json!([{ "path": ["repository", "pullRequest", "baseRef", "rules"] }]))).unwrap();
     assert!(signatures_of(&p).is_ok_and(|s| !s.required));
+    // An issue it closes refused (another repo's, unreadable): the rest stands.
+    assert!(pr_node(&answer(json!([{ "path": ["repository", "pullRequest", "closingIssuesReferences", "nodes", 0] }]))).is_ok());
     // Anything else refused, or an error that doesn't say where: none of it, GitHub's word why.
     for e in [json!([{ "path": ["repository", "pullRequest", "commits", "nodes", 0], "message": "timed out" }]), json!([{ "message": "timed out" }])] {
         assert_eq!(format!("{:#}", pr_node(&answer(e)).unwrap_err()), "GitHub: timed out");

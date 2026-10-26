@@ -737,6 +737,18 @@ mod tests {
     }
 
     #[test]
+    fn what_it_closes_kept_when_github_cant_say() {
+        let old = json!({ "dvCloses": [{ "number": 7 }], "dvFixes": [{ "number": 9 }] });
+        // Unknown this time: as it was; none now: none.
+        let mut new = json!({});
+        keep_known(&mut new, &old);
+        assert!(new["dvCloses"][0]["number"] == 7 && new["dvFixes"][0]["number"] == 9);
+        let mut new = json!({ "dvCloses": [], "dvFixes": [{ "number": 10 }] });
+        keep_known(&mut new, &old);
+        assert!(new["dvCloses"].as_array().is_some_and(Vec::is_empty) && new["dvFixes"][0]["number"] == 10);
+    }
+
+    #[test]
     fn signatures_kept_when_github_cant_say() {
         let old = json!({ "headRefOid": "abc", "dvCommits": [{ "oid": "abc12345", "signed": true }], "dvCommitsTotal": 1, "dvSignaturesRequired": false, "dvCommitsAt": "2026-10-19T07:00:00Z" });
         let mut new = json!({ "headRefOid": "abc", "dvCommitsUnknown": "timed out" });
