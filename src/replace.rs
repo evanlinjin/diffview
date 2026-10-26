@@ -203,6 +203,8 @@ pub fn adopt_review(n: u64) {
         && let (Ok(from), Ok(to)) = (crate::claude::branch_review(&branch(r.id)), crate::claude::path(Some(n)))
     {
         _ = crate::claude::move_review(&from, &to);
+        // (What was asked of the whole draft: of the PR now, as a question about it.)
+        _ = crate::claude::rename_conversations(&to, &[(crate::claude::ON_DRAFT.into(), "summary".into())]);
     }
 }
 
@@ -222,7 +224,8 @@ pub fn path(id: u64) -> Result<PathBuf> {
 pub fn load(id: u64) -> Result<Record> {
     let p = path(id)?;
     let text = std::fs::read_to_string(&p).with_context(|| format!("reading {}", p.display()))?;
-    if text.contains("\"asks\"") {
+    // (Its own `asks`, top-level: not a word in a draft.)
+    if serde_json::from_str::<Value>(&text).is_ok_and(|v| v.get("asks").is_some()) {
         let v = adopt_asks(&text, &review_path(id)?)?;
         crate::claude::write_at(&p, (serde_json::to_string_pretty(&v)? + "\n").as_bytes())?;
         return load(id);
@@ -239,7 +242,7 @@ fn adopt_asks(text: &str, review: &Path) -> Result<Value> {
     for a in &asks {
         let s = |k: &str| a[k].as_str().unwrap_or("").to_owned();
         let on = match s("on").as_str() {
-            "" => "draft".to_owned(),
+            "" => crate::claude::ON_DRAFT.to_owned(),
             on => on.to_owned(),
         };
         let k = crate::claude::add_conversation(review, &on, &s("text"), &s("want"))?;
@@ -249,7 +252,7 @@ fn adopt_asks(text: &str, review: &Path) -> Result<Value> {
             ans => ans,
         };
         if !answer.trim().is_empty() {
-            crate::claude::answer(review, &k, &answer)?;
+            crate::claude::answer(review, &k, 1, &answer)?;
         }
     }
     if let Some(o) = v.as_object_mut() {
@@ -570,7 +573,7 @@ pub fn drafted(id: u64) -> bool {
 /// Ask Claude about replacement `id`'s drafts (`on`: the one it's about, or "": the whole;
 /// `want`: as on any thread): a thread about it (`review_path`), for its next redraft to answer.
 pub fn ask(id: u64, text: &str, on: &str, want: &str) -> Result<()> {
-    let on = if on.is_empty() { "draft" } else { on };
+    let on = if on.is_empty() { crate::claude::ON_DRAFT } else { on };
     crate::claude::add_conversation(&review_path(id)?, on, text.trim(), want).map(drop)
 }
 
@@ -608,17 +611,21 @@ pub fn writable() -> Result<PathBuf> {
 /// a thread about it): taken up as it ends, by a redraft after.
 pub fn draft(prs: &[u64], root: &Path, extra: &str, mut prepared: impl FnMut()) -> Result<String> {
     let mut extra = extra;
+    let id = *target(prs).first().context("no PR to replace")?;
     loop {
-        let (took, more) = draft_once(prs, root, extra, &mut prepared)?;
-        if !more {
+        let (took, given) = draft_once(prs, root, extra, &mut prepared)?;
+        // More asked of it meanwhile (a thread, or a reply on one, it wasn't given): a redraft
+        // after; asked once its claim's gone, a redraft of its own (not another one here).
+        let more = waiting(id).iter().any(|t| !given.contains(&(t.claude.clone().unwrap_or_default(), t.comments.len())));
+        if !more || load(id).ok().and_then(|r| r.at_work()).is_some() {
             return Ok(took);
         }
         extra = "";
     }
 }
 
-/// `draft`, once: what it took, and whether more waits on it now that it wasn't given.
-fn draft_once(prs: &[u64], root: &Path, extra: &str, prepared: &mut impl FnMut()) -> Result<(String, bool)> {
+/// `draft`, once: what it took, and the threads it was given (id, messages then).
+fn draft_once(prs: &[u64], root: &Path, extra: &str, prepared: &mut impl FnMut()) -> Result<(String, Vec<(String, usize)>)> {
     let prs = &target(prs)[..];
     let id = *prs.first().context("no PR to replace")?;
     // Under way first, before the slow setting up: others (dv list, another dv) see it, and
@@ -711,9 +718,11 @@ fn draft_once(prs: &[u64], root: &Path, extra: &str, prepared: &mut impl FnMut()
         for t in &given {
             let k = t.claude.as_deref().unwrap_or("");
             let said = answers.iter().find(|(id, _)| id == k).map(|(_, a)| a.trim()).filter(|a| !a.is_empty());
+            // (After what it was given: a reply of yours since waits on it still.)
+            let at = t.comments.len();
             match said {
-                Some(a) => _ = crate::claude::answer(&review, k, a),
-                None if made && !matches!(t.want.as_str(), "ask" | "suggest") => _ = crate::claude::answer(&review, k, NO_ANSWER),
+                Some(a) => _ = crate::claude::answer(&review, k, at, a),
+                None if made && !matches!(t.want.as_str(), "ask" | "suggest") => _ = crate::claude::answer(&review, k, at, NO_ANSWER),
                 None => {}
             }
         }
@@ -722,9 +731,7 @@ fn draft_once(prs: &[u64], root: &Path, extra: &str, prepared: &mut impl FnMut()
     if !set_up && !existed {
         _ = std::fs::remove_file(path(id)?);
     }
-    // More asked of it meanwhile (not what it was given): a redraft after.
-    let more = res.is_ok() && waiting(id).iter().any(|t| !given.iter().any(|g| g.claude == t.claude));
-    res.map(|took| (took, more))
+    res.map(|took| (took, given.iter().map(|t| (t.claude.clone().unwrap_or_default(), t.comments.len())).collect()))
 }
 
 /// `first`: its first draft (a new session; else it carries on in its own). `waiting`: your

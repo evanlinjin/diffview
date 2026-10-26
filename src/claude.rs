@@ -68,6 +68,15 @@ impl Thread {
     }
 }
 
+/// Threads about text, not code (`"conversation"`): a PR's, an issue's or a draft's
+/// description, or (`ON_DRAFT`) the whole of a draft (shown with its description); a draft's
+/// closing note (`replace::review_path`); the comment Claude drafts for closing a PR or issue.
+/// A change asked there is to that text: Claude proposes it, or a draft is redrafted.
+pub const ON_DRAFT: &str = "draft";
+pub const ON_DESCRIPTION: [&str; 2] = ["description", ON_DRAFT];
+pub const ON_CLOSING_NOTE: &str = "closing note";
+pub const ON_CLOSING: &str = "closing";
+
 /// Author names in the file. The user's replies show as "you".
 pub const AUTHOR: &str = "claude";
 const USER: &str = "user";
@@ -1051,6 +1060,21 @@ pub fn adopt_issue_extras(path: &std::path::Path) -> Result<()> {
 }
 
 #[test]
+fn a_drafts_answer_goes_after_what_it_was_given() {
+    // Given "shorter?" (one message); you replied "and no emoji" while it drafted: its answer
+    // goes between, and your reply still waits on it.
+    let p = std::env::temp_dir().join(format!("dv-answer-at-{}.json", std::process::id()));
+    std::fs::write(&p, r#"{ "comments": [{ "id": "c1", "conversation": "description", "author": "user", "body": "shorter?",
+        "replies": [{ "author": "user", "body": "and no emoji" }] }] }"#).unwrap();
+    answer(&p, "c1", 1, "Shortened it.").unwrap();
+    let t = &load(&p).unwrap().unwrap().threads[0];
+    let said: Vec<&str> = t.comments.iter().map(|c| c.body.as_str()).collect();
+    assert_eq!(said, ["shorter?", "Shortened it.", "and no emoji"]);
+    assert!(t.waiting());
+    _ = std::fs::remove_file(p);
+}
+
+#[test]
 fn v093_issue_extras_adopted() {
     let p = std::env::temp_dir().join(format!("dv-adopt-{}.json", std::process::id()));
     std::fs::write(&p, r#"{ "summary": "s", "asks": [{ "q": "why?", "a": "because" }], "edit": { "title": "T", "body": "B", "was_title": "t", "was_body": "b" } }"#).unwrap();
@@ -1176,14 +1200,16 @@ pub fn reply(path: &std::path::Path, key: &str, body: &str, want: &str) -> Resul
 }
 
 /// Claude's answer to comment `key`, added for it (by dv: what a draft, which can't write
-/// here, answered).
-pub fn answer(path: &std::path::Path, key: &str, body: &str) -> Result<()> {
+/// here, answered), after the first `at` messages of its thread (the comment, then its
+/// replies): what it was given, not a reply of yours since, which waits on it still.
+pub fn answer(path: &std::path::Path, key: &str, at: usize, body: &str) -> Result<()> {
     update(path, key, |c, i| {
         if !c[i]["replies"].is_array() {
             c[i]["replies"] = serde_json::json!([]);
         }
         if let Some(a) = c[i]["replies"].as_array_mut() {
-            a.push(serde_json::json!({ "author": AUTHOR, "body": body, "created": now() }));
+            let at = at.saturating_sub(1).min(a.len());
+            a.insert(at, serde_json::json!({ "author": AUTHOR, "body": body, "created": now() }));
         }
     })
 }

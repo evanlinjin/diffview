@@ -168,6 +168,9 @@ like a reply: it's waiting for you while the user has the last word. Some point 
 - `"conversation": "closing"`: about the comment closing the PR (or issue). `change`: draft it,
   or change your draft, as in "Draft a closing comment" below, and say what you did; `ask`: just
   answer.
+- `"conversation": "closing note"`: about a published replacement's note for closing the PRs
+  it replaces (its record's, which the user edits as they close them): answer, and for a
+  change, say what you'd write.
 
 Answer each with a reply, as any other.
 
