@@ -213,7 +213,7 @@ impl App {
         // a draft replaces, nor another's).
         let text = |r: usize| {
             let row = &self.rows[r];
-            self.talk_text_at(r) == Some(on) && row.main.is_some() && row.line.kind != Kind::File && row.info.is_some_and(|i| self.info.get(i).is_some_and(|l| l.md && !l.text.trim().is_empty()))
+            self.talk_text_at(r) == Some(on) && row.main.is_some() && row.line.kind != Kind::File && row.info.is_none_or(|i| self.info.get(i).is_some_and(|l| l.md && !l.text.trim().is_empty())) && !row.line.text.trim().is_empty()
         };
         let quote: String = (s.row..=e.row).filter(|&r| text(r)).map(|r| format!("> {}\n", self.rows[r].line.text.trim_end())).collect();
         let name = text_name(on);

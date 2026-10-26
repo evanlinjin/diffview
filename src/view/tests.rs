@@ -1524,8 +1524,14 @@ fn replacement_in_the_pr_section() {
     assert!(app.rows[at("Say why.")].attached && at("Say why.") < at("Why two?") && at("Why two?") < at("One per original."), "{text:#?}");
     assert!(app.rows[at("Tidy it.")].attached && at("closing note, for") < at("Tidy it.") && at("Tidy it.") < at("Thanks! Handled in {replacement}."), "{text:#?}");
     assert!(app.rows[at("Say why.")].thread.is_some() && app.rows[at("Tidy it.")].thread.is_some());
-    // Each its own box, once (not again as a question about the conversation).
+    // Each its own box, once (not again as a question about the conversation); folded with
+    // its draft, not with what has no place.
     assert_eq!(text.iter().filter(|t| t.contains("Why two?")).count(), 1);
+    app.sections_folded.insert(CLOSING_NOTE);
+    app.build();
+    assert!(!app.rows.iter().any(|r| r.line.text == "Tidy it."));
+    app.sections_folded.remove(&CLOSING_NOTE);
+    app.build();
     // r on one: a reply in its thread (no picker: its want goes on).
     app.goto(at("Why two?"), 0);
     app.start_reply(false);
@@ -2551,7 +2557,13 @@ fn claude_drafts_a_closing_comment() {
     app.build();
     let asked: Vec<usize> = (0..app.rows.len()).filter(|&r| app.rows[r].line.text == "Kinder.").collect();
     assert!(asked.len() == 1 && app.rows[asked[0]].attached, "{asked:?}");
-    app.threads.pop();
+    // Answered, and the comment used (or discarded): no section asking for it again.
+    let (closing, mut t) = (std::mem::take(&mut app.claude.closing), app.threads.pop().unwrap());
+    t.comments.push(gh::Comment { author: "claude".into(), body: "Kinder now.".into(), ..Default::default() });
+    app.threads.push(t);
+    app.build();
+    assert!(!app.rows.iter().any(|r| r.main == Some(CLOSING_PR)));
+    (app.claude.closing, _) = (closing, app.threads.pop());
     app.build();
     // A section first, in the diff; Space a: close with it (your editor first), more, discard.
     let head = app.rows.iter().position(|r| r.main == Some(CLOSING_PR)).expect("its section");

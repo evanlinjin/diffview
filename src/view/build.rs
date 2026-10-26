@@ -254,19 +254,22 @@ impl App {
         // (Jump labels are places in the old rows.)
         self.labels.clear();
         let mut rows = self.title_rows();
-        // Attached to the description (beside it in the pane, as comments are beside their
-        // lines; inline after it, the pane hidden): with no description (a branch), after the
-        // title.
-        let mut attached = self.attached_rows();
-        if self.whole_pr() {
-            rows.extend(self.closing_comment());
-            rows.extend(self.description_rows(&mut attached));
-        }
-        rows.extend(self.attach(vec![], &mut attached)); // (marked as attached all the same)
-        rows.extend(self.closing_note_rows());
+        let text = self.text_rows();
+        // (What's said about the text has its place there, folded or not: not with what has none.)
+        let unfolded = match self.sections_folded.is_empty() && !self.info_collapsed {
+            true => None,
+            false => {
+                let folds = (std::mem::take(&mut self.sections_folded), std::mem::take(&mut self.info_collapsed));
+                let rows = self.text_rows();
+                (self.sections_folded, self.info_collapsed) = folds;
+                Some(rows)
+            }
+        };
+        let gone = self.gone_rows(unfolded.as_ref().unwrap_or(&text));
+        rows.extend(text);
         rows.extend(self.commit_sections());
         let gone_at = rows.len();
-        rows.extend(self.gone_rows(&rows));
+        rows.extend(gone);
         let shown: Vec<&Thread> = self.threads.iter().filter(|t| self.in_view(t)).collect();
         for (i, f) in self.files.iter().enumerate() {
             rows.extend(self.file_rows(i, f, &shown));
@@ -282,6 +285,28 @@ impl App {
         self.code_head.row = self.find_key(code).unwrap_or(0);
         self.emph = self.word_spans();
         self.layout();
+    }
+
+    /// The PR's text, after its title: its closing comment and description, what's attached
+    /// to it (beside it in the pane, as comments are beside their lines; inline after it, the
+    /// pane hidden: with no description, a branch, after the title), its closing note.
+    fn text_rows(&self) -> Vec<Row> {
+        let mut rows = vec![];
+        let mut attached = self.attached_rows();
+        if self.whole_pr() {
+            rows.extend(self.closing_comment());
+            rows.extend(self.description_rows(&mut attached));
+        }
+        rows.extend(self.attach(vec![], &mut attached)); // (marked as attached all the same)
+        rows.extend(self.closing_note_rows());
+        rows
+    }
+
+    /// Text's section `s` (its `rows`), with what's said about it (`on`) beside it, unless
+    /// it's folded.
+    fn with_talk(&self, s: usize, rows: Vec<Row>, on: &str) -> Vec<Row> {
+        let mut asked = if self.sections_folded.contains(&s) { vec![] } else { self.text_threads(&[on]) };
+        self.attach(rows, &mut asked)
     }
 
     /// The pinned title's text: the PR's number and title, a replacement's or new PR's, or (a
@@ -348,14 +373,15 @@ impl App {
     }
 
     /// Claude's draft comment for closing the PR: first, as what you'd do next.
-    /// (Asked for, not drafted yet: there, with what you asked beside it.)
+    /// (Asked for, not drafted yet: there, with what you asked beside it. Used or discarded,
+    /// gone: what was said about it with what has no place.)
     fn closing_comment(&self) -> Vec<Row> {
-        let mut asked = self.text_threads(&[ON_CLOSING]);
-        if self.view != View::All || self.claude.closing.trim().is_empty() && asked.is_empty() {
+        let drafted = !self.claude.closing.trim().is_empty();
+        let asked = self.threads.iter().any(|t| t.conversation == ON_CLOSING && t.waiting());
+        if self.view != View::All || !drafted && !asked {
             return vec![];
         }
         let it = self.what();
-        let drafted = !self.claude.closing.trim().is_empty();
         let what = match (drafted, self.pr_state.is_some_and(|s| matches!(s.0, "OPEN" | "DRAFT"))) {
             (false, _) => "closing comment · asked of Claude (it drafts it)".to_owned(),
             (true, true) => format!("closing comment · Claude's draft (Space a: close {it} with it, more changes, discard)"),
@@ -363,7 +389,7 @@ impl App {
         };
         let text = if drafted { self.claude.closing.trim() } else { "_(not drafted yet)_" };
         let s = self.section(CLOSING_PR, what, text, None);
-        self.attach(s, &mut asked)
+        self.with_talk(CLOSING_PR, s, ON_CLOSING)
     }
 
     /// Before the files, like one: the PR's description (in the Claude view too), what's
@@ -411,8 +437,7 @@ impl App {
         let open = |r: &&crate::replace::Record| r.replaces.iter().any(|o| !r.closed.contains(&o.number));
         if let Some(r) = self.replacement.as_ref().filter(|_| self.pr.is_some()).filter(open) {
             let s = self.section(CLOSING_NOTE, "closing note, for the PRs it replaces (S closes them with it)".into(), &crate::replace::note(r), None);
-            let mut asked = self.text_threads(&[ON_CLOSING_NOTE]);
-            return self.attach(s, &mut asked);
+            return self.with_talk(CLOSING_NOTE, s, ON_CLOSING_NOTE);
         }
         let Some(h) = self.heading(Self::is_closing_note) else { return vec![] };
         let undrafted = format!("_({})_", self.replacement.as_ref().map_or("not drafted yet".into(), |r| r.undrafted()));
@@ -421,11 +446,7 @@ impl App {
             t => t,
         };
         let s = self.section(CLOSING_NOTE, self.info[h].text.clone(), text, Some(h + 1));
-        let mut asked = match self.sections_folded.contains(&CLOSING_NOTE) {
-            true => vec![],
-            false => self.text_threads(&[ON_CLOSING_NOTE]),
-        };
-        self.attach(s, &mut asked)
+        self.with_talk(CLOSING_NOTE, s, ON_CLOSING_NOTE)
     }
 
     /// Some of the commits shown: each one's message, a section.

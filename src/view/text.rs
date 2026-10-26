@@ -199,7 +199,7 @@ impl App {
                 rows
             }
         };
-        rows.extend(self.summary_threads());
+        rows.extend(self.text_threads(&[ON_SUMMARY]));
         rows.extend(asks);
         rows.extend(self.claude_activity());
         next.extend(rows);
@@ -282,14 +282,6 @@ impl App {
         rows
     }
 
-    /// Your replies to Claude's review summary (and its answers), under it.
-    pub(super) fn summary_threads(&self) -> Vec<Row> {
-        (0..self.threads.len())
-            .filter(|&t| self.threads[t].conversation == ON_SUMMARY && self.in_view(&self.threads[t]))
-            .flat_map(|t| self.thread_rows(t, INFO))
-            .collect()
-    }
-
     /// With no PR (a branch Claude reviewed), Claude's review is all the PR section has.
     pub(super) fn no_pr_summary(&self) -> Vec<Row> {
         match self.pr.is_none() && self.replacement.is_none() {
@@ -298,8 +290,8 @@ impl App {
         }
     }
 
-    /// Your threads with Claude about a draft's `on` (`ON_DESCRIPTION`, `ON_CLOSING_NOTE`),
-    /// as under its summary.
+    /// Your threads with Claude on `on` (`ON_SUMMARY`, `ON_DESCRIPTION`, `ON_CLOSING_NOTE`, …),
+    /// to go beside it.
     pub(super) fn text_threads(&self, on: &[&str]) -> Vec<Row> {
         (0..self.threads.len()).filter(|&t| on.contains(&self.threads[t].conversation.as_str()) && self.in_view(&self.threads[t])).flat_map(|t| self.thread_rows(t, INFO)).collect()
     }
