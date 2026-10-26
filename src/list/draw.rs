@@ -124,7 +124,7 @@ impl List {
                 if let Some((days, waiting)) = self.stalled(p).filter(|_| self.nav.tab == Tab::Stalled) {
                     let why = match waiting {
                         Some((who, _)) => format!("@{} hasn't answered @{who} for {days} days (H asks whether they need help)", p.author),
-                        None => format!("@{}'s draft, nothing of theirs for {days} days (H asks whether they need help)", p.author),
+                        None => format!("@{}'s draft, nothing on it for {days} days (H asks whether they need help)", p.author),
                     };
                     lines.insert(1, note_line("⏸", &why, &cx, i == sel));
                 }

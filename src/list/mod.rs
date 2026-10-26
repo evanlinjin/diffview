@@ -821,12 +821,14 @@ impl List {
     /// Whether PR `p`'s author has gone quiet for `stalled_days` or more: a review or a
     /// maintainer's comment left unanswered (nothing of theirs since: no push, no comment, no
     /// reply), or a draft of theirs left (nothing of theirs at all: it's no one else's to move
-    /// on, nor anyone's push since). How long, and whose word is unanswered (none: a draft left). Not yours (you'd
+    /// on, nor anyone's commit since). How long, and whose word is unanswered (none: a draft
+    /// left). Not yours (you'd
     /// know), nor one waiting on reviews (they had the last word, ready for them); a bot's
     /// (`app/…`) isn't one to ask, nor a deleted account, ghost.
     pub(super) fn stalled(&self, p: &Listed) -> Option<(i64, Option<(String, bool)>)> {
         let e = self.extra.get(&p.number)?;
-        let (at, waiting) = match &e.unanswered {
+        // (What was asked, then done by anyone since: not waiting on its author.)
+        let (at, waiting) = match e.unanswered.as_ref().filter(|(at, ..)| *at > e.active) {
             Some((at, who, review)) => (*at, Some((who.clone(), *review))),
             None if p.draft => (e.active.max(crate::gh::epoch_secs(&p.created).unwrap_or(0)), None),
             None => return None,

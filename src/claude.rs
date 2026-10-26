@@ -1226,7 +1226,7 @@ pub fn set_talk_resolved(path: &std::path::Path, key: &str, on: bool) -> Result<
 
 /// The time now as ISO 8601 (UTC), e.g. 2026-10-16T12:00:00Z.
 pub fn now() -> String {
-    iso(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64))
+    iso(now_secs())
 }
 
 /// Time `t` (seconds since 1970) as ISO 8601 (UTC).

@@ -121,7 +121,7 @@ pub struct Extra {
     /// they had the last word, or an approval since did.
     pub unanswered: Option<(i64, String, bool)>,
     /// The last sign of anyone at work on it: its author's last word (push, comment, review),
-    /// or anyone's push (one taken over is not left); 0: none seen.
+    /// or anyone's commit, when written (one taken over is not left); 0: none seen.
     pub active: i64,
 }
 
@@ -214,7 +214,9 @@ pub(super) fn extra(p: &Value, me: &str) -> Extra {
         signatures_required: requires_signatures(p),
         awaiting: 0, // from the workflow runs, after (`list_extra`)
         unanswered,
-        active: last_word.max(nodes("commits").iter().map(|c| at(&c["commit"]["committedDate"])).max().unwrap_or(0)),
+        // (A commit's work when it was written: not when it was rebased, nor GitHub's merge of the
+        // base, "Update branch": a sync, not work on it.)
+        active: last_word.max(nodes("commits").iter().filter(|c| c["commit"]["committer"]["user"]["login"] != "web-flow").map(|c| at(&c["commit"]["authoredDate"])).max().unwrap_or(0)),
     }
 }
 
