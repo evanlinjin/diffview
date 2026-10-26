@@ -5738,6 +5738,13 @@ fn going_to_a_thread_on_no_lines_finds_where_it_shows() {
     let line = |n| gh::Thread { path: "src/big.rs".into(), line: Some(n), original_line: Some(n), ..Default::default() };
     app.threads.push(gh::Thread { claude: Some("c12".into()), talk_resolved: true, comments: vec![said("claude", "Rename it."), said("you", "Why?"), said("claude", "Clearer.")], ..line(5) });
     app.build();
+    let talk = app.talk_shown.clone();
+    app.goto_comment(app.threads.len() - 1, 7); // (not there: its talk folded again)
+    assert!(app.talk_shown == talk);
     app.goto_comment(app.threads.len() - 1, 2);
     assert!(app.rows[app.head.row + 1].line.text == "Clearer.", "{}", app.msg);
+    // (A jump to talk that isn't resolved doesn't keep it open for when it is.)
+    let n = app.talk_shown.len();
+    app.goto_comment(0, 0);
+    assert_eq!(app.talk_shown.len(), n);
 }

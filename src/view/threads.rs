@@ -184,7 +184,9 @@ impl App {
             if !self.thread_open(ti) {
                 self.toggled.insert(id, true);
             }
-            self.talk_shown.insert(id);
+            if self.threads[ti].talk_resolved {
+                self.talk_shown.insert(id);
+            }
         }
         // Each comment starts with an author row; outdated threads' code rows aren't author rows.
         let at = |app: &App| app.rows.iter().enumerate().filter(|(_, r)| r.thread == Some(ti) && r.line.kind == Kind::Thread).nth(ci).map(|(r, _)| r);
