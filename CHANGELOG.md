@@ -5,6 +5,11 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.96.11] - 2026-10-26
+
+### Changed
+- Removing a link's worktree as you come back says so while it goes.
+
 ## [0.96.10] - 2026-10-26
 
 ### Fixed
