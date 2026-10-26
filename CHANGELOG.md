@@ -5,6 +5,20 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.96.12] - 2026-10-26
+
+### Fixed
+- A draft Claude finished, though it was refused something along the way (and worked around
+  it), isn't "blocked": blocked is when the refusal stopped it (the run stopped, or nothing
+  drafted). A run's result says what it was refused, not "blocked". A redraft refused anything
+  doesn't take what it left unanswered as done.
+- On a draft, what you want of Claude is an answer or the change, on its code too, and `Space
+  a` doesn't offer making changes (amend, commit): a draft changes by its redraft.
+
+### Added
+- `dv amend C -m MSG`: the commit's new message without a file. The skill tells Claude its
+  Bash has no `sed`, redirects or `/tmp` (Read and Edit), and cargo only through `dv cargo`.
+
 ## [0.96.11] - 2026-10-26
 
 ### Changed
