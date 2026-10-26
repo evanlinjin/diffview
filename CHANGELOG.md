@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.96.9] - 2026-10-26
+
+### Changed
+- A worktree made for a PR a link opened (from a PR's view) is removed as you come back, if
+  nothing in it would be lost (no changes, no commits beyond the PR, Claude not at work there).
+
 ## [0.96.8] - 2026-10-26
 
 ### Fixed
