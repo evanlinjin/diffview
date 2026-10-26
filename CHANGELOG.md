@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.96.13] - 2026-10-26
+
+### Changed
+- The issues todo leaves out an issue a PR open would fix, or a draft: that's what to look at,
+  in the PRs' views; it's back once it isn't open (merged into another branch: close it; or
+  closed). An issue defers for a time only (`…, or 2 weeks` with anything else: the time).
+
 ## [0.96.12] - 2026-10-26
 
 ### Fixed
