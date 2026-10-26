@@ -36,8 +36,8 @@ const USAGE: &str = "usage: dv [base | PR | list] [-p N] [-f] [-w [-b]]
                    `dv scratch --rm <dir>` removes one (else they go after a day)
   dv repo-file O/R[@REF] P  for Claude: file P of public GitHub repo O/R (at REF), or a
                    directory's entries (`.`: the top), read only
-  dv amend C [F…] [-F M]  fold what isn't committed (in files F) into the branch's commit C, and/or
-                   give it the message in file M (a backup branch first)
+  dv amend C [F…] [-F M | -m MSG]  fold what isn't committed (in files F) into the branch's
+                   commit C, and/or give it the message in file M, or MSG (a backup branch first)
   dv replace 123 [124 …]   Claude drafts a replacement for those PRs, unpublished, on
                    branch dv/replace-123 in a worktree <repo>-replace-123 (dv list's
                    drafts tab shows it)
@@ -230,12 +230,16 @@ fn run() -> anyhow::Result<()> {
     }
     // `dv amend`'s files as git names them, from the repo's root (where dv goes next): those
     // changed of the ones given (`./a`, `../b`, a dir, a glob).
-    // Its `-F <file>`: the commit's new message (read here, from where it was given).
+    // Its `-F <file>` (read here, from where it was given) or `-m <message>`: the commit's new
+    // message.
     let mut message = None;
-    if let Some(i) = o.rest.iter().position(|a| a == "-F" || a == "--file").filter(|_| o.cmd == Some("amend")) {
-        let f = o.rest.get(i + 1).context("-F needs a file with the commit's new message")?.clone();
-        let m = std::fs::read_to_string(&f).with_context(|| format!("reading {f}"))?;
-        anyhow::ensure!(!m.trim().is_empty(), "{f} is empty: no message to give the commit");
+    if let Some(i) = o.rest.iter().position(|a| ["-F", "--file", "-m", "--message"].contains(&a.as_str())).filter(|_| o.cmd == Some("amend")) {
+        let f = o.rest.get(i + 1).with_context(|| format!("{} needs the commit's new message", o.rest[i]))?.clone();
+        let m = match o.rest[i].starts_with("-m") || o.rest[i] == "--message" {
+            true => f.clone(),
+            false => std::fs::read_to_string(&f).with_context(|| format!("reading {f}"))?,
+        };
+        anyhow::ensure!(!m.trim().is_empty(), "no message to give the commit ({f} is empty)");
         message = Some(m);
         o.rest.drain(i..i + 2);
     }

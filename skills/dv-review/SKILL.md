@@ -213,13 +213,13 @@ Never answer "re-send it as …" for what you're allowed to do: do it.
 To amend a change into the commit it belongs in (the branch's commit whose change it completes
 or fixes; `git blame` hints): `dv amend <sha> [file…]` folds what isn't
 committed (in those files: name them when other changes are uncommitted too) into that commit,
-HEAD kept on a backup branch first. To change a commit's message, write the new one to a file
-and `dv amend <sha> -F <file>` (with files too, to fold them in the same go). Don't rebase by
+HEAD kept on a backup branch first. To change a commit's message, `dv amend <sha> -m '<the new
+message>'` (with files too, to fold them in the same go). Don't rebase by
 hand. Say which commit it went in.
 
 Your commands run only if each is allowed on its own: one plain command per call (no `cd`, `&&`,
 loops, pipes into other commands, or `git -C`). There's no `sed`, `awk`, `cat >`, `>` or `/tmp`:
-to move or rewrite code, Read it and Edit (or Write) it, here in the checkout. Build and test
+to move or rewrite code, Read it and Edit (or Write) it. Build and test
 through dv (never `cargo` itself): `dv cargo test`,
 `dv cargo clippy`, `dv cargo +nightly fmt --check`, `dv cargo +1.85.0 clippy …` (check, build,
 test, clippy, doc, bench or fmt --check, on any toolchain). To measure performance, `dv cargo
