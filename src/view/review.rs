@@ -957,16 +957,12 @@ impl App {
         }
         // What's selected, quoted in the reply: what it's about.
         let sel = self.selected_quote();
-        // On Claude's review summary: go on in the thread replying to it, or start one.
-        if self.rows[self.head.row].info == Some(SUMMARY) && self.rows[self.head.row].thread.is_none() {
+        // On Claude's review summary: as `a` there.
+        if self.on_summary() {
             if self.claude.path.is_none() {
                 return self.msg = "no review file here (not in a git repo?)".into();
             }
-            let prefill = sel.unwrap_or_default();
-            return self.action = Some(match self.threads.iter().find(|t| t.conversation == ON_SUMMARY).and_then(|t| t.claude.clone()) {
-                Some(k) => Action::ClaudeReply(k, "", prefill),
-                None => Action::AskConversation { url: ON_SUMMARY.into(), prefill, want: "" },
-            });
+            return self.ask_summary();
         }
         // On lines, say what you want of Claude; under a conversation comment it's a question.
         if let Some((t, k)) = self.claude_at_cursor() {

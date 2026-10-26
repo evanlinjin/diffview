@@ -2686,7 +2686,8 @@ fn reply_to_claudes_summary() {
     app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
     let Some(Action::AskConversation { url, prefill, .. }) = app.action.take() else { panic!("no reply: {}", app.msg) };
     assert_eq!((url.as_str(), prefill.as_str()), (ON_SUMMARY, "About this part of your review:\n> Looks right\n\n"));
-    // With that thread there: under the summary, and r on the summary goes on in it.
+    // With that thread there: under the summary; r on the summary is a question of its own,
+    // as a there (r on the thread goes on in it).
     let c = |who: &str, body: &str| gh::Comment { author: who.into(), body: body.into(), ..Default::default() };
     app.threads.push(gh::Thread { claude: Some("c7".into()), conversation: ON_SUMMARY.into(), comments: vec![c("you", "why approve?"), c("claude", "Because it's minimal.")], ..Default::default() });
     app.build();
@@ -2701,7 +2702,7 @@ fn reply_to_claudes_summary() {
     let row = app.rows.iter().position(|r| r.info == Some(SUMMARY) && r.thread.is_none() && r.line.text.contains("Looks right")).unwrap();
     app.goto(row, 0);
     app.start_reply(true);
-    assert!(matches!(app.action.take(), Some(Action::ClaudeReply(k, ..)) if k == "c7"));
+    assert!(matches!(app.action.take(), Some(Action::AskConversation { url, .. }) if url == ON_SUMMARY));
     // `a` on what's selected of Claude's answer there: a reply, quoting it.
     let ans = at(&app, "Because it's minimal.");
     app.goto(ans, 0);

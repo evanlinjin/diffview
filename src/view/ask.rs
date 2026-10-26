@@ -62,14 +62,8 @@ impl App {
         if self.claude.path.is_none() {
             return self.msg = "no review file here (not in a git repo?)".into();
         }
-        // On Claude's review summary: a reply to it, about what's selected there (quoted).
-        let row = &self.rows[self.head.row];
-        if row.info == Some(SUMMARY) && row.thread.is_none() {
-            let prefill = match self.selected_quote() {
-                Some(q) => format!("About this part of your review:\n{q}"),
-                None => String::new(),
-            };
-            return self.action = Some(Action::AskConversation { url: ON_SUMMARY.into(), prefill, want: "" });
+        if self.on_summary() {
+            return self.ask_summary();
         }
         // A published replacement's closing note: yours to change as it goes out.
         if self.section_of(self.head.row) == Some(CLOSING_NOTE) {
@@ -211,6 +205,22 @@ impl App {
         let file = self.files.iter().find(|f| f.path == a.path);
         a.start = a.start.and_then(|s| start_on_side(file?, s, a.left)).filter(|&s| s < a.line).map(|s| (s, a.left));
         a
+    }
+
+    /// On Claude's review summary (not a thread under it).
+    pub(super) fn on_summary(&self) -> bool {
+        let row = &self.rows[self.head.row];
+        row.info == Some(SUMMARY) && row.thread.is_none()
+    }
+
+    /// `a` or `r` on Claude's review summary: a question of its own, about what's selected
+    /// there (quoted). (A thread under it goes on with `r` on it.)
+    pub(super) fn ask_summary(&mut self) {
+        let prefill = match self.selected_quote() {
+            Some(q) => format!("About this part of your review:\n{q}"),
+            None => String::new(),
+        };
+        self.action = Some(Action::AskConversation { url: ON_SUMMARY.into(), prefill, want: "" });
     }
 
     /// `a` on a GitHub review thread: a comment for Claude on its lines, asking about the comment
