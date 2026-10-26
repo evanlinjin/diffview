@@ -5,6 +5,12 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.96.6] - 2026-10-26
+
+### Fixed
+- Going to a question about Claude's summary finds it with the description folded; one not
+  found leaves its file's and thread's folds as they were.
+
 ## [0.96.5] - 2026-10-26
 
 ### Fixed
