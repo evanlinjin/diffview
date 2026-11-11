@@ -2242,12 +2242,12 @@ fn claude_and_github_review_comments() {
 #[test]
 fn comments_in_folded_files_and_empty_reviews() {
     let mut app = fixture();
-    // src/a.rs (two open threads there) folded, as a viewed file is: its header counts them,
-    // and ]c goes in (unfolding it).
+    // src/a.rs (an open thread there, and a resolved one) folded, as a viewed file is: its
+    // header counts them, and ]c goes in (unfolding it).
     app.collapsed.insert("src/a.rs".into());
     app.build();
     let head = app.rows.iter().find(|r| r.line.kind == Kind::File && r.line.text.contains("src/a.rs")).unwrap();
-    assert!(head.line.text.ends_with("· 1 comment") || head.line.text.contains("comments"), "{}", head.line.text);
+    assert!(head.line.text.ends_with("· 1 comment (+1 done)"), "{}", head.line.text);
     let a_rs = app.files.iter().position(|f| f.path == "src/a.rs").unwrap();
     app.goto(0, 0);
     for _ in 0..4 {
@@ -3588,6 +3588,24 @@ fn a_folded_files_comments_stay_in_the_pane() {
     app.build();
     let s = screen(220, 40, |f| app.draw(f));
     assert!(!s.contains("amy · L20") && s.contains("─ ◆ claude · L12 · 1 comment ─") && s.contains("src/big.rs  +1 −1  · 1 done"), "{s}");
+    // Outdated too.
+    app.threads[1].resolved = false;
+    app.threads[1].outdated = true;
+    app.build();
+    assert!(!app.rows.iter().any(|r| r.line.text.contains("amy · L20")));
+    // Inline (the pane hidden): its open ones counted, the done ones besides.
+    app.margin_pref = Some(false);
+    _ = screen(220, 40, |f| app.draw(f));
+    app.build();
+    let header = app.rows.iter().find(|r| r.line.kind == Kind::File && r.line.text.contains("src/big.rs")).unwrap().line.text.clone();
+    assert!(header.ends_with("· 1 comment (+1 done)"), "{header}");
+    // Gone to (]c, a picker): its file unfolded, there.
+    app.goto_comment(1, 0);
+    assert!(!app.collapsed.contains("src/big.rs") && app.rows[app.head.row].thread == Some(1), "{}", app.msg);
+    (app.margin_pref, app.threads[1].outdated) = (None, false);
+    app.collapsed.insert("src/big.rs".into());
+    _ = screen(220, 40, |f| app.draw(f));
+    app.build();
     // Tab on one unfolds the file, there.
     let h = app.rows.iter().position(|r| r.line.text.contains("claude · L12")).unwrap();
     app.goto(h, 0);

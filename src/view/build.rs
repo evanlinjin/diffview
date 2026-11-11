@@ -572,12 +572,13 @@ impl App {
         let theirs = || shown.iter().filter(|t| t.path == f.path);
         let open = theirs().filter(|t| !t.stale() && !self.comments_in_pane()).count();
         let done = theirs().filter(|t| t.stale() && self.collapsed.contains(&f.path)).count();
+        let open = (open > 0).then(|| format!("{open} comment{}", if open == 1 { "" } else { "s" }));
+        let done = (done > 0).then(|| format!("{done} done"));
         let comments = match (open, done) {
-            (0, 0) => String::new(),
-            (1, 0) => "  · 1 comment".into(),
-            (n, 0) => format!("  · {n} comments"),
-            (0, d) => format!("  · {d} done"),
-            (n, d) => format!("  · {n} comments, {d} done"),
+            (None, None) => String::new(),
+            (Some(o), None) => format!("  · {o}"),
+            (None, Some(d)) => format!("  · {d}"),
+            (Some(o), Some(d)) => format!("  · {o} (+{d})"),
         };
         let parts = [
             (dir, dim),
