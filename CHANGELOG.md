@@ -5,6 +5,13 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.97.2] - 2026-11-11
+
+### Fixed
+- Claude writes its own drafts (a proposed description, a closing comment) when you ask for
+  them in so many words ("Do it.") on a thread marked ask, instead of asking you to set it to
+  change: like its comments, they're drafts, not the code.
+
 ## [0.97.1] - 2026-11-11
 
 ### Fixed
