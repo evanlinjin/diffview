@@ -560,9 +560,9 @@ impl App {
     }
 
     /// A file's header: "dir/" dimmed, its name in the header color, "(new)" and such dimmed,
-    /// +/- colored, and its open comments when they're inline (said folded too, so none go
-    /// unseen; in the pane, they're there, folded or not); folded, what's done of them, folded
-    /// with it.
+    /// +/- colored, and its comments that need you (`needs_you`) when they're inline (said
+    /// folded too, so none go unseen; in the pane, they're there, folded or not); folded, the
+    /// rest, folded with it.
     fn file_header(&self, i: usize, f: &FileDiff, shown: &[&Thread]) -> Row {
         let count = |k| f.lines.iter().filter(|l| l.kind == k).count();
         let (dir, name) = f.path.rsplit_once('/').map_or(("", f.path.as_str()), |(d, n)| (d, n));
@@ -572,8 +572,7 @@ impl App {
         let folded = self.collapsed.contains(&f.path);
         let (mut open, mut done) = (0, 0);
         for t in shown.iter().filter(|t| t.path == f.path) {
-            // (Folded: what stays beside it, else what's open.)
-            match if folded { self.needs_you(t) } else { !t.stale() } {
+            match self.needs_you(t) {
                 true => open += usize::from(!self.comments_in_pane()),
                 false => done += usize::from(folded),
             }

@@ -3594,6 +3594,18 @@ fn a_folded_files_comments_stay_in_the_pane() {
     app.build();
     assert!(app.rows.iter().any(|r| r.line.text.contains("amy · L20")));
     app.threads[1].comments[1].pending = false;
+    app.seen.path = Some(std::env::temp_dir().join("dv-seen-unused.json"));
+    app.build();
+    assert!(app.rows.iter().any(|r| r.thread == Some(1)), "new to you");
+    app.seen.keys.extend((0..2).map(|ci| super::seen::comment_key(&app.threads[1], ci)));
+    app.build();
+    assert!(!app.rows.iter().any(|r| r.thread == Some(1)), "seen: done");
+    // Claude's, outdated, your reply waiting on it: its turn, so it stays.
+    let said = |who: &str| gh::Comment { author: who.into(), body: "x".into(), ..Default::default() };
+    app.threads.push(gh::Thread { path: "src/big.rs".into(), line: Some(13), original_line: Some(13), outdated: true, claude: Some("c9".into()), comments: vec![said("claude"), said("you")], ..Default::default() });
+    app.build();
+    assert!(app.rows.iter().any(|r| r.thread == Some(app.threads.len() - 1)));
+    app.threads.pop();
     // Outdated too.
     app.threads[1].resolved = false;
     app.threads[1].outdated = true;
@@ -3603,8 +3615,14 @@ fn a_folded_files_comments_stay_in_the_pane() {
     app.margin_pref = Some(false);
     _ = screen(220, 40, |f| app.draw(f));
     app.build();
-    let header = app.rows.iter().find(|r| r.line.kind == Kind::File && r.line.text.contains("src/big.rs")).unwrap().line.text.clone();
-    assert!(header.ends_with("· 1 comment (+1 done)"), "{header}");
+    let header = |app: &App| app.rows.iter().find(|r| r.line.kind == Kind::File && r.line.text.contains("src/big.rs")).unwrap().line.text.clone();
+    assert!(header(&app).ends_with("· 1 comment (+1 done)"), "{}", header(&app));
+    // (Nothing that needs you, seen and done: what's done alone.)
+    app.threads[0].resolved = true;
+    app.seen.keys.insert(super::seen::comment_key(&app.threads[0], 0));
+    app.build();
+    assert!(header(&app).ends_with("· 2 done"), "{}", header(&app));
+    app.threads[0].resolved = false;
     // Gone to (]c, a picker): its file unfolded, there.
     app.goto_comment(1, 0);
     assert!(!app.collapsed.contains("src/big.rs") && app.rows[app.head.row].thread == Some(1), "{}", app.msg);
