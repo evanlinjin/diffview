@@ -3588,6 +3588,12 @@ fn a_folded_files_comments_stay_in_the_pane() {
     app.build();
     let s = screen(220, 40, |f| app.draw(f));
     assert!(!s.contains("amy · L20") && s.contains("─ ◆ claude · L12 · 1 comment ─") && s.contains("src/big.rs  +1 −1  · 1 done"), "{s}");
+    // Done, but with your pending comment on it (or one you haven't seen, a turn waiting): it
+    // needs you still, so it stays.
+    app.threads[1].comments[1].pending = true;
+    app.build();
+    assert!(app.rows.iter().any(|r| r.line.text.contains("amy · L20")));
+    app.threads[1].comments[1].pending = false;
     // Outdated too.
     app.threads[1].resolved = false;
     app.threads[1].outdated = true;

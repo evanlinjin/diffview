@@ -537,11 +537,11 @@ impl App {
         let mut rows = vec![self.file_header(i, f, shown)];
         let theirs = (0..self.threads.len()).filter(|&t| self.threads[t].path == f.path && self.in_view(&self.threads[t]));
         if self.collapsed.contains(&f.path) {
-            // Folded, its open comments are in the pane all the same, by their headings, beside
-            // the file's (Tab on one unfolds the file there); what's done (resolved, outdated)
-            // folds with it, its header saying how many.
+            // Folded, what of its comments needs you is in the pane all the same, by their
+            // headings, beside the file's (Tab on one unfolds the file there); the rest folds with
+            // it, its header saying how many.
             if self.comments_in_pane() {
-                rows.extend(theirs.filter(|&t| !self.threads[t].stale()).flat_map(|t| self.thread_rows_as(t, i, false)));
+                rows.extend(theirs.filter(|&t| self.needs_you(&self.threads[t])).flat_map(|t| self.thread_rows_as(t, i, false)));
             }
             return rows;
         }
@@ -569,9 +569,15 @@ impl App {
         let dir = if dir.is_empty() { String::new() } else { format!("{dir}/") };
         let meta = if f.meta.is_empty() { String::new() } else { format!(" ({})", f.meta) };
         let dim = Some(self.ui.stale);
-        let theirs = || shown.iter().filter(|t| t.path == f.path);
-        let open = theirs().filter(|t| !t.stale() && !self.comments_in_pane()).count();
-        let done = theirs().filter(|t| t.stale() && self.collapsed.contains(&f.path)).count();
+        let folded = self.collapsed.contains(&f.path);
+        let (mut open, mut done) = (0, 0);
+        for t in shown.iter().filter(|t| t.path == f.path) {
+            // (Folded: what stays beside it, else what's open.)
+            match if folded { self.needs_you(t) } else { !t.stale() } {
+                true => open += usize::from(!self.comments_in_pane()),
+                false => done += usize::from(folded),
+            }
+        }
         let open = (open > 0).then(|| format!("{open} comment{}", if open == 1 { "" } else { "s" }));
         let done = (done > 0).then(|| format!("{done} done"));
         let comments = match (open, done) {
@@ -593,6 +599,12 @@ impl App {
         let text: String = parts.iter().map(|p| p.0.as_str()).collect();
         let syn = parts.iter().flat_map(|(t, st)| t.chars().map(move |_| *st)).collect();
         Row { syn, ..Row::text(i, Kind::File, text) }
+    }
+
+    /// Whether thread `t` needs you still, so it stays beside its file folded: open, or done but
+    /// with what you haven't seen, a turn waiting, or your pending comment on it.
+    fn needs_you(&self, t: &Thread) -> bool {
+        !t.stale() || self.is_new(t) || super::agent::turn(t).is_some() || t.comments.iter().any(|c| c.pending)
     }
 
     /// The `info` heading that `is` (the description's, a closing note's), if there's one.
