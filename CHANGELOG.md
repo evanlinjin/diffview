@@ -5,6 +5,14 @@ on GitHub are its section here.
 
 ## [Unreleased]
 
+## [0.97.1] - 2026-11-11
+
+### Fixed
+- A folded file keeps beside it, in the pane, only its comments that need you (open, or with
+  what you haven't seen, a turn waiting, your pending comment); the rest fold with it, its
+  header saying how many (`· 7 done`; inline, `· 1 comment (+2 done)`): resolved threads beside
+  folded files padded the code with big blank gaps.
+
 ## [0.97.0] - 2026-10-26
 
 ### Added
