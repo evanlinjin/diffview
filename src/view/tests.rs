@@ -3598,7 +3598,7 @@ fn a_folded_files_comments_stay_in_the_pane() {
     app.threads[1].resolved = false;
     app.threads[1].outdated = true;
     app.build();
-    assert!(!app.rows.iter().any(|r| r.line.text.contains("amy · L20")));
+    assert!(!app.rows.iter().any(|r| r.thread == Some(1)));
     // Inline (the pane hidden): its open ones counted, the done ones besides.
     app.margin_pref = Some(false);
     _ = screen(220, 40, |f| app.draw(f));
