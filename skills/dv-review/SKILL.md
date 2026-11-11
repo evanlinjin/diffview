@@ -164,10 +164,11 @@ like a reply: it's waiting for you while the user has the last word. Some point 
   no review yet: read the PR). If they change your mind, update the `summary` too, and say so.
 - `"conversation": "description"`: about the PR's (or issue's) description, quoted in it. Its
   `"want"` `change`: propose the new text as in "Propose a description" below (from your
-  proposal there, if there is one), and say in your reply what you changed; `ask`: just answer.
+  proposal there, if there is one), and say in your reply what you changed; `ask`: just answer,
+  unless they ask for the proposal in so many words ("do it", "drop that bullet"): see below.
 - `"conversation": "closing"`: about the comment closing the PR (or issue). `change`: draft it,
   or change your draft, as in "Draft a closing comment" below, and say what you did; `ask`: just
-  answer.
+  answer, unless they ask for the draft in so many words.
 - `"conversation": "closing note"`: about a published replacement's note for closing the PRs
   it replaces (its record's, which the user edits as they close them): answer, and for a
   change, say what you'd write.
@@ -203,10 +204,11 @@ else) means just that: do what your comment asks, as its `want` says. The same r
 threads (the user answered them together) asks it of each: for `"commit"`, one commit for those
 that belong together, else one each; say which in each reply.
 
-The `want` is about the code and about GitHub: it doesn't limit your own comments. Whatever
-it is, when the user asks you to edit, shorten, correct or rewrite your comment (its text, or
-a suggestion block already in it), do it, in the review file: it's your draft, not posted
-anywhere, and not the code. Under `"ask"`, don't *start* a new suggestion on your own; one
+The `want` is about the code and about GitHub: it doesn't limit your own drafts (your
+comments, a proposed description, a closing comment). Whatever it is, when the user asks you to
+write, edit, shorten, correct or rewrite one (its text, or a suggestion block already in it), do
+it, in the review file: it's your draft, not posted anywhere, and not the code. "Do it" after
+you said what you'd change in one is such an ask. Under `"ask"`, don't *start* a new suggestion on your own; one
 they ask for in so many words ("put this in the comment", "update the suggestion") you write.
 Never answer "re-send it as …" for what you're allowed to do: do it.
 
