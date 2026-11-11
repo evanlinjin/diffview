@@ -3583,6 +3583,11 @@ fn a_folded_files_comments_stay_in_the_pane() {
     // Folded: its comments by their headings, beside its header; not a count on the header.
     assert!(s.contains("─ amy · L20 · 2 comments ─") && s.contains("─ ◆ claude · L12 · 1 comment ─"), "{s}");
     assert!(!s.contains("src/big.rs  +1 −1  · "), "{s}");
+    // What's done (resolved, outdated) folds with it, its header saying how many.
+    app.threads[1].resolved = true;
+    app.build();
+    let s = screen(220, 40, |f| app.draw(f));
+    assert!(!s.contains("amy · L20") && s.contains("─ ◆ claude · L12 · 1 comment ─") && s.contains("src/big.rs  +1 −1  · 1 done"), "{s}");
     // Tab on one unfolds the file, there.
     let h = app.rows.iter().position(|r| r.line.text.contains("claude · L12")).unwrap();
     app.goto(h, 0);

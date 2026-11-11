@@ -537,10 +537,11 @@ impl App {
         let mut rows = vec![self.file_header(i, f, shown)];
         let theirs = (0..self.threads.len()).filter(|&t| self.threads[t].path == f.path && self.in_view(&self.threads[t]));
         if self.collapsed.contains(&f.path) {
-            // Folded, its comments are in the pane all the same, by their headings, beside the
-            // file's (Tab on one unfolds the file there).
+            // Folded, its open comments are in the pane all the same, by their headings, beside
+            // the file's (Tab on one unfolds the file there); what's done (resolved, outdated)
+            // folds with it, its header saying how many.
             if self.comments_in_pane() {
-                rows.extend(theirs.flat_map(|t| self.thread_rows_as(t, i, false)));
+                rows.extend(theirs.filter(|&t| !self.threads[t].stale()).flat_map(|t| self.thread_rows_as(t, i, false)));
             }
             return rows;
         }
@@ -560,17 +561,23 @@ impl App {
 
     /// A file's header: "dir/" dimmed, its name in the header color, "(new)" and such dimmed,
     /// +/- colored, and its open comments when they're inline (said folded too, so none go
-    /// unseen; in the pane, they're there, folded or not).
+    /// unseen; in the pane, they're there, folded or not); folded, what's done of them, folded
+    /// with it.
     fn file_header(&self, i: usize, f: &FileDiff, shown: &[&Thread]) -> Row {
         let count = |k| f.lines.iter().filter(|l| l.kind == k).count();
         let (dir, name) = f.path.rsplit_once('/').map_or(("", f.path.as_str()), |(d, n)| (d, n));
         let dir = if dir.is_empty() { String::new() } else { format!("{dir}/") };
         let meta = if f.meta.is_empty() { String::new() } else { format!(" ({})", f.meta) };
         let dim = Some(self.ui.stale);
-        let comments = match shown.iter().filter(|t| t.path == f.path && !t.stale() && !self.comments_in_pane()).count() {
-            0 => String::new(),
-            1 => "  · 1 comment".into(),
-            n => format!("  · {n} comments"),
+        let theirs = || shown.iter().filter(|t| t.path == f.path);
+        let open = theirs().filter(|t| !t.stale() && !self.comments_in_pane()).count();
+        let done = theirs().filter(|t| t.stale() && self.collapsed.contains(&f.path)).count();
+        let comments = match (open, done) {
+            (0, 0) => String::new(),
+            (1, 0) => "  · 1 comment".into(),
+            (n, 0) => format!("  · {n} comments"),
+            (0, d) => format!("  · {d} done"),
+            (n, d) => format!("  · {n} comments, {d} done"),
         };
         let parts = [
             (dir, dim),
